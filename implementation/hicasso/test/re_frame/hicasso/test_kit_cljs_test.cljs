@@ -555,7 +555,7 @@
     (let [o (outcome #(ht/tree [todo-row-body {:id 3}] {:subs {}}))]
       (is (= {:rf.error/id :rf.error/hicasso-test-missing-read-fixture
               :where       're-frame.hicasso.test
-              :recovery    :add-the-query-to-reads
+              :recovery    :add-the-query-to-subs
               :phase       :after-body-run
               :missing     [[:tk/todo 3]]}
              (refusal o [:missing :phase])))))

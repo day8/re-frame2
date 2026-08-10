@@ -139,17 +139,17 @@ rowed in the Hicasso section, and is the single live id without the
 | `:rf.error/hicasso-unknown-callback-contract` | named a callback contract outside `:event` / `:handler` / `:render` | — |
 | `:rf.error/no-frame-prop` | mounted a frame-fed boundary with no frame in its props | — |
 | `:rf.error/hicasso-test-bad-option` | gave an L2 `tree` non-map options, or an option outside its closed roster `#{:subs}` | — |
-| `:rf.error/hicasso-test-bad-reads` | gave an L2 render a `:reads` option that is not a query-to-value map | — |
-| `:rf.error/hicasso-test-boundary-body-not-retained` | rendered a minted head at L2 in a build that erased its body | — |
+| `:rf.error/hicasso-test-bad-reads` | gave an L2 `tree` a `:subs` option that is not a query-to-value map | — |
+| `:rf.error/hicasso-test-boundary-body-not-retained` | gave an L2 `tree` a minted head in a build that erased its body | — |
 | `:rf.error/hicasso-test-host-is-opaque` | let a `defhost` crossing reach the L2 semantic tree | — |
 | `:rf.error/hicasso-test-l1-dispatch` | invoked a handler lowered by a pure L1 projection | — |
 | `:rf.error/hicasso-test-missing-read-fixture` | let an L2 body read a subscription no fixture answers | — |
 | `:rf.error/hicasso-test-no-handler-at-position` | fired at a prop position the form does not write | — |
-| `:rf.error/hicasso-test-not-a-body` | gave an L2 render form a head that is not a `defview` body | — |
+| `:rf.error/hicasso-test-not-a-body` | gave an L2 `tree` form a head that is not a `defview` body | — |
 | `:rf.error/hicasso-test-not-a-dom-node` | gave the canonical-DOM comparator something that is not a DOM node | — |
 | `:rf.error/hicasso-test-not-a-host` | read the declared server policy off something that is not a `defhost` | — |
 | `:rf.error/hicasso-test-not-a-native-form` | gave an L1 projection a form whose head is not a tag keyword | — |
-| `:rf.error/hicasso-test-not-a-render-form` | gave an L2 render something other than a hiccup form | — |
+| `:rf.error/hicasso-test-not-a-render-form` | gave an L2 `tree` something other than a hiccup form | — |
 | `:rf.error/hicasso-test-not-an-intent` | gave the L1 marker materializer something other than an intent vector | — |
 | `:rf.error/hicasso-test-plain-fn-head` | put a plain function in a hiccup head inside an L2 tree | ch15 |
 | `:rf.error/hicasso-test-position-is-not-a-handler` | fired at a position that lowers to something other than a function | — |
@@ -223,14 +223,23 @@ Stated above under *What every complaint carries*, and repeated here because
 it is the promise most easily made too broadly.
 
 **An id is frozen; the `:recovery` beside it is not.** The stability rule
-governs the id and nothing else in the row. A recovery keyword is advice —
-read once by a human at the moment of failure, and branched on by nothing —
-so it tracks whatever API it points at, and is rewritten when that API is
-renamed. An id is a handle: a stored error, a monitor's grouping rule and a
-test's assertion all match on it, which is the whole reason rule 3 keeps a
-dead one dead. Freezing both would put every refusal's advice under the id's
-contract, and leave the substrate telling a programmer to type a word that
-no longer exists.
+governs the id and nothing else in the row, and the division is a statement
+about what each slot IS rather than about how often either is read.
+`:rf.error/id` is the **discriminator**: the handle a stored error, a
+monitor's grouping rule and a test's assertion match on, which is the whole
+reason rule 3 keeps a dead one dead. `:recovery` is **concrete advice about
+a live API** — it names the fix in the words a programmer would type — so it
+tracks whatever API it points at, and is rewritten when that API is renamed.
+
+That rests on the contract and not on a usage count. This paragraph used to
+say a recovery keyword is "branched on by nothing", which is simply untrue:
+`test_kit_cljs_test` asserts one exactly, and rf2-k855's own PR notes that a
+consumer may branch on `:recovery` too. Nothing stops them; what the split
+says is that only the id CARRIES a promise, so a consumer branching on
+advice about a renamed API is relying on something this register never
+undertook to hold still. Freezing both would put every refusal's advice
+under the id's contract, and leave the substrate telling a programmer to
+type a word that no longer exists.
 
 **`:rf.error/hicasso-test-bad-reads` keeps its spelling.** The L2 fixture
 option it polices settles as `:subs` (naming-ledger row 23), so the id names
@@ -246,10 +255,15 @@ recovery, `:pass-a-map-of-query-to-value`, names a shape rather than a key
 and needed no change at all — the same distinction seen from the other side,
 and the shape a recovery keyword should prefer wherever one is available.
 The sibling advice on `:rf.error/hicasso-test-missing-read-fixture` does
-name the key, so it moves with it: `:add-the-query-to-reads` is rewritten in
-the pass that renames the option, in the kit's source and in its Spec 009
-row together, because the two must never disagree about what the runtime
-raises (rf2-k855).
+name the key, so it moved with it: `:add-the-query-to-reads` is now
+`:add-the-query-to-subs`. The two spellings did NOT move in the same pass as
+the option — rf2-k855 established the shape and correctly declined to land
+half of it, and the rewrite arrived one bead later under rf2-6640, across
+the kit's source, its assertion and its Spec 009 row at once. Together,
+because nothing gates them: `check_complaint_catalogue.py` reconciles ids
+and `check_keyword_catalogue_drift.py` reconciles `:rf.error/*` ids, so a
+recovery keyword that disagreed with what the runtime raises would be silent
+untracked drift rather than a red build.
 
 ## Open, and not settled here
 
