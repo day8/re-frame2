@@ -3338,8 +3338,18 @@ test('the hicasso HMR job installs the PINNED three engines and narrows none (rf
   // cross-engine comparator is inert below two engines — so a job that set it
   // would still print a PASS having checked nothing about divergence. The job
   // must pass no engine narrowing at all.
+  //
+  // Read the job's EXECUTABLE text, not its prose. The first cut of this row
+  // grepped the whole block and reddened on the YAML COMMENT that explains the
+  // knob — an assertion that forbids naming the hazard is an assertion that
+  // punishes documenting it, and it would have been "fixed" by deleting the
+  // explanation. Comments out, then look for an assignment.
+  const executable = block
+    .split(/\r?\n/)
+    .filter((line) => !/^\s*#/.test(line))
+    .join('\n');
   assert.ok(
-    !/HICASSO_HMR_ENGINES/.test(block),
+    !/HICASSO_HMR_ENGINES/.test(executable),
     'the CI job must not narrow the engine set — the cross-engine comparator '
       + 'is inert below two engines, so a narrowed run passes having checked '
       + 'nothing it exists to check',
