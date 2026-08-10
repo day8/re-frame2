@@ -271,6 +271,20 @@ that needs current state declares that state as a coeffect with
 not a side effect in a body. There is no `@`-anywhere form and no second
 read form for free-standing code.
 
+!!! warning "The one escape that does not refuse"
+    A read parked in a mutable reference and forced inside another body raises
+    nothing: a body *is* rendering there, just not the one that wrote the read.
+    The page paints, and the edge lands on a [boundary](glossary.md#boundary) that never made the
+    read — which then re-renders on a cell it does not display, and misses the
+    one it does. The runtime does not chase reads through mutable references,
+    so this one is yours to avoid; the recovery is the section's own.
+
+    ```clojure
+    ;; Don't — the thunk is parked in an atom, and whichever body forces it
+    ;; is the one that owns the read
+    (reset! !later #(h/sub [:report/rows]))   ;; no refusal, and no error to point to
+    ```
+
 ## How `h/sub` tracks reads
 
 There are four operational claims:
