@@ -62,8 +62,10 @@
   has checked a map that no longer exists: `extra` carrying
   `{:recovery nil}` used to win outright, so the one field the guard
   exists to insist on could be erased immediately after it was insisted
-  on. [[required]] and [[ambient]] are now the CONSTRUCTOR's, merged over
-  `extra` rather than under it, and [[missing-fields]] reads the result."
+  on. [[required]] and [[ambient]] are now the CONSTRUCTOR's — the
+  required four merged over `extra` rather than under it, the ambient
+  pair stripped from `extra` outright — and [[missing-fields]] reads the
+  result."
   (:require [clojure.string :as str]
             [re-frame.interop :as interop]))
 
@@ -191,10 +193,18 @@
   docstring on why those are different claims).
 
   Named as data beside [[required]] because together the two lists are
-  exactly the keys the CONSTRUCTOR owns. [[fail!]] merges them over its
-  `extra` argument rather than under it, so a call site cannot erase or
-  replace one — which is what makes the completeness guard a guarantee
-  about the emitted refusal rather than about four arguments."
+  exactly the keys the CONSTRUCTOR owns — and because [[fail!]] READS
+  this vector, to remove these two keys from `extra` before the merge.
+
+  Removing rather than overwriting, and the difference is why this pair
+  needs its own rule. A required field is always there to overwrite
+  with; an ambient one exists only while an origin names a view, so
+  outside every declaration extent — and in production, where
+  [[with-origin]] folds to its input — there was nothing to overwrite
+  and a forged `:view` in `extra` simply survived. The ABSENCE promised
+  above is a claim about what the constructor knows, and it is only
+  worth making if the constructor's silence beats a call site's
+  invention."
   [:source :view])
 
 (def shape
@@ -318,8 +328,15 @@
 
   **`extra` merges UNDER the shape, never over it.** It carries the
   refusal CLASS's own slots and only those; [[required]] and [[ambient]]
-  are the constructor's, and a spelling of one in `extra` loses. The
-  merge used to run the other way, on the reading that a call site might
+  are the constructor's, and a spelling of one in `extra` loses — the
+  required four by being overwritten, the ambient pair by being REMOVED
+  before the merge. Two mechanisms rather than one because overwriting
+  only reaches a field the constructor has a value for, and the ambient
+  pair is absent exactly where a forgery would matter most: outside
+  every declaration extent, and in every production build. A forged
+  `:view` there had nothing to lose to.
+
+  The merge used to run the other way, on the reading that a call site might
   know better than the ambient ledger — but no call site in the package
   ever did, and the cost of the option was that the four fields the guard
   had just insisted on could be erased one line later. An `extra` of
@@ -327,7 +344,7 @@
   emitted exactly that map. The guard now reads the merged result, so its
   claim is about the refusal a catch site receives."
   [id where reason recovery extra]
-  (let [data (merge extra
+  (let [data (merge (apply dissoc extra ambient)
                     (with-origin {:rf.error/id id :where where
                                   :reason reason :recovery recovery}))]
     (when interop/debug-enabled?

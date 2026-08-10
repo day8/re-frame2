@@ -90,6 +90,39 @@
         (is (not (re-find #"\.clj[sc]?" flat)))
         (is (not (re-find #"coord_sentinel_source" flat)))))))
 
+(deftest a-forged-coordinate-in-the-payload-does-not-reach-a-prod-refusal
+  ;; The row above hands `fail!` an EMPTY payload, so it proves the ledger
+  ;; is unwritten and nothing more. The absence contract is a claim about
+  ;; every refusal a production build emits, and the payload is the one
+  ;; place a `.cljs` path can still come from — a call site's own map. It
+  ;; used to survive here: `with-origin` folds to its input under
+  ;; `goog.DEBUG=false`, so there was no ambient value to overwrite it with
+  ;; and the forgery merged through untouched.
+  (let [data (try
+               (error/fail! :rf.error/hicasso-empty-vector
+                            'front.codec/vec->element
+                            "A hiccup vector must have a head."
+                            :supply-a-hiccup-head
+                            {:view   "app.impostor/not-a-view"
+                             :source {:ns 'app.impostor :file "app/impostor.cljs"
+                                      :line 1 :column 1}
+                             :head   :the-class-s-own-slot})
+               (catch :default e (ex-data e)))]
+
+    (testing "the class's own slot rides through and the forged ambient pair
+              does not — production absence is the constructor's answer, not
+              a property of well-behaved call sites"
+      (is (= {:rf.error/id :rf.error/hicasso-empty-vector
+              :where       'front.codec/vec->element
+              :reason      "A hiccup vector must have a head."
+              :recovery    :supply-a-hiccup-head
+              :head        :the-class-s-own-slot}
+             data)))
+
+    (testing "and the same cross-check the row above runs, now against a
+              payload that deliberately carried a source path"
+      (is (not (re-find #"impostor" (pr-str data)))))))
+
 ;; ---------------------------------------------------------------------------
 ;; What elided is the diagnostic, not the feature
 ;; ---------------------------------------------------------------------------
