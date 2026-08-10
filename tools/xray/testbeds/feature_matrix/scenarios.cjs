@@ -59,6 +59,14 @@ const PANEL_HANDOFFS = [
   // demand-trigger surface. L4-only registry tab. Its root view always
   // renders the `rf-xray-module-view` testid (panels/module_view.cljs).
   ['module-view', 'rf-xray-module-view'],
+  // The :hicasso tab (rf2-hic-023) — four views over the Hicasso evidence
+  // surface. L4-only registry tab. Its root view always renders the
+  // `rf-xray-hicasso` testid (panels/hicasso.cljs); the counter testbed is
+  // not a Hicasso application, so the panel renders its honest
+  // `rf-xray-hicasso-absent` state ("no Hicasso evidence on this host")
+  // under the same root — which is exactly the state a non-Hicasso host
+  // should show, and is distinct from the idle and mismatch states.
+  ['hicasso', 'rf-xray-hicasso'],
   // There is no dedicated Issues tab to enumerate here; issues surface
   // inline in the Epoch panel + the L2 event-row pink-wash + the
   // always-on issues ribbon signal (the auto-open-on-error watcher).
