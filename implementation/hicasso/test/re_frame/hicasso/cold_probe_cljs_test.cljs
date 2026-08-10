@@ -59,15 +59,25 @@
   that its memo box is reset by every body run, which is the second half
   of the one-compute-per-run row below.
 
-  **Nor that a `reg-sub` issued earlier in this tick reaches this read.**
+  ## The resolution seam, and a row that was deleted and is now back
+
   `cold-read!` computes inside `live-frame/call-with-frame-resolution`,
-  and its docstring credits that wrapper's read-time coalesced flush with
-  making a same-tick registration visible. A row was written for it and
-  then deleted: replacing the wrapper with a bare call reds nothing here,
-  because a frame made with `make-frame` resolves the registrar directly
-  and has no stale projection to flush. The claim is real and the witness
-  was not — it would need an image-loaded frame — and a row a one-line
-  narrowing cannot turn red is not evidence, however true its subject."
+  which BINDS the target's resolved image generation and, before that,
+  runs the read-time coalesced reprojection flush. §5 witnesses both.
+
+  It witnesses them on an IMAGE-LOADED frame, and that is the whole
+  difference from an earlier attempt. A same-tick registration row was
+  written against the default-image frame the sections above use, found
+  to red nothing under mutation, and deleted as decorative. The finding
+  was about the ROW'S CONDITIONS and not about the claim: `make-frame`
+  with no `:images` resolves the default image over the entire live
+  source store, so a read through that generation and a read around it
+  answer identically and neither half of the wrapper can be caught doing
+  anything. Deleting is right only when the claim is covered elsewhere in
+  the same artefact, and this one was covered only in the prototype
+  runtime — which is what this file exists to stop relying on. So §5
+  keeps the claim and changes the condition: a frame running an EXPLICIT
+  image, where a selection is a thing a read can get wrong."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as uix-adapter]
             [re-frame.core :as rf]
@@ -112,17 +122,45 @@
 
 (defn- k [query-v] [frame-id query-v])
 
-(defn- run-body!
-  "Run one boundary body under the real fence and answer what it read.
-  `f` is handed a `read` fn, so a row states its read SEQUENCE rather
-  than a shape — which is the surface the probe's per-run memo is about."
-  [f]
+(defn- run-body-in!
+  "Run one boundary body on `fid` under the real fence and answer what it
+  read. `f` is handed a `read` fn, so a row states its read SEQUENCE
+  rather than a shape — which is the surface the probe's per-run memo is
+  about."
+  [fid f]
   (let [!seen (volatile! [])]
     (collector/render-body
-      frame-id
+      fid
       (fn [_] (f (fn [query-v] (vswap! !seen conj (collector/sub query-v)))) [:p])
       {})
     @!seen))
+
+(defn- run-body!
+  "[[run-body-in!]] on the file's default frame."
+  [f]
+  (run-body-in! frame-id f))
+
+(def ^:private this-ns
+  "The namespace `reg-sub` attributes this file's registrations to, and
+  therefore the one an image has to select to carry them."
+  "re-frame.hicasso.cold-probe-cljs-test")
+
+(defn- image-loaded!
+  "A frame running an EXPLICIT image over `selected-ns`, seeded, and
+  answered by id.
+
+  The distinction from [[seeded!]] is the whole of §5 below. `make-frame`
+  with no `:images` resolves the DEFAULT image over the live source
+  store, which carries every registration there is — so a read through it
+  answers whatever the registrar answers, and the resolution seam has
+  nothing to do that could be seen. An explicit image SELECTS, and a
+  selection is a thing a read can get wrong."
+  [fid selected-ns]
+  (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) false)
+  (rf/make-frame {:id fid :images [(rf/image {:select-ns {:include [selected-ns]}})]})
+  (frame/replace-app-db! fid {:v 7})
+  (vreset! !runs 0)
+  fid)
 
 (defn- sub-cache-entry
   "The frame's own sub-cache slot for `query-v`, or nil. The probe
@@ -304,3 +342,77 @@
   (testing "and the same read now computes exactly once"
     (is (= [7] (run-body! (fn [read] (read [:coldprobe/counted])))))
     (is (= 1 @!runs))))
+
+;; ---------------------------------------------------------------------------
+;; 5. The resolution seam — an image-loaded frame's cold read resolves
+;;    through THAT frame's image, and sees this tick's registrations
+;; ---------------------------------------------------------------------------
+;;
+;; `cold-read!` computes inside `live-frame/call-with-frame-resolution`, and
+;; that wrapper does two separable things: it BINDS the target's resolved image
+;; generation for every registrar lookup inside, and it runs the read-time
+;; coalesced reprojection flush first. Each has its own row here, because the
+;; narrowing that reds one is green on the other.
+;;
+;; THE ROW THIS SECTION REPLACES, and why it is worth saying. A same-tick
+;; registration row was written for the default-image frame above, found to red
+;; NOTHING under mutation, and deleted as decorative. Half right. It was
+;; decorative AS WRITTEN, because `make-frame` with no `:images` resolves the
+;; DEFAULT image over the whole live source store — so a read through that
+;; generation and a read around it answer the same, and neither half of the
+;; wrapper can be seen doing anything. But the CLAIM was real, and deleting the
+;; row left it witnessed only in the prototype runtime, which is precisely what
+;; this bead exists to stop depending on. The fix is the CONDITION, not the
+;; row: an image that SELECTS.
+
+(deftest a-cold-read-resolves-through-the-frames-own-image-and-not-the-registrar
+  ;; Registered live, so its provenance namespace is this file's — which is
+  ;; the coordinate the two images below include and exclude.
+  (rf/reg-sub :coldprobe/mine (fn [db _] (:v db)))
+
+  (let [narrow  (image-loaded! ::narrow-image "re-frame.hicasso.todo-support")
+        records (errors-during
+                  (fn []
+                    (is (= [nil] (run-body-in! narrow (fn [read] (read [:coldprobe/mine]))))
+                        "a query this frame's image does not carry recovers to nil")))]
+
+    (testing "and it recovers the way the reactive path does — by emitting,
+              not by answering a plausible value. `:coldprobe/mine` is
+              registered and the global registrar holds it; this frame's
+              image selects another namespace, and the read resolved through
+              the FRAME"
+      (is (= 1 (count (filter (comp #{:rf.error/no-such-sub} :error) records)))))
+
+    ;; THE CONTROL, and what makes the nil above a measurement rather than a
+    ;; probe that cannot resolve anything. Same query, same body, same tick —
+    ;; an image that DOES select this namespace.
+    (let [wide (image-loaded! ::wide-image this-ns)]
+      (testing "the same read on a frame whose image carries the namespace
+                answers the value"
+        (is (= [7] (run-body-in! wide (fn [read] (read [:coldprobe/mine])))))))))
+
+(deftest a-same-tick-registration-is-visible-to-the-very-next-cold-read
+  (rf/reg-sub :coldprobe/early (fn [db _] (:v db)))
+
+  (let [fid (image-loaded! ::same-tick this-ns)]
+
+    (testing "the premise: this frame's image carries the namespace, so a
+              query registered BEFORE it was built reads through it"
+      (is (= [7] (run-body-in! fid (fn [read] (read [:coldprobe/early]))))))
+
+    ;; Registered AFTER the frame sealed its generation, read in the SAME
+    ;; tick — the register-then-read-sync sequence every test, REPL session
+    ;; and piece of setup code performs.
+    (rf/reg-sub :coldprobe/late (fn [db _] (:v db)))
+
+    (testing "and the very next cold read resolves it. The seam's read-time
+              coalesced flush is what makes that true: the generation sealed
+              at `make-frame` time does not carry this id, and a read that
+              skipped the flush would compute against that stale projection
+              and recover to nil"
+      (is (= [7] (run-body-in! fid (fn [read] (read [:coldprobe/late]))))))
+
+    (testing "the flush REPROJECTED rather than replaced — the frame is
+              still the one built before the registration, still answering
+              from its own seeded state, and still carrying what it carried"
+      (is (= [7] (run-body-in! fid (fn [read] (read [:coldprobe/early]))))))))
