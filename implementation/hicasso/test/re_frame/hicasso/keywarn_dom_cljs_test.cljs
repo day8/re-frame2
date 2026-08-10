@@ -16,14 +16,24 @@
      view, the child head and the fix. Neither suppresses the other, and
      no suppression machinery exists.
 
-  The parent tag is the custom element `:keywarn-list` on purpose. React
-  dedupes its key warning on the PARENT TAG NAME, module-globally and for
-  the life of the page (`ownerHasKeyUseWarning` in react-dom-client's
-  development build), so a row asserting React's channel under a `:ul`
-  would go green or red depending on whether some earlier namespace in
-  the bundle had already warned under a `:ul`. A tag only this file uses
-  makes the assertion deterministic — and the coarse dedupe it works
-  around is the whole reason the Hicasso warning names the view.
+  The parent tag is the custom element `:pkg-keywarn-list` on purpose,
+  and the `pkg-` prefix is load-bearing. React dedupes its key warning on
+  the PARENT TAG NAME, module-globally and for the life of the page
+  (`ownerHasKeyUseWarning` in react-dom-client's development build), so a
+  row asserting React's channel under a `:ul` would go green or red
+  depending on whether some earlier namespace in the bundle had already
+  warned under a `:ul`. A tag only this file uses makes the assertion
+  deterministic — and the coarse dedupe it works around is the whole
+  reason the Hicasso warning names the view.
+
+  **The prototype's `arm1/keywarn_dom_cljs_test` is that earlier
+  namespace.** `:browser-test` compiles `freehand/test` and
+  `hicasso/test` into ONE bundle and its `ns-regexp` selects both files,
+  so this suite and its donor mount into the same page. Reusing the
+  donor's `:keywarn-list` meant React had already warned under that tag
+  by the time this file ran, deduped, and the row measuring React's
+  channel read ZERO — the exact failure this paragraph predicts,
+  observed. The tag is prefixed so the two never share one.
 
   A `window` `error` listener rides alongside the two channel spies
   because React routes a throw during a commit to `reportError`, where
@@ -73,7 +83,7 @@
   "The shape the guide promises a warning for — a bare seq of boundary
   children with no `:key` in sight."
   [_]
-  [:keywarn-list
+  [:pkg-keywarn-list
    (for [i (range 3)]
      [keywarn-row {:label i}])])
 
@@ -83,7 +93,7 @@
   silent on the Hicasso channel in the same bundle, the same render pass
   and the same spy."
   [_]
-  [:keyed-keywarn-list
+  [:pkg-keyed-keywarn-list
    (for [i (range 3)]
      [keywarn-row {:key i :label i}])])
 
