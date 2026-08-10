@@ -111,8 +111,36 @@
   A consumer validates this FIRST and refuses an envelope it does not
   recognise. Versioning an evidence surface is not ceremony: the
   alternative is tools inferring the shape from the fields that happen to
-  be present, which makes every field an accidental ABI."
-  :re-frame.hicasso.evidence/v1)
+  be present, which makes every field an accidental ABI.
+
+  ## v1 → v2, and why a version that lies is worse than none
+
+  The #7789 audit repair changed the WIRE SHAPE without changing this
+  literal, and the merged-PR audit of #7802 called that out as the one
+  defect a version exists to prevent. Four changes, each of which a v1
+  parser reads as something it is not:
+
+  | Field | v1 | v2 |
+  |---|---|---|
+  | a boundary key element | `[frame-id query]` | `[frame-id sub-id projected-query]` |
+  | an intent row's frame | `:frame-id`, singular | `:frames`, a vector |
+  | `:latest-reads` | bare sub-ids | `{:sub-id :query :frame-id}` maps |
+  | the `:host` projection | commit/paint/attempt | `:visibility` and `:hidden-retained` besides |
+
+  A consumer pinned to v1 and handed a v2 envelope would take the sub-id
+  in a key element for the query, iterate a map where it expected a
+  keyword, and read an absent `:frame-id` as a frameless intent. The pin's
+  whole purpose is that an evolved shape MISMATCHES rather than being
+  mis-parsed as exact, so it is the version — not the reader — that has to
+  move.
+
+  **There is no v1 acceptance path and no compatibility adapter.** This is
+  pre-alpha; the honest bump is a bump, and a shim would recreate exactly
+  the silent misread the pin refuses. A v1-stamped envelope is a
+  MISMATCH at every consumer, and
+  `hicasso-helpers-cljs-test/the-superseded-v1-shape-is-refused-rather-than-mis-parsed`
+  is the witness that it still bites."
+  :re-frame.hicasso.evidence/v2)
 
 (def producer
   "Which substrate produced the envelope.
