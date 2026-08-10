@@ -1,4 +1,4 @@
-(ns re-frame.bench.hicasso.front.route-link-cljs-test
+(ns re-frame.hicasso.route-link-cljs-test
   "ROUTE-LINK'S GRAMMAR, tested as data (rf2-2rtt6.54).
 
   Everything here is the node-provable half: that a route-link render is
@@ -12,8 +12,8 @@
   the real page re-render are `shapes/route_link_dom_cljs_test`'s."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as uix-adapter]
-            [re-frame.bench.hicasso.front.intent :as intent]
-            [re-frame.bench.hicasso.front.route-link :as link]
+            [re-frame.hicasso.impl.intent :as intent]
+            [re-frame.hicasso.impl.route-link :as link]
             [re-frame.core :as rf]
             [re-frame.routing :as routing]
             [re-frame.test-support :as test-support]))
