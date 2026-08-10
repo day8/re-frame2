@@ -46,7 +46,8 @@ convention — if already landed, close as `verified-duplicate of #NNNN`.
 **PRs.** Workers open; mayor reviews and merges on green (or `--admin` when a
 pending check is structurally irrelevant to the diff — name the gate, name why
 the diff cannot affect it, then merge; a failing test on the touched surface is
-never an --admin candidate). Post-merge: `git pull --ff-only`, verify worker
+never an --admin candidate). Post-merge: `git pull --ff-only origin main` and check
+`HEAD` actually moved, verify worker
 closed the bead (close it if not), mention follow-on beads filed by the
 worker.
 
@@ -104,10 +105,32 @@ of a drain; the binding rule is hot-zone parallelism, not strict same-surface.
   over-blocked instead: two PRs sat at 86/86 for three cycles on runs still queued
   against a sha from before a re-trigger commit, and a stale-sha run is not
   evidence about this head. A guard that blocks forever is not safe, it is
-  differently wrong. The whole criterion is these four clauses, no one of them
-  sufficient: a non-empty total in the band the repo actually produces; every
-  conclusion in SUCCESS or SKIPPED; nothing queued or in progress in the rollup;
-  and no queued or in-progress run on the branch carrying the PR's current head sha.
+  differently wrong. One thing not to do while fixing it: enumerate the states that
+  block. QUEUED and IN_PROGRESS are not the whole vocabulary — the CLI also returns
+  REQUESTED, WAITING and PENDING — and a rule listing the bad states fails open on
+  the first one nobody wrote down, which is the same shape as everything else in
+  this bullet. Invert it and require the terminal state: every run at the current
+  head sha COMPLETED, anything else blocks and is re-checked next cycle.
+- *A check set can be green against a matrix that no longer exists.* Two PRs merged
+  four minutes apart here. The first added a required browser job and a new
+  three-engine arm; the second was still checked against the base from before it, so
+  the browser check it should have run came back SKIPPED and the newly required one
+  never appeared in its rollup at all. "All required checks passed" was a true
+  statement about the old matrix and said nothing about the matrix already on `main`.
+  That tree happened to be green — an audit ran the suites by hand afterwards to
+  establish it — but the guard had not known, which is the entire problem. This is
+  the direct cost of the merge-the-queue-first remedy in the next bullet: a burst is
+  precisely when the base moves under a check set. So when a merge changes the
+  workflow matrix — a new required job, a changed classifier, a re-scoped path
+  filter — the PRs behind it whose surface that change covers do not inherit its
+  verdict. Update and re-check them; never infer coverage from an aggregate built
+  against the superseded matrix.
+
+  The whole criterion is these five clauses, and no one of them is sufficient: a
+  non-empty total in the band the repo actually produces; every check state in
+  SUCCESS or SKIPPED; nothing nonterminal in the rollup; every workflow run at the
+  PR's current head sha COMPLETED; and a check set computed against the matrix that
+  is on `main` now.
 - *"Base branch was modified" usually means stale — until something is moving the
   base.* The rejection reads like a lost race, so the reflex is to try again, and
   seven retries here proved otherwise: the branch was simply behind, and the remedy
@@ -165,7 +188,18 @@ of a drain; the binding rule is hot-zone parallelism, not strict same-surface.
   has a second shape: a command's own failure and a later line that reads like
   success land in one buffer, so a failed fetch followed by "Already up to date"
   looks like a quiet no-op. Check the exit of the step that fetched, not the
-  summary of the step after it.
+  summary of the step after it. A third shape sits one level up: the *harness*
+  reports an exit code of its own, and that code can be a trailing filter's too — a
+  run whose real `$?` was 1 was surfaced as 0 because a `grep` sat on the end of the
+  command line. Run each gate alone, with nothing appended. And a fourth is past
+  exit codes entirely, because a command can succeed and still not do the thing:
+  `git pull --ff-only` printed `Updating <old>..<new>` twice in one session while
+  HEAD did not move, and once refused with "Not possible to fast-forward", all three
+  times because an automated push was racing it. Naming the remote and branch
+  (`git pull --ff-only origin main`) clears the refusal, but the silent no-op
+  teaches the wider rule: **after a mutating step, verify the tree rather than the
+  message** — compare `HEAD` against `origin/main` instead of reading the line it
+  printed.
 - *Concurrent workers share the machine's temp directory.* Two workers writing the
   same `/tmp/gate.log` overwrite each other, and the loser reads a green belonging
   to someone else's run — plausible numbers, wrong code. This defeats the rule

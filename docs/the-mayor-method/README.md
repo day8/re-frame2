@@ -167,10 +167,13 @@ Before merging, the mayor checks:
 - the diff matches the bead;
 - scope did not sprawl;
 - failure output remains actionable;
-- tests or CI are green;
+- CI is green on all five clauses of the merge criterion — "no failures" is not
+  one of them, and is not green. The clauses and the near-miss behind each are in
+  [`bootstrap.md`](bootstrap.md)'s "hard-won" list;
 - bead state will be updated after merge.
 
-After merge, the mayor pulls main and closes the bead with a concrete reason.
+After merge, the mayor pulls main — verifying `HEAD` moved, not the line `git pull`
+printed — and closes the bead with a concrete reason.
 
 This is the difference between "a lot of agents did things" and "the
 project advanced."
