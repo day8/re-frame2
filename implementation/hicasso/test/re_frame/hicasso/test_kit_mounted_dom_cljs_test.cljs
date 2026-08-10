@@ -570,7 +570,28 @@
             _           (rf/destroy-frame! bytes-frame)
             _           (collector/reset-runtime!)
             before      (hm/census)
-            children    (body-children)]
+            children    (body-children)
+            ;; THE ROLLBACK'S OWN NOISE, captured rather than suppressed.
+            ;;
+            ;; Taking down a root React has not yet hydrated IS a switch to
+            ;; client rendering, and React says so: it queues a hydration
+            ;; error, which reaches the root's `onRecoverableError` — the one
+            ;; `impl.mount/hydrate-root!` installs, which always delegates to
+            ;; React's default (rf2-mwx08's fail-open) — and so reaches the
+            ;; window uncaught, where the browser runner treats it as fatal.
+            ;;
+            ;; That rule is right and this row does not soften it. The row
+            ;; MANUFACTURES the fault and ASSERTS on the report, so the signal
+            ;; moves into the row instead of being lost, and `preventDefault`
+            ;; marks the event handled for the extent of this one rollback and
+            ;; nowhere else. The bench lane's hydration witnesses spell the
+            ;; same rule as `:swallow-uncaught?`; naming it is provenance, not
+            ;; a dependency — the freeze gate forbids importing that tree.
+            reported    (atom [])
+            on-error    (fn [^js e]
+                          (swap! reported conj (.-message e))
+                          (.preventDefault e))
+            _           (.addEventListener js/window "error" on-error)]
         ;; THE FAULT: a budget already spent when the first poll runs, which is
         ;; the deterministic way into the timeout branch. The alternative — a
         ;; body that throws during adoption — never resolves EITHER, but it
@@ -599,6 +620,7 @@
                              (str frame " is still registered"))))))
             (.then (fn [_] (inventory/quiesced!)))
             (.then (fn [_]
+                     (.removeEventListener js/window "error" on-error)
                      (is (= before (hm/census))
                          (str "the census moved: " (pr-str before) " → "
                               (pr-str (hm/census))))
@@ -606,4 +628,11 @@
                                server bytes is gone, because this one IS the
                                facade's to remove"
                        (is (= children (body-children))))
+                     (testing "and React reported the teardown of a root it had
+                               not yet hydrated, exactly once — the rollback's
+                               own consequence, named here so that a reader
+                               meeting it in their own suite knows what it is"
+                       (is (= 1 (count @reported)) (str "got " (pr-str @reported)))
+                       (is (some? (some #(re-find #"early update" %) @reported))
+                           (str "got " (pr-str @reported))))
                      (done))))))))
