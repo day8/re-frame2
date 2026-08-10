@@ -197,11 +197,14 @@ of a drain; the binding rule is hot-zone parallelism, not strict same-surface.
   written to catch.
 - *A finding routed to a live worker still needs an owner in the tracker.* Under
   fan-out, findings keep landing on files a worker already holds — from a
-  merged-PR audit, from another worker's report, from your own reading. Filing a
-  bead for one puts a second worker on that file; waiting for the holder to
-  finish loses the context it was found in. So route it: message the
-  worker that holds the file, and the fix lands inside the PR that is already
-  open. Six routed findings landed that way here in one evening, none
+  merged-PR audit, from another worker's report, from your own reading. Start by
+  resolving an exact owner — update or reopen the bead that already owns the
+  finding, or file one when none does. Filing is not dispatching; the first
+  wording of this rule conflated them, and it is a second dispatch, not a second
+  bead, that puts two workers on one file. Then route the owned item rather than
+  waiting for the holder to finish and losing the context it was found in:
+  message the worker that holds the file, and the fix lands inside the PR that is
+  already open. Six routed findings landed that way here in one evening, none
   conflicting, several fixed minutes after they were found. What routing does not
   do is create an owner. The message lives in one agent's transcript, and if that
   agent dies, times out, or reasonably declines the extra item — declining is
@@ -211,17 +214,20 @@ of a drain; the binding rule is hot-zone parallelism, not strict same-surface.
   bead owner", the sole record being a close reason on a *different* bead, which
   is a record on the wrong object, because nobody reads a closed bead looking for
   open work. So the message is only half the move: put one note on the OWNING
-  bead saying what was routed, to whom, and what happens if it does not land.
+  bead — the one resolved above, never the holder's unrelated in-flight bead,
+  which is that same wrong object one step removed — saying what was routed, to
+  whom, and what happens if it does not land.
   When the holder's PR merges, verify the routed item actually landed rather than
   assuming it did, then close the owner — and file no duplicate, because the note
   is already the record. Routing is sometimes the wrong move altogether: a worker
   dispatched under a deliberately bounded fence has that fence widened mid-flight
   by a second finding, which is how a bounded repair becomes an unbounded one.
-  Then file a separate bead and still note the owner, saying explicitly that the
-  item is routed elsewhere and is NOT part of the in-flight repair, so nobody
-  reading the bead bottom-up adopts it. Route-and-note or file-and-note: the note
-  on the owning bead is common to both, and it is the whole safeguard. It does
-  not want to grow past that — no routing registry, no tracking field, no script.
+  Then leave that owner queued or sequenced instead of routing it, and note the
+  overlap on the in-flight bead, saying explicitly that the item is owned
+  elsewhere and is NOT part of the in-flight repair, so nobody reading that bead
+  bottom-up adopts it. Route-and-note or queue-and-note: an owner in the tracker
+  plus one note is common to both, and it is the whole safeguard. It does not
+  want to grow past that — no routing registry, no tracking field, no script.
 - *The exit code is the verdict; the summary is decoration.* Piping a gate into
   `tail` or `grep` returns the pipe's status, not the runner's, so a worker reads
   "0 failures" and reports green on a failed run. Require capture to a file, an
