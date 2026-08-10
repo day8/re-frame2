@@ -303,6 +303,26 @@
             ([mutual n] (evens mutual n)))]
     [:div (evens (fn [& _] "ok") 2)]))
 
+;; The name bound by the FIRST arity ALONE, every later arity binding
+;; something else.
+;;
+;; Every row above binds the view's name in EVERY arity, which is one row per
+;; shape and no row per POSITION. `locals-bound-by` unions the whole `letfn`
+;; and `self-call-nodes` silences the form as soon as ANY arity is recognised,
+;; so reading only the later arities passes all of them — measured, not
+;; argued: `fn-locals` was pointed at `(rest forms)`, deliberately skipping the
+;; first arity, and the pinned gate still exited 0 (merged-PR audit #7818).
+;;
+;; The opposite narrowing, reading only the FIRST arity, is caught by
+;; `zero-arity` above, whose first arity binds nothing at all. So the two rows
+;; together pin both ends, and enumerating shapes is now what it was not
+;; before: a row that can fail for the reason it names.
+(h/defview first-arity [_]
+  (letfn [(only-first
+            ([first-arity] (first-arity))
+            ([x y] (str x y)))]
+    [:div (only-first (fn [] "ok")) (only-first 1 2)]))
+
 ;; And a multi-arity fnspec nested inside another fnspec's body.
 (h/defview nested [_]
   (letfn [(outer [x]

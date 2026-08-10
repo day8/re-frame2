@@ -270,6 +270,18 @@ def self_test():
          "(fn-locals (:children %))",
          "(fn-locals (take 1 (:children %)))",
          "direct-view-call"),
+        # The same claim, one notch narrower, and the reason a shape is not a
+        # witness (merged-PR audit #7818). "Every parameter of every arity"
+        # was true of the code and untested by the rows: each multi-arity row
+        # bound the view's name in EVERY arity, and one recognised arity
+        # silences the whole `letfn`, so skipping the first arity left the
+        # pinned gate at exit 0. The row that binds only in the first arity
+        # is what this mutation reds; `zero-arity`, whose first arity binds
+        # nothing, reds the opposite narrowing.
+        ("a letfn arity SKIPPED reds", "hook",
+         "(keep #(when (api/list-node? %) (first (:children %))) forms))]",
+         "(keep #(when (api/list-node? %) (first (:children %))) (rest forms)))]",
+         "direct-view-call"),
     ]
 
     ok = True
