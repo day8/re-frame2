@@ -44,4 +44,5 @@ Fixtures:
 | `fenced_doc_link_out_of_scope`     | 0               | The identical sample under a sibling tree stays silent — the assertion is scoped, not corpus-wide (rf2-mmyc) |
 | `fenced_doc_link_blockquoted`      | 1               | The same assertion on a BLOCKQUOTED fence (`> ```clojure`) — the shape `docs/design/hicasso/studio/` actually writes (rf2-1cpt) |
 | `blockquoted_fence_not_indexed`    | 2               | A `###` line and an `<a id>` inside a blockquoted fence mint no fragment target, so links to them are broken; the real heading and the blockquoted heading below must still resolve (rf2-1cpt) |
+| `reference_style_links`            | 2               | Reference-style links — full, collapsed and shortcut — resolve through their `[label]: dest` definitions; the 2 are a broken target and a broken anchor reached that way, and the page's bracketed prose, footnote, padded label and UNUSED definition must all stay silent (rf2-2ryk) |
 | `compat_anchor_teeth`              | driven directly | The compat-anchor manifest, placement, and source-comment teeth — invoked with explicit fixture inputs, not from this table (rf2-57k74 / rf2-zq5i6 / rf2-k30r7) |
