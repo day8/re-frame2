@@ -307,8 +307,11 @@ jobs:
       #
       # It costs about a second: pure Python driving the binary above over two
       # fixture files. No JDK, no Node modules, no shadow-cljs. `--self-test`
-      # runs first and mutates the shipped hook three ways to prove the gate's
-      # RED, restoring each in a `finally`; then the gate itself runs.
+      # runs first and mutates the export FOUR ways to prove the gate's RED —
+      # three at the shipped hook, one at the positive fixture — restoring each
+      # in a `finally`; then the gate itself runs. The fourth arrived with
+      # rf2-hic-022's lexical-shadowing fix (PR #7804); this line said "three"
+      # until rf2-zzdg.
       - name: Hicasso lint export — fixture witness
         working-directory: implementation
         run: npm run test:hicasso-lint
