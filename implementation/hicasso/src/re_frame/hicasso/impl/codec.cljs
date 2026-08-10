@@ -2847,9 +2847,16 @@
   much later the foreign component renders it.
 
   The element's TYPE is always [[raw-gate]]; the component rides in the
-  carrier's `c` slot."
+  carrier's `c` slot.
+
+  **The Component slot is already validated.** [[vector-kind]] runs
+  [[raw-component]] as part of answering `:raw`, and [[vec->element]] —
+  this fn's only caller, which is why it is private — dispatches on that
+  answer. So position 1 is read here rather than re-derived, and the
+  escape's grammar is enforced in exactly one place for the runtime and
+  for `re-frame.hicasso.test` alike (rf2-hic-020)."
   [argv]
-  (let [component  (raw-component argv)
+  (let [component  (nth argv 1)
         has-props? (props-map? argv 2)
         props      (merge-caller (if has-props? (nth argv 2) {}))
         js-props   (reduce-kv (partial host-entry raw-crossing {}) #js {} props)
@@ -2898,7 +2905,7 @@
   (or (keyword? head) (symbol? head) (string? head)))
 
 ;; ---------------------------------------------------------------------------
-;; The two discriminations, each named once (rf2-hic-020)
+;; The discriminations, each named once (rf2-hic-020)
 ;; ---------------------------------------------------------------------------
 ;;
 ;; [[vec->element]] and [[as-element]] each answer a question before they do
@@ -2918,6 +2925,20 @@
 ;; the two `cond`s were tuned to (see [[as-element]]'s accounting); moving a
 ;; test here moves it for the runtime and the kit together, which is the
 ;; whole point.
+;;
+;; A SECOND audit (PR #7796) found that sharing the answers was not yet
+;; enough, because [[vec->element]] does not only classify: it REFUSES two
+;; shapes before and around the classification — an empty vector, which has
+;; no head to classify, and a raw escape whose Component slot holds
+;; something React will not mint a fiber for. Those refusals were the
+;; runtime's alone, so the kit met the same two forms and answered with ids
+;; of its own: a generic malformed head for `[]`, and an L3 opacity pointer
+;; for `[:> :div]` — telling the programmer to go mount, at L3, a form that
+;; cannot mount anywhere. Wrong advice, not merely a different id.
+;;
+;; [[vector-kind]] is where that stops. It is the discrimination WITH the
+;; guards that have to pass before there is anything to discriminate, so a
+;; malformed vector raises ONE refusal, from one guard, whichever side asked.
 
 (defn head-kind
   "WHICH KIND OF HEAD a hiccup vector has — `:fragment`, `:raw`, `:tag`,
@@ -2935,8 +2956,46 @@
     (host-head? head)     :host
     :else                 :invalid))
 
-(defn vec->element
-  "Interpret one hiccup vector."
+(defn vector-kind
+  "WHICH KIND OF VECTOR this hiccup vector is — [[head-kind]]'s answer for
+  its head, once the vector has passed the two checks that must pass
+  before ANY reader can act on it.
+
+  **The vector preflight, named once.** [[vec->element]] runs it before
+  it builds; `re-frame.hicasso.test`'s L2 walk runs it before it records.
+  The two checks are the two places [[head-kind]] alone leaves a reader
+  to invent an answer:
+
+  - **An empty vector has no head.** Refused ahead of any classification,
+    because every branch below reads position 0 — and a reader that asks
+    [[head-kind]] about the `nil` it finds there is told `:invalid`, and
+    reports a malformed HEAD for a vector that has none.
+  - **A raw escape's Component slot is the escape's own grammar.**
+    [[raw-component]] is the door for it, and running it here rather than
+    inside [[raw-element]] is what lets a reader that will never build an
+    element still get the escape's real refusal. `[:>]`, `[:> nil]` and
+    `[:> :div]` are malformed, not opaque: there is nothing for React to
+    interpret, so answering them with a pointer to a mounted test would
+    send the programmer to mount a form that cannot mount.
+
+  Both refusals are minted by the RUNTIME's own guards, in the runtime's
+  own order — so the id, the reason and the recovery a consumer sees are
+  one set of values with one home, which is the whole of what a parity
+  table can promise about a form neither side can interpret.
+
+  **`:where` names [[vec->element]] and [[raw-element]], not this
+  function**, because the contracts being enforced are those doors' and
+  Spec 009 pins those spellings against the ids. A second spelling here
+  would be a second identity for one fault — the drift this seam exists
+  to end.
+
+  **What it costs**, on the accounting this file keeps: one direct call,
+  and one keyword `=` against a keyword produced two lines above it. The
+  `count` guard and the [[head-kind]] call were already on every vector's
+  path; nothing was added to them and nothing was reordered. Only the
+  `:raw` population pays anything more — [[raw-component]]'s `cond`,
+  which [[raw-element]] used to run and no longer does, so an escape pays
+  it exactly once, as before."
   [argv]
   (when (zero? (count argv))
     (fail! :rf.error/hicasso-empty-vector
@@ -2944,14 +3003,27 @@
            "A hiccup vector must have a head."
            :supply-a-hiccup-head
            {}))
-  (let [head (nth argv 0)]
-    (case (head-kind head)
-      :fragment (fragment-element argv)
-      :raw      (raw-element argv)
-      :tag      (native-element argv)
-      :boundary (boundary-element argv)
-      :host     (host-element argv)
-      :invalid
+  (let [kind (head-kind (nth argv 0))]
+    (when (= :raw kind)
+      (raw-component argv))
+    kind))
+
+(defn vec->element
+  "Interpret one hiccup vector. [[vector-kind]] is the preflight: it has
+  refused an empty vector and a malformed escape before any arm below
+  runs, so every arm here reads a vector it knows is well formed."
+  [argv]
+  (case (vector-kind argv)
+    :fragment (fragment-element argv)
+    :raw      (raw-element argv)
+    :tag      (native-element argv)
+    :boundary (boundary-element argv)
+    :host     (host-element argv)
+    :invalid
+    ;; `:invalid` implies a head, because [[vector-kind]] refused the
+    ;; headless vector — so this reads position 0 without a default, and
+    ;; reads it on the cold arm only.
+    (let [head (nth argv 0)]
       (fail! :rf.error/hicasso-bad-head
              'front.codec/vec->element
              (if (fn? head)
