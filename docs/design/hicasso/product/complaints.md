@@ -112,6 +112,11 @@ rowed in the Hicasso section, and is the single live id without the
 | `:rf.error/hicasso-malformed-navigate` | wrote the navigate decorator outside its closed grammar | ch07 |
 | `:rf.error/hicasso-malformed-prevent` | wrapped something other than exactly one intent vector in the prevent decorator | ch03 |
 | `:rf.error/hicasso-merge-not-a-map` | forwarded a non-map at the attribute-remainder key | — |
+| `:rf.error/hicasso-native-children-in-props` | wrote `children` in a native props map, which has one child channel | — |
+| `:rf.error/hicasso-native-hiccup-child` | put a hiccup vector in a native child position, where brackets have no meaning | — |
+| `:rf.error/hicasso-native-intent-in-prop` | put an intent vector at a native callback slot, past the fence where nothing lowers it | — |
+| `:rf.error/hicasso-native-map-as-child` | wrote a dynamic map in native props position, where it lands as a child | — |
+| `:rf.error/hicasso-native-slot-collision` | gave a native props map two source keys normalising to one React slot | — |
 | `:rf.error/hicasso-presence-child-not-hiccup` | gave a presence boundary a child that is not a hiccup vector | — |
 | `:rf.error/hicasso-presence-child-unkeyed` | gave a presence child no `:key` | — |
 | `:rf.error/hicasso-presence-override-on-a-view` | wrote a phase-attribute override on a view head | ch11 |
@@ -170,11 +175,6 @@ into the live table in the same PR.
 | Reserved | Will refuse | Owner |
 |---|---|---|
 | `:rf.error/hicasso-view-called-directly` | a `defview` invoked as a function instead of mounted as a hiccup head | `defview` expansion. `re-frame.hicasso/direct-view-call` catches the static case today; this is the runtime half. Freehand's `:rf.error/view-called-directly` belongs to that substrate and is not shared |
-| `:rf.error/hicasso-native-map-as-child` | a dynamic map written in props position, which lands as a child | the native tier (`n/$`) |
-| `:rf.error/hicasso-native-hiccup-child` | a hiccup vector in a native child position, where brackets have no meaning | the native tier (`n/$`) |
-| `:rf.error/hicasso-native-intent-in-prop` | an intent vector at a native prop, past the fence where nothing lowers it | the native tier (`n/$`) |
-| `:rf.error/hicasso-native-children-in-props` | `:children` written in a native props map, which has one child channel | the native tier (`n/$`) |
-| `:rf.error/hicasso-native-slot-collision` | two source keys in a native props map normalising to one React slot | the native tier (`n/$`) |
 | `:rf.error/hicasso-test-hook-is-opaque` | a React hook reached from a body run at L2, where no React is running | the test kit's opacity family |
 | `:rf.error/hicasso-test-native-is-opaque` | a native-tier element reaching the L2 semantic tree | the test kit's opacity family, once the native tier lands |
 | `:rf.error/hicasso-contenteditable-not-controllable` | a controlled `:value` binding on a contenteditable region | the controlled-input law |
