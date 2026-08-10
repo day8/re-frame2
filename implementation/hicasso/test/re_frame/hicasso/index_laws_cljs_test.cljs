@@ -398,9 +398,9 @@
   ;; The dirty set is non-empty and the boundary set derived from it is
   ;; empty, which is the strongest available statement of `no phantom
   ;; boundaries`.
-  (let [_          (seeded!)
-        departed   (mount! (reading [[:idxlaw/a]]))
-        elsewhere  (mount! (reading [[:idxlaw/c]]))]
+  (seeded!)
+  (let [departed  (mount! (reading [[:idxlaw/a]]))
+        elsewhere (mount! (reading [[:idxlaw/c]]))]
 
     (release! departed)
 

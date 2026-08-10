@@ -57,7 +57,17 @@
   probe's, and it is asserted where the tear can be seen
   (`reincarnation_paint_dom_cljs_test`). The probe's whole share of it is
   that its memo box is reset by every body run, which is the second half
-  of the one-compute-per-run row below."
+  of the one-compute-per-run row below.
+
+  **Nor that a `reg-sub` issued earlier in this tick reaches this read.**
+  `cold-read!` computes inside `live-frame/call-with-frame-resolution`,
+  and its docstring credits that wrapper's read-time coalesced flush with
+  making a same-tick registration visible. A row was written for it and
+  then deleted: replacing the wrapper with a bare call reds nothing here,
+  because a frame made with `make-frame` resolves the registrar directly
+  and has no stale projection to flush. The claim is real and the witness
+  was not — it would need an image-loaded frame — and a row a one-line
+  narrowing cannot turn red is not evidence, however true its subject."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as uix-adapter]
             [re-frame.core :as rf]
@@ -250,30 +260,7 @@
       (is (= 1 (count (filter (comp #{:rf.error/no-such-sub} :error) records)))))))
 
 ;; ---------------------------------------------------------------------------
-;; 4. A registration earlier in this very tick
-;; ---------------------------------------------------------------------------
-
-(deftest a-sub-registered-earlier-in-this-tick-is-visible-to-this-very-read
-  (seeded!)
-  ;; The probe computes inside `live-frame/call-with-frame-resolution`,
-  ;; whose read-time coalesced flush is what makes a registration issued
-  ;; earlier in the same tick reach this read. Without it a
-  ;; register-then-render-sync sequence computes against a stale
-  ;; projection and misses the handler — which presents as a boundary
-  ;; painting nil on a query that is by then perfectly well registered.
-  ;; A lazily loaded module that registers and renders in one turn is
-  ;; exactly this shape.
-  (let [records (errors-during
-                  (fn []
-                    (rf/reg-sub :coldprobe/registered-just-now (fn [db _] (inc (:v db))))
-                    (is (= [8] (run-body! (fn [read] (read [:coldprobe/registered-just-now])))))))]
-    (testing "and it resolved through the real handler rather than through
-              the recovery, which is the difference a value of nil would
-              have hidden behind a `no such sub` nobody was watching for"
-      (is (= [] (filterv (comp #{:rf.error/no-such-sub} :error) records))))))
-
-;; ---------------------------------------------------------------------------
-;; 5. Rung 1 — a live sub-cache reaction is reused by deref alone
+;; 4. Rung 1 — a live sub-cache reaction is reused by deref alone
 ;; ---------------------------------------------------------------------------
 
 (deftest a-live-sub-cache-reaction-is-reused-by-deref-alone
