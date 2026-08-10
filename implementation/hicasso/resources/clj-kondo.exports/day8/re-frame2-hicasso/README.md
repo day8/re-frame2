@@ -37,30 +37,56 @@ every prop reads as `Unresolved symbol`.
 
 ## The checks
 
-### `:re-frame.hicasso/merge-not-a-map` — error
+### `:re-frame.hicasso/direct-view-call` — error
 
-`{:& …}` given a literal the runtime will refuse
-(`:rf.error/hicasso-merge-not-a-map`): a vector, set, string, keyword, number,
-boolean or character.
+A view calling **itself** like a function — `(todo-row {…})` written inside
+`(defview todo-row …)`, where `[todo-row {…}]` was meant. A view is a minted
+component and a hiccup head. Called directly it returns the runtime's component
+object instead of rendering, and no boundary is minted, so its reads belong to
+whichever body called it.
 
-**Refuses to know:** what any *expression* evaluates to. `{:& attrs}`,
-`{:& (merge a b)}` and `{:& (get props :attrs)}` are the ordinary spellings and
-are always silent — which means the common runtime failure, forwarding
-something that turns out not to be a map, is still the runtime's to catch.
-`{:& nil}` is legal and silent.
+**Refuses to know:** that any *other* symbol names a view. `(some-other-view …)`
+needs to resolve a var minted by `defview` in another namespace, and a hook sees
+one form — see the table at the end for why the cache-backed version of that is
+worse than nothing.
 
-### `:re-frame.hicasso/deferred-read` — error
+It also refuses any call whose name has been **rebound**. A parameter, a
+destructured prop, or a `let`, `for`, `fn`, `hfn`, `letfn` or `catch` binding
+spelled like the view introduces an ordinary local, and calling a local is
+ordinary Clojure:
 
-`h/sub` or `h/use-subs` written inside an `hfn` body. `hfn` **is** the callback
-form: its whole contract is that it runs after the body that wrote it, so a
-read there is deferred by construction rather than by circumstance, and the
-runtime refuses it with `:rf.error/hicasso-sub-outside-render`.
+```clojure
+(h/defview card [card]                    ; the parameter, not the view
+  [:div.card (card)])
+```
 
-**Refuses to know:** whether any *other* function value is deferred. A read
-inside a `(fn …)` handed to `mapv`, `for`, `keep` or an inlined helper runs
-*during* the body and is completely legal — a helper may donate reads to the
-boundary that called it. "An `fn` literal inside a body" is therefore not
-evidence of deferral, and this check does not treat it as any. Proving read
+Shadowing is read off the form in hand, because that is the only kind of fact
+available here: `api/resolve` answers `nil` for the view's own name — not yet a
+var when the hook runs — and never sees locals at all. A binding silences the
+entire form it heads, initialisers included, so a genuine self-call written in
+the initialiser of a `let` that goes on to bind the view's name is missed too.
+Missing one is the only way this check is allowed to be wrong.
+
+### `:re-frame.hicasso/deferred-read` — warning
+
+`h/sub` or `h/use-subs` read where nothing is going to call the surrounding
+function during this body. Two shapes:
+
+* inside an `hfn` body. `hfn` **is** the callback form: its whole contract is
+  that it runs after the body that wrote it, so a read there is deferred by
+  construction rather than by circumstance, and the runtime refuses it with
+  `:rf.error/hicasso-sub-outside-render`.
+* inside a plain `(fn …)` or `#(…)` that is *not* handed straight to `map`,
+  `mapv`, `for`, `keep`, `filter`, `reduce`, `run!`, `doseq` or another core
+  form that calls it synchronously — a callback, a timer, a promise, a thunk
+  stashed for later.
+
+**Refuses to know:** whether the second shape is really deferred, which is why
+it is a warning and why nothing here blocks a build. A read inside a `(fn …)`
+handed to `mapv` or `for` runs *during* the body and is completely legal — a
+helper may donate reads to the boundary that called it — so those are named and
+exempt. `(some-helper (fn [] (h/sub …)))` may well call its argument during the
+body too, and this cannot know; if it does, ignore the warning. Proving read
 extent in general is the runtime's law, not lint's.
 
 ### `:re-frame.hicasso/function-in-head-position` — error
@@ -144,11 +170,11 @@ same afternoon.
 
 | Wanted check | Why it is not here |
 |---|---|
-| **Direct invocation of a `defview`** — `(todo-row {…})` instead of `[todo-row {…}]` | Needs to know that a symbol resolves to a var minted by `defview`, usually in another namespace. A hook sees one form. `clj-kondo.hooks-api/ns-analysis` can answer it from the analysis cache, which makes the check fire in a full CI run and stay silent in an editor linting one file — a rule that fires *sometimes* is worse than one that never does. |
+| **Direct invocation of *another* view** — `(todo-row {…})` where `todo-row` is defined elsewhere | Needs to know that a symbol resolves to a var minted by `defview`, usually in another namespace. A hook sees one form. `clj-kondo.hooks-api/ns-analysis` can answer it from the analysis cache, which makes the check fire in a full CI run and stay silent in an editor linting one file — a rule that fires *sometimes* is worse than one that never does. The self-call slice above is the part a hook can settle on its own. |
 | **A plain function in head position, by symbol** — `[helper {…}]` where `helper` is a `defn` | Same problem, same answer. The literal-function slice above is the part that is decidable. |
-| **A deferred read in general** — a `sub` reachable from any callback, timer, promise or lazy escape | Read extent is a property of *execution*, and the runtime owns it. Lint can only see the one position (`hfn`) whose deferral is syntactic. |
+| **A deferred read in general** — a `sub` reachable from any callback, timer, promise or lazy escape | Read extent is a property of *execution*, and the runtime owns it. Lint can see only the `hfn` position, whose deferral is syntactic, and the fn literal nothing standard is about to call — and the second of those is advice, not a verdict. |
 | **A `sub` naming an unregistered query id** | Registration is a whole-program fact, and ids are frequently built rather than written. |
-| **`:&` forwarding something that is not a map** | Only literals are decidable. See the check above. |
+| **`:&` forwarding something that is not a map** | The `:&` grammar key is retired from the end-state design in favour of the owned-wins merge recipe. A lint layer must not police a ghost. |
 | **An `:input` without a label** | The name comes from a sibling or ancestor. That is tree knowledge, not form knowledge. |
 | **Hiccup written in an ordinary `defn` helper** | Not a decision — a limit. Hooks fire only at registered call sites, so every check here sees hiccup inside `defview`, `defhost` and `hfn` forms and nowhere else. A helper that returns hiccup is unlinted. |
 

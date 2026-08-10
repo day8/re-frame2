@@ -497,6 +497,112 @@
                    "IS called synchronously, ignore this: read extent is the "
                    "runtime's law, not lint's."))))
 
+(def ^:private let-shaped
+  "Forms whose first argument is a `let`-shaped binding VECTOR.
+
+  `binding` and `with-redefs` rebind VARS rather than introducing locals, and
+  they are here anyway for the same reason: inside one, the name no longer
+  denotes the view either."
+  '#{let let* loop loop* when-let if-let when-some if-some when-first
+     with-open with-local-vars doseq for binding with-redefs})
+
+(defn- bound-symbols
+  "Every symbol a binding TARGET binds, destructuring included.
+
+  A SUPERSET is the safe direction and the reason this can be so blunt: the
+  only thing an extra name here can do is silence the self-call check, and
+  silence is the only failure that check is allowed."
+  [node]
+  (into #{} (keep token-sexpr) (subforms node)))
+
+(defn- pair-targets
+  "The binding TARGETS of a `let`-shaped vector — `for` / `doseq` modifiers
+  included, because `:let [b 1]` binds too and `:when`/`:while` do not."
+  [children]
+  (loop [[target value & more] children
+         acc                   []]
+    (if (nil? target)
+      acc
+      (let [kw (tag-keyword target)]
+        (recur more
+               (cond
+                 (= :let kw)   (if (api/vector-node? value)
+                                 (into acc (pair-targets (:children value)))
+                                 acc)
+                 (keyword? kw) acc
+                 :else         (conj acc target)))))))
+
+(defn- fn-locals
+  "The names a `fn` / `fn*` / `hfn` binds: its own optional name, and every
+  parameter of every arity."
+  [children]
+  (let [self   (token-sexpr (first children))
+        forms  (if self (rest children) children)
+        params (if (api/vector-node? (first forms))
+                 [(first forms)]
+                 (keep #(when (api/list-node? %) (first (:children %))) forms))]
+    (into (if self #{self} #{})
+          (comp (filter api/vector-node?) (mapcat bound-symbols))
+          params)))
+
+(defn- locals-bound-by
+  "The names this node binds over its own subforms, when it is a form that
+  binds names at all — and `#{}` for everything else, which is most nodes.
+
+  Enumerated rather than inferred: a hook has no scope table, so knowing a
+  lexical binding when it sees one means naming the forms that make them.
+  The list is the price of never firing on a local."
+  [node]
+  (if-not (api/list-node? node)
+    #{}
+    (let [[head & more] (:children node)
+          core          (core-var head)]
+      (cond
+        (contains? let-shaped core)
+        (if (api/vector-node? (first more))
+          (into #{} (mapcat bound-symbols) (pair-targets (:children (first more))))
+          #{})
+
+        (or (contains? '#{fn fn*} core) (= 'hfn (hicasso-var head)))
+        (fn-locals more)
+
+        ;; `(letfn [(f [x] …)] …)` binds each local function's NAME and its
+        ;; parameters — and the name sits in head position of its own form,
+        ;; which is precisely where a self-call is looked for.
+        (= 'letfn core)
+        (if (api/vector-node? (first more))
+          (into #{}
+                (mapcat (fn [f]
+                          (when (api/list-node? f)
+                            (let [[nm params] (:children f)]
+                              (into (if-let [s (token-sexpr nm)] #{s} #{})
+                                    (when (api/vector-node? params)
+                                      (bound-symbols params)))))))
+                (:children (first more)))
+          #{})
+
+        (= 'catch core)  (if-let [s (token-sexpr (second more))] #{s} #{})
+        (= 'as-> core)   (if-let [s (token-sexpr (second more))] #{s} #{})
+
+        :else #{}))))
+
+(defn- self-call-nodes
+  "Every `(nm …)` under `node` that is NOT inside a form binding `nm`.
+
+  A form that binds the name silences its WHOLE subtree, initialisers and
+  all, so a genuine `(card …)` written in the initialiser of a `let` that
+  goes on to bind `card` is missed. That is the deliberate direction: the
+  check exists to be always right, and a miss is the only way it is allowed
+  to be wrong."
+  [nm node]
+  (when (and node
+             (not (api/quote-node? node))
+             (not (contains? (locals-bound-by node) nm)))
+    (concat (when (and (api/list-node? node)
+                       (= nm (token-sexpr (first (:children node)))))
+              [node])
+            (mapcat #(self-call-nodes nm %) (:children node)))))
+
 (defn- check-direct-view-call!
   "A view called like a function, where that is decidable.
 
@@ -505,18 +611,29 @@
   that a symbol resolves to a var minted by `defview`, usually in another
   namespace, and a hook sees one form — so the decidable slice is the view
   calling ITSELF, whose name this hook is holding. Narrow, but always right
-  and editor-reliable, which the wider version is not (see README)."
-  [sym body]
+  and editor-reliable, which the wider version is not (see README).
+
+  Always right needs one thing more than the name, though, and the first
+  draft did not have it: a call is a SELF-call only when the name still
+  denotes the view at that point. `(defview card [card] (card))` calls its
+  parameter, and `(let [via-let …] (via-let))` calls its binding. Comparing
+  spelling alone reported both at ERROR, and the required lane runs
+  `--fail-level error`, so correct code was refused (merged-PR audit #7794).
+
+  `api/resolve` cannot settle this — it answers `nil` for the view's own
+  name, which is not yet a var when the hook runs, and it never sees locals
+  at all. Lexical shadowing is instead read off the form in hand, which is
+  the only kind of fact this file is allowed to use."
+  [sym argv body]
   (when-let [nm (token-sexpr sym)]
-    (doseq [node (mapcat subforms body)
-            :when (api/list-node? node)
-            :when (= nm (token-sexpr (first (:children node))))]
-      (finding! node :re-frame.hicasso/direct-view-call
-                (str "`" nm "` is a view, so it is a hiccup HEAD rather than a "
-                     "function: write [" nm " {…}]. Called directly it returns "
-                     "the runtime's component object instead of rendering, and "
-                     "no boundary is minted, so its reads belong to whichever "
-                     "body called it.")))))
+    (when-not (contains? (bound-symbols argv) nm)
+      (doseq [node (mapcat #(self-call-nodes nm %) body)]
+        (finding! node :re-frame.hicasso/direct-view-call
+                  (str "`" nm "` is a view, so it is a hiccup HEAD rather than a "
+                       "function: write [" nm " {…}]. Called directly it returns "
+                       "the runtime's component object instead of rendering, and "
+                       "no boundary is minted, so its reads belong to whichever "
+                       "body called it."))))))
 
 (defn- check-body!
   "Every hiccup-shaped check, over one body."
@@ -539,7 +656,7 @@
                                 [nil more])
         [argv & body]         more]
     (check-body! body)
-    (check-direct-view-call! sym body)
+    (check-direct-view-call! sym argv body)
     {:node (api/list-node
              (concat [(api/token-node 'clojure.core/defn) sym]
                      (when doc [doc])

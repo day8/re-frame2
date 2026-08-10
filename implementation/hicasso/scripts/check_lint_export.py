@@ -247,6 +247,16 @@ def self_test():
         ("a check firing at the wrong ROWS reds", "fixture",
          '  [:a {:href "/help"}])', '  [:a {:href "/help"} "Help"])',
          "nameless-interactive-element"),
+        # The ERROR-level rule that blocked correct code (merged-PR audit
+        # #7794): a self-call check comparing SPELLING alone reports every
+        # local that happens to share the view's name -- a parameter, a
+        # `let`, a `for` binding. Blind the one helper that reads a binding
+        # target and the negative half must red, because an ERROR firing on
+        # somebody's `let` is the failure this whole layer exists to avoid.
+        ("a self-call check blind to lexical shadowing reds", "hook",
+         "  (into #{} (keep token-sexpr) (subforms node)))",
+         "  (do node #{}))",
+         "direct-view-call"),
     ]
 
     ok = True
