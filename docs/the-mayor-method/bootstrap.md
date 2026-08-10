@@ -208,12 +208,17 @@ of a drain; the binding rule is hot-zone parallelism, not strict same-surface.
   command line. Run each gate alone, with nothing appended. And a fourth is past
   exit codes entirely, because a command can succeed and still not do the thing:
   `git pull --ff-only` printed `Updating <old>..<new>` twice in one session while
-  HEAD did not move, and once refused with "Not possible to fast-forward", all three
-  times because an automated push was racing it. Naming the remote and branch
-  (`git pull --ff-only origin main`) clears the refusal, but the silent no-op
-  teaches the wider rule: **after a mutating step, verify the tree rather than the
-  message** — compare `HEAD` against `origin/main` instead of reading the line it
-  printed. That comparison has a false alarm of its own, from the same asynchronous
+  HEAD did not move, and later refused outright with "Not possible to fast-forward",
+  all three times because an automated push was racing it. Naming the remote and
+  branch (`git pull --ff-only origin main`) clears the silent no-op but NOT the
+  refusal — that one is a genuine divergence, the local tracker checkpoint against
+  the commits the automated push added while it was being made, and no `--ff-only`
+  invocation fast-forwards a divergent branch. It wants `git pull --rebase origin main`
+  and an outcome check of its own; the two aborts, their different remedies and that
+  check are set out in this repo's `.claude/commands/mayor-merge.md`. Either way the
+  silent no-op teaches the wider rule: **after a mutating step, verify the tree
+  rather than the message** — compare `HEAD` against `origin/main` instead of
+  reading the line it printed. That comparison has a false alarm of its own, from the same asynchronous
   writer that makes "Base branch was modified" a real race above: the audit push can
   land between the two `rev-parse` reads, so they answer at different instants and a
   perfectly synchronised checkout reports a mismatch. One disagreement is not yet
