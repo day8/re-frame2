@@ -333,6 +333,30 @@
   [{:keys [sub-id query]}]
   (read-label [nil sub-id query]))
 
+(defn read-key-str
+  "The WHOLE projected read identity as one string: frame, registration
+  id, projected query — in the order the producer exports them.
+
+  Every part is load-bearing and the frame is the one that was missing
+  (rf2-hic-023, audit #7802). Frames are isolated contexts, so a read of
+  `[:row 1]` in frame A and a read of `[:row 1]` in frame B are two
+  different facts about two different applications, not one fact seen
+  twice. Dropping the frame here made them one string, which made them one
+  React key and one DOM testid.
+
+  Projected fields only. The query arrives already projected and is
+  printed as found; re-admitting the raw query to make a slug more
+  readable would undo the producer's redaction at the last step, which is
+  the exact escape the #7789 audit caught."
+  [[frame-id sub-id query]]
+  (str (pr-str frame-id) "-" (pr-str sub-id) "-" (pr-str query)))
+
+(defn read-slug
+  "A testid-safe slug for ONE projected read identity — see
+  [[read-key-str]] for why all three parts are in it."
+  [read-identity]
+  (id-slug (read-key-str read-identity)))
+
 (defn boundary-label
   "A boundary's edge set as one line — the identity the runtime actually
   retains, spelled out.
@@ -346,17 +370,21 @@
     "(reads nothing)"))
 
 (defn boundary-slug
-  "A stable testid slug for a boundary key.
+  "A stable testid slug for a boundary key — the WHOLE projected key, one
+  [[read-key-str]] per element.
 
-  Built from the sub-id AND the projected query, never the raw query: a
-  testid is a string a browser assertion selects on and a screenshot
-  carries, so deriving one from an application's arguments would put
-  those arguments in the DOM after the schema had projected them out of
-  the data. Including the sub-id keeps two wholly-redacted reads
-  selectable apart."
+  Never the raw query: a testid is a string a browser assertion selects on
+  and a screenshot carries, so deriving one from an application's
+  arguments would put those arguments in the DOM after the schema had
+  projected them out of the data. The sub-id keeps two wholly-redacted
+  reads selectable apart, and the FRAME keeps two frames' boundaries apart
+  — it was dropped, so `[[:frame/a :row [:row 1]]]` and
+  `[[:frame/b :row [:row 1]]]` both slugged `row-row-1`, giving two
+  genuinely different boundaries one React key and one testid
+  (audit #7802)."
   [{:keys [key]}]
   (if (seq key)
-    (id-slug (string/join "-" (map (fn [[_f sid q]] (str (pr-str sid) "-" (pr-str q))) key)))
+    (id-slug (string/join "-" (map read-key-str key)))
     "reads-nothing"))
 
 ;; ---------------------------------------------------------------------------
@@ -409,19 +437,30 @@
 
 (defn attribution-rows
   "The Reads view's rows: one per live subscription cell, with its
-  fan-out and the boundaries holding it."
+  fan-out and the boundaries holding it.
+
+  The row's identity is the edge's WHOLE projected identity — frame,
+  registration id, projected query — in both the label and the slug. It
+  was the sub-id alone, so `[:row 1]` in frame A and `[:row 2]` in frame B
+  were two rows named `row` under one testid, and the view printed neither
+  the query nor the frame that told them apart (audit #7802). Every field
+  it prints is one the producer already projected; nothing raw is
+  recovered to make a row legible."
   [envelope]
   (if-not (supported? envelope)
     []
     (mapv (fn [edge]
-            {:sub-id   (:sub-id edge)
-             :slug     (id-slug (:sub-id edge))
-             :query    (:query edge)
-             :frame-id (:frame-id edge)
-             :epoch    (:epoch edge)
-             :fan-out  (:fan-out edge)
-             :readers  (mapv (fn [b] {:label (boundary-label b)
-                                      :slug  (boundary-slug b)}) (:readers edge))})
+            (let [read-id [(:frame-id edge) (:sub-id edge) (:query edge)]]
+              {:sub-id     (:sub-id edge)
+               :slug       (read-slug read-id)
+               :label      (read-label read-id)
+               :query      (:query edge)
+               :frame-id   (:frame-id edge)
+               :frame-chip (loss-chip nil (:frame-id edge))
+               :epoch      (:epoch edge)
+               :fan-out    (:fan-out edge)
+               :readers    (mapv (fn [b] {:label (boundary-label b)
+                                          :slug  (boundary-slug b)}) (:readers edge))}))
           (:edges envelope))))
 
 (defn intent-rows
@@ -458,6 +497,12 @@
                :label        (boundary-label (:boundary ex))
                :slug         (boundary-slug (:boundary ex))
                :frame        (:frame ex)
+               ;; The frame is rendered, not merely carried. Two boundaries
+               ;; reading the same query in two frames have the same label,
+               ;; and frames are isolated contexts — so without the frame on
+               ;; screen the reader is looking at two identical lines that
+               ;; are two different facts (audit #7802).
+               :frame-chip   (loss-chip nil (:frame ex))
                :instances    (:instances ex)
                :snapshot     (:snapshot ex)
                :peak-epoch   (:peak-epoch ex)

@@ -264,7 +264,85 @@
                               :readers [boundary-a boundary-b]}]})
         [row] (hh/attribution-rows e)]
     (is (= 3 (:fan-out row)))
+    (is (= "[:todo 7]" (:label row))
+        "the row names the projected QUERY, which is what a reader tells cells apart by")
+    (is (nil? (:frame-chip row)) "the frame IS known here, so no chip")
     (is (= ["[:todo 7]" "[:todo 7] + [:user 1]"] (mapv :label (:readers row))))))
+
+(deftest a-row-key-carries-the-WHOLE-projected-identity
+  ;; MERGED-PR AUDIT #7802, RESIDUAL 2. `boundary-slug` ignored the frame and
+  ;; `attribution-rows` slugged every edge by sub-id alone, so rows that are
+  ;; genuinely different facts shared a React key and a DOM testid. The direct
+  ;; witness on merge 7c45f3ca9:
+  ;;
+  ;;   boundary keys [[:frame/a :row [:row 1]]] and [[:frame/b :row [:row 1]]]
+  ;;     -> slugs ["row-row-1" "row-row-1"]
+  ;;   attribution rows for [:row 1] in frame A and [:row 2] in frame B
+  ;;     -> slugs ["row" "row"]
+  ;;
+  ;; Frames are ISOLATED CONTEXTS, so the first pair is two applications'
+  ;; boundaries and not one boundary counted twice.
+  (testing "two frames' boundaries over one query are two keys, not one"
+    (let [a {:parent nil :key [[:frame/a :row [:row 1]]]}
+          b {:parent nil :key [[:frame/b :row [:row 1]]]}]
+      (is (not= (hh/boundary-slug a) (hh/boundary-slug b))
+          (str "both slugged `row-row-1` before the frame was in the key — a "
+               "browser assertion selecting one silently matched the other, and "
+               "React saw one child where there were two"))
+      (is (string/includes? (hh/boundary-slug a) "frame-a"))
+      (is (string/includes? (hh/boundary-slug b) "frame-b"))))
+
+  (testing "and the projected query is in the key too, so two variants stay apart"
+    (is (not= (hh/boundary-slug {:parent nil :key [[:frame/a :row [:row 1]]]})
+              (hh/boundary-slug {:parent nil :key [[:frame/a :row [:row 2]]]}))))
+
+  (testing "the Reads rows differ in frame AND in query, and say so on the row"
+    (let [e (envelope :read-attribution
+                      {:scope :read-edges
+                       :edges [{:sub-id :row :query [:row 1] :frame-id :frame/a
+                                :epoch 1 :fan-out 1 :readers []}
+                               {:sub-id :row :query [:row 2] :frame-id :frame/b
+                                :epoch 1 :fan-out 1 :readers []}]})
+          [a b] (hh/attribution-rows e)]
+      (is (not= (:slug a) (:slug b))
+          "both slugged `row` before — one testid over two subscriptions")
+      (is (= ["[:row 1]" "[:row 2]"] [(:label a) (:label b)])
+          "and the view printed only `:row`, so the rows also READ the same")
+      (is (= [:frame/a :frame/b] [(:frame-id a) (:frame-id b)])
+          "the frame is on the row for the renderer to print")))
+
+  (testing "the Why rows carry the frame, because two frames' labels are equal"
+    (let [ex (fn [frame q]
+               {:boundary {:parent nil :key [[frame :row q]]} :frame frame
+                :instances 1 :snapshot 9 :peak-epoch 5
+                :latest-reads [{:sub-id :row :query q :frame-id frame}]
+                :cause :unknown
+                :loss {:reason :uncorrelated :dropped :unknown}
+                :candidates []})
+          [a b] (hh/explain-rows (envelope :explain-render
+                                           {:complete? false
+                                            :loss {:reason :uncorrelated :dropped :unknown}
+                                            :explanations [(ex :frame/a [:row 1])
+                                                           (ex :frame/b [:row 1])]}))]
+      (is (= (:label a) (:label b))
+          "NON-VACUITY: the labels really are identical, so the frame is the
+           only thing that can tell these two rows apart on screen")
+      (is (not= (:slug a) (:slug b)))
+      (is (= [:frame/a :frame/b] [(:frame a) (:frame b)]))
+      (is (nil? (:frame-chip a)) "a known frame renders as itself, not as a chip")))
+
+  (testing "NOTHING RAW returns through the slug — only projected fields"
+    (let [row (first (hh/attribution-rows
+                       (envelope :read-attribution
+                                 {:scope :read-edges
+                                  :edges [{:sub-id :todo :query :rf/redacted
+                                           :frame-id :app/main :epoch 1
+                                           :fan-out 1 :readers []}]})))]
+      (is (= ":todo :rf/redacted" (:label row))
+          "a wholly redacted query is named by its registration id and the sentinel")
+      (is (string/includes? (:slug row) "rf-redacted")
+          "the slug is built from the sentinel the producer sent, never from a
+           raw query recovered to make the row legible"))))
 
 (deftest intent-rows-carry-an-id-and-an-arity-and-no-arguments
   (let [e (envelope :intents

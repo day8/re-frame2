@@ -307,12 +307,25 @@
         txt  (text-of tree)
         ids  (testids tree)]
     (is (contains? ids "rf-xray-hicasso-attribution"))
-    (is (contains? ids "rf-xray-hicasso-edge-htab-left"))
     (is (string/includes? txt "fan-out 2") ":htab/left is read by both boundaries")
     (is (string/includes? txt "fan-out 1") ":htab/right by one")
     (is (string/includes? txt "[:htab/left] + [:htab/right]")
         "each edge names the boundaries holding it, by the same key the
          mounted roster uses")
+    (testing "each row carries its WHOLE projected identity in the testid (audit #7802)"
+      (let [edge-ids (into #{} (filter #(and (string/starts-with? % "rf-xray-hicasso-edge-")
+                                             (not (string/ends-with? % "-readers"))))
+                           ids)]
+        (is (= 2 (count edge-ids)) "two cells, two testids")
+        (is (every? #(string/includes? % "hicasso-tab-app") edge-ids)
+            (str "an edge testid must carry the FRAME as well as the sub id — "
+                 "frames are isolated contexts, so two frames holding one sub id "
+                 "are two rows and not one seen twice"))
+        (is (some #(string/includes? % "htab-left") edge-ids))
+        (is (some #(string/includes? % "htab-right") edge-ids))))
+    (testing "and the frame is on the page, not merely in the testid"
+      (is (string/includes? txt (str "frame " (hh/format-id app-frame)))
+          "a reader looking at two identically-labelled rows needs the frame"))
     (a) (b)))
 
 (deftest the-intents-view-answers-what-was-dispatched
@@ -353,7 +366,14 @@
       (testing "UNCORRELATED: the cause is a labelled absence, beside a lead count"
         (is (some #(string/ends-with? % "-cause") ids))
         (is (some #(string/ends-with? % "-loss-uncorrelated") ids))
-        (is (string/includes? txt "lead"))))
+        (is (string/includes? txt "lead")))
+      (testing "the FRAME is on the row, and in its testid (audit #7802)"
+        (is (string/includes? txt (str "frame " (hh/format-id app-frame)))
+            (str "two boundaries reading one query in two frames have the same "
+                 "label, so without the frame the reader sees one line twice"))
+        (is (some #(and (string/starts-with? % "rf-xray-hicasso-explain-")
+                        (string/includes? % "hicasso-tab-app"))
+                  ids))))
     (release)))
 
 ;; ---------------------------------------------------------------------------
