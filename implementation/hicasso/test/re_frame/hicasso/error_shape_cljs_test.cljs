@@ -327,3 +327,35 @@
           "the whole ex-data, so an overridden field cannot hide behind a
            select-keys that never looked at it")
       (is (= [] (error/missing-fields data))))))
+
+(deftest a-forged-ambient-pair-loses-where-there-is-no-origin-to-overwrite-it
+  ;; The row above runs INSIDE a declaration extent, and that is exactly
+  ;; what made it insufficient: overwriting only reaches a field the
+  ;; constructor has a value for. The ambient pair has one only while an
+  ;; origin names a view, so the case worth driving is the one where it
+  ;; does not — which is every event handler, every timer, every callback,
+  ;; and every production build. `extra` used to keep its forgery there.
+  (testing "outside every extent a forged `:view` and `:source` are DROPPED,
+            not overwritten — the constructor's silence is the answer, and a
+            catch site reading `:view` gets absence rather than a file name
+            the call site made up"
+    (let [data (refusal #(error/fail! :rf.error/hicasso-state-bad-option
+                                      'front.state/reg-state
+                                      "reg-state options must be a map."
+                                      :pass-a-map-of-options
+                                      {:view    "app.impostor/not-a-view"
+                                       :source  {:ns 'app.impostor
+                                                 :file "app/impostor.cljs"
+                                                 :line 1 :column 1}
+                                       :options :not-a-map}))]
+      (is (= {:rf.error/id :rf.error/hicasso-state-bad-option
+              :where       'front.state/reg-state
+              :reason      "reg-state options must be a map."
+              :recovery    :pass-a-map-of-options
+              :options     :not-a-map}
+             data)
+          "the whole ex-data — the class's own slot rides through, the two
+           ambient keys are gone, and nothing was left nil in their place")
+      (is (not (contains? data :view)))
+      (is (not (contains? data :source)))
+      (is (= [] (error/missing-fields data))))))
