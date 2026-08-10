@@ -96,6 +96,12 @@ skills_structural=false
 playground=false
 migration_hicasso_codemod=false
 hicasso_controlled=false
+# rf2-hic-015 — the Hicasso HMR gate (`npm run test:hicasso-hmr`), a tier of
+# its own for the same reason `hicasso_controlled` is: it is a DIFFERENT
+# COMMAND, and the only one in the repo that drives a real hot reload. No
+# other job's closure reaches it — every other browser gate serves a COMPILED
+# bundle over http-server, and a compiled bundle cannot hot-reload itself.
+hicasso_hmr=false
 migration_v1_codemod=false
 
 mark_all() {
@@ -128,6 +134,7 @@ mark_all() {
   playground=true
   migration_hicasso_codemod=true
   hicasso_controlled=true
+  hicasso_hmr=true
   migration_v1_codemod=true
 }
 
@@ -1181,6 +1188,24 @@ else
         # green under regressions these rows catch. A hicasso diff that
         # did not run it would be relying on the weaker witness.
         hicasso_controlled=true
+        # rf2-hic-015 — and, since the HMR witness matrix landed (rf2-vsgq),
+        # `hicasso_hmr`. That gate compiles the `:hicasso/hmr-testbed` build
+        # off THIS tree — the testbed app under hicasso/testbed/
+        # hicasso_hmr_testbed/, the page under hicasso/testbed/hmr/ and
+        # `hicasso/testbed/hmr_spec.cjs` all live here — then starts a REAL
+        # `shadow-cljs watch`, rewrites a marked source line and lets shadow
+        # recompile, push the module and re-evaluate it.
+        #
+        # It is the only lane in the repo that witnesses the reload itself,
+        # and the distinction it holds is the one the #7755 audit named: the
+        # package's Node HMR suites call `collector/mint-view!` directly and
+        # drive the commit and release seams by hand, so they can catch
+        # neither drift between the `defview` macro and a real shadow reload
+        # nor a renderer that fails to run old-generation cleanup on a type
+        # replacement. Every runtime file a reload re-evaluates lives under
+        # this arm, so a hicasso diff that skipped it would be resting the
+        # whole HMR contract on the seam-driven witness.
+        hicasso_hmr=true
         # rf2-erjv — migration_hicasso_codemod, the SECOND reverse edge into
         # the codemod's JVM lane. The `implementation/freehand/*` arm above
         # carries the first and states the shape; this is the same shape by a
@@ -1547,6 +1572,30 @@ else
         reagent_slim_bundle=true
         hicasso_controlled=true
         ;;
+      implementation/scripts/serve-and-run-hicasso-hmr-testbed.cjs)
+        # rf2-hic-015 — self-protection, exactly as for the controlled-input
+        # launcher above. This file IS the HMR gate: it starts the
+        # `shadow-cljs watch`, owns the HOT-LINE rewriter that makes a save a
+        # save at all, and owns the two pieces of verdict logic that make the
+        # run mean anything — `REQUIRED_SECTIONS` / `REQUIRED_RECORDS` (the
+        # structural coverage floor) and the cross-engine comparator that reds
+        # an unlisted divergence in a RECORDED row.
+        #
+        # The rewriter is the sharper half. A gate whose `save()` silently
+        # stopped editing the file would report a perfectly green run in which
+        # nothing ever reloaded — so softening it is a change that must run
+        # the gate. The generic `implementation/scripts/*` case below never
+        # arms `hicasso_hmr`, so without this case a PR could edit the gate's
+        # own teeth while avoiding the job that runs them. The static-script
+        # surfaces it shares with the generic case stay armed too; this case
+        # widens coverage, it does not narrow it.
+        cljs_node_test=true
+        cljs_browser=true
+        cljs_prod=true
+        bundle_isolation=true
+        reagent_slim_bundle=true
+        hicasso_hmr=true
+        ;;
       implementation/scripts/check-freehand-evidence-elision.cjs)
         # rf2-xwa4n — self-protection, mirroring the launcher/checker cases
         # above. This script IS the F4g evidence-elision gate: the sentinel sets,
@@ -1690,6 +1739,21 @@ else
         case "$file" in
           implementation/shadow-cljs.edn|implementation/package.json|implementation/package-lock.json)
             hicasso_controlled=true ;;
+        esac
+        # rf2-hic-015 — the HMR gate is DEFINED by the same trio, and one of
+        # the three carries a fact no other gate depends on. shadow-cljs.edn
+        # declares the `:hicasso/hmr-testbed` build AND its `:dev-http` on
+        # port 8061 — this gate is served by shadow's own dev server rather
+        # than by http-server precisely so the document and the devtools
+        # websocket share an origin, so an edit to either half can stop the
+        # reload arriving. package.json carries the `test:hicasso-hmr` script
+        # and the `playwright` pin, which here as for the controlled gate IS
+        # the three engine revisions under test; the lockfile fixes them.
+        # `implementation/scripts/*` stays off, exactly as above: the one
+        # script that drives this gate has its own case.
+        case "$file" in
+          implementation/shadow-cljs.edn|implementation/package.json|implementation/package-lock.json)
+            hicasso_hmr=true ;;
         esac
         # rf2-8m344 — the `:machines-viz-viewer` build is DECLARED here, in
         # implementation/shadow-cljs.edn, while the page it emits a bundle for
@@ -2203,4 +2267,5 @@ emit skills_structural "$skills_structural"
 emit playground "$playground"
 emit migration_hicasso_codemod "$migration_hicasso_codemod"
 emit hicasso_controlled "$hicasso_controlled"
+emit hicasso_hmr "$hicasso_hmr"
 emit migration_v1_codemod "$migration_v1_codemod"
