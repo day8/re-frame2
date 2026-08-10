@@ -1,0 +1,229 @@
+# The complaint catalogue — Hicasso's diagnostic ids as public contract
+
+Every refusal Hicasso raises carries a stable `:rf.error/…` id. That id is
+the thing a test asserts on, a tool branches on, an AI pair looks up and a
+consumer's error monitor groups by — so it is a published surface, and it
+is governed here.
+
+This file is the **register**: which ids exist, which spellings are claimed
+for refusals whose surface is not built yet, and which are dead forever. It
+deliberately does not restate what a complaint means or what it carries.
+
+## Where each fact lives
+
+| Fact | Owner |
+|---|---|
+| What a complaint means, what it carries, its `:recovery` | `spec/009-Instrumentation.md`, §Hicasso and §Hicasso test kit |
+| Whether an id exists, is reserved, or is dead | this file |
+| How to write the code so it never fires | the guide chapter each row names |
+| What a spelling should be called | [`naming-ledger.md`](naming-ledger.md), settled by the naming packet |
+
+One owner per fact, bound by id. `implementation/hicasso/scripts/check_complaint_catalogue.py`
+is what keeps the binding true: every live row is emitted by the package
+and rowed in Spec 009, every reservation is genuinely unbuilt, no id holds
+two statuses, and every guide chapter a row cites names that id. Its header
+states the eight rules and why each exists.
+
+## What every complaint carries
+
+A complaint is a thrown `ex-info`. Its message is the reason with the id
+appended in brackets, and its `ex-data` carries four slots that
+`re-frame.hicasso.impl.error/fail!` refuses to mint a refusal without:
+
+- `:rf.error/id` — the stable discriminator. **This** is what to branch on.
+- `:where` — the symbol naming the fn that refused.
+- `:reason` — the human sentence.
+- `:recovery` — a keyword naming the concrete fix.
+
+Those four are guaranteed, because the constructor's guard reads the ex-data
+map it is about to throw rather than the arguments it was handed.
+
+Beyond them a complaint carries its own class's situational slots — the
+offending value, the prop position, the frame — enumerated per id in Spec
+009's sixth column.
+
+**Two further slots, `:view` and `:source`, are context and not contract.**
+They name the boundary that was rendering and the file and line its
+`defview` was written at, and they are supplied when the runtime is inside
+a declaration or a render extent in a dev build. Outside every such extent,
+and under `:advanced` with `goog.DEBUG` false, they are **absent** — not
+nil, absent. Read them to help a human; never branch on them, and never
+require them in a test that must also pass in a production build. The
+provenance of those two slots when no origin names a view is `rf2-hic-007`'s
+to settle, and this catalogue deliberately promises nothing about it.
+
+## The stability rule
+
+1. **An id never changes meaning.** If the refusal it names becomes a
+   different refusal, that is a new id and the old one retires.
+2. **An id never changes spelling.** A rename is a retirement plus a mint,
+   and both rows are written.
+3. **A retired id is tombstoned, never reused.** Its row stays below with
+   the reason, forever. A consumer's stored errors, a monitor's grouping
+   rule and a page of prose all outlive the code, and a reused spelling
+   makes every one of them silently wrong about which failure it saw.
+4. **A reserved id has no meaning yet beyond the sentence in its row.** It
+   claims a spelling so that the surface's builder does not mint a second
+   one and the guide does not have to be rewritten when it lands. Its
+   payload and its `:recovery` are settled by the bead that builds the
+   emitter, which writes the Spec 009 row in the same PR.
+
+Rules 3 and 4 are mechanised — a reserved or retired id that acquires an
+emitter reds the gate, and so does an id registered under two statuses.
+
+## Live complaints
+
+Raised by the shipped package today. The Spec 009 §Hicasso rows carry the
+meaning, the payload and the recovery for each; the chapter column points
+at the guide page that teaches how not to hit it (`—` means no page names
+it yet).
+
+Four ids here are **corpus-owned** — Hicasso reuses a spelling the wider
+framework already defines rather than minting a private twin — and are
+rowed in Spec 009's main catalogue rather than in its Hicasso section.
+
+<!-- rf2-hic-021: status=live -->
+
+| Complaint | Raised when you | Taught in |
+|---|---|---|
+| `:rf.error/hicasso-bad-head` | put something outside the closed head set in hiccup head position | ch02, ch06, ch15 |
+| `:rf.error/hicasso-deferred-read-at-boundary` | let an unforced `delay` reach a boundary's props | ch02, ch14, ch15 |
+| `:rf.error/hicasso-dispatch-in-render-position` | dispatched from a render callback while it was running | ch03, ch09 |
+| `:rf.error/hicasso-empty-vector` | wrote `[]` where hiccup was expected | — |
+| `:rf.error/hicasso-frame-outside-boundary` | asked for the frame with no Hicasso render extent in scope | — |
+| `:rf.error/hicasso-generation-fence-exhausted` | wrote to app-db from a body, on four consecutive runs | — |
+| `:rf.error/hicasso-host-bad-ssr-policy` | gave a `defhost` a server policy outside the three it admits | ch09, ch17 |
+| `:rf.error/hicasso-host-callback-slot-collision` | declared two spellings of one callback slot on a `defhost` | — |
+| `:rf.error/hicasso-host-fallback-boundary-head` | put a `defview` or `defhost` head inside a declared fallback | ch09, ch17 |
+| `:rf.error/hicasso-host-no-component` | declared a `defhost` over `nil` | — |
+| `:rf.error/hicasso-host-structural-callback` | declared a callback contract on `key` or `ref` | — |
+| `:rf.error/hicasso-host-unclaimed-callback` | wrote the one callback form at a `defhost` slot nothing claims | ch09, ch15 |
+| `:rf.error/hicasso-host-undeclared-callback` | sent an intent to a `defhost` prop the declaration does not name | ch09, ch19 |
+| `:rf.error/hicasso-host-unknown-option` | gave a `defhost` declaration an option outside its roster | ch09, ch17 |
+| `:rf.error/hicasso-intent-at-a-non-event-contract` | put an intent at a position declared `:handler` or `:render` | ch03, ch09 |
+| `:rf.error/hicasso-intent-needs-the-event` | wrote an event-reading intent at a value-first foreign callback | ch03, ch09 |
+| `:rf.error/hicasso-intent-outside-boundary` | lowered or fired an intent with no frame-locked dispatch bound | ch15, ch16 |
+| `:rf.error/hicasso-malformed-navigate` | wrote the navigate decorator outside its closed grammar | ch07 |
+| `:rf.error/hicasso-malformed-prevent` | wrapped something other than exactly one intent vector in the prevent decorator | ch03 |
+| `:rf.error/hicasso-merge-not-a-map` | forwarded a non-map at the attribute-remainder key | — |
+| `:rf.error/hicasso-presence-child-not-hiccup` | gave a presence boundary a child that is not a hiccup vector | — |
+| `:rf.error/hicasso-presence-child-unkeyed` | gave a presence child no `:key` | — |
+| `:rf.error/hicasso-presence-override-on-a-view` | wrote a phase-attribute override on a view head | ch11 |
+| `:rf.error/hicasso-presence-timeout-required` | left a presence boundary's timeout absent or not positive | — |
+| `:rf.error/hicasso-raw-no-component` | handed the raw escape `nil` in component position | ch09 |
+| `:rf.error/hicasso-raw-not-a-component` | handed the raw escape a value React will not mint a fiber for | ch09 |
+| `:rf.error/hicasso-ref-vector-reserved` | put a vector at the canonical `ref` slot | — |
+| `:rf.error/hicasso-refusal-incomplete` | (framework-internal) minted a refusal missing one of the four required slots | — |
+| `:rf.error/hicasso-revision-from-remainder` | let a forwarded attribute map introduce the reset trigger | — |
+| `:rf.error/hicasso-revision-not-controlled` | put the reset trigger on something that is not a controlled text field | ch04, ch05, ch15 |
+| `:rf.error/hicasso-route-link-bad-on-click` | gave a route link an `:on-click` outside the route-click roster | — |
+| `:rf.error/hicasso-route-link-outside-boundary` | rendered a route link with no ambient frame | — |
+| `:rf.error/hicasso-route-link-prefetch-declined` | wrote `:prefetch` on a route link (declined outright in v0) | — |
+| `:rf.error/hicasso-state-bad-concern` | registered an ephemeral-state concern that is not namespace-qualified | — |
+| `:rf.error/hicasso-state-bad-key` | used an instance key outside the accepted set (`nil` included) | — |
+| `:rf.error/hicasso-state-bad-option` | passed non-map options, or an option outside the roster, at registration | — |
+| `:rf.error/hicasso-state-redefined` | re-registered a concern with a different default | — |
+| `:rf.error/hicasso-sub-outside-render` | read a subscription outside a boundary body | ch02, ch14, ch15 |
+| `:rf.error/hicasso-true-child` | let `true` reach child position | ch02 |
+| `:rf.error/hicasso-unknown-callback-contract` | named a callback contract outside `:event` / `:handler` / `:render` | — |
+| `:rf.error/no-frame-prop` | mounted a frame-fed boundary with no frame in its props | — |
+| `:rf.error/hicasso-test-bad-reads` | gave an L2 render a `:reads` option that is not a query-to-value map | — |
+| `:rf.error/hicasso-test-boundary-body-not-retained` | rendered a minted head at L2 in a build that erased its body | — |
+| `:rf.error/hicasso-test-host-is-opaque` | let a `defhost` crossing reach the L2 semantic tree | — |
+| `:rf.error/hicasso-test-l1-dispatch` | invoked a handler lowered by a pure L1 projection | — |
+| `:rf.error/hicasso-test-missing-read-fixture` | let an L2 body read a subscription no fixture answers | — |
+| `:rf.error/hicasso-test-no-handler-at-position` | fired at a prop position the form does not write | — |
+| `:rf.error/hicasso-test-not-a-body` | gave an L2 render form a head that is not a `defview` body | — |
+| `:rf.error/hicasso-test-not-a-dom-node` | gave the canonical-DOM comparator something that is not a DOM node | — |
+| `:rf.error/hicasso-test-not-a-host` | read the declared server policy off something that is not a `defhost` | — |
+| `:rf.error/hicasso-test-not-a-native-form` | gave an L1 projection a form whose head is not a tag keyword | — |
+| `:rf.error/hicasso-test-not-a-render-form` | gave an L2 render something other than a hiccup form | — |
+| `:rf.error/hicasso-test-not-an-intent` | gave the L1 marker materializer something other than an intent vector | — |
+| `:rf.error/hicasso-test-plain-fn-head` | put a plain function in a hiccup head inside an L2 tree | — |
+| `:rf.error/hicasso-test-position-is-not-a-handler` | fired at a position that lowers to something other than a function | — |
+| `:rf.error/hicasso-test-react-is-opaque` | let a raw React element reach the L2 semantic tree | — |
+| `:rf.error/no-frame-context` | (corpus-owned) rendered a Hicasso boundary whose React context carries no frame | ch03, ch09, ch10, ch17, ch19 |
+| `:rf.error/routing-artefact-missing` | (corpus-owned) rendered a route link with routing absent | ch07 |
+| `:rf.error/ui-tree-malformed` | (corpus-owned) let a value outside the structural-tree grammar reach an L2 tree or a projection | — |
+
+## Reserved spellings
+
+Each row names a refusal the design record already teaches by mechanism, on
+a surface that is not built yet. **A refusal with no id is invisible to a
+round trip** — nothing raises it and no catalogue carries it, so a raise-set
+and a catalogue-set agree while the coverage is entirely missing. Reserving
+the spelling is what makes that population countable, keeps two builders
+from minting two names for one refusal, and lets the guide cite an id today.
+
+A reservation is promoted, never drifted into: the bead that builds the
+surface writes the emitter, writes the Spec 009 row, and moves the row up
+into the live table in the same PR.
+
+<!-- rf2-hic-021: status=reserved -->
+
+| Reserved | Will refuse | Owner |
+|---|---|---|
+| `:rf.error/hicasso-view-called-directly` | a `defview` invoked as a function instead of mounted as a hiccup head | `defview` expansion. `re-frame.hicasso/direct-view-call` catches the static case today; this is the runtime half. Freehand's `:rf.error/view-called-directly` belongs to that substrate and is not shared |
+| `:rf.error/hicasso-native-map-as-child` | a dynamic map written in props position, which lands as a child | the native tier (`n/$`) |
+| `:rf.error/hicasso-native-hiccup-child` | a hiccup vector in a native child position, where brackets have no meaning | the native tier (`n/$`) |
+| `:rf.error/hicasso-native-intent-in-prop` | an intent vector at a native prop, past the fence where nothing lowers it | the native tier (`n/$`) |
+| `:rf.error/hicasso-native-children-in-props` | `:children` written in a native props map, which has one child channel | the native tier (`n/$`) |
+| `:rf.error/hicasso-native-slot-collision` | two source keys in a native props map normalising to one React slot | the native tier (`n/$`) |
+| `:rf.error/hicasso-test-hook-is-opaque` | a React hook reached from a body run at L2, where no React is running | the test kit's opacity family |
+| `:rf.error/hicasso-test-native-is-opaque` | a native-tier element reaching the L2 semantic tree | the test kit's opacity family, once the native tier lands |
+| `:rf.error/hicasso-test-residue-after-quiescence` | residue left behind after quiescence, against the pre-mount baseline | the mounted test facade's clean-state assertion |
+| `:rf.error/hicasso-contenteditable-not-controllable` | a controlled `:value` binding on a contenteditable region | the controlled-input law |
+| `:rf.error/hicasso-route-link-bad-prefetch` | a route link's `:prefetch` carrying a value the link does not accept | the route-link door, once `:prefetch` is accepted rather than declined. **Not** the retired spelling below |
+| `:rf.error/hicasso-overlay-anchor-missing` | an overlay declaring an anchor that resolves to no element | the overlay module. **Spelling provisional** — [`naming-ledger.md`](naming-ledger.md) row 30 holds it for the naming packet; this row catalogues whatever that settles on |
+
+## Retiring later
+
+An id that is live today and whose refusal the design record has already
+decided to remove. The row exists so the spelling is dead the moment the
+refusal is, rather than being quietly re-minted for the successor.
+
+<!-- rf2-hic-021: status=pending-retirement -->
+
+| Complaint | Retires when | Successor |
+|---|---|---|
+| `:rf.error/hicasso-route-link-prefetch-declined` | route links accept `:prefetch` instead of declining the key outright | `:rf.error/hicasso-route-link-bad-prefetch`, reserved above. The declined spelling is **never** reused for the wrong-value refusal: the two say different things — *this key does nothing here* against *this value is not one of the ones it takes* — and a monitor grouping by id would silently merge them |
+
+## Tombstones
+
+Spellings that are dead. None yet.
+
+<!-- rf2-hic-021: status=retired -->
+
+| Retired | Was | Why it is dead |
+|---|---|---|
+
+## Rulings this catalogue owns
+
+**Complaint text is built by `fail!`, not routed through `re-frame.error`.**
+`impl/error.cljc` and Spec 009's §Hicasso both defer this question here.
+The answer is that it stays where it is. The message shape `fail!` produces
+is already core's contract — the reason with the bracketed id appended — so
+routing through core's builder changes nothing a reader sees, while it
+would put every sentence in the package under core's message conventions
+and add a dependency to the one door every refusal passes through. The
+`rf2:builder-bypass-ok` marker at that call records the exception honestly:
+`id` is a parameter there, so the source cannot show what the message will
+say, which is the checker's own computed-discriminator case rather than a
+bypass of the contract.
+
+**The four required slots are the contract; `:view` and `:source` are not.**
+Stated above under *What every complaint carries*, and repeated here because
+it is the promise most easily made too broadly.
+
+## Open, and not settled here
+
+- **The forms module's failure modes have no ids.** The guide teaches them
+  behaviourally — a duplicate draft address, a commit arriving after a
+  cancel — and whether either deserves a catalogue id is a design question
+  the module's own sitting takes, not one a register can decide. Nothing is
+  reserved for them.
+- **`:rf.error/no-frame-prop` is the one live id without the `hicasso-`
+  prefix.** Nothing in core emits it and it reads as a sibling of the
+  corpus-owned `:rf.error/no-frame-context`. Whether it is renamed into the
+  family is a naming question; it is recorded as found rather than
+  corrected, and a rename would be a retirement plus a mint under rule 2.
