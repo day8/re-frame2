@@ -215,7 +215,11 @@
         (is (= :incomplete-envelope (refusal-id o)))
         (is (= [{:defect :missing :key key}] (defect-ids o))))))
   (testing "a foreign schema, producer or read is refused rather than parsed"
-    (doseq [[key v] [[:schema :re-frame.hicasso.evidence/v2]
+    ;; v1 is the SUPERSEDED version, not a hypothetical one: the shape moved
+    ;; under it in the #7789 repair and the stamp moved with it in the #7802
+    ;; repair. Naming the real predecessor here is what makes the refusal a
+    ;; statement about this door's own history rather than about a spelling.
+    (doseq [[key v] [[:schema :re-frame.hicasso.evidence/v1]
                      [:producer :re-frame/somebody-else]
                      [:read :whatever]]]
       (let [o (outcome #(evidence/envelope (assoc good-envelope key v)))]

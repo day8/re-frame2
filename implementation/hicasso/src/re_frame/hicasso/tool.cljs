@@ -361,7 +361,7 @@
   says how far to trust the roster. `nil` in a production build.
 
       (tool/read-mounted-boundaries)
-      ;; => {:schema     :re-frame.hicasso.evidence/v1
+      ;; => {:schema     :re-frame.hicasso.evidence/v2
       ;;     :producer   :re-frame/hicasso
       ;;     :read       :mounted-boundaries
       ;;     :scope      :mounted-boundaries

@@ -171,13 +171,46 @@
 (deftest the-schema-pin-is-consumer-owned-and-exact
   (testing "an envelope stamped anything else degrades rather than mis-parses"
     (is (true? (hh/supported? mounted)))
-    (is (false? (hh/supported? (assoc mounted :schema :re-frame.hicasso.evidence/v2))))
+    (is (false? (hh/supported? (assoc mounted :schema :re-frame.hicasso.evidence/v99))))
     (is (false? (hh/supported? (assoc mounted :producer :re-frame/freehand))))
     (is (false? (hh/supported? nil))))
   (testing "an unsupported envelope yields NO rows — never a half-parsed one"
     (doseq [f [hh/mounted-rows hh/attribution-rows hh/intent-rows hh/explain-rows]]
-      (is (= [] (f (assoc mounted :schema :re-frame.hicasso.evidence/v2))))
+      (is (= [] (f (assoc mounted :schema :re-frame.hicasso.evidence/v99))))
       (is (= [] (f nil))))))
+
+(deftest the-superseded-v1-shape-is-refused-rather-than-mis-parsed
+  ;; MERGED-PR AUDIT #7802, RESIDUAL 1. The #7789 repair evolved the wire
+  ;; shape — key elements from `[frame-id query]` to
+  ;; `[frame-id sub-id projected-query]`, intent rows from a singular
+  ;; `:frame-id` to a plural `:frames`, `:latest-reads` from bare sub-ids to
+  ;; `{:sub-id :query :frame-id}` maps, plus new host fields — and left the
+  ;; stamp at v1. So for one increment this pin accepted, as EXACT, a shape
+  ;; it had never been taught: a version that lies, which is worse than no
+  ;; version because it turns a loud refusal into a silent misread.
+  ;;
+  ;; The pin only earns its keep if the predecessor now MISMATCHES. There is
+  ;; no v1 acceptance path and no compatibility adapter to route around this.
+  (let [v1 (assoc mounted :schema :re-frame.hicasso.evidence/v1)]
+    (testing "the pin names the version whose shape this build actually parses"
+      (is (= :re-frame.hicasso.evidence/v2 hh/consumed-evidence-schema)
+          (str "the wire shape and the stamp move together or the pin is "
+               "nominal — change one and this row says so")))
+
+    (testing "NON-VACUITY: the identical envelope under the current stamp parses"
+      (is (true? (hh/supported? mounted)))
+      (is (= 2 (count (hh/mounted-rows mounted)))
+          (str "if this row fails, the refusals below are passing against an "
+               "envelope that would have yielded nothing anyway")))
+
+    (testing "the superseded stamp is a MISMATCH, not an older dialect"
+      (is (false? (hh/supported? v1)))
+      (is (= :mismatch (hh/presence v1 false))
+          "and it renders the mismatch banner, not an empty roster"))
+
+    (testing "and every view suppresses its rows rather than half-parsing them"
+      (doseq [f [hh/mounted-rows hh/attribution-rows hh/intent-rows hh/explain-rows]]
+        (is (= [] (f v1)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; The row projections

@@ -246,23 +246,32 @@
 
 (deftest an-unparseable-schema-is-MISMATCH-and-suppresses-rows
   (setup!)
-  ;; A producer that has EVOLVED: real rows, stamped a version this build was
-  ;; not taught. Rows are suppressed rather than mis-parsed — an evolved shape
-  ;; read as though it were the expected one is worse than no rows at all.
-  (let [release  (mount! (fn [_] (h/sub [:htab/left]) nil))
-        evolved  (assoc (tool/read-mounted-boundaries)
-                        :schema :re-frame.hicasso.evidence/v99)]
-    (is (seq (:boundaries evolved))
-        "NON-VACUITY: the envelope being refused really does carry rows")
-    (with-redefs [reads/evidence (constantly {:mounted-boundaries evolved
-                                              :read-attribution   evolved
-                                              :intents            evolved
-                                              :explain-render     evolved})]
-      (let [tree (show! :mounted)
-            ids  (testids tree)]
-        (is (contains? ids "rf-xray-hicasso-mismatch"))
-        (is (not (contains? ids "rf-xray-hicasso-empty-mounted")))
-        (is (string/includes? (text-of tree) "not taught to parse"))))
+  ;; Real rows, stamped a version this build was not taught. Rows are
+  ;; suppressed rather than mis-parsed — a shape read as though it were the
+  ;; expected one is worse than no rows at all.
+  ;;
+  ;; BOTH DIRECTIONS, because the pin is exact rather than a floor. `/v99` is
+  ;; a producer that evolved ahead of this build. `/v1` is the SUPERSEDED
+  ;; stamp, and it is the one that matters: the #7789 repair moved the wire
+  ;; shape and left the stamp behind, so for one increment a v1 envelope
+  ;; carrying a v2 shape parsed as exact (audit #7802). There is no v1
+  ;; acceptance path — the predecessor mismatches on the page, like anything
+  ;; else this build was not taught.
+  (let [release (mount! (fn [_] (h/sub [:htab/left]) nil))]
+    (doseq [stamp [:re-frame.hicasso.evidence/v1
+                   :re-frame.hicasso.evidence/v99]]
+      (let [other (assoc (tool/read-mounted-boundaries) :schema stamp)]
+        (is (seq (:boundaries other))
+            "NON-VACUITY: the envelope being refused really does carry rows")
+        (with-redefs [reads/evidence (constantly {:mounted-boundaries other
+                                                  :read-attribution   other
+                                                  :intents            other
+                                                  :explain-render     other})]
+          (let [tree (show! :mounted)
+                ids  (testids tree)]
+            (is (contains? ids "rf-xray-hicasso-mismatch") (str stamp))
+            (is (not (contains? ids "rf-xray-hicasso-empty-mounted")) (str stamp))
+            (is (string/includes? (text-of tree) "not taught to parse"))))))
     (release)))
 
 ;; ---------------------------------------------------------------------------

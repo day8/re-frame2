@@ -41,7 +41,7 @@ Every envelope carries seven axes. Three identify it; four state how far to
 trust it.
 
 ```clojure
-{:schema     :re-frame.hicasso.evidence/v1   ; validated FIRST
+{:schema     :re-frame.hicasso.evidence/v2   ; validated FIRST
  :producer   :re-frame/hicasso               ; the schema is adapter-neutral
  :read       :mounted-boundaries             ; which question this answers
  :scope      :mounted-boundaries             ; what it covers
@@ -97,6 +97,36 @@ producer makes any bump silently "supported", so an evolved shape would be
 mis-parsed as exact and the version boundary would be nominal. A projection
 stamped a schema (or a producer) this build was not taught suppresses rows
 and renders the mismatch banner.
+
+### v1 → v2: the version tells the truth or it is worse than nothing
+
+The #7789 audit repair changed the wire shape and left the stamp at `v1`, so
+for one increment the pin accepted — as exact — a shape it had never been
+taught. The merged-PR audit of #7802 called that the one defect a version
+exists to prevent, and producer and consumer now stamp `v2` in lockstep.
+
+| Field | v1 | v2 |
+|---|---|---|
+| a boundary key element | `[frame-id query]` | `[frame-id sub-id projected-query]` |
+| an intent row's frame | `:frame-id`, singular | `:frames`, a vector |
+| `:latest-reads` | bare sub-ids | `{:sub-id :query :frame-id}` maps |
+| the `:host` projection | commit / paint / attempt-outcome | `:visibility` and `:hidden-retained` besides |
+
+Each row is a silent misread waiting to happen: a v1 parser takes the sub-id
+in a key element for the query, iterates a map where it expected a keyword,
+and reads an absent `:frame-id` as a frameless intent. That is why a version
+that lies is worse than no version — it converts a loud failure into a quiet
+wrong answer.
+
+**There is no v1 acceptance path and no compatibility adapter.** This is
+pre-alpha; a shim would restore exactly the mis-parse the pin refuses. A
+v1-stamped envelope is a mismatch at the data layer
+(`hicasso_helpers_cljs_test/the-superseded-v1-shape-is-refused-rather-than-mis-parsed`,
+with a non-vacuity row proving the same envelope parses under the current
+stamp) and on the page
+(`hicasso_cljs_test/an-unparseable-schema-is-MISMATCH-and-suppresses-rows`,
+which drives both the superseded `v1` and an unknown future `v99`, because the
+pin is exact rather than a floor).
 
 ---
 

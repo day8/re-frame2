@@ -52,8 +52,18 @@
   shape would be mis-parsed as exact and the version boundary would be
   nominal. Pinning a literal makes a producer that evolves its shape a
   DETECTABLE mismatch until this build is taught the new shape and this
-  pin is bumped in lockstep."
-  :re-frame.hicasso.evidence/v1)
+  pin is bumped in lockstep.
+
+  **v2 is that lockstep bump, and it is the point of the mechanism.** The
+  #7789 audit repair evolved the wire shape — projected key elements,
+  plural intent frames, `:latest-reads` as maps, new host fields — while
+  leaving the stamp at v1, so for one increment this pin was accepting a
+  shape it had NOT been taught and parsing it as exact (audit #7802). A
+  version that lies is worse than no version: it converts a loud failure
+  into a silent misread. There is no v1 acceptance path here — pre-alpha
+  needs no compatibility adapter, and a shim would restore the very
+  mis-parse the pin exists to refuse."
+  :re-frame.hicasso.evidence/v2)
 
 (def consumed-producer
   "The producing substrate this tab renders.
