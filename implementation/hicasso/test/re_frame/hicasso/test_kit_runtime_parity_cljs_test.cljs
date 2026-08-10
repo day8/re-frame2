@@ -372,6 +372,21 @@
                                 (= (nth runtime 2) (:recovery refuses))))
                          rows)]
       (is (seq shared))
-      (is (seq (filter #(str/starts-with? (str (:where (:refuses %))) "front.codec/")
+      ;; The RAISING SITE is what makes a shared row shared. The kit stamps
+      ;; its own refusals `re-frame.hicasso.test`, so a `:where` inside the
+      ;; runtime's own namespaces is the evidence that the id came from the
+      ;; interpreter rather than from a kit-private twin — which is the
+      ;; sentence below, stated as a predicate.
+      ;;
+      ;; It reads the PACKAGE prefix rather than one file, and deliberately:
+      ;; WHICH `impl` namespace guards a given hiccup form is the runtime's
+      ;; business and has moved once already. This row spent a release
+      ;; pinning `front.codec/` — a benchmark-tree namespace the shipped
+      ;; package does not contain — so a coordinate no consumer could follow
+      ;; was held in place by a green assertion (rf2-hic-007). A prefix that
+      ;; names the package survives the next move; one that names a file
+      ;; only survives until it.
+      (is (seq (filter #(str/starts-with? (str (:where (:refuses %)))
+                                          "re-frame.hicasso.impl.")
                        shared))
           "at least one row's refusal is raised by the runtime's own guard"))))
