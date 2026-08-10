@@ -218,11 +218,12 @@ of a drain; the binding rule is hot-zone parallelism, not strict same-surface.
   check are set out in this repo's `.claude/commands/mayor-merge.md`. Either way the
   silent no-op teaches the wider rule: **after a mutating step, verify the tree
   rather than the message** — compare `HEAD` against `origin/main` instead of
-  reading the line it printed. That comparison has a false alarm of its own, from the same asynchronous
-  writer that makes "Base branch was modified" a real race above: the audit push can
-  land between the two `rev-parse` reads, so they answer at different instants and a
-  perfectly synchronised checkout reports a mismatch. One disagreement is not yet
-  evidence — read both refs again, and believe it only if it survives.
+  reading the line it printed. That comparison has a false alarm of its own, from
+  the same asynchronous writer that makes "Base branch was modified" a real race
+  above: the audit push can land between the two `rev-parse` reads, so they answer
+  at different instants and a perfectly synchronised checkout reports a mismatch.
+  One disagreement is not yet evidence — read both refs again, and believe it only
+  if it survives.
 - *Concurrent workers share the machine's temp directory.* Two workers writing the
   same `/tmp/gate.log` overwrite each other, and the loser reads a green belonging
   to someone else's run — plausible numbers, wrong code. This defeats the rule
