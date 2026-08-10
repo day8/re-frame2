@@ -338,6 +338,15 @@ _LIST_ITEM_START_RE = re.compile(
 # in-quote indent directly comparable to a column-0 one.
 _QUOTE_MARKER_RE = re.compile(r"[ ]{0,3}>[ \t]?")
 
+# superfences' `PREFIX_CHARS` (rf2-1cpt).  It does not parse blockquote markers
+# as markers at all: `parse_whitespace` walks the leading run of these three
+# characters and keeps its RAW WIDTH, so `>`, `> ` and `>   ` are three
+# different prefixes rather than three spellings of depth 1.  That width is what
+# decides whether a quoted fence closes, which is why `_quote_depth_and_body` —
+# which deliberately normalises the prefix away — cannot answer the question on
+# its own.
+_FENCE_PREFIX_CHARS = frozenset(">  \t")
+
 
 # rf2-t0ituo / rf2-57k74 — cross-handbook compatibility-anchor manifest +
 # source-comment link gate.
@@ -664,18 +673,22 @@ def _strip_fences(lines: list[str]) -> list[tuple[int, str]]:
             open_columns.pop()
         content_column = open_columns[-1] if open_columns else 0
 
-        # (opening marker, its indentation, its blockquote depth)
-        opener: tuple[str, int, int] | None = None
+        # (opening marker, its indentation, its superfences PREFIX).  The
+        # prefix is "" for an unquoted fence and the literal `>`/space run for
+        # a quoted one, which is the form `_fence_close` has to compare
+        # against (rf2-1cpt).
+        opener: tuple[str, int, str] | None = None
         if indent <= content_column + 3:
             quote_depth, quoted_body = _quote_depth_and_body(raw[indent:])
             if quote_depth:
                 qm = _FENCE_RE.match(quoted_body)
                 if qm and len(qm.group("indent")) <= 3:
-                    opener = (qm.group("marker"), len(qm.group("indent")), quote_depth)
+                    prefix, _rest = _fence_prefix(raw)
+                    opener = (qm.group("marker"), len(qm.group("indent")), prefix)
         if opener is None:
             m = _FENCE_RE.match(raw)
             if m and content_column <= indent <= content_column + 3:
-                opener = (m.group("marker"), indent, 0)
+                opener = (m.group("marker"), indent, "")
 
         if opener is not None:
             close = _fence_close(lines, i + 1, opener, content_column)
@@ -706,7 +719,7 @@ def _strip_fences(lines: list[str]) -> list[tuple[int, str]]:
 def _fence_close(
     lines: list[str],
     start: int,
-    opener: tuple[str, int, int],
+    opener: tuple[str, int, str],
     content_column: int,
 ) -> int | None:
     """Index of the line closing `opener`, or None if it never closes.
@@ -714,33 +727,35 @@ def _fence_close(
     Split out of `_strip_fences` so that a fence is committed to only once its
     closer is in hand (rf2-mmyc).  The closing test is superfences': the
     opener's EXACT marker run, at the opener's EXACT indentation, carrying no
-    info string, at the opener's own blockquote depth.
+    info string.
 
     Returning None is the load-bearing case.  It means the renderer never sees a
     fenced block here, so the caller must blank NOTHING — not the body, not the
     opener, and above all not the rest of the document.
 
     A blank line closes nothing and ends no container: superfences counts it and
-    reads on.  A non-blank line shallower than the fence's container (or, in a
-    blockquote, quoted less deeply than the opener) means the container closed
-    first, so the closer cannot be below it.
+    reads on.  A non-blank line shallower than the fence's container means the
+    container closed first, so the closer cannot be below it.
+
+    INSIDE A BLOCKQUOTE the test is the raw PREFIX WIDTH, not the quote depth
+    (rf2-1cpt, MERGED-PR AUDIT #7786).  `eval_quoted` abandons the fence when a
+    line is quoted more deeply than the opener or carries a NARROWER prefix than
+    it, and `parse_fence_line` reads each line's prefix only as far as the
+    opener's reached.  Comparing depth instead treats `>`, `> ` and `>  ` as the
+    same prefix, which closed fences the renderer never opens and hid the real
+    links written inside them.
     """
-    marker, fence_indent, fence_depth = opener
+    marker, fence_indent, fence_prefix = opener
+    if fence_prefix:
+        return _quoted_fence_close(lines, start, marker, fence_prefix)
     for j in range(start, len(lines)):
         raw = lines[j]
         if not raw.strip():
             continue
         indent = len(raw) - len(raw.lstrip(" "))
-        if fence_depth:
-            depth, body = _quote_depth_and_body(raw[indent:], limit=fence_depth)
-            if depth != fence_depth:
-                return None  # the blockquote holding the fence ended first
-            candidate = body
-        else:
-            if indent < content_column:
-                return None  # the container holding the fence ended first
-            candidate = raw
-        m = _FENCE_RE.match(candidate)
+        if indent < content_column:
+            return None  # the container holding the fence ended first
+        m = _FENCE_RE.match(raw)
         if (
             m
             and m.group("marker") == marker
@@ -748,6 +763,39 @@ def _fence_close(
             and not m.group("info").strip()
         ):
             return j
+    return None  # end of document, with no closer
+
+
+def _quoted_fence_close(
+    lines: list[str],
+    start: int,
+    marker: str,
+    prefix: str,
+) -> int | None:
+    """`_fence_close` for a fence opened inside a blockquote (rf2-1cpt).
+
+    A direct port of superfences' `eval_quoted`, in its order, because the order
+    is load-bearing: an EMPTY content line is accepted before the prefix-width
+    test, which is what lets a bare `>` sit inside a `> ` fence without ending
+    it.
+    """
+    width = len(prefix)
+    quote_level = prefix.count(">")
+    empty_lines = 0
+    for j in range(start, len(lines)):
+        ws, content = _fence_prefix(lines[j], limit=width)
+        if ws.count(">") > quote_level:
+            return None  # quoted deeper than the opener: superfences clears
+        if not content.strip():
+            empty_lines += 1
+            continue
+        if len(ws) < width:
+            return None  # "not indented enough" — the fence is abandoned
+        if empty_lines and ws.count(">") < quote_level:
+            return None  # a blank line, then a shallower quote: the quote ended
+        if content.startswith(marker) and not content[len(marker):].strip(" \t"):
+            return j  # the opener's exact run, with nothing after it
+        empty_lines = 0
     return None  # end of document, with no closer
 
 
@@ -1044,6 +1092,35 @@ def _quote_depth_and_body(content: str, limit: int | None = None) -> tuple[int, 
         depth += 1
         pos = m.end()
     return depth, content[pos:]
+
+
+def _fence_prefix(line: str, limit: int | None = None) -> tuple[str, str]:
+    """Split a line into superfences' fence PREFIX and the content after it.
+
+    A port of superfences' `parse_whitespace` (`limit=None`, used on the opening
+    line) and `parse_fence_line` (`limit=<opener width>`, used on every line
+    below it).  Both walk the leading run of `>`, space and tab without giving
+    `>` any special meaning; the second stops once it has consumed as many
+    columns as the OPENER's prefix occupied.
+
+    That cap is the whole mechanism (rf2-1cpt).  A line quoted more deeply than
+    its fence is not a nested quote to superfences — the cap simply stops before
+    the extra `>`, which is then the first character of a line of code.  And a
+    line whose prefix is NARROWER than the opener's is "not indented enough", so
+    the fence is abandoned rather than continued.
+
+    Tabs are counted as one column, matching this scanner's existing bound: the
+    corpus has no tab-indented fence, and superfences would expand them to the
+    configured tab length.
+    """
+    end = 0
+    for ch in line:
+        if limit is not None and end >= limit:
+            break
+        if ch not in _FENCE_PREFIX_CHARS:
+            break
+        end += 1
+    return line[:end], line[end:]
 
 
 def _inline_blocks(
