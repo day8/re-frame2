@@ -225,15 +225,17 @@ The full list:
 
 ## Disposition of the still-live rows
 
-The 18 STILL-LIVE rows resolve into **four clusters**, not eighteen independent problems.
+**Seventeen** of the 18 STILL-LIVE rows resolve into **four migration clusters**, not eighteen
+independent problems. The eighteenth, **X3**, is not a migration at all: it is an adapter-identity
+cleanup that folds into `rf2-hic-062` itself. Seventeen plus X3 is the whole still-live set.
 
 | cluster | rows | what moving it costs | disposition |
 |---|---|---|---|
-| Xray Views panel on donor 2 | X1, X2, X4, X5 | re-authoring against four different reads; the panel's whole question ("which *views* are mounted") is one the target cannot answer, because Hicasso keys boundaries by read set and has no view registry | follow-up bead |
-| The staged Freehand deck | X6, X7, X8 | the deck's shadow-cljs build id and `:dev-http` port live in top-level `implementation/shadow-cljs.edn` — hot zone, and fenced out of this bead | follow-up bead |
-| Story presence bridge | S2, S3, S4, S5, S6 | Hicasso's presence surface is `re-frame.hicasso.impl.presence` / `.presence-react`, not a published `presence-runtime` door with `advance-clock!`; the bridge needs a target-side verb that does not exist yet | follow-up bead |
-| Pair's five view tools | P1, P2, P3, P4, P5 | same four-reads problem as the Xray cluster, plus a regenerated `tool-descriptors.edn` and a spec-catalogue rewrite | follow-up bead |
-| Xray adapter-id set | X3 | `:rf.adapter/ui` and `:rf.adapter/freehand` are adapter identities, not evidence reads; they retire when the adapters do, under `rf2-hic-062` itself | fold into rf2-hic-062 |
+| Xray Views panel on donor 2 | X1, X2, X4, X5 | re-authoring against four different reads; the panel's whole question ("which *views* are mounted") is one the target cannot answer, because Hicasso keys boundaries by read set and has no view registry | follow-up bead `rf2-jkdy` |
+| The staged Freehand deck | X6, X7, X8 | the deck's shadow-cljs build id and `:dev-http` port live in top-level `implementation/shadow-cljs.edn` — hot zone, and fenced out of this bead | follow-up bead `rf2-u5b4` |
+| Story presence bridge | S2, S3, S4, S5, S6 | Hicasso's presence surface is `re-frame.hicasso.impl.presence` / `.presence-react`, not a published `presence-runtime` door with `advance-clock!`; the bridge needs a target-side verb that does not exist yet | follow-up bead `rf2-5gka` |
+| Pair's five view tools | P1, P2, P3, P4, P5 | same four-reads problem as the Xray cluster, plus a regenerated `tool-descriptors.edn` and a spec-catalogue rewrite | follow-up bead `rf2-n3mb` |
+| Xray adapter-id set | X3 | `:rf.adapter/ui` and `:rf.adapter/freehand` are adapter identities, not evidence reads; they retire when the adapters do, under `rf2-hic-062` itself | fold into `rf2-hic-062` — no follow-up bead |
 
 **No migration was made in this bead, and that is the finding rather than a shortfall.** Every
 still-live cluster fails the same test: the target does not publish the read the consumer needs, so
@@ -252,11 +254,19 @@ For `rf2-hic-062` to cite:
 > **Primary tool paths are not yet donor-free.** Of 27 tool-consumer rows across Xray, Story and
 > Pair, 4 are MIGRATED to the adapter-neutral Hicasso provider (all in Xray's Hicasso tab), 5 are
 > FIXTURE-ONLY compatibility evidence in Story's `test/` tree on a `:test`-alias classpath, and
-> **18 are STILL-LIVE on a donor tier**. The 18 form four clusters: Xray's Reactive-panel Views
-> section and its `tools/xray/deps.edn` top-level `day8/re-frame2-freehand` coordinate; the staged
-> `freehand-views` browser deck and its feature-matrix scenario; Story's shipped `presence-host`
-> bridge; and all five of Pair's view tools, which reach `re-frame.freehand.tool` by wire string
-> rather than by `:require` and therefore do not appear in any classpath scan.
+> **18 are STILL-LIVE on a donor tier**. **Seventeen** of those form four migration clusters, each
+> with a filed follow-up: Xray's Reactive-panel Views section and its `tools/xray/deps.edn`
+> top-level `day8/re-frame2-freehand` coordinate (`rf2-jkdy`); the staged `freehand-views` browser
+> deck and its feature-matrix scenario (`rf2-u5b4`); Story's shipped `presence-host` bridge
+> (`rf2-5gka`); and all five of Pair's view tools, which reach `re-frame.freehand.tool` by wire
+> string rather than by `:require` and therefore do not appear in any classpath scan (`rf2-n3mb`).
+>
+> The eighteenth is **X3**, the live set of React-element-shaped adapter ids in
+> `tools/xray/src/day8/re_frame2_xray/mount.cljs`. It is **not** a fifth migration and has no
+> follow-up bead: `:rf.adapter/ui` and `:rf.adapter/freehand` are adapter *identities* rather than
+> evidence reads, so they retire when the adapters do — which makes X3 an adapter-identity cleanup
+> **folded into `rf2-hic-062` itself**. Anything acting on the four clusters alone leaves X3
+> unaccounted for.
 >
 > **The blocker is not effort, it is question shape.** `re-frame.ui.tool` and
 > `re-frame.freehand.tool` publish the same five reads, so donor 1 → donor 2 was a rename.
