@@ -612,8 +612,13 @@
   ;; and if it is forced inside ANOTHER body's render the frame slot finds a
   ;; frame and is satisfied.
   ;;
-  ;; If this hole is ever closed, this is the row that goes red, and that is
-  ;; what it is for.
+  ;; **The limit is ratified, so this row's green is a decision and not an
+  ;; oversight.** rf2-djxr weighed closing it and ruled otherwise: the runtime
+  ;; does not chase deferred reads hidden in mutable references, I7's text now
+  ;; says so, and the guide warns rather than the runtime enforcing. Do not
+  ;; weaken or delete this row — it is the standing measurement of a boundary
+  ;; the product chose. If enforcement is ever extended here, this is the row
+  ;; that goes red, and that is what it is for.
   (let [!parked (atom nil)]
     (probe! (fn [_]
               (reset! !parked (fn [] (h/sub [:re/right])))
