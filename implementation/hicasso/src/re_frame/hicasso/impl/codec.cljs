@@ -976,6 +976,52 @@
   [f]
   (true? (unchecked-get f frame-prop-marker)))
 
+(def ^:private body-slot "hicassoBody")
+
+(defn retain-body!
+  "**Dev only.** Record the body function a minted head runs, ON the head,
+  and return the head (rf2-kjf5).
+
+  ## What it is for, and what it deliberately is not
+
+  A boundary head is a React component: it runs its body inside
+  [[re-frame.hicasso.impl.collector/shell]], under two React hooks, and
+  the body is otherwise reachable only through that shell. So the L0–L2
+  test kit — which mounts nothing and runs no hook — could take a minted
+  `h/defview` head and have no route back to the function the author
+  wrote. It refused, and pointed at L3.
+
+  The operator ruled (rf2-kjf5, 2026-08-10) that the kit should render a
+  minted head, so the head carries its body. **One own property, no
+  registry and no map** — the same shape as [[mark-boundary!]] and
+  [[mark-frame-prop!]] beside it, and the reason `rf2-2rtt6.52` is
+  untouched: the head is still the function, still what a `defview` hands
+  back, and no new object escapes.
+
+  ## It is not there in production, and that is the point
+
+  The one call site ([[re-frame.hicasso.impl.collector/mint-view!]]) sits
+  inside `(when ^boolean js/goog.DEBUG …)`, so under `:advanced` +
+  `goog.DEBUG=false` the Closure compiler removes the call and this fn
+  with it, and a production head carries nothing. That erasure is
+  asserted rather than asserted-about:
+  `re-frame.hicasso.error-source-coord-elision-prod-test` reads
+  [[retained-body]] off a head minted in the real advanced bundle and
+  requires nil."
+  [head body-fn]
+  (unchecked-set head body-slot body-fn)
+  head)
+
+(defn retained-body
+  "The body function [[retain-body!]] recorded, or nil — which is what a
+  production head answers, because nothing wrote the slot there.
+
+  One own-property read; the caller decides what nil means. The test kit
+  reads it to render a minted head AS WRITTEN, and refuses when it is
+  nil."
+  [head]
+  (unchecked-get head body-slot))
+
 (defn- boundary-props=
   "React's `areEqual` for a memoized boundary — CLJS `=` over the complete
   `rfProps` value, which is Reagent's argv compare spelled on the one slot

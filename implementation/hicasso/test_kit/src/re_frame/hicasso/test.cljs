@@ -893,13 +893,22 @@
   It is not a renderer. No React element is created, no hook runs, no
   dispatcher is installed, and nothing is committed, mounted or painted.
 
+  ## Minted heads, and the one build where they refuse
+
+  `[some-view {…}]` is accepted with the `h/defview` head written where
+  the call site writes it. A minted head is a React component whose body
+  runs only inside the shell, so it carries that body on itself for this
+  kit to find (`codec/retain-body!`, rf2-kjf5) — and what runs here is
+  the body AS WRITTEN, with no hook, no element and no React.
+
+  The retention is **dev only**. In an `:advanced` + `goog.DEBUG=false`
+  build the property was never written, and a minted head refuses with
+  `:rf.error/hicasso-test-boundary-body-not-retained` pointing at L3 —
+  which costs nothing, because a production bundle may not `:require`
+  this namespace at all.
+
   ## What it refuses
 
-  - **A minted `h/defview` head.** `mint-view!` closes over the body and
-    keeps no reference to it, so a minted head cannot be run without
-    React — and running it under React is L3. Name the body
-    (`(defn row-body [props] …)` and `(h/defview row [p] (row-body p))`)
-    and render the body, which runs the view AS WRITTEN.
   - **A `h/defhost` crossing, a raw React element, an unforced `delay`**,
     anywhere in the tree — opaque, with a pointer to L3.
   - **A read no fixture answers** — see [[render]]'s `:reads`.
@@ -918,17 +927,31 @@
                    "it was given " (pr-str form) ".")
               :pass-a-hiccup-form
               {:value form}))
-   (let [head (nth form 0)]
-     (when (codec/boundary-head? head)
-       (refuse! :rf.error/hicasso-test-boundary-body-not-retained
-                (str "`" (view-name head) "` is a minted boundary, and a minted "
-                     "boundary does not retain its body — `mint-view!` closes "
-                     "over it and keeps no reference, so there is nothing here "
-                     "to run without React. Render the BODY: write it as a "
-                     "named fn and mint the view from it, or assert this "
-                     "boundary mounted. " (tier-pointer :l3))
-                :render-the-body-fn-or-mount-at-l3
-                {:view (view-name head)}))
+   (let [minted (nth form 0)
+         ;; A minted head runs its body inside the shell and nowhere else,
+         ;; so the mint attaches that body to the head under a DEV-ONLY
+         ;; property (rf2-kjf5). Substituting it here is the whole of L2's
+         ;; support for `[some-view …]`: everything below then reads the
+         ;; body function, and the view runs AS WRITTEN.
+         head   (if (codec/boundary-head? minted)
+                  (or (codec/retained-body minted)
+                      ;; Reachable in one build only — `:advanced` with
+                      ;; `goog.DEBUG=false`, where the property was never
+                      ;; written. There is genuinely nothing to run, so the
+                      ;; refusal stands exactly as it did.
+                      (refuse! :rf.error/hicasso-test-boundary-body-not-retained
+                               (str "`" (view-name minted) "` is a minted boundary "
+                                    "and this is a production build, where a "
+                                    "boundary does not retain its body — the mint "
+                                    "keeps it under a `goog.DEBUG` property that "
+                                    "was compiled away, so there is nothing here "
+                                    "to run without React. Render the BODY: write "
+                                    "it as a named fn and mint the view from it, "
+                                    "or assert this boundary mounted. "
+                                    (tier-pointer :l3))
+                               :render-the-body-fn-or-mount-at-l3
+                               {:view (view-name minted)}))
+                  minted)]
      (when (codec/host-head? head)
        (refuse-opaque! :rf.error/hicasso-test-host-is-opaque
                        (str "`" (view-name head) "` is a `h/defhost` crossing. "
