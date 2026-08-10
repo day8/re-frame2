@@ -1458,6 +1458,23 @@ def _run_self_tests(verbose: bool = False) -> int:
         # invented, downward if bounding the join discards real links.
         ("multiline_code_span_not_a_link",   1),
         ("non_blank_block_bound",            1),
+        # rf2-mmyc — a fence indented by its container is still a fence, so the
+        # sample inside it is code and carries no links to resolve.  Each
+        # fixture's samples contain a blank line, which splits the inline block
+        # so the code-span mask cannot pair the fence's own backtick runs and
+        # hide the links by accident; without it these would pass for the wrong
+        # reason.  The negative control fails in BOTH directions — its single
+        # finding is a REAL broken link in prose AFTER an indented fence, so it
+        # counts up if the fences are still scanned as prose and down if
+        # widening the matcher swallows the document.
+        ("indented_fence_link_ignored",      0),
+        ("indented_fence_negative_control",  1),
+        # rf2-mmyc — the fenced-doc-link assertion, in the rf2-re0m shape: the
+        # link inside the fence RESOLVES, so link validation is satisfied and
+        # only the assertion can see it.  Scoped, so the identical sample under
+        # a sibling tree stays silent.
+        ("fenced_doc_link_in_scope",         1),
+        ("fenced_doc_link_out_of_scope",     0),
     ]
 
     failures = 0
@@ -1890,12 +1907,135 @@ def _run_self_tests(verbose: bool = False) -> int:
             )
             failures += 1
 
+    # rf2-mmyc — FENCE RECOGNITION, driven directly at `_strip_fences`.  That
+    # function is the scanner's only notion of "this is code, not prose", so
+    # every other check inherits whatever it gets wrong: the rf2-re0m bulk link
+    # pass rewrote six lines inside three Clojure samples and the gate stayed
+    # green because a column-0-anchored matcher could not see the indented
+    # fences those samples lived in.
+    #
+    # Each case states the 1-based line numbers that survive as PROSE.  Driving
+    # the primitive rather than a fixture matters here: the inline-code-span
+    # mask pairs a balanced fence's own backtick runs by accident, so a
+    # fixture-level count can come out right while the scanner is still blind.
+    #
+    # The expectations are RENDERER-DERIVED, not read off CommonMark: each was
+    # confirmed against python-markdown + pymdownx.superfences, the pair MkDocs
+    # actually runs, which is stricter than CommonMark about closing fences.
+    fence_cases: list[tuple[str, list[str], list[int]]] = [
+        # POSITIVE CONTROL — the column-0 case that always worked.  It cannot
+        # red before the fix; its job is to stay green after it.
+        ("column-0 fence still blanks its body",
+         ["Prose before.",
+          "",
+          "```clojure",
+          "[not a link](missing.md)",
+          "```",
+          "Prose after."],
+         [1, 6]),
+        # THE DEFECT — a fence carrying its container's indent.
+        ("fence indented inside a list item is a fence",
+         ["- A bullet:",
+          "",
+          "  ```clojure",
+          "  [not a link](missing.md)",
+          "  ```",
+          "",
+          "Prose after."],
+         [1, 7]),
+        ("fence indented inside an admonition is a fence",
+         ["!!! note",
+          "",
+          "    ```clojure",
+          "    [not a link](missing.md)",
+          "    ```",
+          "",
+          "Prose after."],
+         [1, 7]),
+        ("indented tilde fence is a fence",
+         ["- A bullet:",
+          "",
+          "  ~~~clojure",
+          "  [not a link](missing.md)",
+          "  ~~~",
+          "",
+          "Prose after."],
+         [1, 7]),
+        # CommonMark's three-space allowance, which the renderer honours: a
+        # fence may be indented up to three spaces in ordinary context.  The
+        # corpus has 100 such lines.
+        ("fence indented three spaces in ordinary context is a fence",
+         ["Prose.",
+          "",
+          "   ```clojure",
+          "   [not a link](missing.md)",
+          "   ```",
+          "",
+          "Prose after."],
+         [1, 7]),
+        # THE CONTROL THAT REJECTS THE ONE-CHARACTER FIX.  Four or more spaces
+        # in ordinary context is an INDENTED CODE BLOCK, a different construct
+        # with no closing delimiter.  A matcher relaxed to `^\s*` opens a fence
+        # here and, finding no closer, blanks the rest of the file.  Lines 3-4
+        # stay visible because this scanner recognises where a FENCE is, not
+        # where an indented code block is — see `_strip_fences`.
+        ("four-space indented code block in ordinary context is not a fence",
+         ["Prose.",
+          "",
+          "    ```clojure",
+          "    (a literal fence, inside an indented code block)",
+          "",
+          "Prose after."],
+         [1, 3, 4, 6]),
+        # THE CONTROL THAT REJECTS CommonMark'S CLOSING-FENCE SLACK.  Taken
+        # from skills/re-frame2-implementor/references/output-format.md, which
+        # displays a nested fence inside a ```markdown sample.  CommonMark lets
+        # a closing fence be indented up to three spaces regardless of its
+        # opener, which would end the outer block at line 3; superfences does
+        # not, and neither do we — the closer must be the opener's exact marker
+        # at the opener's exact indentation.
+        ("indented bare fence inside a column-0 fence does not close it",
+         ["```markdown",
+          "- **Claimed tags:**",
+          "  ```",
+          "  :core/*",
+          "  ```",
+          "- **Score:** 10",
+          "```",
+          "",
+          "Prose after."],
+         [9]),
+        # RUNAWAY GUARD.  rf2-re0m shipped three unbalanced fences, so this is
+        # not hypothetical.  A fence ends with the container that holds it, so
+        # an unclosed one cannot blank the rest of the document — which is the
+        # mirror-image failure of the defect: a gate that goes quiet.
+        ("unclosed indented fence ends with its container",
+         ["- A bullet:",
+          "",
+          "  ```clojure",
+          "  (unclosed",
+          "",
+          "Prose after, back at column zero."],
+         [1, 6]),
+    ]
+    for label, lines, expected_visible in fence_cases:
+        got_visible = [n for n, content in _strip_fences(lines) if content.strip()]
+        if got_visible == expected_visible:
+            if verbose:
+                sys.stderr.write(f"self-test PASS: fence [{label}]\n")
+        else:
+            sys.stderr.write(
+                f"self-test FAIL: fence [{label}] expected visible lines "
+                f"{expected_visible}, got {got_visible}\n"
+            )
+            failures += 1
+
     if failures:
         sys.stderr.write(f"\n{failures} self-test failure(s).\n")
         return 1
     if verbose:
         sys.stderr.write(
-            f"all {len(cases) + len(teeth_cases) + len(extraction_cases) + 4} "
+            f"all {len(cases) + len(teeth_cases) + len(extraction_cases) + len(fence_cases) + 4} "
             "self-tests passed.\n"
         )
     return 0
