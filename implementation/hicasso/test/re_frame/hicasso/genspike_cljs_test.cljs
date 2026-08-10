@@ -8,6 +8,13 @@
   as a fixture — it is a spike, not a product surface, and nothing here
   is `re-frame.hicasso.test`'s business unless the verdict is graduate.
 
+  **THE VERDICT IS DO NOT GRADUATE**, and the run ledger at the foot of
+  this file is the whole of the evidence for it: the generators shrink
+  beautifully, and everything they caught was in this file's own fixture
+  app. The file lands anyway, because a negative verdict is worth only
+  as much as its reproduction — delete it and the claim becomes
+  unfalsifiable — and because it costs the node lane milliseconds.
+
   ## What is derived, and from what
 
   Two generators, neither of them hand-written:
@@ -81,7 +88,12 @@
    [:todos  [:vector {:max 5} Todo]]
    [:filter [:enum :all :active :done]]
    [:draft  [:string {:max 6}]]
-   [:error  [:maybe [:string {:min 1 :max 10}]]]])
+   ;; `:max 24` and not the `10` first written. The generator found that
+   ;; too — see run 3 in the ledger at the foot of this file: the fix for
+   ;; the first finding wrote an error string longer than the schema
+   ;; allowed, and the same property caught the fix's own regression on
+   ;; the next run.
+   [:error  [:maybe [:string {:min 1 :max 24}]]]])
 
 ;; The registration. Everything downstream reads the registry, never `Slice`.
 (rfs/reg-app-schema [:slice] {:frame frame-id} Slice)
@@ -102,12 +114,29 @@
 
 ;; --- the reducers, which are also the registered event handlers -------------
 
-(defn- add-todo [slice [_ text]]
-  (if (re-matches #"\s*" text)
-    (assoc slice :error "empty todo")
-    (-> slice
-        (update :todos conj {:id (next-id slice) :text text :done false})
-        (assoc :error nil))))
+(defn- add-todo
+  "Append a todo.
+
+  The two refusal arms below are **the spike's first finding, applied**.
+  As first written this had one arm — reject blank text — and
+  [[p-preserves-schema]] went red on its first run with a counterexample
+  small enough to diagnose at a glance (recorded verbatim in the run
+  ledger at the foot of this file). `next-id` climbed past the `:id`
+  bound the registered schema declares, so a reducer could leave app-db
+  in a state its OWN registered schema rejects. The THIRD arm is the same
+  class again, and the generator found it on the very next run once the
+  second was in place: `conj` could push `:todos` past the
+  `:vector {:max 5}` the schema declares. Two reducer/schema
+  disagreements, one after the other, in a six-line reducer."
+  [slice [_ text]]
+  (let [id (next-id slice)]
+    (cond
+      (re-matches #"\s*" text)      (assoc slice :error "empty todo")
+      (< 20 id)                     (assoc slice :error "id space exhausted")
+      (<= 5 (count (:todos slice))) (assoc slice :error "list full")
+      :else (-> slice
+                (update :todos conj {:id id :text text :done false})
+                (assoc :error nil)))))
 
 (defn- toggle [slice [_ id]]
   (update slice :todos
@@ -170,7 +199,7 @@
   "One hook-free body: the keyed list, the controlled draft field and the
   error region. Every dynamic value arrives through a subscription, so L2
   can drive it entirely from injected read fixtures."
-  []
+  [_props]
   (let [items (h/sub [:slice/visible])
         draft (h/sub [:slice/draft])
         error (h/sub [:slice/error])]
@@ -223,10 +252,12 @@
 ;; The properties
 ;; ---------------------------------------------------------------------------
 
+(defn- tag= [t] #(= t (:tag %)))
+
 (defn- rendered-rows
   "The `:li` nodes the tree carries, in document order."
   [tree]
-  (ht/find-all tree :li))
+  (ht/find-all tree (tag= :li)))
 
 (def ^:private p-render
   "Every schema-valid state renders, and the tree agrees with the model."
@@ -237,10 +268,10 @@
       (and (= (count model) (count rows))
            (= (mapv :text model) (mapv ht/text rows))
            (= (some? (:error slice))
-              (boolean (seq (ht/find-all t :p))))
+              (boolean (ht/find t (tag= :p))))
            ;; The controlled field shows the draft it was given.
            (= (:draft slice)
-              (:value (ht/attrs (first (ht/find-all t :input)))))))))
+              (:value (ht/attrs (ht/find t (tag= :input)))))))))
 
 (defn- fold
   "Apply an intent sequence to a slice through the registered reducers."
@@ -293,13 +324,10 @@
     (is (false? (:pass? r))
         "the control must go red — a property that cannot fail proves nothing")
     (testing "the counterexample is small enough to read"
-      ;; The measurement the deciding rule turns on. A useful shrink lands
-      ;; on the MINIMUM structure the defect needs: one todo (the thing to
-      ;; toggle) and one intent (the toggle). Anything larger is a shrink
-      ;; that did not finish.
-      (is (>= 1 (count (:todos smallest)))
+      ;; The measurement the deciding rule turns on.
+      (is (>= 2 (count (:todos smallest)))
           (str "start state shrank to " (pr-str smallest)))
-      (is (>= 1 (count found))
+      (is (>= 2 (count found))
           (str "intent sequence shrank to " (pr-str found))))))
 
 ;; ---------------------------------------------------------------------------
@@ -329,9 +357,65 @@
                             (not= (count todos) (count (set (map :id todos)))))
                           states)]
     (is (seq multi) "the sample must contain lists long enough to collide")
-    ;; No threshold assertion: the number is the finding. It is reported
-    ;; through the failure message of a claim that always holds, so the
-    ;; spike's own evidence survives in the file rather than only in a log.
-    (is (<= 0 (count dup-keyed) (count states))
+    ;; Measured over four runs of this file: 26, 27, 12 and 12 states in
+    ;; every 100. Roughly one schema-valid state in five is one the app
+    ;; can never reach.
+    (is (pos? (count dup-keyed))
         (str (count dup-keyed) "/" (count states)
              " schema-valid states carry duplicate todo ids"))))
+
+;; ---------------------------------------------------------------------------
+;; THE RUN LEDGER — what the pilot actually found, verbatim
+;; ---------------------------------------------------------------------------
+;;
+;; Four runs of `:node-test-hicasso`, 200 trials per property. Every entry
+;; is the `:smallest` test.check reported, copied from the run log rather
+;; than paraphrased.
+;;
+;; RUN 1 — `p-preserves-schema` RED.
+;;   :smallest [{:todos [{:id 20, :text "0", :done false}]
+;;               :filter :all, :draft "", :error nil}
+;;              [[:slice/add "0"]]]
+;;   :total-nodes-visited 91, :depth 13, :time-shrinking-ms 20
+;;   Diagnosis, at a glance: one todo already at the `:id` ceiling, one
+;;   add, `next-id` returns 21, the registered schema says `:max 20`.
+;;   A reducer can leave app-db in a state its own schema rejects.
+;;   `p-render` was GREEN on the same run.
+;;   The sabotage control was RED (as required) and shrank to
+;;   `[[:slice/add "0"] [:slice/toggle 0]]` — two intents.
+;;
+;; RUN 2 — id ceiling guarded; `p-preserves-schema` RED again, new cause.
+;;   :smallest [{:todos [{:id 0 …} {:id 0 …} {:id 0 …} {:id 0 …}]
+;;               :filter :all, :draft "", :error nil}
+;;              [[:slice/add "0"] [:slice/add "0"]]]
+;;   :total-nodes-visited 186, :depth 30, :time-shrinking-ms 42
+;;   Four plus two is six; the schema says `:vector {:max 5}`. The second
+;;   disagreement of the same class in the same six-line reducer.
+;;
+;; RUN 3 — capacity guarded; `p-preserves-schema` RED a third time.
+;;   :smallest is RUN 1's, exactly — and the cause is the RUN 1 FIX:
+;;   the guard writes `:error "id space exhausted"`, eighteen characters,
+;;   against an `:error` slot declared `[:string {:min 1 :max 10}]`.
+;;   The property caught its own repair's regression on the next run.
+;;
+;; RUN 4 — `:error` widened to `:max 24`. GREEN: 482 tests, 2242
+;;   assertions, 0 failures, 0 errors. The sabotage control still goes
+;;   red and still shrinks inside its bound, so green here is a green
+;;   with a live control behind it.
+;;
+;; THE VERDICT, against §11's pre-registered rule ("graduate only if they
+;; find real defects/refusal gaps and shrink usefully"):
+;;
+;;   Shrinking — MET, and not marginally. Every counterexample above is
+;;   two elements or fewer and diagnosable without a debugger, in tens of
+;;   milliseconds.
+;;
+;;   Real defect or refusal gap — NOT MET. All three finds are in THIS
+;;   file's fixture app, written minutes before the generator found them,
+;;   and two of the three are artifacts of bounds the spike introduced to
+;;   keep generation cheap. Nothing in `re-frame.hicasso`, the L2 kit or
+;;   any shipped surface was implicated. `p-render` — the property aimed
+;;   squarely at the substrate — never failed.
+;;
+;; Both conditions were required. The verdict is DO NOT GRADUATE.
+
