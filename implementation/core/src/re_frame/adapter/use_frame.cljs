@@ -34,14 +34,31 @@
   `:rf.error/no-frame-context`). No scope, no `:rf/default` floor — absence
   fails loud, exactly as the no-arg `capture-frame` does.
 
-  ## Reference stability
+  ## Reference stability, and what it is keyed on
 
   The returned ops map is REFERENCE-STABLE across re-renders for the same
-  resolved frame (safe in `useEffect` deps / memoized child props): a
-  render-phase `useRef` memo-by-value keyed on the resolved frame by CLJS
-  `=` (the rf2-mwft2 discipline — CLJS keywords are not `Object.is`-stable,
-  so a raw deps-array memo would rebuild per render). A provider swap
-  re-renders the caller and returns a fresh map locked to the new frame."
+  resolved frame INCARNATION (safe in `useEffect` deps / memoized child
+  props): a render-phase `useRef` memo-by-value keyed on the resolved
+  frame by CLJS `=` (the rf2-mwft2 discipline — CLJS keywords are not
+  `Object.is`-stable, so a raw deps-array memo would rebuild per render)
+  AND on that frame's incarnation token by `identical?`. A provider swap
+  re-renders the caller and returns a fresh map locked to the new frame.
+
+  The incarnation half is load-bearing (rf2-40kv). A frame keyword is an
+  ADDRESS, not an identity: destroy `:watchlist` and create another under
+  the same id and the two are `=`, while `capture-frame` PINS the exact
+  incarnation live when it ran (rf2-9pyles / rf2-tdjv7p — every op on the
+  bundle refuses a superseded target rather than leaking into its
+  successor). A memo keyed on the keyword alone therefore passes every
+  stability test and fails exactly this one: it keeps handing out the DEAD
+  incarnation's bundle for the rest of the mount, and every dispatch and
+  subscribe through it recover-but-emits `:rf.error/frame-destroyed`
+  against a frame the caller can plainly see is alive. Keying on
+  `frame/frame-incarnation-token` — the `:drain-lock` identity, constant
+  across one incarnation and distinct across a reconstruction — makes the
+  reincarnation a memo MISS, so the next render carries ops pinned to the
+  successor. This is the same rule Hicasso's `n/use-frame` keeps by
+  memoising on the runtime's incarnation row."
   (:require ["react" :as React]
             [re-frame.adapter.context :as adapter-context]
             [re-frame.core :as rf-core]
@@ -69,8 +86,11 @@
   in the dispatch opts cannot override it.
 
   The returned map is reference-stable across re-renders for the same
-  resolved frame; a surrounding provider swapping frames re-renders the
-  caller and yields a map locked to the new frame.
+  resolved frame INCARNATION; a surrounding provider swapping frames
+  re-renders the caller and yields a map locked to the new frame, and so
+  does destroying the resolved frame and creating another under the same
+  id — the bundle is pinned to the incarnation it was captured against,
+  never to the address.
 
   No options map and no explicit-frame arity — this is capture-frame in
   hook position, nothing more. For an explicit frame there is no hook tax:
@@ -87,13 +107,23 @@
         ref   (React/useRef nil)
         frame (frame/require-current-frame!
                 :use-frame {:where 're-frame.adapter.use-frame/use-frame})
+        ;; The identity half of the key (rf2-40kv). `capture-frame` pins the
+        ;; incarnation live when IT runs; read the same identity here so the
+        ;; memo's notion of "same frame" is the bundle's. nil — the id is not
+        ;; live at render — is a legitimate key: the bundle it pairs with is
+        ;; the unpinned, address-directed capture, and the frame appearing
+        ;; later moves the token off nil and correctly misses.
+        token (frame/frame-incarnation-token frame)
         prev  (.-current ref)]
     ;; Render-phase memo-by-value (rf2-mwft2 pattern): rebuild the ops map
-    ;; ONLY when the resolved frame changes by `=`. The ref write during
-    ;; render is sanctioned for exactly this pattern — idempotent given
-    ;; identical inputs, never mutated after commit.
-    (if (and (some? prev) (= (aget prev 0) frame))
-      (aget prev 1)
+    ;; ONLY when the resolved frame changes by `=` OR its incarnation changes
+    ;; by `identical?`. The ref write during render is sanctioned for exactly
+    ;; this pattern — idempotent given identical inputs, never mutated after
+    ;; commit.
+    (if (and (some? prev)
+             (= (aget prev 0) frame)
+             (identical? (aget prev 1) token))
+      (aget prev 2)
       (let [ops (rf-core/capture-frame frame)]
-        (set! (.-current ref) #js [frame ops])
+        (set! (.-current ref) #js [frame token ops])
         ops))))

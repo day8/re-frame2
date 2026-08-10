@@ -427,6 +427,13 @@
 (deftest use-frame-capture-frame-in-hook-position
   (suite/assert-use-frame-capture-frame-in-hook-position cfg))
 
+;; rf2-40kv — the same memo across a same-id REINCARNATION. The row above
+;; pins that a re-render returns the identical map; this one pins what that
+;; memo is keyed on, because a frame keyword is `=` across a destroy +
+;; same-id create and the bundle is pinned to an incarnation.
+(deftest use-frame-retargets-across-a-same-id-reincarnation
+  (suite/assert-use-frame-retargets-across-a-same-id-reincarnation cfg))
+
 ;; rf2-4mi2zj — 1-arg full frame-resolution chain (the bug: spine fed the
 ;; raw use-context read into the explicit 2-arg path, bypassing the chain).
 (deftest use-subscribe-provider-tier-resolution-ambient-cleared
