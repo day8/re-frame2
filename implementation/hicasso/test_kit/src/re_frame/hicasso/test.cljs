@@ -87,6 +87,26 @@
   - **A view-boundary node records the CALL, never the child's
     rendering.** See §Children below.
 
+  ### The scope of the claim: TREES EMITTED, not forms accepted
+
+  004B version 1 governs the tree this namespace **emits**. It does not
+  govern which author forms Hicasso accepts, and the two are different
+  questions with different owners: the grammar is Hicasso's (spec SN, the
+  HD rulings), the tree schema is 004B's, and this walk is both stages in
+  one pass because it takes author hiccup and answers a node.
+
+  The distinction is load-bearing at exactly one row. 004B §Child
+  normalization says `nil`/`false`/`true` children are dropped **at tree
+  build**; Hicasso raises `:rf.error/hicasso-true-child` for a `true`
+  child (HD-016). There is no contradiction: Hicasso's grammar refuses
+  the value upstream of tree build, so a `true` never reaches the rule
+  that would drop it, and every tree this namespace emits satisfies 004B
+  as written. What a reader must not conclude from *\"the tree is 004B
+  version 1\"* is that a form 004B tolerates is a form Hicasso accepts —
+  the schema describes the output, and the refusals are the substrate's.
+  `re-frame.hicasso.test-kit-runtime-parity-cljs-test` drives both sides
+  of that row so the two never drift apart quietly.
+
   ## What L2 runs, and what it refuses
 
   [[render]] takes a hiccup form whose head is **a body function** — the
@@ -117,13 +137,25 @@
   ### Children
 
   **What a child IS is the runtime's answer, never a second one.** The
-  walk dispatches on `codec/child-kind` and `codec/head-kind` — the same
-  two functions `codec/as-element` and `codec/vec->element` dispatch on —
-  so a keyword child is the text the runtime renders it as, `[:<> …]` is
-  a fragment because it is React's Fragment there, and a `true` child
+  walk dispatches on `codec/child-kind` and `codec/vector-kind` — the
+  same two doors `codec/as-element` and `codec/vec->element` dispatch on
+  — so a keyword child is the text the runtime renders it as, `[:<> …]`
+  is a fragment because it is React's Fragment there, and a `true` child
   raises `:rf.error/hicasso-true-child` because the runtime raises it.
   rf2-hic-020's audit found nine places where this walk had its own
   opinion; a branch that exists twice agrees once.
+
+  **A form the runtime REFUSES is refused here with the runtime's own
+  id.** `codec/vector-kind` is the preflight and not merely the head
+  discrimination, so an empty vector raises
+  `:rf.error/hicasso-empty-vector` and a malformed escape — `[:>]`,
+  `[:> nil]`, `[:> :div]` — raises `:rf.error/hicasso-raw-no-component`
+  or `:rf.error/hicasso-raw-not-a-component`, each carrying the runtime's
+  recovery rather than one of this namespace's. **Opacity is a claim
+  about a form L2 cannot read, and it is honest only where the runtime
+  CAN read it**: a second audit found `[:> :div]` answered
+  `:assert-it-at-l3`, which tells the programmer to mount, in a browser,
+  a form that will not mount anywhere.
 
   - A **nested body function** is refused: a plain function in head
     position is a loud error in Hicasso itself (HD-016), and a kit that
@@ -133,10 +165,11 @@
     children. Its body does NOT run, and the node claims nothing about
     what it would render. Assert its props here; render its body to
     assert its contents.
-  - A **`defhost` crossing**, the **raw escape `[:> …]`**, a **raw React
-    element** and anything else the codec hands to React untouched are
-    **opaque** and refuse with a pointer to L3. So does an unforced
-    `delay`, which Hicasso itself refuses at a boundary crossing.
+  - A **`defhost` crossing**, a **well-formed raw escape `[:> …]`**, a
+    **raw React element** and anything else the codec hands to React
+    untouched are **opaque** and refuse with a pointer to L3. So does an
+    unforced `delay`, which Hicasso itself refuses at a boundary
+    crossing. A MALFORMED escape is not opaque — see above.
 
   ### Reads
 
@@ -888,34 +921,51 @@
       (seq children)         (assoc :children children))))
 
 (defn- walk-vector
-  "One hiccup VECTOR to its 004B node. `codec/head-kind` is the runtime's
-  own head discrimination, so `:<>` is a fragment here because it is a
-  fragment there, and the two escapes React interprets for itself refuse
-  to L3 rather than being recorded as elements named `:<>` and `:>`."
-  [form ns-ctx]
-  (let [head (nth form 0 nil)]
-    (case (codec/head-kind head)
-      :tag      (element-node form ns-ctx)
-      :fragment (fragment-node form ns-ctx)
-      :boundary (boundary-node form ns-ctx)
+  "One hiccup VECTOR to its 004B node. `codec/vector-kind` is the
+  runtime's own vector preflight, so `:<>` is a fragment here because it
+  is a fragment there, and the two escapes React interprets for itself
+  refuse to L3 rather than being recorded as elements named `:<>` and
+  `:>`.
 
-      :host
+  **The preflight, and not `codec/head-kind` alone, because opacity is a
+  claim about a form the kit cannot read and it is honest only where the
+  runtime CAN.** `codec/vector-kind` raises the runtime's own refusal for
+  the two shapes that are malformed rather than opaque — a headless
+  vector, and a `[:> …]` whose Component slot holds nothing React will
+  mint a fiber for — so those arrive here already refused, with the
+  runtime's id, reason and recovery. Before rf2-hic-020's second audit
+  this walk asked `head-kind` directly and answered `[]` with a generic
+  malformed HEAD, and `[:> :div]` with a pointer to L3: an instruction to
+  go mount, in a browser, a form that cannot mount anywhere."
+  [form ns-ctx]
+  (case (codec/vector-kind form)
+    :tag      (element-node form ns-ctx)
+    :fragment (fragment-node form ns-ctx)
+    :boundary (boundary-node form ns-ctx)
+
+    :host
+    (let [head (nth form 0)]
       (refuse-opaque! :rf.error/hicasso-test-host-is-opaque
                       (str "a `h/defhost` crossing (" (pr-str (view-name head))
                            ") reached the semantic tree. What a foreign React "
                            "component renders is React's answer, not "
                            "Hicasso's, and L2 has no way to ask it.")
-                      {:host (view-name head) :value form})
+                      {:host (view-name head) :value form}))
 
-      :raw
-      (refuse-opaque! :rf.error/hicasso-test-react-is-opaque
-                      (str "the raw escape `[:> …]` reached the semantic tree. "
-                           "It hands its component to React untouched (HD-011), "
-                           "so what it renders is React's answer and L2 has no "
-                           "way to ask it.")
-                      {:value form})
+    ;; Reached only for a WELL-FORMED escape: `codec/vector-kind` has run
+    ;; the escape's own grammar and a malformed one never gets here.
+    :raw
+    (refuse-opaque! :rf.error/hicasso-test-react-is-opaque
+                    (str "the raw escape `[:> …]` reached the semantic tree. "
+                         "It hands its component to React untouched (HD-011), "
+                         "so what it renders is React's answer and L2 has no "
+                         "way to ask it.")
+                    {:value form})
 
-      :invalid
+    :invalid
+    ;; `:invalid` implies a head, because the preflight refused the
+    ;; headless vector under its own id.
+    (let [head (nth form 0)]
       (if (fn? head)
         (refuse! :rf.error/hicasso-test-plain-fn-head
                  (str "a plain function is in hiccup head position. Hicasso "
