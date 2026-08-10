@@ -147,6 +147,12 @@ _HTML_ANCHOR_RE = re.compile(
     re.IGNORECASE,
 )
 
+# How a rendered fragment id came to exist, for diagnostics that name the two
+# apart (rf2-1cpt).  A duplicate reads very differently depending on which
+# mechanisms collided.
+ANCHOR_MECHANISM = "explicit <a id>"
+HEADING_MECHANISM = "heading"
+
 # Markdown inline link.  Captures destination only.  Reference-style links
 # ([text][ref]) are ignored — none in this corpus per spot-check, and a full
 # parser is out of scope for a CI guard.
@@ -349,6 +355,27 @@ _QUOTE_MARKER_RE = re.compile(r"[ ]{0,3}>[ \t]?")
 # covered handbooks (Machines, Async, API, Routing); rf2-zq5i6 made that set
 # DERIVED from this manifest's page keys (see COMPAT_HANDBOOKS) rather than a
 # separate hand-maintained tuple.
+#
+# BEFORE YOU ADD AN ANCHOR HERE, read this (rf2-1cpt).  118 fragment ids across
+# 15 pages are already minted TWICE: an explicit `<a id="x">` stacked with the
+# heading whose generated slug is also `x`.  The concentrations are
+# docs/design/hicasso/draft-guide/glossary.md (50), docs/routing/concepts.md and
+# spec/015-Data-Classification.md (18 each), and spec/012-Routing.md (10).  Every
+# one is the same deliberate idiom — an explicit anchor written to outlive a
+# heading rename — and every one is co-located with its heading, so deep-links
+# land correctly today and nothing is broken on the site.
+#
+# But rf2-zq5i6 ruled that a MANIFEST anchor must resolve to exactly one rendered
+# target, so listing any of the 118 reds the gate with DUPLICATE COMPAT ANCHOR.
+# None was listed here before, which is why the corpus is green and the hazard
+# has never fired.  The ruling stands and this file does not exempt the pattern:
+# the check would stop meaning "this bookmark lands in one knowable place", and
+# a structural exemption is an allowlist wearing a predicate.  What changed is
+# that the failure now names the two colliding positions and says when they are
+# co-located, so it reads as the corpus's idiom rather than as your mistake —
+# see the DUPLICATE COMPAT ANCHOR report in `check`.  The fix is to delete the
+# redundant `<a id>` on that page: your manifest entry is what pins the slug
+# from then on, so a later heading rename fails here instead.
 HANDBOOK_COMPAT_ANCHORS = {
     "docs/machines/concepts.md": (
         "state-machines",
@@ -727,10 +754,15 @@ def _mask_html_comments(
     return out
 
 
-def _scan_rendered_ids(path: Path) -> dict[str, int]:
-    """Map every rendered fragment id on the page to its occurrence count.
+def _scan_rendered_id_lines(path: Path) -> dict[str, list[tuple[int, str]]]:
+    """Map every rendered fragment id on the page to WHERE it is minted.
 
-    Two anchor mechanisms mint a fragment target, and both are counted so a
+    The value is the list of `(1-based line number, mechanism)` pairs that mint
+    the id, in document order.  `_scan_rendered_ids` derives the occurrence count
+    from it, so there is one scan and one answer; the positions exist so a
+    duplicate can be REPORTED precisely (rf2-1cpt) rather than only counted.
+
+    Two anchor mechanisms mint a fragment target, and both are recorded so a
     duplicate/colliding id is visible (rf2-zq5i6 — the predecessor collapsed
     everything into a set, hiding collisions):
 
@@ -753,18 +785,17 @@ def _scan_rendered_ids(path: Path) -> dict[str, int]:
     heading title is part of the rendered slug.
     """
     text = path.read_text(encoding="utf-8", errors="replace")
-    counts: dict[str, int] = {}
+    places: dict[str, list[tuple[int, str]]] = {}
     seen_counts: dict[str, int] = {}
     fence_stripped = _strip_fences(text.splitlines())
     comment_masked = _mask_html_comments(fence_stripped)
-    for _, masked_line in comment_masked:
+    for line_no, masked_line in comment_masked:
         # HTML anchor elements can appear on any line (heading or not). Only a
         # RENDERED anchor counts, so recognise them on the comment- and
         # inline-code-masked line.
         anchor_line = _strip_inline_code(masked_line)
         for am in _HTML_ANCHOR_RE.finditer(anchor_line):
-            aid = am.group(1)
-            counts[aid] = counts.get(aid, 0) + 1
+            places.setdefault(am.group(1), []).append((line_no, ANCHOR_MECHANISM))
 
         # Headings are recognised on the comment-masked line (rf2-ehxs8): a
         # heading that lives entirely inside a multiline HTML comment renders no
@@ -787,14 +818,51 @@ def _scan_rendered_ids(path: Path) -> dict[str, int]:
         # counts as its own distinct rendered target.
         n = seen_counts.get(slug, 0)
         rid = slug if n == 0 else f"{slug}_{n}"
-        counts[rid] = counts.get(rid, 0) + 1
+        places.setdefault(rid, []).append((line_no, HEADING_MECHANISM))
         seen_counts[slug] = n + 1
-    return counts
+    return places
+
+
+def _scan_rendered_ids(path: Path) -> dict[str, int]:
+    """Map every rendered fragment id on the page to its occurrence count."""
+    return {aid: len(where) for aid, where in _scan_rendered_id_lines(path).items()}
 
 
 def _slug_index(path: Path) -> set[str]:
     """Return the set of rendered fragment ids on the page (see _scan_rendered_ids)."""
     return set(_scan_rendered_ids(path))
+
+
+def _rendered_source_lines(path: Path) -> list[tuple[int, str]]:
+    """The page reduced to the lines `_scan_rendered_id_lines` reads."""
+    text = path.read_text(encoding="utf-8", errors="replace")
+    return _mask_html_comments(_strip_fences(text.splitlines()))
+
+
+def _anchors_are_colocated(path: Path, where: list[tuple[int, str]]) -> bool:
+    """True if every occurrence of one id sits in the same place on the page.
+
+    "The same place" means a reader cannot tell the landings apart: between the
+    first occurrence and the last there is nothing but blank lines and further
+    anchor elements, which render as empty and occupy no visible space.  A
+    stack of alias anchors above (or below) the heading they name therefore
+    counts as ONE landing, which is what the corpus's 118 colliding ids are
+    (rf2-1cpt) — including the two spec pages that stack three aliases.
+
+    This decides only what the DIAGNOSTIC says, never whether the gate fails.
+    rf2-zq5i6 ruled that a manifest anchor must resolve to exactly one rendered
+    target and pinned it with a fixture; co-location is the explanation for the
+    failure, not an exemption from it.
+    """
+    if len(where) < 2:
+        return True
+    lo, hi = where[0][0], where[-1][0]
+    for line_no, content in _rendered_source_lines(path):
+        if not lo < line_no < hi:
+            continue
+        if _HTML_ANCHOR_RE.sub("", content).replace("</a>", "").strip():
+            return False
+    return True
 
 
 _ANCHOR_ID_RE_CACHE: dict[str, re.Pattern[str]] = {}
@@ -1194,9 +1262,13 @@ def _check_fenced_doc_links(
 
 def _check_compat_anchors(
     repo_root: Path,
-    counts_for,
+    places_for,
     manifest: dict[str, tuple[str, ...]],
-) -> tuple[list[tuple[str, str]], list[str], list[tuple[str, str, int]]]:
+) -> tuple[
+    list[tuple[str, str]],
+    list[str],
+    list[tuple[str, str, list[tuple[int, str]], bool]],
+]:
     """Validate every manifest compat anchor resolves to exactly one target (rf2-57k74/zq5i6).
 
     Returns (missing_anchors, missing_pages, duplicate_anchors):
@@ -1207,32 +1279,39 @@ def _check_compat_anchors(
           bookmarks it carries cannot silently disappear behind an ordinary
           link-rename (rf2-57k74 closed this hole — the Machines-only predecessor
           silently `continue`d past an absent page).
-        * duplicate_anchors — (page-rel, anchor, count) for each manifest anchor
-          that resolves to MORE THAN ONE rendered target on its page (rf2-zq5i6):
-          a duplicate explicit id, or an explicit id colliding with a generated
-          heading slug. A fragment id that appears twice is an invalid, ambiguous
-          bookmark (the browser resolves only the first), so it fails the gate.
+        * duplicate_anchors — (page-rel, anchor, where, colocated) for each
+          manifest anchor that resolves to MORE THAN ONE rendered target on its
+          page (rf2-zq5i6): a duplicate explicit id, or an explicit id colliding
+          with a generated heading slug. A fragment id that appears twice is an
+          invalid, ambiguous bookmark (the browser resolves only the first), so
+          it fails the gate. `where` is the occurrence list from
+          `_scan_rendered_id_lines` and `colocated` says whether those
+          occurrences share one landing spot — both carried so the report can
+          say WHICH collision this is (rf2-1cpt), neither consulted in deciding
+          that it fails.
 
-    `counts_for(page)` returns the page's {rendered-id: occurrence-count} map. The
-    manifest is an explicit parameter, NOT a module global, so the fixture-based
-    self-tests stay isolated by passing their own inputs (a fixture manifest or
-    `{}`) rather than relying on production pages being absent.
+    `places_for(page)` returns the page's {rendered-id: [(line, mechanism)]} map.
+    The manifest is an explicit parameter, NOT a module global, so the
+    fixture-based self-tests stay isolated by passing their own inputs (a fixture
+    manifest or `{}`) rather than relying on production pages being absent.
     """
     missing_anchors: list[tuple[str, str]] = []
     missing_pages: list[str] = []
-    duplicate_anchors: list[tuple[str, str, int]] = []
+    duplicate_anchors: list[tuple[str, str, list[tuple[int, str]], bool]] = []
     for page_rel, anchors in manifest.items():
         page = repo_root / page_rel
         if not page.is_file():
             missing_pages.append(page_rel)
             continue
-        page_counts = counts_for(page)
+        page_places = places_for(page)
         for anchor in anchors:
-            n = page_counts.get(anchor, 0)
-            if n == 0:
+            where = page_places.get(anchor, [])
+            if not where:
                 missing_anchors.append((page_rel, anchor))
-            elif n > 1:
-                duplicate_anchors.append((page_rel, anchor, n))
+            elif len(where) > 1:
+                duplicate_anchors.append(
+                    (page_rel, anchor, where, _anchors_are_colocated(page, where))
+                )
     return missing_anchors, missing_pages, duplicate_anchors
 
 
@@ -1377,21 +1456,22 @@ def check(
         sys.stderr.write(f"scanning {len(files)} markdown files...\n")
 
     # Build the rendered-id index lazily — many files are never linked to with an
-    # anchor. `counts_for` yields the {id: occurrence-count} map (used by the
-    # uniqueness check); `slugs_for` derives the membership set from it.
-    counts_cache: dict[Path, dict[str, int]] = {}
+    # anchor. `places_for` yields the {id: [(line, mechanism)]} map (used by the
+    # uniqueness check and its diagnostic); `slugs_for` derives the membership set
+    # from it. One cached scan feeds both, so they cannot disagree.
+    places_cache: dict[Path, dict[str, list[tuple[int, str]]]] = {}
     slug_cache: dict[Path, set[str]] = {}
 
-    def counts_for(path: Path) -> dict[str, int]:
+    def places_for(path: Path) -> dict[str, list[tuple[int, str]]]:
         ap = path.resolve()
-        if ap not in counts_cache:
-            counts_cache[ap] = _scan_rendered_ids(path)
-        return counts_cache[ap]
+        if ap not in places_cache:
+            places_cache[ap] = _scan_rendered_id_lines(path)
+        return places_cache[ap]
 
     def slugs_for(path: Path) -> set[str]:
         ap = path.resolve()
         if ap not in slug_cache:
-            slug_cache[ap] = set(counts_for(path))
+            slug_cache[ap] = set(places_for(path))
         return slug_cache[ap]
 
     broken_anchor: list[tuple[Path, int, str, str]] = []
@@ -1459,7 +1539,7 @@ def check(
     # rf2-57k74 / rf2-zq5i6 — the cross-handbook compat-anchor manifest, uniqueness,
     # placement, and source-comment link gates.
     compat_missing, compat_missing_pages, compat_duplicate = _check_compat_anchors(
-        repo_root, counts_for, compat_anchors
+        repo_root, places_for, compat_anchors
     )
     compat_misplaced = _check_compat_anchor_placement(repo_root, placement)
     source_comment_broken = _check_source_comment_links(
@@ -1569,17 +1649,36 @@ def check(
             f"\n{len(compat_duplicate)} colliding handbook compat anchor(s) "
             "found (rf2-zq5i6):\n\n"
         )
-        for page_rel, anchor, count in compat_duplicate:
+        for page_rel, anchor, where, colocated in compat_duplicate:
             sys.stderr.write(
                 f"  DUPLICATE COMPAT ANCHOR: {page_rel}#{anchor} "
-                f"(resolves to {count} rendered targets)\n"
+                f"(resolves to {len(where)} rendered targets)\n"
             )
+            for line_no, mechanism in where:
+                sys.stderr.write(f"      {mechanism} at line {line_no}\n")
+            if colocated:
+                sys.stderr.write(
+                    "      (co-located, so both land in the same place — the "
+                    "redundant-explicit-anchor pattern, not a stale bookmark)\n"
+                )
         sys.stderr.write(
             "\nFix: a compatibility fragment must resolve to exactly one rendered "
             "target. Remove the duplicate `<a id>` element, or rename it so it no "
             "longer collides with the other explicit anchor or the generated "
             "heading slug of the same name.\n"
         )
+        if any(colocated for _, _, _, colocated in compat_duplicate):
+            sys.stderr.write(
+                "\nFor a CO-LOCATED collision this is very likely not your "
+                "mistake: 118 fragment ids across 15 pages are written this way "
+                "— an explicit `<a id>` stacked with the heading whose generated "
+                "slug it already duplicates — and none of them was in the "
+                "manifest before, so listing one is what surfaces it (rf2-1cpt). "
+                "Delete the redundant `<a id>` on that page: the manifest entry "
+                "you just added is what pins the slug from here on, so the "
+                "explicit anchor is no longer the thing protecting the bookmark "
+                "and a later heading rename fails HERE instead.\n"
+            )
 
     if compat_misplaced:
         sys.stderr.write(
@@ -1864,6 +1963,14 @@ def _run_self_tests(verbose: bool = False) -> int:
         ("explicit id vs generated heading slug collide",
          dict(compat_anchors={"docs/machines/collision.md": ("dup-me",)},
               source_files=(), placement={}), 1),
+        # rf2-1cpt — a co-located collision is the corpus's own idiom (118 ids
+        # across 15 pages) and still fails. This is the tooth that pins the
+        # rf2-zq5i6 ruling against the option of teaching the gate to accept the
+        # pattern: co-location is why the failure is explainable, not a reason to
+        # stop failing.
+        ("co-located collision still fails",
+         dict(compat_anchors={"docs/machines/stacked.md": ("dup-me",)},
+              source_files=(), placement={}), 1),
         # rf2-zq5i6 placement teeth.
         ("placement ok — anchor precedes passage",
          dict(compat_anchors={}, source_files=(),
@@ -1927,6 +2034,48 @@ def _run_self_tests(verbose: bool = False) -> int:
                     f"expected broken={expected}, got {got}\n"
                 )
                 failures += 1
+
+    # rf2-1cpt — the DIAGNOSTIC for a colliding compat anchor. The gate's verdict
+    # is rf2-zq5i6's and unchanged; what is pinned here is that the report can say
+    # WHERE the collision is and WHICH of the two shapes it is, because that is
+    # the whole of this bead's answer to the armed-trap problem. The predicate
+    # fails in both directions: a stack of alias anchors above a heading is ONE
+    # landing spot (anchor elements render empty), while two anchors with a
+    # paragraph between them are two.
+    diagnostic_cases: list[tuple[str, str, str, list[tuple[int, str]], bool]] = [
+        ("explicit anchor above its own heading",
+         "docs/machines/collision.md", "dup-me",
+         [(3, ANCHOR_MECHANISM), (5, HEADING_MECHANISM)], True),
+        ("alias stack above its own heading",
+         "docs/machines/stacked.md", "dup-me",
+         [(4, ANCHOR_MECHANISM), (7, HEADING_MECHANISM)], True),
+        ("two anchors with prose between them are NOT co-located",
+         "docs/machines/duplicate.md", "dup-me",
+         [(3, ANCHOR_MECHANISM), (7, ANCHOR_MECHANISM)], False),
+    ]
+    for label, page_rel, anchor, expected_where, expected_colocated in diagnostic_cases:
+        _missing, _pages, dupes = _check_compat_anchors(
+            teeth_root, _scan_rendered_id_lines, {page_rel: (anchor,)}
+        )
+        if len(dupes) != 1:
+            sys.stderr.write(
+                f"self-test FAIL: duplicate diagnostic [{label}] expected exactly "
+                f"one duplicate, got {dupes}\n"
+            )
+            failures += 1
+            continue
+        _page, _anchor, where, colocated = dupes[0]
+        if where != expected_where or colocated != expected_colocated:
+            sys.stderr.write(
+                f"self-test FAIL: duplicate diagnostic [{label}] expected "
+                f"where={expected_where} colocated={expected_colocated}, got "
+                f"where={where} colocated={colocated}\n"
+            )
+            failures += 1
+        elif verbose:
+            sys.stderr.write(
+                f"self-test PASS: duplicate diagnostic [{label}]\n"
+            )
 
     # rf2-zq5i6 — the source-comment handbook vocabulary is DERIVED from the
     # manifest, with no independent COMPAT_HANDBOOKS authority. Assert the derived
