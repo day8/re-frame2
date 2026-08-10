@@ -6,7 +6,8 @@ subscriptions at the point of use. The runtime converts that data into React
 elements. The app-db, the events, and the pipeline are ordinary re-frame2.
 
 **Prerequisites.** Core re-frame2 — events, app-db, subscriptions, frames.
-First install and mount: [Getting started](01-getting-started.md).
+What Hicasso is: [Getting started](01-getting-started.md). Install and first
+screen: [Installation](installation.md).
 
 **When not this corpus.** Pure business logic and HTTP without a Hicasso view
 stay in Core / async / resources. A Reagent app still on v1 event shapes
@@ -18,7 +19,7 @@ every page; the groups below are judgment for where to start.
 
 | Problem | Start here |
 |---|---|
-| What Hicasso is / ship a first screen | [Getting started](01-getting-started.md) → [Views and reads](02-views-and-reads.md) → [Events as data](03-events-as-data.md) → [Controlled inputs](04-controlled-inputs.md) |
+| What Hicasso is / ship a first screen | [Getting started](01-getting-started.md) → [Installation](installation.md) → [Views and reads](02-views-and-reads.md) → [Events as data](03-events-as-data.md) → [Controlled inputs](04-controlled-inputs.md) |
 | Forms, lists, routes, async | [Forms](05-forms.md), [Lists](06-lists-and-collections.md), [Routing](07-routing-and-navigation.md), [Async resources](08-async-resources.md) |
 | Foreign React / native hot path | [Interop](09-interop.md), [Native tier](10-native-tier.md) |
 | Where UI state lives | [Ephemeral state](11-ephemeral-state.md), [Overlays](12-overlays-and-focus.md) |
@@ -32,7 +33,8 @@ every page; the groups below are judgment for where to start.
 
 | Page | Its one job |
 |---|---|
-| [Getting started](01-getting-started.md) | What Hicasso is; install, mount a first app, release one screen |
+| [Getting started](01-getting-started.md) | What Hicasso is; beside Reagent and UIx; why choose it; tradeoffs |
+| [Installation](installation.md) | Artifact, first screen, mount, multi-root, hot reload, production |
 | [Views and reads](02-views-and-reads.md) | Write views; read at the point of use; the [read-extent law](glossary.md#read-extent-law) |
 | [Events as data](03-events-as-data.md) | Event vectors in attributes; [`h/event`](glossary.md#hevent); prevention; keyboard |
 | [Controlled inputs](04-controlled-inputs.md) | App-db fields with caret, IME, and [`::h/revision`](glossary.md#hrevision) reset |

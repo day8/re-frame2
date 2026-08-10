@@ -93,7 +93,7 @@ Three placement details carry the rest:
 
 An app that restores a remembered choice dispatches `:theme/choose` from
 `:initial-events`, which lands before first paint
-([Getting started](01-getting-started.md)). The default paints only when
+([Installation](installation.md)). The default paints only when
 nobody has chosen, never as a flash before a late choice.
 
 A class is the same bridge: `{:class (str "app app--" (name theme))}` swaps a

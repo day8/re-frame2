@@ -267,7 +267,7 @@ search for one. Each job has a home:
 | Job | Home |
 |---|---|
 | Load the data this screen needs | The route declares it — [Routing](07-routing-and-navigation.md), [Async resources](08-async-resources.md). This also closes the click-away race: a route-owned read has an owner to release it |
-| Run something once at startup | `:initial-events` — ordinary events seeding app-db before first paint ([Getting started](01-getting-started.md)) |
+| Run something once at startup | `:initial-events` — ordinary events seeding app-db before first paint ([Installation](installation.md)) |
 | Animate an entrance or exit | Valve 5. Insertion animation or `@starting-style` for enter; presence for exit |
 | Drive a real DOM node or third-party SDK | The host edge: a callback `:ref` or a declared host ([Interop](09-interop.md)) |
 

@@ -25,7 +25,7 @@ Require `[re-frame.hicasso :as h]`. Optional modules (forms, overlays, native
 tier, test kit, routing helpers) are separate requires and cost nothing when
 absent.
 
-Related: [Getting started](01-getting-started.md).
+Related: [Getting started](01-getting-started.md), [Installation](installation.md).
 
 <a id="defview"></a>
 ### **defview**
@@ -663,7 +663,7 @@ hooks).
             [app-shell]))
 ```
 
-Related: [Getting started](01-getting-started.md).
+Related: [Installation](installation.md).
 
 <a id="hydrate"></a>
 ### **hydrate!**
