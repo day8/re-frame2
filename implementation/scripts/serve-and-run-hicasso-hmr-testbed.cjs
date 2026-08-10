@@ -494,11 +494,17 @@ function startWatch(cleanup) {
     failed: (from = 0) => saw('Build failure', from),
   };
   console.log(`> shadow-cljs watch ${BUILD_ID}`);
-  const child = spawnHarnessProcess(process.execPath, [runner, 'watch', BUILD_ID], {
-    cwd: IMPL_ROOT, env: process.env, shell: false,
-    stdio: ['ignore', 'pipe', 'pipe'],
-  });
-  cleanup.trackProcess(child);
+  // ONE expression, and the nesting is the point: `trackProcess` wraps the
+  // spawn so there is no window in which a spawned watch is not yet
+  // tracked, and `_orchestrator-teardown-policy.test.cjs` requires exactly
+  // this posture because it is the only one its teardown sweep reaps
+  // cross-platform. A `shadow-cljs watch` left orphaned holds a JVM, a
+  // dev-http port and worktree file locks.
+  const child = cleanup.trackProcess(
+    spawnHarnessProcess(process.execPath, [runner, 'watch', BUILD_ID], {
+      cwd: IMPL_ROOT, env: process.env, shell: false,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    }));
   const collect = (buf) => {
     for (const line of String(buf).split(/\r?\n/)) if (line.trim()) lines.push(line);
   };
