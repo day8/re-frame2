@@ -1,4 +1,4 @@
-(ns re-frame.bench.hicasso.front.presence-cljs-test
+(ns re-frame.hicasso.presence-cljs-test
   "PRESENCE AS DATA, HEADLESSLY — the machine, the transform, and the
   census-real toast tray ported both ways (rf2-2rtt6.37, HD-025).
 
@@ -38,8 +38,8 @@
   taste rulings dressed as deletions — and this is the instrument that
   answers it for this one."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
-            [re-frame.bench.hicasso.front.codec :as codec]
-            [re-frame.bench.hicasso.front.presence :as presence]))
+            [re-frame.hicasso.impl.codec :as codec]
+            [re-frame.hicasso.impl.presence :as presence]))
 
 (use-fixtures :each {:before (fn [] (codec/reset-caches!))})
 
