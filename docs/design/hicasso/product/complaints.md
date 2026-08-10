@@ -48,9 +48,12 @@ They name the boundary that was rendering and the file and line its
 a declaration or a render extent in a dev build. Outside every such extent,
 and under `:advanced` with `goog.DEBUG` false, they are **absent** — not
 nil, absent. Read them to help a human; never branch on them, and never
-require them in a test that must also pass in a production build. The
-provenance of those two slots when no origin names a view is `rf2-hic-007`'s
-to settle, and this catalogue deliberately promises nothing about it.
+require them in a test that must also pass in a production build. That
+absence is the constructor's own claim rather than a call site's: `fail!`
+REMOVES both keys from the caller's `ex-data` before the required four
+merge over it, so a forged `:view` cannot survive where no origin named
+one (settled by `rf2-hic-007`; the promise itself is restated under
+*Rulings this catalogue owns*).
 
 ## The stability rule
 
