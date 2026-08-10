@@ -205,7 +205,7 @@
 
 (rf/reg-event :tb/fire-armed
   (fn [{:keys [db]} [_ what]]
-    {:db      (assoc db :armed nil)
+    {:db       (assoc db :armed nil)
      :dispatch (case what
                  :bump    [:tb/bump-revision]
                  :unmount [:tb/toggle-mounted])}))
