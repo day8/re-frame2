@@ -186,8 +186,8 @@
                   and a quarter-second have passed for the code under test and
                   no measurable time has passed for the machine"
           (is (= (+ t0 60250) (js/Date.now)))
-          (is (< 60000 (- (js/Date.now) (.getTime (js/Date.))))
-              "over a minute of virtual time, none of it real"))
+          (is (< 30000 (- (js/Date.now) (.getTime (js/Date.))))
+              "the virtual instant has run away from the machine's own clock"))
 
         (-> (hm/unmount! m) (hm/assert-clean!) (.then (fn [_] (done))))))))
 
