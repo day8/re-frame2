@@ -977,6 +977,53 @@
    ;; The load-bearing watch hook is inherited from :build-defaults.
    :compiler-options {:infer-externs false}}
 
+  ;; rf2-hic-008 — the Hicasso artefact's RELEASE build: the substrate
+  ;; compiled the way a consumer ships it.
+  ;;
+  ;; Everything above this line is a TEST build, and until this id existed
+  ;; that was the whole inventory: nothing in the repo had ever compiled
+  ;; Hicasso under `:advanced` with `goog.DEBUG` false, so the two claims
+  ;; Phase 0 has to be able to make — that a clean consumer's application
+  ;; compiles for production at all, and that the dev-only seams are not
+  ;; in the bundle when it does — had no artefact to point at.
+  ;;
+  ;; The entry is `re-frame.hicasso.consumer-app`, which is a small real
+  ;; APPLICATION rather than a require-only stub, for the reason its
+  ;; sibling `:freehand-release` gives: Closure keeps what is reachable
+  ;; and an unused require is not, so a namespace that merely required the
+  ;; door would DCE to nearly nothing and the bundle would report a cost
+  ;; no consumer pays. It reaches a declared view, an ambient read, a
+  ;; controlled field's converge and a root that owns its frame — and it
+  ;; reaches them through `re-frame.hicasso`, `re-frame.core` and one
+  ;; adapter, with nothing from the bench tree or from `tools/`. That
+  ;; fence is the bead's acceptance and the entry's whole point.
+  ;;
+  ;; Shape follows the sibling advanced builds (:freehand-release,
+  ;; :proof-pack-single, :ui-g13-prod): both settings pinned rather than
+  ;; left to `release`'s defaults, so the build says what it is at the
+  ;; point a reader is looking. The entry sits under `hicasso/test/` — on
+  ;; :source-paths above, outside the artefact's published :paths — which
+  ;; is where every sibling bundle probe lives, and it matches no test
+  ;; regexp, so it is compiled here and nowhere else.
+  ;;
+  ;; The bundle lands at out/hicasso-release/main.js. No :dev-http — like
+  ;; every other advanced build here it is compiled and inspected, never
+  ;; served. The SERVED Hicasso builds are :hicasso/testbed and
+  ;; :hicasso/hmr-testbed, further down.
+  ;;
+  ;; NOT YET on an npm script or a CI job: implementation/package.json and
+  ;; .github/workflows/ were held by another worker when this landed, so
+  ;; `build:hicasso-release` and its gate are sequenced behind that. Built
+  ;; meanwhile with `npx shadow-cljs release hicasso-release`.
+  :hicasso-release
+  {:target     :browser
+   :output-dir "out/hicasso-release"
+   :asset-path "."
+   :compiler-options {:optimizations :advanced
+                      :infer-externs :auto
+                      :closure-defines {goog.DEBUG false}}
+   :modules {:main {:init-fn re-frame.hicasso.consumer-app/-main}}}
+
   ;; rf2-8kas5 — the Freehand artefact's RELEASE build: the substrate
   ;; compiled the way a consumer ships it.
   ;;
