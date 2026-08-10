@@ -760,6 +760,12 @@ const CODEMOD_LANE = {
   // runtime door share ONE slot rule (rf2-ani6y), and shared_rule_test.clj
   // pins the two `identical?`.
   sharedRule: 'implementation/freehand/test/re_frame/bench/hicasso/front/slot.cljc',
+  // rf2-erjv — the SECOND cross-tree edge, and a different mechanism. The one
+  // above is a classpath entry; this one is source TEXT. shared_rule_test.clj's
+  // `the-callback-contracts-are-the-doors` (rf2-vi11) slurps the door's own
+  // `.cljs` with a relative `io/file` and asserts the roster the codemod prints
+  // into its `defhost` sketch equals the door's `callback-contracts`.
+  door: 'implementation/hicasso/src/re_frame/hicasso/impl/codec.cljs',
 };
 
 test('the codemod JVM job is gated on its own output and runs the artefact (rf2-2rtt6.143)', () => {
@@ -817,6 +823,56 @@ test('the codemod lane arms on its own tree and on the shared slot rule (rf2-2rt
   for (const output of ['implementation_jvm', 'cljs_node_test', 'cljs_browser', 'cljs_prod']) {
     assert.equal(shared[output], 'true', `${CODEMOD_LANE.sharedRule} must still arm ${output}`);
   }
+});
+
+test('the codemod lane arms on the DOOR the roster pin reads (rf2-erjv)', () => {
+  // The second reverse edge, and the one that was missing. PR #7762 put the
+  // roster pin in the codemod's JVM lane while the classifier armed that lane
+  // from `implementation/freehand/*` only — so a fourth contract at the door,
+  // or a renamed one, ran no suite that pins it and reds later on an unrelated
+  // PR that happens to arm the lane.
+  assert.equal(
+    classify(CODEMOD_LANE.door)[CODEMOD_LANE.output],
+    'true',
+    `${CODEMOD_LANE.door} is read by shared_rule_test.clj and must arm ${CODEMOD_LANE.output}`,
+  );
+  // …and the arm WIDENS the hicasso case rather than replacing it. The arm is
+  // shared, `cljs_browser` and `hicasso_controlled` joined it only recently,
+  // and trading one output for another here would close this hole by opening
+  // others — the same constraint rf2-8a6s pinned one block down.
+  const door = classify(CODEMOD_LANE.door);
+  for (const output of ['cljs_node_test', 'cljs_browser', 'hicasso_controlled']) {
+    assert.equal(door[output], 'true', `${CODEMOD_LANE.door} must still arm ${output}`);
+  }
+});
+
+test('the door the codemod pin reads is the file the arm names (rf2-erjv)', () => {
+  // NON-VACUITY. Arming a lane off a path is worth nothing if the suite in that
+  // lane reads a DIFFERENT path, so this does not assert the edge in prose: it
+  // lifts the `io/file` segments out of the pin itself, resolves them the way
+  // the JVM does — relative to the codemod's working directory, which is what
+  // `working-directory:` sets in the job — and requires the answer to be the
+  // file this block arms on. Move the door, or repoint the pin, and the arm
+  // becomes a lie; this row is what says so.
+  const pin = fs.readFileSync(
+    path.join(REPO_ROOT, CODEMOD_LANE.dir, 'test/re_frame/migration/hicasso/shared_rule_test.clj'),
+    'utf8',
+  );
+  const form = /\(io\/file\s+((?:"[^"]*"\s*)+)\)/.exec(pin);
+  assert.notEqual(form, null, 'shared_rule_test.clj must locate the door with an (io/file ...) form');
+  const segments = form[1].match(/"([^"]*)"/g).map((s) => s.slice(1, -1));
+  const resolved = path
+    .relative(REPO_ROOT, path.resolve(REPO_ROOT, CODEMOD_LANE.dir, ...segments))
+    .replace(/\\/g, '/');
+  assert.equal(
+    resolved,
+    CODEMOD_LANE.door,
+    `the pin reads ${resolved}, so that is the path the classifier must arm on`,
+  );
+  assert.ok(
+    fs.existsSync(path.join(REPO_ROOT, resolved)),
+    `${resolved} must exist — the pin asserts it does and reds on a move`,
+  );
 });
 
 test('the codemod lane stays dark for surfaces it does not depend on (rf2-2rtt6.143)', () => {
