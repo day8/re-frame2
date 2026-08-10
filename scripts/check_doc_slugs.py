@@ -154,8 +154,16 @@ ANCHOR_MECHANISM = "explicit <a id>"
 HEADING_MECHANISM = "heading"
 
 # Markdown inline link.  Captures destination only.  Reference-style links
-# ([text][ref]) are ignored — none in this corpus per spot-check, and a full
-# parser is out of scope for a CI guard.
+# ([text][ref]) are ignored — and the corpus DOES have them, which the
+# "none per spot-check" this comment used to claim did not (rf2-skpf).
+# Rendering all 718 in-scope files through mkdocs' own markdown.Markdown and
+# diffing the emitted hrefs against this extractor finds ten links the
+# renderer emits from `[ref]: dest` definitions and this gate never checks:
+# seven in tools/re-frame2-pair-mcp/spec/003-Tool-Catalogue.md, one in
+# tools/re-frame2-pair-mcp/spec/DESIGN-RATIONALE.md, two in
+# tools/story-mcp/spec/002-Tool-Registry.md.  A live false negative, its own
+# defect, and NOT this surface — recorded here so the next reader of this
+# regex starts from the measurement rather than the spot-check.
 #
 # The link TEXT may contain newlines: markdown wraps a paragraph freely, so
 # `[§Compiled\nviews](Doc.md#anchor)` is one rendered link.  The negated
