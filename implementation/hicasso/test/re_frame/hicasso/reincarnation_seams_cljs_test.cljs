@@ -9,9 +9,9 @@
 
   | seam | the call | what it carries across the gap |
   |---|---|---|
-  | `h/boundary`'s `:on-error` report | `collector/dispatch!` (boundary.cljs:146) | the frame keyword, read from React context AT CATCH TIME |
-  | the internal mount witness door | `collector/dispatch!` (mount.cljs:383) | `(:frame handle)` — a keyword, retained for the root's whole life |
-  | `::h/navigate` | routing's `:routing/activate-link!` (intent.cljs:1030) | the frame keyword, closed over at RENDER and resolved at CLICK |
+  | `h/boundary`'s `:on-error` report | `collector/dispatch!`, in `impl.boundary/report!` | the frame keyword, read from React context AT CATCH TIME |
+  | the internal mount witness door | `collector/dispatch!`, in `impl.mount/dispatch!` | `(:frame handle)` — a keyword, retained for the root's whole life |
+  | `::h/navigate` | routing's `:routing/activate-link!`, in `impl.intent/navigate-handler` | the frame keyword, closed over at RENDER and resolved at CLICK |
 
   ## The axis, and why \"it resolves late\" is not the fault
 
@@ -217,7 +217,7 @@
       (is (= :fresh (marked))))))
 
 ;; ---------------------------------------------------------------------------
-;; 2. SEAM 1 — `h/boundary`'s `:on-error` report (boundary.cljs:146)
+;; 2. SEAM 1 — `h/boundary`'s `:on-error` report (`impl.boundary/report!`)
 ;; ---------------------------------------------------------------------------
 
 ;; `report!` is reached from `componentDidCatch` and from nowhere else
@@ -340,7 +340,7 @@
           "address-directed, and therefore still able to report"))))
 
 ;; ---------------------------------------------------------------------------
-;; 3. SEAM 2 — the internal mount witness door (mount.cljs:378-385)
+;; 3. SEAM 2 — the internal mount witness door (`impl.mount/dispatch!`)
 ;; ---------------------------------------------------------------------------
 
 ;; `impl.mount/dispatch!` is three lines: `(collector/dispatch! (:frame handle)
@@ -396,7 +396,7 @@
            id names an ADDRESS and addresses do not move"))))
 
 ;; ---------------------------------------------------------------------------
-;; 4. SEAM 3 — `::h/navigate` (intent.cljs:1012-1033)
+;; 4. SEAM 3 — `::h/navigate` (`impl.intent/navigate-handler`)
 ;; ---------------------------------------------------------------------------
 
 ;; The one seam where a frame keyword is closed over at RENDER and resolved at
