@@ -116,14 +116,22 @@ not at a fixed position.
 
 ### `:re-frame.hicasso/nameless-interactive-element` — warning
 
-`[:button {…}]` or `[:a {…}]` with **no children at all** and none of
-`:aria-label`, `:aria-labelledby` or `:title`. Such an element has no
-accessible name and a screen reader announces it as an unlabelled control.
+`[:button {…}]`, or `[:a {…}]` **that carries an `href`**, with **no children
+at all** and none of `:aria-label`, `:aria-labelledby` or `:title`. Such an
+element has no accessible name and a screen reader announces it as an
+unlabelled control.
+
+The tag set and the `href` condition are taken from this project's compiled
+substrates rather than invented here — `re-frame.ui.compiler.a11y`'s
+`:rf.ui.compile/a11y-missing-accessible-name` names a `<button>` always and an
+`<a>` only when it is a real link — so the two agree about what a nameless
+control is. An `<a>` without `href` is not focusable and not a link.
 
 **Refuses to know:** what any child renders. One child of any kind — even a
 symbol that turns out to be an icon with no text — makes this silent, because
 it may well render text. Dynamic props answer the same way: the name may be in
-there. `:input` is deliberately absent: its name usually comes from a sibling
+there. `:input`, `:select` and `:textarea` are in that compiler pass's set and
+deliberately absent here: their name usually comes from a sibling
 `<label for=…>`, which is a fact about the tree rather than about the element.
 The real accessibility pass is a separate piece of work; this is one always-
 right corner of it.
