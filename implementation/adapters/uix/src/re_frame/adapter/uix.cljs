@@ -159,10 +159,14 @@
   Resolution matches the ambient `use-subscribe`: dynamic-var tier first,
   then the surrounding `frame-provider` / `frame-root` via React context;
   no scope raises `:rf.error/no-frame-context`. The returned map is
-  reference-stable across re-renders for the same resolved frame (safe in
-  effect deps / child props); a provider swap re-renders the caller and
-  yields a map locked to the new frame. No options map, no variants — for
-  an explicit frame call `(rf/capture-frame frame-id)` directly."
+  reference-stable across re-renders for the same resolved frame
+  INCARNATION (safe in effect deps / child props); a provider swap
+  re-renders the caller and yields a map locked to the new frame, and so
+  does destroying the resolved frame and creating another under the same
+  id — a frame keyword is an address, and the bundle is pinned to the
+  incarnation it was captured against (rf2-40kv). No options map, no
+  variants — for an explicit frame call `(rf/capture-frame frame-id)`
+  directly."
   use-frame-hook/use-frame)
 
 (def flush-views!
