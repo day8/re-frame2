@@ -125,25 +125,29 @@ artefacts=(
   # JVM per deftest (slowest artefact), matching the dedicated
   # `jvm-test-quiet` PR-CI job (test.yml).
   implementation/test-quiet
-  # rf2-hic-022 — the Hicasso artefact was CORRECTLY absent from this roster
-  # until its lint export landed: the runtime requires React, so every suite
-  # it owned was CLJS on the Node lane, and its `:test` alias was a `--probe`
-  # classpath check with the test-count floor waived. That premise no longer
-  # holds. `re-frame.hicasso.lint-export-test` runs clj-kondo IN PROCESS over
-  # the artefact's own `resources/clj-kondo.exports/` tree — no React, no DOM,
-  # no CLJS compile — and asserts that each of the six checks fires on its
-  # positive fixture and that correct code stays silent. It is pure JVM work
-  # and this is the only roster that can reach it. Listed after test-quiet
-  # because it resolves a clj-kondo jar on first run.
+  # NOT HERE, ON PURPOSE: `implementation/hicasso` (rf2-hic-022).
   #
-  # NOTE (rf2-hic-022): there is no `jvm-hicasso` job in `.github/workflows/
-  # test.yml`, so PR CI does NOT run this suite — `.github/workflows/**` is
-  # hot-zone and sequential, and adding one is a separate scheduling decision.
-  # What CI *does* gate is the export itself: `.clj-kondo/config.edn` points
-  # `:config-paths` at it, so the required `clj-kondo` job in `lint.yml` loads
-  # these hooks over the whole lint surface and reds if they break or start
-  # firing on real code.
-  implementation/hicasso
+  # The artefact gained its first JVM-runnable suite with the lint export
+  # (`re-frame.hicasso.lint-export-test` runs clj-kondo in process over
+  # `resources/clj-kondo.exports/`; no React, no DOM, no CLJS compile), and
+  # its `:test` alias correspondingly dropped `--probe` and took the
+  # test-count floor. Adding it to THIS roster is the obvious next step and
+  # was tried — `check_jvm_lane_rosters.py` (rf2-as6bg) refuses it:
+  #
+  #   R1 implementation/hicasso: on scripts/test-jvm-implementation.sh, but no
+  #   .github/workflows/test.yml job runs `clojure -M:test` there
+  #
+  # which is the bijection gate working exactly as intended. A roster entry
+  # with no CI job is a lane that depends on somebody remembering to run a
+  # script. The missing half is a `jvm-hicasso` job in `test.yml`, which is
+  # hot-zone and sequential, so it is a scheduling decision rather than a
+  # detail this bead could take.
+  #
+  # The export ITSELF is gated meanwhile, by `lint.yml`'s required
+  # `clj-kondo` job: `.clj-kondo/config.edn` points `:config-paths` at the
+  # export, so the hooks load over the whole lint surface and the job reds if
+  # they break or begin firing on real code. What is ungated is the fixture
+  # suite that proves each check still FIRES.
 )
 
 for artefact in "${artefacts[@]}"; do
