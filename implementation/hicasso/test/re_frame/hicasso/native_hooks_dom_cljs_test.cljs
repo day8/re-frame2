@@ -390,7 +390,9 @@
                             array rebuilds every render) — either makes this a
                             different object three times over, and nothing on
                             screen changes"
-                    (is (identical? reg-at-mount (first (readers-of k)))))
+                    (is (true? (identical? reg-at-mount (first (readers-of k))))
+                        "React holds a DIFFERENT registration, so the
+                         subscription was torn down and rebuilt"))
 
                   (testing "so nothing was released and re-acquired: one cell,
                             one membership, one boundary, one edge, one entry —
@@ -404,7 +406,9 @@
                             commit does no work"
                     (mount/dispatch! handle [::set-price "AAPL" 204])
                     (is (= "204" (text-at handle ".price")))
-                    (is (identical? reg-at-mount (first (readers-of k))))
+                    (is (true? (identical? reg-at-mount (first (readers-of k))))
+                        "React holds a DIFFERENT registration, so the
+                         subscription was torn down and rebuilt")
                     (is (= residue (inventory/residue))))
 
                   (exercised! :hooks/no-resubscribe)
