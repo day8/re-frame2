@@ -195,6 +195,33 @@
   (defmethod dispatch-on :self [f] (f (self-call-in-defmethod {})))
   [:div "registered"])
 
+(h/defview self-call-in-areduce [{:keys [steps]}]
+  [:div (str (areduce steps i acc 0 (+ acc (count (self-call-in-areduce {})))))])
+
+(h/defview self-call-in-amap [{:keys [xs]}]
+  [:div (str (amap xs i acc (+ (aget acc i) (count (self-call-in-amap {})))))])
+
+;; ---------------------------------------------------------------------------
+;; A METHOD NAMED LIKE THE VIEW does not bind it, so a self-call in that
+;; method's body still reports.
+;;
+;; This is the direction nothing surfaces on its own. Reading a method as a
+;; named `fn` tail — which is what a `letfn` fnspec is — treats its NAME as the
+;; optional self binding, and a `reify` / `extend` method name is not lexical:
+;; no expansion puts it in scope. The whole spec form then went quiet, so a
+;; genuine direct self-call inside any method was silently missed (merged-PR
+;; audit #7829). A false silence is worse than a false error, because nothing
+;; will ever ask about it.
+;; ---------------------------------------------------------------------------
+
+(h/defview toString [_]
+  [:div (str (reify Object (toString [_] (str (toString {})))))])
+
+(h/defview valueOf [_]
+  (extend-type string Object
+    (valueOf [_] (str (valueOf {}))))
+  [:div "extended"])
+
 ;; ---------------------------------------------------------------------------
 ;; A READING DOOR that no local has taken still reports (rf2-c6t6).
 ;;
