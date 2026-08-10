@@ -833,7 +833,7 @@ def _run_self_tests(verbose: bool = False) -> int:
         ("dup_suffix_out_of_range_broken",   1),  # `#errors-2` with only two headings
         ("github_dup_collision_bump_ok",     0),  # `## Errors-1` after two `## Errors`
         ("inline_code_link_ignored",         0),  # fence + inline-code guard
-        # rf2-8wcbe — the shared extractor's block bound and multiline
+        # rf2-skpf — the shared extractor's block bound and multiline
         # code-span mask reach this gate too. Expects 1, not 0: the finding is
         # a REAL broken wrapped link, so the count moves if a phantom is
         # invented (up) or if wrapped links stop being seen (down).

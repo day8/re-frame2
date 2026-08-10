@@ -238,7 +238,16 @@ _MKDOCS_BLOCK_CONTENT_INDENT = 4
 #   never sees the language tag of a fence as a stray backtick run.
 _INLINE_CODE_RE = re.compile(r"(`+)(?:.+?)\1(?!`)")
 
-# The same span rule, applied over a JOINED scan unit (rf2-8wcbe).  Identical
+# THE ID ON THIS SURFACE.  Every rf2-skpf citation in this file, in
+# `check_readme_links.py` and in the fixtures under `scripts/_test_fixtures/`
+# read `rf2-8wcbe` until 2026-08-10.  That id was never durable — it exists in
+# neither the Dolt ledger nor any `issues.jsonl` — so PRs #7785, #7795 and #7803
+# and the rf2-1cpt / rf2-b2cr / rf2-feit ledger text all handed the residual to
+# a bead nobody could open.  rf2-skpf is the bead that owns it, and the
+# citations now say so.  A reader who meets `rf2-8wcbe` in those PR bodies is
+# looking at this surface.
+#
+# The same span rule, applied over a JOINED scan unit (rf2-skpf).  Identical
 # to `_INLINE_CODE_RE` but for `re.DOTALL`: CommonMark §6.1 explicitly permits
 # a code span to contain a line ending, so
 #
@@ -254,11 +263,12 @@ _INLINE_CODE_RE = re.compile(r"(`+)(?:.+?)\1(?!`)")
 # CommonMark does — an unpaired backtick is literal text.
 _INLINE_CODE_SPAN_RE = re.compile(r"(`+)(?:.+?)\1(?!`)", re.DOTALL)
 
-# Non-blank block boundaries (rf2-8wcbe).  A blank line is a block boundary in
-# every markdown flavour, but it is NOT the only one: these leaf blocks all
-# INTERRUPT an open paragraph, so the text either side of one is never a single
-# run of inline content and no inline construct — link, emphasis, code span —
-# can bridge them.  Recognising them is what stops the join from stitching
+# Non-blank block boundaries (rf2-skpf).  A blank line is a block boundary in
+# every markdown flavour, but it is NOT the only one: these leaf blocks
+# INTERRUPT an open paragraph (all but the two carrying a declared
+# disagreement below), so the text either side of one is never a single run of
+# inline content and no inline construct — link, emphasis, code span — can
+# bridge them.  Recognising them is what stops the join from stitching
 #
 #     A stray [opening
 #     # Separate heading
@@ -291,7 +301,8 @@ _INLINE_CODE_SPAN_RE = re.compile(r"(`+)(?:.+?)\1(?!`)", re.DOTALL)
 #     underline ENDS the paragraph above it (turning it into a heading), so it
 #     bounds the unit either way and the two readings need not be told apart.
 #   * Table row — a leading `|`.  A table's rows render as separate cells; no
-#     inline construct spans two of them.
+#     inline construct spans two of them.  Only once the table has STARTED,
+#     though — see the declared disagreement below.
 #
 # `_LIST_ITEM_START_RE` — a container that DOES continue, so it opens a unit but
 # does not close one:
@@ -300,10 +311,35 @@ _INLINE_CODE_SPAN_RE = re.compile(r"(`+)(?:.+?)\1(?!`)", re.DOTALL)
 #     next bullet — while a continuation line of an item carries no marker, so a
 #     link wrapping inside one item still joins.
 #
+# THE LIST-MARKER AND TABLE-ROW BOUNDS ARE A DECLARED DISAGREEMENT, not
+# agreement (rf2-skpf), and this is the edge of what a non-parser can do.
+# python-markdown starts a list or a table only at a BLOCK START —
+# `OListProcessor.test` / `UListProcessor.test` are `RE.match(block)` and
+# `TableProcessor.test` reads the block's first two rows — so a marker line
+# appearing PART-WAY THROUGH an open paragraph is ordinary prose to the
+# renderer and a boundary here.  Renderer-derived, one shape per verdict:
+#
+#     > Per the note, see [§Compiled
+#     > - views](API.md#compiled-views).
+#
+# renders `<a href="API.md#compiled-views">` and this gate reports nothing —
+# a false negative, and the same for a `|`-leading continuation line.
+#
+# It stays, because the alternative is worse and the fix is a parser.  Bounding
+# only at a block start would need list-and-table open/close state, and the
+# shape it would buy is a link whose TEXT wraps onto a line beginning `- `,
+# `* `, `+ `, `1. ` or `|` — prose does not do that.  The shape it would COST
+# is the corpus's most common structure of all: a real list, where the block
+# does start with the marker and each item is genuinely its own container.
+# Measured over the 718-file corpus, this bound moves nothing in either
+# direction (the ingredient — a marker line interrupting an open paragraph —
+# occurs 6,743 times; a link wrapping across one occurs 0 times).
+#
 # Blockquote entry is handled separately in `_inline_blocks` because it is
-# relative, not absolute: entering (or nesting deeper into) a quote interrupts
-# the paragraph above, while a following unprefixed line is CommonMark lazy
-# continuation of the quoted paragraph and must NOT bound the unit.
+# relative, not absolute: nesting DEEPER than the unit opened interrupts the
+# paragraph above, while a following unprefixed line is CommonMark lazy
+# continuation of the quoted paragraph — and so is a `>`-marked line after it,
+# which RESUMES the same quote rather than entering a new one (rf2-skpf).
 _LEAF_LINE_BLOCK_RE = re.compile(
     r"""^(?:
           \#{1,6}(?:[ \t]|$)                  # ATX heading — COLUMN ZERO ONLY
@@ -655,7 +691,7 @@ def _strip_fences(lines: list[str]) -> list[tuple[int, str]]:
       triples through mkdocs.config.load_config('mkdocs.yml') into a
       markdown.Markdown, that costs 180 shapes where the renderer emits a link
       this gate never reports — the opener past the allowance every time, and the
-      downstream inline-span masking (rf2-8wcbe) swallowing what survives — and
+      downstream inline-span masking (rf2-skpf) swallowing what survives — and
       none in the other direction.  The corpus measurement above is what carries
       the bound; agreement never did.
     * List items and admonitions nested INSIDE a blockquote do not push a content
@@ -1141,7 +1177,7 @@ def _inline_blocks(
     construct may wrap.  Scanning per unit rather than per line is what lets
     `_iter_inline_links` see a wrapped link (rf2-vpc4c); bounding the unit at
     every real block boundary is what stops it from stitching unrelated blocks
-    into a link no renderer would produce (rf2-8wcbe).
+    into a link no renderer would produce (rf2-skpf).
 
     Four kinds of boundary end a unit:
 
@@ -1216,7 +1252,7 @@ def _inline_blocks(
 
 
 def _mask_code_spans(text: str) -> str:
-    """Mask inline-code spans across a joined scan unit (rf2-8wcbe).
+    """Mask inline-code spans across a joined scan unit (rf2-skpf).
 
     Length- and newline-preserving, so a match position in the masked text still
     maps back to its source line.  Unlike the per-line `_strip_inline_code`, this
@@ -1237,7 +1273,7 @@ def _iter_inline_links(
 
     `pairs` are (line_no, content) pairs the CALLER has already reduced to
     scannable source — fence-stripped.  Inline code is masked HERE, over the
-    joined unit, not by the caller (rf2-8wcbe).
+    joined unit, not by the caller (rf2-skpf).
 
     Each inline block (`_inline_blocks`) is joined with `\\n` and scanned as ONE
     string, so a link whose text wraps across a newline is seen.  The
@@ -1249,7 +1285,7 @@ def _iter_inline_links(
     Masking runs over the same joined unit `_LINK_RE` scans, so the two agree on
     what the text is: a code span that crosses a line ending is masked whole and
     yields no link, where per-line masking saw two unpaired backticks, masked
-    neither, and invented one (rf2-8wcbe).
+    neither, and invented one (rf2-skpf).
 
     The reported line is the one carrying the DESTINATION (`m.start(1)`), not
     the one carrying the opening `[`.  For an unwrapped link the two are the
@@ -1280,7 +1316,7 @@ def _extract_links(path: Path) -> Iterable[tuple[int, str]]:
     skipped — both are "code", not real cross-references (rf2-mqv8s).
     Links that wrap across a newline ARE seen (rf2-vpc4c) — see
     `_iter_inline_links`, which is also where inline code is masked and where
-    the join is bounded to one rendered inline block (rf2-8wcbe).
+    the join is bounded to one rendered inline block (rf2-skpf).
 
     This function's only job is reducing the file to fence-stripped
     (line_no, content) pairs.  `check_readme_links.py` imports it so both gates
@@ -2002,7 +2038,7 @@ def _run_self_tests(verbose: bool = False) -> int:
         ("wrapped_link_broken_anchor",       2),  # negative control
         ("wrapped_link_ok",                  0),  # no false positives
         ("wrapped_link_block_bound",         0),  # join stops at a blank line
-        # rf2-8wcbe — the join must not bridge a NON-blank block boundary, and
+        # rf2-skpf — the join must not bridge a NON-blank block boundary, and
         # inline code must be masked over the same unit the link regex scans.
         # Each expects 1, not 0: the single finding is a REAL broken wrapped
         # link, so the count fails in BOTH directions — upward if a phantom is
@@ -2401,7 +2437,7 @@ def _run_self_tests(verbose: bool = False) -> int:
             "rejects the drifted mutation\n"
         )
 
-    # rf2-vpc4c / rf2-8wcbe — link extraction driven directly with explicit line
+    # rf2-vpc4c / rf2-skpf — link extraction driven directly with explicit line
     # lists, so the wrap contract is pinned at the mechanism rather than only
     # through a fixture's aggregate count. Each case states the (line_no,
     # destination) pairs `_iter_inline_links` must yield from FENCE-STRIPPED
@@ -2409,7 +2445,7 @@ def _run_self_tests(verbose: bool = False) -> int:
     # code is masked inside `_iter_inline_links` over the joined unit, so these
     # inputs are raw source lines. The cases run in both directions: the join
     # must reach across a wrap (rf2-vpc4c) and must stop at every real block
-    # boundary and inside a multiline code span (rf2-8wcbe).
+    # boundary and inside a multiline code span (rf2-skpf).
     extraction_cases: list[tuple[str, list[tuple[int, str]], list[tuple[int, str]]]] = [
         # POSITIVE CONTROL — the unwrapped case that always worked. The reported
         # line is the link's own line, exactly as before the fix.
@@ -2449,7 +2485,7 @@ def _run_self_tests(verbose: bool = False) -> int:
          [(1, "An unclosed [ bracket opens here,"),
           (2, "and [the real link](target.md#anchor) follows.")],
          [(2, "target.md#anchor")]),
-        # rf2-8wcbe — NON-BLANK block boundaries. A blank line is not the only
+        # rf2-skpf — NON-BLANK block boundaries. A blank line is not the only
         # boundary; each pair below spans a real one, so no renderer produces a
         # link from it. THE BEAD'S SECOND COUNTEREXAMPLE leads.
         ("ATX heading is not bridged",
@@ -2488,7 +2524,7 @@ def _run_self_tests(verbose: bool = False) -> int:
          [(1, "> Per the note, [§Compiled"),
           (2, "views](API.md#compiled-views) is live.")],
          [(2, "API.md#compiled-views")]),
-        # rf2-8wcbe — code spans are masked over the JOINED unit, because a
+        # rf2-skpf — code spans are masked over the JOINED unit, because a
         # CommonMark code span may contain a line ending. THE BEAD'S FIRST
         # COUNTEREXAMPLE: per-line masking saw two unpaired backticks, masked
         # neither, and invented a link the renderer never produces.
