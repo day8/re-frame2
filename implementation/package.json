@@ -48,7 +48,7 @@
     "test:cljs-perf-emit-nightly": "node scripts/compile-node-test.cjs node-test-perf-nightly out/node-test-perf-nightly.js && node out/node-test-perf-nightly.js",
     "test:browser": "shadow-cljs compile browser-test && node scripts/serve-and-run-browser-tests.cjs",
     "test:browser-schemas-boundary-prod": "shadow-cljs release browser-test-schemas-boundary-prod && node scripts/serve-and-run-browser-tests.cjs --root out/browser-test-schemas-boundary-prod --port 8022 --duplicate-done-drift-unverifiable",
-    "test:browser-prod-elision": "shadow-cljs release browser-test-prod-elision && node scripts/check-ui-mounted-prod-elision.cjs && node scripts/serve-and-run-browser-tests.cjs --root out/browser-test-prod-elision --port 8023 --duplicate-done-drift-unverifiable",
+    "test:browser-prod-elision": "shadow-cljs release browser-test-prod-elision && node scripts/check-ui-mounted-prod-elision.cjs && node hicasso/scripts/check_source_coord_elision.cjs && node scripts/serve-and-run-browser-tests.cjs --root out/browser-test-prod-elision --port 8023 --duplicate-done-drift-unverifiable",
     "test:elision": "shadow-cljs release elision-probe elision-probe-control && node scripts/check-elision.cjs",
     "test:freehand-evidence-elision": "shadow-cljs release freehand-release freehand-release-control && node scripts/check-freehand-evidence-elision.cjs",
     "clean:freehand-reachability": "node -e \"const fs=require('fs'); for (const b of ['freehand-release','freehand-release-reachability-control']) { fs.rmSync('out/'+b,{recursive:true,force:true,maxRetries:3,retryDelay:100}); fs.rmSync('.shadow-cljs/builds/'+b,{recursive:true,force:true,maxRetries:3,retryDelay:100}); }\"",
