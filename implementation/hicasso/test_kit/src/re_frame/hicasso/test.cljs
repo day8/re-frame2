@@ -110,7 +110,8 @@
   ## What L2 runs, and what it refuses
 
   [[render]] takes a hiccup form whose head is **a body function** — the
-  `(fn [props] …)` a `defview` is minted from:
+  `(fn [props] …)` a `defview` is minted from — or the minted view
+  itself:
 
       (defn todo-row-body [{:keys [id]}]
         (let [todo (h/sub [:todo/by-id id])]
@@ -125,14 +126,20 @@
           (is (= \"milk\" (ht/text li)))
           (is (= [:todo/toggle 1] (:on-click (ht/attrs li))))))
 
-  **A minted `defview` head is refused, and the refusal is the honest
-  answer rather than a limitation nobody wrote down.**
-  `re-frame.hicasso.impl.collector/mint-view!` closes over the body and
-  retains no reference to it — `boundary-head?` is one own-property read,
-  there is no registry and no map — so a minted head cannot be run
-  without React, and running it under React is L3. Naming the body, as
-  above, costs one line and keeps the view under test running AS
-  WRITTEN. See [[render]]'s refusal for the full statement.
+  **The minted `h/defview` head is accepted too, at the ROOT of the
+  form**, and either spelling runs the body AS WRITTEN.
+  `re-frame.hicasso.impl.collector/mint-view!` attaches the body to the
+  head it mints under one dev-only own property (`codec/retain-body!`,
+  rf2-kjf5) — no registry and no map, just a second own property beside
+  the boundary marker `boundary-head?` already reads — so a harness
+  that runs no hook can still reach the body. An `:advanced` build with
+  `goog.DEBUG=false`
+  carries no such property and a minted head refuses there, which costs
+  nothing because a production bundle may not `:require` this namespace
+  at all. See [[render]] for the full statement.
+
+  That is the ROOT form's rule. A boundary reached as a CHILD records
+  the call rather than expanding it, whatever the build — see §Children.
 
   ### Children
 
@@ -258,7 +265,7 @@
     :proves    "codecs, intents, controlled/revision laws, the boundary ABI"
     :mechanism "pure data and property assertions"}
    {:tier :l2 :here? true
-    :proves    "one registered hook-free Hicasso body, as a semantic tree"
+    :proves    "one hook-free Hicasso body, as a semantic tree"
     :mechanism "re-frame.hicasso.test/render under injected read fixtures"}
    {:tier :l3 :here? false
     :proves    "React lifecycle, context, hooks, refs, errors, foreign hosts"
@@ -908,9 +915,18 @@
 (defn- boundary-node
   "A child boundary, recorded as the CALL it is: its view id, the props
   the call site passed and the children the call site wrote. Its body
-  does not run — `mint-view!` retains no reference to it — so this node
-  claims nothing about what the child would render, and [[text]] over it
-  answers the call site's own children and no more."
+  does not run, so this node claims nothing about what the child would
+  render, and [[text]] over it answers the call site's own children and
+  no more.
+
+  A CHOICE, and the ladder's own definition of the tier rather than a
+  reach that failed: L2 is ONE body, run for its semantic tree, and it
+  expands no children of its own. The child's body is perfectly
+  reachable — the mint retains it on the head under a dev-only own
+  property, which is how [[render]] accepts a minted head at the ROOT —
+  so expanding it here would be L2 quietly becoming a renderer, and a
+  tree spanning two views cannot say which of them a red belongs to.
+  Render the child's own form to assert its contents."
   [form ns-ctx]
   (let [head     (nth form 0)
         props    (form-props form)
