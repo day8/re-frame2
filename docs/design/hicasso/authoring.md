@@ -339,17 +339,25 @@ of them context:
 
 ## Presence — phase as data (HD-025)
 
-`h/presence` retains exiting keyed children for `:timeout-ms`. A child says what it
-looks like in each phase, **in its own attribute map**:
+Presence lives in the optional `re-frame.hicasso.motion` namespace, not on the
+public door (rf2-hic-053) — an application that never requires it carries none of
+it. `motion/presence` retains exiting keyed children for `:timeout-ms`. A child
+says what it looks like in each phase, **in its own attribute map**:
 
 ```clojure
-(h/presence {:timeout-ms 300}
+(:require [re-frame.hicasso :as h]
+          [re-frame.hicasso.motion :as motion])
+
+(motion/presence {:timeout-ms 300}
   (for [t (sub [:toasts/visible])]
     [:div.toast {:key (:id t)
                  ::h/unmounting {:class "toast toast--exit"
                                  :inert true :aria-hidden true}}
      (:message t)]))
 ```
+
+The override keys stay `::h/…` while the namespace moves: naming-ledger row 31
+puts their respelling to `::motion/…` in front of the consolidation sitting.
 
 No child view, no ambient read. When the child *is* a boundary, the phase arrives
 as an ordinary prop — `[toast-card {:key id :toast t :rf/phase :unmounting}]` — so
@@ -368,6 +376,21 @@ presence never dispatches domain mount/unmount events.
 to paint. `::h/mounting` exists, but the reliable spelling for enter is an
 animation on insertion (or `@starting-style`); exit is the phase that transitions
 happily, because the node is already painted.
+
+**The posture, and it is the un-generous one.** Motion belongs to CSS, to the
+compositor and to the host; this runtime owns retention and nothing else.
+Everything an animation needs already has an owner — CSS declares the transition,
+the compositor interpolates it, and a native host owns the high-rate mechanics,
+because a drag position or a spring integrator runs per frame and application
+state does not. Presence closes the one gap none of them can, which is that React
+removes a node the instant its data leaves and a node that is gone cannot fade.
+So there is no easing, spring or keyframe API, no timeline or transition
+orchestrator, no `transitionend` subscription, and no gesture or drag state; the
+way to reach those is `h/defhost`, and no motion machinery was built for them.
+Per-frame work is therefore zero rather than small — no `requestAnimationFrame`,
+no interval, no per-frame callback — which is the whole of what this module's
+frame budget means, and it is measured as a count in
+`motion_presence_dom_cljs_test`.
 
 ## Ephemeral state (HD-009)
 
