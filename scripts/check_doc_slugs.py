@@ -646,10 +646,18 @@ def _strip_fences(lines: list[str]) -> list[tuple[int, str]]:
       recognises where a fence is, not where an indented code block is; telling
       one from a paragraph continuation needs paragraph state this scanner does
       not keep.  Measured across the corpus: zero markdown links live in one.
-      Inside a blockquote the same bound applies, and the renderer agrees:
-      superfences opens a fence at any indent but RESTORES the literal source
-      when an indented block swallows it, so `>` + five spaces renders the fence
-      markers as text.
+      Inside a blockquote the same bound applies — and it is a DISAGREEMENT with
+      the renderer, not agreement with it (rf2-feit).  superfences opens a fence
+      at any indent, but past the allowance an indented block swallows it and the
+      literal source is RESTORED, so `>` + five spaces does render the fence
+      markers as text: a code block this function cannot see, whose lines it
+      therefore reads as prose.  Swept over the 729 `>`-plus-0-to-8-spaces prefix
+      triples through mkdocs.config.load_config('mkdocs.yml') into a
+      markdown.Markdown, that costs 180 shapes where the renderer emits a link
+      this gate never reports — the opener past the allowance every time, and the
+      downstream inline-span masking (rf2-8wcbe) swallowing what survives — and
+      none in the other direction.  The corpus measurement above is what carries
+      the bound; agreement never did.
     * List items and admonitions nested INSIDE a blockquote do not push a content
       column; a quoted fence is measured from the quote's own.  Within the
       renderer's three-space allowance that agrees (`> - item` / `>   ```clj` is
