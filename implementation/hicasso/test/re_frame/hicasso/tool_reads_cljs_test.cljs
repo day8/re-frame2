@@ -83,15 +83,27 @@
                                  :rows [:a :b :c]}]))
   frame-id)
 
-(defn- mount!
-  "Render `body-fn` as a boundary and COMMIT it — the entry claims its
-  reference exactly as React's passive effect would. Answers the
+(defn- mount-in!
+  "Render `body-fn` as a boundary in `fid` and COMMIT it — the entry claims
+  its reference exactly as React's passive effect would. Answers the
   unsubscribe React would hold."
-  [body-fn]
-  (collector/render-body frame-id body-fn {})
+  [fid body-fn]
+  (collector/render-body fid body-fn {})
   (collector/commit-boundary! (collector/last-reads) (fn [])))
 
-(defn- k [query-v] [frame-id query-v])
+(defn- mount! [body-fn] (mount-in! frame-id body-fn))
+
+(defn- k
+  "A RAW cell key — what the runtime's own tables are keyed by."
+  [query-v]
+  [frame-id query-v])
+
+(defn- bk
+  "One element of an EXPORTED boundary key: frame, registration id, and the
+  projected query. Distinct from [[k]] on purpose — the raw key is what the
+  runtime holds, this is what the door is allowed to say (audit #7789)."
+  ([query-v] (bk frame-id query-v))
+  ([fid query-v] [fid (first query-v) query-v]))
 
 (defn- envelopes
   "All four reads, in one turn."
@@ -135,9 +147,9 @@
       (let [e    (tool/read-mounted-boundaries)
             rows (into {} (map (juxt (comp :key :boundary) identity)) (:boundaries e))]
         (is (= 2 (count rows)) "one row per DISTINCT edge set")
-        (is (= 2 (:instances (get rows [(k [:tr/left])]))))
-        (is (= 1 (:instances (get rows [(k [:tr/left]) (k [:tr/right])]))))
-        (is (= frame-id (:frame (get rows [(k [:tr/left])]))))))
+        (is (= 2 (:instances (get rows [(bk [:tr/left])]))))
+        (is (= 1 (:instances (get rows [(bk [:tr/left]) (bk [:tr/right])]))))
+        (is (= frame-id (:frame (get rows [(bk [:tr/left])]))))))
 
     (testing "a boundary that read NOTHING is still counted — the cell table cannot see it"
       (let [d (mount! (fn [_] nil))
@@ -205,7 +217,7 @@
     (testing ":readers are the SAME keys the mounted roster states — the rosters join"
       (let [mounted (boundary-keys (tool/read-mounted-boundaries))
             readers (into #{} (map :key) (:readers (:tr/left by-sub)))]
-        (is (= #{[(k [:tr/left])] [(k [:tr/left]) (k [:tr/right])]} readers))
+        (is (= #{[(bk [:tr/left])] [(bk [:tr/left]) (bk [:tr/right])]} readers))
         (is (every? mounted readers)
             "every reader key must resolve in the mounted roster, with no correlation step")))
     (testing "a key nothing holds is ABSENT — not a subscription with zero readers"
@@ -253,7 +265,8 @@
         (is (false? (:complete? e)))
         (is (= {:reason :uncorrelated :dropped evidence/unknown} (:loss e))))
       (testing "PROVEN: the reads whose values moved most recently, off the epoch stamps"
-        (is (= [:tr/left] (:latest-reads ex))
+        (is (= [{:sub-id :tr/left :query [:tr/left] :frame-id frame-id}]
+               (:latest-reads ex))
             "only :tr/left was written, so only its cell was re-stamped")
         (is (number? (:peak-epoch ex)))
         (is (number? (:snapshot ex))))
@@ -329,6 +342,153 @@
         (is (= :tr/row (:sub-id (first (:reads row))))
             "the registration id is not application data and still rides"))
       (release))))
+
+(deftest a-sensitive-query-argument-never-reaches-a-key-a-reader-or-an-explanation
+  ;; AUDIT #7789, CORRECTNESS 1. `projected-query` guarded the `:query`
+  ;; FIELD while the boundary KEY was built from raw sub-keys — so the
+  ;; argument the projector had just redacted was re-exported under
+  ;; `:boundary :key`, again under `:readers`, and again through
+  ;; `explain-render`. The shipped witness asserted only `:reads :query`,
+  ;; which is precisely why it did not see this.
+  ;;
+  ;; The forcing function is frame destruction, where the door PROMISES to
+  ;; fail closed: no policy is reachable, so nothing derived from the query
+  ;; may leave. A seeded secret in ARGUMENT position makes the escape
+  ;; observable wherever it happens.
+  (testing "with the policy unreachable, the argument is absent from EVERY path out"
+    (seeded!)
+    ;; No release: the frame is destroyed below, which is the point.
+    (mount-in! frame-id (fn [_] (h/sub [:tr/row the-secret]) nil))
+    (rf/with-frame frame-id (rf/dispatch-sync [:tr/bump]))
+    (is (leaked? (tool/read-mounted-boundaries))
+        (str "NON-VACUITY: with the frame ALIVE and nothing declared, the "
+             "argument really is in the state these projections read — the "
+             "classification model is fail-open and the query rides as itself. "
+             "If this row ever fails, the assertions below are passing against "
+             "a boundary that never carried the argument at all"))
+    (rf/destroy-frame! frame-id)
+    (let [mounted     (tool/read-mounted-boundaries)
+          attribution (tool/read-read-attribution)
+          why         (tool/explain-render)]
+      (is (not (leaked? (map (comp :key :boundary) (:boundaries mounted))))
+          "the mounted roster's boundary KEY must not carry the argument")
+      (is (not (leaked? mounted))
+          "nor may anything else on that envelope")
+      (is (not (leaked? (map :readers (:edges attribution))))
+          "attribution's :readers keys must not carry it either")
+      (is (not (leaked? attribution))
+          "nor anything else on the attribution envelope")
+      (is (not (leaked? why))
+          "and explain-render must not carry it onward — keys, scope or leads"))))
+
+(deftest two-parameterizations-of-one-sub-do-not-collapse
+  ;; AUDIT #7789, ERGONOMICS. `:latest-reads` named sub-ids only, so a Why
+  ;; row over `[:tr/row 1]` and `[:tr/row 2]` answered ":tr/row moved" —
+  ;; one name for two different reads whose projected identity the door
+  ;; already held.
+  (seeded!)
+  (let [release (mount! (fn [_] (h/sub [:tr/row 1]) (h/sub [:tr/row 2]) nil))]
+    (rf/with-frame frame-id (rf/dispatch-sync [:tr/bump]))
+    (let [ex     (first (:explanations (tool/explain-render)))
+          latest (:latest-reads ex)]
+      (is (= 2 (count latest))
+          "two reads of one registered sub are two entries, never one")
+      (is (= #{[:tr/row 1] [:tr/row 2]} (into #{} (map :query) latest))
+          "and each names its own projected query, which is what tells them apart"))
+    (release)))
+
+(deftest the-census-is-about-subscription-not-visibility
+  ;; AUDIT #7792, the real-React lifecycle supplement. Activity-hidden and
+  ;; unmounted leave the same census; a Suspense-fallback-hidden subtree
+  ;; stays subscribed and stays listed. No observable here can tell them
+  ;; apart, so the door states the distinction as host-opaque rather than
+  ;; letting a reader infer it. This pins that it is STATED — an absent
+  ;; field would read as "not applicable".
+  (seeded!)
+  (let [release (mount! (fn [_] (h/sub [:tr/left]) nil))
+        hp      (:host (tool/read-mounted-boundaries))]
+    (is (= :host-opaque (:basis hp)))
+    (is (= evidence/unknown (:visibility hp))
+        "whether a listed boundary is on SCREEN is React's, and is named")
+    (is (= evidence/unknown (:hidden-retained hp))
+        "and so is whether an absent one is hidden-but-retained")
+    (release)))
+
+;; ---------------------------------------------------------------------------
+;; FRAME ISOLATION — a second frame must not answer for the first
+;; ---------------------------------------------------------------------------
+
+(def ^:private other-frame-id ::tool-reads-other)
+
+(defn- seed-other! []
+  (rf/make-frame {:id other-frame-id})
+  (rf/with-frame other-frame-id
+    (rf/dispatch-sync [:tr/seed {:left 10 :right 20 :rows [:x :y :z]}]))
+  other-frame-id)
+
+(deftest explain-render-scopes-its-window-and-its-leads-to-the-boundarys-own-frames
+  ;; AUDIT #7789, CORRECTNESS 2. `explain-render` summed retained runs
+  ;; GLOBALLY and indexed leads by sub-id ALONE. Two frames registering the
+  ;; same sub id — the ordinary case for two mounted apps — therefore let a
+  ;; run in B report that A's window had been searched (turning A's honest
+  ;; :cap into a false :uncorrelated) and offered B's runs as A's leads.
+  (seeded!)
+  (seed-other!)
+  (let [in-a (mount-in! frame-id       (fn [_] (h/sub [:tr/left]) nil))
+        in-b (mount-in! other-frame-id (fn [_] (h/sub [:tr/left]) nil))]
+    ;; ASYMMETRIC WINDOWS: B has run, A has not.
+    (rf/with-frame other-frame-id (rf/dispatch-sync [:tr/bump]))
+    (trace-tooling/clear-trace-buffer! frame-id)
+    (let [by-frame (into {} (map (juxt :frame identity))
+                         (:explanations (tool/explain-render)))
+          a        (get by-frame frame-id)
+          b        (get by-frame other-frame-id)]
+      (is (some? a) "frame A's boundary must be explained")
+      (is (some? b) "and so must frame B's")
+      (testing "A's window is A's — B's activity cannot claim a search of it"
+        (is (= :cap (:reason (:loss a)))
+            "A's ring is empty, so nothing was searched for A")
+        (is (= evidence/unknown (:candidates a))
+            "and its leads state the explicit unknown, never an [] nor B's runs"))
+      (testing "B's window really was searched, and B keeps its own leads"
+        (is (= :uncorrelated (:reason (:loss b))))
+        (is (some #(= :tr/bump (:event-id %)) (:candidates b))))
+      (testing "a lead names the frame it came from, so the match cannot be on the id alone"
+        (is (every? #(= other-frame-id (:frame-id %)) (:candidates b)))))
+    (in-a) (in-b))
+  (rf/destroy-frame! other-frame-id))
+
+(deftest the-intent-stream-is-one-dispatch-ordered-stream
+  ;; AUDIT #7789, CORRECTNESS 2 (second half). The roster concatenated
+  ;; whole per-frame rings in FRAME-ID order while the read promised
+  ;; dispatch order — so with two frames live the stream asserted a
+  ;; sequence that never happened, alphabetically. `:dispatch-id` is
+  ;; allocated process-monotonically at queue time, so the true order is
+  ;; recoverable and is now used.
+  (seeded!)
+  (seed-other!)
+  ;; A boundary in each frame, so BOTH rings are ones this runtime
+  ;; dispatches through and the stream really has two sources to order.
+  (let [in-b    (mount-in! other-frame-id (fn [_] (h/sub [:tr/left]) nil))
+        release (mount! (fn [_] (h/sub [:tr/left]) nil))]
+    ;; Interleave the two frames. `other-frame-id` sorts AFTER frame-id by
+    ;; pr-str, so a frame-ordered concatenation cannot reproduce this.
+    (rf/with-frame other-frame-id (rf/dispatch-sync [:tr/bump]))
+    (rf/with-frame frame-id       (rf/dispatch-sync [:tr/bump]))
+    (rf/with-frame other-frame-id (rf/dispatch-sync [:tr/bump]))
+    (let [rows (:intents (tool/read-intents))
+          ids  (mapv :dispatch-id rows)]
+      (is (= ids (vec (sort ids)))
+          "the stream is ordered by the process-monotonic dispatch id, oldest first")
+      (is (apply distinct? ids)
+          (str "one dispatch is one row: a run captured in two frames' rings is "
+               "merged, never printed twice"))
+      (is (every? #(vector? (:frames %)) rows)
+          "each row names the frames it reached rather than a single ring's id")
+      (is (= #{frame-id other-frame-id} (into #{} (mapcat :frames) rows))
+          "both rings really are in the stream — otherwise the order proves nothing"))
+    (release) (in-b))
+  (rf/destroy-frame! other-frame-id))
 
 ;; ---------------------------------------------------------------------------
 ;; ONE DOOR, DETERMINISTIC — the byte-for-byte precondition

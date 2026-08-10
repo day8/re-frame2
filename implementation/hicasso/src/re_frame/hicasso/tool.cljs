@@ -785,7 +785,15 @@
   []
   (when interop/debug-enabled?
     (let [rows      (entry-rows)
-          frame-ids (hicasso-frames)
+          ;; Every frame that could hold a lead for one of these rows: the
+          ;; frames this runtime dispatches through, PLUS any frame a
+          ;; boundary reads from. A boundary reading across a frame the
+          ;; frame-ops table does not name still has a window, and scoping
+          ;; the search per boundary is only honest if that window is in it.
+          frame-ids (vec (sort-by pr-str
+                                  (into (set (hicasso-frames))
+                                        (mapcat (fn [r] (map :frame-id (:reads r))))
+                                        rows)))
           windows   (into {} (map (fn [fid] [fid (trace-tooling/trace-buffer fid)])) frame-ids)
           runs      (reduce + 0 (map count (vals windows)))
           ;; Keyed by [frame-id sub-id]: a run that recomputed `:todo` in
