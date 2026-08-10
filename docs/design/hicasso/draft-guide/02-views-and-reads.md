@@ -1,6 +1,6 @@
 # Views and reads
 
-After [Getting started](01-getting-started.md)'s counter, this page is why
+After [Installation](installation.md)'s counter, this page is why
 re-renders stay fine-grained and why one read form is enough.
 
 Views that re-render too coarsely, and subscription reads that cannot live

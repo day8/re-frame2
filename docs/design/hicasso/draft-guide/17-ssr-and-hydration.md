@@ -172,7 +172,7 @@ trees disagree before React compares a single node.
     server bytes. The two calls share a verb because they are two halves of
     one adoption — and the order between them is fixed.
 
-[`h/hydrate!`](glossary.md#hydrate) stands beside [`h/mount!`](glossary.md#mount) ([Getting started](01-getting-started.md)):
+[`h/hydrate!`](glossary.md#hydrate) stands beside [`h/mount!`](glossary.md#mount) ([Installation](installation.md)):
 the same association of a container, a frame, and one view, and the same
 idempotent handle for [`h/unmount!`](glossary.md#mount). These properties matter when you write
 apps:
