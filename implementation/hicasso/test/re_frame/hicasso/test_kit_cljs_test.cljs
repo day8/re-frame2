@@ -98,13 +98,13 @@
             so the :refused assertions below are not a helper that only
             knows one verb"
     (is (= {:returned {:rf.ui/tree-version 1 :tag :p}}
-           (outcome #(ht/render [(fn [_] [:p])  {}])))))
+           (outcome #(ht/tree [(fn [_] [:p])  {}])))))
 
   (testing "and :refused, with the id, for one that is not"
     (is (= {:rf.error/id :rf.error/hicasso-test-not-a-body
             :where       're-frame.hicasso.test
             :recovery    :pass-the-body-fn}
-           (refusal (outcome #(ht/render [:not-a-body-fn 1])) [])))))
+           (refusal (outcome #(ht/tree [:not-a-body-fn 1])) [])))))
 
 (deftest a-refusal-s-payload-cannot-rewrite-the-identity-it-rides-on
   ;; The constructor directly, because no refusal site in the kit spells an
@@ -352,8 +352,8 @@
      (when (:done todo) [:span.done "✓"])]))
 
 (deftest render-answers-the-versioned-004b-tree
-  (let [tree (ht/render [todo-row-body {:id 1}]
-                        {:reads {[:tk/todo 1] {:text "milk" :done false}}})]
+  (let [tree (ht/tree [todo-row-body {:id 1}]
+                        {:subs {[:tk/todo 1] {:text "milk" :done false}}})]
 
     (testing "the root carries the version gate every consumer validates first"
       (is (= 1 (:rf.ui/tree-version tree)))
@@ -383,13 +383,13 @@
   (testing "the branch not taken contributes no node, and the branch taken
             does — so the row above is reading the body's control flow
             rather than a fixed shape"
-    (let [tree (ht/render [todo-row-body {:id 1}]
-                          {:reads {[:tk/todo 1] {:text "milk" :done true}}})]
+    (let [tree (ht/tree [todo-row-body {:id 1}]
+                          {:subs {[:tk/todo 1] {:text "milk" :done true}}})]
       (is (= "milk✓" (ht/text tree)))
       (is (some? (ht/find tree #(= "done" (:class (:attrs %)))))))))
 
 (deftest the-tree-carries-intents-as-data
-  (let [tree (ht/render [(fn [_]
+  (let [tree (ht/tree [(fn [_]
                            [:ul
                             [:li {:on-click [:tk/toggle 1]} "one"]
                             [:li {:on-click [:tk/toggle 2]
@@ -409,10 +409,10 @@
 
     (testing "and the empty case answers empty, so an equality against a
               stated expectation cannot pass vacuously"
-      (is (= [] (ht/intents (ht/render [(fn [_] [:p "no handlers here"]) {}])))))))
+      (is (= [] (ht/intents (ht/tree [(fn [_] [:p "no handlers here"]) {}])))))))
 
 (deftest a-child-boundary-records-the-call-and-never-its-rendering
-  (let [tree (ht/render [(fn [_] [:div [greeting {:key 9 :who "ada"} "extra"]]) {}])
+  (let [tree (ht/tree [(fn [_] [:div [greeting {:key 9 :who "ada"} "extra"]]) {}])
         node (ht/find tree :view-id)]
     (testing "the node is the CALL: the view id, the props the call site
               passed, and the children it wrote"
@@ -439,15 +439,15 @@
   ;; The refusal is not gone — the last row below is it, reached the one way
   ;; it can still be reached.
   (testing "a minted `h/defview` head renders, and answers the body's tree"
-    (let [tree (ht/render [farewell {:who "ada"}])]
+    (let [tree (ht/tree [farewell {:who "ada"}])]
       (is (= :p (:tag tree)))
       (is (= "bye ada" (ht/text tree)))))
 
   (testing "and it is the SAME tree the body answers when named directly —
             which is what running a view AS WRITTEN has to mean, and rules
             out a second rendering path that merely agrees on the text"
-    (is (= (ht/render [farewell-text {:who "ada"}])
-           (ht/render [farewell {:who "ada"}]))))
+    (is (= (ht/tree [farewell-text {:who "ada"}])
+           (ht/tree [farewell {:who "ada"}]))))
 
   (testing "what it cost is ONE own property on the head: the head is still
             the function `defview` defined and still a boundary, so no memo
@@ -460,7 +460,7 @@
             named: a boundary head with no retained body — an `:advanced` +
             `goog.DEBUG=false` mint — refuses with the id, the view and the
             L3 pointer it always carried"
-    (let [o (outcome #(ht/render [unretained-head {:who "ada"}]))]
+    (let [o (outcome #(ht/tree [unretained-head {:who "ada"}]))]
       (is (= {:rf.error/id :rf.error/hicasso-test-boundary-body-not-retained
               :where       're-frame.hicasso.test
               :recovery    :render-the-body-fn-or-mount-at-l3
@@ -478,19 +478,19 @@
   ;; macro.
   (testing "the helper the body calls is the author's, so a view whose helper
             is named after it renders rather than recursing"
-    (let [tree (ht/render [greeting {:who "ada"}])]
+    (let [tree (ht/tree [greeting {:who "ada"}])]
       (is (= :p (:tag tree)))
       (is (= "hi ada" (ht/text tree)))))
 
   (testing "and it is the SAME tree the helper answers when rendered directly,
             which rules out a body that recursed once and happened to stop"
-    (is (= (ht/render [greeting-body {:who "ada"}])
-           (ht/render [greeting {:who "ada"}]))))
+    (is (= (ht/tree [greeting-body {:who "ada"}])
+           (ht/tree [greeting {:who "ada"}]))))
 
   (testing "the control: `farewell`, whose helper is NOT named after it, was
             always renderable — so the rows above measure the collision and
             not the kit's minted-head path in general"
-    (is (= "bye ada" (ht/text (ht/render [farewell {:who "ada"}]))))))
+    (is (= "bye ada" (ht/text (ht/tree [farewell {:who "ada"}]))))))
 
 (deftest a-host-crossing-is-opaque-at-l2
   (testing "at the root"
@@ -498,7 +498,7 @@
             :where       're-frame.hicasso.test
             :recovery    :assert-it-at-l3
             :host        "re-frame.hicasso.test-kit-cljs-test/badge"}
-           (refusal (outcome #(ht/render [badge {:label "x"}])) [:host]))))
+           (refusal (outcome #(ht/tree [badge {:label "x"}])) [:host]))))
 
   (testing "and inside a body's own tree, which is where a crossing
             actually appears"
@@ -506,13 +506,13 @@
             :where       're-frame.hicasso.test
             :recovery    :assert-it-at-l3
             :host        "re-frame.hicasso.test-kit-cljs-test/badge"}
-           (refusal (outcome #(ht/render [(fn [_] [:div [badge {:label "x"}]]) {}]))
+           (refusal (outcome #(ht/tree [(fn [_] [:div [badge {:label "x"}]]) {}]))
                     [:host]))))
 
   (testing "the legal twin: the same body WITHOUT the crossing renders, so
             the refusal is the crossing's and not the div's"
     (is (= {:rf.ui/tree-version 1 :tag :div}
-           (ht/render [(fn [_] [:div]) {}])))))
+           (ht/tree [(fn [_] [:div]) {}])))))
 
 (deftest raw-react-is-opaque-at-l2
   (testing "an element only React can interpret has no semantic form here"
@@ -520,7 +520,7 @@
             :where       're-frame.hicasso.test
             :recovery    :assert-it-at-l3}
            (refusal (outcome
-                      #(ht/render [(fn [_]
+                      #(ht/tree [(fn [_]
                                      [:div (react/createElement "b" nil "raw")])
                                    {}]))
                     []))))
@@ -530,7 +530,7 @@
             means, which is the runtime's own ruling at a crossing"
     (is (= :rf.error/hicasso-deferred-read-at-boundary
            (:rf.error/id
-            (:refused (outcome #(ht/render [(fn [_] [:div (delay [:p])]) {}]))))))))
+            (:refused (outcome #(ht/tree [(fn [_] [:div (delay [:p])]) {}]))))))))
 
 (deftest a-plain-function-in-head-position-refuses-as-the-runtime-does
   (testing "HD-016 makes it a loud error in Hicasso, so the kit refuses it
@@ -538,12 +538,12 @@
     (is (= {:rf.error/id :rf.error/hicasso-test-plain-fn-head
             :where       're-frame.hicasso.test
             :recovery    :mint-the-boundary-or-render-it-as-the-root}
-           (refusal (outcome #(ht/render [(fn [_] [:div [greeting-body {:who "x"}]])
+           (refusal (outcome #(ht/tree [(fn [_] [:div [greeting-body {:who "x"}]])
                                           {}]))
                     []))))
 
   (testing "the legal twin: the same function IS the root form's head"
-    (is (= "hi x" (ht/text (ht/render [greeting-body {:who "x"}]))))))
+    (is (= "hi x" (ht/text (ht/tree [greeting-body {:who "x"}]))))))
 
 ;; ---------------------------------------------------------------------------
 ;; L2 — the injected read fixtures
@@ -552,7 +552,7 @@
 (deftest a-read-no-fixture-answers-refuses-rather-than-resolving-to-nil
   (testing "the refusal names the query, so the message is actionable
             without a debugger"
-    (let [o (outcome #(ht/render [todo-row-body {:id 3}] {:reads {}}))]
+    (let [o (outcome #(ht/tree [todo-row-body {:id 3}] {:subs {}}))]
       (is (= {:rf.error/id :rf.error/hicasso-test-missing-read-fixture
               :where       're-frame.hicasso.test
               :recovery    :add-the-query-to-reads
@@ -564,21 +564,21 @@
             renders — so the refusal is about the fixture and not about a
             body that was broken anyway"
     (is (= "bread"
-           (ht/text (ht/render [todo-row-body {:id 3}]
-                               {:reads {[:tk/todo 3] {:text "bread"}}})))))
+           (ht/text (ht/tree [todo-row-body {:id 3}]
+                               {:subs {[:tk/todo 3] {:text "bread"}}})))))
 
   (testing "a fixture supplied but NOT read is not an error — the read set
             is what the body did, not what the caller offered"
     (is (= "milk"
-           (ht/text (ht/render [todo-row-body {:id 1}]
-                               {:reads {[:tk/todo 1] {:text "milk"}
+           (ht/text (ht/tree [todo-row-body {:id 1}]
+                               {:subs {[:tk/todo 1] {:text "milk"}
                                         [:tk/filter] :all}})))))
 
-  (testing "and :reads itself is checked"
+  (testing "and :subs itself is checked"
     (is (= {:rf.error/id :rf.error/hicasso-test-bad-reads
             :where       're-frame.hicasso.test
             :recovery    :pass-a-map-of-query-to-value}
-           (refusal (outcome #(ht/render [greeting-body {}] {:reads [:not :a :map]}))
+           (refusal (outcome #(ht/tree [greeting-body {}] {:subs [:not :a :map]}))
                     [])))))
 
 (deftest the-read-resolver-is-discardable
@@ -586,13 +586,13 @@
             returns — nothing subscribed, nothing watched, nothing left to
             dispose"
     (let [before (count @collector/!cells)]
-      (ht/render [todo-row-body {:id 1}] {:reads {[:tk/todo 1] {:text "milk"}}})
+      (ht/tree [todo-row-body {:id 1}] {:subs {[:tk/todo 1] {:text "milk"}}})
       (is (= before (count @collector/!cells)))))
 
   (testing "and the runtime's own retention tables are as they were — the
             render acquired no cell, took no reference and recorded no edge"
     (let [before (dissoc (inventory/residue) :entries)]
-      (ht/render [todo-row-body {:id 1}] {:reads {[:tk/todo 1] {:text "milk"}}})
+      (ht/tree [todo-row-body {:id 1}] {:subs {[:tk/todo 1] {:text "milk"}}})
       (is (= before (dissoc (inventory/residue) :entries)))
       (is (= {:cells 0 :cell-refs 0 :boundaries 0 :edges 0}
              (dissoc (inventory/residue) :entries))
@@ -601,11 +601,11 @@
 
   (testing "the probe frame is minted per call, so two renders cannot see
             each other's fixtures"
-    (is (= "milk" (ht/text (ht/render [todo-row-body {:id 1}]
-                                      {:reads {[:tk/todo 1] {:text "milk"}}}))))
+    (is (= "milk" (ht/text (ht/tree [todo-row-body {:id 1}]
+                                      {:subs {[:tk/todo 1] {:text "milk"}}}))))
     (is (= :rf.error/hicasso-test-missing-read-fixture
-           (:rf.error/id (:refused (outcome #(ht/render [todo-row-body {:id 1}]
-                                                        {:reads {}}))))))))
+           (:rf.error/id (:refused (outcome #(ht/tree [todo-row-body {:id 1}]
+                                                        {:subs {}}))))))))
 
 (deftest the-body-runs-on-the-runtime-s-own-path
   (testing "the read extent (I7) is the real one: a read deferred past the
@@ -613,7 +613,7 @@
             is what says this harness runs bodies rather than imitating one"
     (let [escaped (volatile! nil)
           o (outcome
-              #(ht/render [(fn [_]
+              #(ht/tree [(fn [_]
                              (vreset! escaped (fn [] (h/sub [:tk/filter])))
                              [:p])
                            {}]))]
@@ -626,7 +626,7 @@
   (testing "and the body-run counter moved, so the row above is not green
             for a body that never ran"
     (collector/reset-body-runs!)
-    (ht/render [greeting-body {:who "ada"}])
+    (ht/tree [greeting-body {:who "ada"}])
     (is (= 1 (collector/body-runs)))))
 
 ;; ---------------------------------------------------------------------------
@@ -670,6 +670,6 @@
   (testing "and an opacity refusal quotes the L3 row rather than restating
             it — so a tier description has one home"
     (let [l3  (first (filterv #(= :l3 (:tier %)) ht/ladder))
-          msg (:message (outcome #(ht/render [badge {}])))]
+          msg (:message (outcome #(ht/tree [badge {}])))]
       (is (str/includes? msg (:proves l3)))
       (is (str/includes? msg (:mechanism l3))))))

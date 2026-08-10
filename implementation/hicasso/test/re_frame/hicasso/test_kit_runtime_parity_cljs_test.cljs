@@ -19,7 +19,7 @@
                 child of `:form` rather than `:form` itself
       :runtime  what `codec/as-element` — the runtime's own door — MAKES
                 of the subject, as a comparable token
-      :tree     the Spec 004B tree `ht/render` must answer for `:form`, or
+      :tree     the Spec 004B tree `ht/tree` must answer for `:form`, or
       :refuses  the refusal identity it must raise instead
       :why      the clause that says so
 
@@ -121,7 +121,7 @@
           :else [:foreign (pr-str v)])))))
 
 (defn- kit-outcome
-  "What the KIT makes of the same value: the 004B tree `ht/render`
+  "What the KIT makes of the same value: the 004B tree `ht/tree`
   answers for a body that returns it, or the identity of the refusal it
   raised instead.
 
@@ -129,7 +129,7 @@
   travels the kit's real path rather than a walk reached behind its
   door."
   [form]
-  (let [o (outcome #(ht/render [(fn [_] form)]))]
+  (let [o (outcome #(ht/tree [(fn [_] form)]))]
     (if-some [d (:refused o)]
       {:refused (select-keys d [:rf.error/id :where :recovery])}
       {:tree (:returned o)})))
@@ -344,7 +344,7 @@
           (str case "\n  RUNTIME column — " why)))))
 
 (deftest the-kit-answers-what-the-table-says
-  (testing "every row's :tree / :refuses column is what ht/render really does"
+  (testing "every row's :tree / :refuses column is what ht/tree really does"
     (doseq [{:keys [case form tree refuses why]} rows]
       (let [got (kit-outcome form)]
         (if refuses
