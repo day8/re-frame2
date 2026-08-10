@@ -520,9 +520,10 @@ Related: [Async resources](08-async-resources.md#demand-driven-committed-reads),
 <a id="test-kit"></a>
 ### **test kit**
 
-Supported namespace `re-frame.hicasso.test` (alias `ht`): pure data tiers,
-[semantic harness](#semantic-harness), mounted facade, and browser helpers.
-Product surface, not a loose utility bag.
+Two supported namespaces: `re-frame.hicasso.test` (alias `ht`) for the pure
+data tiers, the [semantic harness](#semantic-harness) and the browser helpers,
+and `re-frame.hicasso.test.mounted` (alias `hm`) for the
+[mounted facade](#mounted-facade). Product surface, not a loose utility bag.
 
 Related: [Testing](14-testing.md).
 
@@ -556,9 +557,9 @@ Related: [Testing](14-testing.md#l2--the-semantic-harness).
 <a id="mounted-facade"></a>
 ### **mounted facade**
 
-L3 helpers: isolated-frame mount, hydrate, rerender, dispatch-and-settle,
-settle, unmount, `assert-clean!` (residue vs pre-mount baseline after
-quiescence).
+`re-frame.hicasso.test.mounted` (alias `hm`). L3 helpers: isolated-frame
+mount, hydrate, rerender, dispatch-and-settle, settle, unmount,
+`assert-clean!` (residue vs pre-mount baseline after quiescence).
 
 Related: [Testing](14-testing.md#l3--the-mounted-facade).
 
