@@ -44,6 +44,37 @@
   cannot outlive it, and \"cannot strand\" is worth witnessing rather than
   reasoning about.
 
+  ## The trace, and the two instruments the OPERATOR needs
+
+  Everything above is enough for a driver that can call
+  `window.__RF2_HIC_TB__.model()`. The bounded native-IME session
+  (`docs/design/hicasso/native-ime-manual-witness.md`) has no such
+  luxury — Playwright's WebKit build on Windows is a browser shell with no
+  devtools — and the #7787 audit found two of its checks claiming more
+  than a screen full of `<input>`s can show:
+
+  - **\"app-db clean until commit\"** cannot be read off a field. On a
+    REFUSING field the snap-back looks identical whether the composing
+    updates were dispatched or not, and on an ACCEPTING one a progressive
+    write is visually idempotent. So the store is now on screen: one row
+    per field carrying the committed value and the number of `:tb/edit`
+    intents that have ARRIVED for it, arrivals counted whether the policy
+    accepted or refused them. The count is the instrument — it moves when
+    a composing update reaches the model, and a field that stays put while
+    its counter climbs is the difference the checklist could not see.
+  - **The mid-exchange edges** (a revision reset or an unmount arriving
+    while a composition is live) cannot be triggered by clicking a button:
+    the pointer-down closes the composition before the action lands. So
+    the two edges are also reachable ARMED — click, return to the field,
+    start composing, and the deferred dispatch arrives mid-exchange. The
+    driver has no need of them (a programmatic click never moves focus),
+    which is why they are the operator's instruments rather than the
+    gate's.
+
+  Both are ordinary re-frame2: a counter in the reducer, and
+  `:dispatch-later`. Neither reaches past the authoring surface, and
+  nothing in the app knows a session is happening.
+
   ## The harness door
 
   One `window.__RF2_HIC_TB__`, and it reads the model only. The DOM is the
@@ -114,17 +145,26 @@
 ;; ---------------------------------------------------------------------------
 
 (rf/reg-sub :tb/field (fn [db [_ field]] (get-in db [:fields field] "")))
+(rf/reg-sub :tb/edits (fn [db [_ field]] (get-in db [:edits field] 0)))
 (rf/reg-sub :tb/flag (fn [db _] (:flag db)))
 (rf/reg-sub :tb/revision (fn [db _] (:revision db)))
 (rf/reg-sub :tb/mounted? (fn [db _] (:mounted? db)))
+(rf/reg-sub :tb/armed (fn [db _] (:armed db)))
 
 (rf/reg-event :tb/seed
-  (fn [_ _] {:db {:fields seed :flag false :revision 0 :mounted? true}}))
+  (fn [_ _] {:db {:fields seed :edits {} :flag false :revision 0
+                  :mounted? true :armed nil}}))
 
+;; The arrival counter is bumped on EVERY intent, before the policy is
+;; consulted — a refusal is an arrival too. That is the whole of what the
+;; trace measures: "did this edit reach the store", asked separately from
+;; "did the store take it".
 (rf/reg-event :tb/edit
   (fn [{:keys [db]} [_ field typed]]
-    {:db (assoc-in db [:fields field]
-                   (apply-policy field (get-in db [:fields field] "") typed))}))
+    {:db (-> db
+             (assoc-in [:fields field]
+                       (apply-policy field (get-in db [:fields field] "") typed))
+             (update-in [:edits field] (fnil inc 0)))}))
 
 (rf/reg-event :tb/toggle-flag
   (fn [{:keys [db]} [_ checked]] {:db (assoc db :flag (boolean checked))}))
@@ -144,6 +184,31 @@
   (fn [{:keys [db]} _] {:db (update db :mounted? not)}))
 
 (rf/reg-event :tb/noop (fn [{:keys [db]} _] {:db db}))
+
+;; ---------------------------------------------------------------------------
+;; The armed edges — the operator's way of reaching mid-composition
+;; ---------------------------------------------------------------------------
+
+(def ^:private arm-delay-ms
+  "Long enough to click the button, click back into the field and get a
+  composition started. A human doing three things, not a machine doing
+  one."
+  5000)
+
+;; Arming dispatches the SAME event the button dispatches — the deferral is
+;; the only difference, so an armed edge cannot drift from the immediate
+;; one.
+(rf/reg-event :tb/arm
+  (fn [{:keys [db]} [_ what]]
+    {:db             (assoc db :armed what)
+     :dispatch-later {:ms arm-delay-ms :event [:tb/fire-armed what]}}))
+
+(rf/reg-event :tb/fire-armed
+  (fn [{:keys [db]} [_ what]]
+    {:db      (assoc db :armed nil)
+     :dispatch (case what
+                 :bump    [:tb/bump-revision]
+                 :unmount [:tb/toggle-mounted])}))
 
 ;; ---------------------------------------------------------------------------
 ;; The views — every field written the way authoring.md writes one
@@ -219,6 +284,49 @@
              :on-input    [:tb/edit :mountable ::h/value]}]
     [:p {:data-testid "mountable-gone"} "unmounted"]))
 
+(def ^:private traced-fields
+  "Every field, in a stable order, so the trace is a complete reading of
+  the store rather than a curated one."
+  [:plain :digits :empty :grouped :upper :notes :revision :form-a :form-b
+   :mountable])
+
+(h/defview trace-row
+  "One field's committed value and the number of intents that have reached
+  the store for it. `pr-str` rather than the bare string, so `\"\"` and a
+  trailing space are visible — a trace that renders an empty model as an
+  empty cell is not a trace."
+  [{:keys [field]}]
+  (let [id (name field)]
+    [:tr
+     [:td id]
+     [:td {:data-testid (str "trace-" id "-value")} (pr-str (h/sub [:tb/field field]))]
+     [:td {:data-testid (str "trace-" id "-edits")} (str (h/sub [:tb/edits field]))]]))
+
+(h/defview trace
+  "The store, on screen. The manual native-IME session reads its
+  `app-db clean until commit` and `arrives exactly once` checks off this
+  table, because a browser shell with no devtools has nowhere else to read
+  them."
+  [_]
+  [:table {:data-testid "trace"}
+   [:thead [:tr [:th "field"] [:th "committed"] [:th "intents arrived"]]]
+   [:tbody
+    (for [field traced-fields]
+      [trace-row {:key (name field) :field field}])]])
+
+(h/defview armed-edges
+  "The two mid-composition edges, reachable without a pointer-down that
+  would close the composition first."
+  [_]
+  (let [armed (h/sub [:tb/armed])]
+    [:p
+     [:button {:data-testid "arm-bump" :on-click [:tb/arm :bump]}
+      "arm bump (5s)"]
+     [:button {:data-testid "arm-unmount" :on-click [:tb/arm :unmount]}
+      "arm unmount (5s)"]
+     [:span {:data-testid "armed"}
+      (if armed (str "armed: " (name armed) " fires in 5s") "idle")]]))
+
 (h/defview app
   [_]
   [:main {:data-testid "hicasso-controlled-testbed"}
@@ -236,7 +344,9 @@
    [:button {:data-testid "bump-revision" :on-click [:tb/bump-revision]} "bump"]
    [:button {:data-testid "toggle-mounted" :on-click [:tb/toggle-mounted]} "toggle"]
    [:button {:data-testid "correct-upper" :on-click [:tb/correct :upper "ZZZZZZ"]}
-    "correct upper"]])
+    "correct upper"]
+   [armed-edges {}]
+   [trace {}]])
 
 ;; ---------------------------------------------------------------------------
 ;; The harness door — the model, and only the model
@@ -247,6 +357,12 @@
   (let [db (rf/app-db-value frame-id)]
     (js/JSON.stringify
      (clj->js {:fields   (:fields db)
+               ;; Arrivals per field — how the driver asks whether an edit
+               ;; REACHED the store, separately from whether the store took
+               ;; it. The two questions look identical on a refusing field
+               ;; and on an accepting one they look identical too, for
+               ;; opposite reasons.
+               :edits    (:edits db)
                :flag     (:flag db)
                :revision (:revision db)}))))
 
