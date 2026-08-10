@@ -82,6 +82,18 @@
   declarations are applied. It fails CLOSED: a frameless or destroyed-frame
   read redacts the whole query rather than shipping it under no policy.
 
+  **A BOUNDARY'S KEY IS A PROJECTION TOO, and that is not a detail.** The
+  identity here is the read set, so a key built from raw sub-keys would
+  carry every query argument a moment after the `:query` FIELD had been
+  projected — and carry it further, because a key is what joins two
+  rosters, prints in a boundary's label and becomes a DOM id. It shipped
+  that way once and the merged-PR audit of #7789 caught it. Every exported
+  key element is now a [[read-identity]]: frame, registration id, and the
+  projected query. The join is unaffected — both rosters derive keys
+  through the one function, so identical read sets still produce identical
+  keys — while the arguments stay behind the projector on every path out
+  of this namespace, including after frame destruction.
+
   Retained-window events are carried as an event ID and an argument
   COUNT. The event vector itself is not carried at any classification,
   because the classification model is fail-open — an event that declared
@@ -133,17 +145,6 @@
   [key-fn xs]
   (vec (sort-by (fn [x] (pr-str (key-fn x))) xs)))
 
-(defn- boundary-key
-  "The tool-tier identity of a boundary: its read-key set, in
-  [[ordered]]'s order.
-
-  Derived identically from a registration's `.-reads` and from a read-set
-  entry's `.-set`, which is what makes [[read-mounted-boundaries]] and
-  [[read-read-attribution]] join. See the namespace docstring for why the
-  edge set is the identity the runtime actually retains."
-  [read-key-set]
-  (ordered identity read-key-set))
-
 ;; ---------------------------------------------------------------------------
 ;; Privacy — the existing projectors, at this door
 ;; ---------------------------------------------------------------------------
@@ -179,9 +180,53 @@
         (and (vector? query-v) (seq query-v)) (nth query-v 0)
         :else                                 evidence/unknown))
 
+(defn- read-identity
+  "One read edge's EXPORTED identity: `[frame-id sub-id projected-query]`.
+
+  Three fields rather than the raw sub-key's two, and the third is
+  projected. The `sub-id` is carried explicitly because it is the one
+  spelling that survives redaction: when a frame's policy elides a query
+  whole, `[:cart/item \"…\"]` and `[:user/token \"…\"]` both project to the
+  same sentinel, and without the registration id beside it a reader —
+  and a boundary key — could no longer tell those two edges apart at all.
+
+  This is therefore as fine an identity as the egress policy allows and
+  no finer, which is the honest ceiling: where an application has
+  declared its arguments sensitive, two boundaries differing only in
+  those arguments ARE one row here, and `:read-orders` counts what
+  folded in."
+  [sub-key]
+  (let [frame-id (nth sub-key 0)
+        query-v  (nth sub-key 1)]
+    [frame-id (sub-id-of query-v) (projected-query frame-id query-v)]))
+
+(defn- boundary-key
+  "The tool-tier identity of a boundary: its read-key set PROJECTED, in
+  [[ordered]]'s order.
+
+  Derived identically from a registration's `.-reads` and from a read-set
+  entry's `.-set`, which is what makes [[read-mounted-boundaries]] and
+  [[read-read-attribution]] join. See the namespace docstring for why the
+  edge set is the identity the runtime actually retains.
+
+  **Every element is a [[read-identity]], never a raw sub-key.** The raw
+  sub-key carries the application's own query VECTOR, arguments and all,
+  so a key built from it would be an egress path for exactly the data
+  [[projected-query]] exists to project — and a worse one, because a key
+  is also what a panel prints in a label and hashes into a DOM id. The
+  join survives because both sides derive the key by this one function:
+  identical raw sets project to identical keys, and the projection is a
+  pure function of the query and its frame."
+  [read-key-set]
+  (ordered identity (map read-identity read-key-set)))
+
 (defn- read-row
   "One read edge, as a row — the query and where it lives, and NEVER what
-  it returned."
+  it returned.
+
+  Takes the RAW sub-key because the cell table is keyed by it: the epoch
+  lookup is an internal read against live runtime state, and nothing raw
+  survives into the row this builds."
   [sub-key]
   (let [frame-id (nth sub-key 0)
         query-v  (nth sub-key 1)]
@@ -223,7 +268,23 @@
   Commit, paint, retry, abandonment, StrictMode duplication and Activity
   hide/reveal are all decided above this runtime, and a render measure is
   none of them. Stated once, on every envelope that would otherwise invite
-  a reader to infer them from an epoch."
+  a reader to infer them from an epoch.
+
+  `:visibility` and `:hidden-retained` are here because the real-React
+  lifecycle witness established that this door's tables CANNOT tell three
+  states apart, and a reader would otherwise assume they can (rf2-hic-023,
+  merged-PR audit #7792):
+
+  - an Activity-hidden subtree that has released its reads and an
+    UNMOUNTED one are the same census row — namely, no row at all — until
+    a later 0-to-1 re-subscribe reveals the retention retrospectively;
+  - a Suspense-fallback-hidden subtree stays SUBSCRIBED, so it is present
+    in every roster here while absent from the screen.
+
+  Both are stated as [[re-frame.hicasso.evidence/unknown]] on a
+  `:host-opaque` basis rather than guessed at. The alternative — inferring
+  hidden-retained from an empty census, or labelling a subscribed row
+  visible — is the exact fabrication the schema exists to refuse."
   {:scope           :host-private
    :basis           :host-opaque
    :complete?       false
@@ -231,12 +292,19 @@
    :commit          evidence/unknown
    :paint           evidence/unknown
    :attempt-outcome evidence/unknown
+   :visibility      evidence/unknown
+   :hidden-retained evidence/unknown
    :why             (str "Whether a notified boundary re-ran, retried, was "
                          "abandoned, was bailed out by its memo comparator, or "
-                         "committed and painted is React's to know. React "
-                         "DevTools and the browser performance tools are the "
-                         "authority; this producer does not restate them from "
-                         "timing adjacency.")})
+                         "committed and painted is React's to know. So is "
+                         "whether it is on screen: an Activity-hidden subtree "
+                         "that released its reads is indistinguishable here "
+                         "from an unmounted one, and a Suspense-fallback-hidden "
+                         "subtree stays subscribed and so still appears in "
+                         "every roster. These rosters are about SUBSCRIPTION, "
+                         "not visibility. React DevTools and the browser "
+                         "performance tools are the authority; this producer "
+                         "does not restate them from timing adjacency.")})
 
 ;; ---------------------------------------------------------------------------
 ;; Read 1 — mounted boundaries
@@ -256,7 +324,15 @@
   Two entries whose key ARRAYS differ only in order are one row, because
   their edge sets are equal and the edge set is this door's identity. The
   runtime distinguishes them — the entry compare is ordered — so the row
-  says `:read-orders` when it has collapsed more than one."
+  says `:read-orders` when it has collapsed more than one.
+
+  Rows are grouped by the PROJECTED [[boundary-key]], so `:read-orders`
+  also counts entries folded together because an application declared the
+  arguments that told them apart sensitive. That is the right place for
+  that collapse to happen: the alternative is a census keyed on data the
+  door has promised not to carry, or two rows sharing one exported
+  identity — which would give a panel duplicate DOM ids and a consumer an
+  ambiguous join."
   []
   (let [live (for [[_ bucket] @collector/!entries
                    ^js entry  bucket
@@ -265,14 +341,19 @@
     (->> live
          (group-by (fn [^js entry] (boundary-key (.-set entry))))
          (map (fn [[bkey entries]]
-                {:boundary    {:parent nil :key bkey}
-                 :view        evidence/unknown
-                 :source      evidence/unknown
-                 :instances   (reduce + 0 (map (fn [^js e] (.-refs e)) entries))
-                 :read-orders (count entries)
-                 :frame       (let [fs (into #{} (map #(nth % 0)) bkey)]
-                                (if (= 1 (count fs)) (first fs) evidence/unknown))
-                 :reads       (mapv read-row bkey)}))
+                ;; The RAW sub-keys stay here and go no further: `read-row`
+                ;; needs them to reach the cell table, and every field it
+                ;; answers with is projected.
+                (let [raw-keys (ordered identity
+                                        (into #{} (mapcat (fn [^js e] (seq (.-set e)))) entries))]
+                  {:boundary    {:parent nil :key bkey}
+                   :view        evidence/unknown
+                   :source      evidence/unknown
+                   :instances   (reduce + 0 (map (fn [^js e] (.-refs e)) entries))
+                   :read-orders (count entries)
+                   :frame       (let [fs (into #{} (map #(nth % 0)) bkey)]
+                                  (if (= 1 (count fs)) (first fs) evidence/unknown))
+                   :reads       (mapv read-row raw-keys)})))
          (ordered (comp :key :boundary)))))
 
 (defn read-mounted-boundaries
@@ -287,7 +368,7 @@
       ;;     :basis      :observation
       ;;     :complete?  true
       ;;     :loss       nil
-      ;;     :boundaries [{:boundary  {:parent nil :key [[:app/main [:todo 7]]]}
+      ;;     :boundaries [{:boundary  {:parent nil :key [[:app/main :todo [:todo 7]]]}
       ;;                   :view      :unknown
       ;;                   :source    :unknown
       ;;                   :instances 3
@@ -306,12 +387,20 @@
   table. A rendered-but-not-yet-committed boundary is outside the scope
   rather than missing from the roster; its entry has no reference yet.
 
-  An EMPTY `:boundaries` is the one empty answer that is a clean bill of
-  health, because the entry cache is authoritative about what is mounted.
+  An EMPTY `:boundaries` says exactly one thing: **no boundary holds a
+  live read edge right now.** The entry cache is authoritative about that
+  and this read is complete for it. What the empty does NOT establish is
+  that nothing is retained above — an Activity-hidden subtree that has
+  released its reads leaves the same empty census as an unmounted one, and
+  only a later re-subscribe distinguishes them, retrospectively (audit
+  #7792). Read the other way round, a row here is not proof the boundary
+  is on SCREEN: a Suspense-fallback-hidden subtree stays subscribed and
+  stays in this roster.
+
   Everything this read does not know is in `:naming` and `:host`, which
   are projections of their own with their own bases and their own losses —
   so a reader can never mistake *nothing is mounted* for *nothing could be
-  seen*."
+  seen*, nor *subscribed* for *visible*."
   []
   (when interop/debug-enabled?
     (evidence/envelope
@@ -362,7 +451,7 @@
       ;;     :scope :read-edges :basis :observation :complete? true :loss nil
       ;;     :edges [{:sub-id :todo :query [:todo 7] :frame-id :app/main
       ;;              :epoch 4 :fan-out 3
-      ;;              :readers [{:parent nil :key [[:app/main [:todo 7]]]}]}]
+      ;;              :readers [{:parent nil :key [[:app/main :todo [:todo 7]]]}]}]
       ;;     :host  {…}}
 
   THIS IS THE ONE READ THAT IS EXACT WITHOUT QUALIFICATION. The others
@@ -430,17 +519,74 @@
   where a reader knows they are looking at application data.
 
   `:sub-ids` is what that run recomputed, which is the axis an
-  [[explain-render]] candidate is matched on."
+  [[explain-render]] candidate is matched on.
+
+  `:frames` is a SET rather than the one frame whose ring this bundle was
+  drawn from — see [[intent-rows]] for why one dispatch can surface in
+  more than one ring, and why answering per ring would print one event
+  twice."
   [frame-id bundle]
   (let [event (:event bundle)]
-    {:frame-id    frame-id
+    {:frames      #{frame-id}
      :dispatch-id (:dispatch-id bundle)
      :event-id    (if (vector? event) (nth event 0) evidence/unknown)
      :arg-count   (if (vector? event) (dec (count event)) evidence/unknown)
-     :sub-ids     (vec (sort-by pr-str
-                                (into #{}
-                                      (keep #(get-in % [:tags :rf.sub/id]))
-                                      (:subs bundle))))}))
+     :sub-ids     (into #{} (keep #(get-in % [:tags :rf.sub/id])) (:subs bundle))}))
+
+(defn- merge-fragments
+  "Fold the ring fragments of ONE dispatch into one row.
+
+  Spec 009's rings are per frame, and a dispatch that touched two frames
+  is captured in both — so the same `:dispatch-id` can arrive twice. Two
+  rows would print one user action as two events; keeping only the first
+  would drop half of what it recomputed. Merging says the true thing:
+  one dispatch, the frames it reached, everything it recomputed."
+  [rows]
+  (-> (reduce (fn [acc row]
+                (update acc (:dispatch-id row)
+                        (fn [seen]
+                          (if seen
+                            (-> seen
+                                (update :frames into (:frames row))
+                                (update :sub-ids into (:sub-ids row)))
+                            row))))
+              {}
+              rows)
+      vals))
+
+(defn- intent-rows
+  "The retained window as ONE stream: every fragment merged by dispatch,
+  ordered by `:dispatch-id`, oldest first.
+
+  The id is allocated process-monotonically at queue time
+  (`re-frame.router`), so it IS the dispatch order across every frame —
+  which is what lets this read promise order and mean it. The previous
+  shape concatenated whole per-frame rings in frame-id ORDER, so with two
+  frames live the stream claimed a sequence that never happened; frame-id
+  order is alphabetical, not temporal.
+
+  A row whose bundle carries no id cannot be joined or placed, so it
+  keeps its own identity and sorts last rather than merging with every
+  other such row into one fictitious event."
+  [windows frame-ids]
+  (let [rows (into []
+                   (mapcat (fn [fid]
+                             (map-indexed
+                               (fn [i bundle]
+                                 (let [row (intent-row fid bundle)]
+                                   (cond-> row
+                                     (nil? (:dispatch-id row))
+                                     (assoc :dispatch-id [::unjoinable fid i]))))
+                               (get windows fid))))
+                   frame-ids)]
+    (->> (merge-fragments rows)
+         (sort-by (fn [{:keys [dispatch-id]}]
+                    (if (number? dispatch-id) dispatch-id js/Number.MAX_SAFE_INTEGER)))
+         (mapv (fn [row]
+                 (-> row
+                     (update :frames #(vec (sort-by pr-str %)))
+                     (update :sub-ids #(vec (sort-by pr-str %)))
+                     (update :dispatch-id #(if (number? %) % evidence/unknown))))))))
 
 (defn read-intents
   "What was dispatched inside Spec 009's RETAINED WINDOW, oldest first,
@@ -452,10 +598,16 @@
       ;;     :scope {:frames [:app/main] :retained-runs 12}
       ;;     :basis :observation :complete? false
       ;;     :loss  {:reason :cap :dropped :unknown}
-      ;;     :intents [{:frame-id :app/main :dispatch-id 41
+      ;;     :intents [{:frames [:app/main] :dispatch-id 41
       ;;                :event-id :todo/toggle :arg-count 1
       ;;                :sub-ids [:todo]}]
       ;;     :origin  {…:basis :opaque :intent-origin :unknown}}
+
+  **ORDER IS THE POINT, so it is reconstructed rather than assumed.**
+  Spec 009's rings are per frame; the stream is one, ordered by the
+  process-monotonic `:dispatch-id` the router allocates at queue time, and
+  fragments of one dispatch captured in two rings are merged into the one
+  row they describe. See [[intent-rows]].
 
   NOTHING IS RETAINED TO ANSWER THIS. The stream is the per-frame
   retained-event ring Spec 009 already owns, under its single knob
@@ -481,9 +633,7 @@
   (when interop/debug-enabled?
     (let [frame-ids (hicasso-frames)
           windows   (into {} (map (fn [fid] [fid (trace-tooling/trace-buffer fid)])) frame-ids)
-          rows      (into []
-                          (mapcat (fn [fid] (map #(intent-row fid %) (get windows fid))))
-                          frame-ids)]
+          rows      (intent-rows windows frame-ids)]
       (evidence/envelope
         {:schema    evidence/schema
          :producer  evidence/producer
@@ -538,19 +688,38 @@
   retention off, or nothing dispatched since the ring was released — no
   search happened, so `:candidates` states
   [[re-frame.hicasso.evidence/unknown]] and the reason is `:cap`. An `[]`
-  in that state would be the fail-open shape this schema refuses."
-  [window-runs candidates-by-sub-id row]
+  in that state would be the fail-open shape this schema refuses.
+
+  **BOTH HALVES ARE SCOPED TO THE BOUNDARY'S OWN FRAMES.** The window
+  searched is the rings of the frames this boundary actually reads from,
+  and a candidate must match a read on `[frame-id sub-id]` — not on the
+  sub-id alone. Counting runs globally would let activity in frame B make
+  a frame-A row claim its window was searched when frame A's ring is
+  empty, which converts a `:cap` into an `:uncorrelated` and tells the
+  reader a survey happened that did not. Matching on the sub-id alone
+  would then offer B's runs as A's leads for no better reason than that
+  two frames registered the same sub id — the definition of a lead
+  fabricated from a coincidence (audit #7789).
+
+  A read-free boundary reads from no frame, so it searches nothing and
+  reports `:cap`. That is exact: there is no window in which its cause
+  could be found, because it holds nothing that could have moved."
+  [windows candidates-by-frame-sub row]
   (let [reads   (:reads row)
+        frames  (into #{} (map :frame-id) reads)
+        runs    (reduce + 0 (map #(count (get windows %)) frames))
         epochs  (into [] (keep #(when (number? (:epoch %)) (:epoch %))) reads)
         peak    (when (seq epochs) (reduce max epochs))
-        looked? (pos? window-runs)
+        looked? (pos? runs)
         leads   (ordered :dispatch-id
                          (into #{}
-                               (mapcat (fn [{:keys [sub-id]}]
-                                         (get candidates-by-sub-id sub-id)))
+                               (mapcat (fn [{:keys [frame-id sub-id]}]
+                                         (get candidates-by-frame-sub [frame-id sub-id])))
                                reads))]
     (evidence/projection
-      {:scope        {:boundary (:key (:boundary row)) :retained-runs window-runs}
+      {:scope        {:boundary (:key (:boundary row))
+                      :frames   (vec (sort-by pr-str frames))
+                      :retained-runs runs}
        :basis        :observation
        :complete?    false
        :loss         (if looked?
@@ -561,8 +730,16 @@
        :instances    (:instances row)
        :snapshot     (if (seq epochs) (reduce + epochs) evidence/unknown)
        :peak-epoch   (or peak evidence/unknown)
+       ;; The READ IDENTITY, not the bare sub-id: `[:row 1]` and `[:row 2]`
+       ;; are one sub-id and two different reads, and a Why view that
+       ;; collapsed them would answer "`:row` moved" to a developer looking
+       ;; at eight rows. The query is already projected on the read row, so
+       ;; naming it here carries nothing new (audit #7789).
        :latest-reads (if (seq epochs)
-                       (into [] (comp (filter #(= peak (:epoch %))) (map :sub-id)) reads)
+                       (into []
+                             (comp (filter #(= peak (:epoch %)))
+                                   (map #(select-keys % [:sub-id :query :frame-id])))
+                             reads)
                        evidence/unknown)
        :cause        evidence/unknown
        :candidates   (if looked? leads evidence/unknown)})))
@@ -577,10 +754,11 @@
       ;;     :complete? false :loss {:reason :uncorrelated :dropped :unknown}
       ;;     :explanations [{:boundary {…} :frame :app/main :instances 1
       ;;                     :snapshot 9 :peak-epoch 5
-      ;;                     :latest-reads [:todo]
+      ;;                     :latest-reads [{:sub-id :todo :query [:todo 7]
+      ;;                                     :frame-id :app/main}]
       ;;                     :cause :unknown
       ;;                     :candidates [{:dispatch-id 41 :event-id :todo/toggle
-      ;;                                   :sub-id :todo}]
+      ;;                                   :frame-id :app/main :sub-id :todo}]
       ;;                     :basis :observation :complete? false
       ;;                     :loss {:reason :uncorrelated :dropped :unknown}}]
       ;;     :host {…}}
@@ -610,14 +788,18 @@
           frame-ids (hicasso-frames)
           windows   (into {} (map (fn [fid] [fid (trace-tooling/trace-buffer fid)])) frame-ids)
           runs      (reduce + 0 (map count (vals windows)))
+          ;; Keyed by [frame-id sub-id]: a run that recomputed `:todo` in
+          ;; frame B is not a lead for a boundary reading `:todo` in frame
+          ;; A, however alike the two ids look.
           leads     (for [fid    frame-ids
                           bundle (get windows fid)
                           sid    (keep #(get-in % [:tags :rf.sub/id]) (:subs bundle))]
-                      [sid {:dispatch-id (:dispatch-id bundle)
-                            :event-id    (when (vector? (:event bundle))
-                                           (nth (:event bundle) 0))
-                            :sub-id      sid}])
-          by-sub-id (reduce (fn [m [sid lead]] (update m sid (fnil conj #{}) lead)) {} leads)]
+                      [[fid sid] {:dispatch-id (:dispatch-id bundle)
+                                  :event-id    (when (vector? (:event bundle))
+                                                 (nth (:event bundle) 0))
+                                  :frame-id    fid
+                                  :sub-id      sid}])
+          by-frame-sub (reduce (fn [m [k lead]] (update m k (fnil conj #{}) lead)) {} leads)]
       (evidence/envelope
         {:schema       evidence/schema
          :producer     evidence/producer
@@ -626,6 +808,6 @@
          :basis        :observation
          :complete?    false
          :loss         {:reason :uncorrelated :dropped evidence/unknown}
-         :explanations (mapv #(explanation runs by-sub-id %) rows)
+         :explanations (mapv #(explanation windows by-frame-sub %) rows)
          :window       {:frames frame-ids :retained-runs runs}
          :host         (evidence/projection host-projection)}))))

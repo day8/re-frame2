@@ -27,8 +27,15 @@
   |---|---|
   | `:absent`   | this host is not running Hicasso, or this is a production build — the door answered `nil` |
   | `:mismatch` | Hicasso answered, stamping a schema THIS build was not taught to parse |
-  | `:idle`     | Hicasso answered, and nothing is mounted — the one empty that is a clean bill of health |
-  | `:live`     | there are rows |"
+  | `:idle`     | Hicasso answered with an empty roster — and what THAT means is per view, see [[empty-copy]] |
+  | `:live`     | there are rows |
+
+  The third row used to carry one sentence for all four views, and that
+  sentence was written for the mounted census: *nothing is mounted, a
+  clean bill of health*. Under Intents the same words claimed a capped
+  window proved nothing had been dispatched. Four scopes need four
+  sentences ([[empty-copy]]) — an empty roster is a different fact in
+  each, with a different remedy."
   (:require [clojure.string :as string]))
 
 ;; ---------------------------------------------------------------------------
@@ -187,6 +194,50 @@
     rows-empty?              :idle
     :else                    :live))
 
+(def empty-copy
+  "What an EMPTY roster means — PER VIEW, because it is a different fact
+  in each of the four.
+
+  The four reads have four scopes, and one shared sentence about an empty
+  one can be true of at most a single scope. It was written for the
+  mounted census (where the entry cache really is authoritative) and then
+  shown under Intents, where an empty roster means a capped window and
+  proves nothing about what was dispatched, and under Reads, where it is
+  compatible with mounted boundaries that read nothing at all. A confident
+  wrong answer is worse than a visible gap, so each view answers for its
+  own scope and keeps its own remedy in view (rf2-hic-023, audit #7789).
+
+  Each entry carries its own testid suffix, so a browser assertion cannot
+  match the wrong view's empty."
+  {:mounted
+   {:testid-suffix "empty-mounted"
+    :says (str "Hicasso is running and no boundary holds a live read edge. "
+               "The read-set entry cache is authoritative about that, so this "
+               "is a survey result and not an absence of evidence — but it is "
+               "a statement about SUBSCRIPTION, not about the screen. A hidden "
+               "subtree that released its reads leaves exactly this census, "
+               "and only a later re-subscribe tells the two apart.")}
+   :attribution
+   {:testid-suffix "empty-attribution"
+    :says (str "No subscription cell is currently held. This is not the same "
+               "as nothing being mounted: a boundary whose body reads nothing "
+               "still mounts and still holds an entry, and it has no edge to "
+               "appear here. Check the Mounted view before concluding the "
+               "application is idle.")}
+   :intents
+   {:testid-suffix "empty-intents"
+    :says (str "The retained window holds nothing. This is a CAP, not a "
+               "finding — Spec 009's ring keeps `:rf.trace/events-retained` "
+               "runs and cannot say what fell off it, and a ring of size 0 "
+               "cannot say whether anything was dispatched at all. Raise the "
+               "retention knob to see further back.")}
+   :explain
+   {:testid-suffix "empty-explain"
+    :says (str "There is no mounted boundary to explain. Why answers per "
+               "boundary, so an empty roster here follows the mounted census "
+               "and carries its qualifications — it is not a statement that "
+               "nothing has re-run.")}})
+
 (def presence-copy
   "The sentence each non-live presence gets, and the testid it renders
   under.
@@ -194,7 +245,8 @@
   Written out rather than composed, because the whole point is that a
   reader can tell *not running Hicasso* from *running it with nothing
   mounted*, and prose assembled from a shared stem is how those two come
-  to look alike again."
+  to look alike again. The `:idle` case is not here — it is per view, in
+  [[empty-copy]], because there is no one true sentence for it."
   {:absent
    {:testid-suffix "absent"
     :says (str "No Hicasso evidence on this host. The tool door answered nil, "
@@ -206,14 +258,18 @@
     :says (str "Hicasso answered with an evidence schema this Xray build was "
                "not taught to parse. Rows are suppressed rather than "
                "mis-parsed: an evolved shape read as though it were the "
-               "expected one is worse than no rows at all.")}
-   :idle
-   {:testid-suffix "idle"
-    :says (str "Hicasso is running and nothing is mounted. This is the one "
-               "empty answer that is a clean bill of health — the read-set "
-               "entry cache is authoritative about what is mounted, so an "
-               "empty roster here is a survey result and not an absence of "
-               "evidence.")}})
+               "expected one is worse than no rows at all.")}})
+
+(defn state-copy
+  "The copy for `state` in `view` — the one lookup a renderer needs.
+
+  `:idle` resolves through [[empty-copy]] and therefore depends on the
+  view; everything else is view-independent. Answering nil for `:live` is
+  deliberate: there is nothing to say when there are rows."
+  [state view]
+  (if (= :idle state)
+    (get empty-copy view)
+    (get presence-copy state)))
 
 ;; ---------------------------------------------------------------------------
 ;; Formatting
@@ -233,6 +289,40 @@
       (string/replace #"^-|-$" "")
       (string/lower-case)))
 
+(def redacted
+  "The egress projector's whole-value sentinel.
+
+  A literal for the same reason [[unknown]] is one: this namespace reads a
+  wire shape and states what it found, and a renderer that could not
+  recognise the sentinel would print it at a developer as though it were
+  a query."
+  :rf/redacted)
+
+(defn read-label
+  "One read edge as a reader reads it, from the PROJECTED key element
+  `[frame-id sub-id query]` the producer exports.
+
+  The query is already projected when it arrives, so this prints it as
+  found and invents nothing. When the projector redacted it WHOLE the
+  query no longer identifies anything, so the registration id is named
+  beside the sentinel — otherwise every redacted read on the page reads
+  the same, and a reader loses the one distinction the producer took care
+  to keep (rf2-hic-023, audit #7789)."
+  [[_frame-id sub-id query]]
+  (if (= redacted query)
+    (str (format-id sub-id) " " (format-id query))
+    (format-id query)))
+
+(defn latest-read-label
+  "One `:latest-reads` entry as a reader reads it.
+
+  The producer answers `{:sub-id :query :frame-id}` rather than a bare
+  sub-id, so this renders the projected QUERY — which is what tells two
+  parameterizations of one registered sub apart. Falls back to the sub-id
+  when the query redacted whole, exactly as [[read-label]] does."
+  [{:keys [sub-id query]}]
+  (read-label [nil sub-id query]))
+
 (defn boundary-label
   "A boundary's edge set as one line — the identity the runtime actually
   retains, spelled out.
@@ -242,14 +332,21 @@
   rendered as blank, one level down."
   [{:keys [key]}]
   (if (seq key)
-    (string/join " + " (map (fn [[_frame query]] (format-id query)) key))
+    (string/join " + " (map read-label key))
     "(reads nothing)"))
 
 (defn boundary-slug
-  "A stable testid slug for a boundary key."
+  "A stable testid slug for a boundary key.
+
+  Built from the sub-id AND the projected query, never the raw query: a
+  testid is a string a browser assertion selects on and a screenshot
+  carries, so deriving one from an application's arguments would put
+  those arguments in the DOM after the schema had projected them out of
+  the data. Including the sub-id keeps two wholly-redacted reads
+  selectable apart."
   [{:keys [key]}]
   (if (seq key)
-    (id-slug (string/join "-" (map (fn [[_ q]] (pr-str q)) key)))
+    (id-slug (string/join "-" (map (fn [[_f sid q]] (str (pr-str sid) "-" (pr-str q))) key)))
     "reads-nothing"))
 
 ;; ---------------------------------------------------------------------------
@@ -326,9 +423,12 @@
     (mapv (fn [i]
             {:dispatch-id (:dispatch-id i)
              :event-id    (:event-id i)
-             :slug        (id-slug (:event-id i))
+             ;; Slugged by DISPATCH-ID as well as event id: the stream is
+             ;; ordered by dispatch and one event id can appear many times
+             ;; in a window, so an event-only testid would name several rows.
+             :slug        (id-slug (str (pr-str (:event-id i)) "-" (pr-str (:dispatch-id i))))
              :arg-count   (:arg-count i)
-             :frame-id    (:frame-id i)
+             :frames      (:frames i)
              :sub-ids     (:sub-ids i)})
           (:intents envelope))))
 
@@ -351,7 +451,11 @@
                :instances    (:instances ex)
                :snapshot     (:snapshot ex)
                :peak-epoch   (:peak-epoch ex)
-               :latest-reads (:latest-reads ex)
+               ;; The producer now names the READ, not just its sub-id, so
+               ;; `[:row 1]` and `[:row 2]` no longer answer as one `:row`.
+               :latest-reads (if (unknown? (:latest-reads ex))
+                               (:latest-reads ex)
+                               (mapv latest-read-label (:latest-reads ex)))
                :proven?      (not (unknown? (:latest-reads ex)))
                :cause-chip   (loss-chip (:loss ex) (:cause ex))
                :leads        (if (unknown? leads) [] leads)
