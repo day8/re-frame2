@@ -2866,6 +2866,66 @@ def _run_self_tests(verbose: bool = False) -> int:
           "",
           "Prose after."],
          [1, 3, 9]),
+        # ------------------------------------------------------------------
+        # rf2-1cpt (MERGED-PR AUDIT #7786) — the quote prefix's SPELLING is
+        # renderer-significant, and quote DEPTH alone is not parity.
+        #
+        # superfences does not parse blockquote markers as markers.  Its
+        # `parse_whitespace` treats PREFIX_CHARS — `>`, space and tab — as one
+        # undifferentiated prefix run and remembers its RAW WIDTH (`ws_len`);
+        # `parse_fence_line` then reads a content line's prefix only that many
+        # CHARACTERS in, and `eval_quoted` clears the fence when a line's prefix
+        # is narrower (`len(ws) < self.ws_len`) or quoted deeper
+        # (`quote_level > self.quote_level`).
+        #
+        # The previous model stored (marker, in-quote indent, quote DEPTH) and
+        # compared with `_quote_depth_and_body`, which normalises the prefix:
+        # it absorbs one optional space after each `>`, so `>` and `> ` and
+        # `>  ` all read as depth 1.  Three shapes therefore closed a fence the
+        # renderer never opens, and each hid a REAL, VISIBLE link — the exact
+        # going-silent failure rf2-mmyc fixed from the other direction.
+        #
+        # All three render as `<blockquote><p>```clojure</p><blockquote><p><a
+        # href="missing.md">…` — the deeper-quoted line is a nested blockquote,
+        # which is a separate block, so the stray backtick runs cannot pair into
+        # a code span and the link resolves for real.
+        #
+        # A sweep of 1728 opener/body/closer prefix triples against the renderer
+        # found 235 disagreements before this change; these three are
+        # representative, not exhaustive.
+        ("a closer whose prefix is narrower than the opener's closes nothing",
+         [">```clojure",
+          "> >[a real link](missing.md)",
+          "> ```",
+          "",
+          "Prose after."],
+         [1, 2, 3, 5]),
+        ("a body quoted deeper than the opener is not fence content",
+         ["> ```clojure",
+          ">> [a real link](missing.md)",
+          ">```",
+          "",
+          "Prose after."],
+         [1, 2, 3, 5]),
+        ("an indented quoted opener is not closed at column zero",
+         ["   > ```clojure",
+          "> >[a real link](missing.md)",
+          "> ```",
+          "",
+          "Prose after."],
+         [1, 2, 3, 5]),
+        # THE MATCHED-PREFIX CONTROL.  Identical shape, prefix spelled the same
+        # on all three lines: this IS a fence, the renderer emits
+        # `<pre><code>`, and the link inside it must stay unresolved.  Without
+        # it the three cases above are satisfied by a scanner that recognises no
+        # quoted fence at all — which would silently undo rf2-1cpt's first half.
+        ("matched quote prefixes still open and close a fence",
+         ["> ```clojure",
+          "> [not a link](missing.md)",
+          "> ```",
+          "",
+          "Prose after."],
+         [5]),
     ]
     for label, lines, expected_visible in fence_cases:
         got_visible = [n for n, content in _strip_fences(lines) if content.strip()]
