@@ -28,35 +28,21 @@
   release bundle at all — by scanning the artefact this build produces.
   A behavioural assertion cannot see a string Closure kept but nothing
   reads, and a bundle scan cannot see a coordinate assembled at runtime,
-  so the two are not redundant."
+  so the two are not redundant.
+
+  ## The declarations are next door, and that is not tidiness
+
+  They live in `re-frame.hicasso.coord-sentinel-source` because
+  `cljs.test` stamps `:file` into the report map of every `deftest` and
+  every `is` — so a test namespace's own file name is in the release
+  bundle dozens of times over, and a scan for it reds on a build whose
+  erasure is perfectly correct. That namespace carries no `deftest`, so
+  the only thing that can put its file name in an artefact is the
+  coordinate this bead erases."
   (:require [cljs.test :refer-macros [deftest is testing]]
-            [re-frame.hicasso :as h]
+            [re-frame.hicasso.coord-sentinel-source :as sentinel]
             [re-frame.hicasso.impl.codec :as codec]
             [re-frame.hicasso.impl.error :as error]))
-
-;; ---------------------------------------------------------------------------
-;; The sentinel declarations — a view and a host declared through the public
-;; door, so what elides is the real macro capture and not a stand-in
-;; ---------------------------------------------------------------------------
-
-(h/defview prod-sentinel-row
-  "Declared for its COORDINATE rather than its markup. Under a dev build
-  the macro registers this file's absolute path, line and column against
-  the name below; under this build it registers nothing."
-  [_]
-  [:li "sentinel"])
-
-(h/defhost prod-sentinel-host
-  "The declaration channel's half of the same proof — `defhost` opens the
-  same extent and captures the same coordinate."
-  (fn ProdSentinel [_props] nil)
-  {:callbacks {:on-change :event}})
-
-(def ^:private view-name
-  "re-frame.hicasso.error-source-coord-elision-prod-test/prod-sentinel-row")
-
-(def ^:private host-name
-  "re-frame.hicasso.error-source-coord-elision-prod-test/prod-sentinel-host")
 
 ;; ---------------------------------------------------------------------------
 ;; The ledger was never written
@@ -66,11 +52,11 @@
   (testing "the `(when debug-enabled? (declaring! …))` the `defview`
             expansion emits DCEs whole, so the ledger has no entry and the
             absolute file path the macro read never reached the bundle"
-    (is (nil? (error/source-of view-name)))))
+    (is (nil? (error/source-of sentinel/view-name)))))
 
 (deftest no-coordinate-is-registered-for-a-host-declared-under-prod
   (testing "`defhost` opens the same extent under the same gate"
-    (is (nil? (error/source-of host-name)))))
+    (is (nil? (error/source-of sentinel/host-name)))))
 
 ;; ---------------------------------------------------------------------------
 ;; A refusal carries neither ambient field
@@ -102,7 +88,7 @@
               appears anywhere in the ex-data"
       (let [flat (pr-str data)]
         (is (not (re-find #"\.clj[sc]?" flat)))
-        (is (not (re-find #"error_source_coord" flat)))))))
+        (is (not (re-find #"coord_sentinel_source" flat)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; What elided is the diagnostic, not the feature
@@ -111,8 +97,8 @@
 (deftest the-boundary-and-the-host-are-still-minted-under-prod
   (testing "a positive control, and the reason this file cannot pass by the
             macros having compiled to nothing at all"
-    (is (true? (codec/boundary-head? prod-sentinel-row)))
-    (is (true? (codec/host-head? prod-sentinel-host)))
-    (is (= view-name (.-displayName prod-sentinel-row))
+    (is (true? (codec/boundary-head? sentinel/sentinel-row)))
+    (is (true? (codec/host-head? sentinel/sentinel-host)))
+    (is (= sentinel/view-name (.-displayName sentinel/sentinel-row))
         "the view name is NOT elided — it is the measure id and the
          React DevTools label, and it is a name rather than a coordinate")))

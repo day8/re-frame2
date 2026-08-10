@@ -12,16 +12,17 @@
  * coordinate is not REACHABLE in that build — the ledger is empty, refusals
  * carry no `:source`. It cannot prove the stronger property, because a string
  * Closure kept but nothing reads is invisible from inside the page. That is
- * what this scan is for: the sentinel is the elision suite's own FILE NAME,
- * which is exactly the string the macro would have baked into the coordinate,
- * and this gate requires it to be absent from the release bundle.
+ * what this scan is for: the sentinel is the FILE NAME of the namespace that
+ * carries the sentinel declarations, which is exactly the string the macro
+ * would have baked into their coordinates, and this gate requires it to be
+ * absent from the release bundle.
  *
  * WHY THE SENTINEL CANNOT PASS BY ACCIDENT. Two positive controls run first:
  *
- *   1. The sentinel string is present in the SOURCE this scan is about, so a
- *      renamed or deleted suite fails here rather than reporting a green
- *      absence for a file that no longer exists.
- *   2. The bundle contains the sentinel suite's VIEW NAME. That name is passed
+ *   1. The sentinel file exists, so a renamed or deleted declaration source
+ *      fails here rather than reporting a green absence for a file nobody
+ *      compiles any more.
+ *   2. The bundle contains the sentinel VIEW NAME. That name is passed
  *      to `mint-view!` unconditionally — it is the `:render` measure id and the
  *      React DevTools label — so its presence proves the scan is reading a
  *      bundle that really compiled the declarations whose coordinates it is
@@ -34,6 +35,14 @@
  *
  * rf2-hic-024 owns the general, multi-sentinel production-erasure proof; this
  * is the one sentinel rf2-hic-007's own acceptance clause requires.
+ *
+ * THE SENTINEL IS NOT THE SUITE'S OWN FILE, and that is a correction rather
+ * than a preference. `cljs.test` stamps `:file` into the report map of every
+ * `deftest` and every `is`, so the first draft — which declared the sentinel
+ * view inside the elision suite — found its own file name in the bundle 38
+ * times and went red on a build whose erasure was correct. The declarations
+ * moved to `re-frame.hicasso.coord-sentinel-source`, which carries no
+ * `deftest`, so nothing but a surviving coordinate can name it.
  */
 
 'use strict';
@@ -46,17 +55,16 @@ const PACKAGE_ROOT = path.dirname(HERE);
 const IMPL_ROOT = path.dirname(PACKAGE_ROOT);
 
 const SUITE = path.join(PACKAGE_ROOT, 'test', 're_frame', 'hicasso',
-                        'error_source_coord_elision_prod_test.cljs');
+                        'coord_sentinel_source.cljs');
 const BUNDLE = path.join(IMPL_ROOT, 'out', 'browser-test-prod-elision', 'js', 'test.js');
 
 // The macro bakes an ABSOLUTE path, so the basename is the tail every platform
-// agrees on — `C:/…/error_source_coord_elision_prod_test.cljs` on Windows and
-// `/home/…/error_source_coord_elision_prod_test.cljs` on CI both contain it.
-const SENTINEL = 'error_source_coord_elision_prod_test.cljs';
+// agrees on — `C:/…/coord_sentinel_source.cljs` on Windows and
+// `/home/…/coord_sentinel_source.cljs` on CI both contain it.
+const SENTINEL = 'coord_sentinel_source.cljs';
 
 // Unconditional, and therefore the proof that the bundle is the right one.
-const POSITIVE_CONTROL =
-  're-frame.hicasso.error-source-coord-elision-prod-test/prod-sentinel-row';
+const POSITIVE_CONTROL = 're-frame.hicasso.coord-sentinel-source/sentinel-row';
 
 function fail(message) {
   process.stderr.write(`hicasso source-coord elision: FAIL\n${message}\n`);
@@ -64,7 +72,7 @@ function fail(message) {
 }
 
 if (!fs.existsSync(SUITE)) {
-  fail(`missing sentinel suite: ${path.relative(IMPL_ROOT, SUITE)}\n` +
+  fail(`missing sentinel source: ${path.relative(IMPL_ROOT, SUITE)}\n` +
        'The sentinel IS that file name; a scan for a file nobody compiles is ' +
        'a green that means nothing.');
 }
@@ -79,8 +87,9 @@ const bundle = fs.readFileSync(BUNDLE, 'utf8');
 if (!bundle.includes(POSITIVE_CONTROL)) {
   fail('positive control absent: the bundle does not carry the sentinel ' +
        `view name ${POSITIVE_CONTROL}.\n` +
-       'Either the suite did not compile into this build, or the view name ' +
-       'stopped being emitted — in both cases the absence check below would ' +
+       'Either the declarations did not compile into this build, or the ' +
+       'view name stopped being emitted — in both cases the absence check ' +
+       'below would ' +
        'pass for the wrong reason.');
 }
 
