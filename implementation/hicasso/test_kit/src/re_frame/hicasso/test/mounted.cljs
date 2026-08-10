@@ -10,13 +10,14 @@
       (:require [re-frame.hicasso.test :as ht]        ;; L1–L2
                 [re-frame.hicasso.test.mounted :as hm]) ;; L3
 
-  ## Seven doors and one handle
+  ## Eight doors and one handle
 
       (hm/mount! form opts)             → handle
       (hm/hydrate! form opts)           → promise of handle
       (hm/render! handle form)          → handle
       (hm/dispatch-and-settle! h event) → handle
       (hm/settle! handle)               → handle
+      (hm/advance-clock! handle ms)     → handle
       (hm/unmount! handle)              → handle
       (hm/assert-clean! handle)         → promise of the residue report
 
@@ -82,6 +83,29 @@
   reads the page. After a door returns, the next line sees the DOM a user
   would have seen. [[hydrate!]] is the one exception and says why.
 
+  ## Time is OPT-IN, and it is a mount's own window
+
+  A tray that retains an exiting child for 300 ms, a debounce, a
+  `:dispatch-later` — anything whose next step is a `setTimeout` — cannot
+  be asserted without waiting, and a witness that waits on the wall clock
+  is the flake this repo keeps out of its gates. So one mount at a time
+  may ask for a **virtual clock**:
+
+      (let [m (hm/mount! [tray] {:clock true})]
+        (hm/dispatch-and-settle! m [:toast/dismiss 1])
+        (hm/advance-clock! m 300)     ;; 300 ms happen, now
+        …)
+
+  Time then moves only when [[advance-clock!]] moves it, and it moves
+  exactly as far as it is told. See that door for what advances and —
+  just as load-bearing — what deliberately does not.
+
+  **It is the mount's window and nothing wider.** The clock is installed
+  by [[mount!]] and taken back down by [[unmount!]], with whatever was
+  still armed handed back to the real scheduler, so the residue reading
+  that follows is the reading it always was. Nothing outside that window
+  is affected, and no mount that did not ask gets one.
+
   ## Refusals: this namespace mints none, and PROPAGATES the runtime's
 
   Every other file in the kit refuses loudly, and this one deliberately
@@ -124,6 +148,7 @@
             [re-frame.hicasso.impl.inventory :as inventory]
             [re-frame.hicasso.impl.mount :as mount]
             [re-frame.hicasso.impl.roots :as roots]
+            ["react-dom" :as react-dom]
             ["react-dom/client" :as react-dom-client]))
 
 ;; ---------------------------------------------------------------------------
@@ -167,6 +192,161 @@
 (def ^:private state-key ::state)
 (def ^:private baseline-key ::baseline)
 (def ^:private ordinal-key ::ordinal)
+(def ^:private clock-key ::clock)
+
+;; ---------------------------------------------------------------------------
+;; The clock — virtual time, for the window of a mount that asked for one
+;; ---------------------------------------------------------------------------
+;;
+;; `!clock` is nil, or the whole of the installation: the platform functions
+;; that were replaced, the virtual instant, and the timers armed against it.
+;; Page-wide, because the thing it replaces is — so it is HOLDER-COUNTED and
+;; the last mount to let go is the one that puts the platform back. Two
+;; clocked mounts share one clock rather than one silently restoring the
+;; globals out from under the other.
+;;
+;; `:pending` is id → `{:id :f :args :due :period}`. `:period` is nil for a
+;; one-shot and the repeat interval for a `setInterval`, which is the only
+;; difference between them: both live in one table so that ONE ordering
+;; decides what fires next.
+
+(defonce ^:private !clock (atom nil))
+
+(defn- arm!
+  "Record one virtual timer and answer its id. `repeat?` distinguishes
+  `setInterval` from `setTimeout`; a non-numeric or negative delay is 0,
+  as the platform's own is.
+
+  A repeating timer's period is floored at 1 ms. The platform floors it
+  too (and clamps harder still for nested timers); without a floor a
+  zero-period interval inside an advance would be due forever at the same
+  instant and the advance would not terminate."
+  [repeat? f delay args]
+  (let [d (if (and (number? delay) (pos? delay)) delay 0)]
+    (:seq (swap! !clock
+                 (fn [c]
+                   (let [id (inc (:seq c))]
+                     (-> c
+                         (assoc :seq id)
+                         (assoc-in [:pending id]
+                                   {:id     id
+                                    :f      f
+                                    :args   args
+                                    :due    (+ (:now c) d)
+                                    :period (when repeat? (max 1 d))}))))))))
+
+(defn- disarm!
+  "Drop the virtual timer `id`, and answer whether there was one. False
+  means the id is not this clock's — a timer armed before the install —
+  and the caller hands it to the platform's own clearer, which is what
+  keeps a `clearTimeout` across the boundary honest."
+  [id]
+  (if (contains? (:pending @!clock) id)
+    (do (swap! !clock update :pending dissoc id) true)
+    false))
+
+(defn- install-clock!
+  "Replace the platform's timer surface and `Date.now` with this clock's,
+  or take a second hold on the one already installed. Answers nil.
+
+  The virtual instant STARTS at the real one, so a deadline computed
+  before the install and a deadline computed after are the same kind of
+  number."
+  []
+  (if (some? @!clock)
+    (swap! !clock update :holders inc)
+    (let [g    js/globalThis
+          real {:set-timeout    (.-setTimeout g)
+                :clear-timeout  (.-clearTimeout g)
+                :set-interval   (.-setInterval g)
+                :clear-interval (.-clearInterval g)
+                :date-now       (.-now js/Date)}]
+      (reset! !clock {:holders 1 :real real :now (js/Date.now) :seq 0 :pending {}})
+      (set! (.-setTimeout g)  (fn [f delay & args] (arm! false f delay args)))
+      (set! (.-setInterval g) (fn [f delay & args] (arm! true f delay args)))
+      (set! (.-clearTimeout g)
+            (fn [id] (when-not (disarm! id) (.call (:clear-timeout real) g id)) js/undefined))
+      (set! (.-clearInterval g)
+            (fn [id] (when-not (disarm! id) (.call (:clear-interval real) g id)) js/undefined))
+      (set! (.-now js/Date) (fn [] (:now @!clock)))))
+  nil)
+
+(defn- release-clock!
+  "Let go of one hold, and — on the last one — put the platform back and
+  HAND OVER what is still armed. Answers nil.
+
+  The handover is the half that is easy to leave out and impossible to
+  see afterwards. The runtime arms reapers of its own inside a mount's
+  window (`impl.collector`'s entry and cell reapers, whose horizon
+  `impl.inventory/quiesced!` waits out), and a clock that simply dropped
+  its table on the way out would strand them — [[assert-clean!]] would
+  then report residue the runtime was about to release, which is a red
+  nobody can act on. So every outstanding timer is re-armed on the real
+  scheduler with the time it had left.
+
+  What that does not preserve is the ids: from here on they are the
+  platform's, so a `clearTimeout` held across the boundary no longer
+  reaches its timer. Nothing in the runtime clears a timer it armed once
+  its root is down, and a consumer's cleanup runs inside the window
+  (React's teardown is [[unmount!]]'s first act, this release its last)."
+  []
+  (when-some [{:keys [holders real now pending]} @!clock]
+    (if (< 1 holders)
+      (swap! !clock update :holders dec)
+      (let [g js/globalThis]
+        (set! (.-setTimeout g)    (:set-timeout real))
+        (set! (.-setInterval g)   (:set-interval real))
+        (set! (.-clearTimeout g)  (:clear-timeout real))
+        (set! (.-clearInterval g) (:clear-interval real))
+        (set! (.-now js/Date)     (:date-now real))
+        (reset! !clock nil)
+        (doseq [e (sort-by :id (vals pending))]
+          (if-some [p (:period e)]
+            (.apply (:set-interval real) g (to-array (list* (:f e) p (:args e))))
+            (.apply (:set-timeout real) g
+                    (to-array (list* (:f e) (max 0 (- (:due e) now)) (:args e)))))))))
+  nil)
+
+(defn- release-clock-for!
+  "Let go of `handle`'s hold, at most once however often this is called.
+  Answers nil."
+  [handle]
+  (when-some [held (get handle clock-key)]
+    (when @held
+      (vreset! held false)
+      (release-clock!)))
+  nil)
+
+(defn- fire-due!
+  "Run every timer due at or before `target`, earliest first and — at one
+  instant — in the order they were armed. Answers how many fired.
+
+  The virtual instant moves to each timer's OWN due time before that
+  timer runs, never to the end of the window: a callback that reads
+  `Date.now` reads the moment it was scheduled for, which is the whole
+  reason a deadline comparison inside one (`impl.presence/expire`) can
+  come out right.
+
+  A callback that arms another timer inside the window is fired too, by
+  construction — the table is re-read on every pass rather than
+  snapshotted."
+  [target]
+  (loop [fired 0]
+    (let [c   @!clock
+          due (->> (vals (:pending c))
+                   (filter (fn [e] (<= (:due e) target)))
+                   (sort-by (juxt :due :id))
+                   first)]
+      (if (nil? due)
+        (do (swap! !clock update :now max target) fired)
+        (do (swap! !clock
+                   (fn [c]
+                     (let [c (update c :now max (:due due))]
+                       (if-some [p (:period due)]
+                         (assoc-in c [:pending (:id due) :due] (+ (:due due) p))
+                         (update c :pending dissoc (:id due))))))
+            (.apply (:f due) js/globalThis (to-array (:args due)))
+            (recur (inc fired)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; The census — what the facade knows how to count
@@ -277,14 +457,21 @@
   construction BECOMES a mount. Nothing before this line counts against
   the standing or the unread census, which is what lets [[abandon!]]
   restore the page without touching either: a mount that never was is
-  not a mount that came down."
-  [root ordinal baseline]
+  not a mount that came down.
+
+  `clock?` puts this mount's HOLD on the virtual clock onto the handle,
+  as a volatile the release flips: the hold is a fact about the mount and
+  belongs with the mount's other two, so [[unmount!]] and [[residue]] can
+  each let go without either of them having to know whether the other
+  already did."
+  [root ordinal baseline clock?]
   (swap! !standing inc)
   (swap! !open inc)
-  (assoc root
-         baseline-key baseline
-         ordinal-key  ordinal
-         state-key    (volatile! :mounted)))
+  (cond-> (assoc root
+                 baseline-key baseline
+                 ordinal-key  ordinal
+                 state-key    (volatile! :mounted))
+    clock? (assoc clock-key (volatile! true))))
 
 ;; ---------------------------------------------------------------------------
 ;; Construction is TRANSACTIONAL
@@ -400,6 +587,13 @@
                        is a fresh `<div>` appended to `document.body` —
                        attached, so `screen`-scoped Testing Library
                        queries and real focus both work.
+      :clock           `true` installs a virtual clock for this mount's
+                       window, so a timed transition is driven by
+                       [[advance-clock!]] instead of waited on. Installed
+                       BEFORE anything else this call does, so a timer
+                       armed by `:initial-events` or by the first render's
+                       effects is already this clock's; released by
+                       [[unmount!]].
 
   ## What it records before it renders
 
@@ -428,7 +622,12 @@
   handle for a root that had rendered nothing and reported the error at
   the window instead. See [[catching-root!]]."
   ([form] (mount! form {}))
-  ([form {:keys [initial-events container]}]
+  ([form {:keys [initial-events container clock]}]
+   ;; The clock is the FIRST allocation and the last release, because the
+   ;; seeding below already runs handlers and the render below already
+   ;; runs effects — either can arm a timer, and one armed on the platform
+   ;; clock is one this mount can never drive.
+   (when clock (install-clock!))
    (let [[frame-kw ordinal] (mint-frame! initial-events)
          baseline           (census)
          node               (or container (mount/fresh-container!))
@@ -439,8 +638,9 @@
                                                 (vreset! !refusal error))))]
      (if-some [refusal @!refusal]
        (do (abandon! frame-kw node (some? container) root)
+           (when clock (release-clock!))
            (throw refusal))
-       (handle-for root ordinal baseline)))))
+       (handle-for root ordinal baseline (boolean clock))))))
 
 (defn hydrate!
   "Mount `form` by ADOPTING server-rendered bytes already in the
@@ -455,6 +655,10 @@
       :html       server bytes; a fresh attached container is created
                   carrying them
       :container  a container you already filled
+
+  `:clock` is honoured, and installed once adoption has completed rather
+  than before it — see the resolve branch below for why that is the only
+  point at which it can be.
 
   ## Why this one answers a promise
 
@@ -493,7 +697,7 @@
   where it is (see [[abandon!]])."
   ([form] (hydrate! form {}))
   ([form opts] (hydrate! form opts 3000))
-  ([form {:keys [initial-events container html]} budget-ms]
+  ([form {:keys [initial-events container html clock]} budget-ms]
    (let [[frame-kw ordinal] (mint-frame! initial-events)
          baseline  (census)
          node      (or container (mount/fresh-container!))
@@ -516,8 +720,23 @@
                          ;; handle a caller receives is one whose tables have
                          ;; settled. This is also where the construction
                          ;; becomes a MOUNT — see [[handle-for]].
+                         ;;
+                         ;; `:clock` is installed HERE and not at the top of
+                         ;; this door, unlike [[mount!]]'s. Adoption is
+                         ;; React's own concurrent business and this promise
+                         ;; is driven by real `setTimeout`s that wait it out;
+                         ;; a clock installed before them would freeze the
+                         ;; wait it is inside, and the caller would hold a
+                         ;; promise that can never resolve. Nothing is lost:
+                         ;; an adopted tray is born settled (rf2-2rtt6.84),
+                         ;; so the timers a hydrated page arms are armed
+                         ;; after this line.
                          (js/setTimeout
-                           (fn [] (resolve (handle-for root ordinal baseline))) 16)
+                           (fn []
+                             (when clock (install-clock!))
+                             (resolve (handle-for root ordinal baseline
+                                                  (boolean clock))))
+                           16)
 
                          (< deadline (js/Date.now))
                          (do (abandon! frame-kw node supplied? root)
@@ -559,6 +778,81 @@
   (mount/settle!)
   handle)
 
+(defn advance-clock!
+  "Move this mount's virtual clock forward by `ms`, run everything that
+  falls due on the way, and answer the handle.
+
+      (let [m (hm/mount! [tray] {:clock true :initial-events […]})]
+        (hm/dispatch-and-settle! m [:toast/dismiss :b])
+        (is (= 2 (count (toasts m))))   ;; retained, mid-exit
+        (hm/advance-clock! m 300)
+        (is (= 1 (count (toasts m)))))  ;; the deadline passed
+
+  Requires `{:clock true}` on the [[mount!]] that made `handle`, and
+  throws without it. That is not decoration: an advance with no clock
+  under it would move nothing and assert nothing, and the row would go
+  green for the reason it was written to rule out.
+
+  ## What advances
+
+  **`setTimeout`, `setInterval`, and `Date.now` — the three together, in
+  lockstep.** The clock is the whole of them or it is a trap: retention
+  is a deadline COMPARISON (`impl.presence/expire` takes `now`), so a
+  fake timer whose callback reads an unmoved `Date.now` fires on time and
+  then decides nothing has expired. The instant moves to each timer's own
+  due time before that timer runs, so a callback reads the moment it was
+  scheduled for; a callback that arms another timer inside the window is
+  fired in its turn.
+
+  ## What deliberately does NOT advance, and why each is right
+
+  - **`requestAnimationFrame`.** A frame is a paint, not a duration, and
+    `ms` says nothing about how many of them there were. It is left on
+    the platform's own schedule, where it still fires — so a rAF-driven
+    witness is not blocked by the clock, it is simply not driven by it.
+    (The substrate arms none: presence's whole frame budget is zero rAF
+    and zero interval, and `re-frame.hicasso.motion-presence-dom-cljs-test`
+    is what says so.)
+  - **Microtasks, and therefore promises.** A microtask queue cannot be
+    drained from inside a task by anything in userland, so no control
+    could honestly claim it. A `.then` still lands where it always did —
+    after this door returns, not inside it.
+  - **`performance.now`.** React's scheduler reads it to decide whether
+    it has time left in the frame; a clock that jumped it forward would
+    be telling React it is out of budget on every advance.
+  - **The `Date` CONSTRUCTOR.** `(js/Date.)` reads the system clock
+    rather than `Date.now`, and is not this window's.
+  - **A `setTimeout` somebody CAPTURED before the window opened.** The
+    clock replaces the global, so it reaches every call that looks the
+    global up when it fires — which is every `(js/setTimeout …)` in
+    ClojureScript, and the substrate's presence timers among them. React's
+    own scheduler is the deliberate exception and reads the reference it
+    took at module load: React keeps its real scheduler, and a flush is
+    still a flush.
+
+  ## It does not replace [[settle!]]; it is that flush with work in it
+
+  The due callbacks run INSIDE the same `flushSync` [[settle!]] performs
+  empty, so an update a timer schedules is committed before this returns
+  and the next line reads the repainted page — the rule every door here
+  keeps. Nothing about the runtime's own settling is duplicated or
+  bypassed: after stimulating the page from outside a door, [[settle!]]
+  is still the call to make, and this one is [[settle!]] for the work
+  that had a delay on it."
+  [handle ms]
+  (let [held (get handle clock-key)]
+    (when-not (and (some? held) @held)
+      (throw (ex-info (str "advance-clock! moves the virtual clock a mount owns, "
+                           "and this handle owns none"
+                           (if (some? held)
+                             " any longer — it was released when the mount came down."
+                             ": mount! was not given {:clock true}.")
+                           " An advance with no clock under it would move nothing "
+                           "and assert nothing.")
+                      {:ms ms :frame (:frame handle)})))
+    (react-dom/flushSync (fn [] (fire-due! (+ (:now @!clock) ms))))
+    handle))
+
 (defn dispatch-and-settle!
   "Dispatch `event` into this mount's frame, drain it, commit the echo,
   and answer the handle.
@@ -590,6 +884,13 @@
   `root.unmount()` empties a container and leaves it where it is, and
   `impl.mount/unmount!` now does no more than that.
 
+  **A `:clock` mount's clock is released here**, after React's teardown
+  and not before it: a component's cleanup clears the timers it armed,
+  and it has to be able to reach them. What is still armed afterwards
+  goes back to the real scheduler with the time it had left — see
+  [[advance-clock!]] for the window and `release-clock!` for the
+  handover.
+
   Idempotent: unmounting twice is not an error, and only the first call
   counts against the standing-mount census."
   [handle]
@@ -597,6 +898,7 @@
   (when (= :mounted @(get handle state-key))
     (vreset! (get handle state-key) :unmounted)
     (swap! !standing dec))
+  (release-clock-for! handle)
   handle)
 
 ;; ---------------------------------------------------------------------------
@@ -634,8 +936,18 @@
 
   This is [[assert-clean!]]'s other half, and it exists so the instrument
   can have a sabotage control of its own: a witness that deliberately
-  leaks must be able to read the verdict rather than fail on it."
+  leaks must be able to read the verdict rather than fail on it.
+
+  **It lets go of a `:clock` mount's clock first**, and that is a repair
+  rather than a courtesy. The reading below waits out the runtime's own
+  reaper horizon on a `setTimeout`, so a virtual clock still installed
+  here would freeze the wait and this promise would never settle —
+  turning the one reported failure this door exists to make loud (a
+  reading taken on a mount nobody unmounted) into a hung async test.
+  [[unmount!]] normally gets there first; this is the case where it was
+  not called at all."
   [handle]
+  (release-clock-for! handle)
   (let [baseline (get handle baseline-key)
         mounted? (= :mounted @(get handle state-key))]
     (.then (inventory/quiesced!)
