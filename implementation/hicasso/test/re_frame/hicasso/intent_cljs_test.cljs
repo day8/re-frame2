@@ -1,4 +1,4 @@
-(ns re-frame.bench.hicasso.front.intent-cljs-test
+(ns re-frame.hicasso.intent-cljs-test
   "INTENT LOWERING, tested against the surface authoring.md declares
   (rf2-2rtt6.8).
 
@@ -10,7 +10,7 @@
   same closures is the arms' witness (validation.md's 100-cell grid), not
   this file's."
   (:require [cljs.test :refer-macros [deftest is testing]]
-            [re-frame.bench.hicasso.front.intent :as intent]))
+            [re-frame.hicasso.impl.intent :as intent]))
 
 ;; ---------------------------------------------------------------------------
 ;; A recording dispatch, and stand-in events
