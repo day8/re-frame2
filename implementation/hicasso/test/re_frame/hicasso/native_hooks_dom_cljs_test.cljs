@@ -193,22 +193,30 @@
 (defn- readers-of [sub-key] (inventory/cell-readers sub-key))
 
 (defn- mount-live!
-  "Mount `hiccup` under `frame-kw` and return only once the island is
-  provably SUBSCRIBED.
+  "Mount `hiccup` under `frame-kw` and return only once `sub-key` has
+  exactly `readers` readers — which is to say, once every holder in the
+  tree is provably SUBSCRIBED.
 
   `useSyncExternalStore` calls `subscribe` from a passive effect React
   flushes after the commit, and an island that has not reached it cannot
   be notified by anything — so a row that started before it would be
   measuring an unsubscribed component and would stay green through a hook
   that never subscribed at all. The wait is on the CELL's reader list,
-  which only the commit can populate."
-  [frame-kw hiccup sub-key]
+  which only the commit can populate.
+
+  `readers` is stated by the caller rather than assumed to be one,
+  because a tree may hold the key more than once — the shared-entry row
+  mounts a boundary and an island on one key deliberately — and a wait
+  that stopped at the first arrival would let the second commit land
+  underneath the assertions."
+  [frame-kw hiccup sub-key readers]
   (let [container (mount/fresh-container!)
         handle    (mount/root! container frame-kw hiccup)]
-    (-> (support/wait-until! #(= 1 (count (readers-of sub-key))))
+    (-> (support/wait-until! #(= readers (count (readers-of sub-key))))
         (.then (fn [subscribed?]
                  (when-not subscribed?
-                   (throw (ex-info "the island never subscribed"
+                   (throw (ex-info (str "expected " readers
+                                        " subscribed reader(s) on " (pr-str sub-key))
                                    {:residue (inventory/residue)})))
                  handle)))))
 
@@ -241,7 +249,7 @@
       (do (skip! ":node-test has no React DOM") (done))
       (let [k (price-key alpha "AAPL")]
         (seat! alpha {"AAPL" 191})
-        (-> (mount-live! alpha [shared-host {:sym "AAPL"}] k)
+        (-> (mount-live! alpha [shared-host {:sym "AAPL"}] k 2)
             (.then
               (fn [handle]
                 (testing "the island painted the value, and so did the boundary
@@ -309,7 +317,7 @@
       (do (skip! ":node-test has no React DOM") (done))
       (let [k (price-key alpha "AAPL")]
         (seat! alpha {"AAPL" 191})
-        (-> (mount-live! alpha [host {:sym "AAPL"}] k)
+        (-> (mount-live! alpha [host {:sym "AAPL"}] k 1)
             (.then
               (fn [handle]
                 (testing "a write to the key the island reads repaints it"
@@ -356,7 +364,7 @@
       (do (skip! ":node-test has no React DOM") (done))
       (let [k (price-key alpha "AAPL")]
         (seat! alpha {"AAPL" 191})
-        (-> (mount-live! alpha [host {:sym "AAPL"}] k)
+        (-> (mount-live! alpha [host {:sym "AAPL"}] k 1)
             (.then
               (fn [handle]
                 (let [reg-at-mount (first (readers-of k))
@@ -414,7 +422,7 @@
       (do (skip! ":node-test has no React DOM") (done))
       (let [k (price-key alpha "AAPL")]
         (seat! alpha {"AAPL" 191})
-        (-> (mount-live! alpha [strict-host {:sym "AAPL"}] k)
+        (-> (mount-live! alpha [strict-host {:sym "AAPL"}] k 1)
             (.then
               (fn [handle]
                 (testing "StrictMode really is engaged — the body ran more than
@@ -472,8 +480,8 @@
             kb (price-key beta "AAPL")]
         (seat! alpha {"AAPL" "alpha-price"})
         (seat! beta  {"AAPL" "beta-price"})
-        (-> (mount-live! alpha [host {:sym "AAPL"}] ka)
-            (.then (fn [a] (.then (mount-live! beta [host {:sym "AAPL"}] kb)
+        (-> (mount-live! alpha [host {:sym "AAPL"}] ka 1)
+            (.then (fn [a] (.then (mount-live! beta [host {:sym "AAPL"}] kb 1)
                                   (fn [b] #js [a b]))))
             (.then
               (fn [^js pair]
@@ -530,7 +538,7 @@
       (do (skip! ":node-test has no React DOM") (done))
       (let [k (price-key alpha "AAPL")]
         (seat! alpha {"AAPL" "predecessor"})
-        (-> (mount-live! alpha [host {:sym "AAPL"}] k)
+        (-> (mount-live! alpha [host {:sym "AAPL"}] k 1)
             (.then
               (fn [handle]
                 (let [ops-1   (deref !last-ops)
@@ -619,7 +627,7 @@
       (do (skip! ":node-test has no React DOM") (done))
       (let [k (price-key alpha "AAPL")]
         (seat! alpha {"AAPL" 191})
-        (-> (mount-live! alpha [host {:sym "AAPL"}] k)
+        (-> (mount-live! alpha [host {:sym "AAPL"}] k 1)
             (.then
               (fn [handle]
                 (react/startTransition

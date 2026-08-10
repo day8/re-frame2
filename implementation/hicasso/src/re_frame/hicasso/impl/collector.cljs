@@ -1522,9 +1522,9 @@
   (entry-for #js [sub-key]))
 
 (defn hook-read
-  "The value of `[frame-kw query-v]`, read from OUTSIDE every boundary
-  body — [[read-key!]]'s two tiers with the scratch and the ambient
-  frame taken away.
+  "The value of `sub-key`, read from OUTSIDE every boundary body —
+  [[read-key!]]'s two tiers with the scratch and the ambient frame taken
+  away.
 
   Warm is the same pure deref: once the hook's `subscribe` has run, the
   cell exists and holds the reaction, so every render after the first is
@@ -1541,14 +1541,17 @@
   makes the question unaskable. The saved value is nil in every path
   that exists today — React renders a component after its parent body
   has returned, never inside one — so what the restore protects is the
-  invariant rather than a caller."
-  [frame-kw query-v]
-  (if-some [^js r (some-> ^js (get @!cells [frame-kw query-v]) (.-reaction))]
+  invariant rather than a caller.
+
+  It takes the SUB-KEY rather than the pair, so a hook builds the one
+  vector the cell table is keyed by and hands it to both doors."
+  [sub-key]
+  (if-some [^js r (some-> ^js (get @!cells sub-key) (.-reaction))]
     @r
     (let [saved (.-probe rstate)]
       (set! (.-probe rstate) nil)
       (try
-        (cold-read! frame-kw query-v)
+        (cold-read! (nth sub-key 0) (nth sub-key 1))
         (finally (set! (.-probe rstate) saved))))))
 
 ;; ---------------------------------------------------------------------------
