@@ -221,6 +221,35 @@ bypass of the contract.
 Stated above under *What every complaint carries*, and repeated here because
 it is the promise most easily made too broadly.
 
+**An id is frozen; the `:recovery` beside it is not.** The stability rule
+governs the id and nothing else in the row. A recovery keyword is advice —
+read once by a human at the moment of failure, and branched on by nothing —
+so it tracks whatever API it points at, and is rewritten when that API is
+renamed. An id is a handle: a stored error, a monitor's grouping rule and a
+test's assertion all match on it, which is the whole reason rule 3 keeps a
+dead one dead. Freezing both would put every refusal's advice under the id's
+contract, and leave the substrate telling a programmer to type a word that
+no longer exists.
+
+**`:rf.error/hicasso-test-bad-reads` keeps its spelling.** The L2 fixture
+option it polices settles as `:subs` (naming-ledger row 23), so the id names
+a key a caller no longer writes. That is not a rule-1 trigger: the refusal
+means exactly what it always meant — *the fixture map was not a map from
+query vector to value* — and an id names the refusal, not the option. Under
+rule 2 the rename would buy one better word for a tombstone kept forever, a
+fresh spelling every consumer must re-learn, and two more Spec 009 rows; it
+is the same trade that leaves `:rf.error/no-frame-prop` recorded below as
+found rather than corrected. The current spelling belongs in the Trigger
+column and in the message, which is where a reader meets it. This id's own
+recovery, `:pass-a-map-of-query-to-value`, names a shape rather than a key
+and needed no change at all — the same distinction seen from the other side,
+and the shape a recovery keyword should prefer wherever one is available.
+The sibling advice on `:rf.error/hicasso-test-missing-read-fixture` does
+name the key, so it moves with it: `:add-the-query-to-reads` is rewritten in
+the pass that renames the option, in the kit's source and in its Spec 009
+row together, because the two must never disagree about what the runtime
+raises (rf2-k855).
+
 ## Open, and not settled here
 
 - **The forms module's failure modes have no ids.** The guide teaches them
