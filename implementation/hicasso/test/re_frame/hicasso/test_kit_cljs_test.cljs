@@ -114,16 +114,21 @@
 
 (h/defhost badge badge-component {:ssr :render})
 
+;; The `<name>-body` pair, which is the spelling this suite's own examples
+;; teach — and which used to be unrenderable (rf2-jan2). `h/defview` named
+;; its emitted body fn `<sym>-body`, and a named `fn` binds its own name
+;; inside its body, so this declaration expanded to
+;; `(fn greeting-body [p] (greeting-body p))` and recursed until the stack
+;; overflowed. The expansion names nothing now, so the only `greeting-body`
+;; in scope is the author's; `a-body-may-call-a-helper-named-after-its-view`
+;; below is what says so.
 (defn- greeting-body [{:keys [who]}] [:p (str "hi " who)])
 (h/defview greeting [props] (greeting-body props))
 
-;; The pair the minted-head render rows below run. The helper is NOT named
-;; `farewell-body`, and that is deliberate: `h/defview` names its emitted
-;; body fn `<sym>-body`, and a named `fn` binds its own name in its body —
-;; so `(h/defview farewell [p] (farewell-body p))` expands to
-;; `(fn farewell-body [p] (farewell-body p))`, which recurses forever. That
-;; is a defect in the public door macro rather than in this suite, and it is
-;; filed as its own finding; `greeting` above carries it and is never run.
+;; The pair the minted-head render rows below run, spelled the OTHER way —
+;; a helper whose name is not derived from the view's — so those rows keep
+;; measuring the retention contract rather than doubling as the rf2-jan2
+;; witness.
 (defn- farewell-text [{:keys [who]}] [:p (str "bye " who)])
 (h/defview farewell [props] (farewell-text props))
 
@@ -422,6 +427,29 @@
              (refusal o [:view])))
       (is (re-find #"L3 owns React lifecycle" (:message o))
           "the message points up the ladder rather than restating the tier"))))
+
+(deftest a-body-may-call-a-helper-named-after-its-view
+  ;; rf2-jan2, at L2. `greeting`'s body calls `greeting-body` — the extract-a-
+  ;; helper spelling this file's own examples use — and until the macro stopped
+  ;; naming its emitted fn, that call resolved to the emitted fn itself and
+  ;; recursed until the stack overflowed. Rendered through the kit, the failure
+  ;; was a `Maximum call stack size exceeded` naming no view, no id and no
+  ;; macro.
+  (testing "the helper the body calls is the author's, so a view whose helper
+            is named after it renders rather than recursing"
+    (let [tree (ht/render [greeting {:who "ada"}])]
+      (is (= :p (:tag tree)))
+      (is (= "hi ada" (ht/text tree)))))
+
+  (testing "and it is the SAME tree the helper answers when rendered directly,
+            which rules out a body that recursed once and happened to stop"
+    (is (= (ht/render [greeting-body {:who "ada"}])
+           (ht/render [greeting {:who "ada"}]))))
+
+  (testing "the control: `farewell`, whose helper is NOT named after it, was
+            always renderable — so the rows above measure the collision and
+            not the kit's minted-head path in general"
+    (is (= "bye ada" (ht/text (ht/render [farewell {:who "ada"}]))))))
 
 (deftest a-host-crossing-is-opaque-at-l2
   (testing "at the root"

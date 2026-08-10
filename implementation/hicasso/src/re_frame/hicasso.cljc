@@ -102,6 +102,33 @@
   makes the head's identity stable by construction and leaves the codec's
   stable-component-head cache with nothing to do.
 
+  ## The fn this expands to is ANONYMOUS, and that is the contract
+  (rf2-jan2)
+
+  The expansion binds NO name inside your body, so every symbol a body
+  resolves is one you wrote. The ordinary extract-a-helper spelling is
+  therefore safe at the ordinary spelling:
+
+      (defn todo-row-body [props] …)
+      (h/defview todo-row [props] (todo-row-body props))
+
+  It was not always. The macro used to name the fn it emits
+  `<sym>-body`, and a named `fn` binds its own name for its own body — so
+  the pair above expanded to `(fn todo-row-body [p] (todo-row-body p))`
+  and recursed until the stack overflowed, under React exactly as under
+  the test kit, reporting `Maximum call stack size exceeded` and naming
+  neither the view nor the macro that shadowed the helper.
+
+  Anonymity rather than a gensym or a reserved prefix, because those make
+  the collision improbable where this makes it unrepresentable: a fn with
+  no name has nothing to shadow with. Nothing was spent for it. The
+  identifiers this macro decides are the `\"<ns>/<sym>\"` view name and
+  the coordinate below, both computed here and both passed as VALUES —
+  `mint-view!` stamps the view name as `displayName` on the body and on
+  the component, and Spec 009 keys its render measure `rf:render:<view
+  name>` off the same string. The emitted fn's own symbol fed none of
+  them; it reached nothing but a stack frame.
+
   ## The source coordinate (rf2-hic-007)
 
   The expansion opens a declaration extent around the mint, carrying the
@@ -124,7 +151,6 @@
      (let [doc       (when (string? (first more)) (first more))
            [argv & body] (if doc (rest more) more)
            view-name (str (ns-name *ns*) "/" sym)
-           body-name (symbol (str sym "-body"))
            coord     (source-coords/coords-form (meta &form) *file* (ns-name *ns*))]
        `(def ~(if doc (vary-meta sym assoc :doc doc) sym)
           (do
@@ -133,7 +159,11 @@
             (try
               (re-frame.hicasso.impl.collector/mint-view!
                 ~view-name
-                (fn ~body-name ~argv ~@body))
+                ;; ANONYMOUS — see the docstring's rf2-jan2 section. A
+                ;; named `fn` binds its own name for its own body, so any
+                ;; name derived from `sym` shadows the author's helper of
+                ;; that name.
+                (fn ~argv ~@body))
               (finally
                 (when re-frame.interop/debug-enabled?
                   (re-frame.hicasso.impl.error/declared!)))))))))
