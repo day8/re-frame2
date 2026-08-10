@@ -1005,7 +1005,7 @@
   `goog.DEBUG=false` the Closure compiler removes the call and this fn
   with it, and a production head carries nothing. That erasure is
   asserted rather than asserted-about:
-  `re-frame.hicasso.error-source-coord-elision-prod-test` reads
+  `re-frame.hicasso.view-body-retention-elision-prod-test` reads
   [[retained-body]] off a head minted in the real advanced bundle and
   requires nil."
   [head body-fn]

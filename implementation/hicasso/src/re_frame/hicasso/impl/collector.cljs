@@ -1868,8 +1868,8 @@
       ;; (rf2-2rtt6.52). `goog.DEBUG` is the same gate the `displayName`
       ;; stamp above uses, so under `:advanced` + `goog.DEBUG=false` this
       ;; folds away with `codec/retain-body!` behind it and a production
-      ;; head answers nil — asserted in
-      ;; `re-frame.hicasso.error-source-coord-elision-prod-test`.
+      ;; head answers nil — asserted against the real advanced bundle in
+      ;; `re-frame.hicasso.view-body-retention-elision-prod-test`.
       (when ^boolean js/goog.DEBUG (codec/retain-body! head body-fn))
       head)))
 
