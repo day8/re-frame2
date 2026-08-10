@@ -92,8 +92,23 @@
                        day8/re-frame2-ui         {:local/root "../../implementation/ui"}
                        ;; The presence rung's host bridge
                        ;; (`re-frame.story.play.presence-host`) requires the
-                       ;; Freehand presence runtime, and the view-tool /
-                       ;; sub-override consumers read Freehand projections.
+                       ;; Freehand presence runtime, and this entry is what
+                       ;; compiles it. Its three test arms read the same
+                       ;; runtime (`play/presence_cljs_test`,
+                       ;; `play/presence_freehand_dom_cljs_test`,
+                       ;; `play/presence_real_clock_cljs_test`) — and so does
+                       ;; `realworld_ui_consumer_cljs_test`, which drives a
+                       ;; real retained exit through the shipped bridge. That
+                       ;; last one is why RETIRING THE PRESENCE BRIDGE WOULD
+                       ;; NOT RETIRE THIS COORDINATE (rf2-5gka): a consumer
+                       ;; outside the presence rung shares it.
+                       ;;
+                       ;; The view-tool / sub-override consumers do NOT read
+                       ;; Freehand and never did: `re-frame.story.view-tool`
+                       ;; reads `re-frame.ui.tool`, which is the
+                       ;; `day8/re-frame2-ui` entry above, and the sub-override
+                       ;; Provider is core's own
+                       ;; `re-frame.adapter.sub-override-context`.
                        ;; TEST-ONLY for the same reason the donor entry above
                        ;; is: `day8/re-frame2-freehand` carries no `:clein`
                        ;; deploy aliases (publication is F6 territory), so
