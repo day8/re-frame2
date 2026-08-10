@@ -394,7 +394,7 @@ Related: [Native tier](10-native-tier.md#the-n-grammar).
 ### **n/defcomponent**
 
 Defines a stable top-level native function component: display name, source,
-HMR, and one props/children ABI. Default self-contained route for a
+HMR conduct, and one props/children ABI. Default self-contained route for a
 [named native island](#native-island). Ordinary React hooks are legal inside;
 frame access via [`n/use-sub`](#nuse-sub) / [`n/use-frame`](#nuseframe).
 
@@ -425,8 +425,9 @@ Related: [Native tier](10-native-tier.md#rung-4--a-named-native-island).
 ### **n/memo** / **n/lazy**
 
 Marker-preserving memoization and `React.lazy` loading for native components.
-Raw `react/memo` / `React.lazy` erase identity metadata that Xray and HMR
-need.
+Raw `react/memo` / `React.lazy` erase the tier marker that Xray and the
+embedding seams read. Hot reload is unaffected either way — a save allocates a
+fresh component, and a clean remount is the designed conduct.
 
 Related: [Native tier](10-native-tier.md#keeping-the-marker-the-abi-helpers),
 [Code splitting](20-code-splitting.md).
