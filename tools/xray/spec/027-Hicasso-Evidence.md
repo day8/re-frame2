@@ -179,6 +179,16 @@ are a census keyed on data the door has promised not to carry, or two rows
 sharing one exported identity — which gives a panel duplicate DOM ids and a
 consumer an ambiguous join.
 
+**This is why the Views panel's Mounted Views section does not move here.**
+`021-Dynamic-Panel-Designs.md` §3.4.1/§3.4.2 read Freehand's five-read tool
+door for a roster keyed by view id and occurrence, plus a compiler manifest.
+Neither has a counterpart on this door, and neither is a gap awaiting closure —
+the read set is the only identity this runtime retains, and no evidence
+subsystem ships. Those sections therefore retire with the Freehand tree rather
+than being re-pointed at `re-frame.hicasso.tool`; the question-by-question
+mapping and the disposition are recorded once, in
+[`021-Dynamic-Panel-Designs.md`](021-Dynamic-Panel-Designs.md) §3.4.3.
+
 ### Causality is never inferred from adjacency
 
 The Why view has a proven half and an uncorrelated half, and they are separate

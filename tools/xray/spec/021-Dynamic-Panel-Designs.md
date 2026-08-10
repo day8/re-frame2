@@ -929,6 +929,51 @@ Freehand host's views and mounting Xray's own chrome into it are separate
 questions, and the refusal is what makes the second one an
 `:unsupported-substrate` diagnostic instead of an uncaught React child error.
 
+### §3.4.3 Disposition — these sections retire WITH the donor rather than moving to Hicasso
+
+Spec SN §12 Phase 6 requires every live Xray consumer onto the adapter-neutral
+Hicasso evidence provider before the donor tool surfaces are disposed of. For
+§3.4.1 and §3.4.2 that cannot be carried out as a migration, and the reason is
+recorded here so it is neither re-derived nor re-attempted (rf2-jkdy, against
+the rf2-hic-076 census rows X1/X2/X4/X5).
+
+Donor 1 → donor 2 was a rename: `re-frame.ui.tool` and `re-frame.freehand.tool`
+publish the same five reads, so the earlier crossing cost this panel its
+`:require` lines and nothing else. The target is not a rename.
+`re-frame.hicasso.tool` publishes FOUR reads — `read-mounted-boundaries`,
+`read-read-attribution`, `read-intents`, `explain-render` — over a runtime that
+mints no boundary identity and ships no manifest (`re-frame.hicasso.impl.evidence`:
+*"No evidence subsystem ships: no manifest, no registry, no buffering"*). Only
+`explain-render` even shares a name.
+
+| What §3.4 asks | Freehand field | On `re-frame.hicasso.tool` |
+|---|---|---|
+| Which VIEW is mounted | `:view-id` | **none.** `:view` and `:source` are `:unknown` under an `:opaque` naming projection whose own `:why` states that naming a boundary would need a registry this producer will not levy — not a gap awaiting closure |
+| Which OCCURRENCE of it | `:occurrence` | **none.** A boundary is keyed by its READ SET, so two boundaries reading alike are indistinguishable and collapse into one row carrying `:instances` |
+| Compiled or interpreted | `:lowering` | **none.** There is no execution-mode axis to state (spec SN §13); "lowering" in Hicasso names intent lowering, a different thing |
+| When, at which generation, under which cascade | `:at`, `:generation`, `:dispatch-id` | **none per row.** `:generation` is one runtime-wide number on the envelope, a boundary row carries no clock reading, and the commit seam records no cascade id |
+| What it read | `:reads`, the selected commit's staged set | `:reads` — the closest counterpart, but the boundary's LIVE edge set rather than one commit's |
+| Over which frame | `:frame` | `:frame`, or `:unknown` where the read set spans frames |
+| Why it rendered | `explain-render` `:cause`, joined when the window holds the run | `explain-render`, but `:cause` is `:unknown` STRUCTURALLY every time — `:uncorrelated`, with candidates offered as leads |
+| What each view DECLARES (§3.4.2) | the manifest triple | **none.** There is no manifest, and no fourth read stands in for one |
+
+Two of the eight carry across, one degrades, and five — including the panel's
+whole subject — have no answer. A §3.4 re-pointed at the target would render a
+mounted roster that can name no view, beside
+[`027-Hicasso-Evidence.md`](027-Hicasso-Evidence.md)'s tab, which already
+renders all four of those envelopes whole. That is a second rendering of one
+runtime's evidence and a strictly smaller panel, which is not what *move the
+consumer onto the provider* asks for.
+
+**So the disposition is retirement, not migration.** §3.4.1 and §3.4.2 stay on
+`re-frame.freehand.tool` for as long as the Freehand tree ships and go when it
+goes, under rf2-hic-062 — together with the `day8/re-frame2-freehand`
+coordinate in `tools/xray/deps.edn`, which sits at top-level `:deps` only
+because `day8.re-frame2-xray.mounted-views` is in `src`. Nothing is stranded at
+that moment: a Hicasso host's boundaries, reads, intents and explanations are
+answered in full by the Hicasso tab, and what disappears is exactly the set of
+questions only a view registry could have answered.
+
 ### §3.5 Queries
 
 | From | Reads |
