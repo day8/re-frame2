@@ -27,11 +27,9 @@ allowed-tools:
   - mcp__re-frame2-pair__get-path
   - mcp__re-frame2-pair__read-dom
   - mcp__re-frame2-pair__read-ui
-  # S3 compiled-view inspection — manifest / dependencies / event-sites / mounted set / render-cause explain
-  - mcp__re-frame2-pair__read-view-manifest
-  - mcp__re-frame2-pair__read-view-dependencies
-  - mcp__re-frame2-pair__read-view-event-sites
-  - mcp__re-frame2-pair__read-mounted-views
+  # Hicasso evidence door — mounted boundaries / read attribution / render-cause explain
+  - mcp__re-frame2-pair__read-mounted-boundaries
+  - mcp__re-frame2-pair__read-read-attribution
   - mcp__re-frame2-pair__explain-render
   - mcp__re-frame2-pair__record
   - mcp__re-frame2-pair__read-recording
@@ -196,8 +194,8 @@ Read the leaf matching the task. Most references are ≤250 lines; the two catal
 | Orient on an unfamiliar app in one call, or read a single sub's validated value | `orient` / `read-sub` — see [references/ops.md §Read](references/ops.md#read) (arg signatures in [references/mcp-transport.md §MCP tool reference](references/mcp-transport.md#mcp-tool-reference-args)) |
 | Find out **which registrations / image a specific frame actually runs** (the multi-image / Story case where the same id resolves differently per frame), with per-frame provenance | `describe-image` — see [references/ops.md §Frames](references/ops.md#frames) |
 | Read what's actually on screen (rendered content + producing view entity) | `read-ui` / `read-dom` — see [references/ops.md §View → rendered content](references/ops.md#view--rendered-content--producing-entity-uiread) |
-| Ask what a Freehand (`v/defview`) view **declares** — its manifest/source (`read-view-manifest`), the subscriptions feeding it (`read-view-dependencies`), the events it can fire (`read-view-event-sites`) — all readable **before** it mounts. Reagent and UIx views answer `:view-tier-unavailable` on these five; every other op in this skill works on them unchanged | see [references/ops.md §Freehand view inspection](references/ops.md#freehand-view-inspection--manifest-connected-set-render-cause) |
-| Ask which Freehand occurrences are **connected right now** (`read-mounted-views`), or **why** one rendered when you didn't expect it to (`explain-render`) | see [references/ops.md §Freehand view inspection](references/ops.md#freehand-view-inspection--manifest-connected-set-render-cause) |
+| Ask which Hicasso boundaries are **mounted right now** (`read-mounted-boundaries`), or **which boundaries read a subscription** you can name (`read-read-attribution`). A boundary here has no view name — the runtime mints no identity, so it is keyed by its read set. Reagent and UIx apps answer `:evidence-tier-unavailable` on all three; every other op in this skill works on them unchanged | see [references/ops.md §Hicasso evidence](references/ops.md#hicasso-evidence--mounted-boundaries-read-attribution-render-cause) |
+| Ask **which of a boundary's reads moved** when it rendered and you didn't expect it to (`explain-render`) — the proven half, beside retained runs offered as leads | see [references/ops.md §Hicasso evidence](references/ops.md#hicasso-evidence--mounted-boundaries-read-attribution-render-cause) |
 | Simulate an event's consequence WITHOUT committing it (no fx fire) | `dispatch-dry-run` — see [references/recipes.md §"What would this event do?"](references/recipes.md#what-would-this-event-do-dry-run) |
 | Record signals while the human interacts, or block until a condition lands | `record` / `read-recording` / `watch-until` — see [references/ops.md §Signal recording](references/ops.md#signal-recording--blocking-waits) |
 | Run a named procedure the user asked for ("why didn't my view update?", post-mortem, experiment loop, etc.) | [references/recipes.md](references/recipes.md) |

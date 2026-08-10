@@ -217,12 +217,10 @@ MAPPINGS: list[Mapping] = [
             "read-sub",
             "read-dom",
             "read-ui",
-            # S3 compiled-view inspection — live view work routes to the
+            # The Hicasso evidence door — live view work routes to the
             # re-frame2-pair skill, same as read-sub/read-dom/read-ui above.
-            "read-view-manifest",
-            "read-view-dependencies",
-            "read-view-event-sites",
-            "read-mounted-views",
+            "read-mounted-boundaries",
+            "read-read-attribution",
             "explain-render",
             "record",
             "read-recording",
@@ -912,8 +910,9 @@ def check_title_safety_rules(
 # whether a human or agent can find out what the tool DOES. rf2-l2y4n is the
 # defect that gap admits: PR #6184 allow-listed the five S3 view-inspection
 # tools and reconciled the prose tool COUNT to 35, so every existing gate
-# stayed green while `explain-render` / `read-view-manifest` /
-# `read-view-dependencies` / `read-view-event-sites` / `read-mounted-views`
+# stayed green while the five S3 view tools (`explain-render` and the four
+# `read-view-*` / `read-mounted-views` reads it shipped beside, since replaced
+# by the Hicasso evidence door under rf2-n3mb)
 # appeared nowhere but the SKILL.md frontmatter — no arg shape, no semantics,
 # no workflow.
 #

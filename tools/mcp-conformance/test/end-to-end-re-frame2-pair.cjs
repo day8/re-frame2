@@ -216,17 +216,16 @@ runWithWatchdog(
       { name: 'read-dom', arguments: { selector: 'body', limit: 1 } },
       { name: 'read-ui', arguments: { selector: 'body' } },
       { name: 'orient', arguments: {} },
-      // The five re-frame.freehand.tool reads — the Freehand view evidence.
-      // Degraded (no nREPL) each routes through ensure-runtime! to the shared
-      // :nrepl-port-not-found envelope, pinning the callTool envelope +
-      // dispatch wiring. The view-id reads pass a probe id so they reach the
-      // nREPL step (not the :missing-view-id short-circuit); the LIVE tier read
-      // runs in a real Freehand app tab (the tier lives in the optional
-      // day8/re-frame2-freehand substrate).
-      { name: 'read-view-manifest', arguments: { 'view-id': ':rf-conformance/probe' } },
-      { name: 'read-view-dependencies', arguments: { 'view-id': ':rf-conformance/probe' } },
-      { name: 'read-view-event-sites', arguments: { 'view-id': ':rf-conformance/probe' } },
-      { name: 'read-mounted-views', arguments: {} },
+      // The three re-frame.hicasso.tool reads — the adapter-neutral evidence
+      // door. Degraded (no nREPL) each routes through ensure-runtime! to the
+      // shared :nrepl-port-not-found envelope, pinning the callTool envelope +
+      // dispatch wiring. All three are NULLARY — the runtime mints no boundary
+      // identity, so there is no id to narrow by and no missing-arg
+      // short-circuit to route around; the LIVE read runs in a real Hicasso app
+      // tab (the door lives in day8/re-frame2-hicasso and nothing in
+      // re-frame.hicasso requires it).
+      { name: 'read-mounted-boundaries', arguments: {} },
+      { name: 'read-read-attribution', arguments: {} },
       { name: 'explain-render', arguments: {} },
       // Every advertised pair-mcp tool below is SDK-CALLED so a regression
       // in its callTool envelope / outputSchema / structuredContent shape
