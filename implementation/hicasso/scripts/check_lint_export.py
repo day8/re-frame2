@@ -70,6 +70,31 @@ EXPECTED = {
 }
 
 
+def _kondo_command():
+    """How to invoke clj-kondo here, preferring the NATIVE BINARY.
+
+    The binary is what `.github/workflows/lint.yml` installs, at the pin this
+    gate asserts against, and it needs no JDK — which is what lets the fixture
+    witness run as a step of the existing `clj-kondo` job rather than waiting
+    for a JVM lane that does not exist. The artefact's `:clj-kondo` alias is
+    the local fallback, so a developer with no binary still gets the gate.
+    """
+    for name in ("clj-kondo", "clojure"):
+        # The RESOLVED path, not the bare name. On Windows an npm-installed
+        # tool leaves both an extensionless shell shim and a `.cmd`; only the
+        # latter is executable by `subprocess` without a shell, and `which`
+        # can hand back either.
+        found = (shutil.which(name + ".cmd") or shutil.which(name + ".bat")
+                 or shutil.which(name))
+        if found:
+            return [found] if name == "clj-kondo" else [found, "-M:clj-kondo"]
+    raise SystemExit(
+        "FAIL: neither `clj-kondo` nor `clojure` is on PATH, so the Hicasso "
+        "lint export gate cannot run. This is a HARD failure on purpose: it "
+        "used to SKIP green, which is a gate reporting success over a case it "
+        "never exercised -- the exact defect class it exists to catch.")
+
+
 def _kondo(paths, config_dir=EXPORT_DIR):
     """Every finding clj-kondo reports for `paths`, as data.
 
@@ -79,8 +104,8 @@ def _kondo(paths, config_dir=EXPORT_DIR):
     copies.
     """
     proc = subprocess.run(
-        ["clojure", "-M:clj-kondo",
-         "--config-dir", config_dir,
+        _kondo_command() +
+        ["--config-dir", config_dir,
          "--config", '{:output {:format :json} :cache false}',
          "--lint"] + list(paths),
         cwd=ARTEFACT_ROOT, capture_output=True, text=True,
@@ -274,11 +299,6 @@ def main(argv=None):
     parser.add_argument("--self-test", action="store_true",
                         help="prove the gate's red/green classification, then exit")
     args = parser.parse_args(argv)
-
-    if shutil.which("clojure") is None:
-        print("SKIP: clojure CLI not on PATH; the Hicasso lint export gate "
-              "needs it to run the pinned clj-kondo.")
-        return 0
 
     if args.self_test:
         return self_test()

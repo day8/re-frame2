@@ -243,6 +243,15 @@ DISPOSITIONS: dict[str, dict] = {
                "DOES yield a verdict, which is why that one is scheduled "
                "(freehand-bench.yml) and pinned into the local rigorous sweep",
     },
+    # `test:hicasso-lint` (rf2-hic-022) was declared `unscheduled` here for
+    # exactly one commit, and its entry is DELETED rather than kept: the
+    # fixture witness now runs as a step of lint.yml's required `clj-kondo`
+    # job, which already installs the pinned binary the gate needs. The hole
+    # it named was load-bearing — the job loaded the export's hooks but never
+    # ran the positive fixtures, so a check could stop FIRING with CI still
+    # green — and a declared hole that outlives its gate's schedule is the
+    # same class of lie as an undeclared one, told the other way round.
+    #
     # NO DECLARED HOLE REMAINS.  The last one was `test:hicasso-controlled`
     # (rf2-hic-016): the Hicasso three-engine controlled-input gate, declared
     # `unscheduled` rather than left silently unrun because the PR that built
@@ -305,36 +314,6 @@ DISPOSITIONS: dict[str, dict] = {
                "implementation` after `npm ci` is the measured fix",
     },
 
-    "test:hicasso-lint": {
-        "kind": "unscheduled",
-        "bead": "rf2-hic-022",
-        "why": "the Hicasso lint export's witness (rf2-hic-022) — the gate "
-               "that proves each of the six published clj-kondo checks fires "
-               "at its exact fixture rows, that correct code resembling each "
-               "mistake produces NO finding of any kind, and that the "
-               "artefact's own testbeds stay quiet. Declared here having been "
-               "RUN green, and with its own `--self-test` proving its red "
-               "three ways, rather than merely written: a gate wired without a "
-               "green run hands the alerting a false positive on its debut. "
-               "The same fence as the `test:hicasso-controlled` entry deleted "
-               "above — the PR that built it is fenced out of "
-               ".github/workflows/**, which is hot-zone and sequential, so the "
-               "step is a scheduling decision rather than a detail that bead "
-               "could take. UNSCHEDULED rather than covered-by: no existing "
-               "job's closure reaches it. Two things whoever schedules it "
-               "should know. It belongs beside `test:hicasso-freeze` in "
-               "test.yml's `cljs` job, whose `cljs_node_test` arm already "
-               "covers implementation/hicasso/** — one added step, no new job "
-               "and no classifier change. And it needs the `clojure` CLI (it "
-               "runs the pinned clj-kondo through the artefact's `:clj-kondo` "
-               "alias) which that job does not currently install; the script "
-               "SKIPs green without it, so scheduling it into a job with no "
-               "JVM would wire a gate that verifies nothing. Note this is only "
-               "the FIXTURE witness: the export itself is already gated per-PR "
-               "by lint.yml's required `clj-kondo` job, since "
-               ".clj-kondo/config.edn points :config-paths at it. The local "
-               "fast-PR spine does run this script",
-    },
 }
 
 KINDS = {"covered-by", "ci-runs-it-directly", "not-a-gate", "unscheduled"}
