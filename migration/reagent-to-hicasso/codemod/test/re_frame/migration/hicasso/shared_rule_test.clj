@@ -85,7 +85,7 @@
           second
           edn/read-string))
 
-(deftest the-callback-contracts-are-the-door's
+(deftest the-callback-contracts-are-the-doors
   (testing "the door's file is where this test thinks it is — a moved
             file must red this pin rather than silently skip it"
     (is (.exists door-file) (str "the door is not at " door-file)))
