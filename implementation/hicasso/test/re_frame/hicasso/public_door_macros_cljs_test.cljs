@@ -25,11 +25,13 @@
   symbol and def-layout detail would make safe refactoring noisy for no
   consumer confidence.
 
-  Three witnesses cover the three macros, and only two of them are here.
-  `defview` is already witnessed by
-  [[re-frame.hicasso.smoke-cljs-test]] — a boundary minted through the
-  door, asserted `boundary-head?`, rendering a live subscription read —
-  and that suite is the third witness, unchanged.
+  Three witnesses cover the three macros. `defview`'s round-trip — a
+  boundary minted through the door, asserted `boundary-head?`, rendering
+  a live subscription read — is [[re-frame.hicasso.smoke-cljs-test]]'s
+  and stays there. Witness C below is a different claim about the same
+  macro, and it is here because it is about the EXPANSION rather than
+  about the runtime: what `defview` names inside the fn it emits
+  (rf2-jan2).
 
   ## Why these assertions and not others
 
@@ -41,21 +43,29 @@
     mints — `callback?` and `host-head?`, one own-property read each;
   - that the author's own value survives the expansion unwrapped;
   - that an argument the author wrote reaches the declaration, which is
-    `defhost`'s `opts`.
+    `defhost`'s `opts`;
+  - that the fn `defview` emits binds NO name a body could reach, so the
+    author's lexical scope is the one the body runs in.
 
   Reaching to `impl.intent` and `impl.codec` for those two predicates is
   the same reach the package smoke makes for `boundary-head?`: the marker
   is the observable, and there is no other way to ask.
 
-  ## The NODE lane, and no runtime state
+  ## The NODE lane
 
-  This is the node lane. Nothing here subscribes, dispatches or mounts, so
-  nothing here needs a DOM, a registered frame or a runtime reset — the
-  server renderer runs the crossing for real and the file leaves no state
-  behind it. `defhost`'s DOM-driven counterpart is the isolation suite's
-  containment row; this witness exists because that usage is incidental to
-  a different contract and could refactor away without anyone noticing the
-  door had gone unchecked.
+  This is the node lane, and the server renderer runs both crossings for
+  real. Witnesses A and B subscribe, dispatch and mount nothing, so they
+  need no DOM, no registered frame and no runtime reset. Witness C runs a
+  BODY, and a body binds the ambient frame whether or not it reads
+  anything — so it seats a frame of its own and scopes the render with
+  `impl.mount/provider`, exactly as the package smoke does. A
+  `renderToString` never commits, so it still leaves no runtime state
+  behind it.
+
+  `defhost`'s DOM-driven counterpart is the isolation suite's containment
+  row; witness B exists because that usage is incidental to a different
+  contract and could refactor away without anyone noticing the door had
+  gone unchecked.
 
   ## Naming
 
@@ -63,9 +73,11 @@
   `defhost`. The naming review recommends `h/event` for the callback form;
   when that lands, the sweep renames these witnesses with everything else."
   (:require [cljs.test :refer-macros [deftest is testing]]
+            [re-frame.core :as rf]
             [re-frame.hicasso :as h]
             [re-frame.hicasso.impl.codec :as codec]
             [re-frame.hicasso.impl.intent :as intent]
+            [re-frame.hicasso.impl.mount :as mount]
             ["react" :as react]
             ["react-dom/server" :as react-dom-server]))
 
@@ -127,3 +139,56 @@
             with the crossing rendering the foreign component's own markup"
     (let [markup (html [:div.crossing [badge {:label "hicasso"}]])]
       (is (re-find #"<b[^>]*class=\"badge\"[^>]*>hicasso</b>" markup)))))
+
+;; ---------------------------------------------------------------------------
+;; Witness C — `h/defview`, and the name its emitted fn does NOT bind
+;; ---------------------------------------------------------------------------
+;;
+;; rf2-jan2. The macro used to name the fn it emits `<sym>-body`, and a
+;; NAMED `fn` binds its own name inside its body — so the ordinary
+;; extract-a-helper spelling below expanded to
+;; `(fn ticket-body [p] (ticket-body p))` and recursed until the stack
+;; overflowed. Under React the symptom was `Maximum call stack size
+;; exceeded` with no id, no view name and nothing pointing at the macro.
+;;
+;; The helper is named after the view DELIBERATELY: that is the collision,
+;; and a helper named any other way would leave this row green whatever the
+;; expansion binds.
+
+(defn- ticket-body
+  "The helper a body extracts, spelled the way an author spells it — the
+  view's own name with `-body` on the end."
+  [{:keys [id]}]
+  [:li.ticket (str "ticket " id)])
+
+(h/defview ticket [props] (ticket-body props))
+
+(defn- rendered
+  "One boundary, server-rendered under a frame — React running the body
+  for real, which is the level this collision bit at as hard as it bit at
+  the kit's."
+  [hiccup]
+  ;; `renderToString` is not inside React's act queue, and the flag is set
+  ;; outright for the reason the package smoke gives: the helper that
+  ;; carries it lives in the bench tree, which this package may not import.
+  (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) false)
+  (rf/make-frame {:id frame-id})
+  (react-dom-server/renderToString
+    (mount/provider frame-id (codec/root-element frame-id hiccup))))
+
+(deftest the-fn-defview-emits-binds-no-name-a-body-could-reach
+  (testing "the door hands back a minted boundary, so what renders below is
+            the expansion's own product"
+    (is (true? (codec/boundary-head? ticket))))
+
+  (testing "a body that calls a helper named after its view resolves the
+            AUTHOR's helper: React runs the body once and the markup is the
+            helper's, where the emitted fn's self-binding recursed forever"
+    (is (re-find #"<li[^>]*class=\"ticket\"[^>]*>ticket 7</li>"
+                 (rendered [ticket {:id 7}]))))
+
+  (testing "and the identifier the expansion DOES decide is unchanged — the
+            `\"<ns>/<sym>\"` name React DevTools shows and Spec 009 keys
+            `rf:render:<name>` on"
+    (is (= "re-frame.hicasso.public-door-macros-cljs-test/ticket"
+           (unchecked-get ticket "displayName")))))

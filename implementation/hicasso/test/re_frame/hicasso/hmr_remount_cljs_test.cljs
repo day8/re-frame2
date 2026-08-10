@@ -25,8 +25,9 @@
   top-level forms run again. For a Hicasso source file that is exactly
   two things — the `reg-sub` / `reg-event` forms re-register, and the
   `def` that [[re-frame.hicasso/defview]] expands to re-runs. The macro
-  expands to `(def sym (mint-view! \"<ns>/<sym>\" (fn <sym>-body …)))`, so
-  re-evaluating the form is re-running that one call and rebinding the
+  expands to `(def sym (mint-view! \"<ns>/<sym>\" (fn …)))` — the emitted
+  fn is anonymous, so it can shadow no helper the body calls (rf2-jan2) —
+  so re-evaluating the form is re-running that one call and rebinding the
   var. [[load-namespace!]] below is those two things and nothing else,
   and [[the-defview-macro-mints-what-a-reload-re-mints]] holds the model
   to the macro so the two cannot drift apart silently.
