@@ -119,26 +119,41 @@
 ;; Bookkeeping
 ;; ---------------------------------------------------------------------------
 
+;; `!mount-seq` mints the frame keyword and the ordinal a report names.
+;;
+;; `!facade-frames` is the frames this facade has minted and not yet
+;; destroyed. It is SUBTRACTED from the frame delta, so one mount is never
+;; blamed for another's frame: `:frames` exists to name a frame the APP
+;; opened and left behind, and a sibling mount's frame is neither the app's
+;; nor a leak — it is a peer, with an `assert-clean!` of its own.
+;;
+;; `!standing` is how many mounts are up and not yet taken down. It is
+;; REPORTED — a sibling root's cells are inside a reading whether or not
+;; anybody remembered it was there, so the reading says so.
+;;
+;; `!open` is how many mounts have not yet had a verdict, and it decides
+;; ONE thing: whether `assert-clean!` may reset.
+;; `impl.collector/reset-runtime!` empties every table by fiat and the
+;; tables are page-wide, so a reset performed while ANOTHER mount is still
+;; waiting to be read makes that mount's eventual reading vacuous — a
+;; census taken after a reset answers zero whether the teardown released
+;; anything or not, which is the shape of gate that cannot go red
+;; (`impl.mount/unmount!`, rf2-2rtt6.48). Unmounted is NOT the same
+;; question: two mounts can both be down and only one of them read.
+;;
+;; A mount that never gets a verdict leaves the counter above zero and
+;; suppresses the reset from then on. That is the benign direction and it
+;; is why the gate is spelled this way round: a reset that does not happen
+;; costs nothing (every reading is relative to its own baseline, and a test
+;; fixture resets between tests anyway), while a reset that happens too
+;; early manufactures a green.
+
 (defonce ^:private !mount-seq (atom 0))
+(defonce ^:private !facade-frames (atom #{}))
+(defonce ^:private !standing (atom 0))
+(defonce ^:private !open (atom 0))
 
-(defonce ^:private !standing
-  "How many mounts this facade has put up and not yet taken down.
-
-  Read by [[assert-clean!]] for ONE decision: whether its reset is safe.
-  `impl.collector/reset-runtime!` empties every table by fiat and the
-  tables are page-wide, so a reset performed while a sibling root is still
-  standing would both break that root and — worse — make ITS eventual
-  cleanliness reading vacuous. A census taken after a reset answers zero
-  whether the teardown released anything or not, which is the shape of
-  gate that cannot go red (`impl.mount/unmount!`, rf2-2rtt6.48).
-
-  So the reset happens only when the last standing mount has come down.
-  A test that forgets to unmount leaves the counter above zero, which is
-  correct rather than unfortunate: there IS a live root, and the leak
-  shows up in the residue delta of whichever mount asks."
-  (atom 0))
-
-(def ^:private mounted-key ::mounted?)
+(def ^:private state-key ::state)
 (def ^:private baseline-key ::baseline)
 (def ^:private ordinal-key ::ordinal)
 
@@ -177,14 +192,22 @@
   "What `now` has that `baseline` did not — the report's `:leaked` map, or
   `nil` when there is nothing. Only INCREASES are residue; a count that
   fell is a teardown that released more than this mount ever took, which
-  is somebody else's business and never this mount's complaint."
+  is somebody else's business and never this mount's complaint.
+
+  The frame arm subtracts this facade's OWN live frames as well as the
+  baseline's, so what `:frames` can name is a frame the APP opened inside
+  the mount's window and did not destroy — never a peer mount's."
   [baseline now]
   (let [numbers (reduce (fn [m k]
                           (let [d (- (get now k 0) (get baseline k 0))]
                             (cond-> m (pos? d) (assoc k d))))
                         {}
                         counted)
-        frames  (into #{} (remove (:frames baseline #{})) (:frames now))]
+        peers   (set @!facade-frames)
+        frames  (into #{}
+                      (remove (fn [f] (or (contains? (:frames baseline #{}) f)
+                                          (contains? peers f))))
+                      (:frames now))]
     (not-empty (cond-> numbers (seq frames) (assoc :frames frames)))))
 
 (defn- pad
@@ -203,14 +226,18 @@
   else. A residue finding is a bug in the code under test; naming it
   precisely is the whole of this instrument's job, and anything beyond
   that is scolding."
-  [{:keys [frame baseline now leaked ordinal]}]
+  [{:keys [frame baseline now leaked ordinal standing]}]
   (str "the mount left residue behind after quiescence.\n"
        "The baseline was taken inside mount! #" ordinal ", after this mount's own\n"
        "frame " frame " existed and before its root did; the reading below was\n"
        "taken after unmount! and after the runtime's own reaper horizon.\n\n"
        (str/join "\n" (map (fn [[k v]] (leak-line baseline now k v)) leaked))
        "\n\nSomething outlived the root. A retained subscription, a foreign host that\n"
-       "mounts its own root, or a frame the app made and did not destroy."))
+       "mounts its own root, or a frame the app made and did not destroy."
+       (when (pos? standing)
+         (str "\n\n" standing " other facade mount(s) were still standing when this reading\n"
+              "was taken, so their cells are inside it. Take every mount down before\n"
+              "asserting any of them clean."))))
 
 ;; ---------------------------------------------------------------------------
 ;; Mounting
@@ -231,15 +258,17 @@
         frame-kw (keyword "re-frame.hicasso.test.mounted" (str "mount-" ordinal))]
     (rf/make-frame (cond-> {:id frame-kw}
                      (seq initial-events) (assoc :initial-events (vec initial-events))))
+    (swap! !facade-frames conj frame-kw)
     [frame-kw ordinal]))
 
 (defn- handle-for
   [root ordinal baseline]
   (swap! !standing inc)
+  (swap! !open inc)
   (assoc root
          baseline-key baseline
          ordinal-key  ordinal
-         mounted-key  (volatile! true)))
+         state-key    (volatile! :mounted)))
 
 (defn mount!
   "Mount `form` on a fresh React root under a frame of this mount's own,
@@ -405,8 +434,8 @@
   counts against the standing-mount census."
   [handle]
   (mount/unmount! handle)
-  (when @(get handle mounted-key)
-    (vreset! (get handle mounted-key) false)
+  (when (= :mounted @(get handle state-key))
+    (vreset! (get handle state-key) :unmounted)
     (swap! !standing dec))
   handle)
 
@@ -418,12 +447,14 @@
   "**What this mount left behind, as data.** Answers a promise of the
   report; asserts nothing and resets nothing.
 
-      {:clean?   false
-       :frame    :re-frame.hicasso.test.mounted/mount-3
-       :ordinal  3
-       :baseline {:cells 0 :cell-refs 0 … :frames #{…}}
-       :now      {:cells 2 :cell-refs 2 … :frames #{…}}
-       :leaked   {:cells 2 :cell-refs 2 :boundaries 1 :edges 2}}
+      {:clean?         false
+       :frame          :re-frame.hicasso.test.mounted/mount-3
+       :ordinal        3
+       :still-mounted? false
+       :standing       0
+       :baseline       {:cells 0 :cell-refs 0 … :frames #{…}}
+       :now            {:cells 2 :cell-refs 2 … :frames #{…}}
+       :leaked         {:cells 2 :cell-refs 2 :boundaries 1 :edges 2}}
 
   The reading is taken after `impl.inventory/quiesced!` — the runtime's
   OWN settling point, not a macrotask. The entry reaper's horizon sits
@@ -436,21 +467,28 @@
   INCREASES against the baseline (see [[census]] for what is counted and
   [[mount!]] for when the baseline was taken).
 
+  `:still-mounted?` and `:standing` are the two facts that explain a
+  reading rather than being read out of the tables: this mount's own root
+  still being up, and how many OTHER facade mounts were up when the census
+  was taken. Both are inside the numbers, so both are stated beside them.
+
   This is [[assert-clean!]]'s other half, and it exists so the instrument
   can have a sabotage control of its own: a witness that deliberately
   leaks must be able to read the verdict rather than fail on it."
   [handle]
   (let [baseline (get handle baseline-key)
-        frame    (:frame handle)]
+        mounted? (= :mounted @(get handle state-key))]
     (.then (inventory/quiesced!)
            (fn [_]
              (let [now (census)
                    l   (leaked baseline now)]
-               (cond-> {:clean?   (nil? l)
-                        :frame    frame
-                        :ordinal  (get handle ordinal-key)
-                        :baseline baseline
-                        :now      now}
+               (cond-> {:clean?         (nil? l)
+                        :frame          (:frame handle)
+                        :ordinal        (get handle ordinal-key)
+                        :still-mounted? mounted?
+                        :standing       (cond-> @!standing mounted? dec)
+                        :baseline       baseline
+                        :now            now}
                  (some? l) (assoc :leaked l)))))))
 
 (defn assert-clean!
@@ -484,36 +522,45 @@
   anything or not. This mount's frame is destroyed with it.
 
   The reset is page-wide, so it is held back while any OTHER mount is
-  still standing; see `!standing`. Which makes the ordinary shape the
-  right one: assert each mount clean after it comes down, and the last one
-  to come down does the clearing."
+  still waiting to be read — not merely while one is still standing, since
+  two mounts can both be down and only one of them read, and resetting
+  between them would make the second reading vacuous. See `!open`. The
+  last mount to be asserted does the clearing."
   [handle]
-  (let [frame (:frame handle)]
-    (if @(get handle mounted-key)
-      (let [report {:clean? false :frame frame :ordinal (get handle ordinal-key)
-                    :still-mounted? true}]
-        (t/do-report
-          {:type     :fail
-           :message  (str "assert-clean! was called on a mount that is still "
-                          "standing. Call unmount! first: this reading is about "
-                          "what survives a teardown, and there has not been one.")
-           :expected '(unmounted? handle)
-           :actual   report})
-        (js/Promise.resolve report))
-      (.then (residue handle)
-             (fn [report]
-               (t/do-report
-                 (if (:clean? report)
-                   {:type     :pass
-                    :message  (str "the mount left no residue: every counter is "
-                                   "back at its pre-mount baseline")
-                    :expected '(clean? handle)
-                    :actual   report}
-                   {:type     :fail
-                    :message  (leak-report report)
-                    :expected '(clean? handle)
-                    :actual   (:leaked report)}))
-               (when (zero? @!standing)
-                 (collector/reset-runtime!))
-               (rf/destroy-frame! frame)
-               report)))))
+  (.then (residue handle)
+         (fn [report]
+           (t/do-report
+             (cond
+               (:still-mounted? report)
+               {:type     :fail
+                :message  (str "assert-clean! was called on a mount that is still "
+                               "standing. Call unmount! first: this reading is "
+                               "about what survives a teardown, and there has "
+                               "not been one.")
+                :expected '(unmounted? handle)
+                :actual   report}
+
+               (:clean? report)
+               {:type     :pass
+                :message  (str "the mount left no residue: every counter is back "
+                               "at its pre-mount baseline")
+                :expected '(clean? handle)
+                :actual   report}
+
+               :else
+               {:type     :fail
+                :message  (leak-report report)
+                :expected '(clean? handle)
+                :actual   (:leaked report)}))
+           ;; The verdict is taken ONCE per mount: a second call reports
+           ;; again (it is an assertion, and a repeated assertion is
+           ;; allowed to speak) but moves no bookkeeping, so `!open`
+           ;; cannot be driven below the number of mounts still waiting
+           ;; to be read.
+           (when (= :unmounted @(get handle state-key))
+             (vreset! (get handle state-key) :read)
+             (when (zero? (swap! !open dec))
+               (collector/reset-runtime!))
+             (swap! !facade-frames disj (:frame handle))
+             (rf/destroy-frame! (:frame handle)))
+           report)))
