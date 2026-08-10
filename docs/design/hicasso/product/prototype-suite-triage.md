@@ -197,7 +197,10 @@ Spec 009's `:render` bucket. These do assert package behaviour (`mint-view!` wra
 in `performance/mark-and-measure`), but the ON half runs in the `:node-test-nightly` build via the
 `-emit-nightly-test$` selector and the pair is written as a matched OFF/ON couple. Splitting them
 across two trees would break the couple; moving both needs a nightly-lane decision that is not a
-triage's to take. **Flagged for a follow-up bead rather than ported.**
+triage's to take. **Flagged for a follow-up bead rather than ported.** **ANSWERED (rf2-b6ja): there
+was no lane decision to take — measurement is tier 3 and the ON half is already in it, and a port
+would need no build, lane or workflow change.** See
+[3. the `render_measure` couple](#3-the-render_measure-couple--already-in-the-tier-that-runs-measurements).
 
 ### (vi) It is a control arm, or its move is blocked — 13 suites, 8,220 lines
 
@@ -376,6 +379,39 @@ the pair onto it". The entry is not on the path: give the package the pair. Whet
 wants an SSR entry of its own is a separate question, and the rows that would answer it are the five
 `ssr/*` suites in STAYS (iii), which genuinely do reach one.
 
+### 3. The `render_measure` couple — already in the tier that runs measurements
+
+**The verdict: nightly, tier 3, and the couple is already there. There was no lane decision waiting
+to be taken.** `TESTING.md`'s four tier scenarios put measurement in **tier 3, *Nightly / manual***
+(`.github/workflows/expensive-tests.yml`), and the couple already sits astride that boundary in
+exactly the way the split intends:
+
+- **The OFF half**, `arm1/render_measure_cljs_test.cljs`, is selected by `implementation::node-test`
+  and nothing else — `npm run test:cljs`, always-on, tier 1 and tier 2. Correct: with
+  `re-frame.performance/enabled?` off there is no measurement to be noisy, only a claim about what
+  `mint-view!` wraps.
+- **The ON half**, `arm1/render_measure_emit_nightly_test.cljs`, is selected by
+  `implementation::node-test-perf-nightly` and nothing else, run by `npm run
+  test:cljs-perf-emit-nightly`, whose only scheduled home is `expensive-tests.yml`. The build's own
+  comment gives the reason in a line: *"Perf-timing assertions are noisy under per-PR CI runners;
+  nightly cadence reduces false negatives from runner load."* It is **not** one of the two rf2-65ajl
+  PR exceptions (`test:story-feature-load`, `test:story-static`) and should not become one — those
+  exist for gates whose own definition a PR can edit unrun, which is a different problem.
+
+**And the port the row was actually holding is cheaper than it looked.** `:node-test-perf-nightly`
+declares no `:source-paths`, so it inherits the config's, and `hicasso/src` and `hicasso/test` are
+on that vector. Its selector is `-emit-nightly-test$`, applied with shadow's `re-find`. So a
+package-side `re-frame.hicasso.render-measure-emit-nightly-test` would be selected by the existing
+nightly build, and its OFF half by `:node-test`'s `cljs-test$` — **no new build, no new lane, no
+`test.yml` change, and no double-selection** (`…-emit-nightly-test` does not end in `cljs-test`, and
+`:node-test-hicasso`'s `^re-frame\.hicasso\..+-cljs-test$` does not reach it either). This is read
+off the build config rather than run.
+
+The couple is therefore portable whenever somebody wants the *package's* `mint-view!` measured
+rather than the prototype's, and the port carries no hot-zone edge. **Until somebody wants that, it
+stays**: what it measures today is the prototype, and the STAYS reasoning above is unchanged. **This
+row needs no follow-up bead** — it needed the tier named, and the tier is named.
+
 ---
 
 ## What this triage does not do
@@ -388,5 +424,8 @@ wants an SSR entry of its own is a separate question, and the rows that would an
   (`cell_table_laws`), the cold probe's contract (`cold_read`), the two registry-transition axes
   (`disposed_cell` with `first_registration`), and the ≤2-hook budget counted at React's dispatcher
   (`hook_ledger` with `frame_prop`). Those are re-authorings, and each wants its own bead.
-- **It leaves three sequencing questions for the operator**: the `:ssr` trio (rf2-6rw9), the
+- **It left three sequencing questions for the operator**: the `:ssr` trio (rf2-6rw9), the
   `render_measure` nightly couple, and `front/slot_cljs_test.cljc`'s workflow-gated `.cljc` lane.
+  **All three are now settled** — rf2-b6ja, above. Two of them cost nothing to close: the
+  `render_measure` couple was already in the tier it belongs to, and the `:ssr` pair was never
+  blocked. The third is a documented no with a named revisit trigger.
