@@ -19,6 +19,13 @@
      rewrite's input language;
   4. determinism — a second analysis of `input` reports identically.
 
+  **`entries` is not the whole report.** The `:suggestions` block — the
+  half that tells a migrator what to WRITE — is assembled by
+  `report/build` and is not compared here, which is how a sketch that
+  named a contract the door refuses survived for the tool's whole life
+  (rf2-vi11). `sketch_test.clj` is the gate on that half, and it runs
+  over these same cases.
+
   The report is compared as DATA read back from EDN rather than as
   characters. The claim being gated is what the tool says, and every field
   including the full `:note` participates in that comparison; pinning the
@@ -58,8 +65,17 @@
 
 (defn- read-edn [f] (edn/read-string (slurp f)))
 
-(defn- write-edn! [f data]
-  (spit f (with-out-str (pp/pprint data))))
+(defn- write-edn!
+  "Write an expectation file, LF whoever regenerated it.
+
+  `pp/pprint` emits the PLATFORM line separator, so a regen on Windows
+  rewrote all ten fixtures to CRLF — the exact thing `.gitattributes`
+  pins this tree against, and noise that buries the one case a regen was
+  meant to change. Normalise here: the bytes a regen produces must not
+  depend on who ran it, which is the same claim the fixtures themselves
+  make."
+  [f data]
+  (spit f (str/replace (with-out-str (pp/pprint data)) "\r\n" "\n")))
 
 (deftest corpus-is-not-empty
   (testing "a corpus that silently found no cases would pass every

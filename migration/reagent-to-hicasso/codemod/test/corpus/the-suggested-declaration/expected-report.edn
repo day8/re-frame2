@@ -1,0 +1,8 @@
+[{:line 34,
+  :col 3,
+  :class :string-tag-head,
+  :action :rewrote,
+  :head "\"input\"",
+  :detail {:head "input"},
+  :note
+  "Under Reagent `[:> \"input\" …]` took the controlled-input wrapper when the tag was `input` or `textarea`, because `input-component?` matches on exactly this path. Under Hicasso a string head is REFUSED at the crossing. Rewritten to `[:input …]`, which lands the site on Hicasso's own controlled door — the taught form. Reagent's deep camelCasing and its `(name …)` arm are both present at a native tag, so the prop rewrites are fixpoints here and are deliberately not applied."}]

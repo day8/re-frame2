@@ -300,10 +300,14 @@ component, with strong defaults:
 
 Usage `[date-picker {...}]` is indistinguishable from a native view; the JS
 require stays quarantined in one `.cljs` host namespace; the crossing has a
-declared identity for tooling; policy overrides live on the declaration. A
-migration codemod (collect `[:> X …]` sites → emit the defhost block → rewrite
-call sites) upgrades sites incrementally. **The one raw escape** (HD-011),
-explicitly secondary to the declaration:
+declared identity for tooling; policy overrides live on the declaration.
+Upgrading a `[:>]` site to a declaration is three moves per namespace — collect
+the sites, emit the `defhost`, rewrite the call sites — and all three are by
+hand. The shipped migration codemod is a props-dialect **fixer**: it repairs the
+crossings you already have and leaves them `[:>]`, minting no declaration and
+hoisting nothing. The hoist that would mint them is demand-gated and unbuilt
+([the codemod](draft-guide/05-interop.md#the-codemod)).
+**The one raw escape** (HD-011), explicitly secondary to the declaration:
 `[:> Component props & children]` — same foreign lowering path, same default
 conversions, `.cljs`-only at that node, reduced structural identity; for
 runtime-selected components, `memo`/`lazy` values, render-prop-supplied
