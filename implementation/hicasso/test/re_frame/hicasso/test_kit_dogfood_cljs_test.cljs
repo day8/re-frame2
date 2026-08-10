@@ -178,6 +178,10 @@
 
   (testing "insert appends and mints the next id; an EMPTY draft creates
             nothing, which is the row that keeps the one above honest"
+    ;; The block above typed into the new-item draft; discard it, so what
+    ;; the empty-draft row measures is the empty draft and not the residue
+    ;; of the row before it.
+    (send! [:dg/cancel new-draft-key])
     (send! [:dg/create])
     (is (= [0 1 2] (read-sub [:dg/visible-ids])))
     (send! [:dg/edit-draft new-draft-key "milk"])
