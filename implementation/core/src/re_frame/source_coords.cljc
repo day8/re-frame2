@@ -595,8 +595,20 @@
 ;; absolute `:file` ships the right URI regardless of which
 ;; `:project-root` the host configured. Absolutisation runs once per
 ;; macro expansion (JVM-side); the CLJS runtime sees a literal string
-;; (cheap), and production builds elide both the literal and the
-;; surrounding coord-form per the existing rf2-3un2g gate.
+;; (cheap).
+;;
+;; PRODUCTION KEEPS THIS PATH. The rf2-3un2g gate drops the DEV
+;; coord-form — the one carrying `:column` — and keeps
+;; [[prod-coords-form]], which absolutises `:file` exactly as the dev
+;; branch does, so the always-on error-coord registry can still name a
+;; source line in the builds that actually break. A release bundle
+;; therefore carries the BUILDING MACHINE's directory layout, once per
+;; macro-driven registration. That is the contract rather than an
+;; oversight, and `spec/Privacy.md` §What the production bundle itself
+;; discloses owns it — including the remedy for anyone who needs
+;; path-independent bytes, which is to build in a neutral working
+;; directory rather than relativise a path the framework promised to keep
+;; absolute. Asked and answered as rf2-4k9m.
 ;;
 ;; Failure modes that fall through to the unchanged input:
 ;;   - Already-absolute path (e.g. a JVM-compile `*file*` that
