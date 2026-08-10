@@ -1,4 +1,4 @@
-(ns re-frame.bench.hicasso.front.controlled-dom-cljs-test
+(ns re-frame.hicasso.controlled-dom-cljs-test
   "THE CONVERGE'S OWN MECHANISM — the trap it avoids, and the elements it
   refuses to touch (rf2-fki5d).
 
@@ -6,7 +6,7 @@
   hundred mounted boundaries and a real keystroke, which is where the
   claim belongs. This file reads the two pieces underneath it:
 
-  - **the trap**, reproduced. [[re-frame.bench.hicasso.front.controlled/converge-to!]]
+  - **the trap**, reproduced. [[re-frame.hicasso.impl.controlled/converge-to!]]
     is called twice with one argument different — the change handler's
     own closure value, then the per-instance record — and the first call
     wipes a keystroke the model took verbatim. The regression the naive
@@ -34,8 +34,8 @@
   The guard rows need no DOM and run on both targets; the rest degrade
   to a stated skip under `:node-test`."
   (:require [cljs.test :refer-macros [deftest is testing]]
-            [re-frame.bench.hicasso.front.codec :as codec]
-            [re-frame.bench.hicasso.front.controlled :as controlled]))
+            [re-frame.hicasso.impl.codec :as codec]
+            [re-frame.hicasso.impl.controlled :as controlled]))
 
 (defn- browser? []
   (and (exists? js/document) (some? js/document) (some? (.-body js/document))))
