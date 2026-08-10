@@ -41,7 +41,17 @@
  ;; test-count floor as a declared exemption rather than an accident. If a
  ;; JVM-runnable suite ever lands in `test/`, drop `--probe` and take the
  ;; floor.
- {:test {:extra-paths ["test"]
+ {:test {:extra-paths ["test"
+                       ;; rf2-hic-020 — `re-frame.hicasso.test`, the supported
+                       ;; L0–L2 testing surface. Its own root, and NOT in
+                       ;; `:paths` above: a consumer that never writes a test
+                       ;; never carries it, so the kit's zero production
+                       ;; reachability is a packaging fact rather than a
+                       ;; convention. Listed here so the classpath probe sees
+                       ;; it; the CLJS lane reaches it through the
+                       ;; `hicasso/test_kit/src` :source-paths entry in
+                       ;; implementation/shadow-cljs.edn.
+                       "test_kit/src"]
          :extra-deps  {day8/re-frame2-test-quiet {:local/root "../test-quiet"}
                        ;; The Node lane's substrate. The prototype's own
                        ;; node-lane suites run on the UIx adapter and not on
