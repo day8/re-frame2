@@ -31,13 +31,20 @@ since been ported** (PR #7842); a verdict says where a suite belongs, so executi
 count here.
 
 **And every count in this document is a dated census, not a live inventory.** It was taken over 69
-files; read on `origin/main` at 2026-08-11 the bench tree holds **63** of them (25,268 lines),
-because a PORT executes as a *move* and the six `front/*` rows — the first wave the PORT table's
-sequencing paragraph names — have gone. The arithmetic closes exactly: their six line counts sum to
-2,767, and 28,035 − 2,767 = 25,268. The counts are deliberately left at their census values rather
-than tracked, because the verdicts are what this document is for and a decision record that
-renumbers itself every time a row is acted on is a ledger nobody can audit. **Read the counts as of
-the census; read the tree for what is in it now.**
+files; read on `origin/main` at 2026-08-11 the bench tree holds **63** of them (25,268 lines). The
+six `front/*` rows — the first wave the PORT table's sequencing paragraph names — have gone, and the
+arithmetic closes exactly: their six line counts sum to 2,767, and 28,035 − 2,767 = 25,268. The
+counts are deliberately left at their census values rather than tracked, because the verdicts are
+what this document is for and a decision record that renumbers itself every time a row is acted on
+is a ledger nobody can audit. **Read the counts as of the census; read the tree for what is in it
+now.**
+
+**A port is not reliably a move, though, and that is worth someone's attention.** The six `front/*`
+ports deleted their bench originals; the two `:ssr` ports did not, so
+`arm1/host_ssr_dom_cljs_test.cljs` and `arm1/fallback_contents_cljs_test.cljs` now exist in **both**
+trees. This document's own STAYS reasoning says why that matters — *"a second copy doubles the
+maintenance and the two drift"* — so the two conventions cannot both be right. Deciding which is not
+this row's to take, and it is flagged here rather than settled.
 
 ## The three facts that decide most rows
 
