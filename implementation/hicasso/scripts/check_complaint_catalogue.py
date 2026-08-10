@@ -29,7 +29,7 @@ two enumerations agree and the coverage is still missing. The register's
 reserved section is the third input that closes that hole, and R3 below
 is what keeps it honest.
 
-THE SEVEN RULES
+THE EIGHT RULES
 ---------------
   R1  NO GAP.        Every `:rf.error/*` id emitted by the package's
                      shipped source or its test kit has a `live` row.
@@ -355,6 +355,20 @@ def check(register, emitted, package_ids, spec_active, spec_retired, chapter_tex
     return failures
 
 
+def report(failures):
+    """Print `failures` in the gate's voice, and return the exit code 1.
+
+    Both entry points red through here, so the rule that broke is the first
+    thing on screen whichever one you ran.
+    """
+    print("FAIL: Hicasso complaint catalogue\n")
+    for failure in failures:
+        print("  " + failure)
+    print("\nThe register is docs/design/hicasso/product/complaints.md; the "
+          "rule each R-number names is in this script's header.")
+    return 1
+
+
 def read_all():
     register = read_register(REGISTER)
     emitted = read_ids(EMIT_ROOTS)
@@ -387,8 +401,19 @@ def self_test():
         "a quote character literal must not open a string"
 
     register, emitted, package_ids, spec_active, spec_retired, chapters = read_all()
-    assert not check(register, emitted, package_ids, spec_active, spec_retired,
-                     chapters), "the tree must be green before the reds are driven"
+    # Every red below is driven by doctoring ONE input of a green tree, so a
+    # tree that is already red cannot be tested against.  That is a finding
+    # about the register rather than about this self-test, and it is by far
+    # the likeliest way this entry point fails on a PR — so it is reported
+    # exactly as a plain run reports it.  An `assert` here would bury the rule
+    # that broke behind an AssertionError.
+    failures = check(register, emitted, package_ids, spec_active, spec_retired,
+                     chapters)
+    if failures:
+        code = report(failures)
+        print("\n(--self-test drives its reds by doctoring a GREEN tree's "
+              "inputs, so it stops here.)")
+        return code
 
     def red(prefix, **overrides):
         args = dict(register=register, emitted=emitted, package_ids=package_ids,
@@ -461,12 +486,7 @@ def main(argv=None):
     failures = check(register, emitted, package_ids, spec_active, spec_retired,
                      chapters)
     if failures:
-        print("FAIL: Hicasso complaint catalogue\n")
-        for failure in failures:
-            print("  " + failure)
-        print("\nThe register is docs/design/hicasso/product/complaints.md; the "
-              "rule each R-number names is in this script's header.")
-        return 1
+        return report(failures)
     print("OK: %d live, %d reserved, %d pending retirement, %d retired; every "
           "live row is emitted and rowed in Spec 009, every reservation is "
           "unbuilt, every anchor resolves."
