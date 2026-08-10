@@ -18,7 +18,7 @@ every page; the groups below are judgment for where to start.
 
 | Problem | Start here |
 |---|---|
-| Ship a first screen | [Getting started](01-getting-started.md) → [Views and reads](02-views-and-reads.md) → [Events as data](03-events-as-data.md) → [Controlled inputs](04-controlled-inputs.md) |
+| What Hicasso is / ship a first screen | [Getting started](01-getting-started.md) → [Views and reads](02-views-and-reads.md) → [Events as data](03-events-as-data.md) → [Controlled inputs](04-controlled-inputs.md) |
 | Forms, lists, routes, async | [Forms](05-forms.md), [Lists](06-lists-and-collections.md), [Routing](07-routing-and-navigation.md), [Async resources](08-async-resources.md) |
 | Foreign React / native hot path | [Interop](09-interop.md), [Native tier](10-native-tier.md) |
 | Where UI state lives | [Ephemeral state](11-ephemeral-state.md), [Overlays](12-overlays-and-focus.md) |
@@ -32,7 +32,7 @@ every page; the groups below are judgment for where to start.
 
 | Page | Its one job |
 |---|---|
-| [Getting started](01-getting-started.md) | Install Hicasso, mount a first app, release one screen |
+| [Getting started](01-getting-started.md) | What Hicasso is; install, mount a first app, release one screen |
 | [Views and reads](02-views-and-reads.md) | Write views; read at the point of use; the [read-extent law](glossary.md#read-extent-law) |
 | [Events as data](03-events-as-data.md) | Event vectors in attributes; [`h/event`](glossary.md#hevent); prevention; keyboard |
 | [Controlled inputs](04-controlled-inputs.md) | App-db fields with caret, IME, and [`::h/revision`](glossary.md#hrevision) reset |
