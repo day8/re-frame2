@@ -335,8 +335,10 @@ Related: [Interop](09-interop.md#portals), [Overlays and focus](12-overlays-and-
 ### **server policy**
 
 Per-surface answer for SSR: **Render** (deterministic React server bytes) or
-**Client-only** (source-located refusal + deterministic fallback). Silent
-`nil` is not a policy. Declared on hosts and native components; intrinsic
+**Client-only** (source-located refusal, with a deterministic fallback if the
+declaration carries one). Bare Client-only is the default, and it leaves the
+region empty until the browser takes over — conservative rather than broken,
+but genuinely empty. Declared on hosts and native components; intrinsic
 Hiccup renders by default.
 
 Related: [SSR and hydration](17-ssr-and-hydration.md), [Interop](09-interop.md#server-policy-per-declaration).
