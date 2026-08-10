@@ -19,7 +19,7 @@
  * renderer that fails to run old-generation cleanup on a type replacement.
  * A compiled bundle cannot close either gap — only shadow's own watcher,
  * websocket and module re-evaluation can — so this gate starts
- * `shadow-cljs watch :hicasso-hmr-testbed`, rewrites one marked line in a
+ * `shadow-cljs watch :hicasso/hmr-testbed`, rewrites one marked line in a
  * real source file, and lets the real pipeline deliver the consequences.
  *
  * The page is served by shadow's own `:dev-http` (port 8061) rather than
@@ -104,7 +104,7 @@ const {
 } = require('./lib/local-browser-harness.cjs');
 
 const IMPL_ROOT = path.resolve(__dirname, '..');
-const BUILD_ID = ':hicasso-hmr-testbed';
+const BUILD_ID = ':hicasso/hmr-testbed';
 const PORT = Number(process.env.HICASSO_HMR_PORT) || 8061;
 const HOT_FILE = path.join(
   IMPL_ROOT, 'hicasso', 'testbed', 'hicasso_hmr_testbed', 'views.cljs');
@@ -124,6 +124,29 @@ const NAV_TIMEOUT_MS = 60000;
 // Deliberately NOT the build ceiling: by this point the slow part is done,
 // so a long wait here only delays a red.
 const MOUNT_TIMEOUT_MS = 60000;
+
+// ONE console error that is not a fault, matched as narrowly as it can be.
+//
+// shadow's devtools client announces itself over the websocket before the
+// worker for a NAMESPACED build id has been resolved, and logs
+// `shadow-cljs watch for build :hmr-testbed not running!` — the id with its
+// namespace segment dropped. It is transient: the connection then succeeds
+// and every reload in this gate is delivered through it.
+//
+// It has to be filtered rather than tolerated because the mount fast-fail
+// treats a console error as fatal (shadow catches a module-eval throw and
+// reports it exactly that way, so `pageerror` alone cannot see a testbed
+// that failed to load). Left unfiltered, a connect notice arriving during
+// mount would fail the gate for nothing.
+//
+// The alternative was to de-namespace the build id, and it was tried and
+// reverted: `dev-testbed.test.cjs`'s drift guard recovers a build def with
+// `/(:[a-zA-Z][\w.-]*\/[\w.-]+)\s*\{/`, and that slash is what stops the
+// pattern from matching `:modules {`, `:devtools {` and `:dev-http {`. A
+// build id without one is invisible to the guard, so every :dev-http build
+// must be namespaced — a narrow filter here is much cheaper than weakening
+// that discriminator.
+const BENIGN_CONSOLE_ERROR = /watch for build .* not running/;
 
 const ALL_ENGINES = ['chromium', 'firefox', 'webkit'];
 const ONLY = (process.env.HICASSO_HMR_ENGINES || '').trim();
@@ -477,7 +500,7 @@ function startWatch(cleanup) {
   // shadow prints one line per build outcome, prefixed with the build id.
   // Matching on the id keeps a sibling build in the same JVM from
   // answering for this one.
-  // Exactly as shadow prints it, colon included: `[:hicasso-hmr-testbed]`.
+  // Exactly as shadow prints it, colon included: `[:hicasso/hmr-testbed]`.
   const marker = `[${BUILD_ID}]`;
   // Scans are FROM A MARK rather than over the whole stream. A watch
   // compiles many times in one run — once at startup and once per save —
@@ -577,7 +600,9 @@ async function driveEngine(engine, baseUrl, watchLog) {
     const context = await browser.newContext();
     const page = await context.newPage();
     page.on('console', (msg) => {
-      if (msg.type() === 'error') consoleErrors.push(msg.text());
+      if (msg.type() === 'error' && !BENIGN_CONSOLE_ERROR.test(msg.text())) {
+        consoleErrors.push(msg.text());
+      }
       log(`[${engine}:${msg.type()}] ${msg.text()}`);
     });
     page.on('pageerror', (err) => {

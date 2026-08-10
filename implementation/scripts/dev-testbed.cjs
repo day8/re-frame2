@@ -115,6 +115,15 @@ const { REPO_ROOT, IMPL_ROOT } = require('./_path-policy.cjs');
 //                                           (8050; pre-flight + forward scan).
 //   806x        Top-level testbeds        :dev-http (shadow-cljs.edn):
 //                                           8060 tenant-switcher (rf2-5e22yc)
+//                                           8061 hicasso HMR (rf2-vsgq) —
+//                                         the one :dev-http port a GATE
+//                                         depends on, because the contract it
+//                                         witnesses is what a real hot reload
+//                                         does and only `watch` can deliver
+//                                         one. Fixed rather than resolved at
+//                                         runtime for that reason: the page
+//                                         and shadow's devtools websocket
+//                                         must share an origin.
 //   8765        Xray panel-gallery        :dev-http (shadow-cljs.edn).
 //
 // The :dev-http bands (8030-8036 / 8040-8044 / 8765) are mirrored in the
@@ -149,6 +158,14 @@ const DEV_HTTP = {
   ':examples/linearlite': { port: 8044 },
   // rf2-5e22yc — top-level tenant-switcher testbed (806x band).
   ':testbeds/tenant-switcher': { port: 8060 },
+  // rf2-vsgq — the Hicasso HMR testbed (806x band). Unlike every other
+  // entry here this build is not primarily a developer surface: it is the
+  // one build in the repo driven by a GATE that needs `watch`, because the
+  // contract it witnesses is what a real hot reload does to a live page
+  // (scripts/serve-and-run-hicasso-hmr-testbed.cjs). `npx shadow-cljs watch
+  // :hicasso/hmr-testbed` still opens it by hand at the URL below, which is
+  // how the witnesses were developed.
+  ':hicasso/hmr-testbed': { port: 8061 },
 };
 
 /**
