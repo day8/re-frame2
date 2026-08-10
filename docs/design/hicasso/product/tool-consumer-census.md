@@ -1,7 +1,8 @@
 # Tool-consumer census — Xray, Story and Pair against the donor surfaces
 
-**rf2-hic-076**, 2026-08-11 05:37:14 AUSEST. The census `rf2-hic-062` cites before it disposes of
-the donor tool surfaces.
+**rf2-hic-076**, 2026-08-11 05:37:14 AUSEST; row **X13** added and the counts carried through by
+`rf2-kqls`, 2026-08-11 07:13:28 AUSEST. The census `rf2-hic-062` cites before it disposes of the
+donor tool surfaces.
 
 The obligation is one sentence of the specification
 ([§12 Phase 6](specification.md#phase-6--adoption-and-release)):
@@ -50,8 +51,10 @@ onto the target is a **re-authoring against a different question set**, not a re
 `git grep -E "freehand|re[-_]frame[./]ui"` over `tools/` returns **48 files**. That number is not a
 dependency count and must never be quoted as one: **a grep returns requires, docstrings, comments and
 prose identically**, and in this tree the prose dominates. Xray's `registry.cljs` alone contributes
-ten hits, every one of which is a comment, and four of them exist specifically to record that the
-file has *no* `re-frame.ui` dependency.
+ten hits, four of which exist specifically to record that the file has *no* `re-frame.ui`
+dependency. Eight of the ten sit in docstrings and comments; the other two are inside one runtime
+`js/console.warn` string, which is why every hit had to be read rather than classified by shape —
+those two are row X13.
 
 So each hit was read. A consumer row is a file that names a donor **in a load-bearing position** — a
 `:require`, a classpath coordinate, a runtime string or keyword the code actually uses, or a build /
@@ -63,14 +66,14 @@ comments stripped, which caught two requires a line-oriented regex missed
 The two counts, each with the question it answers:
 
 - **48 files name a donor** under `tools/` — the grep surface, prose included.
-- **23 of those 48 are load-bearing**; the other **25 name a donor only in a comment, a docstring or
+- **24 of those 48 are load-bearing**; the other **24 name a donor only in a comment, a docstring or
   a spec sentence** and are listed in [Named, not consumed](#named-not-consumed) so no later reader
   mistakes them for dependencies.
-- **27 consumer rows** — the 23 load-bearing files, plus one extra row because
+- **28 consumer rows** — the 24 load-bearing files, plus one extra row because
   `tools/story/deps.edn` carries two independent donor coordinates with different verdicts, plus the
   3 MIGRATED files that name **no** donor at all and therefore never appear in the grep.
 
-**27 rows = 18 STILL-LIVE · 5 FIXTURE-ONLY · 4 MIGRATED.** By tool: Xray 12 (8 · 0 · 4), Story 10
+**28 rows = 19 STILL-LIVE · 5 FIXTURE-ONLY · 4 MIGRATED.** By tool: Xray 13 (9 · 0 · 4), Story 10
 (5 · 5 · 0), Pair 5 (5 · 0 · 0).
 
 Liveness was established per row, not assumed from the presence of a `:require` — the "how" column
@@ -79,7 +82,7 @@ fixture.
 
 ---
 
-## Xray — 12 rows (8 STILL-LIVE, 4 MIGRATED)
+## Xray — 13 rows (9 STILL-LIVE, 4 MIGRATED)
 
 Xray is the only tool that has any presence on the target at all, and it has it **alongside**, not
 instead of, the donor: the Hicasso tab reads `re-frame.hicasso.tool`, while the Reactive panel's
@@ -99,19 +102,30 @@ instead of, the donor: the Hicasso tab reads `re-frame.hicasso.tool`, while the 
 | X10 | `tools/xray/src/day8/re_frame2_xray/panels/hicasso_helpers.cljc` | pins `:re-frame.hicasso.evidence/v2` (L66) as the consumer-owned schema literal | MIGRATED |
 | X11 | `tools/xray/test/day8/re_frame2_xray/panels/hicasso_cljs_test.cljs` | requires `re-frame.hicasso`, `.evidence`, `.impl.collector`, `.tool` | MIGRATED |
 | X12 | `tools/xray/test/day8/re_frame2_xray/panels/hicasso_helpers_cljs_test.cljc` | names `:re-frame/freehand` once (L175) **only to assert `supported?` returns false for it** — the donor appears as the rejected case | MIGRATED |
+| X13 | `tools/xray/src/day8/re_frame2_xray/registry.cljs` | the schema-4 reload warning (`js/console.warn`, L268-278) names `re-frame.ui` (L270, L273) and `re-frame.freehand.tool` (L273) in the sentence a developer reads when it fires — a runtime string the code actually uses, load-bearing on the same footing as P2's shipped `:description` prose. The file's other eight donor hits are docstrings and comments | STILL-LIVE |
 
 **How X2's liveness was established** — not from its `:require`, which proves nothing on its own. The
 chain is: `panels/reactive_panel_subs.cljs` L131 requires `day8.re-frame2-xray.mounted-views` and
 registers `:rf.xray/mounted-views`, `:rf.xray/mounted-views-schema` and the view-sites sub against
 it (L689-716); `panels/reactive_panel_view.cljs` L72 requires the same namespace and renders
 `mounted-views-section` into the panel body (L1050, L1060); and `registry.cljs` L353 calls
-`reactive-panel/install-mounted-views-subs!` at boot. Three files, none of which names a donor
-except in comments — which is exactly why liveness had to be traced through Xray's own namespaces
-rather than read off the grep.
+`reactive-panel/install-mounted-views-subs!` at boot. Three files, none of which *requires* a donor
+— `registry.cljs` names one in X13's warning and in comments, the other two only in comments — which
+is exactly why liveness had to be traced through Xray's own namespaces rather than read off the
+grep.
 
 **X1 is the load-bearing one for `rf2-hic-062`.** Every other Xray row is downstream of it: the
 Freehand artefact is on the shipped tool's classpath at top level, so Xray does not merely tolerate
 Freehand's absence, it is built against its presence.
+
+**Why X13 counts, and why it is the row most easily lost** (`rf2-kqls`). A `js/console.warn`
+argument is a runtime string the code actually uses, which the verdict table already calls
+load-bearing, and P2 is the same species one tool over — a donor name shipped as prose a human or an
+agent reads. What makes X13 the dangerous one is the direction its absence errs in: no require, no
+coordinate, so a `:require` scan and clj-kondo both pronounce the file clean, and unlike every other
+Xray row it *survives* the deletion of the four clusters — which is precisely the moment someone
+consults this census to learn what is left. Under-counting here is what would make that deletion
+look safe. The census filed it as "ten mentions, all comments" until `rf2-kqls`.
 
 ## Story — 10 rows (5 STILL-LIVE, 5 FIXTURE-ONLY)
 
@@ -178,16 +192,17 @@ Pair's five reads have no counterpart on the target.
 
 ## Named, not consumed
 
-These **25 files** name a donor only in a comment, a docstring or a spec sentence. They are listed so
-that a later reader who repeats the grep can reconcile 48 against 23 without re-deriving this
+These **24 files** name a donor only in a comment, a docstring or a spec sentence. They are listed so
+that a later reader who repeats the grep can reconcile 48 against 24 without re-deriving this
 distinction, and so that none of them is ever counted as a dependency.
 
-Three deserve a note because their prose is load-bearing *documentation of a live row* rather than
+`registry.cljs` was on this list until `rf2-kqls` and is now row **X13**: eight of its ten hits are
+comments, but two are a runtime `js/console.warn` string. A reader repeating the grep should expect
+to land where the census did before the correction, and should not.
+
+Two deserve a note because their prose is load-bearing *documentation of a live row* rather than
 incidental:
 
-- `tools/xray/src/day8/re_frame2_xray/registry.cljs` — ten mentions, all comments, four of which
-  exist to record that this build has **no** `re-frame.ui` dependency "nor may it acquire one". It
-  is nonetheless where X2 is installed at boot (L353), which is how X2's liveness was proved.
 - `tools/re-frame2-pair-mcp/spec/003-Tool-Catalogue.md` — twelve mentions; the normative catalogue
   entry for the five tools of P1. Spec prose, not a dependency, but it moves when P1 moves.
 - `tools/re-frame2-pair-mcp/src/re_frame2_pair_mcp/tools/registry.cljs` — one comment; wires the five
@@ -214,7 +229,6 @@ The full list:
 - `tools/xray/src/day8/re_frame2_xray/panels/reactive_panel_subs.cljs`
 - `tools/xray/src/day8/re_frame2_xray/panels/reactive_panel_view.cljs`
 - `tools/xray/src/day8/re_frame2_xray/preload.cljs`
-- `tools/xray/src/day8/re_frame2_xray/registry.cljs`
 - `tools/xray/src/day8/re_frame2_xray/settings/effects.cljs`
 - `tools/xray/src/day8/re_frame2_xray/test_support.cljs`
 - `tools/xray/test/day8/re_frame2_xray/core_cljs_test.cljs`
@@ -225,9 +239,10 @@ The full list:
 
 ## Disposition of the still-live rows
 
-**Seventeen** of the 18 STILL-LIVE rows resolve into **four migration clusters**, not eighteen
-independent problems. The eighteenth, **X3**, is not a migration at all: it is an adapter-identity
-cleanup that folds into `rf2-hic-062` itself. Seventeen plus X3 is the whole still-live set.
+**Seventeen** of the 19 STILL-LIVE rows resolve into **four migration clusters**, not nineteen
+independent problems. The remaining two, **X3** and **X13**, are not migrations at all: one is an
+adapter-identity cleanup and the other a developer-facing string, and both fold into `rf2-hic-062`
+itself. Seventeen plus X3 plus X13 is the whole still-live set.
 
 | cluster | rows | what moving it costs | disposition |
 |---|---|---|---|
@@ -236,6 +251,7 @@ cleanup that folds into `rf2-hic-062` itself. Seventeen plus X3 is the whole sti
 | Story presence bridge | S2, S3, S4, S5, S6 | Hicasso's presence surface is `re-frame.hicasso.impl.presence` / `.presence-react`, not a published `presence-runtime` door with `advance-clock!`; the bridge needs a target-side verb that does not exist yet | follow-up bead `rf2-5gka` |
 | Pair's five view tools | P1, P2, P3, P4, P5 | same four-reads problem as the Xray cluster, plus a regenerated `tool-descriptors.edn` and a spec-catalogue rewrite | follow-up bead `rf2-n3mb` |
 | Xray adapter-id set | X3 | `:rf.adapter/ui` and `:rf.adapter/freehand` are adapter identities, not evidence reads; they retire when the adapters do, under `rf2-hic-062` itself | fold into `rf2-hic-062` — no follow-up bead |
+| Xray's schema-4 reload warning | X13 | nothing to migrate: the donor names are prose inside one `js/console.warn` about a schema-3 residue. With the tiers gone the message names namespaces that no longer exist, so the cost is a stale developer-facing string, not a broken read | fold into `rf2-hic-062` — reword or drop the warning with the tiers; no follow-up bead |
 
 **No migration was made in this bead, and that is the finding rather than a shortfall.** Every
 still-live cluster fails the same test: the target does not publish the read the consumer needs, so
@@ -251,22 +267,25 @@ coverage" the specification sentence permits fixtures to retain.
 
 For `rf2-hic-062` to cite:
 
-> **Primary tool paths are not yet donor-free.** Of 27 tool-consumer rows across Xray, Story and
+> **Primary tool paths are not yet donor-free.** Of 28 tool-consumer rows across Xray, Story and
 > Pair, 4 are MIGRATED to the adapter-neutral Hicasso provider (all in Xray's Hicasso tab), 5 are
 > FIXTURE-ONLY compatibility evidence in Story's `test/` tree on a `:test`-alias classpath, and
-> **18 are STILL-LIVE on a donor tier**. **Seventeen** of those form four migration clusters, each
+> **19 are STILL-LIVE on a donor tier**. **Seventeen** of those form four migration clusters, each
 > with a filed follow-up: Xray's Reactive-panel Views section and its `tools/xray/deps.edn`
 > top-level `day8/re-frame2-freehand` coordinate (`rf2-jkdy`); the staged `freehand-views` browser
 > deck and its feature-matrix scenario (`rf2-u5b4`); Story's shipped `presence-host` bridge
 > (`rf2-5gka`); and all five of Pair's view tools, which reach `re-frame.freehand.tool` by wire
 > string rather than by `:require` and therefore do not appear in any classpath scan (`rf2-n3mb`).
 >
-> The eighteenth is **X3**, the live set of React-element-shaped adapter ids in
-> `tools/xray/src/day8/re_frame2_xray/mount.cljs`. It is **not** a fifth migration and has no
-> follow-up bead: `:rf.adapter/ui` and `:rf.adapter/freehand` are adapter *identities* rather than
-> evidence reads, so they retire when the adapters do — which makes X3 an adapter-identity cleanup
-> **folded into `rf2-hic-062` itself**. Anything acting on the four clusters alone leaves X3
-> unaccounted for.
+> The remaining two are **X3**, the live set of React-element-shaped adapter ids in
+> `tools/xray/src/day8/re_frame2_xray/mount.cljs`, and **X13**, the schema-4 `js/console.warn` in
+> `tools/xray/src/day8/re_frame2_xray/registry.cljs` that names both `re-frame.ui` and
+> `re-frame.freehand.tool` in the sentence a developer reads. Neither is a fifth migration and
+> neither has a follow-up bead: `:rf.adapter/ui` and `:rf.adapter/freehand` are adapter *identities*
+> rather than evidence reads, and X13's donor names are prose inside a runtime string — both retire
+> when the adapters do, which makes them cleanups **folded into `rf2-hic-062` itself**. X13 is also
+> the one still-live row that no `:require` scan can find and that survives the deletion of all four
+> clusters. Anything acting on the four clusters alone leaves X3 and X13 unaccounted for.
 >
 > **The blocker is not effort, it is question shape.** `re-frame.ui.tool` and
 > `re-frame.freehand.tool` publish the same five reads, so donor 1 → donor 2 was a rename.
@@ -277,6 +296,8 @@ For `rf2-hic-062` to cite:
 >
 > `rf2-hic-062` may therefore **archive or remove `implementation/ui/` as far as the tools are
 > concerned** — no tool has a live `re-frame.ui` dependency; Story's four `re-frame.ui` witnesses are
-> fixture-only and Xray's `registry.cljs` records that it may not acquire such a dependency.
+> fixture-only and Xray's `registry.cljs` records that it may not acquire such a dependency. The one
+> residue is X13: that same file names `re-frame.ui` in a shipped warning, which has to be reworded
+> rather than left pointing at a deleted namespace.
 > **It may not yet dispose of the Freehand tree**: Xray depends on it at top-level `:deps`, Story's
 > shipped bridge compiles against it, and every one of Pair's five view tools targets it.
