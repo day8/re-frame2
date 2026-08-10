@@ -29,18 +29,35 @@
 ;; wiring is rf2-hic-008's, not this bead's, and the lockstep gate
 ;; inventories publishable artefacts by the presence of `:aliases/:clein/build`
 ;; — so adding one here would enlist an artefact that has nothing to ship.
-{:paths ["src"]
+;;
+;; `resources` is on :paths for ONE reason: the clj-kondo export
+;; (rf2-hic-022) reaches a consumer over the CLASSPATH. `clj-kondo --lint
+;; "$(clojure -Spath)" --dependencies --copy-configs` scans the classpath for
+;; `clj-kondo.exports/<group>/<artifact>/`, so an export directory that is not
+;; on :paths is simply invisible — and the failure mode is silence rather than
+;; an error. `lint_export_test.clj` asserts this line rather than trusting it.
+;; Nothing under `resources/` is a loadable namespace: the hook file is data
+;; that clj-kondo's own SCI reads from the config directory.
+{:paths ["src" "resources"]
  :deps  {day8/re-frame2 {:local/root "../core"}}
 
  :aliases
- ;; Classpath-probe-only, as the UIx adapter's lane is and for the same
- ;; reason: the runtime requires React, so every suite this artefact owns
- ;; is CLJS and runs on the Node lane (`re-frame.hicasso.*-cljs-test`,
- ;; compiled by the `:node-test-hicasso` shadow-cljs build). Zero JVM tests
- ;; is the CORRECT outcome here, so `--probe` waives the runner's
- ;; test-count floor as a declared exemption rather than an accident. If a
- ;; JVM-runnable suite ever lands in `test/`, drop `--probe` and take the
- ;; floor.
+ ;; This alias was classpath-probe-only until rf2-hic-022, on the grounds
+ ;; that the runtime requires React, so every suite the artefact owns is
+ ;; CLJS and runs on the Node lane (`re-frame.hicasso.*-cljs-test`, compiled
+ ;; by the `:node-test-hicasso` shadow-cljs build). `--probe` waived the
+ ;; runner's test-count floor as a declared exemption, and said in terms:
+ ;; "if a JVM-runnable suite ever lands in `test/`, drop `--probe` and take
+ ;; the floor."
+ ;;
+ ;; One has. `re-frame.hicasso.lint-export-test` runs clj-kondo in process
+ ;; over the artefact's own lint export — no React, no DOM, no CLJS compile,
+ ;; and nothing about it belongs on the Node lane. So the floor is taken.
+ ;;
+ ;; clj-kondo is TEST-ONLY and pinned to the version CI's own lint job
+ ;; installs (`.github/workflows/lint.yml`), because two clj-kondo versions
+ ;; disagree about which findings are errors, and a suite that asserts on
+ ;; findings must be asserting about the build the project actually gates on.
  {:test {:extra-paths ["test"
                        ;; rf2-hic-020 — `re-frame.hicasso.test`, the supported
                        ;; L0–L2 testing surface. Its own root, and NOT in
@@ -52,7 +69,8 @@
                        ;; `hicasso/test_kit/src` :source-paths entry in
                        ;; implementation/shadow-cljs.edn.
                        "test_kit/src"]
-         :extra-deps  {day8/re-frame2-test-quiet {:local/root "../test-quiet"}
+         :extra-deps  {clj-kondo/clj-kondo       {:mvn/version "2026.04.15"}
+                       day8/re-frame2-test-quiet {:local/root "../test-quiet"}
                        ;; The Node lane's substrate. The prototype's own
                        ;; node-lane suites run on the UIx adapter and not on
                        ;; plain-atom, because plain-atom has no reactivity
@@ -61,4 +79,4 @@
                        ;; never firing. Test-only: shipping source names no
                        ;; adapter at all.
                        day8/re-frame2-uix {:local/root "../adapters/uix"}}
-         :main-opts   ["-m" "re-frame.test-quiet.runner" "--probe"]}}}
+         :main-opts   ["-m" "re-frame.test-quiet.runner"]}}}
