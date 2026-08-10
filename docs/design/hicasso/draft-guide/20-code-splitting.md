@@ -88,7 +88,7 @@ module downloads before the click. Hot reload is undisturbed — a loaded
 module's namespaces reload like any others, and an unloaded module has
 nothing to reload.
 
-## The React bridge: [`n/lazy`](glossary.md#nlazy) and a Suspense host
+## The React bridge: `n/lazy` and a Suspense host
 
 A [native island](glossary.md#native-island) or a React-shaped screen can instead load through React's
 own lazy machinery. That is the correct choice when the region already lives

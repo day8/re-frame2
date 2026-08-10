@@ -128,7 +128,7 @@ Attribute *before* you change architecture. Unattributed "slow" is usually a
 rung-2 problem, and an island built on a misattributed cause makes the code
 worse without making it faster.
 
-## The [escape-benefit rule](glossary.md#escape-benefit-rule)
+## The escape-benefit rule
 
 An escape is a standing cost: a second semantics in that region, a body that
 structural tests cannot see into, a diff that reviewers read more slowly.

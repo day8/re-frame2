@@ -1,4 +1,4 @@
-# [Hicasso](glossary.md#hicasso) — user guide
+# Hicasso — user guide
 
 > **End-state guide.** This guide describes Hicasso as the completed programme ships it. Names follow the naming ledger's recommended defaults and can change at the one naming sitting (rf2-hic-065's packet).
 

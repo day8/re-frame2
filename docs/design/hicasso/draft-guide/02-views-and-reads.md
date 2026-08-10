@@ -96,7 +96,7 @@ makes a key *good* (a stable domain identity, never an index, never the
 whole entity) is the law of
 [Lists and collections](06-lists-and-collections.md).
 
-## The [component ABI](glossary.md#component-abi)
+## The component ABI
 
 | Head | Props | Children | `:key` | `:ref` |
 |---|---|---|---|---|
@@ -207,7 +207,7 @@ The reserved-data vocabulary is deliberately small: [`::h/value`](glossary.md#hv
 word teaches it ([events](03-events-as-data.md),
 [controlled inputs](04-controlled-inputs.md)).
 
-## Forwarding attributes: [owned wins](glossary.md#owned-wins)
+## Forwarding attributes: owned wins
 
 A reusable field takes caller attributes and still owns its control keys.
 The merge is a pure recipe — a plain `merge`, with the attributes that you
@@ -236,7 +236,7 @@ The case that makes this law necessary is a [controlled input](glossary.md#contr
 map must never supply the value, checked, handler, key, or revision slots.
 [Controlled inputs](04-controlled-inputs.md) teaches that case in full.
 
-## The [read-extent law](glossary.md#read-extent-law)
+## The read-extent law
 
 [`h/sub`](glossary.md#hsub) is legal during the **direct synchronous execution** of the active
 body. Branches, loops, and ordinary helpers are included. Reads inside a
@@ -271,7 +271,7 @@ that needs current state declares that state as a coeffect with
 not a side effect in a body. There is no `@`-anywhere form and no second
 read form for free-standing code.
 
-## How [`h/sub`](glossary.md#hsub) tracks reads
+## How `h/sub` tracks reads
 
 There are four operational claims:
 
@@ -317,7 +317,7 @@ boundary tuning — the ~2% case, not the default 98% — the escape ladder in
 
 ## Advanced
 
-### The [collector](glossary.md#collector)
+### The collector
 
 The mechanism behind the four operational claims is one fixed runtime hook
 per [boundary](glossary.md#boundary). The hook opens a collection window for the duration of the

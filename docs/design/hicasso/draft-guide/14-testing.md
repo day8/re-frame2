@@ -132,7 +132,7 @@ as a codec round-trip or the owned-wins attribute merge. When you own a
 you apply to mounted nodes when a claim compares two pages (mechanics under
 Advanced).
 
-## L2 — the [semantic harness](glossary.md#semantic-harness)
+## L2 — the semantic harness
 
 A [`defview`](glossary.md#defview) body is not directly callable. It needs a render extent to read
 in, and a direct call refuses with a source-located recovery. The harness
@@ -186,7 +186,7 @@ model, not a renderer. It refuses to fake the facts it does not have:
     keep the semantic half as data you can compare with `=`, and mount-test
     the mechanics once.
 
-## L3 — the [mounted facade](glossary.md#mounted-facade)
+## L3 — the mounted facade
 
 When the claim is about React or the DOM — lifecycle, hooks, a real error
 [boundary](glossary.md#boundary), real nodes — mount the view. The facade gives every test an
@@ -268,7 +268,7 @@ a dev-only dual mount. It drives a ported view and its Reagent original with
 one script, and it diffs [canonical DOM](glossary.md#canonical-dom) and [intent](glossary.md#intent) streams at every
 checkpoint. [Migrating from Reagent](19-migration-from-reagent.md) owns it.
 
-## The [sabotage twin](glossary.md#sabotage-control)
+## The sabotage twin
 
 An assertion that quantifies over a collection can pass because the
 collection was empty by accident — `every?` over nothing is vacuously true.

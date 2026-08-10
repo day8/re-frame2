@@ -22,7 +22,7 @@ Xray answers the questions you ask:
 An *epoch* is one pipeline run: one dispatched event carried through to its
 commit. The epoch is the unit that Xray organises evidence around.
 
-## The [causal lens](glossary.md#causal-lens)
+## The causal lens
 
 Every diagnosis follows one chain:
 
@@ -95,7 +95,7 @@ boundary placement, fine versus coarse versus chunked reads — are owned by
 [Lists and collections](06-lists-and-collections.md). Xray's job is to make
 the topology observable instead of guessed.
 
-## The [hot-view advisor](glossary.md#hot-view-advisor)
+## The hot-view advisor
 
 The advisor is the part of Xray that turns evidence into a recommendation.
 It ranks [boundaries](glossary.md#boundary) by time, frequency, read churn, and fan-out. Then it
@@ -118,7 +118,7 @@ is no automatic promotion. The advisor recommends; you decide. An escape
 you take must meet the thresholds in [Performance](18-performance.md), or
 it comes back out.
 
-## Honest [loss labels](glossary.md#loss-labels)
+## Honest loss labels
 
 An interpreted runtime cannot know some facts. Xray reports that limit as
 an answer; it does not present an empty panel. Unknown is never encoded as
@@ -135,7 +135,7 @@ an empty collection.
 A dashboard that filled those cells with zeros would be easier to read and
 worse to trust. The label tells you which tool to use next.
 
-## The [complaint catalogue](glossary.md#complaint-catalogue)
+## The complaint catalogue
 
 Every refusal in this guide carries a stable id: `:rf.error/*` for errors,
 `:rf.warning/*` for recoverable misuse. Every id is an entry in the

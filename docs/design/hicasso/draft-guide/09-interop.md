@@ -122,7 +122,7 @@ with `:rf.error/hicasso-intent-needs-the-event`. [`h/event`](glossary.md#hevent)
 those slots. A bare intent with no marker never touches its arguments, so
 `{:on-pick [:city/picked "paris"]}` is legal under any invoker.
 
-## [ReactNode slots](glossary.md#reactnode-slot)
+## ReactNode slots
 
 Some props are not data. They are markup positions: a [modal](glossary.md#overlay)'s title, a footer,
 a Suspense fallback. Declare those props as slots. Hiccup written at a
@@ -292,7 +292,7 @@ keyword, a [`defview`](glossary.md#defview) head, a [`defhost`](glossary.md#defh
 carries its own recovery. Each fires in your render, on the server too, with
 your stack pointing at the line that you wrote.
 
-## The [outward bridge](glossary.md#outward-bridge)
+## The outward bridge
 
 Interop runs in the other direction too. A native React parent —
 [`n/defcomponent`](glossary.md#ndefcomponent), UIx, or plain JavaScript — renders a minted [Hicasso](glossary.md#hicasso) view
