@@ -134,7 +134,12 @@
    [:button {:on-click [:d]} icon-node]
    ;; Dynamic props: the name may be in there.
    [:button props]
-   [:a {:href "/help"} "Help"]])
+   [:a {:href "/help"} "Help"]
+   ;; An <a> with NO href is not a link and not focusable, so it needs no
+   ;; accessible name. The tag set and this condition are the compiled
+   ;; substrates' (`re-frame.ui.compiler.a11y`), not invented here.
+   [:a {:name "section-3"}]
+   [:a {:class "anchor-target"}]])
 
 ;; ---------------------------------------------------------------------------
 ;; function-in-head-position — ordinary heads, and fn literals at PROP

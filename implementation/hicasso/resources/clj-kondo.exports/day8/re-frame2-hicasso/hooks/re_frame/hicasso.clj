@@ -356,17 +356,31 @@
 
 ;; --- an interactive element with nothing to name it -----------------------
 
-(def ^:private interactive-tags
-  "Tags whose whole purpose is to be operated, and which are inoperable
-  from a screen reader without an accessible name. Deliberately two: an
-  `:input`'s name usually comes from a sibling `<label for=…>`, which is a
-  fact about the TREE rather than about the element, and belongs to the
-  real a11y pass (hic-043)."
-  #{"button" "a"})
-
 (def ^:private naming-attributes
-  "The attributes that give an element an accessible name on their own."
+  "The attributes that give an element an accessible name on their own.
+  The same three the compiled substrates' a11y pass names
+  (`re-frame.ui.compiler.a11y`, `:rf.ui.compile/a11y-missing-accessible-name`)."
   #{:aria-label :aria-labelledby :title})
+
+(defn- needs-an-accessible-name?
+  "Is this an element that is named by its CONTENT, and so unusable without
+  one when it has none?
+
+  The tag set and the `:href` condition are taken from the compiled
+  substrates' a11y pass rather than invented here, so the two agree about
+  what a nameless control is: a `<button>` always, and an `<a>` only when it
+  is a real link. An `<a>` with no `href` is not focusable and not a link,
+  so demanding a name for one would be a false positive.
+
+  `:input`, `:select` and `:textarea` are in that pass's set and NOT here:
+  their name usually comes from a sibling `<label for=…>`, which is a fact
+  about the TREE rather than about the form in hand, and belongs to the real
+  a11y pass (hic-043)."
+  [tag props]
+  (let [base (base-tag tag)]
+    (or (= "button" base)
+        (and (= "a" base)
+             (contains? (some-> props map-keys) :href)))))
 
 (defn- check-nameless-interactive!
   "`[:button {…}]` / `[:a {…}]` with NO children and no naming attribute.
@@ -380,7 +394,7 @@
           children (child-nodes node)
           props    (props-node node)
           at-1     (second (:children node))]
-      (when (and (contains? interactive-tags (base-tag tag))
+      (when (and (needs-an-accessible-name? tag props)
                  (empty? children)
                  (or props (definitely-not-props? at-1))
                  (empty? (into #{} (filter naming-attributes)
