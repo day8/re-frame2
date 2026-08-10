@@ -71,7 +71,9 @@ case-sensitive, and it is run from the repository root:
 git grep -l -E "freehand|re[-_]frame[./]ui" -- tools
 ```
 
-At commit `964d71d9f2` (merged `main`, 2026-08-11 09:01:41 AUSEST) it returns **43 files**.
+At commit `e1b4cae5d0` (merged `main`, 2026-08-11) it returns **43 files**. It returned 43 at
+`964d71d9f2` as well, so the figure survived a rebase across the intervening commits — which is
+worth one line, given what happened last time.
 
 It returned **48** when this census was first taken, and the difference is the whole reason for the
 third pass. Eight files left the result and three entered it, a net **−5**, all of them Pair's:
@@ -357,7 +359,7 @@ either — 4 in Xray's Hicasso tab, 6 in Pair.
 
 For `rf2-hic-062` to cite:
 
-> **Measured at commit `964d71d9f2` (merged `main`, 2026-08-11) by
+> **Measured at commit `e1b4cae5d0` (merged `main`, 2026-08-11) by
 > `git grep -l -E "freehand|re[-_]frame[./]ui" -- tools`, which returns 43 files.** Re-run it before
 > acting on this paragraph: the previous pass of this census was authored against a 48-file tree and
 > rebased cleanly onto a 43-file one, which changed nothing in the text and everything in the claim.
