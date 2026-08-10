@@ -2385,6 +2385,52 @@ def _run_self_tests(verbose: bool = False) -> int:
          [(1, "A stray ` backtick opens no span,"),
           (2, "and [the real link](target.md#anchor) follows.")],
          [(2, "target.md#anchor")]),
+        # ------------------------------------------------------------------
+        # rf2-b2cr — an ATX heading interrupts a paragraph only at COLUMN ZERO.
+        #
+        # `_LEAF_LINE_BLOCK_RE` allowed the ≤3-space indent CommonMark permits.
+        # python-markdown does not: `HashHeaderProcessor.RE` is anchored
+        # `(?:^|\n)#{1,6}`, with no leading-space allowance at all, so an
+        # indented `###` is ordinary paragraph text.  `_HEADING_RE` above
+        # already encodes the column-zero rule — this predicate was the lone
+        # dissenter, and the two now agree.
+        #
+        # It cost the gate in BOTH directions, which is why the bead's
+        # "spurious complaint" framing understates it.  Renderer-derived, via
+        # mkdocs.config.load_config('mkdocs.yml') into a markdown.Markdown.
+        #
+        # FALSE POSITIVE — the span really does close on line 3, so the
+        # bracket is code and the renderer resolves nothing.  The gate ended
+        # the unit at line 2, saw two unpaired backtick runs, masked neither
+        # and invented a link to check.
+        ("indented ATX heading does not bound an inline code span",
+         [(1, "Prose with `a code span"),
+          (2, "   ### not a heading to python-markdown"),
+          (3, "[in](in-target.md)` closing here.")],
+         []),
+        ("indented ATX heading inside a quote does not bound one either",
+         [(1, "> Prose with `a code span"),
+          (2, ">    ### not a heading to python-markdown"),
+          (3, "> [in](in-target.md)` closing here.")],
+         []),
+        # FALSE GREEN, the direction that actually costs coverage: with no code
+        # span in play the three lines are ONE paragraph, and the renderer
+        # emits `<a href="missing.md">`.  Bounding the unit at line 2 dropped
+        # that link on the floor — a real broken link, never checked.
+        ("indented ATX heading does not bound a paragraph at all",
+         [(1, "A stray [opening"),
+          (2, "   ### Separate heading"),
+          (3, "](missing.md)")],
+         [(3, "missing.md")]),
+        # CONTROLS at column zero, where the two agree and must keep agreeing.
+        # Without these the three cases above are satisfied by a predicate that
+        # recognises no ATX heading at all.  ("ATX heading is not bridged"
+        # above is the third such control, from the other side.)
+        ("column-zero ATX heading still bounds an inline code span",
+         [(1, "Prose with `a code span"),
+          (2, "### a real heading to python-markdown"),
+          (3, "[in](in-target.md)` closing here.")],
+         [(3, "in-target.md")]),
     ]
     for label, lines, expected_links in extraction_cases:
         got_links = list(_iter_inline_links(lines))
