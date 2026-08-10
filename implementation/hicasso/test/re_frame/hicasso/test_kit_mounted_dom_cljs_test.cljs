@@ -67,8 +67,6 @@
 ;; its source-store baseline when the `use-fixtures` form is EVALUATED, so a
 ;; `reg-sub` written below it is erased before the first row runs.
 
-(def ^:private todo-q [::todo])
-
 (rf/reg-sub ::todo (fn [db [_ id]] (get-in db [:todos id])))
 
 (rf/reg-event ::seed
