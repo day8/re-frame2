@@ -42,7 +42,25 @@
   read `:re-frame.hicasso/…` in the prototype — the package's name was
   anticipated when they were minted. Alias this namespace as `h` and the
   auto-resolved spelling the guide teaches resolves for the first time,
-  with no keyword changing value."
+  with no keyword changing value.
+
+  ## What this door does NOT carry — the optional modules (rf2-hic-053)
+
+  `presence` used to be a var here and is now
+  [[re-frame.hicasso.motion/presence]], required separately:
+
+      (:require [re-frame.hicasso :as h]
+                [re-frame.hicasso.motion :as motion])
+
+  There is no alias left behind, and that is the point rather than an
+  omission. An optional module has to be **absent when unused** — no
+  reachable code in an application that never asked for it — and one
+  `:require` here would put the retention machine into every bundle that
+  ever touched the door. So the door names no optional module, and
+  `hicasso/scripts/check_optional_module_reachability.py` fails if one
+  reappears. `::h/mounting` and `::h/unmounting` stay in the marker set
+  above: they are the vocabulary the motion module reads, and moving the
+  namespace is not renumbering the keywords (naming-ledger row 31)."
   ;; The macro side reaches core's `re-frame.source-coords` for the one
   ;; thing a defining macro cannot do portably by hand: pick the right
   ;; `:file` for the coordinate it captures. Under CLJS the analyzer never
@@ -56,7 +74,6 @@
                [re-frame.hicasso.impl.collector :as impl-collector]
                [re-frame.hicasso.impl.intent :as impl-intent]
                [re-frame.hicasso.impl.mount :as impl-mount]
-               [re-frame.hicasso.impl.presence-react :as impl-presence-react]
                [re-frame.hicasso.impl.route-link :as impl-route-link]
                [re-frame.hicasso.impl.state :as impl-state]))
   #?(:cljs (:require-macros [re-frame.hicasso :refer [defview defhost hfn]])))
@@ -259,12 +276,6 @@
   (HD-020(c)); takes `:fallback`, `:reset-key` and `:on-error`.
   [[re-frame.hicasso.impl.boundary/boundary]]."}
        boundary impl-boundary/boundary)
-
-     (def ^{:doc "`h/presence` — enter/exit lifecycle for a keyed child list,
-  with `::h/mounting` / `::h/unmounting` attribute overrides applied while
-  a child is in that phase (HD-025).
-  [[re-frame.hicasso.impl.presence-react/presence]]."}
-       presence impl-presence-react/presence)
 
      (def ^{:doc "`h/reg-state` — the instance-key sugar (HD-009). Mints one
   parametric subscription and one setter event under `[:ui ::concern ikey]`,
