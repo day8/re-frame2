@@ -6,7 +6,7 @@ re-frame2-pair ops run over the **MCP server** — a persistent stdio JSON-RPC s
 
 - [Install / configure (one-time)](#install--configure-one-time)
 - [Stale-binary post-merge hook](#stale-binary-post-merge-hook)
-- [MCP tool reference (args)](#mcp-tool-reference-args) — the 35 tools, name → arg signature → semantics home
+- [MCP tool reference (args)](#mcp-tool-reference-args) — the 33 tools, name → arg signature → semantics home
 - [When to use `snapshot` vs the per-op reads](#when-to-use-snapshot-vs-the-per-op-reads)
 - [Preload probe (no inject step)](#preload-probe-no-inject-step)
 - [Build-id resolution](#build-id-resolution)
@@ -62,7 +62,7 @@ The hook is idempotent, advisory (never blocks a pull), and prints the exact reb
 
 ## MCP tool reference (args)
 
-The server exposes **35 tools** (catalogued in `tools/re-frame2-pair-mcp/tool-descriptors.edn`, the generated descriptor manifest), and **all 35 are reachable from this skill's `allowed-tools:`**. The two write-authority tools (`restore-epoch`, `replace-app-db`) are the canonical path for named state rewrites, gated by the server's default-OFF `--allow-writes` flag — the server's gate, not the allow-list, is the write boundary; the eval forms are the backstop for a gate-OFF server. The full gate + backstop explanation lives in [`ops.md` §Time-travel](ops.md#time-travel-epoch-restore).
+The server exposes **33 tools** (catalogued in `tools/re-frame2-pair-mcp/tool-descriptors.edn`, the generated descriptor manifest), and **all 33 are reachable from this skill's `allowed-tools:`**. The two write-authority tools (`restore-epoch`, `replace-app-db`) are the canonical path for named state rewrites, gated by the server's default-OFF `--allow-writes` flag — the server's gate, not the allow-list, is the write boundary; the eval forms are the backstop for a gate-OFF server. The full gate + backstop explanation lives in [`ops.md` §Time-travel](ops.md#time-travel-epoch-restore).
 
 This is the **transport index** — the tool name, its arg signature, and where its per-tool semantics are documented. The behaviour of each tool (return shapes, modes, gotchas) lives once in `ops.md`; this table does not restate it.
 

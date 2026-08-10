@@ -15,7 +15,7 @@ description: >
 allowed-tools:
   # Pair-MCP — single persistent nREPL connection per session
   # (not yet on npm — build/run from a re-frame2 clone; see docs/LOCAL_DEV.md).
-  # All 35 server tools are reachable; the body + references explain each surface.
+  # All 33 server tools are reachable; the body + references explain each surface.
   - mcp__re-frame2-pair__discover-app
   - mcp__re-frame2-pair__eval-cljs
   - mcp__re-frame2-pair__dispatch

@@ -129,6 +129,6 @@ The three server gates, for reference:
 - `--allow-writes` — opt-in for the two state-mutating tools
   `restore-epoch` + `replace-app-db` (default OFF; without it both return
   `{:ok? false :reason :rf.error/writes-disabled}`). Both ARE allow-listed
-  by the skill (all 35 server tools are reachable) — the **server's gate,
+  by the skill (all 33 server tools are reachable) — the **server's gate,
   not the allow-list**, is the write boundary. See
   [mcp-transport.md](mcp-transport.md) §MCP tool reference.
