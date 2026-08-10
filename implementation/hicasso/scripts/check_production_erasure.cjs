@@ -164,18 +164,25 @@ const SENTINELS = [
       '`re-frame.hicasso.tool` that made it reachable from the public door.',
   },
   {
-    surface: 'dev diagnostics — the codec\'s key-warning console text',
-    sentinel: 'A boundary body began lowering while',
+    surface: 'dev diagnostics — the codec\'s console messages',
+    sentinel: '[hicasso]',
     source: 'src/re_frame/hicasso/impl/codec.cljs',
-    premise: 'A boundary body began lowering while',
+    premise: '"[hicasso] ',
     why:
-      'The unbalanced set/clear warning `codec/set-lowering-owner!` prints. ' +
-      'Every reader of the `keywarn` state sits behind `goog.DEBUG`, so ' +
-      'under `:advanced` the object, its tables and every message string ' +
-      'fold away with the branches that reach them.',
+      'The prefix every console message the package prints begins with, and ' +
+      'the FAMILY rather than one member: all four live in impl/codec.cljs — ' +
+      '`boundary-props=`\'s fail-open notice, `set-lowering-owner!`\'s ' +
+      'unbalanced set/clear warning, and `check-seq-keys!` / ' +
+      '`check-member-key!`\'s two key warnings. Every one of them sits behind ' +
+      '`(when ^boolean js/goog.DEBUG …)`, so under `:advanced` the `keywarn` ' +
+      'object, its tables and every message string fold away with the ' +
+      'branches that reach them. A row per message would name the leak more ' +
+      'narrowly and leave three of the four uncovered the day a fifth is ' +
+      'written; the prefix cannot.',
     remedy:
-      'Check the `(when ^boolean js/goog.DEBUG …)` wrappers around `keywarn` ' +
-      'and its readers in impl/codec.cljs.',
+      'Check the `goog.DEBUG` wrappers at those four sites in ' +
+      'impl/codec.cljs — both the call site and the message itself have to ' +
+      'be inside one.',
   },
 ];
 
