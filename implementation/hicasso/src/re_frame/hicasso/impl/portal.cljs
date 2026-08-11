@@ -120,7 +120,13 @@
     (react-dom/createPortal (.-children props) (portal-target (.-target props)))
     (.-fallback props)))
 
-(set! (.-displayName portal-body) "hicasso/portal")
+;; `unchecked-set` with a string key, which is the codec's own discipline
+;; for exactly this write ([[re-frame.hicasso.impl.codec/mint-host-gate!]]):
+;; the name has to survive `:advanced` property renaming, and a `set!` on an
+;; untagged fn has no externs to protect it. `mint-host!` does not stamp it
+;; under `:ssr :render` — there the head's type is somebody else's component
+;; and stamping would write on it — so this crossing names itself.
+(unchecked-set portal-body "displayName" "hicasso/portal")
 
 (def portal
   "`h/portal` — the head. A minted host crossing like any other, which is

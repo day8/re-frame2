@@ -8,11 +8,15 @@
   subtree stays where it was written in the React tree. Four claims, and
   each of them is one a caller can get wrong:
 
-  1. **The frame is preserved.** An intent written inside the portal
-     fires into the frame of the boundary that WROTE the crossing —
-     because the children are lowered in that boundary's render window,
-     exactly as a `defhost` crossing's children are, rather than one
-     render later somewhere else.
+  1. **The frame and the context are preserved**, and those are two
+     claims. An intent written inside the portal fires into the frame of
+     the boundary that WROTE the crossing, because the children are
+     lowered in that boundary's render window exactly as a `defhost`
+     crossing's children are; and a BOUNDARY written inside the portal
+     resolves its frame from React context a render later, inside the
+     portal, because React keeps a portal in the tree it was written in.
+     An intent alone would not witness the second — it carries its
+     dispatch with it and would stay green with the context gone.
   2. **Events bubble through the REACT tree, not the DOM tree.** The
      sharp one, and the reason the row below measures the DOM
      relationship as well as the intent: the ancestor that handles the
@@ -146,6 +150,18 @@
 
 (h/defhost counted-host counted {:ssr :render})
 
+(h/defview toast-body
+  "A BOUNDARY inside the portal, and a second claim from the first one.
+  An intent is lowered EAGERLY, in the writing window, and carries its
+  frame-locked dispatch with it — so the intent row below would stay
+  green even if React context stopped reaching the portalled subtree.
+  This body runs a render LATER, inside the portal, and resolves its
+  frame the way every boundary does: from the substrate's one React
+  context. Context that did not reach here would be
+  `:rf.error/no-frame-context` at the shell, before the body ran."
+  [_]
+  [:p.deep (str (collector/sub [:hicasso.portal/message]))])
+
 (h/defview toast-page
   "THE PAGE, used on both sides of the hydration row and on the client
   rows alike. `:target` arrives as a prop because a server pass has no
@@ -158,7 +174,8 @@
    [h/portal {:target   target
               :fallback [:div.rack-placeholder "rack loading"]}
     [:button.toast {:on-click [:hicasso.portal/note "toast"]}
-     (str (collector/sub [:hicasso.portal/message]))]]])
+     (str (collector/sub [:hicasso.portal/message]))]
+    [toast-body {}]]])
 
 (h/defview bare-page
   "No `:fallback` — the DEFAULT arm, and the shape most portals ship in:
@@ -288,6 +305,19 @@
           (testing "while the rest of the view is exactly where it was written"
             (is (some? (q (:container h) ".title"))
                 "the sibling markup stayed in the root container"))
+          (testing "REACT CONTEXT REACHES THROUGH THE PORTAL, which is the
+                    half of *frame/context preserved* an intent cannot
+                    witness: an intent is lowered eagerly in the writing
+                    window and carries its dispatch with it, while a boundary
+                    body runs a render later, inside the portal, and resolves
+                    its frame from the substrate's one React context. React
+                    keeps a portal in the tree it was written in, so the
+                    provider above the root is above this body too"
+            (is (some? (q rack ".deep"))
+                "the boundary inside the portal rendered rather than
+                 refusing with :rf.error/no-frame-context")
+            (is (= "saved" (.-textContent (q rack ".deep")))
+                "and its `h/sub` read resolved against the owner's frame"))
           (testing "and teardown takes the portalled DOM with it. The nodes
                     live in somebody else's container, so nothing but React's
                     own cleanup can remove them — a portal that leaked here
