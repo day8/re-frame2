@@ -11,7 +11,9 @@
 
   The Hicasso side already landed, as
   `conversion-parity-with-the-door-on-one-prop-corpus` in
-  `implementation/freehand/test/re_frame/bench/hicasso/front/codec_cljs_test.cljs`.
+  `implementation/hicasso/test/re_frame/hicasso/codec_cljs_test.cljs`
+  (it was written in the prototype's `front/codec_cljs_test.cljs`, which
+  rf2-3ewp moved into the package).
   This file is the other half: **the same sixteen-prop corpus, through
   Reagent's own `[:>]` walk**, asserting the donor's answers. The pair
   straddles the equivalence the codemod claims.

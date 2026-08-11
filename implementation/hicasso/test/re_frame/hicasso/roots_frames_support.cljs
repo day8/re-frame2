@@ -48,14 +48,20 @@
 
   ## Provenance
 
-  The three techniques are the prototype's, in
-  `re-frame.bench.hicasso.arm1.hydration-support` and
-  `re-frame.bench.hicasso.arm1.hframe-dom-cljs-test`, reimplemented here
-  rather than imported: the package may not `:require` the bench tree
-  (`frozen-sources.edn` `:forbidden-import-prefixes`), and
-  `hicasso/scripts/check_freeze.py` is what says so. Naming them in prose
-  is provenance and is explicitly permitted — the gate parses `:require`
-  forms, not docstrings."
+  The three techniques are the prototype's. Two of them still live only
+  there, in `re-frame.bench.hicasso.arm1.hydration-support`,
+  reimplemented here rather than imported: the package may not
+  `:require` the bench tree (`frozen-sources.edn`
+  `:forbidden-import-prefixes`), and `hicasso/scripts/check_freeze.py` is
+  what says so. Naming it in prose is provenance and is explicitly
+  permitted — the gate parses `:require` forms, not docstrings.
+
+  The third's prototype was `arm1/hframe_dom_cljs_test`, and that suite
+  is no longer in the bench tree to point at: rf2-3ewp moved it here, on
+  rf2-c78g's ruling that executing a PORT verdict MOVES a suite rather
+  than copying it. Its landed form is the sibling
+  [[re-frame.hicasso.hframe-dom-cljs-test]] — a wiki-link rather than a
+  citation, because it is now a file in this package."
   (:require [cljs.test :refer-macros [is]]
             [re-frame.hicasso.impl.collector :as collector]
             [re-frame.hicasso.impl.frames :as frames]
