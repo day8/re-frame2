@@ -87,6 +87,14 @@
   second child mount the adoption swap causes. No mutation is visible to
   more than one row, which is why there are four.
 
+  A fifth guards the assertion from the other side (rf2-hic-028): make a
+  server render SWALLOW what the component threw — a `try` around the
+  crossing, a policy that quietly emitted the page with the region
+  missing — and
+  [[a-false-render-assertion-fails-loudly-at-the-crossing]] goes red,
+  because `:render` is an author's claim and a claim whose falsification
+  is silent is not worth making.
+
   Runtime: `-dom-cljs-test`, so `:browser-test` runs it against a real
   React DOM. The declaration rows and the `renderToString` rows need no
   DOM and run under `:node-test` too — `renderToString` is React's
