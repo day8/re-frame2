@@ -89,6 +89,12 @@ it as notes. So read the notes from the bottom up, the description last. Where
 the bead and this brief disagree, the BEAD governs — follow it, and say in your
 report what differed.
 
+THIS BRIEF'S PREMISES ARE CLAIMS, NOT FINDINGS. Check each at source before you
+act on it: that a ruling it names is ruled and not merely recommended, that a gate
+it names covers your path, that a symbol it names resolves. A verified "already
+fixed" or "the premise does not hold" is a complete and good deliverable — report
+it with the evidence rather than going looking for work to do.
+
 Do NOT link gitignored working files (the ai/ tree, findings docs) from committed
 docs — the strict-docs link validator fails the build in cascade. Inline a
 one-sentence summary instead.
@@ -248,6 +254,35 @@ only the index. Which is why **the brief must name the discriminator** — there
 was *who schedules the deferral*, our own collector (repaired to a microtask)
 against React or a timer (still a macrotask). Without it a worker cannot separate
 the stale hits from the correct ones, and will change all of them or none.
+
+## What the brief asserts
+
+A brief states facts about the tree, and the two rules below are about those
+facts rather than about the work. The first is the mayor's discipline while
+writing; the second is one sentence the worker reads.
+
+- **Verify every factual assertion before it goes into the brief.** Each one is
+  checkable in seconds while writing and expensive to catch afterwards. **Read a
+  ruling's STATUS field and quote it** — a recommendation and a ruling read alike
+  in a summary and are opposite in force. **Grep that a named symbol resolves.**
+  For gates the rule is already stated under *Quality gates — the discipline*
+  above, and it generalises: naming the wrong one is worse than naming none,
+  because the worker then trusts a green that means nothing. The cost is not
+  pedantic. One brief twice cited a naming ledger's *Recommendation* column,
+  status `open`, as a settled ruling — for a name that did not resolve either, so
+  a compliant worker would have replaced one non-existent symbol with another, in
+  the files the bead existed to repair, under an authority nobody had granted.
+- **Say in the brief that its premises are claims.** The preamble already tells
+  the worker the bead governs and its notes are read bottom-up, which catches a
+  brief that went *stale* — it does nothing for one that was wrong when written,
+  and on 2026-08-11 three of those went out in a day: the wrong gate named for a
+  surface, a discipline asserted that the method had never contained, and the
+  ledger row above. Every one was caught by the worker. So the preamble states the
+  standing permission in terms: the mayor's premises are claims to be checked at
+  source, and a verified *"already fixed"* or *"the premise does not hold"* is a
+  complete and good deliverable. Workers caught mayor errors at source twelve
+  times that day, three of them preventing damage rather than correcting a word —
+  which makes it the highest-yield sentence in the preamble.
 
 ## Choosing solo vs cluster
 
