@@ -912,15 +912,24 @@
   `:error-emit/emit-error-both` late-bind hook — fx.cljc cannot static-require
   `re-frame.error-emit` (a load cycle), exactly as it reached `dispatch-on-error!`
   through its hook before. `elapsed-ms 0` (not a timed path); `(interop/now-ms)`
-  is the emit instant."
-  [category event event-id frame-id exception trace-payload]
-  ;; Both channels via the shared helper: axis 1 the always-on corpus-wide
-  ;; listener (survives prod elision), axis 2 the dev trace (DCE'd in CLJS prod).
-  ;; `nil` when the substrate ns hasn't loaded (it is a foundational always-on
-  ;; surface, so in practice it is present).
-  (when-let [emit-error-both! (late-bind/get-fn-cached :error-emit/emit-error-both)]
-    (emit-error-both! category event event-id frame-id exception 0
-                      (interop/now-ms) trace-payload)))
+  is the emit instant.
+
+  The optional trailing `record-attrs` map is `emit-error-both!`'s axis-1-only
+  attribution seam, passed straight through. `:rf.error/effect-map-shape` uses
+  it so ALL THREE of that category's cases put `:offending-key` on the record
+  (rf2-04tx): the envelope cases emit from `router.cljc` and would otherwise be
+  the only ones carrying it, leaving a consumer that branches on the category
+  to discover its record shape varies by case."
+  ([category event event-id frame-id exception trace-payload]
+   (emit-fx-error! category event event-id frame-id exception trace-payload nil))
+  ([category event event-id frame-id exception trace-payload record-attrs]
+   ;; Both channels via the shared helper: axis 1 the always-on corpus-wide
+   ;; listener (survives prod elision), axis 2 the dev trace (DCE'd in CLJS prod).
+   ;; `nil` when the substrate ns hasn't loaded (it is a foundational always-on
+   ;; surface, so in practice it is present).
+   (when-let [emit-error-both! (late-bind/get-fn-cached :error-emit/emit-error-both)]
+     (emit-error-both! category event event-id frame-id exception 0
+                       (interop/now-ms) trace-payload record-attrs))))
 
 (def ^:private non-overridable-source-rationale
   "Per-id WHY for the `:rf.error/reserved-fx-override` `:reason` (rf2-0qsp5).
@@ -1817,7 +1826,9 @@
                        :offending-key     :fx
                        :value             pair
                        :reason            reason
-                       :recovery          :logged-and-skipped})
+                       :recovery          :logged-and-skipped}
+                      ;; Axis 1 — one record shape for the whole category.
+                      {:offending-key :fx})
       false)))
 
 ;; ---- dry-run effect sink (rf2-j538f7.39) ----------------------------------
