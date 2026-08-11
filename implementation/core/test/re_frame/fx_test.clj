@@ -41,15 +41,15 @@
   * The `:trace` stream (`collect-traces!`) is DEV-ONLY. Every `trace/emit!`
     / `trace/emit-error!` site rides `interop/debug-enabled?`, which the JVM
     reads once at load time, so under the real gate the ring is EMPTY BY
-    DESIGN. `:rf.error/effect-map-shape` (Spec 009 catalogue: channel
-    `diagnostic`), `:rf.fx/skipped-on-platform`, `:rf.fx/override-applied`,
+    DESIGN. `:rf.fx/skipped-on-platform`, `:rf.fx/override-applied`,
     `:rf.fx/do-fx` and `:rf.event/run-end` live ONLY here. Their assertions
     are kept VERBATIM inside a `(when interop/debug-enabled? …)` arm marked
     `rf2-d2841`.
 
   * The `:errors` stream (`collect-errors!`) is ALWAYS-ON and survives the
     gate. `:rf.error/fx-handler-exception`, `:rf.error/no-such-fx`,
-    `:rf.error/override-fallthrough` and `:rf.error/reserved-fx-override`
+    `:rf.error/override-fallthrough`, `:rf.error/reserved-fx-override` and
+    (since rf2-04tx) `:rf.error/effect-map-shape`
     fan out through `emit-fx-error!` → `error-emit/emit-error-both!`, which
     additionally LIFTS `:failing-id` / `:reason` onto the record whenever the
     failing component differs from the dispatched event (Spec 009 §Component
@@ -490,24 +490,27 @@
 ;; contract; the runtime does NOT silently drop and does NOT silently route
 ;; the offending key through the fx machinery.
 ;;
-;; Enforcement landed in rf2-ooc5: re-frame.events/fx-handler->interceptor
-;; calls re-frame.events/police-effect-map-shape! on every effect-map
-;; returned, emitting :rf.error/effect-map-shape per offending top-level key
-;; with :recovery :logged-and-skipped. The offending keys are dropped from
-;; the threaded effects map.
+;; Enforcement landed in rf2-ooc5 as a DROP and was converted to a REFUSAL in
+;; rf2-04tx: `re-frame.events/effect-map-defect` is a pure first-defect-or-nil
+;; carrier the ROUTER consults at the FINAL-effects boundary, and a foreign
+;; top-level key (case a) or a non-sequential :fx value (case b) ABORTS the
+;; event in-band — no :db, no :rf.db/runtime, no classification install, no :fx.
+;; A malformed ENTRY inside a well-shaped :fx vector (case c) is a different
+;; plane and keeps its per-entry :logged-and-skipped drop.
 ;;
-;; POSTURE (rf2-d2841). The DROP is production-real — `police-effect-map-shape!`,
-;; `fx-value-ok?` and `fx-entry-ok?` run unconditionally, so every "the
-;; offending key/value/entry did NOT take effect, and its siblings did" claim
-;; below is asserted posture-independently and runs under the production gate.
-;; The :rf.error/effect-map-shape DIAGNOSTIC is dev-only, and deliberately so:
-;; Spec 009's catalogue row marks its Channel `diagnostic`, not always-on
-;; (009-Instrumentation.md §Error event catalogue), and all three emit sites
-;; — events.cljc §police-effect-map-shape!, events.cljc §fx-value-ok?,
-;; fx.cljc §fx-entry-ok? — are `trace/emit-error!`, with no `emit-fx-error!`
-;; always-on leg. So the trace assertions ride a `(when interop/debug-enabled? …)`
-;; arm, INCLUDING the negative "no shape trace fired" ones on the clean paths:
-;; over an empty ring those pass automatically and would report a false green.
+;; POSTURE (rf2-d2841 / rf2-04tx). The REFUSAL is production-real and uniform
+;; across builds — `effect-map-defect` and `fx-entry-ok?` run unconditionally,
+;; so every "the offending key/value did NOT take effect, and neither did its
+;; legal siblings" claim below is asserted posture-independently and runs under
+;; the production gate. Erasing the abort in a release build would make dev
+;; abort what production commits, which is a build fork, so it is not done.
+;; What IS dev-only is the NARRATION: the whole category now fans through
+;; `error-emit/emit-error-both!` (Spec 009's Channel cell reads `always-on`),
+;; whose axis-2 `trace/emit-error!` leg DCEs under `:advanced` +
+;; `goog.DEBUG=false`. So the TRACE assertions still ride a
+;; `(when interop/debug-enabled? …)` arm, INCLUDING the negative "no shape trace
+;; fired" ones on the clean paths: over an empty ring those pass automatically
+;; and would report a false green.
 
 (deftest legacy-effect-map-key-is-policed
   (testing "a handler returning {:dispatch ...} (legacy v1 top-level key) is policed"
@@ -538,7 +541,7 @@
               "exactly one :rf.error/effect-map-shape trace was emitted")
           (let [t (first shape-traces)]
             (is (= :error (:op-type t)))
-            (is (= :logged-and-skipped (:recovery t)))
+            (is (= :fix-effect (:recovery t)))
             (is (= :dispatch (get-in t [:tags :offending-key]))
                 ":offending-key carries the legacy top-level key")
             (is (= :fx-test/legacy-dispatch (get-in t [:tags :rf.trace/event-id]))
@@ -615,19 +618,20 @@
     (is (nil? (registrar/lookup :fx :test.634y/once))
         "the slot stays gone")))
 
-(deftest multiple-legacy-effect-map-keys-each-emit-a-trace
-  (testing "an effect map with several legacy top-level keys traces each one and still applies :db / :fx"
+(deftest multiple-legacy-effect-map-keys-refuse-the-event-once
+  (testing "an effect map with several legacy top-level keys refuses the event once — nothing at all is applied"
     (let [traces     (collect-traces! ::shape-multi)
           fired      (atom [])
           never-ran  (atom 0)
           http-fired (atom 0)]
       (rf/reg-fx :fx-test/sibling
         (fn [_ args] (swap! fired conj args)))
-      ;; Production-visible sentinels (rf2-d2841): the DROP is the fact this
-      ;; deftest is really about, and a drop is only observable by giving the
-      ;; policed keys somewhere to land. Both legacy keys name a live target,
-      ;; so "policed" and "silently routed anyway" are now distinguishable
-      ;; under the production gate, not only through the dev trace ring.
+      ;; Production-visible sentinels (rf2-d2841): the REFUSAL is the fact this
+      ;; deftest is really about, and it is only observable by giving every
+      ;; effect somewhere to land. Both legacy keys AND the legal :fx entry name
+      ;; a live target, so "refused" and "silently routed anyway" are
+      ;; distinguishable under the production gate, not only through the dev
+      ;; trace ring.
       (rf/reg-event :fx-test/never-runs
         (fn [{:keys [db]} _] (swap! never-ran inc) {:db db}))
       (rf/reg-fx :http (fn [_ _] (swap! http-fired inc)))
@@ -640,26 +644,30 @@
            :http {:url "/api"}}))
       (rf/dispatch-sync [:fx-test/multi-legacy])
       (rf/unregister-listener! :trace ::shape-multi)
-      ;; The legitimate :fx entry still ran — policing didn't halt the cascade.
-      (is (= [{:k :legit}] @fired)
-          "the legal :fx entry still fires after policing rejects sibling top-level keys")
+      ;; NO PARTIAL COMMIT (rf2-04tx). The whole event is refused: the legal
+      ;; :fx entry does not run either, and the legal :db does not land. This
+      ;; is the transactional half of the standing FX atomicity asymmetry —
+      ;; pre-commit envelope validity is all-or-nothing.
+      (is (= [] @fired)
+          "the legal :fx entry does NOT fire — the whole event was refused")
       (is (= 0 @never-ran)
-          "the legacy top-level :dispatch was DROPPED — its target never ran")
+          "the legacy top-level :dispatch never ran")
       (is (= 0 @http-fired)
-          "the legacy top-level :http was DROPPED — it was not routed through the fx machinery")
-      ;; The legitimate :db still committed.
-      (is (= true (:seeded? (rf/app-db-value :rf/default)))
-          ":db still committed alongside policed top-level keys")
-      ;; One trace per offending key.
+          "the legacy top-level :http was not routed through the fx machinery")
+      (is (nil? (:seeded? (rf/app-db-value :rf/default)))
+          "the legal :db did NOT commit — no partial commit beside a refusal")
+      ;; ONE trace, naming ONE key. The refusal is a first-defect decision:
+      ;; enumerating every foreign key would bury the first mistake, and the
+      ;; event is already over after the first.
       ;; rf2-d2841 — dev-instrumentation arm (see the §6 posture note above).
       (when interop/debug-enabled?
         (let [shape-traces (filter #(= :rf.error/effect-map-shape (:operation %))
                                    @traces)
               offending    (set (map #(get-in % [:tags :offending-key]) shape-traces))]
-          (is (= 2 (count shape-traces))
-              "one :rf.error/effect-map-shape trace per offending top-level key")
-          (is (= #{:dispatch :http} offending)
-              "both legacy keys are flagged"))))))
+          (is (= 1 (count shape-traces))
+              "exactly ONE :rf.error/effect-map-shape trace — the first defect ends the event")
+          (is (contains? #{:dispatch :http} (first offending))
+              "and it names one of the two legacy keys"))))))
 
 ;; ---- 6b. :fx VALUE-shape policing (rf2-24zly) -----------------------------
 ;;
@@ -673,11 +681,11 @@
 ;; into the drain's emergency release: app-db mutated, no structured trace, no
 ;; :on-error fire, downstream queued events abandoned.
 ;;
-;; The fix (events.cljc `fx-value-ok?`) polices the :fx value symmetric with
-;; M-8: a non-nil, non-sequential :fx value emits :rf.error/effect-map-shape
-;; (:offending-key :fx, recovery :logged-and-skipped) and is DROPPED — :db
-;; still commits, the cascade is not aborted, and `do-fx` never sees the bad
-;; value. nil/absent :fx stays the legal no-op.
+;; The fix (events.cljc `effect-map-defect`, case b) polices the :fx value
+;; symmetric with M-8: a non-nil, non-sequential :fx value emits
+;; :rf.error/effect-map-shape (:offending-key :fx, recovery :fix-effect) and
+;; REFUSES the event — nothing commits, the drain is not aborted, and `do-fx`
+;; never sees the bad value. nil/absent :fx stays the legal no-op.
 
 (deftest non-sequential-fx-value-keyword-is-policed
   (testing "{:fx :oops} (a bare keyword instead of a vector) is policed —
@@ -693,9 +701,9 @@
       (is (nil? (rf/dispatch-sync [:fx-test/fx-is-keyword]))
           "dispatch returns normally — no uncaught host exception escapes the drain")
       (rf/unregister-listener! :trace ::fx-val-kw)
-      ;; :db still committed — the malformed :fx was dropped, not the whole event.
-      (is (= true (:seeded? (rf/app-db-value :rf/default)))
-          ":db still committed; only the malformed :fx slot was dropped")
+      ;; NO COMMIT — the malformed envelope refuses the whole event (rf2-04tx).
+      (is (nil? (:seeded? (rf/app-db-value :rf/default)))
+          ":db did NOT commit — the malformed :fx refuses the event, not just the slot")
       ;; Exactly one structured trace, flagging :fx as the offending slot.
       ;; rf2-d2841 — dev-instrumentation arm (see the §6 posture note above).
       (when interop/debug-enabled?
@@ -705,7 +713,7 @@
               "exactly one :rf.error/effect-map-shape trace for the bad :fx value")
           (let [t (first shape-traces)]
             (is (= :error (:op-type t)))
-            (is (= :logged-and-skipped (:recovery t)))
+            (is (= :fix-effect (:recovery t)))
             (is (= :fx (get-in t [:tags :offending-key]))
                 ":offending-key is :fx (the value-shape gap, not a top-level key)")
             (is (= :fx-test/fx-is-keyword (get-in t [:tags :rf.trace/event-id]))
@@ -734,7 +742,7 @@
           "dispatch returns normally — no uncaught host exception")
       (rf/unregister-listener! :trace ::fx-val-map)
       (is (false? @fired?)
-          "the malformed :fx map is dropped wholesale — nothing inside it runs")
+          "the malformed :fx map refuses the event wholesale — nothing inside it runs")
       ;; rf2-d2841 — dev-instrumentation arm (see the §6 posture note above).
       (when interop/debug-enabled?
         (let [shape-traces (filter #(= :rf.error/effect-map-shape (:operation %))
@@ -742,7 +750,7 @@
           (is (= 1 (count shape-traces))
               "exactly one :rf.error/effect-map-shape trace for the bad :fx value")
           (let [t (first shape-traces)]
-            (is (= :logged-and-skipped (:recovery t)))
+            (is (= :fix-effect (:recovery t)))
             (is (= :fx (get-in t [:tags :offending-key])))
             (is (= :fx-test/fx-is-map (get-in t [:tags :rf.trace/event-id])))
             (is (= {:dispatch [:fx-test/fx-sentinel]} (get-in t [:tags :value]))

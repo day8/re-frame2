@@ -200,6 +200,10 @@
             STRUCTURALLY (drive the surface) rather than by reading that private
             def — an app key that reached the slot would be an unbounded egress
             widening, and the assertion below is what catches it."
+    (testing "the framework key — and only a framework key — is ever named"
+      (is (= :sensitive (:offending-key (first (reject! :sensitive :not-a-vector
+                                                        :bad/framework-key))))
+          "a malformed classification payload names its own axis"))
     (testing "an APPLICATION-authored effect key never becomes the offending key"
       (rf/reg-event :seed (fn [{:keys [db]} _] {:db (assoc db :n 1)}))
       (rf/dispatch-sync [:seed])
@@ -211,13 +215,22 @@
           {:db                        (assoc db :n 2)
            :sensitive                 :not-a-vector
            :acme.billing/card-numbers :also-not-a-vector}))
-      (let [rec (->> (record-always-on-errors #(rf/dispatch-sync [:bad/mixed]))
-                     shape-records
-                     first)]
-        (is (= :sensitive (:offending-key rec))
-            "the framework key is named; the caller's key is not eligible")
-        (is (not (str/includes? (pr-str rec) "acme.billing"))
-            "and the caller's key appears nowhere on the record at all")))
+      (let [records (record-always-on-errors #(rf/dispatch-sync [:bad/mixed]))]
+        ;; Since rf2-04tx the two keys cannot even reach the classification
+        ;; check together: the ENVELOPE is validated first, and a foreign
+        ;; top-level key refuses the whole event. So the app key is not merely
+        ;; ineligible for this slot — it never gets as far as the category.
+        (is (empty? (shape-records records))
+            "the classification category does not fire at all — the envelope
+             refusal (:rf.error/effect-map-shape) came first")
+        (is (= [:acme.billing/card-numbers]
+               (mapv :offending-key
+                     (filterv #(= :rf.error/effect-map-shape (:error %)) records)))
+            "the app key is refused under its OWN category, whose
+             `:offending-key` domain is app-authored by design — so the
+             classification record's framework-owned domain stays closed")
+        (is (not (str/includes? (pr-str (shape-records records)) "acme.billing"))
+            "and the caller's key appears nowhere on this category at all")))
     (testing "a malformed value under a NON-classification key raises no
               classification-effect-shape record at all"
       (rf/reg-event :bad/app-only

@@ -18,6 +18,16 @@
 ;; exact bug. This fixture requires the trace AND requires both well-shaped
 ;; siblings to run, so the lenient port FAILS (missing trace).
 ;;
+;; THE CONTROL FOR THE ENVELOPE CASES (rf2-04tx). Cases (a) and (b) REFUSE
+;; the event outright — a malformed envelope is a pre-commit validity question
+;; and is therefore transactional. Case (c) is a row on the POST-commit,
+;; best-effort do-fx plane, so it keeps per-entry :logged-and-skipped recovery:
+;; the bad entry is dropped and its siblings still run. This fixture is what
+;; proves the refusal did not swallow that distinction and turn the whole
+;; category into an abort. Its channel DID move with the rest of the category:
+;; the emission now rides the always-on error-emit axis, not the dev trace
+;; alone.
+;;
 ;; Authored via the :return-raw DSL op. Grounded against the reference
 ;; emitter re-frame.fx/fx-entry-ok?.
 
