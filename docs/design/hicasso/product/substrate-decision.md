@@ -360,7 +360,7 @@ remediation through the collector-substrate adjudication*
 fails, structurally rather than narrowly: the two substrates' shells are **five
 bytes apart**, inside each other's bands, because the shell touches no adapter at
 all. There is no substrate — including one Hicasso writes itself — that moves an
-R=0 boundary, because an R=0 boundary holds no reaction. **The whole 76 B would
+R=0 boundary, because an R=0 boundary holds no reaction. **The whole overage — 71 B on the chosen substrate, 76 B on the other — would
 have to come out of the shell.**
 
 **The three routes that are left, priced.** Two are measured and one is not:
@@ -388,7 +388,7 @@ is not re-registered.** The bead offers re-registration as the alternative when 
 substrate cannot bring the row under, and this page declines to take it, for
 reasons it would rather state than bury:
 
-- the line was ruled **eight hours** before this adjudication was written, and
+- the line was ruled **earlier the same day** as this adjudication, and
   re-registering it on the first measurement that fails it is the
   silent-normalisation path wearing a name-tag;
 - the line is **reached** by a measured arm — 994 / 992 B — so it is not an
