@@ -132,6 +132,37 @@
   Do not re-pin any of the four by loosening an assertion. Each names its
   replacement above; a repair rewrites them.
 
+  ## The Render arm was RUN, and it works — measured, not argued
+
+  ONE sabotage covers all four rows, because all four read the same
+  producer: give `server-bytes!` a window (the body of
+  [[server-bytes-under-a-hand-held-window!]]) and the Render repair is
+  simulated end to end. Run by hand under `:browser-test`; the PR body
+  quotes the failures verbatim. §1, §2 and §3 all red — nine assertions
+  across the three — and **§4 stays green**, which is the control doing
+  its job.
+
+  What §3 reported under that sabotage is the part worth carrying
+  forward, because it is evidence about the repair rather than about the
+  test:
+
+      expected: (pos? (count complaints))
+        actual: (not (pos? 0))            ; React complained ZERO times
+      expected: (false? (sup/server-node? (.querySelector ca \".probe\")))
+        actual: (not (false? true))       ; the server's own node was KEPT
+
+  So with a window scoped over the server render, the real
+  `react-dom/server` bytes hydrate **byte-compatibly and silently, with
+  the server's own DOM adopted**. The Render arm of HS-33 is reachable,
+  it costs one provider per request, and nothing else in the tray needs
+  to change. That is what §1's control is for, and it is now a
+  measurement.
+
+  The same sabotage also explains the merged witness in one line: once
+  the bytes say `present`, §2's two producers agree and §3 goes quiet —
+  which is exactly the state `settled-server-html!` was already
+  delivering, without a server anywhere in the picture.
+
   ## Lane
 
   `-dom-cljs-test`, so `:browser-test` runs the whole file against a real
@@ -289,10 +320,11 @@
 ;; body for real — hooks, context reads and all — so what it emits is what
 ;; `roots/adopting-here?` answered inside a genuine server render.
 ;;
-;; SABOTAGE (run by hand, PR body records it): make `with-adoption`'s
-;; provider unconditional, or make `presence-body` settle without consulting
-;; the window, and the control below stops discriminating — both halves
-;; report the same phase and the pair goes red.
+;; SABOTAGE (run by hand; the namespace header and the PR body record it):
+;; give `server-bytes!` a window — the body of
+;; [[server-bytes-under-a-hand-held-window!]] — and this row reds three ways
+;; at once: `"present"` in the bytes, `:present` off the machine, and the
+;; control no longer differing from the measurement it controls.
 (deftest the-real-server-render-installs-no-adoption-window-so-presence-enters
   (fresh!)
   (reset! !phases {})
@@ -419,11 +451,13 @@
 ;; And the final DOM reads `present` in every case, which is exactly why the
 ;; text assertion this seam most invites is worthless.
 ;;
-;; SABOTAGE (run by hand, PR body records it): swap `server-bytes!` for
-;; `sup/settled-server-html!` — the substitution the merged witness made —
-;; and every assertion below inverts: no complaint, no diagnostic, the
-;; server's nodes kept. That is the narrowing this row exists to catch, and
-;; it is the only one that catches it.
+;; SABOTAGE (run by hand; the namespace header quotes the failures): make
+;; `server-bytes!` produce `present` bytes — which is what BOTH the repair
+;; and `sup/settled-server-html!` do, and the reason one sabotage covers the
+;; narrowing as well as the fix — and every assertion below inverts: React
+;; complains zero times, the framework emits nothing, and the server's own
+;; nodes are kept. That is the narrowing this row exists to catch, and it is
+;; the only row in the file that catches it.
 (deftest hydrating-the-real-server-bytes-diverges-and-discards-the-adoption
   (async done
     (if-not (mount/browser?)
