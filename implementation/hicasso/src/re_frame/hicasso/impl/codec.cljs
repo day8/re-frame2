@@ -2718,8 +2718,8 @@
 
   **That sentence is exact, and it was not always true.** It was written
   when only the slot half of the guard existed, and it claimed the whole
-  correspondence on the strength of it — so for one release the code
-  documented a guarantee it did not provide, and
+  correspondence on the strength of it — so between that fix landing and
+  this one the code documented a guarantee it did not provide, and
   `{:callbacks {:constructor :event}}` minted, read correct, and could
   never reach the component. A claim about what CANNOT happen has to name
   every declaration that could make it happen; if a third roster is ever
