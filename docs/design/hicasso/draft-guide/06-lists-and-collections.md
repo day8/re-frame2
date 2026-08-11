@@ -244,9 +244,12 @@ Read the shape closely. Every piece does a job:
   cost.
 - **`:item-content` is declared `:render`** — the library calls it during its
   own render, and the body stays pure. The returned hiccup crosses through
-  [`h/as-element`](glossary.md#as-element), which lowers it under the frame of the [boundary](glossary.md#boundary) that
-  supplied the callback. Intents inside the row later dispatch to the right
-  frame, exactly as they would outside the host.
+  [`h/as-element`](glossary.md#as-element), which yields a legal ReactNode. A plain `fn` is enough
+  here because the row is a `[order-row …]` head: it is a [boundary](glossary.md#boundary), so it
+  resolves the frame React already has in scope where the library renders it,
+  and intents written inside `order-row` dispatch to that frame exactly as they
+  would outside the host. Write [`h/event`](glossary.md#hevent) instead when the callback body itself
+  carries an intent ([Interop](09-interop.md)).
 - **The closure closes over `ids`, not over a read.** `(h/sub ...)` ran in the
   body; the callback captures the *value*. A [`h/sub`](glossary.md#hsub) call inside the callback
   would be a deferred read, and the runtime refuses it loudly.
@@ -295,7 +298,7 @@ you observe this cost instead of guessing at it.
 | A page-wide write runs every row body despite the bail-out | Row props are not `=` — a fresh closure, a JS object, or dead weight in the row map | Intents as data, persistent values, `select-keys` to what the row shows |
 | Filter typing is heavy on a large list | A large oscillating read set in one [boundary](glossary.md#boundary), or a whole-table view-model recomputing per keystroke | Rows own their reads, chunk the table, or move the filter into the subscription |
 | A plain function — CLJS or a JS component — in head position is refused | `:rf.error/hicasso-bad-head` — only minted views, native tags, fragments and hosts are heads | Mint views with [`h/defview`](glossary.md#defview); declare foreign components once with [`h/defhost`](glossary.md#defhost) ([Interop](09-interop.md)) |
-| Virtualized list renders but rows are inert or mis-framed | Row hiccup returned raw from the render callback | Return it through [`h/as-element`](glossary.md#as-element) so it lowers under the captured frame |
+| Virtualized list renders but rows are inert or mis-framed | Row hiccup returned raw from the render callback | Return it through [`h/as-element`](glossary.md#as-element); when the row itself carries an [intent](glossary.md#intent), write the callback as [`h/event`](glossary.md#hevent) so it captures the frame |
 
 ## When not to tune a list
 
