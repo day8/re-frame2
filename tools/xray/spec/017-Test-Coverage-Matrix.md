@@ -367,10 +367,10 @@ their eight questions have no answer there, so they stay on
 `re-frame.freehand.tool` until the Freehand tree goes. This deck is the
 browser-lane populated arm of exactly those two sections and has no other
 consumer, and every fact its scenario asserts — the view id, the occurrence key,
-the lowering, the per-row read count, the declared sites — is one the target
-does not publish. Repointing it would leave a scenario asserting facts that
-cannot exist; removing it while the panel still ships would restore the
-gate-blindness rf2-6pohj closed. So it goes when they go, under rf2-hic-062,
+the lowering, the per-row generation, the declared sites — sits in that
+disposition's **none** column. Repointing it would leave a scenario asserting
+facts that cannot exist; removing it while the panel still ships would restore
+the gate-blindness rf2-6pohj closed. So it goes when they go, under rf2-hic-062,
 and it is four artefacts: this source tree, the `:testbeds/freehand-views` build
 id, its port-8036 `:dev-http` entry, and the scenario together with its
 `STAGED_SURFACES` wiring.
