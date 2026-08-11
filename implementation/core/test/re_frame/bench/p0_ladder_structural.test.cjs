@@ -284,6 +284,154 @@ test('the printed legend states the R=0 zero rather than the old flat `boundarie
 });
 
 // ===========================================================================
+// WHICH SUBSTRATE THE CANDIDATE ARM IS — rf2-fe0l
+// ===========================================================================
+//
+// THE DEFECT THIS PINS. The heap ladder's candidate arm read
+// `re-frame.bench.hicasso.arm1.*` — the frozen PROTOTYPE that
+// `implementation/hicasso/src` was moved from, and whose own docstring says
+// it lives "off every production source path". So every retained-heap figure
+// the ladder ever produced priced a bench-tree copy, and rf2-hic-006 could
+// not re-pin S1-S5 on the package because no heap instrument pointed at the
+// package at all. The freeze header calls the two trees' divergence expected
+// and permanent, which is exactly why a repoint cannot be left to drift back:
+// nothing about a compiling arm says which of the two it compiled against.
+//
+// WHY IT IS PINNED HERE RATHER THAN LEFT TO THE COMPILER. `:hicasso-bench`
+// compiles both trees, so an arm re-pointed at the prototype tomorrow builds
+// green and reads plausibly — the number simply describes a different piece
+// of software. The compile gate proves the requires RESOLVE; only a source
+// assertion says WHICH ones they were.
+//
+// PARSED FROM THE ns FORM, NEVER GREPPED. Both files legitimately NAME the
+// prototype in prose — the provenance is worth keeping — so a whole-file
+// grep for `arm1` would fail on a docstring that is doing its job. This
+// reads the `:require` / `:require-macros` forms and nothing else, the same
+// rule `hicasso/scripts/check_optional_module_reachability.py` follows one
+// tree over.
+
+const HEAP = path.join(__dirname, 'p0_heap.cljs');
+const CANDIDATE = path.join(__dirname, 'p0_hicasso.cljs');
+
+// `;`-to-end-of-line comments removed, and `"strings"` kept. String-aware,
+// because the heap arm's require form carries both — `"react-dom"` beside a
+// comment block that names the prototype it no longer requires.
+const stripComments = (text) => {
+  let out = '';
+  let inString = false;
+  for (let i = 0; i < text.length; i += 1) {
+    const c = text[i];
+    out += c;
+    if (inString) {
+      if (c === '\\') {
+        out += text[i + 1] ?? '';
+        i += 1;
+      } else if (c === '"') inString = false;
+    } else if (c === '"') inString = true;
+    else if (c === ';') {
+      out = out.slice(0, -1);
+      while (i < text.length && text[i] !== '\n') i += 1;
+      out += '\n';
+    }
+  }
+  return out;
+};
+
+// The `(:require …)` / `(:require-macros …)` forms of `file`, concatenated,
+// with their commentary stripped. Paren-balanced over the stripped text, so
+// a `)` inside a comment cannot end a form early.
+const nsRequires = (file) => {
+  const src = stripComments(fs.readFileSync(file, 'utf8'));
+  let out = '';
+  for (const head of ['(:require ', '(:require-macros ']) {
+    let at = src.indexOf(head);
+    while (at !== -1) {
+      let depth = 0;
+      let i = at;
+      let inString = false;
+      for (; i < src.length; i += 1) {
+        const c = src[i];
+        if (inString) {
+          if (c === '\\') i += 1;
+          else if (c === '"') inString = false;
+          continue;
+        }
+        if (c === '"') inString = true;
+        else if (c === '(') depth += 1;
+        else if (c === ')') {
+          depth -= 1;
+          if (depth === 0) break;
+        }
+      }
+      assert.strictEqual(depth, 0, `${path.basename(file)}: unbalanced ${head}`);
+      out += `${src.slice(at, i + 1)}\n`;
+      at = src.indexOf(head, i + 1);
+    }
+  }
+  assert.ok(out.length > 0, `${path.basename(file)}: no ns require form found`);
+  return out;
+};
+
+// The file with its comments AND its string literals removed — closer to
+// what the COMPILER acts on, so a call site named only in prose or in a
+// docstring cannot satisfy a check.
+const codeOf = (file) => {
+  const src = stripComments(fs.readFileSync(file, 'utf8'));
+  let out = '';
+  let inString = false;
+  for (let i = 0; i < src.length; i += 1) {
+    const c = src[i];
+    if (inString) {
+      if (c === '\\') i += 1;
+      else if (c === '"') inString = false;
+      continue;
+    }
+    if (c === '"') inString = true;
+    else out += c;
+  }
+  return out;
+};
+
+const countOf = (hay, needle) => hay.split(needle).length - 1;
+
+test('THE CANDIDATE ARM READS THE PACKAGE — its two doors are the facade', () => {
+  const req = nsRequires(CANDIDATE);
+  assert.match(req, /\[re-frame\.hicasso :refer \[sub\]\]/, 'the ambient collector is the package facade');
+  assert.match(
+    req,
+    /\(:require-macros \[re-frame\.hicasso :refer \[defview\]\]\)/,
+    'and boundaries are minted by the package macro'
+  );
+  assert.ok(
+    !/re-frame\.bench\.hicasso\.arm1/.test(req),
+    'p0_hicasso.cljs must not REQUIRE the frozen prototype (naming it in prose is fine)'
+  );
+});
+
+test('THE HEAP RIG READS THE PACKAGE — all three doors, none of them arm1', () => {
+  const req = nsRequires(HEAP);
+  assert.match(req, /\[re-frame\.hicasso\.impl\.mount :as hic-mount\]/, 'the mount door');
+  assert.match(req, /\[re-frame\.hicasso\.impl\.collector :as hic-collector\]/, 'the runtime reset');
+  assert.match(req, /\[re-frame\.hicasso\.impl\.inventory :as hic-inventory\]/, 'the structural census');
+  assert.ok(
+    !/re-frame\.bench\.hicasso\.arm1/.test(req),
+    'p0_heap.cljs must not REQUIRE the frozen prototype (naming it in prose is fine)'
+  );
+});
+
+test('THE FOUR SEAMS CALL THROUGH THOSE ALIASES, and no fifth one is hiding', () => {
+  // Aliases alone prove nothing: a require can be repointed while a call
+  // site keeps the old one. These are the four sites rf2-fe0l enumerated,
+  // counted in the code and not in the commentary.
+  const code = codeOf(HEAP);
+  assert.strictEqual(countOf(code, 'hic-mount/root!'), 1, 'the mount door, once');
+  assert.strictEqual(countOf(code, 'hic-collector/reset-runtime!'), 1, 'the runtime reset, once');
+  assert.strictEqual(countOf(code, 'hic-inventory/residue'), 2, 'the live census and the post-unmount read');
+  // The prototype's alias. Its absence is what says no seam was missed.
+  assert.strictEqual(countOf(code, 'hic-rt/'), 0, 'no call site left on the old alias');
+});
+
+// ===========================================================================
 // THE ALLOCATION ROW'S OBSERVED-COLLECTION WITNESS — rf2-2rtt6.140
 // ===========================================================================
 //
