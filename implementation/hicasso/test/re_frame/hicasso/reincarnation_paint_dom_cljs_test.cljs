@@ -177,14 +177,36 @@
   [f]
   (js/Promise. (fn [resolve] (js/setTimeout (fn [] (resolve (f))) 30))))
 
-(defn- fail-and-finish!
-  [done label handle]
+(defn- report-failure!
+  "Record `label` against THIS row, release its root, and DELIBERATELY
+  DO NOT finish the row — the chain's single trailing `done` does that.
+
+  **A rejection handler may not sit downstream of the `.then` that calls
+  `done` (rf2-d3tc).** `cljs.test/run-block` hands `done` a continuation
+  that runs the WHOLE REMAINDER of the suite synchronously — this file's
+  later rows, then every namespace after it — so anything out there that
+  throws unwinds all the way back into the callback that called `done`.
+  A `.catch` placed after that callback then claims a foreign failure as
+  its own, and every part of what it prints is wrong: this row's label,
+  against whichever test is current by then, reading a DOM its own
+  teardown already emptied (`DOM was \"\"`, `residue {:cells 0 …}`) and
+  a message that is blank because what cljs.test threw was a bare
+  String. It then calls `done` a second time — which does not merely
+  warn, it re-forces `run-block`'s delay, since a delay whose body threw
+  is still unrealized, and runs the offending namespace again.
+
+  So the repair is positional, and it is the shape
+  [[re-frame.hicasso.checkpoint-support/at-the-checkpoint]] already
+  uses: report here, fall through to ONE `done` at the tail of the
+  chain, and leave nothing after that `done` to catch what the rest of
+  the run throws. A failure out there is not this row's to report."
+  [label handle]
   (fn [e]
     (is false (str label " — " (.-message e)
                    " | DOM was " (pr-str (when handle (text handle)))
                    " | residue " (pr-str (dissoc (inventory/residue) :entries))))
     (when handle (mount/release! handle))
-    (done)))
+    nil))
 
 ;; ---------------------------------------------------------------------------
 ;; W1. The mounted boundary, and the first render opportunity after the
@@ -258,9 +280,9 @@
                           (mount/unmount! handle)
                           (.then (inventory/quiesced!)
                                  (fn [_] (mount/release! handle) nil))))
-                      (.then (fn [_] (done)))
-                      (.catch (fail-and-finish! done "W1 paint-order witness" handle))))))
-            (.catch (fail-and-finish! done "W1 paint-order witness" nil)))))))
+                      (.catch (report-failure! "W1 paint-order witness" handle))))))
+            (.catch (report-failure! "W1 paint-order witness" nil))
+            (.then (fn [_] (done))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; W1's sabotage — Evidence law 3
@@ -318,9 +340,9 @@
                         (mount/unmount! handle)
                         (.then (inventory/quiesced!)
                                (fn [_] (mount/release! handle) nil))))
-                    (.then (fn [_] (done)))
-                    (.catch (fail-and-finish! done "W1 sabotage control" handle)))))
-            (.catch (fail-and-finish! done "W1 sabotage control" nil)))))))
+                    (.catch (report-failure! "W1 sabotage control" handle)))))
+            (.catch (report-failure! "W1 sabotage control" nil))
+            (.then (fn [_] (done))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; W2. The staged render→commit gap — the bead's point 4
@@ -401,8 +423,8 @@
                   (mount/unmount! handle)
                   (.then (inventory/quiesced!)
                          (fn [_] (mount/release! handle) nil))))
-              (.then (fn [_] (done)))
-              (.catch (fail-and-finish! done "W2 staged-gap witness" handle))))))))
+              (.catch (report-failure! "W2 staged-gap witness" handle))
+              (.then (fn [_] (done)))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; The population, asserted rather than described
