@@ -5,12 +5,37 @@
 
   ## What this file is, said plainly
 
-  It is a **RECORD OF A REFUSAL, not a proof of parity.** Presence has a
-  server/client seam and the seam is currently OPEN: the client half
-  exists and the server half does not. Every row below drives
+  It is a **RECORD OF A MISSING REFUSAL, not a proof of parity.**
+  Presence has a server/client seam and the seam is currently OPEN: the
+  client half exists and the server half does not. Every row below drives
   `react-dom/server` for real and hydrates those actual bytes, and what
   they establish is the divergence, its cause, and the exact shape of the
   repair that closes it. Nothing here claims presence round-trips.
+
+  ## The surface is dispositioned, and it does not do what its
+  disposition says
+
+  `docs/design/hicasso/product/dispositions.md` HS-33 — *optional motion
+  and presence module* — carries the operative disposition **Client-only
+  — refusal until rf2-hic-046**, and the canonical two-policy matrix
+  (`lanes/react-compatibility-notes.md`) states what bare Client-only
+  owes: the surface is *\"absent from the server bytes, with nothing there
+  to hydrate, mounting after adoption\"*, and the table's own third note
+  adds that *\"a Client-only row still owes a witness … an unproved
+  refusal is not a disposition.\"*
+
+  Measured, the tray does neither. It is not absent from the server bytes
+  — §1 finds its children right there in them, wearing the `:mounting`
+  enter phase — and it is not Render either, because §3 finds those bytes
+  fail to hydrate and the adoption is discarded. It occupies the third
+  state the two-policy matrix exists to forbid: **server bytes that no
+  client can adopt.** There is no refusal at source, no deterministic
+  fallback, and no parity.
+
+  That is the finding, and it is why this file records rather than
+  upgrades. Which of the two policies presence should take is a product
+  decision above this dispatch's fence; both are reachable from here and
+  §1's control shows exactly what the Render arm costs.
 
   ## The census that says so
 
@@ -78,10 +103,13 @@
 
   ## What closes this file
 
-  A product server-render door that mints one window per request and
-  scopes it over that request's tree — the fifth item of rf2-6tmu's
-  adopted repair shape, explicitly deferred there to rf2-hic-046. When it
-  lands:
+  Either arm of the two-policy matrix, taken deliberately.
+
+  **RENDER.** A product server-render door that mints one window per
+  request and scopes it over that request's tree — the fifth item of
+  rf2-6tmu's adopted repair shape, explicitly deferred there to
+  rf2-hic-046. §1's control is that door in one line, so the cost is
+  already measured. When it lands:
 
     §1  the `\"mounting\"` expectation becomes `\"present\"`, and the
         hand-installed control is deleted because the product does it.
@@ -93,6 +121,13 @@
         already said `present`. It becomes the parity row hic-046 asks
         for, on the same construction.
     §4  is unchanged. It is the control, and a repair must not move it.
+
+  **CLIENT-ONLY**, which is what HS-33 says today. The tray refuses at
+  source on a server render and emits nothing (or its declared fallback),
+  so §1 asserts the ABSENCE the bare arm requires and the refusal's own
+  firing, §2 and §3 are deleted — there are no tray bytes left to
+  disagree about or to hydrate — and a new row proves the tray mounts
+  after adoption with its enter transition intact. §4 again unchanged.
 
   Do not re-pin any of the four by loosening an assertion. Each names its
   replacement above; a repair rewrites them.
@@ -268,6 +303,16 @@
       (is (re-find #"alpha" real)
           (str "the frame's subscription resolved server-side — " real)))
 
+    (testing "HS-33's Client-only refusal DOES NOT FIRE. The bare arm of
+              that policy requires the surface to be absent from the server
+              bytes with nothing there to hydrate; the tray's child is in
+              them, so the disposition is unwitnessed and the runtime
+              contradicts it. Nothing refuses at source and no fallback
+              stands in its place — the tray simply renders"
+      (is (some? (probe-text real))
+          (str "the presence child reached the server bytes — " real))
+      (is (re-find #"class=\"probe\"" real)))
+
     (testing "and the presence child is `:mounting` in the bytes a real
               `react-dom/server` render delivers. No product door installs
               the adoption context on this path, so `adopting-here?` reads
@@ -348,8 +393,7 @@
                                " real=" (pr-str (probe-text real))
                                " — an equality here is the repair, and it
                                rewrites this row rather than relaxing it"))))
-                  (finally (done)))))
-            (.catch (fn [e] (is false (str "unexpected rejection: " e)) (done))))))))
+                  (finally (done))))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; §3 — hydrating the REAL server bytes diverges, and the adoption is lost
