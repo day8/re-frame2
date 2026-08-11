@@ -553,6 +553,12 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
   ];
   const CITED = { layout: 2.06, style: 1.85, script: 2.3 };
 
+  // rf2-dzus: the row's own clock grain, as `runRow` hands it over — the
+  // distinct non-zero per-sample `TaskDuration` deltas, sorted at the
+  // measuring site. Deliberately unsorted-looking nowhere: the smallest is
+  // first because that is the contract `report` prints against.
+  const FIXTURE_GRAIN = [0.094, 0.107, 0.123, 0.152];
+
   // What the row DECLARES itself to be: the arms its plan named and the
   // dimensions its design ran. Both travel beside the split rather than out of
   // it — `report` reads them from the row and the run's design, a reader of a
@@ -570,6 +576,7 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
     blocksNet: [[{ floor: [1, 2], 'ctl-2x': [2, 4] }]],
     blocksInPage: [[{ floor: [1, 2], 'ctl-2x': [2, 4] }]],
     blocksDecomp: FIXTURE_DECOMP,
+    granularity: FIXTURE_GRAIN,
     tally: { writes: 36, unverified: 0 },
     runtime: 'fixture',
     quiet: { ok: true },
@@ -629,6 +636,30 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
     delete legacy.blocksDecomp;
     assert.throws(() => foldDecomposition(legacy.blocksDecomp, DECLARED), /NOT recomputable/);
     assert.throws(() => foldDecomposition([], DECLARED), /NOT recomputable/);
+  });
+
+  // --- rf2-dzus: the clock's grain must reach the file too -------------------
+  //
+  // The same species as the split above, one level down and about the
+  // INSTRUMENT rather than the arm. `runRow` accumulates the distinct
+  // non-zero per-sample `TaskDuration` deltas and `report` prints the
+  // smallest as the row's grain; `datasetFor` dropped the set. A dataset of
+  // durations that does not record the resolution they were measured at
+  // cannot say from itself whether a quantity was measurable — the answer
+  // has to come from a remembered constant, which is the exact failure
+  // rf2-d2tzk closed on the in-page clock. Hermetic, like the tests above:
+  // what regressed is what the serialiser keeps, so no measurement is taken
+  // here and none is needed.
+
+  t('the grain the row measured reaches the written dataset', () => {
+    assert.deepStrictEqual(written().granularity, FIXTURE_GRAIN);
+  });
+
+  t('the smallest interval the clock resolved is recoverable from the file alone', () => {
+    // `report` prints `granularity[0]` as the row's grain, and the set is
+    // sorted where it is measured — so the file carries the printed number
+    // rather than requiring somebody to have kept the console.
+    assert.strictEqual(written().granularity[0], Math.min(...FIXTURE_GRAIN));
   });
 
   // Every committed census row, paired with the declared shape its own file
@@ -2040,6 +2071,21 @@ test('census P4 is now KEPT: its own prediction of a refusal reaches the exit', 
     // a consumer that finds no `canonical` field has not found a pass.
     assert.match(SRC, /canonical: meta\.dest\.canonical/);
     assert.match(SRC, /notCanonicalWhy: meta\.dest\.why/);
+  });
+
+  // rf2-dzus, on the driver whose `datasetFor` is not exported: the check the
+  // census block above makes behaviourally, made here the way this block
+  // already makes its others. Both halves are pinned — the site that MEASURES
+  // the grain and the line that KEEPS it — because a serialiser naming a
+  // field the row stopped collecting is the same silent nothing as a row
+  // collecting a field nobody serialises.
+  t("the clock's own grain is measured, and then kept", () => {
+    assert.match(SRC, /if \(d\.task > 0\) granularity\.add\(d\.task\);/);
+    const KEPT = /^\s*granularity: r\.granularity,$/m;
+    assert.match(SRC, KEPT);
+    // ... and the check refuses the shape it was written against, so it
+    // cannot pass by matching something that is always there.
+    assert.ok(!KEPT.test(SRC.replace(/^[ \t]*granularity: r\.granularity,\r?\n/m, '')));
   });
 
   t('the dataset is built OUTSIDE `drive`, so recording never looks like deciding', () => {
