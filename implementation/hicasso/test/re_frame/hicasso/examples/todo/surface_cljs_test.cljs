@@ -10,7 +10,7 @@
   what the build was built from, including the edges a `:refer`, a
   `:use` or a `:require-macros` establishes and an `ns`-form regex would
   miss. `h/defview` is a MACRO, so the macro edge is not a hypothetical
-  here. See [[re-frame.hicasso.examples.todo.require-graph]] for the
+  here. See [[re-frame.hicasso.examples.require-graph]] for the
   mechanism and for why the emitted graph cannot go stale.
 
   ## Two claims, and they are different
@@ -36,7 +36,7 @@
             [re-frame.hicasso.examples.todo.routes]
             [re-frame.hicasso.examples.todo.subs]
             [re-frame.hicasso.examples.todo.views])
-  (:require-macros [re-frame.hicasso.examples.todo.require-graph :as rg]))
+  (:require-macros [re-frame.hicasso.examples.require-graph :as rg]))
 
 (def ^:private app-namespaces
   "Every namespace this APPLICATION is made of. The test suites are

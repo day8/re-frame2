@@ -4,7 +4,7 @@ What it was like to write the *other* ordinary application on the Hicasso public
 
 The application is `re-frame.hicasso.examples.todo.*` under `implementation/hicasso/test/`. Six namespaces, four suites. Add, toggle, toggle-all, delete, clear-completed, edit-in-place with Enter and Escape, a keyed list, chrome that comes and goes, and a filter that is three URLs rather than a key in `app-db`.
 
-It is deliberately the second reading of one instrument. `rf2-hic-025`'s slice is the RealWorld-class arm and its report (`authoring-report-slice.md`) records nine findings; **this report's first job is to say which of them a different application confirms, bounds or never meets**, and only then to add its own. A finding two independent applications hit is a fact about the surface; a finding one application hit is a fact about that application until a second one says otherwise.
+It is deliberately the second reading of one instrument. `rf2-hic-025`'s slice is the RealWorld-class arm and [its report](authoring-report-slice.md) records nine findings; **this report's first job is to say which of them a different application confirms, bounds or never meets**, and only then to add its own. A finding two independent applications hit is a fact about the surface; a finding one application hit is a fact about that application until a second one says otherwise.
 
 > **This report records what the surface was like to use.** It proposes no renames and takes no decisions. Where a finding has an obvious remedy the remedy is named as a *candidate*, for the freeze to accept or reject.
 
@@ -25,7 +25,7 @@ It is deliberately the second reading of one instrument. `rf2-hic-025`'s slice i
 
 The load-bearing observation for the freeze is the comparison, not the list: **the Todo-class application reached a strict SUBSET of the names the slice reached.** Two independent ordinary applications, chosen to be as unlike each other as the ordinary gets, reached nine names between them and neither reached `hfn`, `hframe`, `portal`, `as-element`, `as-component` or `defhost`. The Todo app adds exactly one thing to the union that the slice did not use, and it is not a name: it is the key-map event shape.
 
-Import discipline is asserted mechanically rather than reviewed. `surface-cljs-test` reads each application namespace's `:requires` / `:require-macros` / `:uses` / `:use-macros` off the ClojureScript analyzer and pins a roster of five, with a sabotage row proving each fence predicate fires. The fifth entry against the slice's four is `clojure.string` — `trim` on a submitted title and one `join` of two class names. Worth saying out loud: the difference between the two witness applications' foreign dependencies is a standard-library namespace, not a door.
+Import discipline is asserted mechanically rather than reviewed. `surface-cljs-test` reads each application namespace's `:requires` / `:require-macros` / `:uses` / `:use-macros` off the ClojureScript analyzer — through `re-frame.hicasso.examples.require-graph`, which is now **one** macro serving both witnesses rather than the copy each bead wrote in parallel (rf2-urgk) — and pins a roster of five, with a sabotage row proving each fence predicate fires. The fifth entry against the slice's four is `clojure.string` — `trim` on a submitted title and one `join` of two class names. Worth saying out loud: the difference between the two witness applications' foreign dependencies is a standard-library namespace, not a door.
 
 ## The slice's nine, read from a second application
 

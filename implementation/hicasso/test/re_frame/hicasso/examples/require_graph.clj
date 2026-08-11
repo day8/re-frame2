@@ -1,13 +1,16 @@
-(ns re-frame.hicasso.examples.slice.require-graph
-  "READ THE SLICE'S OWN DEPENDENCY EDGES OFF THE ANALYZER (rf2-hic-025).
+(ns re-frame.hicasso.examples.require-graph
+  "READ A WITNESS APPLICATION'S DEPENDENCY EDGES OFF THE ANALYZER
+  (rf2-hic-025, rf2-hic-086).
 
-  The bead's acceptance is *zero `re-frame.hicasso.impl` imports in app
-  code, enforced by a test*. A test can enforce that in three ways and
-  only one of them is worth having:
+  Both witness applications under `examples/` are evidence about the
+  PUBLIC DOOR, and each is worth exactly as much as the claim that it was
+  written on that door and nothing else. Their beads spell the claim the
+  same way — *zero `impl` imports in app code, enforced by a test* — and
+  a test can enforce it in three ways, only one of which is worth having:
 
   - **Read the `:require` list and believe it.** That is not a test.
   - **Grep the source text.** Better, and still a claim about
-    characters: a `(require …)` at runtime, an alias introduced by a
+    characters: a runtime `(require …)`, an alias introduced by a
     `:refer`, or a namespace reached through `:use-macros` all evade a
     regex over the `ns` form, and a comment mentioning `impl` trips one.
   - **Ask the compiler.** ClojureScript's analyzer holds, for every
@@ -29,6 +32,15 @@
   recompiled, and the test namespace that depends on it is recompiled
   too — with this macro re-expanded against the new graph.
 
+  ## Why it sits at the `examples/` root (rf2-urgk)
+
+  It was written twice. rf2-hic-025 wrote it for the slice, rf2-hic-086
+  wrote it again for the Todo witness, and neither branch could
+  `:require` the other's namespace because the two beads ran in parallel
+  off one base. Both copies were the same file bar the docstring. This
+  is the one copy, at the root both applications sit under, consumed by
+  both `surface-cljs-test` namespaces.
+
   ## Scope
 
   Macro-expansion only, and JVM-only by construction (a `.clj`). It
@@ -46,7 +58,8 @@
   ClojureScript ones, `:require-macros` and `:use-macros` the Clojure
   ones a `:require-macros` / `(:require … :refer-macros)` establishes. A
   check that read only `:requires` would be blind to exactly the door a
-  macro reaches through.
+  macro reaches through — which matters here, because `h/defview` IS a
+  macro and the door is reached both ways.
 
   Three edges are dropped, and all three are the COMPILER's rather than
   the author's: the namespace's own name (the analyzer records a
@@ -54,10 +67,7 @@
   Closure Library root every analysed ClojureScript namespace carries
   whether or not a line of its source mentions it. Nothing else is
   filtered; in particular no `re-frame.*` edge is, which is the half a
-  filter could quietly hollow out.
-
-  A plain function rather than macro-only code so it is readable, and so
-  its filtering is one expression a reader can check."
+  filter could quietly hollow out."
   [state ns-sym]
   (let [info (ana-api/find-ns state ns-sym)]
     (into (sorted-set)
