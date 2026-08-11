@@ -45,6 +45,56 @@
   surface, no telemetry: each of those is an application's decision, and
   `:on-error` is the door it makes them behind.
 
+  ## \"Nothing else\" is now REFUSED rather than merely stated (rf2-czlb)
+
+  The three keys above, plus the `:children` the codec writes from the
+  trailing forms, are the whole of [[prop-roster]], and [[check-props!]]
+  refuses anything outside it. Until it did, `{:on-errors …}` minted,
+  crossed `rfProps` intact, and was consulted by nothing — and so did
+  `{:resetKey …}` and `{:fall-back …}`. `mint-host!` had refused the
+  same class at a `defhost` declaration since rf2-hic-007, with its own
+  message giving the reason — *\"reading past an option it does not know
+  is how a policy comes to be set and never applied\"* — and this was the
+  one declaration surface in the package without the guard. It was also
+  the surface whose silent failure is worst: an error boundary that
+  reports nothing, wearing an `:on-error` that says it does.
+
+  A **shape** check on `:on-error` rides the same guard, because the
+  silent trap has a second door. [[report!]] is `(cond (vector? …) …
+  (fn? …) … :else nil)`, so `{:on-error :app/boundary-failed}` — a bare
+  intent keyword, which is what somebody writes who has not yet noticed
+  intents are vectors here — swallowed every caught error and returned
+  nil.
+
+  ### Why the shape is refused HERE and not in `report!`
+
+  The obvious place for a shape check is the arm that consumes the
+  shape, and it is the wrong one. [[report!]] runs from
+  `componentDidCatch`, which is to say **only after something below has
+  already thrown**: a refusal raised there replaces the application's
+  real error with a complaint about the declaration, escapes to the next
+  boundary up, and takes the error path down with it — precisely the
+  failure the `:fallback` lowering above exists to prevent, arrived at
+  from the other side. React runs this class's `render` before it can
+  ever run its `componentDidCatch`, so refusing here is strictly
+  earlier: a bad `:on-error` is reported on the first paint, in the
+  ordinary course of loading the page, rather than on the first failure.
+  By the time [[report!]] runs, `:on-error` is nil, a vector or a
+  function, and its last arm means *no `:on-error` was declared* — which
+  is what it now says.
+
+  ### Why a throw from `render` is acceptable when one from `report!` is not
+
+  Both escape to the boundary above. The difference is that this one
+  **cannot lie dormant**: the props map is a literal written one body up,
+  so the refusal fires on the very first render, deterministically, on
+  every run — it is a declaration fault caught at the first moment the
+  declaration is reachable, not a conditional error path that waits for
+  bad luck. The codec already raises
+  `:rf.error/hicasso-intent-outside-boundary` out of this same render for
+  the same reason, so the precedent is inside this class rather than
+  beside it.
+
   ## Once per failure, and why that needs NO flag — measured, not assumed
 
   `:on-error` fires from `componentDidCatch` and from nowhere else, so it
@@ -118,6 +168,7 @@
   (:require [re-frame.adapter.context :as adapter-context]
             [re-frame.hicasso.impl.codec :as codec]
             [re-frame.hicasso.impl.collector :as collector]
+            [re-frame.hicasso.impl.error :refer [fail!]]
             [re-frame.hicasso.impl.intent :as intent]
             ["react" :as react]))
 
@@ -126,6 +177,59 @@
   `rfProps` — the same crossing every `defview` product reads."
   [^js this]
   (or (unchecked-get (.-props this) "rfProps") {}))
+
+(def ^:private prop-roster
+  "**The closed set of keys a boundary's props map may carry.** Three are
+  the author's — the table in the namespace docstring — and `:children`
+  is the codec's, written by `impl.codec/boundary-element` from the
+  trailing forms.
+
+  Four rather than three, and stated as data rather than as a `case`,
+  because the refusal has to name the roster it checked: the author who
+  wrote `:on-errors` is told what the four are, from the same value the
+  guard read. `:key` never reaches here (`boundary-element` strips it
+  onto the React props) and neither does `:&` (`merge-caller` folds it
+  before the hand-off), so both are absent by construction rather than
+  by exemption."
+  #{:on-error :reset-key :fallback :children})
+
+(defn- check-props!
+  "Refuse a props map outside [[prop-roster]], and an `:on-error` outside
+  the two shapes that can fire. Returns `props`, so the one call site
+  reads as the read it already was.
+
+  The doseq is `mint-host!`'s, deliberately — this is the same refusal
+  class one surface over, and the comparator whose absence here was the
+  defect. Cost is one `contains?` per key of a map that legally holds
+  four, on a component that renders when its own props or its caught
+  error change; the walk of `:children` in the same render is orders of
+  magnitude more work."
+  [props]
+  (doseq [k (keys props)]
+    (when-not (contains? prop-roster k)
+      (fail! :rf.error/hicasso-boundary-unknown-prop
+             're-frame.hicasso.impl.boundary/boundary
+             (str "h/boundary was given " (pr-str k) ", which is not one of "
+                  "its props. A boundary carries :fallback, :reset-key and "
+                  ":on-error, and its :children are the trailing forms rather "
+                  "than a key you write. A misspelling here is not an ignored "
+                  "option: it is an error boundary that reports nothing, "
+                  "wearing a declaration that says it does.")
+             :write-fallback-reset-key-or-on-error
+             {:prop k :props prop-roster})))
+  (let [on-error (:on-error props)]
+    (when-not (or (nil? on-error) (vector? on-error) (fn? on-error))
+      (fail! :rf.error/hicasso-boundary-bad-on-error
+             're-frame.hicasso.impl.boundary/boundary
+             (str "h/boundary's :on-error was " (pr-str on-error)
+                  ", which nothing can fire. It takes an INTENT VECTOR, "
+                  "dispatched with the error appended into the frame the "
+                  "boundary is mounted under, or a FUNCTION called with the "
+                  "error. A bare keyword is not an intent here — wrap it: "
+                  "[:app/failed].")
+             :hand-an-intent-vector-or-a-one-argument-function
+             {:value on-error})))
+  props)
 
 (defn- frame-of
   "The frame this boundary is mounted under, read through `contextType`."
@@ -138,7 +242,14 @@
   boundary is mounted under; a function is called with the error.
 
   **Called from `componentDidCatch` and from nowhere else**, which is what
-  makes it once per failure without a flag to make it so."
+  makes it once per failure without a flag to make it so.
+
+  The last arm means **no `:on-error` was declared**, and nothing else:
+  [[check-props!]] ran in this instance's own render — which React
+  always runs before it can run `componentDidCatch` — so every other
+  shape was refused there, where the refusal does not cost the
+  application its error path (rf2-czlb, and the namespace docstring's
+  argument for the placement)."
   [^js this error]
   (let [on-error (:on-error (props-of this))]
     (cond
@@ -191,7 +302,13 @@
     (set! (.-render proto)
           (fn []
             (this-as ^js this
-              (let [{:keys [fallback children]} (props-of this)
+              ;; THE ROSTER AND THE SHAPE, once per render and before
+              ;; anything is read off the map (rf2-czlb). Here rather
+              ;; than in `report!` because React runs this before it can
+              ;; run `componentDidCatch`, so a bad declaration is
+              ;; refused on the first paint instead of being discovered
+              ;; by — and then destroying — the first real failure.
+              (let [{:keys [fallback children]} (check-props! (props-of this))
                     error    (unchecked-get (.-state this) "error")
                     frame-kw (frame-of this)]
                 ;; THE LOWERING, inside the frame (rf2-uo9di). The fallback

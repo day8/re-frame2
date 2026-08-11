@@ -93,6 +93,8 @@ rowed in the Hicasso section, and is the single live id without the
 | Complaint | Raised when you | Taught in |
 |---|---|---|
 | `:rf.error/hicasso-bad-head` | put something outside the closed head set in hiccup head position | ch02, ch06, ch15 |
+| `:rf.error/hicasso-boundary-bad-on-error` | gave `h/boundary` an `:on-error` that is neither an intent vector nor a function, so nothing could fire it | — |
+| `:rf.error/hicasso-boundary-unknown-prop` | wrote a key outside `h/boundary`'s closed roster — a misspelled `:on-error` is an error boundary that reports nothing | — |
 | `:rf.error/hicasso-deferred-read-at-boundary` | let an unforced `delay` reach a boundary's props | ch02, ch14, ch15 |
 | `:rf.error/hicasso-dispatch-in-render-position` | dispatched from a render callback while it was running | ch03, ch09 |
 | `:rf.error/hicasso-empty-vector` | wrote `[]` where hiccup was expected | — |
