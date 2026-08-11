@@ -2009,7 +2009,7 @@
 (def set-operating-frame
   {:name "set-operating-frame"
    :description (str "Pin the session's OPERATING FRAME — the FRAME that frame-targeted ops (dispatch, "
-                     "snapshot, get-path, subscribe, list-subscriptions, …) resolve to when you DON'T "
+                     "snapshot, get-path, read-sub, list-subscriptions, …) resolve to when you DON'T "
                      "pass a per-call :frame. The public address is the FRAME id (EP-0023's image -> "
                      "frame -> event-stream model targets a frame; the old EP-0013 (realm, frame) address "
                      "collapses to one public frame-id space). re-frame2 is multi-frame (Spec 002): with "
@@ -2023,6 +2023,9 @@
                      "so you can confirm the pin took. The pin persists for the session "
                      "(implicit-until-reset); clear it with reset-operating-frame, or a runtime reload "
                      "clears it automatically. "
+                     "ONE EXCEPTION — subscribe: it takes no :frame argument and never consults the pin, "
+                     "so a pinned session still streams events from EVERY frame. Scope a stream with the "
+                     "subscribe filter instead: {:frame :foo}. "
                      "Examples: "
                      "1. Pin a frame: {:frame \":stories\"} -> {:ok? true :frames [:rf/default :stories] :selected :stories :operating :stories ...}. "
                      "2. Unknown frame: {:frame \":nope\"} -> {:ok? false :reason :no-such-frame :frame :nope :frames [:rf/default :stories]}. "
