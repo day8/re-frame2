@@ -163,6 +163,14 @@
   ;; rf2-3d987 issue #4 — toggle the per-machine chart-collapsed flag.
   ;; `mode` is :collapsed / :expanded / :toggle. Persists the post-mutation
   ;; map to localStorage so the operator's choice survives reloads.
+  ;;
+  ;; rf2-04tx — the persist fx rides `:fx`, not the top level. The effect
+  ;; map is CLOSED (`#{:db :rf.db/runtime :fx}` plus the four EP-0025
+  ;; classification keys, per Spec 002 §Write authority): an fx-id sitting
+  ;; at the top level is policed as `:rf.error/effect-map-shape` and
+  ;; DROPPED, so the localStorage write never happened and the operator's
+  ;; collapse choice never survived a reload. The `:db` write landed either
+  ;; way, so the toggle looked like it worked.
   (rf/reg-event :rf.xray.machine-canvas/set-chart-collapsed
     (fn [{:keys [db]} [_ {:keys [machine-id mode]}]]
       (let [current (chart-collapsed-of db machine-id)
@@ -175,7 +183,7 @@
                               next)
             by-id   (get-in db' [slot-root :chart-collapsed-by-id])]
         {:db db'
-         :rf.xray.machine-canvas/persist-chart-collapsed by-id})))
+         :fx [[:rf.xray.machine-canvas/persist-chart-collapsed by-id]]})))
 
   (rf/reg-event :rf.xray.machine-canvas/hydrate-chart-collapsed
     (fn [{:keys [db]} [_ by-id]]
