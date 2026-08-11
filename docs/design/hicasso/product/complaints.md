@@ -250,6 +250,24 @@ undertook to hold still. Freezing both would put every refusal's advice
 under the id's contract, and leave the substrate telling a programmer to
 type a word that no longer exists.
 
+**`:rf.error/hicasso-host-bad-ssr-policy` keeps its spelling too, and for the
+same reason.** `defhost`'s policy option settles as `:server` with a sibling
+`:fallback` (naming-ledger row 21, applied by rf2-mo4o), so this id names a key
+a caller no longer writes. Rule 1 is not triggered: the refusal means what it
+always meant — *this declaration does not name a server policy the door can
+honour* — and it now covers one more way to fail that question, `:fallback`
+declared beside `:render`, which is the same fault rather than a different one.
+No id was minted and none retired. The two recovery keywords that named the
+retired option moved with it, as row 23's did and in ONE pass across the
+runtime, the witnesses and the Spec 009 rows:
+`:declare-client-only-a-fallback-or-render` is now
+`:declare-render-or-client-only-with-an-optional-fallback`, and
+`:write-inert-hiccup-or-declare-ssr-render` is now
+`:write-inert-hiccup-or-declare-server-render`. `defhost`'s unknown-option
+recovery moved on the same terms (`:declare-callbacks-or-ssr` →
+`:declare-callbacks-slots-server-or-fallback`), because it enumerates the roster
+and the roster changed.
+
 **`:rf.error/hicasso-test-bad-reads` keeps its spelling.** The L2 fixture
 option it polices settles as `:subs` (naming-ledger row 23), so the id names
 a key a caller no longer writes. That is not a rule-1 trigger: the refusal
