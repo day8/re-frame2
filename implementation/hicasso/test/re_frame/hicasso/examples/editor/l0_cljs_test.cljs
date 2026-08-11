@@ -28,7 +28,7 @@
   `docs/design/hicasso/draft-guide/18-performance.md` §The cost of one
   keystroke describes. It is asserted here rather than there because it
   is a property of the model and needs no React to be true."
-  (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
+  (:require [cljs.test :refer-macros [deftest is use-fixtures]]
             [re-frame.adapter.uix :as uix-adapter]
             [re-frame.core :as rf]
             [re-frame.hicasso.examples.editor.app :as app]

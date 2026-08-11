@@ -21,7 +21,7 @@
 
   A body that grew a read reds this file before anything is mounted,
   which is the earliest a topology regression can be caught."
-  (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
+  (:require [cljs.test :refer-macros [deftest is use-fixtures]]
             [re-frame.adapter.uix :as uix-adapter]
             [re-frame.hicasso :as h]
             [re-frame.hicasso.examples.grid.events :as events]
