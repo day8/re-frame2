@@ -90,7 +90,11 @@
                                "every render of one live incarnation observed
                                 the IDENTICAL bundle — rf= memo-friendly, no
                                 per-render construction")))))))
-              (.then (fn [] (done)))
+              ;; The rejection handler sits UPSTREAM of the single trailing
+              ;; `done` (rf2-qpns): `done` runs the whole remainder of the run
+              ;; synchronously, so a `.catch` after it claims a foreign throw
+              ;; as this row's and fires `done` a second time.
               (.catch (fn [e]
                         (is false (str "mounted (frame) fixture rejected: " e))
-                        (done)))))))))
+                        nil))
+              (.then (fn [] (done)))))))))

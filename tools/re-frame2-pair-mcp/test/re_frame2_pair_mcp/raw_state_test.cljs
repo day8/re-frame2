@@ -363,6 +363,11 @@
         (is (= 1 @calls)
             "concurrent in-flight signals for the same build share ONE configure round-trip")
         (when-let [r @resolve-fn*] (r nil))
+        ;; The claim is already asserted above; this chain only waits for both
+        ;; signals to SETTLE, either way. The swallow sits UPSTREAM of the
+        ;; single trailing `done` (rf2-qpns) — `done` runs the whole remainder
+        ;; of the run synchronously, so a `.catch` after it would swallow a
+        ;; foreign throw and fire `done` a second time.
         (-> (js/Promise.all #js [p1 p2])
-            (.then (fn [_] (done)))
-            (.catch (fn [_] (done))))))))
+            (.catch (fn [_] nil))
+            (.then (fn [_] (done))))))))

@@ -225,14 +225,32 @@
            (mount/release! handle)
            nil)))
 
-(defn- fail-and-finish!
-  [done label handle]
+(defn- report-failure!
+  "Record `label` against THIS row, release its root, and DELIBERATELY DO
+  NOT finish the row — the chain's single trailing `done` does that.
+
+  **A rejection handler may not sit downstream of the `.then` that calls
+  `done` (rf2-qpns).** `cljs.test/run-block` hands `done` a continuation
+  that runs the WHOLE REMAINDER of the run synchronously, so anything out
+  there that throws unwinds back into the callback that called `done`. A
+  `.catch` placed after that callback claims the foreign failure as its
+  own — this row's label, against whichever test is current by then,
+  reading a DOM its own teardown already emptied — and then calls `done` a
+  SECOND time, which does not merely warn: it re-forces `run-block`'s
+  delay, since a delay whose body threw is still unrealized, and runs the
+  offending namespace again.
+
+  The long-form account is on
+  [[re-frame.hicasso.reincarnation-paint-dom-cljs-test]]'s own
+  `report-failure!` (rf2-d3tc); the shape is the one
+  [[re-frame.hicasso.checkpoint-support/at-the-checkpoint]] already uses."
+  [label handle]
   (fn [e]
     (is false (str label " — " (.-message e)
                    " | DOM was " (pr-str (when handle (text handle)))
                    " | ownership " (pr-str (ownership))))
     (when handle (mount/release! handle))
-    (done)))
+    nil))
 
 (defn- make-gate
   "A REAL React suspension: a component that throws a thenable until it is
@@ -320,8 +338,8 @@
                          (ownership))))
                 (exercised! :suspense/abandon-and-retry)
                 (teardown-census! handle)))
-            (.then (fn [_] (done)))
-            (.catch (fail-and-finish! done "suspense witness" handle)))))))
+            (.catch (report-failure! "suspense witness" handle))
+            (.then (fn [_] (done))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 2. Transition abort — React renders the new tree and drops it whole
@@ -398,8 +416,8 @@
                          (ownership))))
                 (exercised! :transition/abort-and-complete)
                 (teardown-census! handle)))
-            (.then (fn [_] (done)))
-            (.catch (fail-and-finish! done "transition witness" handle)))))))
+            (.catch (report-failure! "transition witness" handle))
+            (.then (fn [_] (done))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 3. StrictMode — two body runs, one mount/unmount/remount, one acquisition
@@ -457,8 +475,8 @@
                   (is (= 2 (:entries (inventory/residue)))))
                 (exercised! :strict-mode/double-invoke)
                 (teardown-census! handle)))
-            (.then (fn [_] (done)))
-            (.catch (fail-and-finish! done "strictmode witness" handle)))))))
+            (.catch (report-failure! "strictmode witness" handle))
+            (.then (fn [_] (done))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 4. Error then retry — a render-phase throw, caught and retried
@@ -508,10 +526,12 @@
                          (ownership))))
                 (exercised! :error-boundary/throw-and-retry)
                 (teardown-census! handle)))
-            (.then (fn [_] (reset! !throw? false) (done)))
-            (.catch (fn [e]
-                      (reset! !throw? false)
-                      ((fail-and-finish! done "error-retry witness" handle) e))))))))
+            ;; `!throw?` is disarmed on the single trailing step, which runs on
+            ;; BOTH paths — the `.catch` returns normally rather than finishing
+            ;; the row — so the reset that used to be duplicated across the two
+            ;; arms is now stated once.
+            (.catch (report-failure! "error-retry witness" handle))
+            (.then (fn [_] (reset! !throw? false) (done))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 5. Delayed commit — a write inside the render→commit gap
@@ -563,8 +583,8 @@
 
                 (exercised! :render-to-commit-gap/heal)
                 (teardown-census! handle)))
-            (.then (fn [_] (done)))
-            (.catch (fail-and-finish! done "render-to-commit-gap witness" handle)))))))
+            (.catch (report-failure! "render-to-commit-gap witness" handle))
+            (.then (fn [_] (done))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; The population, asserted rather than described

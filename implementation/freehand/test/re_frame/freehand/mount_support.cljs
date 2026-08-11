@@ -432,7 +432,17 @@
   `done` accounting — a single broken cell can neither hang the suite nor
   double-fire `done` (which corrupts cljs.test's async state and stalls the
   whole run). This is the shape a matrix ROW takes: the same claim,
-  asserted once per mode, named by the mode label."
+  asserted once per mode, named by the mode label.
+
+  **The row's rejection handler sits UPSTREAM of the single trailing `done`
+  (rf2-qpns).** `cljs.test/run-block` hands `done` a continuation that runs
+  the WHOLE REMAINDER of the run synchronously — every later row, then every
+  namespace after this one — so anything out there that throws unwinds back
+  into the callback that called `done`. A `.catch` placed downstream of that
+  callback claims the foreign failure as this row's, prints it against
+  whichever test is current by then, and calls `done` a SECOND time, which
+  re-forces `run-block`'s still-unrealized delay and re-runs the offending
+  namespace. So the handler reports and falls through; it never finishes."
   [modes f done]
   (-> (reduce (fn [p mode]
                 (.then p (fn [_]
@@ -443,10 +453,10 @@
                                          nil))))))
               (js/Promise.resolve nil)
               modes)
-      (.then (fn [_] (done)))
       (.catch (fn [e]
                 (is false (str "a matrix row rejected: " e))
-                (done)))))
+                nil))
+      (.then (fn [_] (done)))))
 
 (defn run-async
   "Run `thunk` (which returns a promise) and then call `done` EXACTLY ONCE.
@@ -455,11 +465,14 @@
   synchronous throw becomes a rejection rather than escaping the chain and
   stranding `done`. The terminal shape for a cross-mode cell that mounts
   both modes itself: the body never calls `done`, so it cannot double-fire
-  it."
+  it.
+
+  The rejection handler is upstream of the single trailing `done` for the
+  reason [[each-mode]] states (rf2-qpns)."
   [thunk done]
   (-> (js/Promise.resolve nil)
       (.then (fn [_] (thunk)))
-      (.then (fn [_] (done)))
       (.catch (fn [e]
                 (is false (str "an async matrix cell rejected: " e))
-                (done)))))
+                nil))
+      (.then (fn [_] (done)))))

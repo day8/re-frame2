@@ -240,10 +240,14 @@
                        (is (some? (q container "td[data-cursor]"))
                            "a second operation on the same roster reached the host")
                        (act #(teardown! container mounted))))
-              (.then (fn [_] (done)))
+              ;; The rejection handler sits UPSTREAM of the single trailing
+              ;; `done` (rf2-qpns): `done` runs the whole remainder of the run
+              ;; synchronously, so a `.catch` after it claims a foreign throw
+              ;; as this row's and fires `done` a second time.
               (.catch (fn [e]
                         (is false (str "mount rejected: " e))
-                        (done)))))))))
+                        nil))
+              (.then (fn [_] (done)))))))))
 
 (deftest a-command-addresses-one-live-widget-and-not-its-neighbour
   (testing "Two live instances of the SAME registered behavior under DISTINCT
