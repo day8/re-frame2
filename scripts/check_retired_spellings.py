@@ -125,13 +125,20 @@ retired SHAPES:
         * The `/` rejects the bare namespace mentions (`front.sub-index`,
           `front.dogfood`, `front.intent`), which name a retired MODULE in
           provenance prose and resolve to nothing executable.
-        * Token start denies a preceding backtick — the same device rule (c)
-          uses — so `` `front.codec/realize-deep` `` in prose cannot fire even
-          where masking does not reach (a `.md` line, say). It also denies a
-          preceding `.`, so the honest fully-qualified
+        * Token start denies a preceding `.`, so the honest fully-qualified
           `re-frame.bench.hicasso.front.slot-cljs-test` stays green: that
           spelling names the prototype tree truthfully and is not a coordinate
           anyone could mistake for a shipped one.
+        * Token start denies a preceding BACKTICK **in Markdown only**, so
+          `` `front.codec/realize-deep` `` in prose cannot fire on a surface
+          where masking does not reach. In Clojure the backtick is not a prose
+          device at all — it is the SYNTAX-QUOTE reader macro, and
+          ``(def x `front.codec/realize-deep)`` is live code. Denying it there
+          bought nothing (a backticked mention in `.clj*` is inside a `;`
+          comment or a string, both already masked before this pattern runs)
+          and cost a hole exactly the size of a syntax-quoted coordinate, which
+          is why the boundary is SOURCE-KIND AWARE: `_COORD_SYMBOL_START_CLJ`
+          admits the backtick, `_COORD_SYMBOL_START_MD` refuses it.
 
       STRING: a double-quoted literal whose ENTIRE content is such a
       coordinate — the opening quote is immediately followed by `front.`/
@@ -140,6 +147,14 @@ retired SHAPES:
       keeps the rule off the two shipped refusal MESSAGES that name the
       prototype in backticked prose (`impl/collector.cljs:1738` and `:1790`) —
       those literals are sentences, so they carry spaces and cannot match.
+
+      Both delimiters must be REAL — a `"` preceded by a backslash is an
+      escaped quote INSIDE a larger literal, not a boundary of one. Without
+      that constraint the pattern read `\"front.codec/\"` in
+      `(def msg "the old assertion used \"front.codec/\" here")` as a whole
+      literal and reported quoted PROSE about the retirement as a
+      reintroduction of it — the mirror image of the miss above, and the more
+      annoying failure of the two, since it reds a correct edit.
 
 WHERE A SHAPE IS TOO AMBIGUOUS TO LINT WITHOUT NOISE (documented, not shipped)
 
@@ -387,14 +402,34 @@ _RETIRED_QUERY_RETAIN_RE = re.compile(
 #
 # SYMBOL. `front.<ns>/<name>` or `arm1.<ns>/<name>` as a delimited Clojure
 # symbol token. The namespace dot and the `/` are both mandatory (the member
-# after `/` is not, so the bare prefix `front.codec/` matches); token start
-# denies a preceding backtick AND a preceding `.`. Each of those four
-# constraints is what keeps a specific class of in-tree provenance prose green
-# — see (d) under "WHY THE SHAPES ARE SCOPED PRECISELY".
-_RETIRED_COORD_SYMBOL_RE = re.compile(
-    r"(?:^|(?<=[\s(\[{,'~@^]))"            # token start; a backtick denies it
+# after `/` is not, so the bare prefix `front.codec/` matches). Each constraint
+# keeps a specific class of in-tree provenance prose green — see (d) under
+# "WHY THE SHAPES ARE SCOPED PRECISELY".
+_COORD_SYMBOL_BODY = (
     r"(?:front|arm1)\.[\w.+!*?<>=-]+"      # namespace segment; dot MANDATORY
     r"/[\w.+!*?<>=-]*"                     # `/` mandatory, member optional
+)
+
+# Token start, and it is SOURCE-KIND AWARE in exactly one character. Both kinds
+# deny a preceding `.` (the honest fully-qualified `re-frame.bench.hicasso.*`
+# spelling stays green) and admit the reader macros that can legitimately
+# precede a coordinate.
+#
+#   * Clojure ADMITS the backtick: there it is the syntax-quote reader macro,
+#     so ``(def x `front.codec/realize-deep)`` is live code and must fire.
+#     Backticked PROSE in `.clj*` lives in a `;` comment or a string literal,
+#     both masked before this pattern runs, so admitting it costs nothing.
+#   * Markdown DENIES it: on a surface with no masking at all, the backtick is
+#     the entire prose defence — `` `front.codec/realize-deep` `` is the
+#     spelling the fix hint tells authors to use.
+_COORD_SYMBOL_START_CLJ = r"(?:^|(?<=[\s(\[{,'~@^`]))"
+_COORD_SYMBOL_START_MD = r"(?:^|(?<=[\s(\[{,'~@^]))"
+
+_RETIRED_COORD_SYMBOL_CLJ_RE = re.compile(
+    _COORD_SYMBOL_START_CLJ + _COORD_SYMBOL_BODY
+)
+_RETIRED_COORD_SYMBOL_MD_RE = re.compile(
+    _COORD_SYMBOL_START_MD + _COORD_SYMBOL_BODY
 )
 
 # STRING. A double-quoted literal whose ENTIRE content is such a coordinate:
@@ -403,8 +438,15 @@ _RETIRED_COORD_SYMBOL_RE = re.compile(
 # between (so a prose sentence naming the coordinate can never match). This is
 # the `(str/starts-with? (str (:where …)) "front.codec/")` shape that went red
 # in CI — the one a symbol-shaped check cannot see.
+#
+# BOTH delimiters must be REAL. `(?<!\\)` refuses a backslash-escaped quote,
+# which is a character inside a larger literal and not a boundary of one, and
+# the content class refuses a backslash for the same reason: a Clojure symbol
+# contains neither. Together they keep the rule off quoted PROSE about the
+# retirement — `(def msg "the old assertion used \"front.codec/\" here")` names
+# the retired spelling in order to say it is retired.
 _RETIRED_COORD_STRING_RE = re.compile(
-    r'"(?:front|arm1)\.[^"\s]*/[^"\s]*"'
+    r'(?<!\\)"(?:front|arm1)\.[^"\s\\]*/[^"\s\\]*(?<!\\)"'
 )
 
 
@@ -693,18 +735,27 @@ def _scan_coordinates(path: Path, text: str) -> list[Finding]:
     finding. On `.md` both patterns run raw, which is safe because the symbol
     pattern's token boundary already denies a preceding backtick and the string
     pattern already requires a whitespace-free whole literal.
+
+    That backtick denial is also the one place the two surfaces need DIFFERENT
+    patterns, and the difference follows from the masking above rather than
+    from taste: in Clojure a backtick is the syntax-quote reader macro and
+    prose is masked, so the coordinate must fire; in Markdown a backtick is
+    prose and nothing is masked, so it must not.
     """
     findings: list[Finding] = []
     raw = text.splitlines()
     prose = path.suffix == ".md"
     symbol_lines = raw if prose else _masked_lines(text)
     string_lines = raw if prose else _comment_masked_lines(text)
+    symbol_re = (
+        _RETIRED_COORD_SYMBOL_MD_RE if prose else _RETIRED_COORD_SYMBOL_CLJ_RE
+    )
 
     def raw_snippet(line_no: int) -> str:
         return raw[line_no - 1].strip() if 0 <= line_no - 1 < len(raw) else ""
 
     for line_no, line in enumerate(symbol_lines, start=1):
-        if _RETIRED_COORD_SYMBOL_RE.search(line):
+        if symbol_re.search(line):
             findings.append(
                 Finding(path, line_no, "retired-bench-coordinate:symbol",
                         raw_snippet(line_no))
@@ -771,8 +822,13 @@ _FIX_HINTS = {
         "assert against the PACKAGE prefix `\"re-frame.hicasso.impl.\"` rather "
         "than one file's, so the next move of a guard between `impl` "
         "namespaces does not red the row. If you are writing PROSE about the "
-        "prototype, backtick it (`` `front.codec/realize-deep` ``): a "
-        "backticked mention is provenance and this rule never fires on one."
+        "prototype: in Markdown, backtick it (`` `front.codec/realize-deep` "
+        "``) — a backticked mention there is provenance and this rule never "
+        "fires on one. In Clojure a backtick is the SYNTAX-QUOTE reader macro, "
+        "not a prose device, so it does not exempt anything; put the mention "
+        "in a `;` comment or a string, both of which the symbol rule masks. "
+        "Naming the coordinate inside a larger sentence is always safe — the "
+        "string rule fires only on a whole literal that IS the coordinate."
     ),
 }
 
@@ -954,11 +1010,17 @@ _COORD_SELF_TEST_CASES: tuple[tuple[str, int], ...] = (
     ("coord/positive/assertion_string_arm1.cljc",  1),
     ("coord/positive/spec_prose.md",               1),
     ("coord/positive/spec_code_block.md",          1),
+    # The third executable shape, and the one the PR #7867 audit found escaping
+    # rule (d): a syntax-quoted coordinate is live Clojure, not prose.
+    ("coord/positive/syntax_quoted_symbol.cljc",   1),
     # --- negatives: the corpus's real provenance prose must stay GREEN ---
     ("coord/negative/bare_comment_provenance.cljc", 0),
     ("coord/negative/refusal_message_prose.cljc",   0),
     ("coord/negative/shipped_coordinates.cljc",     0),
     ("coord/negative/spec_boundary_cases.md",       0),
+    # The false positive that shipped alongside the miss above: a retired
+    # coordinate quoted, with escaped quotes, inside a larger prose literal.
+    ("coord/negative/escaped_quote_in_prose_string.cljc", 0),
 )
 
 
