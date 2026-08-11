@@ -167,8 +167,10 @@
                         ":ambiguous-frame. The public address is the FRAME id "
                         "(EP-0023: image -> frame -> event stream); call "
                         "get-operating-frame to see the registered frames. "
-                        "subscribe is the exception — it takes no :frame and "
-                        "ignores the pin; scope a stream with its filter, "
+                        "subscribe is the exception — it takes no :frame and the "
+                        "pin does not scope its delivery (it only supplies the "
+                        "drain's elision fallback frame for a genuinely frameless "
+                        "event); scope a stream with its filter, "
                         "{:frame :stories}.")}))
 
       ;; Refuse pinning a reserved `:rf/*` TOOL frame as the session's
