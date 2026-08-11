@@ -59,23 +59,27 @@
   control shows the divergence is caused by the missing provider and by
   nothing else.
 
-  ## Two source comments currently overstate this, and they are OUTSIDE
-  this suite's fence
+  ## Two source comments used to overstate this, and no longer do
 
-  Both speak in the present tense about a server door that does not
-  exist. They are runtime source and this dispatch may not edit them;
-  they are recorded here so the next reader of either line finds the
-  measurement rather than trusting the prose:
+  Both spoke in the present tense about a server door that does not
+  exist. They are runtime source and THIS suite's dispatch could not
+  edit them, so it recorded them verbatim instead; rf2-kpig has since
+  corrected both, and each now names the measurement rather than a
+  mechanism:
 
-      impl/roots.cljs:54          \"Minted per `hydrate-root!` call and
-                                   per server render/request.\"
-      impl/presence_react.cljs:130 \"A SERVER render entry opens a window
-                                   of its own around its own request, so
-                                   the server's HTML and the client's
-                                   first pass agree by construction\"
+      impl/roots.cljs:54           the window is minted per
+                                   `hydrate-root!` call and that is
+                                   the only minter — no server-render
+                                   entry exists in this tier
+      impl/presence_react.cljs:130 the server half does not exist yet,
+                                   so `adopting-here?` reads `nil` on a
+                                   server render and the tray emits
+                                   `:mounting` children
 
-  §1 and §3 are the counter-measurement: they do not agree, and nothing
-  opens a window around a request.
+  Both now cite rf2-hic-046's RULED Render arm as DECIDED rather than
+  built, and both cite this file. §1 and §3 remain the
+  counter-measurement standing behind them: the two halves do not
+  agree, and nothing opens a window around a request.
 
   ## Why the existing presence witness did not catch this
 
