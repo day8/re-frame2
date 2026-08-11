@@ -92,15 +92,23 @@
 ;; The reserved keys
 ;; ---------------------------------------------------------------------------
 
+;; The two override keys are DEFINED in
+;; [[re-frame.hicasso.impl.codec]] and read from there (rf2-34a7). They
+;; are this module's vocabulary, but the codec's prop walk has to
+;; recognise them — it is where an override written OUT OF THIS
+;; MODULE'S REACH is refused — and this namespace requires the codec
+;; rather than the other way round. One home, so the respelling
+;; `naming-ledger.md` row 31 holds open cannot land on half of them.
+
 (def mounting-key
   "`::h/mounting` — the attribute overrides applied while a child is
   entering."
-  :re-frame.hicasso/mounting)
+  codec/mounting-key)
 
 (def unmounting-key
   "`::h/unmounting` — the attribute overrides applied while a child is
   being retained on its way out."
-  :re-frame.hicasso/unmounting)
+  codec/unmounting-key)
 
 (def override-keys #{mounting-key unmounting-key})
 
@@ -182,7 +190,12 @@
   its own attributes — the override WINS, because that is what an
   override is — with the two structural slots never taken from it, the
   same law `:&` carries (HD-023). The two override keys are always
-  removed, so an override never reaches the DOM as an attribute.
+  removed HERE, on a tray's direct children; anywhere else they are
+  REFUSED, by the codec's own prop walk
+  ([[re-frame.hicasso.impl.codec/refuse-misplaced-override!]]). Between
+  the two there is no route by which an override reaches the DOM as an
+  attribute — which is what the sentence that stood here claimed while
+  only the first clause was built (rf2-34a7).
 
   **The exclusion is on the canonical SLOT, through the filter
   [[re-frame.hicasso.impl.codec/without-structural]] that `:&`
@@ -199,7 +212,13 @@
   A **boundary child** takes `:rf/phase` as an ordinary prop instead, and
   an override written there is a loud error: the boundary cannot see
   inside an opaque view, and silently dropping the map is the class of
-  failure this whole ruling exists to delete."
+  failure this whole ruling exists to delete.
+
+  **That ruling has both its doors now** (rf2-34a7). This one refuses
+  the override the tray CAN see and cannot apply; the codec's prop walk
+  refuses the one the tray never sees at all — written on a grandchild,
+  inside a view's body, forwarded through a `:&` remainder, or under no
+  tray whatsoever."
   [child phase]
   (let [props (props-of child)]
     (if (codec/boundary-head? (nth child 0))

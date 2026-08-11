@@ -691,6 +691,103 @@
 
 
 ;; ---------------------------------------------------------------------------
+;; A presence override no tray can reach (rf2-34a7)
+;; ---------------------------------------------------------------------------
+;;
+;; `impl.presence/with-phase` strips `::h/mounting` / `::h/unmounting` off
+;; every entry it renders and merges the phase's map in their place, and it
+;; runs on a motion/presence tray's DIRECT children and nowhere else. So
+;; reaching THIS walk with one of the two keys still on the map means no
+;; tray applied it, and the author got two failures from one legal-looking
+;; declaration: the animation never ran, and `(name k)` emitted the key as
+;; an ordinary `mounting` attribute onto the element.
+
+(defn- override-refusal
+  "The ex-data of the refusal `f` raises, or `nil` if it raised nothing."
+  [f]
+  (try (f) nil (catch :default e (ex-data e))))
+
+(defn- an-override-crossing
+  "A foreign component, for the crossing arm below. Local because
+  [[a-foreign-component]] is declared further down this file."
+  [_props]
+  nil)
+
+(deftest an-override-outside-a-trays-direct-child-is-refused-rather-than-emitted
+  (testing "the fault the ruling at `with-phase`'s view-head arm always
+            implied and only half-closed: `silently dropping the map is the
+            class of failure this whole ruling exists to delete` was written
+            about the door one level up, and the identical silent drop
+            survived one level down on a native node"
+    (let [d (override-refusal
+              #(codec/as-element [:div {:re-frame.hicasso/mounting {:class "in"}}]))]
+      (is (= :rf.error/hicasso-presence-override-out-of-reach (:rf.error/id d)))
+      (is (= :put-the-override-on-a-presence-child (:recovery d)))
+      (is (= :re-frame.hicasso/mounting (:position d))
+          "the diagnostic names the key that was written")
+      (is (= {:class "in"} (:override d))
+          "and carries the map it refused, so a migration can find its sites")))
+
+  (testing "both keys, and the message names the attribute that would
+            otherwise have landed on the page"
+    (let [d (override-refusal
+              #(codec/as-element [:div {:re-frame.hicasso/unmounting {:class "out"}}]))]
+      (is (= :rf.error/hicasso-presence-override-out-of-reach (:rf.error/id d)))
+      (is (re-find #"\"unmounting\" attribute" (:reason d)))))
+
+  (testing "DEPTH is the whole point — a tray walks its direct children and
+            nothing below them, so a grandchild is as unreachable as an
+            element with no tray above it at all"
+    (is (= :rf.error/hicasso-presence-override-out-of-reach
+           (:rf.error/id (override-refusal
+                           #(codec/as-element
+                              [:section [:div {:re-frame.hicasso/mounting {:class "in"}}]]))))))
+
+  (testing "and a `:&` remainder is the same fault wearing a forwarding
+            map: `with-phase` reads the two keys off the child's OWN props,
+            so an override arriving inside a remainder was never seen by
+            the tray either"
+    (is (= :rf.error/hicasso-presence-override-out-of-reach
+           (:rf.error/id (override-refusal
+                           #(codec/as-element
+                              [:div {:& {:re-frame.hicasso/unmounting {:class "out"}}}]))))))
+
+  (testing "the crossing takes the same refusal at the same position. A
+            `[:>]` head that IS a tray's direct child has its overrides
+            stripped and merged exactly as a native node does — the tray
+            does not ask what kind of head its child carries — so one
+            arriving here is misplaced for the identical reason"
+    (is (= :rf.error/hicasso-presence-override-out-of-reach
+           (:rf.error/id (override-refusal
+                           #(codec/as-element
+                              [:> an-override-crossing
+                               {:re-frame.hicasso/mounting {:class "in"}}])))))))
+
+(deftest the-override-refusal-claims-the-two-private-keywords-and-nothing-else
+  (testing "THE LEAK PATH, measured rather than argued. A bare `:mounting`
+            is an ordinary author attribute the walk emits under its own
+            name — which is exactly how the namespaced key used to reach
+            the DOM, since `convert-entry` takes `(name k)` and the
+            namespace is dropped on the way"
+    (is (= "x" (prop (codec/as-element [:div {:mounting "x"}]) "mounting")))
+    (is (= "x" (prop (codec/as-element [:div {:unmounting "x"}]) "unmounting"))))
+
+  (testing "so the check is on the EXACT keyword and not on the canonical
+            slot — [[revision-key]]'s doctrine exception, for its reason.
+            `ref` and `className` are React's positions and are claimed at
+            the slot; these two are Hicasso's own private keys, and
+            claiming the slot would confiscate a `mounting` attribute the
+            author is entitled to write"
+    (doseq [spelling [:mounting "mounting" 'mounting :x/mounting :data-mounting]]
+      (is (nil? (override-refusal
+                  #(codec/as-element [:div {spelling "x"}])))
+          (str "not refused, spelled " (pr-str spelling))))
+    (is (nil? (override-refusal
+                #(codec/as-element [:> an-override-crossing {:mounting "x"}])))
+        "and the same at the crossing, where a foreign ABI may genuinely
+         name a prop `mounting`")))
+
+;; ---------------------------------------------------------------------------
 ;; The codec's one policy call — intent lowering happens inside the walk
 ;; ---------------------------------------------------------------------------
 
