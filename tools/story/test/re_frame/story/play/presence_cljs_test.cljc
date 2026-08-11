@@ -303,7 +303,18 @@
       (is (nil? (:exception res)) "an absent host is a refusal, not a throw")
       (is (string? (:message res)))
       (is (re-find #"install-presence-flush!|presence-host" (:message res))
-          "the refusal NAMES the install path — an actionable refusal"))))
+          "the refusal NAMES the install path — an actionable refusal")
+      ;; A SEPARATE assertion rather than a third branch of the alternation
+      ;; above: `re-find` is satisfied by any one branch, so widening that
+      ;; regex would have WEAKENED the install-path claim it already makes.
+      (is (re-find #"Freehand" (:message res))
+          "rf2-gj0a — the refusal also names the SUBSTRATE, and this is the
+           only test that pins that word. The census (docs/design/hicasso/
+           product/tool-consumer-census.md, row S11) counts it a live donor
+           mention; it is invisible to the census's own case-sensitive grep,
+           so nothing static will notice it going stale. When the bridge
+           leaves Freehand (rf2-5gka) this fails and the user-facing message
+           is reworded in the same change"))))
 
 ;; The bridge's INSTALLATION is host-agnostic, but DRIVING the installed verb
 ;; repeatedly is not: on CLJS `flush-presence!` is Promise-backed and holds a

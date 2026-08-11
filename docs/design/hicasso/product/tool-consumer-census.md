@@ -2,7 +2,8 @@
 
 **rf2-hic-076**, 2026-08-11 05:37:14 AUSEST; row **X13** added and the counts carried through by
 `rf2-kqls`, 2026-08-11 07:13:28 AUSEST; **Pair re-measured against merged `main` and the totals
-carried through** by `rf2-hic-076` again, 2026-08-11 09:01:41 AUSEST. The census `rf2-hic-062` cites
+carried through** by `rf2-hic-076` again, 2026-08-11 09:01:41 AUSEST; row **S11** added and the
+counts carried through by `rf2-gj0a`, 2026-08-11 10:05:04 AUSEST. The census `rf2-hic-062` cites
 before it disposes of the donor tool surfaces.
 
 **Why the third pass, because it is the failure mode this document is most exposed to.** The first
@@ -97,8 +98,12 @@ so, more sharply, does a **prohibition** — Pair's two new test hits name the d
 assert it is absent, and a grep cannot tell an assertion apart from a call. All three of Pair's
 current hits are one of those two shapes. In the other direction, a wire-protocol string is
 invisible to every static tool and **under**-counts, which is the dangerous direction, because
-under-counting is what makes a *deletion* look safe. Every hit is therefore classified from the
-consumer code, never from the grep.
+under-counting is what makes a *deletion* look safe. **Story's S11 is the sharpest instance of that
+direction, because the search above cannot see it at all**: the pattern is case-sensitive and
+lowercase, and the string reads "renders Freehand views" with a capital F, so
+`play/runner_events.cljc` enters the 43 solely through two lowercase docstring hits while its one
+load-bearing mention returns nothing. Every hit is therefore classified from the consumer code,
+never from the grep.
 
 So each hit was read. A consumer row is a file that names a donor **in a load-bearing position** — a
 `:require`, a classpath coordinate, a runtime string or keyword the code actually uses, or a build /
@@ -111,19 +116,19 @@ which caught two requires a line-oriented regex missed
 The counts, each with the question it answers:
 
 - **43 files name a donor** under `tools/` — the grep surface, prose included.
-- **22 of those 43 carry a consumer row**; the other **21 name a donor only in a comment, a
+- **23 of those 43 carry a consumer row**; the other **20 name a donor only in a comment, a
   docstring or a spec sentence** and are listed in [Named, not consumed](#named-not-consumed) so no
   later reader mistakes them for dependencies.
-- **29 consumer rows** — the 22 row-bearing files, plus one extra row because
+- **30 consumer rows** — the 23 row-bearing files, plus one extra row because
   `tools/story/deps.edn` carries two independent donor coordinates with different verdicts, plus the
   **6 target-only MIGRATED files** that name **no** donor at all and therefore never appear in the
   grep (Xray's X9, X10, X11; Pair's P2, P3, P5).
 
-Written as arithmetic so a later reader can check it in one line: **43 = 22 + 21**, and
-**29 = 22 + 1 + 6**.
+Written as arithmetic so a later reader can check it in one line: **43 = 23 + 20**, and
+**30 = 23 + 1 + 6**.
 
-**29 rows = 14 STILL-LIVE · 5 FIXTURE-ONLY · 10 MIGRATED.** By tool: Xray 13 (9 · 0 · 4), Story 10
-(5 · 5 · 0), Pair 6 (0 · 0 · 6).
+**30 rows = 15 STILL-LIVE · 5 FIXTURE-ONLY · 10 MIGRATED.** By tool: Xray 13 (9 · 0 · 4), Story 11
+(6 · 5 · 0), Pair 6 (0 · 0 · 6).
 
 Liveness was established per row, not assumed from the presence of a `:require` — the "how" column
 below says which. A require alone does not make a path live, and a path can be live through a
@@ -184,7 +189,7 @@ because this census read the consumer code rather than the grep. `hicasso_wire_t
 is the guard that shape earned — it now fails if a donor name returns to Pair's `src/`. Xray's X13
 has no equivalent, which is why it is written down here instead.
 
-## Story — 10 rows (5 STILL-LIVE, 5 FIXTURE-ONLY)
+## Story — 11 rows (6 STILL-LIVE, 5 FIXTURE-ONLY)
 
 Story is the tool the specification sentence already describes correctly: its published jar depends
 on neither donor, and both donor coordinates sit under `:aliases {:test {:extra-deps …}}`. The split
@@ -203,6 +208,7 @@ presence bridge.
 | S8 | `tools/story/test/re_frame/story/view_tool_cljs_test.cljc` | requires `re-frame.ui.reactive`, `.tool`, `.tool.evidence` — the CLJS suite of S7 | FIXTURE-ONLY |
 | S9 | `tools/story/test/re_frame/story/view_tool_tree_jvm_test.clj` | requires `re-frame.ui` (`:refer [defview sub]`) + `re-frame.ui.test` — the JVM suite of S7 | FIXTURE-ONLY |
 | S10 | `tools/story/test/re_frame/story/realworld_ui_consumer_cljs_test.cljs` | requires `re-frame.ui` + `re-frame.freehand.presence-runtime`; hosts the realworld `re-frame.ui` app as a foreign substrate through `story/register-substrate!` | FIXTURE-ONLY |
+| S11 | `tools/story/src/re_frame/story/play/runner_events.cljc` | the `:no-presence-host` refusal message in `presence-step-result` (L1064; the `:message` `str` at L1077-1084) tells the user their app is one "that renders Freehand views" (L1080) — a runtime string the code actually uses, load-bearing on the same footing as X13. The file's other three donor hits are docstrings | STILL-LIVE |
 
 **Why S3 is STILL-LIVE despite living behind a late-bind hook.** `re-frame.story.play.presence`
 holds the `:flush-presence!` seam and deliberately does not require the substrate; Story itself
@@ -216,6 +222,26 @@ namespaces match the node-test selector and S9 runs under `clojure -M:test` — 
 the compatibility claim. S10 says so in its own first line: Story is a **consumer** there, proving
 `re-frame.ui` can enter Story's substrate roster through the sanctioned seam; the tool UI is not
 written on `defview`. Delete the donor and what is lost is the evidence, not a Story feature.
+
+**Why S11 counts, and why it was missed twice** (`rf2-gj0a`). It is X13's species one tool over — a
+donor name shipped inside a runtime string rather than a `:require` — but it errs harder in the
+under-count direction than X13 does, in two ways. X13's two hits at least *appear* in the grep, so a
+reader auditing `registry.cljs`'s ten hits could reach them; S11's does not appear at all, because
+the census's pattern is lowercase and the message says `Freehand`. And the string is not
+developer-facing, as X13's `js/console.warn` is: it is the `:message` **a Story author reads when
+their `[:flush-presence]` step refuses**, so a stale one sends a user to require a namespace nobody
+ships. That is the failure this row exists to prevent: a reader disposing of Story's donor rows on
+this census's authority would leave that sentence standing.
+
+**And unlike X13, this one now has the guard.** The census notes above that Pair's P6 is the guard
+its wire string earned and that X13 has no equivalent; S11's equivalent is one assertion, added by
+`rf2-gj0a` to S4 (`presence_cljs_test.cljc`, L310 in
+`presence-step-with-no-host-refuses-cannot-run`), pinning the substrate word in the refusal
+message. It is deliberately a **separate** `is` rather than a third branch of the neighbouring
+`#"install-presence-flush!|presence-host"` alternation, because `re-find` is satisfied by any one
+branch — widening that regex would have *weakened* the install-path claim it already makes. When
+`rf2-5gka` moves the bridge off Freehand, the assertion fails and the message is reworded in the
+same change instead of going stale silently.
 
 ## Pair — 6 rows (6 MIGRATED)
 
@@ -265,14 +291,20 @@ them.
 
 ## Named, not consumed
 
-These **21 files** name a donor only in a comment, a docstring or a spec sentence. They are listed so
-that a later reader who repeats the grep can reconcile 43 against 22 without re-deriving this
+These **20 files** name a donor only in a comment, a docstring or a spec sentence. They are listed so
+that a later reader who repeats the grep can reconcile 43 against 23 without re-deriving this
 distinction, and so that none of them is ever counted as a dependency.
 
 `registry.cljs` was on this list until `rf2-kqls` and is now row **X13**: eight of its ten hits are
 comments, but two are a runtime `js/console.warn` string. The mistake is an easy one to repeat — a
 reader running the grep sees ten hits in a file carrying no `:require`, which is precisely what this
 census concluded before the correction.
+
+**`tools/story/src/re_frame/story/play/runner_events.cljc` left the list the same way under
+`rf2-gj0a`** and is now row **S11**: three of its four donor hits are docstrings, but the fourth is
+the runtime `:message` a user reads on a `[:flush-presence]` refusal. It is the harder of the two to
+catch, because that hit is not in the grep at all — the file's membership in the 43 comes entirely
+from its docstrings, so re-reading the returned lines could never have found it.
 
 **Three files left this list entirely with `rf2-n3mb`**, and they are named here because a reader
 comparing against the previous pass will look for them. Pair's
@@ -298,7 +330,6 @@ The full list:
 - `tools/story/src/re_frame/story/late_bind.cljc`
 - `tools/story/src/re_frame/story/play/presence.cljc`
 - `tools/story/src/re_frame/story/play/runner.cljc`
-- `tools/story/src/re_frame/story/play/runner_events.cljc`
 - `tools/xray/spec/011-Launch-Modes.md`
 - `tools/xray/spec/014-Registry-Catalogue.md`
 - `tools/xray/spec/017-Test-Coverage-Matrix.md`
@@ -319,10 +350,10 @@ The full list:
 
 ## Disposition of the still-live rows
 
-**Twelve** of the 14 STILL-LIVE rows resolve into **three clusters**, not twelve independent
+**Thirteen** of the 15 STILL-LIVE rows resolve into **three clusters**, not thirteen independent
 problems. The remaining two, **X3** and **X13**, are not migrations at all: one is an
 adapter-identity cleanup and the other a developer-facing string, and both fold into `rf2-hic-062`
-itself. Twelve plus X3 plus X13 is the whole still-live set.
+itself. Thirteen plus X3 plus X13 is the whole still-live set.
 
 **Read the disposition column, not the cluster count.** Two of the three clusters are still pending
 work; the third is not, and one former cluster is gone entirely. A closed bead in this table means
@@ -333,7 +364,7 @@ completed work gets re-done.
 |---|---|---|---|
 | Xray Views panel on donor 2 | X1, X2, X4, X5 | re-authoring against four different reads; the panel's whole question ("which *views* are mounted") is one the target cannot answer, because Hicasso keys boundaries by read set and has no view registry | `rf2-jkdy` **CLOSED — the verdict was a refusal.** Of the panel's eight questions two carry across, one degrades structurally and five have no answer at all, so there is no migration to perform; the eight-row mapping is `tools/xray/spec/021-Dynamic-Panel-Designs.md` §3.4.3. The retire-or-keep call, and X1's coordinate with it, is a product decision recorded on `rf2-hic-062` |
 | The staged Freehand deck | X6, X7, X8 | the deck's shadow-cljs build id and `:dev-http` port live in top-level `implementation/shadow-cljs.edn` — hot zone, and fenced out of this bead | follow-up bead `rf2-u5b4` — **open** |
-| Story presence bridge | S2, S3, S4, S5, S6 | Hicasso's presence surface is `re-frame.hicasso.impl.presence` / `.presence-react`, not a published `presence-runtime` door with `advance-clock!`; the bridge needs a target-side verb that does not exist yet | follow-up bead `rf2-5gka` — **open** |
+| Story presence bridge | S2, S3, S4, S5, S6, S11 | Hicasso's presence surface is `re-frame.hicasso.impl.presence` / `.presence-react`, not a published `presence-runtime` door with `advance-clock!`; the bridge needs a target-side verb that does not exist yet. S11 is the cheap row of the six — the refusal message just names whatever replaces Freehand — and S4's assertion fails until it does | follow-up bead `rf2-5gka` — **open** |
 | ~~Pair's five view tools~~ | *(was P1-P5)* | same four-reads problem as the Xray cluster, plus a regenerated `tool-descriptors.edn` and a spec-catalogue rewrite | `rf2-n3mb` **CLOSED and LANDED** (PR #7848). The five tools became three on `re-frame.hicasso.tool`; the rows are now MIGRATED P1-P6 and no longer still-live. **Not pending work** |
 | Xray adapter-id set | X3 | `:rf.adapter/ui` and `:rf.adapter/freehand` are adapter identities, not evidence reads; they retire when the adapters do, under `rf2-hic-062` itself | fold into `rf2-hic-062` — no follow-up bead |
 | Xray's schema-4 reload warning | X13 | nothing to migrate: the donor names are prose inside one `js/console.warn` about a schema-3 residue. With the tiers gone the message names namespaces that no longer exist, so the cost is a stale developer-facing string, not a broken read | fold into `rf2-hic-062` — reword or drop the warning with the tiers; no follow-up bead |
@@ -364,17 +395,17 @@ For `rf2-hic-062` to cite:
 > acting on this paragraph: the previous pass of this census was authored against a 48-file tree and
 > rebased cleanly onto a 43-file one, which changed nothing in the text and everything in the claim.
 >
-> **Primary tool paths are not yet donor-free, but Pair now is.** Of 29 tool-consumer rows across
+> **Primary tool paths are not yet donor-free, but Pair now is.** Of 30 tool-consumer rows across
 > Xray, Story and Pair, **10 are MIGRATED** to the adapter-neutral Hicasso provider (4 in Xray's
 > Hicasso tab, and all 6 of Pair's), 5 are FIXTURE-ONLY compatibility evidence in Story's `test/`
-> tree on a `:test`-alias classpath, and **14 are STILL-LIVE on a donor tier**.
+> tree on a `:test`-alias classpath, and **15 are STILL-LIVE on a donor tier**.
 >
-> **Twelve of those 14 sit in three clusters, and only two of the three are pending work.** Xray's
+> **Thirteen of those 15 sit in three clusters, and only two of the three are pending work.** Xray's
 > Reactive-panel Views section and its `tools/xray/deps.edn` top-level `day8/re-frame2-freehand`
 > coordinate belong to `rf2-jkdy`, which is **closed with a refusal**: the target cannot answer five
 > of that panel's eight questions, so there is no migration, and the retire-or-keep call falls to
 > `rf2-hic-062`. Genuinely open are the staged `freehand-views` browser deck and its feature-matrix
-> scenario (`rf2-u5b4`, 3 rows) and Story's shipped `presence-host` bridge (`rf2-5gka`, 5 rows).
+> scenario (`rf2-u5b4`, 3 rows) and Story's shipped `presence-host` bridge (`rf2-5gka`, 6 rows).
 >
 > **`rf2-n3mb` is CLOSED and landed, and Pair is not a blocking cluster.** Its five view tools were
 > re-authored into three on `re-frame.hicasso.tool` (PR #7848) — the three the target cannot answer
@@ -391,8 +422,10 @@ For `rf2-hic-062` to cite:
 > a follow-up bead: `:rf.adapter/ui` and `:rf.adapter/freehand` are adapter *identities* rather than
 > evidence reads, and X13's donor names are prose inside a runtime string — both retire when the
 > adapters do, which makes them cleanups **folded into `rf2-hic-062` itself**. X13 is also the one
-> still-live row that no `:require` scan can find and that survives the deletion of every cluster.
-> Anything acting on the clusters alone leaves X3 and X13 unaccounted for.
+> still-live row that survives the deletion of every cluster, and — together with Story's S11, which
+> does not survive it, because S11 sits inside the presence-bridge cluster — one of only two rows
+> that no `:require` scan can find. Anything acting on the clusters alone leaves X3 and X13
+> unaccounted for.
 >
 > **The blocker is not effort, it is question shape.** `re-frame.ui.tool` and
 > `re-frame.freehand.tool` publish the same five reads, so donor 1 → donor 2 was a rename.
