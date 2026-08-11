@@ -34,12 +34,11 @@ count here.
 files; read on `origin/main` at 2026-08-11 the bench tree holds **63** of them (25,268 lines). The
 six `front/*` rows — the first wave the PORT table's sequencing paragraph names — have gone, and the
 arithmetic closes exactly: their six line counts sum to 2,767, and 28,035 − 2,767 = 25,268. The two
-`:ssr` rows below have since gone the same way (rf2-c78g), taking the tree to **61** files and
-24,222 lines — 25,268 − 670 − 376. The
-counts are deliberately left at their census values rather than tracked, because the verdicts are
-what this document is for and a decision record that renumbers itself every time a row is acted on
-is a ledger nobody can audit. **Read the counts as of the census; read the tree for what is in it
-now.**
+`:ssr` rows have since gone the same way (rf2-c78g), taking the tree to **61** files and 24,222
+lines — 25,268 − 670 − 376. The counts are deliberately left at their census values rather than
+tracked, because the verdicts are what this document is for and a decision record that renumbers
+itself every time a row is acted on is a ledger nobody can audit. **Read the counts as of the
+census; read the tree for what is in it now.**
 
 ## Executing a verdict: a port is a move
 
