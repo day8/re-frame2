@@ -29,7 +29,25 @@
   it takes the *next* boundary up, so an application's error path became
   an application-wide failure.
 
-  Seven claims:
+  ## The closed roster rides here too (rf2-czlb)
+
+  Rows 8–10 are a different subject on the same instrument, and they are
+  here because they need exactly what [[watched-root!]] already builds: a
+  refusal raised inside the class's own `render` escapes to the boundary
+  ABOVE, so reading it takes a watcher. The claim is that
+  `h/boundary`'s four props are a CLOSED roster and a shape, refused
+  rather than dropped — `{:on-errors …}` used to mint, cross `rfProps`
+  intact and be consulted by nothing, and `{:on-error :app/failed}` used
+  to reach `report!`'s `:else nil` and swallow every caught error.
+
+  Each row carries its **near-miss positive control** in the same
+  `deftest`, one character or one bracket away from the refused form, so
+  a guard that grew too eager reddens the row that proves it exact rather
+  than passing quietly: `:on-error` beside `:on-errors`, `[:app/failed]`
+  beside `:app/failed`, and an explicit `{:on-error nil}` — which means
+  *no reporting was asked for* and must stay legal.
+
+  Seven claims about intents:
 
   1. a **retry button on the fallback** dispatches, and the `:reset-key`
      it moves actually re-mounts the child — HD-020(c)'s whole story,
@@ -167,6 +185,12 @@
   "What the watching boundary caught, as the two fields a reader wants."
   []
   (select-keys (ex-data @!caught) [:rf.error/id :intent :position]))
+
+(defn- caught-id
+  "The stable id of whatever escaped to the watcher, or nil if nothing
+  did. Rows 8–10 branch on the id rather than on the message."
+  []
+  (:rf.error/id (ex-data @!caught)))
 
 ;; ---------------------------------------------------------------------------
 ;; The screens
@@ -452,3 +476,115 @@
                   "no useRef, no memo, no state and no effect — the class is
                    still a class")
               (finally (mount/release! @handle)))))))))
+
+;; ---------------------------------------------------------------------------
+;; 8 — the roster is closed: a misspelled prop is refused, not dropped
+;; ---------------------------------------------------------------------------
+
+(deftest a-prop-outside-the-roster-is-refused-and-the-right-spelling-still-reports
+  (if-not (mount/browser?)
+    (skip! ":node-test has no DOM")
+    (do
+      (fresh! frame-id)
+      (testing "`:on-errors` mints, crosses `rfProps` intact and is consulted by
+                nothing. That is not an ignored option — it is an error boundary
+                that reports nothing, wearing a declaration that says it does, so
+                the declaration is REFUSED at the boundary's own render"
+        (let [handle (watched-root! frame-id
+                       [boundary {:on-errors [:hicasso.bdy/noted "typo"]
+                                  :fallback  [:p.fb "unused"]}
+                        [:p.body "quiet"]])]
+          (try
+            (is (= :rf.error/hicasso-boundary-unknown-prop (caught-id))
+                (str "the misspelling was refused and named. Escaped: "
+                     (pr-str (ex-data @!caught))))
+            (is (= :on-errors (:prop (ex-data @!caught)))
+                "and the refusal carries the offending key rather than only the roster")
+            (is (= #{:on-error :reset-key :fallback :children}
+                   (:props (ex-data @!caught)))
+                "with the four it checked against, so the recovery is readable
+                 off the refusal itself")
+            (is (nil? (query handle ".body"))
+                "and the subject did not render — a refusal that let the page up
+                 anyway would be a warning wearing a throw's clothes")
+            (finally (mount/release! handle)))))
+      (testing "THE NEAR MISS. One character away, `:on-error` is the real key
+                and still reports — beside `:fallback`, `:reset-key` and the
+                trailing children, so the whole legal roster is exercised by the
+                control rather than only the key under test"
+        (let [handle (watched-root! frame-id
+                       [boundary {:on-error  [:hicasso.bdy/noted "spelled right"]
+                                  :fallback  [:p.fb "caught"]
+                                  :reset-key 0}
+                        [risky {}]])]
+          (try
+            (is (nil? @!caught)
+                (str "nothing escaped the subject. Escaped: " (pr-str (escaped))))
+            (is (some? (query handle ".fb"))
+                "the child threw and the fallback is on screen")
+            (mount/settle!)
+            (is (= ["spelled right"] (:noted (db frame-id)))
+                "and the report reached the frame — the guard refuses the
+                 misspelling without touching the spelling it exists to protect")
+            (finally (mount/release! handle))))))))
+
+;; ---------------------------------------------------------------------------
+;; 9 — the shape is closed too: an `:on-error` nothing can fire is refused
+;; ---------------------------------------------------------------------------
+
+(deftest an-on-error-nothing-can-fire-is-refused-and-a-wrapped-intent-still-is-not
+  (if-not (mount/browser?)
+    (skip! ":node-test has no DOM")
+    (do
+      (fresh! frame-id)
+      (testing "a BARE intent keyword is what somebody writes who has not yet
+                noticed intents are vectors here. It matched neither `vector?`
+                nor `fn?`, fell to `report!`'s `:else nil`, and swallowed every
+                caught error — so it is refused at the declaration, in `render`,
+                BEFORE anything has thrown"
+        (let [handle (watched-root! frame-id
+                       [boundary {:on-error :hicasso.bdy/noted
+                                  :fallback [:p.fb "unused"]}
+                        [:p.body "nothing throws on this screen"]])]
+          (try
+            (is (= :rf.error/hicasso-boundary-bad-on-error (caught-id))
+                (str "the shape was refused and named. Escaped: "
+                     (pr-str (ex-data @!caught))))
+            (is (= :hicasso.bdy/noted (:value (ex-data @!caught)))
+                "and the refusal carries the value it was given")
+            (is (nil? (query handle ".body"))
+                "nothing below the subject rendered")
+            (is (nil? (:noted (db frame-id)))
+                "and — the point of raising in `render` rather than in `report!`
+                 — the refusal arrived with no error caught at all, so it cost
+                 no application error path to find")
+            (finally (mount/release! handle)))))
+      (testing "THE NEAR MISS. The same keyword inside brackets is the real
+                thing, and reports"
+        (let [handle (watched-root! frame-id
+                       [boundary {:on-error [:hicasso.bdy/noted "wrapped"]
+                                  :fallback [:p.fb "caught"]}
+                        [risky {}]])]
+          (try
+            (is (nil? @!caught)
+                (str "nothing escaped. Escaped: " (pr-str (escaped))))
+            (mount/settle!)
+            (is (= ["wrapped"] (:noted (db frame-id)))
+                "one bracket apart from the refused form, and it fires")
+            (finally (mount/release! handle)))))
+      (testing "THE OTHER NEAR MISS. An explicit `nil` says no reporting was
+                asked for, which is the one value `report!`'s last arm still
+                means. A guard that refused it would refuse a legal page"
+        (fresh! frame-id)
+        (let [handle (watched-root! frame-id
+                       [boundary {:on-error nil
+                                  :fallback [:p.fb "caught"]}
+                        [risky {}]])]
+          (try
+            (is (nil? @!caught)
+                (str "nothing escaped. Escaped: " (pr-str (escaped))))
+            (is (some? (query handle ".fb"))
+                "the boundary caught, rendered its fallback, and reported
+                 nowhere — quietly, because that is what was declared")
+            (is (nil? (:noted (db frame-id))))
+            (finally (mount/release! handle))))))))
