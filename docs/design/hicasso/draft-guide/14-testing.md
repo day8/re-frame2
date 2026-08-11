@@ -212,6 +212,7 @@ and a residue guarantee:
 | `hm/rerender!` | renders a new element into the same root — for props-change tests |
 | `hm/dispatch-and-settle!` | dispatches into the mount's frame and returns once [Hicasso](glossary.md#hicasso) and React are quiescent |
 | `hm/settle!` | waits for quiescence after outside stimulation — a user-event pointer or keyboard sequence |
+| `hm/advance-clock!` | moves this mount's virtual clock forward by `ms` and runs everything that falls due on the way, with `setTimeout`, `setInterval` and `Date.now` moving in lockstep; needs `{:clock true}` on the `mount!` that made the handle, and throws without it |
 | `hm/unmount!` | tears the root down |
 | `hm/assert-clean!` | after unmount: compares exact post-quiescence residue with the pre-mount baseline, reports, then resets; answers a promise of the report |
 
@@ -252,6 +253,29 @@ sequence, call `(hm/settle! m)` before you assert.
     browser's. That is correct for an effect-ordering test, and wrong when
     the assertion reads the page. After the call returns, the next line sees
     the DOM that the user would have seen.
+
+!!! note "The clock moves three things, and deliberately not the rest"
+
+    `Date.now` moves with the two timer functions because retention is a
+    deadline *comparison*, not a callback: a fake timer whose callback reads
+    an unmoved `Date.now` fires exactly on schedule and then decides nothing
+    has expired — green for the reason the test was written to rule out.
+
+    It does not move `requestAnimationFrame`, because a frame is a paint
+    rather than a duration; rAF stays on the platform's own schedule, where
+    it still fires. It does not move microtasks, and therefore not promises:
+    a microtask queue cannot be drained from inside a task, so a `.then`
+    still lands after the door returns rather than inside it. It leaves
+    `performance.now` alone, because React's scheduler reads it to decide
+    whether it has budget left in the frame. It does not touch the `Date`
+    constructor, which reads the system clock rather than `Date.now`. And it
+    cannot reach a `setTimeout` somebody captured before the window opened —
+    React's own scheduler being the deliberate exception, keeping the
+    reference it took at module load, so that a flush is still a flush.
+
+    It does not replace `settle!`. The due callbacks run inside the same
+    `flushSync` that `settle!` performs empty, so `advance-clock!` is
+    `settle!` for the work that had a delay on it.
 
 Use L3 when the claim needs it:
 
