@@ -208,6 +208,24 @@ It is not a partial pass, and it may not be cited as one. It is not the closure 
 It is not evidence about the browser lane, which did not run. It is the honest state of Checkpoint 1 on
 `main`@`27c5d12754`: five misses in what could be reviewed, and a kernel exit that has not been adjudicated.
 
-Provenance: `rf2-hic-019` ran under a read-only, no-PR fence and could write neither this page nor the ledger rows
-itself, so it carried both verbatim in `rf2-0bu1`, which published them. Every finding, count and verdict above is
-the checkpoint's; nothing was re-derived, and the two suite results are quoted rather than re-measured.
+## 8. Where this page's words came from
+
+`rf2-hic-019` ran under a read-only, no-PR fence and could write neither this page nor the ledger rows itself. Its
+durable record is its own bead notes, timestamped 2026-08-11 17:21–17:28 AUSEST; `rf2-0bu1` is the publication brief
+that carried part of that material forward; this page was assembled from both.
+
+**From the checkpoint, in its own words** — and also restated in `rf2-0bu1`: the verdict and its four open
+dependencies, the five misses with their protocol sections and severities, the two suite results of
+[§3.1](#31-the-two-suites-that-ran), and the node-lane scoping fact of
+[§3.2](#32-the-node-lane-does-not-cover-the-dom-half). **From the checkpoint's notes alone**, never carried in
+`rf2-0bu1`: [§5](#5-checked-and-found-sound) and [§6](#6-considered-and-not-filed). Nothing above was re-audited
+here, and the two suite results are quoted rather than re-measured.
+
+**This page is not a transcription of either bead, and saying so is the point** — a record whose authority rests on
+faithfulness owes the reader the seam. Two things here are the publisher's rather than the checkpoint's. The
+dependency arithmetic of [§1.1](#11-the-four-dependencies-that-were-open) was **corrected**: the checkpoint's brief
+implied six dependencies, `bd show rf2-hic-019` reports eleven of which seven had landed, and the tracker's count is
+the one written here. And the **arrangement is new** — the eight-row table of
+[§2](#2-the-eight-kernel-rows-one-by-one), its three-verdict vocabulary, the `§N` gloss and the framing prose were
+written for this page from the register's row order and the checkpoint's findings. Neither addition moves a verdict:
+which dependencies are open is unchanged, and the vocabulary the arrangement introduced has no `pass` in it.
