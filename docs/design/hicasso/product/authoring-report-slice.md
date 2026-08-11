@@ -97,7 +97,34 @@ Dropping the draft moves the model back to a value the field is **already showin
 
 The mechanism should stay; what is missing is that nothing on the door says *you will need a counter*. A worked discard in the guide would probably close it.
 
-### 6. Small things
+### 6. Two clicks on one page settle differently, and nothing says which
+
+**Found by a red gate, not by reading.** The first mounted run failed four rows in one place and four in another, and the two failures have one cause.
+
+A **Hicasso intent** dispatches through the runtime's own synchronous frame-locked door. After a real click on `.save` or `.discard` the handlers have run, `app-db` has moved and React has committed; the next line reads the repainted page, and `hm/settle!` is all that is owed.
+
+A **route-link** does not. `re-frame.routing/activate-link!` ends in `router/dispatch!` — the async door — so the click returns with the navigation merely enqueued, and the router drains it on `interop/next-tick`, a next-turn *task*. `hm/settle!` is an empty `flushSync` and cannot help: nothing is scheduled in React yet.
+
+Both are written the same way in the view, one as an intent vector and one as a `route-link` call, and neither call site carries the distinction. A witness that clicks a link and asserts on the next line reads the page as it was.
+
+The same is true of any **async mutation reply**, and there it is the application being ordinary rather than routing being special: an fx that replies with `rf/dispatch` — as `day8/re-frame2-http` does — is enqueued, so *every* async reply in *every* re-frame2 application arrives through a router drain.
+
+Neither of those is a defect on its own. What is missing is a door: **the L3 facade has `settle!` for React's work and `dispatch-and-settle!` for a dispatch it makes itself, and nothing for "work is enqueued in the router; let it land."** The slice uses `re-frame.test-support/poll-until`, which is the supported condition-poll and composes with `cljs.test/async`, and states the rule in its own namespace docstring.
+
+*Candidate for the freeze, and it belongs to rf2-hic-027 rather than to the facade:* an `hm/drain!` or a `:until` option on `settle!`, so the L3 vocabulary covers the async half of the runtime it is a facade for.
+
+### 7. The virtual clock and `poll-until` cannot be used together
+
+A consequence of finding 6, and worth its own row because it is a trap with no diagnostic.
+
+`hm/mount!`'s `{:clock true}` was the first thing tried for the stand-in server's `setTimeout`, and it cannot work for an async mutation. Two reasons, and either alone is enough:
+
+- The clock **replaces the global `setTimeout`**, and `poll-until`'s CLJS arm schedules its own interval with `js/setTimeout`. Under a virtual clock the poll gets its first probe and never a second — it simply never resolves, and times out at its deadline with nothing to say about why.
+- Firing the server's timer only *enqueues* the reply. The drain that delivers it is `interop/next-tick`, a macrotask the clock deliberately (and correctly) does not drive.
+
+So the two supported waiting mechanisms are mutually exclusive, and an async mutation witness needs what both offer. The poll is the one that works, and it is the better instrument anyway: what such a test waits for is a reply, not a duration. The clock remains right for what its own docstring is about — a retention deadline, a debounce, a `:dispatch-later` — where the thing being waited on *is* a duration and no dispatch has to drain afterwards.
+
+### 8. Small things
 
 - **`reg-sub`'s two-fn form puts a one-argument fn beside a two-argument one.** The `input-fn` takes `query-v`; the computation fn takes `[inputs query-v]`. They sit adjacent in the same form and the mistake compiles. The `:<-` chain avoids it and is what the slice uses.
 - **A `false` attribute is recorded; a `nil` one is dropped.** Per 004B. So an L2 row asserting "this button is not disabled" wants `(is (false? …))`, not `(is (nil? …))` — worth one line in the kit's `attrs` docstring.
