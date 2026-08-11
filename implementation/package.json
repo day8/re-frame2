@@ -61,6 +61,7 @@
     "test:bundle-isolation": "shadow-cljs release examples/counter examples/counter-uix examples/login examples/login-uix examples/realworld-resources bundle-isolation-positive-control && node scripts/check-bundle-isolation.test.cjs && node scripts/check-bundle-isolation.cjs && node scripts/check-uix-reagent-free.cjs && node scripts/check-login-bundle-isolation.cjs",
     "test:examples-compile": "node scripts/check-examples-compile.cjs",
     "test:hicasso-compile": "node freehand/test/re_frame/bench/hicasso/compile_gate.cjs",
+    "test:bspine-compile": "node freehand/test/re_frame/freehand/bench/compile_gate.cjs --self-test && node freehand/test/re_frame/freehand/bench/compile_gate.cjs",
     "test:hicasso-invariants": "python hicasso/scripts/check_freeze.py --self-test && python hicasso/scripts/check_freeze.py && python hicasso/scripts/check_optional_module_reachability.py --self-test && python hicasso/scripts/check_optional_module_reachability.py && python hicasso/scripts/check_complaint_catalogue.py --self-test && python hicasso/scripts/check_complaint_catalogue.py",
     "test:hicasso-lint": "python hicasso/scripts/check_lint_export.py --self-test && python hicasso/scripts/check_lint_export.py",
     "test:reagent-slim:bundle-isolation": "shadow-cljs release examples/counter examples/counter-slim-and-fast && node scripts/check-reagent-slim-bundle-isolation.cjs",

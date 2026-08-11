@@ -2928,6 +2928,42 @@ jobs:
       - name: Hicasso bench-lane compile coverage gate
         run: npm run test:hicasso-compile
 
+      # The bench namespaces NO pull-request gate reached (rf2-cfqk). The
+      # step above closed one directory; rf2-bl0j then measured the rest of
+      # the question by forward reachability from every PR gate's roots over
+      # all 213 bench namespaces, and 23 were reachable from nothing at all.
+      # Four were `:hicasso-bench` riders living outside the lane directory
+      # and were rostered into the step above. These NINETEEN are the rest:
+      # the two `re-frame.bench.*` attribution instruments under core/test/,
+      # and seventeen `re-frame.freehand.bench.*` B-spine arms whose drivers
+      # are hand-run and whose only workflow home (freehand-bench.yml) is
+      # `schedule:`-only and gates nothing. rf2-bl0j proved what that costs by
+      # sabotage: an undeclared var appended to an uncovered namespace reds
+      # nothing on any pull request.
+      #
+      # One dev-mode `shadow-cljs compile` of all nineteen in one module,
+      # riding the B-spine's existing `:freehand-release` id via
+      # `--config-merge` — no new build id, so no hot-zone edit to
+      # shadow-cljs.edn (HD-017). Warnings are failures, through the same
+      # `lane_build.cjs` door the step above uses.
+      #
+      # ONE step and not two, MEASURED rather than assumed. rf2-cfqk expected
+      # a second, node-lane gate for the two attribution rows, on the grounds
+      # that a Node instrument in a browser module would red for irrelevant
+      # reasons. It is the other way round: all nineteen compile clean here,
+      # while riding `:ui-bench` (`:node-script`) raises four `:infer-warning`s
+      # from implementation/core/src/re_frame/substrate/spine.cljs — shipping
+      # source, on the rows' transitive closure, where a DOM-element property
+      # read is inferrable only against Closure's browser externs. The gate's
+      # own header carries the numbers.
+      #
+      # Hosted HERE for the same reason as the step above: both bench trees
+      # (implementation/core/* and implementation/freehand/*) arm
+      # `cljs_node_test` and this is the job it lights, so the gate runs on
+      # exactly the changes that can break its subject.
+      - name: Uncovered bench-namespace compile gate
+        run: npm run test:bspine-compile
+
       # THE HICASSO RELEASE BUILD (rf2-qy1j). rf2-hic-008 added
       # `:hicasso-release` to shadow-cljs.edn — the artefact's first and only
       # `:advanced` / `goog.DEBUG false` compile, entry `re-frame.hicasso.
