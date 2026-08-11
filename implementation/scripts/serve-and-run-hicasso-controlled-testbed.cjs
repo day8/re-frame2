@@ -348,7 +348,7 @@ const ENGINES = ONLY
 // names, so deleting a witness means deliberately editing the gate that
 // requires it.
 //
-// Sum today: 95, which is what each engine reports.
+// Sum today: 97, which is what each engine reports.
 // ---------------------------------------------------------------------------
 
 const REQUIRED_SECTIONS = {
@@ -357,8 +357,8 @@ const REQUIRED_SECTIONS = {
   'caret-across-the-echo': 9,
   'caret-under-real-typing': 4,
   'selection-across-an-out-of-band-write': 4,
-  'composition-safety': 7,
-  'composition-release-edges': 8,
+  'composition-safety': 8,
+  'composition-release-edges': 9,
   'an-accepting-model-during-a-composition': 8,
   'revision-reset-preserves-identity': 7,
   'a-revision-arriving-mid-composition': 15,
