@@ -1990,6 +1990,69 @@
       ;; ONLY; see §Why the KEY egresses and the VALUE does not above.
       {:offending-key offending-key})))
 
+(defn- emit-effect-map-shape!
+  "Surface `:rf.error/effect-map-shape` (rf2-04tx) through BOTH the always-on
+  error-emit substrate AND the dev-only trace surface — the FINAL-effects
+  boundary REFUSAL of a malformed effect-map ENVELOPE: a foreign top-level key
+  (case a) or a non-sequential `:fx` value (case b).
+
+  Like `emit-legacy-runtime-root!` / `emit-classification-effect-shape!`, this
+  is an IN-BAND rejection, not a throw: the FINAL effects map may carry the
+  offending key from a handler return OR from an `:after` interceptor, and
+  throwing here would escape into `drain-emergency-release!` and abandon the
+  rest of the queue. So we emit in-band and abort THIS event only (`:error`
+  outcome, NO `:db` / `:rf.db/runtime` / classification commit, NO `:fx`),
+  preserving the no-partial-commit promise while keeping the drain alive.
+
+  `defect` is the `re-frame.events/effect-map-defect` map
+  (`{:offending-key … :value … :reason …}`).
+
+  ## Why this refuses rather than dropping the key
+
+  The runtime RECOGNISES the key and declines to honour it, which
+  Conventions §No silent swallow makes a MUST-signal. Dropping it committed
+  the `:db` write while the effect never ran — the partial-success disguise
+  that hid a dead `:dispatch-later` timer behind three green engines and an
+  eleven-week-dead persist fx inside Xray. Uniform in every build and not
+  configurable: erasing the abort in production would make dev abort what
+  production commits.
+
+  ## Egress
+
+  `:offending-key` is the ONE slot lifted onto the always-on record, via the
+  trailing `record-attrs` map — the seam `:rf.error/classification-effect-shape`
+  already uses. Unlike that category's framework-owned four-keyword domain this
+  key is APP-AUTHORED, but it is still PROGRAM STRUCTURE (a keyword the
+  programmer typed in their own source), not a runtime value; the precedent is
+  `:rf.error/override-fallthrough`, which egresses app-authored fx-ids. Without
+  it a production build heard only that SOME effect key aborted an event, with
+  no route to which one. The rejected `:value` — the payload the handler built —
+  and the `:reason` that interpolates the offending key into prose stay on the
+  DCE'd dev trace. `:failing-id` rides the trace tags and is EQUAL to
+  `:event-id` here, so `emit-error-both!`'s lift does not fire and cannot drag
+  `:reason` onto the record (rf2-eg61l). The closed key set of the record that
+  egresses is pinned by `re-frame.effect-map-shape-record-cljs-test`."
+  [defect event event-id frame start-ms]
+  ;; Build the discriminator ONCE, before either axis sees it — the two axes
+  ;; must never be able to disagree about which key was at fault.
+  (let [end-ms        (interop/now-ms)
+        elapsed-ms    (elapsed-ms-from start-ms end-ms)
+        offending-key (:offending-key defect)]
+    (error-emit/emit-error-both!
+      :rf.error/effect-map-shape
+      event event-id frame nil elapsed-ms end-ms
+      ;; Axis 2 — the dev trace. Carries the full diagnosis, DCE'd in prod.
+      {:failing-id        event-id
+       :rf.trace/event-id event-id
+       :rf.event/v        event
+       :offending-key     offending-key
+       :value             (:value defect)
+       :recovery          :fix-effect
+       :reason            (:reason defect)}
+      ;; Axis 1 — the always-on record. The structural discriminator ONLY;
+      ;; see §Egress above.
+      {:offending-key offending-key})))
+
 (defn- run-fx-effects!
   "Walk :fx in source order, threading fx-overrides through so per-frame
   / per-call overrides take effect. Per-frame :platform overrides the
@@ -2493,85 +2556,103 @@
   (let [owner-token (frame/current-event-owner-token)
         live?       #(and (not (:rf/stale-incarnation? final-ctx))
                           (frame/event-continuation-live? frame owner-token))]
-    ;; Exact loss is tested BEFORE final-effect policing: malformed values
+    ;; Exact loss is tested BEFORE the shape carriers run: malformed values
     ;; returned by A (or inserted by an authored `:after` while unwinding) are
-    ;; inert and must not emit diagnostics under replacement B.
+    ;; inert and must not emit diagnostics under replacement B. The carriers
+    ;; below are PURE (rf2-04tx converted the effect-map policing into one), so
+    ;; a single liveness gate here covers them all — no emission happens until
+    ;; a `cond` arm is chosen.
     (if-not (live?)
       ::stale-incarnation
-      (let [error      (:rf/interceptor-error final-ctx)
-            flow-error (:rf/flow-error final-ctx)
-            effects    (events/police-final-effects!
-                         (:effects final-ctx) event live?)]
-        ;; Policing emits through synchronous listener callbacks.
-        (if-not (live?)
-          ::stale-incarnation
-          (let [class-defect (elision/classification-effect-defect effects)
-                restore!     #(restore-flow-snapshots!
-                                final-ctx frame owner-token)]
+      (let [error        (:rf/interceptor-error final-ctx)
+            flow-error   (:rf/flow-error final-ctx)
+            ;; The effects map VERBATIM — `commit-fx-effects` no longer cleans
+            ;; it, so a foreign top-level key or a malformed `:fx` value is
+            ;; still here to be refused (rf2-04tx). Every downstream consumer
+            ;; reads named closed-set keys, and the refusal arm returns before
+            ;; any of them run.
+            effects      (:effects final-ctx)
+            shape-defect (events/effect-map-defect effects event)
+            class-defect (elision/classification-effect-defect effects)
+            restore!     #(restore-flow-snapshots!
+                            final-ctx frame owner-token)]
+        (cond
+          error
+          (do
+            (emit-pipeline-exception!
+              error event-id event frame final-ctx start-ms)
+            (if-not (live?)
+              ::stale-incarnation
+              (do (restore!)
+                  (if (live?) :error ::stale-incarnation))))
+
+          flow-error
+          (do
+            (emit-flow-eval-exception!
+              flow-error event event-id frame start-ms)
+            (if (live?) :flow-error ::stale-incarnation))
+
+          ;; The ENVELOPE check comes first among the three effect rejections:
+          ;; if the effect map's top level is malformed, no diagnosis of what
+          ;; is INSIDE it is trustworthy, and the programmer's first fix is
+          ;; the envelope.
+          shape-defect
+          (do
+            (emit-effect-map-shape!
+              shape-defect event event-id frame start-ms)
+            (if-not (live?)
+              ::stale-incarnation
+              (do (restore!)
+                  (if (live?) :error ::stale-incarnation))))
+
+          (events/legacy-runtime-root? (:db effects))
+          (do
+            (emit-legacy-runtime-root! event event-id frame start-ms)
+            (if-not (live?)
+              ::stale-incarnation
+              (do (restore!)
+                  (if (live?) :error ::stale-incarnation))))
+
+          class-defect
+          (do
+            (emit-classification-effect-shape!
+              class-defect event event-id frame start-ms)
+            (if-not (live?)
+              ::stale-incarnation
+              (do (restore!)
+                  (if (live?) :error ::stale-incarnation))))
+
+          :else
+          (let [commit-result
+                (commit-frame-effects!
+                  effects event-id event frame frame-record owner-token
+                  final-ctx)]
             (cond
-              error
-              (do
-                (emit-pipeline-exception!
-                  error event-id event frame final-ctx start-ms)
-                (if-not (live?)
-                  ::stale-incarnation
-                  (do (restore!)
-                      (if (live?) :error ::stale-incarnation))))
+              (= ::stale-incarnation commit-result)
+              ::stale-incarnation
 
-              flow-error
+              (false? commit-result)
               (do
-                (emit-flow-eval-exception!
-                  flow-error event event-id frame start-ms)
-                (if (live?) :flow-error ::stale-incarnation))
-
-              (events/legacy-runtime-root? (:db effects))
-              (do
-                (emit-legacy-runtime-root! event event-id frame start-ms)
-                (if-not (live?)
-                  ::stale-incarnation
-                  (do (restore!)
-                      (if (live?) :error ::stale-incarnation))))
-
-              class-defect
-              (do
-                (emit-classification-effect-shape!
-                  class-defect event event-id frame start-ms)
-                (if-not (live?)
-                  ::stale-incarnation
-                  (do (restore!)
-                      (if (live?) :error ::stale-incarnation))))
+                (restore!)
+                (if (live?) :rolled-back ::stale-incarnation))
 
               :else
-              (let [commit-result
-                    (commit-frame-effects!
-                      effects event-id event frame frame-record owner-token
-                      final-ctx)]
+              (let [fx-result
+                    (run-fx-effects!
+                      effects frame frame-record owner-token
+                      fx-overrides envelope)]
                 (cond
-                  (= ::stale-incarnation commit-result)
-                  ::stale-incarnation
-
-                  (false? commit-result)
-                  (do
-                    (restore!)
-                    (if (live?) :rolled-back ::stale-incarnation))
-
-                  :else
-                  (let [fx-result
-                        (run-fx-effects!
-                          effects frame frame-record owner-token
-                          fx-overrides envelope)]
-                    (cond
-                      (= ::stale-incarnation fx-result) ::stale-incarnation
-                      ;; rf2-mwv4e — LOWEST-priority discriminator. Every
-                      ;; higher-priority outcome has already returned above,
-                      ;; so reaching here with the marker set means the
-                      ;; boundary skip really was the whole story: no chain
-                      ;; throw, no flow throw, no candidate rollback. Before
-                      ;; this, a refused untrusted payload settled `:ok` — the
-                      ;; event stream reporting success for a dispatch whose
-                      ;; handler never ran.
-                      (:rf/boundary-rejected? final-ctx) :rejected
-                      :else                              :ok)))))))))))
+                  (= ::stale-incarnation fx-result) ::stale-incarnation
+                  ;; rf2-mwv4e — LOWEST-priority discriminator. Every
+                  ;; higher-priority outcome has already returned above,
+                  ;; so reaching here with the marker set means the
+                  ;; boundary skip really was the whole story: no chain
+                  ;; throw, no flow throw, no candidate rollback. Before
+                  ;; this, a refused untrusted payload settled `:ok` — the
+                  ;; event stream reporting success for a dispatch whose
+                  ;; handler never ran.
+                  (:rf/boundary-rejected? final-ctx) :rejected
+                  :else                              :ok)))))))))
 
 ;; ---- the boundary-rejection always-on record (rf2-mwv4e) -------------------
 ;;
