@@ -131,6 +131,11 @@
   (test-support/make-reset-runtime-fixture
     {:adapter       uix-adapter/adapter
      :ambient-frame nil
+     ;; The MAP shape, because section 6's delayed row is `(async done …)`.
+     ;; A fn-form fixture unwinds the instant it returns, which for an async
+     ;; row is before the row has resolved, and `cljs.test` refuses the pair
+     ;; loudly enough to take the whole namespace down with it (rf2-77px).
+     :async?        true
      :init-fn       (fn []
                       (collector/reset-runtime!)
                       (error-emit/clear-error-listeners!))}))
