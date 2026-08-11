@@ -63,7 +63,10 @@ two of them ours and one of them nobody's here, none reproducing a 37% win.
 Which reading is on which clock, and why this page's own figures need no
 correction at all, is [§0](#0-which-clock-produced-which-number-rf2-emvod).
 
-Owner: `rf2-rguy1`. The bar and the kill criteria live on `rf2-2rtt6.1`.
+Owner: the operator-owned governance set that superseded `rf2-2rtt6.1` on
+2026-08-10 — K1 price acceptance `rf2-hic-003`, budgets and shell line
+`rf2-hic-006`/`rf2-hic-018`, bulk verdict protocol `rf2-hic-036`, kill rules in
+[the decision brief](../product/decision-brief.md); this page `rf2-rguy1`.
 
 ---
 
