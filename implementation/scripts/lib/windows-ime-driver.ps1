@@ -52,6 +52,7 @@
     FIND <b64 title-substring>    -> {hwnd, title, matches}
     IMESTATE <hwnd>               -> {hkl, langid, japanese, open, conversion,
                                       foreground, isForeground}
+    RESOLVE <tokens>              -> {tokens, vks}
     FOREGROUND <hwnd>             -> {isForeground}                    [armed]
     IMEON <hwnd>                  -> {requested, hkl, langid, ...}     [armed]
     KEYS <hwnd> <tokens> <delay>  -> {sent, tokens}                    [armed]
@@ -333,6 +334,18 @@ while ($null -ne ($line = [Console]::In.ReadLine())) {
       }
       'IMESTATE' {
         Reply $id 'OK' (Get-ImeState ([IntPtr][int64]$parts[2]))
+      }
+      'RESOLVE' {
+        # Read-only, and available unarmed on purpose: it is how the dry run
+        # proves every key plan is spellable BEFORE anything can be typed.
+        # The vocabulary lives here and only here, so a plan validated
+        # against this verb cannot drift from the table that sends it.
+        $tokens = $parts[2].Split(',') | Where-Object { $_.Length -gt 0 }
+        $vks = @($tokens | ForEach-Object { Resolve-Vk $_ })
+        Reply $id 'OK' ([ordered]@{
+          tokens = ($tokens -join ',')
+          vks    = @($vks | ForEach-Object { '0x{0:X2}' -f $_ })
+        })
       }
       'FOREGROUND' {
         if (Assert-Armed $id 'FOREGROUND') {
