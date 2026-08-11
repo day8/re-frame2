@@ -174,25 +174,26 @@
         (is (empty? (error-events recorded :rf.error/effect-map-shape))
             ":rf.db/runtime is inside the widened closed set — no shape error")))))
 
-(deftest foreign-top-level-key-still-a-shape-error
-  (testing "a foreign top-level key (legacy :http) is still policed after the widening"
+(deftest foreign-top-level-key-refuses-the-event
+  (testing "a foreign top-level key (legacy :http) refuses the event after the widening"
     (rf/make-frame {:id :ctx/foreign-fx :doc "ctx"})
     (let [recorded (record-traces! ::foreign-err)]
       (rf/reg-event :ctx/foreign
         (fn [_ _] {:db {:ok? true} :http {:url "/api"}}))
       (rf/dispatch-sync [:ctx/foreign] {:frame :ctx/foreign-fx})
-      ;; ALWAYS-ON (rf2-d2841): the POLICING is production behaviour — the
-      ;; legal `:db` committed and the foreign key was dropped rather than
-      ;; applied. Only the diagnostic that narrates it is dev-only.
-      (is (true? (:ok? (rf/app-db-value :ctx/foreign-fx)))
-          "the legal :db still committed; only :http was dropped")
+      ;; ALWAYS-ON (rf2-d2841 / rf2-04tx): the REFUSAL is production behaviour
+      ;; — the event aborts pre-commit, so the legal `:db` does NOT land either.
+      ;; Only the diagnostic that narrates it is dev-only. Before rf2-04tx the
+      ;; `:db` committed while `:http` vanished: the partial-success disguise.
+      (is (nil? (:ok? (rf/app-db-value :ctx/foreign-fx)))
+          "no partial commit — the legal :db did NOT land alongside the refusal")
       (when interop/debug-enabled?
         (let [errs (error-events recorded :rf.error/effect-map-shape)]
           (is (= 1 (count errs))
               "exactly one shape error for the foreign :http key")
           (is (= :http (:offending-key (:tags (first errs))))
               "the offending key is :http")
-          (is (= :logged-and-skipped (:recovery (first errs)))))))))
+          (is (= :fix-effect (:recovery (first errs)))))))))
 
 ;; ===========================================================================
 ;; 4 — :rf.warning/app-handler-runtime-effect diagnostic
@@ -358,16 +359,17 @@
 ;; `commit-fx-effects` polices a `reg-event` HANDLER RETURN during the
 ;; chain's `:before` pass — BEFORE the `:after` interceptors run. The router
 ;; consumes the FINAL `(:effects final-ctx)` AFTER the whole chain ran, so an
-;; effect can arrive malformed by a route the per-handler-return checks never
-;; saw: an `:after`-interceptor mutation of the effect-map after the handler
-;; return was already validated. `events/police-final-effects!` + the router's final
-;; legacy-root check close that gap:
-;;   - a foreign top-level effect key is DROPPED (not silently ignored at the
-;;     partition commit) with `:rf.error/effect-map-shape`;
-;;   - a non-sequential whole `:fx` is DROPPED before `fx/do-fx` can throw a
-;;     raw host exception AFTER the :db commit;
+;; effect can arrive malformed by a route the handler-return site never saw: an
+;; `:after`-interceptor mutation of the effect-map after the handler already
+;; returned. Since rf2-04tx `commit-fx-effects` does not police at all — it
+;; projects the returned map verbatim — so the boundary below is the ONE check,
+;; and it decides identically whichever route the key arrived by:
+;;   - a foreign top-level effect key REFUSES the event
+;;     (`:rf.error/effect-map-shape`, recovery `:fix-effect`);
+;;   - a non-sequential whole `:fx` REFUSES it the same way, so `fx/do-fx`
+;;     never sees a value it would throw on;
 ;;   - a legacy `:rf/runtime` root inserted into the final `[:effects :db]`
-;;     is REJECTED (`:rf.error/legacy-runtime-root`) before commit.
+;;     is REJECTED (`:rf.error/legacy-runtime-root`).
 ;; All run BEFORE any commit (no partial commit) and in-band (the drain is
 ;; not aborted — downstream queued events keep draining).
 
@@ -380,12 +382,12 @@
 
 ;; ---- :after interceptor mutating the final effects ------------------------
 
-(deftest after-interceptor-malformed-fx-is-policed-not-thrown
-  (testing "an :after interceptor replacing [:effects :fx] with a non-sequential value is policed (dropped), not a raw host throw after the :db commit"
+(deftest after-interceptor-malformed-fx-refuses-the-event-not-thrown
+  (testing "an :after interceptor replacing [:effects :fx] with a non-sequential value refuses the event in-band, not a raw host throw after the :db commit"
     (rf/make-frame {:id :ctx/after-bad-fx :doc "ctx"})
     (let [recorded (record-traces! ::after-bad-fx)
-          ;; The :after runs AFTER the handler-wrapper's :before checks, so
-          ;; `commit-fx-effects`/`fx-value-ok?` never saw this value.
+          ;; The :after runs AFTER the handler-wrapper's :before, so this value
+          ;; exists only in the FINAL effects map — the one boundary that checks.
           bad-fx   (after-icpt ::bad-fx
                                (fn [ctx]
                                  (interceptor/assoc-effect ctx :fx :oops)))]
@@ -398,23 +400,25 @@
       (rf/reg-event :ctx/downstream (fn [{:keys [db]} _] {:db (assoc db :downstream? true)}))
       (rf/dispatch-sync [:ctx/writes-db] {:frame :ctx/after-bad-fx})
       (rf/dispatch-sync [:ctx/downstream] {:frame :ctx/after-bad-fx})
-      ;; ALWAYS-ON (rf2-d2841): "policed, not thrown" is entirely a production
-      ;; claim — the commit landed and the drain survived. That is what this
-      ;; deftest is for; the shape error merely narrates it.
+      ;; ALWAYS-ON (rf2-d2841 / rf2-04tx): "refused in-band, not thrown" is
+      ;; entirely a production claim — nothing committed and the drain survived.
+      ;; That is what this deftest is for; the shape error merely narrates it.
+      ;; The in-band arm is load-bearing: a THROW here would escape into
+      ;; `drain-emergency-release!` and take the downstream event with it.
       (let [db (rf/app-db-value :ctx/after-bad-fx)]
-        (is (true? (:committed? db))
-            "the :db effect still committed — the bad :fx was dropped, no host throw aborted the event")
+        (is (nil? (:committed? db))
+            "no partial commit — the :db write did NOT land beside the refused :fx")
         (is (true? (:downstream? db))
-            "the downstream event still drained — the malformed :fx did not abandon the queue"))
+            "the downstream event still drained — the refusal did not abandon the queue"))
       (when interop/debug-enabled?
         (let [errs (error-events recorded :rf.error/effect-map-shape)]
           (is (= 1 (count errs))
               "exactly one shape error for the non-sequential :fx value")
           (is (= :fx (:offending-key (:tags (first errs)))))
-          (is (= :logged-and-skipped (:recovery (first errs)))))))))
+          (is (= :fix-effect (:recovery (first errs)))))))))
 
-(deftest after-interceptor-foreign-effect-key-is-policed
-  (testing "an :after interceptor inserting a foreign top-level effect key is policed (dropped) — not silently ignored at the partition commit"
+(deftest after-interceptor-foreign-effect-key-refuses-the-event
+  (testing "an :after interceptor inserting a foreign top-level effect key refuses the event — the same decision a handler-returned key gets"
     (rf/make-frame {:id :ctx/after-foreign :doc "ctx"})
     (let [recorded (record-traces! ::after-foreign)
           foreign  (after-icpt ::foreign
@@ -425,15 +429,17 @@
         {:interceptors [::foreign]}
         (fn [{:keys [db]} _] {:db (assoc db :ok? true)}))
       (rf/dispatch-sync [:ctx/writes-db2] {:frame :ctx/after-foreign})
-      ;; ALWAYS-ON (rf2-d2841): the final-boundary drop happens in production.
-      (is (true? (:ok? (rf/app-db-value :ctx/after-foreign)))
-          "the legal :db still committed; only the foreign :http key was dropped")
+      ;; ALWAYS-ON (rf2-d2841 / rf2-04tx): the final-boundary refusal happens in
+      ;; production. This is the SECOND ROUTE witness — a key inserted here
+      ;; never passed through the handler return, and gets the same verdict.
+      (is (nil? (:ok? (rf/app-db-value :ctx/after-foreign)))
+          "no partial commit — the legal :db did NOT land beside the foreign key")
       (when interop/debug-enabled?
         (let [errs (error-events recorded :rf.error/effect-map-shape)]
           (is (= 1 (count errs))
               "exactly one shape error for the foreign :http key")
           (is (= :http (:offending-key (:tags (first errs)))))
-          (is (= :logged-and-skipped (:recovery (first errs)))))))))
+          (is (= :fix-effect (:recovery (first errs)))))))))
 
 (deftest after-interceptor-legacy-runtime-root-is-rejected
   (testing "an :after interceptor inserting :rf/runtime into [:effects :db] is rejected at the final boundary — never lands in app-db, drain survives"
@@ -477,11 +483,11 @@
 ;; EP-0018 (rf2-xhfxcs.14): full-context work is now an INTERCEPTOR `:before`
 ;; on a `reg-event` registration (the removed `reg-event-ctx` form's
 ;; `context -> context` shape transplants verbatim). These pin that effects a
-;; full-context interceptor writes onto the context are policed at the final
+;; full-context interceptor writes onto the context are governed by the final
 ;; boundary exactly as a handler-returned effects map would be.
 
-(deftest full-context-interceptor-malformed-fx-is-policed
-  (testing "a full-context interceptor whose context carries a non-sequential :fx is policed at the boundary"
+(deftest full-context-interceptor-malformed-fx-refuses-the-event
+  (testing "a full-context interceptor whose context carries a non-sequential :fx refuses the event at the boundary"
     (rf/make-frame {:id :ctx/ctx-bad-fx :doc "ctx"})
     (let [recorded (record-traces! ::ctx-bad-fx)]
       (rf/reg-interceptor :ctx/ctx-writes-probe
@@ -494,19 +500,19 @@
         {:interceptors [:ctx/ctx-writes-probe]}
         (fn [_ _] {}))
       (rf/dispatch-sync [:ctx/ctx-writes] {:frame :ctx/ctx-bad-fx})
-      ;; ALWAYS-ON (rf2-d2841): the interceptor-written effects are policed at
-      ;; the boundary in production too — the `:db` landed, the bad `:fx` did
-      ;; not throw.
-      (is (true? (:committed? (rf/app-db-value :ctx/ctx-bad-fx)))
-          "the :db effect still committed; only the bad :fx was dropped")
+      ;; ALWAYS-ON (rf2-d2841 / rf2-04tx): the interceptor-written effects are
+      ;; refused at the boundary in production too — nothing landed, and the
+      ;; bad `:fx` still did not throw.
+      (is (nil? (:committed? (rf/app-db-value :ctx/ctx-bad-fx)))
+          "no partial commit — the :db write did NOT land beside the refused :fx")
       (when interop/debug-enabled?
         (let [errs (error-events recorded :rf.error/effect-map-shape)]
           (is (= 1 (count errs))
-              "the full-context interceptor's malformed :fx is policed — the reg-event handler return is not the only path that gets shape policing")
+              "the full-context interceptor's malformed :fx is refused — the reg-event handler return is not the only path the boundary governs")
           (is (= :fx (:offending-key (:tags (first errs))))))))))
 
-(deftest full-context-interceptor-foreign-key-is-policed
-  (testing "a full-context interceptor whose context carries a foreign top-level effect key is policed at the boundary"
+(deftest full-context-interceptor-foreign-key-refuses-the-event
+  (testing "a full-context interceptor whose context carries a foreign top-level effect key refuses the event at the boundary"
     (rf/make-frame {:id :ctx/ctx-foreign :doc "ctx"})
     (let [recorded (record-traces! ::ctx-foreign)]
       (rf/reg-interceptor :ctx/ctx-foreign-writes-probe
@@ -519,9 +525,9 @@
         {:interceptors [:ctx/ctx-foreign-writes-probe]}
         (fn [_ _] {}))
       (rf/dispatch-sync [:ctx/ctx-foreign-writes] {:frame :ctx/ctx-foreign})
-      ;; ALWAYS-ON (rf2-d2841).
-      (is (true? (:ok? (rf/app-db-value :ctx/ctx-foreign)))
-          "the legal :db still committed; the foreign top-level key was dropped")
+      ;; ALWAYS-ON (rf2-d2841 / rf2-04tx).
+      (is (nil? (:ok? (rf/app-db-value :ctx/ctx-foreign)))
+          "no partial commit — the legal :db did NOT land beside the foreign key")
       (when interop/debug-enabled?
         (let [errs (error-events recorded :rf.error/effect-map-shape)]
           (is (= 1 (count errs))

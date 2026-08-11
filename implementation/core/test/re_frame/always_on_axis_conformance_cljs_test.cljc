@@ -332,7 +332,17 @@
     ;; `:reason` ride the DCE'd dev trace only), pinned by
     ;; `classification_effect_shape_record_cljs_test.cljc`.
     :rf.error/classification-effect-shape
-    :rf.error/legacy-runtime-root})
+    :rf.error/legacy-runtime-root
+    ;; rf2-04tx: the effect-map ENVELOPE refusal joined its two siblings at the
+    ;; same FINAL-effects boundary. A foreign top-level effect key or a
+    ;; non-sequential `:fx` value aborts the event with no commit — and the
+    ;; whole category (including the per-entry `:fx` row, which still recovers
+    ;; `:logged-and-skipped`) now fans through `emit-error-both!`. It has to be
+    ;; always-on for the same reason the other two are: the failure is a
+    ;; DROPPED EFFECT, which has no symptom at the dispatch call site, so a
+    ;; production build that could only see it on the DCE'd dev trace saw
+    ;; nothing at all.
+    :rf.error/effect-map-shape})
 
 ;; The frame-teardown report is the ONE always-on category that rides the
 ;; bounded `dispatch-frame-teardown-report!` sibling (Spec 009: one record

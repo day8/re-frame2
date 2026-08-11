@@ -319,11 +319,13 @@ re-frame2's effect map is `{:db ... :fx [[fx-id args] ...]}`. **Every** top-leve
 
 Why: per [Spec-Schemas §:rf/effect-map](../../spec/Spec-Schemas.md#rfeffect-map), the effect-map is a **closed** shape. The runtime walks one ordered list of effects rather than discriminate among many top-level keys. Single-form rule fits the pattern's regularity-over-cleverness principle and lets tools (10x, agents) iterate effects uniformly.
 
-> **Why this rule is non-deferrable — an un-migrated top-level key is silently dropped at runtime.**
+> **The runtime backstop exists, and it is loud — a left-behind top-level key REFUSES the event.**
 >
-> A left-behind top-level effect key does **not** raise an exception, does **not** print a console warning, and does **not** halt the cascade. The runtime ([`commit-fx-effects` in `re-frame.events`](../../implementation/core/src/re_frame/events.cljc)) keeps `:db` / `:fx`, drops the offending key, and lets the dispatch return as a silent no-op — the effect simply never happens. The only diagnostic is a single `:rf.error/effect-map-shape` entry on the **dev** trace stream, which is gated on `goog.DEBUG` and is visible only if an inspection tool (Xray / Story) happens to be attached. In a **production** build that trace emit is dead-code-eliminated, so there is **zero** diagnostic of any kind.
+> First contact with a missed site is a red error naming the key. The runtime checks the effect-map envelope once, at the router's final-effects boundary ([`effect-map-defect` in `re-frame.events`](../../implementation/core/src/re_frame/events.cljc)), and a top-level key outside the closed set aborts that event in-band: **nothing commits** — not `:db`, not `:fx` — and `:rf.error/effect-map-shape` is emitted on the **always-on** error channel with recovery `:fix-effect`. Always-on means it survives a production build, so an off-box shipper (Sentry / Datadog) sees it too; it is not a dev-only trace you have to have an inspection tool attached to notice.
 >
-> The failure mode is therefore an invisible behavioural break, not a crash. A single missed site can strand an entire app: e.g. a boot handler returning `{:dispatch [...]}` instead of `{:fx [[:dispatch [...]]]}` silently no-ops, the awaited event never fires, and the boot machine never advances — with no error anywhere to point at the cause. This is why the sweep below must be **complete**, not best-effort: there is no runtime backstop that will catch a key you forget to migrate.
+> **This was not always so, and the old behaviour is why the rule is non-deferrable.** Earlier pre-alpha builds kept `:db` / `:fx`, dropped the offending key, and let the dispatch return — so the state write landed while the effect never happened. That is worse than a crash: the handler *looks* like it worked, and the defect surfaces far from its cause. It cost this project two real bugs — a `:dispatch-later` timer that never fired while a browser gate stayed green in three engines for fourteen hours, and a persistence effect inside a dev tool that had been dead for eleven weeks.
+>
+> So the sweep still has to be **complete** — but a missed site now fails fast and names itself instead of stranding your app silently. Run the codemod for the mechanical move; the backstop catches whatever it could not.
 
 **What to look for:**
 

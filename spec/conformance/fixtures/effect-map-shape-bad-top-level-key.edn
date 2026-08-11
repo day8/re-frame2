@@ -1,37 +1,47 @@
 ;; Conformance fixture: effect-map-shape/bad-top-level-key
 ;; Spec 009 §:rf.error/effect-map-shape CASE (a) — bad TOP-LEVEL key.
 ;;
-;; A reg-event-fx handler returns an effect-map with a key other than
-;; :db / :fx (here the legacy v1 top-level :http, per MIGRATION §M-8). The
-;; effect-map is CLOSED (Spec-Schemas §:rf/effect-map — only :db and :fx at
-;; the top level), so the runtime PROACTIVELY polices the shape at commit:
-;; one :rf.error/effect-map-shape trace per offending key (:offending-key
-;; :http), the offending key is DROPPED, and the legal :db still applies
-;; (recovery :logged-and-skipped). The legacy key is NOT routed through the
-;; fx machinery.
+;; A reg-event handler returns an effect-map with a key other than :db / :fx
+;; (here the legacy v1 top-level :http, per MIGRATION §M-8). The effect-map is
+;; CLOSED (Spec-Schemas §:rf/effect-map), so the runtime polices the shape at
+;; the router's FINAL-effects boundary and REFUSES the event: one
+;; :rf.error/effect-map-shape emission (:offending-key :http) on the ALWAYS-ON
+;; error channel, recovery :fix-effect, and NO partial commit — the legal :db
+;; does not land either. The legacy key is NOT routed through the fx machinery.
+;;
+;; WHY THE :db MUST NOT LAND, and this is what the fixture is really for
+;; (rf2-04tx). The old contract dropped the key and committed the :db, which
+;; made a half-executed handler look like a working one: the state changed, so
+;; the screen updated, while the effect the programmer wrote never happened.
+;; That partial-success disguise defeated two real gates in this repo's own
+;; tree — a dead :dispatch-later timer that kept three browser engines green
+;; for 14 hours, and a persist fx inside the Xray inspector that had been dead
+;; for eleven weeks. A port that keeps the old drop-and-commit behaviour FAILS
+;; here on :final-app-db, which is the assertion that cannot be satisfied by
+;; accident.
 ;;
 ;; This is a FAIL-CLOSED proactive gate, not a thrown error — it never
-;; surfaces as an exception, so a PORT with a lenient fx-entry guard (the
-;; rf2-18kwf class bug) ships GREEN against the rest of the corpus while
-;; silently accepting this malformed shape. This fixture gives the gate
-;; TEETH: a conformant impl MUST emit the trace + drop the key, so the
-;; lenient port FAILS here (no trace emitted, OR the :http key mis-routed).
+;; surfaces as an exception (a throw at this boundary would escape the drain
+;; and abandon the rest of the queue), so a PORT with a lenient effect-map
+;; guard ships GREEN against the rest of the corpus while silently accepting
+;; this malformed shape. This fixture gives the gate TEETH.
 ;;
 ;; The handler returns the malformed map via the :return-raw DSL op — the
 ;; only DSL path that yields a literal effect-map verbatim (the :set / :fx
 ;; ops always build a well-shaped map, so the shape gate was unreachable
-;; from a fixture before this op). Grounded against the reference emitter
-;; re-frame.events/police-effect-map-shape!.
+;; from a fixture before this op). Grounded against the reference carrier
+;; re-frame.events/effect-map-defect and its emit site
+;; re-frame.router/emit-effect-map-shape!.
 
 {:fixture/id           :effect-map-shape/bad-top-level-key
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:core/event-handler :core/fx :core/error :core/trace}
- :fixture/doc          "A reg-event-fx handler returns {:db ... :http ...}. The non-:db/:fx top-level :http key is proactively policed: one :rf.error/effect-map-shape trace (:offending-key :http, :logged-and-skipped), the key dropped, the :db still applied."
+ :fixture/doc          "A reg-event handler returns {:db ... :http ...}. The non-:db/:fx top-level :http key REFUSES the event: one always-on :rf.error/effect-map-shape emission (:offending-key :http, :fix-effect), the event aborts pre-commit, and the :db does NOT apply."
 
  :fixture/registry
  {:event {:shape/init {:doc "Seed [:seeded?] false."}
           :shape/bad-key {:doc "Returns {:db {:seeded? true} :http {...}} — the legacy v1 top-level :http key is a shape violation."}}
-  :sub   {:seeded? {:doc "Whether the :db still committed."}}}
+  :sub   {:seeded? {:doc "Whether the :db committed. It must NOT have."}}}
 
  :fixture/handlers
  {:event {:shape/init    [[:set [:seeded?] false]]
@@ -45,21 +55,30 @@
  [[:shape/bad-key]]
 
  :fixture/expect
- ;; :db still committed — only the malformed top-level key was dropped.
- {:final-app-db {:seeded? true}
-  :sub-values   {[:seeded?] true}
+ ;; NO COMMIT. The seed's `false` survives — the refused event's :db write
+ ;; never landed. A drop-and-commit port reads `true` here and fails.
+ {:final-app-db {:seeded? false}
+  :sub-values   {[:seeded?] false}
 
   :trace-emissions
   [{:operation :rf.event/run-start :tags {:rf.trace/event-id :shape/bad-key}}
-   ;; Proactive shape policing: one trace for the offending :http key.
+   ;; The dev-trace axis carries the full diagnosis.
    {:operation :rf.error/effect-map-shape
     :op-type   :error
-    :recovery  :logged-and-skipped
+    :recovery  :fix-effect
     :tags      {:category          :rf.error/effect-map-shape
                 :offending-key     :http
                 :value             {:url "/api"}
                 :rf.trace/event-id :shape/bad-key
                 :rf.event/v        [:shape/bad-key]}}]
+
+  ;; The always-on axis — the one that survives a production build, where the
+  ;; dev trace above is dead-code-eliminated. It carries the offending KEY as
+  ;; its lone discriminator; the rejected value stays on the dev trace.
+  :error-emit-records
+  [{:error         :rf.error/effect-map-shape
+    :event-id      :shape/bad-key
+    :offending-key :http}]
 
   ;; The legacy top-level :http key was NOT routed through the fx machinery
   ;; — no fx with id :http was ever attempted.
