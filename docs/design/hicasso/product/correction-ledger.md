@@ -57,8 +57,11 @@ Checkpoints append rows. Every transition after `open` is the ledger keeper's, w
 
 | Checkpoint | Protocol section | Finding | bd id | Severity | Status | Closure evidence |
 |---|---|---|---|---|---|---|
-
-*No rows yet — the first checkpoint (rf2-hic-019) has not run.*
+| rf2-hic-019 | §3 Quality | `h/boundary` reads `:on-error`/`:reset-key`/`:fallback`/`:children` off a free-form props map with no roster and no shape check; a misspelled key and a non-vector/non-fn `:on-error` each silently report nothing | rf2-czlb | correctness | open | — |
+| rf2-hic-019 | §3 Quality | `n/defcomponent`'s declaration map has no key or value roster, and the `:server` field it records is consulted by no runtime path; its witness asserts the recording | rf2-u9lk | correctness | open | — |
+| rf2-hic-019 | §3 Quality | `h/defhost` silently discards every form after `opts`, and `mint-host!` never checks `opts` is a map | rf2-3f11 | correctness | open | — |
+| rf2-hic-019 | §2 Correctness | Kernel risk rows 2 and 8 have no re-runnable sabotage control; every hand-run mutation cites an unnamed "PR body" | rf2-1mmn | coverage | open | — |
+| rf2-hic-019 | §3 Quality | `::h/mounting` outside a presence tray's direct child is a silent no-op and leaks to the DOM | rf2-34a7 | quality (see that bead's severity note) | open | — |
 
 ## Worked example (dry run)
 
