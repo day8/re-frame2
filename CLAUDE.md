@@ -111,7 +111,7 @@ Per-artefact tests run from each artefact directory via `clojure -M:test` (see e
 
 Docs build from repo root with `mkdocs build --strict` (config in `mkdocs.yml`).
 
-**`mkdocs build --strict` does not cover `docs/design/**`** — `mkdocs.yml`'s `exclude_docs` block deliberately keeps `design/freehand/` and `design/hicasso/` out of the site (they are working design records, not user-facing documentation), so never nominate it as the gate for an edit confined to that tree. `scripts/check_doc_slugs.py` *does* validate the tree's markdown link targets and heading anchors (it runs in the fast-PR spine and in `docs.yml`); nothing validates its tables, rendering or nav, so **the worker verifies anchors and table column counts by hand and says so in the PR body**.
+**`mkdocs build --strict` does not cover `docs/design/**`** — `mkdocs.yml`'s `exclude_docs` block deliberately keeps `design/freehand/` and `design/hicasso/` out of the site (they are working design records, not user-facing documentation), so never nominate it as the gate for an edit confined to that tree. `scripts/check_doc_slugs.py` *does* validate the tree's markdown link targets and heading anchors (it runs in the fast-PR spine and in `docs.yml`), and `scripts/check_provenance_pins.py` validates changed pages under `docs/design/hicasso/` as its own `docs.yml` job; nothing validates its tables, rendering or nav, so **the worker verifies anchors and table column counts by hand and says so in the PR body**.
 
 ## Architecture Overview
 
