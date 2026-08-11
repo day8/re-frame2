@@ -36,8 +36,8 @@
 
   For the reason the sibling file states at length: reads are
   address-directed so a fresh body paints correctly, `commit-basis` ties
-  so React schedules no re-render, and the repair arrives a macrotask
-  later. Rendered output is green in both directions. Every row here
+  so React schedules no re-render, and the repair arrives at the microtask
+  checkpoint. Rendered output is green in both directions. Every row here
   therefore asserts on the incarnation token, the memo row's identity, the
   successor's app-db, and the always-on `:rf.error/frame-destroyed`
   corpus record — the only observable that separates *refused* from
