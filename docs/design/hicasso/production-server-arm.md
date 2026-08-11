@@ -19,6 +19,22 @@ render contract and topology arrows (the sidecar was priced against a crossing
 the shipped Node entry does not have), and §10's Arm B table (repriced from that
 contract). Nothing else changed, and the page still draws no conclusion.
 
+**Amended 2026-08-11 (`rf2-t2ba`), from the `rf2-2rtt6` ruling's packet-hygiene
+item.** One cell moved. §9's root-naming row let the walk arm read as though a
+Hicasso root were already a Var the JVM could call, while its sidecar
+counterpart carried the absence clause; `rf2-2rtt6.88`'s ruling comment
+establishes that **neither host has a callable Hicasso root today** — which is
+what §5 has said all along — and the row now says so on both sides.
+
+Two facts of status travel with that correction, so that a later reader is not
+misled about what this page is. `rf2-2rtt6.88` closed as **ruled on 2026-08-08:
+the production server arm is the Node sidecar**, so the choice this page was
+written to inform has since been made. And ruling is not start — the pricing
+below still prices unbuilt work, and `ssr-ring`'s render call is still the
+hard-wired `ssr/render-to-string` line §2 quotes. No figure, band or argument
+moved; the page still draws no conclusion of its own, and the ruling is recorded
+here rather than re-argued.
+
 ## What this document deliberately does not contain, and the tension that produced it
 
 `rf2-2rtt6.88`'s description asks for "both branches priced in beads/weeks,
@@ -786,7 +802,7 @@ One row per axis, and no column is a score.
 | Text-separator row | must be settled first, with new apparatus | does not arise |
 | Attribute-only divergence | possible, and unreportable by React | impossible by construction |
 | Codec churn exposure | a twin to keep in step; 3–19 commits/day into `front/` this week | none |
-| How the host names the root | a Var the JVM calls in-process, as `ssr-ring` already does | a stable identifier resolved against a table the app's Node bundle publishes — neither the identifier nor the table exists (§5) |
+| How the host names the root | a Var the JVM calls in-process — the shape `ssr-ring` already uses for core roots, but no Hicasso root is one today: `defview` mints a JavaScript function with no JVM referent (§5) | a stable identifier resolved against a table the app's Node bundle publishes — neither the identifier nor the table exists (§5) |
 | `defhost` `:ssr :render` (rf2-l0wfx, 2026-08-05) | not reachable — no React on the JVM; such a host must be written `:client-only` or `{:fallback …}`, so the arm constrains the authoring surface rather than failing | reachable — it is the same React that renders it in the browser |
 | What crosses per request | nothing — one process | a render-visibility projection of the post-drain frame-state, in a domain and under a policy not yet written (§5); unmeasured |
 | Deploy lockstep | none | two artefacts must ship together; the entry table is the one thing that would make the skew detectable at all |
