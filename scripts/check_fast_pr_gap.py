@@ -127,9 +127,13 @@ SETUP_PATTERNS = (
     r"^npx playwright install\b",
     r"^sudo apt-get\b",
     r"^apt-get\b",
-    r"^curl .*install-clj-kondo",
-    r"^chmod \+x install-clj-kondo$",
-    r"^sudo \./install-clj-kondo\b",
+    # The clj-kondo installer step (lint.yml). It fetches the pinned release
+    # archive straight from the GitHub release rather than by way of upstream's
+    # `install-clj-kondo` script (rf2-rkl9: the script re-downloads the archive
+    # with a bare un-retried `curl -sL`, which is the hop that actually flakes).
+    r"^curl .*clj-kondo/releases/download/",
+    r"^unzip .*clj-kondo",
+    r"^sudo install .*/clj-kondo$",
     r"^clj-kondo --version$",
 )
 _SETUP_RE = tuple(re.compile(p) for p in SETUP_PATTERNS)
@@ -260,7 +264,13 @@ _PY_CHECKER_RE = re.compile(r"^python scripts/(check_[A-Za-z0-9_]+)\.py\b(.*)$")
 _SPINE_CHECKER_RE = re.compile(
     r'python\s+"\$spine_root/scripts/(check_[A-Za-z0-9_]+)\.py"(.*)$'
 )
-_KONDO_PIN_RE = re.compile(r"install-clj-kondo --version (\S+)")
+# The clj-kondo pin, read off the release URL the installer step fetches. The
+# pin used to be read from `install-clj-kondo --version <pin>`, but that script
+# re-downloads the archive over an un-retried `curl -sL` and reds the lint gate
+# on a transient network fault (rf2-rkl9), so lint.yml now fetches the archive
+# itself. The release URL carries the same pin and is a tighter anchor: nothing
+# else in any workflow can match it.
+_KONDO_PIN_RE = re.compile(r"clj-kondo/releases/download/v([^/\s]+)/")
 
 
 def _mode(flags: str) -> str:
@@ -594,9 +604,9 @@ class GapMap:
         if self.kondo_pin is None:
             self.problems.append(
                 "the clj-kondo version pin could not be read from any required job's "
-                "installer step (expected `install-clj-kondo --version <pin>`); the "
-                "report would omit the pin, and a local clj-kondo of another version "
-                "proves nothing"
+                "installer step (expected a fetch of "
+                "`.../clj-kondo/releases/download/v<pin>/...`); the report would omit "
+                "the pin, and a local clj-kondo of another version proves nothing"
             )
 
         for lane in SPINE_LANES:
@@ -1038,8 +1048,11 @@ def run_self_tests(verbose: bool) -> int:
         any("expected at least" in p and SPINE in p for p in empty.problems),
     )
 
-    check("the kondo pin regex reads a real pin", _KONDO_PIN_RE.search(
-        "sudo ./install-clj-kondo --version 2026.04.15") is not None)
+    _pin = _KONDO_PIN_RE.search(
+        "curl -fsSL -o /tmp/clj-kondo.zip https://github.com/clj-kondo/clj-kondo"
+        "/releases/download/v2026.04.15/clj-kondo-2026.04.15-linux-static-amd64.zip")
+    check("the kondo pin regex reads a real pin off the release URL",
+          _pin is not None and _pin.group(1) == "2026.04.15")
 
     # `${{ github.workspace }}` is the repo root -- the EP-0036 donor grep
     # declares it, and echoing the raw expression as a `cd` target would print a
