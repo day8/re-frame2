@@ -349,8 +349,16 @@ Four are blocked on something concrete, and the block is the interesting part:
   witness in the tree, and a clean rename apart from one thing: it `:require`s
   `re-frame.bench.hicasso.front.slot-cljs-test`'s corpus, and that file cannot move (below). Port
   it once the slot question is settled, or inline the corpus.
+  **LANDED (rf2-a15c, PR #7842), and the corpus was what unblocked it.** rf2-b6ja settled the slot
+  question and found the queue behind it was never a lane question at all — a namespace that defines
+  no `deftest` is not a test file, so the bijection gate never reaches a corpus. The corpus went
+  across as an ordinary support namespace, `re-frame.hicasso.slot-corpus`, and both this row and the
+  one below went with it. The verdict here is therefore **PORT, executed**; the bench original still
+  stands and should not, which is
+  [The nine ports whose originals still stand](#the-nine-ports-whose-originals-still-stand).
 - **`arm1/raw_escape_dom_cljs_test.cljs`** (403) — the `[:>]` raw escape against real React. Reads
-  `front.codec-cljs-test`'s corpus; queued behind it for the same reason.
+  `front.codec-cljs-test`'s corpus; queued behind it for the same reason. **LANDED with it** — same
+  bead, same PR, same standing original.
 - **`arm1/host_ssr_dom_cljs_test.cljs`** (670) and **`arm1/fallback_contents_cljs_test.cljs`** (376)
   — `defhost`'s `:ssr` policy in all three places it has to hold, and the contract for what an
   `:ssr` fallback may contain. Genuine package behaviour, and at census time
