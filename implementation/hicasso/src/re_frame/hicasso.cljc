@@ -232,6 +232,16 @@
   refused at the declaration with
   `:rf.error/hicasso-host-bad-slots`.
 
+  **The same two positions are closed to a `:callbacks` entry**, for the
+  same reason and at the same moment: `:key`/`:ref` carry no contract,
+  and a contract at `__proto__`, `prototype` or `constructor` could
+  never be applied, because the crossing skips those names before it
+  reads any declaration. Both are refused with
+  `:rf.error/hicasso-host-structural-callback`, and two spellings of one
+  callback slot with `:rf.error/hicasso-host-callback-slot-collision`.
+  Every question is asked of the CANONICAL slot, so `:on-empty` and
+  `:onEmpty` get one answer between them.
+
       (defhost chart Chart
         {:ssr {:fallback [:div.chart-skeleton]}})
 
