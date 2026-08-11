@@ -221,7 +221,7 @@ not, and cannot be until a package-resident clock instrument exists.
 `rf2-hic-006` asks this page to resolve, **from the registered instrument's
 source of record**, whether the paper-fail line is 1,000 B or 1,024 B.
 
-**The source of record is [`validation.md`](validation.md), and it does not
+**The source of record is [`validation.md`](../validation.md), and it does not
 resolve the question.** Its row reads, in full:
 
 > Exclusive retained per boundary (**the R=0 boundary shell**) — target
@@ -381,7 +381,26 @@ lane, run alone on a quiet box:
 witness rows are `browser?`-guarded and degrade to stated skips off the browser
 lane, so a green aggregate alone would not distinguish *ran and passed* from
 *skipped*. Inverting the acceptance produced a captured failure naming the
-assertion, which proves the row executes.
+assertion:
+
+```
+FAIL in (a-keystroke-costs-the-same-at-25-cells-and-at-100)
+  (re_frame/hicasso/examples/grid/scaling_dom_cljs_test.cljs:198:11)
+expected: (= 3 at-25 at-100)
+  actual: (not (= 3 2 2))
+```
+
+That report does two jobs at once, and the second is the more useful. It proves
+the row **executes** rather than skipping — a skipped row cannot fail. And
+because `cljs.test` prints the bound values, `(not (= 3 2 2))` **independently
+witnesses D1 = 2 and D2 = 2** from the failure path, without the passing
+assertion being the thing that reports them. The figures and the proof they
+were measured are therefore not the same observation.
+
+Run 3 restored the assertion and re-ran: the file's SHA-256 matches its
+pre-sabotage value byte-for-byte, and the lane returned to 1,284 tests and
+7,971 assertions with zero failures — the same totals as run 1, on bytes proven
+identical to run 1's.
 
 **What would falsify this page.** Any of: a second physical profile showing the
 user-visible budgets behave differently in tier (§1's accepted limitation is
