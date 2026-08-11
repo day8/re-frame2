@@ -1,144 +1,131 @@
 # Performance
 
-"Is it fast enough?" is not a feeling. Hicasso ships with
-[user-visible budgets](glossary.md#user-visible-budget). Performance work is
-the method that meets them: measure, attribute, change the smallest thing, then
-verify again.
+Performance work starts with a user-visible budget, not a general feeling that
+the framework might be slow.
 
-Most apps never leave ordinary Hicasso (rung 1 of the ladder below). That is
-the intended result.
+Measure one interaction, identify the cost owner, change the smallest relevant
+piece, and verify the result under the same conditions. Most applications stay
+on ordinary Hicasso throughout that process.
 
-## The budgets
+## User-visible budgets
 
-The budgets come first, because they are the only honest definition of "slow".
-Each budget is a fact a user can notice, measured at the percentile that
-represents real hardware:
-
-| Budget | The user-visible fact |
+| Budget | Target |
 | --- | --- |
-| Discrete interactions | Click, toggle, submit reach the next paint within **50 ms p95** (100 ms p99) |
-| Keystroke echo | A [controlled field](glossary.md#controlled-field) is correct **in the same turn** and visibly echoed within **one 60 Hz frame** at p95 |
-| Broad operations | Bulk replace, big filter flips complete within **100 ms p95**, unless explicitly classified as background work |
-| Drag and animation | Stay inside the frame budget — normally by keeping high-rate mechanics host-local ([Ephemeral state](11-ephemeral-state.md)) |
-| Narrow updates | Body work scales with **changed rows**, not mounted rows |
-| Teardown | **Zero residue** after quiescence — long sessions do not accumulate |
+| Discrete interaction | Click, toggle, or submit reaches the next paint within **50 ms p95** and **100 ms p99** |
+| Controlled keystroke | State converges in the same browser turn and the visible echo arrives within **one 60 Hz frame at p95** |
+| Broad operation | Bulk replacement or a large filter change completes within **100 ms p95**, unless explicitly classified as background work |
+| Drag or animation | Remains inside the frame budget, usually by keeping high-rate mechanics inside a host |
+| Narrow update | View-body work scales with changed rows or cells, not all mounted rows or cells |
+| Teardown | Returns to **zero additional residue** after quiescence |
 
-Hold your own app to these numbers. The rest of this chapter matters only when
-one of them is missed. A screen that meets its budgets is fast enough, whatever
-score a synthetic benchmark reports.
+A screen that meets its user-visible budgets is fast enough even when a
+synthetic benchmark says another implementation can execute an isolated
+operation faster.
 
-!!! note "Measure under production conditions"
+!!! note "Measure production behaviour"
+    Use production builds, mid-tier hardware, and p95 across repeated runs.
+    Development diagnostics add work that production removes. Your fastest
+    machine and best run are not representative measurements.
 
-    Verify budgets on **production builds**, on mid-tier hardware, at p95
-    across runs. A dev build carries diagnostics that production erases, and
-    your machine is faster than your users' machines. Your best run is not a
-    measurement.
+Teardown is part of performance. Long-lived applications must not accumulate
+subscriptions, timers, listeners, or SDK handles as users leave and revisit
+screens. Hicasso releases its own committed reads. Hosts and native islands
+must release what they acquire ([Interop](09-interop.md)). Prove the complete
+claim with `hm/assert-clean!` ([Testing](14-testing.md)).
 
-The teardown row is user-visible. An SPA session is long, and leave-and-return
-cycles must not accumulate residue. Hicasso guarantees its own side: abandoned
-renders own nothing, and unmount releases every read. Your side is the escapes.
-A host or island that acquires an SDK, a listener, or a timer releases it on
-teardown ([Interop](09-interop.md)), and the [test kit](glossary.md#test-kit)'s
-`assert-clean!` proves the whole claim after quiescence
-([Testing](14-testing.md)).
+## Start with ordinary Hicasso
 
-## Why most apps stay on rung 1
+The normal implementation is:
 
-Rung 1 is ordinary Hicasso: write ordinary views, read at the point of use, put
-[intents](glossary.md#intent) in the markup, and ship. Do not pre-optimise for
-problems you have not measured. Interpreted [lowering](glossary.md#lowering) is
-fast. When a screen misses a budget, the cost almost always lives somewhere
-else: **where the reads sit, how many [boundaries](glossary.md#boundary) exist,
-what React itself does, or what a host does**. Per read, Hicasso's retained
-cost is low; the read *topology* is what you chose. That is why the ladder's
-second rung is "move your reads", not "abandon Hiccup".
+- Hiccup;
+- `h/sub` where the value is used;
+- event intents as data;
+- ordinary view boundaries.
 
-A small share of view code turns out to be hot — often none, rarely more than
-about two percent: a cell that renders constantly, a large collection under
-broad writes, a vendor widget with its own behaviour. For that code the ladder
-continues downward, explicitly and locally. An escape is a local island, never
-a general style.
+Do not optimise for an unmeasured cost. When a page misses a budget, the
+problem is often read placement, view topology, React work, host behaviour, or
+browser layout—not the Hiccup walk itself.
 
-## The ladder
+The retained cost of one read is usually small. The number and placement of
+reads are design choices, which is why topology is the first optimisation
+step.
 
-The [performance ladder](glossary.md#performance-ladder) is the same gradient
-as [the native tier](10-native-tier.md): ordinary Hicasso first, explicit
-escapes only when measurement names them.
+## The performance ladder
 
-Every rung is code that is visible in a diff. There is no `:fast` flag, no
-compile mode, and no setting that changes what Hiccup means:
+Each step is explicit in source. There is no `:fast` mode and no build setting
+that changes what Hiccup means.
 
-| Rung | What you write | Reach for it when | Taught in |
+| Level | Implementation | Use it when | Details |
 | --- | --- | --- | --- |
-| 1 — Ordinary Hicasso | Hiccup, [`h/sub`](glossary.md#hsub) at point of use, intents as data | Always. Start every feature here | [Views and reads](02-views-and-reads.md) |
-| 2 — Tuned topology | The same language; boundary placement, keys, read shape | A named boundary or read pressure | [Lists and collections](06-lists-and-collections.md) |
-| 3 — Direct React return | A `defview` returns an [`n/$`](glossary.md#n-dollar) element; frame, reads, memo stay | Lowering itself is the measured owner | [The native tier](10-native-tier.md) |
-| 4 — Named [native island](glossary.md#native-island) | [`n/defcomponent`](glossary.md#ndefcomponent) (or UIx) under the same root and frame | Hooks, vendor behaviour, reconciliation, or high-rate local work dominate | [The native tier](10-native-tier.md) |
-| 5 — Native screen | A React-first screen authored natively | The screen is React-shaped by nature | [The native tier](10-native-tier.md) |
+| 1. Ordinary Hicasso | Hiccup, point-of-use reads, data intents | Always start here | [Views and reads](02-views-and-reads.md) |
+| 2. Tune topology | Same language; change boundaries, keys, and read shape | A measured interaction invalidates too much work | [Lists and collections](06-lists-and-collections.md) |
+| 3. Direct React return | A `defview` returns `n/$` while keeping its Hicasso frame, reads, and memo | Hiccup lowering is the measured owner | [The native tier](10-native-tier.md) |
+| 4. Native island | `n/defcomponent` or UIx under the same root and frame | Hooks, vendor behaviour, reconciliation, or high-rate local mechanics dominate | [The native tier](10-native-tier.md) |
+| 5. Native screen | A React-first screen under the same state model | The screen is React-shaped by design | [The native tier](10-native-tier.md) |
 
-Rungs 3–5 are taught in [chapter 10](10-native-tier.md). This chapter owns the
-decision: when you step down, and when an escape must come back out.
+This page decides whether a step is justified. The native-tier chapter teaches
+the code.
 
-## The working loop
+## The measurement loop
 
-Performance work that skips a step of this loop is guessing:
+Do not skip a step:
 
-1. **Reproduce.** Name one slow interaction, and script it so that it runs the
-   same way every run. "The app is slow" is not actionable; "expedite on a
-   1,000-row table takes 180 ms" is actionable.
-2. **Attribute.** Correlate the event with the work that ran — which
-   subscriptions recomputed, which boundaries became invalid, how much body
-   work, then commit and paint. Xray's explain-render and read attribution
-   answer the first half. Its hot-view advisor classifies the pressure —
-   computation, topology, lowering, React, or layout — and recommends the
-   smallest credible remedy ([Diagnostics](15-diagnostics.md)).
-3. **Tune topology.** Adjust boundary placement, keys, and read shape — rung 2
-   ([Lists and collections](06-lists-and-collections.md)). Most hot paths are
-   fixed here, and the loop ends.
-4. **Compare direct output** if the measurement names lowering as the owner —
-   rung 3.
-5. **Isolate an island** if hooks, vendor behaviour, reconciliation, or
-   high-rate local work is the owner — rung 4.
-6. **Re-verify.** The change must preserve DOM and intent behaviour, focus and
-   selection, frame routing, SSR/hydration, and cleanup — and the budget must
-   flip from fail to pass. A faster screen that behaves wrongly is wrong.
-7. **Keep or remove.** The escape stays only if it passes the benefit rule
-   below.
+1. **Reproduce.** Script one named interaction. “The app is slow” is not a
+   reproducible case. “Expedite on a 1,000-row table takes 180 ms” is.
+2. **Attribute.** Identify changed subscriptions, notified views, body work,
+   React commit, and browser paint. Use Xray to classify the pressure as
+   computation, topology, lowering, React, or layout
+   ([Diagnostics](15-diagnostics.md)).
+3. **Tune topology.** Change read placement, keys, boundaries, or collection
+   shape. Most cases end here.
+4. **Compare a direct React return** only when lowering is the measured owner.
+5. **Build a native island** only when the owner is hooks, vendor internals,
+   reconciliation, or high-rate local work.
+6. **Re-verify behaviour and performance.** Preserve DOM and intent behaviour,
+   focus, selection, frame routing, SSR/hydration, cleanup, and the original
+   budget.
+7. **Keep or remove the escape.** Apply the benefit rule below.
 
-Three instruments cover attribution, and all three erase from production:
+Use the instruments for the questions they can answer:
 
-| Instrument | The question it answers |
+| Instrument | Question |
 | --- | --- |
-| **Xray** | Which reads changed, which boundaries ran and why, fan-out and read-set churn; the advisor's pressure classification |
-| **React DevTools Profiler** | Which components committed — every boundary is a real React function component under its own display name |
-| **Browser Performance panel** | `rf:*` User-Timing measures for events, subscriptions, effects and renders, on the Timings track next to paint |
+| Xray | Which reads changed, which views ran, why they ran, fan-out, churn, and likely pressure class |
+| React DevTools Profiler | Which real React components committed |
+| Browser Performance panel | Event, subscription, effect, render, layout, and paint timing on one timeline |
 
-A compile-time flag gates the `rf:*` measures, and the default is off. Build
-with `:closure-defines {re-frame.performance/enabled? true}` to emit them; a
-build without the flag carries no timing code at all. The runtime delivers
-entries and does not retain them: a live `PerformanceObserver` and the DevTools
-timeline see every measure, but a later `getEntriesByType` poll finds nothing.
-A bail-out emits no measure — the absence records that no work ran. A
-StrictMode double-invoke emits twice, because the body ran twice.
+### Optional `rf:*` User Timing
 
-Attribute *before* you change architecture. Unattributed "slow" is usually a
-rung-2 problem, and an island built on a misattributed cause makes the code
-worse without making it faster.
+Runtime User Timing is disabled by default. Enable it at compile time:
 
-## The escape-benefit rule
+```clojure
+:closure-defines {re-frame.performance/enabled? true}
+```
 
-An escape is a standing cost: a second semantics in that region, a body that
-structural tests cannot see into, a diff that reviewers read more slowly. An
-escape stays only if it recovers at least 20%, saves at least 2 ms at p95, or
-converts a failed user-visible budget into a pass. Otherwise it comes out —
-simplified back to the rung above it. The thresholds never widen to let an
-island stay, and "it might matter someday" is not one of the three conditions.
-Re-run the comparison when the surrounding code changes materially.
+A build without the flag carries no timing code.
 
-## The cost of one keystroke
+The runtime delivers entries to `PerformanceObserver` and browser DevTools but
+does not retain them for later polling. A subsequent `getEntriesByType` call
+may find nothing even though the live observer saw the entries.
 
-The budgets become concrete when you trace one keystroke. Take a controlled
-field in a four-field article editor:
+A view that bails out emits no measure because its body did not run.
+Development StrictMode emits twice when the body runs twice.
+
+## Keep an escape only when it earns its cost
+
+A native escape adds another local authoring model, hides structure from
+semantic tests, and increases review cost. Keep it only when it satisfies at
+least one of these conditions:
+
+- recovers **20% or more** of the measured interaction;
+- saves **2 ms or more at p95**;
+- converts a failed user-visible budget into a pass.
+
+Otherwise remove it and return to the previous level. “It may matter later” is
+not a fourth condition. Re-run the comparison when the surrounding path
+changes materially.
+
+## Trace one controlled keystroke
 
 ```clojure
 (ns app.editor
@@ -150,101 +137,102 @@ field in a four-field article editor:
     {:db (assoc-in db [:editor :title] typed)}))
 
 (rf/reg-sub :editor/title
-  (fn [db _] (get-in db [:editor :title])))
+  (fn [db _]
+    (get-in db [:editor :title])))
 
 (h/defview title-field [_]
-  [:input {:type     :text
-           :value    (h/sub [:editor/title])
-           :on-input [:editor/set-title ::h/value]}])
+  [:input
+   {:type     :text
+    :value    (h/sub [:editor/title])
+    :on-input [:editor/set-title ::h/value]}])
 ```
 
-One keystroke in the title field takes this path, entirely inside the browser's
-own input event:
+One keystroke follows this path:
 
-1. The DOM event fires. The intent dispatches **synchronously** in the discrete
-   event — no queue sits between the key and the handler.
-2. One handler runs, and it writes **one address**.
-3. The subscriptions that read that address recompute. Equality gates stop
-   every subscription whose output did not change. **One** subscription's
-   value changes.
-4. The runtime notifies the boundaries whose reads changed. **One** body runs
-   — the title field's body. The other three fields receive no notification.
-5. React commits, and the controlled converge applies the value **and the
-   caret** before the browser finishes the event
-   ([Controlled inputs](04-controlled-inputs.md)).
-6. The next frame paints the echo.
+1. The DOM input event fires and the intent dispatches synchronously.
+2. One handler writes one app-db address.
+3. Subscriptions that depend on that address recompute; equality stops
+   unchanged outputs.
+4. The title subscription changes and notifies the title-field view.
+5. One view body runs. Other fields are not notified.
+6. React commits and Hicasso converges value and caret before the event turn
+   ends.
+7. The next frame paints the echo.
 
-Counts from the walk: 1 write, 1 changed subscription, 1 body run, and a
-commit scoped to one input. **Write amplification — the number of boundary
-bodies that run per state write — is 1.** That is the mechanical meaning of
-"narrow work scales with changed rows", and it is why the editor stays far
-inside its frame budget.
+The path has one write, one changed subscription, and one view-body run.
+**Write amplification** is the number of view bodies that run per state write;
+here it is 1.
 
-Now scale the same shape to a 100-cell controlled grid:
+## Scale the same topology to a grid
 
 ```clojure
 (h/defview grid-cell [{:keys [row col]}]
-  [:input {:value    (h/sub [:grid/cell row col])
-           :on-input [:grid/edit row col ::h/value]}])
+  [:input
+   {:value    (h/sub [:grid/cell row col])
+    :on-input [:grid/edit row col ::h/value]}])
 ```
 
-Each cell reads its **own** address, so a keystroke in one cell is the same
-walk: 1 write, 1 changed subscription, 1 body. The runtime never notifies the
-other 99 cells — not "render and bail", but *never notified*. Typing cost is
-constant in grid size. That is the narrow-update budget passing by
-construction, from a rung-2 choice: fine reads on a typing surface.
+Each cell reads its own address. Editing one cell still produces one write, one
+changed subscription, and one cell-body run. The other cells are not rendered
+and then bailed out; they are never notified. Typing cost therefore remains
+constant as the grid grows.
 
-Here is the same grid with the wrong shape:
+A coarse read has a different cost:
 
 ```clojure
-;; Don't — a typing surface reading coarse
+;; Don't use this shape for a narrow, high-frequency typing surface.
 (h/defview grid [_]
-  (let [cells (h/sub [:grid/all-cells])]   ;; every keystroke changes this value
+  (let [cells (h/sub [:grid/all-cells])]
     [:table
      [:tbody
-      (for [cell cells]                    ;; cells render from props now
-        [grid-cell {:key (:id cell) :cell cell}])]]))
+      (for [cell cells]
+        [grid-cell
+         {:key (:id cell)
+          :cell cell}])]]))
 ```
 
-Now every keystroke recomputes the whole-grid view-model, runs the parent body,
-and runs a props compare over 100 cells. The bail-out keeps 99 bodies from
-running — unless a cell prop carries a fresh closure, in which case nothing
-bails and write amplification is 100. At this size the screen can still pass
-the frame budget, narrowly. The *shape* is still wrong: it converts grid size
-into per-keystroke cost. Coarse reads are for cheap mount and bulk replacement.
-They are the wrong topology for a surface that changes 100 times a minute, one
-cell at a time.
+Every keystroke now:
 
-The last cost item is **event volume**: controlled means one dispatch per
-keystroke per cell. That is the cost of the contract, and the walk above shows
-why it is affordable. When no consumer needs the intermediate values (a search
-box that feeds a debounced query), do not pay the cost: leave the input
-uncontrolled and commit on blur
-([Controlled inputs](04-controlled-inputs.md)). When something must react to
-the value more slowly, debounce the *consumers* of the committed value. Never
-debounce the write path itself — that drops characters.
+- recomputes the whole-grid view model;
+- runs the parent body;
+- compares props for every cell;
+- may run every cell body when props contain fresh functions or other
+  identity-based values.
+
+Equal persistent props may let 99 of 100 cells skip their bodies, but the
+whole-grid sweep remains proportional to grid size. Coarse reads are useful
+for cheap mount or bulk replacement, not for one-cell-at-a-time editing.
+
+## Event volume is a separate decision
+
+A controlled field dispatches once per keystroke. That is the cost of making
+intermediate text application-visible and keeping it correct.
+
+When no consumer needs the intermediate text, use an uncontrolled input and
+commit on blur. When a slower consumer exists, debounce the **consumer** of the
+committed value. Do not debounce the controlled write itself; an asynchronous
+write path can drop or reorder characters
+([Controlled inputs](04-controlled-inputs.md)).
 
 ## Troubleshooting
 
 | Symptom | Cause | Fix |
 | --- | --- | --- |
-| "The app feels slow" and nothing else | No reproduction, so nothing is attributable | Script one named interaction; run the loop from step 1 |
-| One keystroke or event runs hundreds of bodies | Read topology — a value read too high, or a coarse read on a narrow-update surface | Rung 2: [Lists and collections](06-lists-and-collections.md) |
-| Characters drop under fast typing | Something async sits between keystroke and commit — a debounced write, a queued effect | Keep the controlled write synchronous; debounce consumers of the value |
-| An island shipped and the interaction is no faster | Pressure owner was misattributed — usually reads or event volume, not lowering | Re-attribute with Xray; remove the island if it fails the benefit rule |
-| Fast on your machine, budget missed in the field | Dev build, fast hardware, best-run numbers | Production build, mid-tier hardware, p95 across runs |
-| Heap grows across leave-and-return cycles | An escape acquires without a paired release | Pair acquire/teardown at the host ([Interop](09-interop.md)); prove it with `assert-clean!` ([Testing](14-testing.md)) |
-| An escape clears no threshold but "feels safer to keep" | Benefit rule read backwards — escapes are a cost held against a measured gain | Remove the escape |
-| Still slow after going native | Wrong layer — the work moved but the owner did not | Return to step 2; the advisor classifies where the time goes |
+| “The app feels slow” is the only description | There is no repeatable interaction to attribute | Script one user action and start at measurement step 1 |
+| One keystroke or event runs hundreds of view bodies | A read lives too high, or a coarse model is used for narrow updates | Change the topology as described in [Lists and collections](06-lists-and-collections.md) |
+| Fast typing drops characters | A timeout, debounce, queue, or effect sits between input and app-db commit | Keep the controlled write synchronous and debounce downstream consumers |
+| A native island shipped but the interaction did not improve | The original cost was misattributed | Re-run attribution and remove the island when it fails the benefit rule |
+| The feature is fast locally but misses field budgets | Measurement used a development build, fast hardware, or best-run values | Test the production build on mid-tier hardware and report p95 |
+| Heap or listeners grow after leave-and-return cycles | A host or island acquires without matching teardown | Pair attach and cleanup, then prove zero residue with `assert-clean!` |
+| An escape clears no threshold but is kept “for safety” | The benefit rule was ignored | Remove it; an unearned escape is permanent complexity |
+| The path remains slow after moving native | The measured owner was not construction | Return to attribution and fix the actual pressure class |
 
 ## When not to optimise
 
-- **Without a reproduction.** A feeling, or a fear of the interpreter, is not
-  a named interaction. Check the budgets first; if none is missed, there is no
-  work to do.
-- **When the real issue is event volume.** A dense controlled surface is a
-  dispatch-rate question with its own answers
-  ([Controlled inputs](04-controlled-inputs.md)) — no rung fixes it.
-- **When the plan is "hooks everywhere, for speed."** That plan is a rewrite
-  presented as an optimisation. The ladder exists so that the hot 2% can be
-  excellent while the other 98% pays nothing for it.
+Do not optimise:
+
+- without a scripted reproduction;
+- when every user-visible budget already passes;
+- by replacing the view layer when the issue is event volume or read topology;
+- by introducing hooks everywhere “for speed.” That is a rewrite, not a local
+  optimisation.

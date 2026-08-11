@@ -1,14 +1,12 @@
-# Theming and i18n
+# Theming and internationalisation
 
-You want a dark mode and a second language. Many React stacks add a
-ThemeProvider, an i18n context, and a hook per consumer. Hicasso ships
-neither. Tokens live in CSS, strings are ordinary values, and the current
-theme or locale is one key in app-db that ordinary subscriptions read.
+Hicasso does not add a theme provider or an i18n context. CSS owns design
+tokens. Translated strings are ordinary values. The current theme and locale
+are app-db facts read through ordinary subscriptions.
 
-## Design tokens in CSS
+## Put design tokens in CSS
 
-The cascade already scopes styles: the nearest ancestor wins. Put tokens on
-`:root` and override them under a theme attribute:
+Use custom properties for tokens and override them under a theme attribute:
 
 ```css
 :root {
@@ -28,17 +26,16 @@ The cascade already scopes styles: the nearest ancestor wins. Put tokens on
 }
 ```
 
-The `--app-*` prefix is yours — name custom properties the way your
-stylesheet already does. `:root` is the light theme, so you do not need a
-`[data-theme="light"]` block.
+The `--app-*` prefix is only an example. Use your application's existing token
+names. Let `:root` be the default theme so the page has useful values before
+any user preference is loaded.
 
-A theme switch flips one attribute on one element. After the flip, the cascade
-restyles and React does no work for token changes.
+Changing one `data-theme` attribute lets the CSS cascade restyle the subtree.
+React does not need to re-render each token consumer.
 
-## The live theme switch
+## Render the selected theme
 
-The choice is application state: one subscription, one event, and one view
-that renders the attribute.
+The user's choice is application state:
 
 ```clojure
 (ns app.theme
@@ -46,7 +43,8 @@ that renders the attribute.
             [re-frame.hicasso :as h]))
 
 (rf/reg-sub :theme/current
-  (fn [db _query] (:theme/current db :light)))   ;; unset reads as :light
+  (fn [db _query]
+    (:theme/current db :light)))
 
 (rf/reg-event :theme/choose
   (fn [{:keys [db]} [_ theme]]
@@ -56,184 +54,206 @@ that renders the attribute.
   (into [:div {:data-theme (name (h/sub [:theme/current]))}]
         children))
 
-(h/defview theme-toggle [_props]
+(h/defview theme-toggle [_]
   (let [theme (h/sub [:theme/current])]
-    [:button {:on-click [:theme/choose (if (= theme :dark) :light :dark)]}
+    [:button
+     {:on-click [:theme/choose
+                 (if (= theme :dark) :light :dark)]}
      (if (= theme :dark) "Light mode" "Dark mode")]))
 
-;; At the frame root:
-[theme-scope {} [app {}]]
+[theme-scope {}
+ [app {}]]
 ```
 
-`children` arrives as a realized vector; that is why `into` splices it
+`children` is a realised vector, so `into` splices it into the wrapper
 ([Views and reads](02-views-and-reads.md)).
 
-**Put the default in the subscription, not in each reader.** A fresh app-db
-holds no choice, so a bare `(:theme/current db)` is `nil`, and `(name nil)`
-throws. From a root view that throw blanks the page. One extra argument makes
-the read total.
+Give the subscription a default. Without `(:theme/current db :light)`, a fresh
+app-db returns `nil`, and `(name nil)` throws from the root before the page can
+render.
 
-Placement rules:
+Place the scope carefully:
 
-- **Per frame, not per document.** A view renders its own element, so
-  `data-theme` goes on `theme-scope`'s `div`. Two frames on one page — one
-  light, one dark — work without further machinery.
-- **Keep a [`defview`](glossary.md#defview) head immediately below the scope.** The scope
-  re-renders on every switch. `[app {}]` below the scope bails out when its
-  props are unchanged ([Views and reads](02-views-and-reads.md)). A native-tag
-  subtree, or a view called as a plain function, re-runs with the scope.
-- **Keep the scope at the frame root, above any [`defhost`](glossary.md#defhost) crossing.** On
-  the server, a Client-only crossing renders its fallback instead of its
-  subtree. A scope below that crossing is missing from the response
+- **Theme per frame.** Render `data-theme` on an element inside the frame. Two
+  frames can then use different themes on one page.
+- **Keep a view boundary immediately underneath.** The scope re-renders when
+  the theme value changes. `[app {}]` can then skip its body when its own props
+  and reads are unchanged. An inlined native-tag subtree would re-run with the
+  scope.
+- **Place the scope above foreign crossings.** A Client-only host can replace
+  its subtree with a fallback on the server. A theme scope beneath that host
+  would be absent from the server response
   ([SSR and hydration](17-ssr-and-hydration.md)).
 
-To restore a remembered choice, dispatch `:theme/choose` from
-`:initial-events` so it lands before first paint
-([Installation](installation.md)). The default paints only when nobody has
-chosen.
+Restore a persisted choice through `:initial-events` so it reaches app-db
+before first paint ([Installation](installation.md)). The default applies only
+when no preference has been chosen.
 
-A class is the same bridge: `{:class (str "app app--" (name theme))}`.
-Density, brand, or compact mode are more keys driven the same way.
+A theme class works the same way:
 
-If you need zero render work on the switch, an `rf/reg-fx` can set the
-attribute on `documentElement`. The cost: the DOM no longer derives from
-app-db, so a rewind or restored snapshot shows the old theme. Render the fact
-unless you have measured a need for the imperative path.
+```clojure
+{:class (str "app app--" (name theme))}
+```
 
-To follow the OS with no user override, skip app-db entirely and use
-`@media (prefers-color-scheme: dark)`. Use app-db when the user picks, or when
-the pick must survive a reload.
+Density, brand, and compact-mode settings can use the same pattern.
 
-### Page chrome and the top layer
+When the user never overrides the operating-system preference, skip app-db and
+use `@media (prefers-color-scheme: dark)`.
 
-Two surfaces sit outside every frame. Document chrome — scrollbar, `<body>`
-canvas, `<meta name="theme-color">` — is above any root, so a per-frame
-attribute never reaches it. When chrome matters, echo the same app-db fact at
-document level from the choosing event, as a row under `:fx` beside the `:db`
-write. Use a *different* attribute name so the rendered scope stays the real
-carrier and the document copy stays cosmetic:
+### Imperative document-level theming
+
+An effect can set an attribute on `documentElement` without a React render:
 
 ```clojure
 (rf/reg-fx :page/echo-theme!
   {:platforms #{:client}}
   (fn [_ctx theme]
-    (.setAttribute js/document.documentElement "data-page-theme" (name theme))))
+    (.setAttribute js/document.documentElement
+                   "data-page-theme"
+                   (name theme))))
 ```
 
-The top layer needs no echo. An [overlay](glossary.md#overlay)'s `::backdrop`
-pseudo-element inherits custom properties from the element that opened it, so
-a modal opened inside `theme-scope` takes the scope's tokens. Style the
-backdrop with the same variables
+Use this only for document chrome outside every frame: the body canvas,
+scrollbar, or `<meta name="theme-color">`. Keep a different attribute name so
+the rendered frame scope remains the real carrier and the document copy is
+clearly cosmetic.
+
+An imperative-only theme does not automatically follow time travel or a
+restored snapshot. Prefer the rendered attribute unless you have measured a
+reason not to.
+
+The browser's top layer does not need a document echo. An overlay's
+`::backdrop` inherits custom properties from the element that opened it, so a
+modal inside `theme-scope` receives the same tokens
 ([Overlays and focus](12-overlays-and-focus.md)).
 
-## Strings are values: i18n
+## Treat translated strings as values
 
-Locale is a key in app-db, strings are a map, and a subscription joins them.
-When the locale changes, every view that read a string re-renders because its
-inputs changed. No observer registry, no i18n context, no remount.
+Store the locale in app-db and derive strings through a subscription:
 
 ```clojure
 (def strings
-  {:en {:greeting "Welcome back" :cart/empty "Your cart is empty"}
-   :fr {:greeting "Bon retour"   :cart/empty "Votre panier est vide"}})
+  {:en {:greeting "Welcome back"
+        :cart/empty "Your cart is empty"}
+   :fr {:greeting "Bon retour"
+        :cart/empty "Votre panier est vide"}})
 
 (rf/reg-sub :i18n/locale
-  (fn [db _query] (:i18n/locale db :en)))
+  (fn [db _query]
+    (:i18n/locale db :en)))
 
 (rf/reg-sub :i18n/t
   (fn [db [_ k]]
-    (get-in strings [(:i18n/locale db :en) k] (name k))))  ;; miss shows the key
+    (get-in strings
+            [(:i18n/locale db :en) k]
+            (name k))))
 
 (rf/reg-event :i18n/set-locale
   (fn [{:keys [db]} [_ locale]]
     {:db (assoc db :i18n/locale locale)}))
 
-(h/defview greeting [_props]
+(h/defview greeting [_]
   [:header
    [:h1 (h/sub [:i18n/t :greeting])]
-   [:button {:on-click [:i18n/set-locale :fr]} "Français"]])
+   [:button {:on-click [:i18n/set-locale :fr]}
+    "Français"]])
 ```
 
-Numbers and dates use the platform with the locale as an ordinary value:
+When the locale changes, only views that read translated values need to
+re-render. The fallback renders the missing key's name, which makes incomplete
+translation tables visible instead of blank.
+
+Format numbers and dates with the platform and the current locale:
 
 ```clojure
 (h/defview price [{:keys [amount]}]
   (let [locale (name (h/sub [:i18n/locale]))]
     [:span.price
-     (.format (js/Intl.NumberFormat. locale
-                                     #js {:style "currency" :currency "EUR"})
-              amount)]))
+     (.format
+      (js/Intl.NumberFormat.
+       locale
+       #js {:style "currency" :currency "EUR"})
+      amount)]))
 ```
 
-Loaded locale packs use the same design with the table in app-db instead of
-code. Fetch the pack, `assoc` it in, and let the subscription read
-`(get-in db [:i18n/strings locale k])`. A late string is app-db changing; the
-views that read it follow.
-
-## What over-engineering looks like
+For separately loaded locale packs, store the loaded table in app-db and let
+the translation subscription read from it:
 
 ```clojure
-;; Don't — tokens in app-db; every view reads the registry
-(rf/reg-sub :theme/token
-  (fn [db [_ k]] (get-in db [:theme/tokens (:theme/current db) k])))
+(get-in db [:i18n/strings locale k])
+```
 
-(h/defview save-button [_props]
-  [:button {:style {:background    (h/sub [:theme/token :accent])
-                    :border-radius (h/sub [:theme/token :radius])}}
+A late locale pack is an ordinary app-db update. Views that read its strings
+update normally.
+
+## Avoid storing CSS tokens in app-db
+
+```clojure
+;; Don't: every token consumer becomes a subscription and re-render target.
+(rf/reg-sub :theme/token
+  (fn [db [_ k]]
+    (get-in db [:theme/tokens (:theme/current db) k])))
+
+(h/defview save-button [_]
+  [:button
+   {:style {:background (h/sub [:theme/token :accent])
+            :border-radius (h/sub [:theme/token :radius])}}
    "Save"])
 ```
 
-Now every view reads the token registry, a theme switch re-renders all of
-those views, and app-db carries a second copy of what the stylesheet already
-owns. Tokens in CSS plus one attribute flip cost zero React work for token
-changes. The same instinct builds an i18n provider with a hook per consumer —
-the subscription already is the provider.
+The stylesheet already owns these values. Duplicating them in app-db makes a
+theme switch recompute every token consumer. CSS custom properties plus one
+attribute avoid that work.
 
-## A vendor theme via `defhost`
+The same principle applies to i18n providers: the subscription is already the
+reactive access path. A second context and hook layer do not add information.
 
-A component library that themes itself through React context gets its provider
-the way any foreign component arrives: declare once with
-[`h/defhost`](glossary.md#defhost), use as an ordinary head
-([Interop](09-interop.md)).
+## Vendor theme providers
+
+A component library that uses React context still enters through a declared
+host ([Interop](09-interop.md)):
 
 ```clojure
 (ns app.vendor-theme
   (:require ["@acme/ui" :refer [ThemeProvider createTheme]]
             [re-frame.hicasso :as h]))
 
-(def light-theme (createTheme #js {:mode "light"}))
-(def dark-theme  (createTheme #js {:mode "dark"}))
+(def light-theme
+  (createTheme #js {:mode "light"}))
+
+(def dark-theme
+  (createTheme #js {:mode "dark"}))
 
 (h/defhost theme-provider ThemeProvider)
 
 (h/defview vendor-area [{:keys [children]}]
-  (into [theme-provider {:theme (if (= :dark (h/sub [:theme/current]))
-                                  dark-theme
-                                  light-theme)}]
-        children))
+  (into
+   [theme-provider
+    {:theme (if (= :dark (h/sub [:theme/current]))
+              dark-theme
+              light-theme)}]
+   children))
 ```
 
-Create the vendor theme objects once at load. App-db only picks which object
-crosses. Context stays a React fact on the React side of the host; your own
-app's theming never needed context.
+Create vendor theme objects once at namespace load. App-db chooses which
+object crosses. The vendor's context remains an implementation detail on the
+React side; your own application theme still uses CSS.
 
 ## Troubleshooting
 
 | Symptom | Cause | Fix |
 | --- | --- | --- |
-| Blank page on first load; console shows `Doesn't support name:` | Nobody chose a theme, the sub read `nil`, and `(name nil)` threw at the root | Give the sub a default: `(:theme/current db :light)` |
-| Theme key changes in app-db and nothing on screen changes | No view renders the attribute — the cascade keys off the DOM, not app-db | Mount `theme-scope` (or equivalent) at the frame root |
-| Theme switch re-renders the whole app | What sits below the scope has no independent re-render unit — native-tag subtree, or a view called as a plain function | Keep a `defview` head immediately below the scope, as `[app {}]` is |
-| Locale switches but some strings stay in the old language | Those strings were captured once — in a `def`, a prop computed at load, a memoized helper — instead of read at render | Read strings where you use them: `(h/sub [:i18n/t k])` |
-| A missing translation renders as the key's name | The sub's miss fallback, working as designed | Add the key to the table; the fallback names it so you can find it |
-| Hydrated page keeps the server's theme | Hydration payload did not carry the choice; attribute-only divergence is the class React never reports | Carry `:theme/current` in the payload ([SSR and hydration](17-ssr-and-hydration.md)) |
+| First load is blank and the console reports `Doesn't support name:` | The theme subscription returned `nil`, then `(name nil)` threw | Give the subscription a default such as `(:theme/current db :light)` |
+| Theme changes in app-db but the page does not change | No rendered element exposes the theme to CSS | Mount `theme-scope`, or an equivalent attribute carrier, at the frame root |
+| A theme switch re-runs the whole application | The content below the scope has no independent view boundary | Put a `defview` head such as `[app {}]` immediately below the scope |
+| Some strings remain in the old locale | They were computed at load time, stored in a `def`, or otherwise captured outside render | Read them where used with `(h/sub [:i18n/t k])` |
+| A missing translation displays the key name | The translation fallback is working | Add the key to the selected locale table |
+| Hydration keeps the server's theme | The hydration payload omitted `:theme/current`; attribute-only divergence may not produce a useful React warning | Include the theme choice in the hydration payload ([SSR and hydration](17-ssr-and-hydration.md)) |
 
-## When not to use it
+## When not to add this machinery
 
-- **Following the OS with no user override** — skip app state; the media
-  query is the whole feature.
-- **One locale today** — do not build the table. Literal strings in views are
-  fine. The table earns its place when the second locale is real; migration is
-  mechanical (each literal becomes a key).
-- **Your own app's styling** — never needs a vendor host or context. CSS is
-  enough.
+- Use the CSS media query when the application follows the OS and offers no
+  user override.
+- Keep literal strings when there is only one real locale. Extract them when a
+  second locale becomes an actual requirement.
+- Do not introduce a vendor provider for your own styles. CSS is sufficient.

@@ -1,714 +1,818 @@
 # Hicasso glossary
 
-Hicasso terms. Definition first; short code when the spelling matters; Related
-points at the teaching page. Core re-frame2 terms (`app-db`,
-[frame](../../../core/glossary.md#frame), [event](../../../core/glossary.md#event),
-[subscription](../../../core/glossary.md#subscription)) live in the
+This glossary defines Hicasso-specific terms. Core re-frame2 terms such as
+[app-db](../../../core/glossary.md#app-db),
+[frame](../../../core/glossary.md#frame),
+[event](../../../core/glossary.md#event), and
+[subscription](../../../core/glossary.md#subscription) live in the
 [core glossary](../../../core/glossary.md).
-
-Grouped by role: [authoring](#authoring), [events and control](#events-and-control),
-[interop](#interop), [native tier](#native-tier), [state homes](#state-homes),
-[testing](#testing), [diagnostics](#diagnostics), and
-[lifecycle and delivery](#lifecycle-and-delivery).
 
 ## Authoring
 
 <a id="hicasso"></a>
-### **Hicasso**
+### Hicasso
 
-re-frame2's native view adapter: interpreted
-[Hiccup](../../../core/glossary.md#hiccup) on a React function-component host.
-You write vectors and maps, read with [`h/sub`](#hsub) at the point of use, and
-put event vectors in attributes as [intents](#intent). App-db, events, and the
-pipeline stay ordinary re-frame2.
+re-frame2's native React view adapter. Hicasso interprets
+[Hiccup](../../../core/glossary.md#hiccup), reads subscriptions with
+[`h/sub`](#hsub), and accepts event vectors as [intents](#intent). App-db,
+events, effects, and the event pipeline remain ordinary re-frame2.
 
-Require `[re-frame.hicasso :as h]`. Optional modules (forms, overlays, native
-tier, test kit, routing helpers) are separate requires.
+Require it as:
 
-Related: [Getting started](01-getting-started.md), [Installation](installation.md).
+```clojure
+[re-frame.hicasso :as h]
+```
+
+Forms, overlays, routing helpers, the native tier, and test tooling are separate
+optional namespaces.
+
+Related: [Getting started](01-getting-started.md),
+[Installation](installation.md).
 
 <a id="defview"></a>
-### **defview**
+### `defview`
 
-`h/defview` — defines a Hicasso [view](#view): a React/re-frame
-[boundary](#boundary) used as a Hiccup head. Props map in; Hiccup (or a native
-React element at [rung 3 of the performance ladder](#performance-ladder)) out.
-Do not call the view as a Clojure function; mount it as a vector:
+`h/defview` defines a Hicasso [view](#view). The view receives one props map and
+returns Hiccup, `nil`, a fragment, or a native React element at the direct-return
+performance level.
+
+Use a view as a Hiccup head. Do not call it as an ordinary function:
 
 ```clojure
 (h/defview counter [_]
   [:main
    [:h1 "Clicked " (h/sub [:counter/count]) " times"]
-   [:button {:on-click [:counter/increment]} "Click me"]])
+   [:button {:on-click [:counter/increment]}
+    "Click me"]])
 
-[counter]          ;; legal
-(counter {})       ;; raises — write [counter]
+[counter {}]   ;; view boundary
+(counter {})   ;; raises
 ```
 
 Related: [Views and reads](02-views-and-reads.md).
 
 <a id="view"></a>
-### **view**
+### View
 
-A function from a props map to markup, defined with [`defview`](#defview). In
-head position of a Hiccup vector it is a [boundary](#boundary). Plain `defn`
-helpers are not views: call them as functions so they
-[inline](#inline-helper).
+A function from a props map to markup, defined with [`h/defview`](#defview).
+In Hiccup head position it creates an independently re-rendering
+[boundary](#boundary). A plain `defn` is an [inline helper](#inline-helper), not
+a view.
 
 Related: [Views and reads](02-views-and-reads.md).
 
 <a id="boundary"></a>
-### **boundary**
+### Boundary
 
-An independently re-rendering unit created by [`defview`](#defview). Tracks the
-body's [`h/sub`](#hsub) reads, memoizes on value equality of props, and provides
-the [frame](../../../core/glossary.md#frame) that [intents](#intent) dispatch
-into. Native tags, fragments, and [`defhost`](#defhost) heads can sit in vector
-position; none of those is a boundary.
+An independently re-rendering unit created by [`h/defview`](#defview). It:
+
+- tracks the body's [`h/sub`](#hsub) reads;
+- compares props with ClojureScript `=`;
+- supplies the re-frame2 frame used by event [intents](#intent).
+
+Native tags, fragments, and [`h/defhost`](#defhost) heads do not create Hicasso
+view boundaries.
 
 Related: [Views and reads](02-views-and-reads.md).
 
 <a id="inline-helper"></a>
-### **inline helper**
+### Inline helper
 
-An ordinary `defn` called from a view body. Its Hiccup splices into the caller;
-any `h/sub` it performs counts toward the enclosing [boundary](#boundary).
-Helpers do not create their own re-render unit. A plain `defn` in head position
-raises (`:rf.error/hicasso-bad-head`).
+An ordinary function called from a view body. Its returned Hiccup is included
+in the caller's tree, and any `h/sub` calls belong to the enclosing
+[boundary](#boundary). It does not create independent re-render behaviour.
 
 ```clojure
-[todo-row {:key id :id id}]   ;; boundary child
-(row-icon {:kind :urgent})    ;; inlined helper
+[todo-row {:key id :id id}]   ;; child boundary
+(row-icon {:kind :urgent})    ;; inline helper
 ```
+
+A plain function in Hiccup head position raises
+`:rf.error/hicasso-bad-head`.
 
 Related: [Views and reads](02-views-and-reads.md).
 
 <a id="hsub"></a>
-### **h/sub**
+### `h/sub`
 
-The only view-side subscription read. An ordinary function call at the point of
-use — legal in `let`, `when`, loops, and synchronous helpers. Records the read
-for the active [boundary](#boundary) under the
-[read-extent law](#read-extent-law).
+The only subscription-read form inside a Hicasso view. It is an ordinary
+function call and may appear in a `let`, conditional, loop, or synchronous
+helper.
 
 ```clojure
 (let [todo (h/sub [:todo/by-id id])]
   [:span (:title todo)])
 ```
 
-Bare `rf/subscribe` in a body is not a fallback: it raises. In
-[native](#native-tier) code, use [`n/use-sub`](#nuse-sub) instead.
+A bare `rf/subscribe` in a view body is not an alternative. Native components
+use [`n/use-sub`](#nuse-sub).
 
 Related: [Views and reads](02-views-and-reads.md).
 
 <a id="read-extent-law"></a>
-### **read-extent law**
+### Read-extent law
 
-`h/sub` is legal only during the **direct synchronous execution** of the active
-[boundary](#boundary) body (including ordinary helpers it calls). A read deferred
-through a callback, promise, timer, lazy sequence, or other escaped extent
-raises with source and recovery (`:rf.error/hicasso-sub-outside-render`). Capture
-values during the body; async work re-enters through events and coeffects.
+`h/sub` is legal only during direct synchronous execution of the active view
+body, including helpers it calls immediately. A callback, promise, timer, lazy
+sequence, unforced delay, or other deferred computation may not carry the read
+outside that extent.
+
+A read after the extent raises a structured error such as
+`:rf.error/hicasso-sub-outside-render` or
+`:rf.error/hicasso-deferred-read-at-boundary`. Read the value during render and
+close over the value instead.
 
 Related: [Views and reads](02-views-and-reads.md).
 
 <a id="collector"></a>
-### **collector**
+### Collector
 
-Runtime mechanism that records which subscriptions a [boundary](#boundary) took
-during one body run. Commit reconciles that read set; abandoned and retried
-renders acquire no durable ownership. Escaping the collector is what the
-[read-extent law](#read-extent-law) forbids.
+The runtime mechanism that records the subscriptions a [boundary](#boundary)
+reads during one body execution. Commit reconciles that read set. An abandoned
+or retried render acquires no durable subscription ownership.
 
-Related: [Views and reads](02-views-and-reads.md#the-collector).
+Related: [Views and reads](02-views-and-reads.md).
 
 <a id="component-abi"></a>
-### **component ABI**
+### Component ABI
 
-The props/children contract for a head: what converts, what is opaque, where
-keys live. [Views](#view) take a Clojure props map (keys in the map, not
-metadata); [hosts](#defhost) convert per declaration; native [`n/$`](#n-dollar)
-uses React slots and does not lower intents.
+The props and children contract for a Hiccup head: which values are converted,
+which pass by identity, where `:key` and `:ref` live, and how children arrive.
 
-Related: [Views and reads](02-views-and-reads.md#props-children-and-fragments).
+- Hicasso views receive a ClojureScript props map.
+- Declared hosts follow their callback, slot, and server contracts.
+- Native [`n/$`](#n-dollar) uses React slots and does not lower Hicasso event
+  intents or controlled fields.
+
+Related: [Views and reads](02-views-and-reads.md),
+[Interop](09-interop.md), [The native tier](10-native-tier.md).
 
 <a id="lowering"></a>
-### **lowering**
+### Lowering
 
-The step that turns Hicasso data into React props and elements: Hiccup walk,
-[intent](#intent) → callback, controlled-field repair, attribute rules. When
-Xray names "lowering" as the cost owner, the narrow escape is a direct
-[`n/$`](#n-dollar) return from the same [boundary](#boundary).
+The conversion from Hicasso data to React props and elements. It includes the
+Hiccup walk, event-intent callback creation, controlled-field behaviour, and
+attribute normalisation.
 
-Related: [Events as data](03-events-as-data.md), [Native tier](10-native-tier.md).
+When diagnostics identify lowering itself as the cost owner, the local escape
+is a direct [`n/$`](#n-dollar) return from the same view.
+
+Related: [Events as data](03-events-as-data.md),
+[The native tier](10-native-tier.md).
 
 <a id="owned-wins"></a>
-### **owned wins**
+### Owned-wins merge
 
-Attribute-merge rule: literal keys written on the element always beat forwarded
-maps, by presence. Do not forward `:key` or [`::h/revision`](#hrevision) through
-a generic merge.
+When a view forwards an attributes map into an element, literal keys written by
+the element author take precedence. Control slots such as `:value`, handlers,
+`:key`, and [`::h/revision`](#hrevision) should not be replaceable through a
+generic forwarded map.
 
-Related: [Views and reads](02-views-and-reads.md#forwarding-attributes-owned-wins).
+Related: [Views and reads](02-views-and-reads.md),
+[Controlled inputs](04-controlled-inputs.md).
 
 <a id="read-topology"></a>
-### **read topology**
+### Read topology
 
-Where [reads](#hsub) sit relative to list structure — the main performance knob
-while staying on ordinary Hicasso:
+The placement and grouping of subscription reads relative to a collection.
 
-| Shape | Idea |
-|---|---|
-| **Fine** | each row reads itself — sparse independent updates |
-| **Coarse** | one view-model for the whole list — cheap mount / bulk replace |
-| **Chunked** | page-sized batches bound the invalidation sweep |
-| **Windowed** | only visible rows exist in the DOM (usually a foreign virtualizer) |
+| Shape | Behaviour |
+| --- | --- |
+| Fine | Each row reads its own entity; good for sparse updates |
+| Coarse | One view-model represents the collection; good for cheap mount or bulk replacement |
+| Chunked | One read covers a bounded block of rows |
+| Windowed | Only visible rows exist in the DOM, usually through a virtualiser |
 
 Related: [Lists and collections](06-lists-and-collections.md).
-
----
 
 ## Events and control
 
 <a id="intent"></a>
-### **intent**
+### Intent
 
-An [event](../../../core/glossary.md#event) vector written in an attribute at an
-event position (`on-*` / `onClick`). The runtime builds the callback and
-dispatches the vector to the rendering [boundary](#boundary)'s frame. The tree
-stays data: tests assert with `=`; tools can read meaning without running the
-app.
+An event vector written directly at an event prop. The runtime creates a
+callback and dispatches the vector into the rendering view's frame.
 
 ```clojure
-[:button {:on-click [:todo/toggle id]} "✓"]
+[:button {:on-click [:todo/toggle id]}
+ "Toggle"]
 ```
+
+The Hiccup tree retains the event as ordinary data, so tests and tools can
+inspect it with `=`.
 
 Related: [Events as data](03-events-as-data.md).
 
 <a id="hevent"></a>
-### **h/event**
+### `h/event`
 
-Explicit handler form when a vector intent is not enough: value-first foreign
-callbacks, calculated events, or reading the invoker's arguments. Captures the
-current frame at creation; same meaning everywhere (including host slots).
+An explicit callback form for cases where the callback's arguments are needed
+to compute an event. It captures the current frame when created and dispatches
+a returned event vector when invoked later.
 
 ```clojure
-{:on-change (h/event [date] [:calendar/picked date])}
+{:on-change
+ (h/event [date]
+   [:calendar/picked date])}
 ```
 
-Related: [Events as data](03-events-as-data.md).
+Use it for value-first foreign callbacks, file lists, drag data, or calculated
+events.
+
+Related: [Events as data](03-events-as-data.md),
+[Interop](09-interop.md).
 
 <a id="hvalue"></a>
 <a id="hchecked"></a>
-### **::h/value** / **::h/checked**
+### `::h/value` and `::h/checked`
 
-Reserved markers substituted at dispatch from the DOM event target's `.value` /
-`.checked`. Top level of the intent vector only.
+Reserved markers replaced at dispatch with the DOM event target's `.value` or
+`.checked`. Substitution occurs only at the top level of the event vector.
 
 ```clojure
-[:input {:value (h/sub [:draft]) :on-input [:edit ::h/value]}]
+[:input
+ {:value    (h/sub [:draft])
+  :on-input [:draft/changed ::h/value]}]
 ```
 
-Related: [Events as data](03-events-as-data.md), [Controlled inputs](04-controlled-inputs.md).
+Related: [Events as data](03-events-as-data.md),
+[Controlled inputs](04-controlled-inputs.md).
 
 <a id="hprevent"></a>
-### **::h/prevent**
+### `::h/prevent`
 
-Intent head that prevents the browser default, then dispatches the inner intent.
-Nothing auto-prevents — not click, not submit.
+An intent wrapper that calls `preventDefault` and then dispatches one inner
+event vector. Hicasso does not auto-prevent clicks or form submits.
 
 ```clojure
-[:form {:on-submit [::h/prevent [:signup/submit]]} …]
+[:form
+ {:on-submit [::h/prevent [:signup/submit]]}
+ ...]
 ```
 
 Related: [Events as data](03-events-as-data.md).
 
 <a id="controlled-field"></a>
-### **controlled field**
+### Controlled field
 
-An input whose displayed value comes from app-db (via a subscription) and whose
-edits return as [intents](#intent). Hicasso's controlled path covers same-turn
-convergence, committed echo, caret/selection, IME composition, and
-identity-preserving [revision](#hrevision) reset. Form fields stay on the
-interpreted side; the [native tier](#native-tier) has no controlled repair.
+An input whose displayed value comes from app-db and whose user edits return as
+event intents. Hicasso's controlled path provides:
+
+- synchronous same-turn convergence;
+- committed-value echo;
+- caret and selection preservation;
+- IME composition safety;
+- explicit reset through [`::h/revision`](#hrevision).
+
+The native tier does not provide this repair. Keep controlled text fields on
+the interpreted Hicasso path.
 
 Related: [Controlled inputs](04-controlled-inputs.md).
 
 <a id="hrevision"></a>
-### **::h/revision**
+### `::h/revision`
 
-Reserved controlled-text prop: change this value to re-baseline the field's
-draft (accept, reject, or rewrite). Reset is never by value equality — a model
-that reasserts the same string would be invisible to `not=`. Exact namespaced
-keyword only; a bare `:revision` is an ordinary attribute.
+A reserved prop for controlled text. Change it when the field should
+re-baseline to the current model value after a reset, rejection, rewrite, or
+server normalisation.
 
 ```clojure
-[:input {:value       (h/sub [:field/value id])
-         ::h/revision (h/sub [:field/revision id])
-         :on-input    [:field/edit id ::h/value]}]
+[:input
+ {:value       (h/sub [:field/value id])
+  ::h/revision (h/sub [:field/revision id])
+  :on-input    [:field/edit id ::h/value]}]
 ```
+
+Reset is not inferred from value equality. The exact namespaced keyword is
+required; bare `:revision` is an ordinary attribute.
 
 Related: [Controlled inputs](04-controlled-inputs.md).
 
 <a id="buffered-field"></a>
-### **buffered-field**
+### Buffered field
 
-`forms/buffered-field` — optional forms helper: one controlled input with a
-draft in front of the model. Accepts, rejects, and rewrites through
-[`::h/revision`](#hrevision); pairs with per-instance submit status and
-validation display.
+`forms/buffered-field` is an optional forms component that places an app-db
+draft in front of a controlled model value. It supports commit, cancel,
+rejection, rewrite, and revision-based reset.
 
 Related: [Forms](05-forms.md).
 
 <a id="keyboard-map"></a>
-### **keyboard map**
+### Keyboard map
 
-Data map on a keyboard prop (e.g. `:on-key-down`) from DOM `.key` string →
-intent. Unlisted keys are ignored. There is no modifier DSL — richer cases use
-[`h/event`](#hevent). IME composition is central: Enter during composition
-commits nothing.
+A map from DOM `.key` strings to event intents, used at `:on-key-down` or
+`:on-key-up`.
 
-Related: [Events as data](03-events-as-data.md#keyboard-as-data).
+```clojure
+{:on-key-down
+ {"Enter"  [:editor/commit]
+  "Escape" [:editor/cancel]}}
+```
 
----
+Unlisted keys are ignored. There is no modifier DSL; use [`h/event`](#hevent)
+for cases such as Ctrl+Enter. Key maps suppress matches during IME composition.
+
+Related: [Events as data](03-events-as-data.md).
 
 ## Interop
 
 <a id="defhost"></a>
-### **defhost**
+### `defhost`
 
-`h/defhost` — declared door to a foreign React component. Names the React value
-once, documents ReactNode [slots](#reactnode-slot), callback contracts
-(`:event` / `:handler` / `:render`), and [server policy](#server-policy). Keeps
-the npm require in one host namespace.
+`h/defhost` declares a foreign React component once. The declaration can define:
+
+- callback contracts: `:event`, `:handler`, or `:render`;
+- ReactNode [slots](#reactnode-slot);
+- a [server policy](#server-policy);
+- a Client-only fallback.
 
 ```clojure
 (h/defhost date-picker DatePicker
-  {:slots #{:calendar}
-   :server :client-only})
+  {:callbacks {:on-change :event}
+   :slots     #{:calendar}
+   :server    :client-only})
 ```
+
+Keep the JavaScript require in a `.cljs` host namespace.
 
 Related: [Interop](09-interop.md).
 
 <a id="reactnode-slot"></a>
-### **ReactNode slot**
+### ReactNode slot
 
-A prop position a [host](#defhost) declares as carrying React children or named
-content (Suspense `:fallback`, compound slots). Hiccup in that position lowers
-under the captured frame without deep-converting arbitrary data maps.
+A host prop declared to contain React content, such as a modal title, footer,
+or Suspense fallback. Hiccup supplied to the slot is converted to React
+elements under the captured frame. Undeclared props receive Hiccup vectors as
+ordinary data.
 
-Related: [Interop](09-interop.md#reactnode-slots).
+Related: [Interop](09-interop.md).
 
 <a id="as-element"></a>
-### **as-element**
+### `as-element`
 
-`h/as-element` — explicit Hiccup → React element conversion for render props and
-foreign callbacks. Use when a library expects a ReactNode, not data.
+`h/as-element` explicitly converts Hiccup to a React element for a render prop,
+foreign callback, or other ReactNode position.
 
 ```clojure
-{:renderItem (fn [row]
-               (h/as-element [row-view {:id (:id row)}]))}
+{:render-item
+ (fn [row]
+   (h/as-element
+    [row-view {:id (:id row)}]))}
 ```
 
-Related: [Interop](09-interop.md), [Lists and collections](06-lists-and-collections.md).
+Related: [Interop](09-interop.md),
+[Lists and collections](06-lists-and-collections.md).
 
 <a id="outward-bridge"></a>
-### **as-component** / **outward bridge**
+### `as-component` / outward bridge
 
-`h/as-component` returns a real React component so a native parent
-(`n/defcomponent`, UIx, or JS) can render a Hicasso view under the existing
-frame provider — no second root, no exposed internal codec ABI. Symmetric to
-hosts embedding foreign React inward.
+`h/as-component` turns a Hicasso view into a real React component that a native
+React, UIx, or JavaScript parent can mount under the existing frame provider.
+It does not create another root or state owner.
 
-Related: [Interop](09-interop.md#the-outward-bridge).
+Related: [Interop](09-interop.md).
 
 <a id="portal"></a>
-### **portal**
+### Portal
 
-Optional helper that lowers Hiccup into `createPortal`, preserves frame and
-context, and documents event bubbling / target-change identity plus
-client/server policy. Overlays that need the **native top layer** use the
-overlay module instead of a hand-rolled portal.
+`h/portal` renders Hiccup into another DOM container through React
+`createPortal` while preserving frame and context. React events bubble through
+the React tree rather than the DOM placement.
 
-Related: [Interop](09-interop.md#portals), [Overlays and focus](12-overlays-and-focus.md).
+Use the overlay module instead when the UI should live on the browser's native
+top layer.
+
+Related: [Interop](09-interop.md),
+[Overlays and focus](12-overlays-and-focus.md).
 
 <a id="server-policy"></a>
-### **server policy**
+### Server policy
 
-Per-surface answer for SSR: **Render** (deterministic React server bytes) or
-**Client-only** (source-located refusal, with a deterministic fallback if the
-declaration carries one). Bare Client-only is the default, and it leaves the
-region empty until the browser takes over. Declared on hosts and native
-components; intrinsic Hiccup renders by default.
+The SSR contract for a host or native component:
+
+- **Render**: execute on the server and produce deterministic React HTML;
+- **Client-only**: do not execute on the server; produce a deterministic
+  fallback or nothing until the browser adopts the root.
+
+Foreign hosts and named native components default to Client-only. Native
+Hiccup and intrinsic React elements render by default.
 
 Related: [SSR and hydration](17-ssr-and-hydration.md),
-[Interop](09-interop.md#server-policy-per-declaration).
+[Interop](09-interop.md).
 
 <a id="raw-escape"></a>
-### **raw escape** (`:>`)
+### Raw escape (`:>`)
 
-Hiccup head that passes a React component through without a lasting
-[host](#defhost) declaration. Useful once; repeated use should move to
-`defhost` so slots, server policy, and callbacks stay declared.
+`[:> Component props ...]` mounts a foreign React component without a lasting
+host declaration. It is useful for migration or a true one-off. Repeated
+crossings should use [`h/defhost`](#defhost) so callback contracts, slots, and
+server policy remain explicit.
 
-Related: [Interop](09-interop.md#the-escape-).
-
----
+Related: [Interop](09-interop.md).
 
 ## Native tier
 
 <a id="native-tier"></a>
-### **native tier**
+### Native tier
 
-Optional namespace `re-frame.hicasso.native` (alias `n`): explicit exit to direct
-React construction and hooks. **`[...]` is always interpreted Hiccup; `n/$` is
-always native React.** Neither form rewrites the other; nothing compiles Hiccup.
-Absent from bundles that never require the namespace.
+The optional `re-frame.hicasso.native` namespace, usually aliased `n`. It
+provides direct React element construction and named native components.
 
-Related: [Native tier](10-native-tier.md).
+`[...]` always means interpreted Hiccup. `n/$` always means native React.
+Nothing silently compiles or promotes one form into the other.
+
+Related: [The native tier](10-native-tier.md).
 
 <a id="n-dollar"></a>
-### **n/$**
+### `n/$`
 
-Macro: one explicit element form → direct React construction. No intent
-lowering, no controlled repair, no Hiccup children (convert with
-[`as-element`](#as-element)). Dynamic props maps must be marked with
-[`n/props`](#nprops).
+A macro that constructs one React element directly. It does not perform Hiccup
+lowering, intent conversion, class collection merging, controlled-field repair,
+or automatic Hiccup-child conversion.
 
 ```clojure
 (n/$ :td {:class "px"} px)
 (n/$ :td (n/props cell-props) px)
 ```
 
-Related: [Native tier](10-native-tier.md#the-n-grammar).
+Use `h/as-element` when one native subtree needs an interpreted Hiccup child.
+
+Related: [The native tier](10-native-tier.md).
 
 <a id="nprops"></a>
-### **n/props**
+### `n/props`
 
-Marker that classifies a dynamic expression as the props operand of
-[`n/$`](#n-dollar). Emits no runtime wrapper — classification only. An unmarked
-dynamic map in second position is a **child**, not props.
+A syntactic marker telling `n/$` that a dynamic expression is its props
+operand. It creates no runtime wrapper.
 
-Related: [Native tier](10-native-tier.md#the-n-grammar).
+Without the marker, an arbitrary dynamic map in second position is treated as
+a child.
+
+Related: [The native tier](10-native-tier.md).
 
 <a id="ndefcomponent"></a>
-### **n/defcomponent**
+### `n/defcomponent`
 
-Defines a stable top-level native function component: display name, source, HMR
-conduct, and one props/children ABI. Default self-contained route for a
-[named native island](#native-island). Ordinary React hooks are legal inside;
-frame access via [`n/use-sub`](#nuse-sub) / [`n/use-frame`](#nuseframe).
+Defines a named top-level React function component with Hicasso's native-tier
+marker, source identity, display name, and server policy. Ordinary React hooks
+are legal inside it.
 
-Related: [Native tier](10-native-tier.md).
+Use [`n/use-sub`](#nuse-sub) and [`n/use-frame`](#nuseframe) to join the current
+re-frame2 frame.
+
+Related: [The native tier](10-native-tier.md).
 
 <a id="nuse-sub"></a>
+### `n/use-sub`
+
+A React hook that subscribes to a re-frame2 query in a native component. It
+obeys React's rules of hooks: call it unconditionally at the top level of the
+component.
+
+Related: [The native tier](10-native-tier.md).
+
 <a id="nuseframe"></a>
-### **n/use-sub** / **n/use-frame**
+### `n/use-frame`
 
-Native React hooks that join the installed Hicasso frame. Substrate-neutral
-(shared implementation; no UIx dependency). Use inside
-[`n/defcomponent`](#ndefcomponent) or UIx `defui` — not inside a dynamically
-branched [`defview`](#defview) body.
+A React hook returning frame-locked operations such as `:dispatch`,
+`:dispatch-sync`, and `:subscribe` for the current native component.
 
-Related: [Native tier](10-native-tier.md).
+Related: [The native tier](10-native-tier.md).
 
 <a id="native-island"></a>
-### **native island**
+### Native island
 
-A named native component under the same React root and re-frame2 frame as the
-rest of the app — hooks, vendor widgets, high-rate mechanics. Authored with
-[`n/defcomponent`](#ndefcomponent), UIx, or a JS host. Xray names the crossing;
-the inner React tree is [host-opaque](#loss-labels).
+A named native React component under the same React root and re-frame2 frame as
+the surrounding Hicasso application. It is appropriate for hooks, vendor
+widgets, and high-rate host-private mechanics.
 
-Related: [Native tier](10-native-tier.md#rung-4--a-named-native-island).
+Xray names and times the crossing, while the inner React tree remains
+host-opaque.
+
+Related: [The native tier](10-native-tier.md).
 
 <a id="nmemo"></a>
+### `n/memo`
+
+Marker-preserving React memoisation for a named native component. Raw
+`react/memo` can erase the marker used by Xray and embedding checks.
+
+Related: [The native tier](10-native-tier.md).
+
 <a id="nlazy"></a>
-### **n/memo** / **n/lazy**
+### `n/lazy`
 
-Marker-preserving memoization and `React.lazy` loading for native components.
-Raw `react/memo` / `React.lazy` erase the tier marker that Xray and embedding
-checks read. Hot reload is unaffected either way — a save allocates a fresh
-component, and a clean remount is the designed conduct.
+Marker-preserving `React.lazy` loading for a named native component. It follows
+React's promise-returning loader contract and retains the Hicasso native marker.
+Declare it at namespace top level.
 
-Related: [Native tier](10-native-tier.md#keeping-the-marker-the-abi-helpers),
-[Code splitting](20-code-splitting.md).
+Related: [Code splitting and lazy loading](20-code-splitting.md),
+[The native tier](10-native-tier.md).
 
 <a id="performance-ladder"></a>
-### **performance ladder**
+### Performance ladder
 
-Five explicit rungs from ordinary Hicasso to a full native screen. No `:fast`
-flag and no second meaning for Hiccup:
+Five explicit implementation levels:
 
-1. Ordinary Hicasso
-2. Tuned [read topology](#read-topology)
-3. Direct native return (`n/$` from a `defview`)
-4. [Named native island](#native-island)
-5. Native screen
+1. ordinary Hicasso;
+2. tuned [read topology](#read-topology);
+3. a direct native return from an existing view;
+4. a named [native island](#native-island);
+5. a native screen.
 
-Related: [Performance](18-performance.md), [Native tier](10-native-tier.md).
+Related: [Performance](18-performance.md),
+[The native tier](10-native-tier.md).
 
 <a id="escape-benefit-rule"></a>
-### **escape-benefit rule**
+### Escape-benefit rule
 
-An escape stays only if it recovers **≥20%** of the measured interaction, saves
-**≥2 ms** at p95, or converts a failed user-visible budget into a pass;
-otherwise remove it. Thresholds never widen to keep a red row green.
+Keep a native escape only when it:
 
-Related: [Performance](18-performance.md#the-escape-benefit-rule).
+- recovers at least 20% of the measured interaction;
+- saves at least 2 ms at p95; or
+- converts a failed user-visible budget into a pass.
 
----
+Otherwise remove it.
+
+Related: [Performance](18-performance.md).
 
 ## State homes
 
 <a id="one-state-owner"></a>
-### **one state owner**
+### One state owner
 
-Application-visible state lives in re-frame2
-[app-db](../../../core/glossary.md#app-db) only. There is no component-local
-reactive cell and no second store. Hosts may hold host-private mechanics
-(motion, focus, vendor handles) that are never an invisible duplicate of
-application facts.
+Application-visible state lives in re-frame2 app-db. Hicasso does not add a
+component-local reactive store. A host may retain private mechanics only when
+they are not a hidden duplicate of an application fact.
 
 Related: [Ephemeral state](11-ephemeral-state.md).
 
 <a id="pressure-valve"></a>
-### **pressure valve**
+### Pressure valve
 
-Named legitimate home for a kind of UI state under
-[one state owner](#one-state-owner): explicit app-db address (default); optional
-forms/draft modules; host-private React/DOM state; uncontrolled DOM as an
-explicit interop choice. If a fact fits no valve, it goes to app-db.
+A legitimate home for UI state under the one-state-owner rule:
+
+- an explicit app-db address;
+- the forms module for drafts and form control;
+- native host state for high-rate private mechanics;
+- browser-owned state as an explicit interop choice;
+- presence retention for pixels that outlive removed data.
 
 Related: [Ephemeral state](11-ephemeral-state.md).
 
 <a id="overlay"></a>
-### **overlay (popover / modal)**
+### Overlay
 
-`re-frame.hicasso.overlay` primitives on the browser's native top layer.
-`:open?` is app-db data; `:on-dismiss` is an event; the platform owns stacking,
-light-dismiss, and focus trap/return. Closed means zero DOM and zero listeners.
+`re-frame.hicasso.overlay` popover and modal primitives. They use the browser's
+native top layer. App-db owns `:open?`; `:on-dismiss` is an event; the browser
+owns stacking, light-dismiss, modal focus trapping, and focus restoration.
+
+A closed overlay has no DOM node, listener, or active body subscriptions.
 
 Related: [Overlays and focus](12-overlays-and-focus.md).
 
 <a id="route-link"></a>
-### **route-link**
+### `route-link`
 
-Routing helper: navigates by event, optional intent
-[prefetch](../../../routing/glossary.md#intent-prefetch), scroll/focus conduct.
-Plain function (inlines); active state is a subscription comparison, not a
-built-in class.
+A routing helper that returns a real anchor and encodes navigation as a Hicasso
+intent. It supports route ids and params, optional intent prefetch, native link
+semantics, and link-local veto behaviour.
+
+It is an inline function, not a separate view. Active-state styling comes from
+a route subscription comparison.
 
 Related: [Routing and navigation](07-routing-and-navigation.md).
 
 <a id="demand-driven-committed-read"></a>
-### **demand-driven committed read**
+### Demand-driven committed read
 
-Optional resource read that declares `:demand true`: **commit acquires**,
-unmount / param change / stopped read **releases**. Abandoned renders acquire
-nothing. Uses existing committed-read membership — no second per-read ledger.
-Without `:demand`, a resource sub stays a passive projection.
+A resource subscription with `:demand true`:
 
 ```clojure
-(h/sub [:rf/resource {:resource :app/suggestions
-                      :params   {:q q}
-                      :demand   true}])
+(h/sub
+ [:rf/resource
+  {:resource :app/suggestions
+   :params   {:q q}
+   :demand   true}])
 ```
 
-Related: [Async resources](08-async-resources.md#demand-driven-committed-reads),
-[Resources glossary](../../../resources/glossary.md).
+Commit acquires demand. Unmount, parameter change, or a committed render that
+stops taking the read releases demand. Speculative and abandoned renders
+acquire nothing. Without `:demand`, the resource subscription is passive.
 
----
+Related: [Async resources](08-async-resources.md),
+[Resources glossary](../../../resources/glossary.md).
 
 ## Testing
 
 <a id="test-kit"></a>
-### **test kit**
+### Test kit
 
-Two supported namespaces: `re-frame.hicasso.test` (alias `ht`) for the pure data
-tiers, the [semantic harness](#semantic-harness) and the browser helpers, and
-`re-frame.hicasso.test.mounted` (alias `hm`) for the
-[mounted facade](#mounted-facade).
+Two namespaces:
+
+- `re-frame.hicasso.test`, usually `ht`, for pure and semantic tests;
+- `re-frame.hicasso.test.mounted`, usually `hm`, for mounted React and DOM
+  tests.
 
 Related: [Testing](14-testing.md).
 
 <a id="testing-ladder"></a>
-### **testing ladder**
+### Testing ladder
 
-Five rungs; use the lowest that can prove the claim:
+| Level | Proves | Mechanism |
+| --- | --- | --- |
+| L0 | Handlers, subscriptions, transitions | Pure function calls |
+| L1 | Intents, codecs, revision laws, macro expansion | Data and property tests |
+| L2 | One hook-free body as a semantic tree | [`ht/tree`](#semantic-harness) |
+| L3 | React lifecycle, hooks, hosts, error boundaries | Mounted facade |
+| L4 | IME, caret, focus, hydration, performance | Real browser engines |
 
-| Rung | Proves | Mechanism |
-|---|---|---|
-| L0 | handlers, subs, transitions | pure functions |
-| L1 | intents, codecs, revision laws, `n/$` expansion | pure data / property tests |
-| L2 | one hook-free body, as a semantic tree | [semantic harness](#semantic-harness) |
-| L3 | lifecycle, hooks, hosts, errors | mounted React DOM |
-| L4 | IME, caret, focus, hydration, perf | real browsers |
-
-A green lower rung never claims a higher equality (L2 ≠ hydration bytes).
+A lower level does not prove the equality of a higher level.
 
 Related: [Testing](14-testing.md).
 
 <a id="semantic-harness"></a>
-### **semantic harness**
+### Semantic harness
 
-L2: `ht/tree` runs one hook-free body under injected read fixtures and returns
-a semantic tree. A nested view is recorded as the call it is and its body does
-not run. Hosts, hooks, raw React, and [`n/$`](#n-dollar) results are **opaque**
-and raise — mount those at L3.
+`ht/tree` runs one hook-free Hicasso view body with injected subscription
+fixtures and returns a semantic tree. Nested views remain represented as calls.
+Hooks, hosts, raw React elements, and `n/$` results are refused and belong at
+L3.
 
-Related: [Testing](14-testing.md#l2--the-semantic-harness).
+Related: [Testing](14-testing.md).
 
 <a id="mounted-facade"></a>
-### **mounted facade**
+### Mounted facade
 
-`re-frame.hicasso.test.mounted` (alias `hm`). L3 helpers: isolated-frame mount,
-hydrate, rerender, dispatch-and-settle, settle, advance-clock, unmount,
-`assert-clean!` (residue vs pre-mount baseline after quiescence).
+The `hm` namespace for L3 tests. It provides isolated-frame mount and hydrate,
+rerender, dispatch-and-settle, settle, virtual-clock advancement, unmount, and
+`assert-clean!` residue checking.
 
-Related: [Testing](14-testing.md#l3--the-mounted-facade).
+Related: [Testing](14-testing.md).
 
 <a id="sabotage-control"></a>
-### **sabotage control**
+### Sabotage control
 
-Negative twin of an important gate: a deliberate mutation that must make the
-gate fail, so an empty population cannot pass green.
+A deliberately broken twin of an important test or measurement. It proves that
+the instrument moves when the input is wrong and prevents an empty population
+from passing vacuously.
 
-Related: [Testing](14-testing.md#the-sabotage-twin).
+Related: [Testing](14-testing.md).
 
 <a id="canonical-dom"></a>
-### **canonical DOM**
+### Canonical DOM
 
-Normalized DOM / structure equality used by differential and migration
-witnesses. Distinct from semantic-tree equality (L2) and from React server byte /
-hydration equality.
+A normalised DOM serialisation used for differential comparison. Attribute
+names are ordered so equivalent DOM does not differ only because properties
+were inserted in a different sequence.
 
-Related: [Testing](14-testing.md#canonical-dom),
-[Migration from Reagent](19-migration-from-reagent.md).
+Canonical DOM is distinct from semantic-tree equality, exact server bytes, and
+hydrated browser behaviour.
 
----
+Related: [Testing](14-testing.md),
+[Migrating from Reagent](19-migration-from-reagent.md).
 
 ## Diagnostics
 
 <a id="causal-lens"></a>
-### **causal lens**
+### Causal lens
 
-Xray's diagnostic chain:
+The diagnostic sequence used by Xray:
 
+```text
+event
+  → subscriptions recomputed
+  → values changed
+  → views notified
+  → bodies run
+  → React commit
+  → browser paint
 ```
-event → subscriptions recomputed → values changed → boundaries notified
-      → bodies run → React commit → paint
-```
 
-Each link has its own evidence. **Render is not commit; commit is not paint.**
-Timing proximity alone never proves a link.
+Render, commit, and paint are separate claims.
 
 Related: [Diagnostics](15-diagnostics.md).
 
 <a id="explain-render"></a>
-### **explain-render**
+### Explain-render
 
-Xray answer to *why did this [boundary](#boundary) run?* — cause kind (reads,
-props, context, host, retry/abandonment), current read set, fan-out,
-completeness and loss.
+Xray's answer to “why did this view run?” It reports the cause category, changed
+reads or props, current read set, fan-out, completeness, and evidence loss.
 
-Related: [Diagnostics](15-diagnostics.md#advanced).
+Related: [Diagnostics](15-diagnostics.md).
 
 <a id="hot-view-advisor"></a>
-### **hot-view advisor**
+### Hot-view advisor
 
-Ranks hot boundaries (time, frequency, read churn, fan-out), **classifies
-pressure** (computation, topology, lowering, React, layout), then recommends the
-smallest credible remedy. Recommends a native escape only when native addresses
-the measured owner; never auto-promotes.
+A diagnostic ranking that combines time, frequency, read churn, and fan-out,
+then classifies the pressure as computation, topology, lowering, React, or
+layout. It recommends the smallest credible remedy and never auto-promotes
+code to native.
 
-Related: [Diagnostics](15-diagnostics.md#the-hot-view-advisor),
+Related: [Diagnostics](15-diagnostics.md),
 [Performance](18-performance.md).
 
 <a id="loss-labels"></a>
-### **loss labels**
+### Loss labels
 
-Honest gaps instead of empty panels: `:unknown`, `:opaque` /
-`:no-static-analysis`, `:host-opaque`, `:cap`, `:uncorrelated`. Unknown is never
-encoded as an empty collection.
+Explicit labels for incomplete evidence:
 
-Related: [Diagnostics](15-diagnostics.md#when-evidence-is-incomplete).
+- `:unknown`;
+- `:opaque` / `:no-static-analysis`;
+- `:host-opaque`;
+- `:cap`;
+- `:uncorrelated`.
+
+Missing evidence is not represented as an empty result.
+
+Related: [Diagnostics](15-diagnostics.md).
 
 <a id="complaint-catalogue"></a>
-### **complaint catalogue**
+### Complaint catalogue
 
-Stable `:rf.error/*` / `:rf.warning/*` ids with cause, recovery, and
-jump-to-source in Xray. Every refusal in the guide is an entry; branch on the
-id, not prose.
+The stable `:rf.error/*` and `:rf.warning/*` identifier set, including cause,
+recovery, and source links where available. Tests assert the id, not the human
+message.
 
-Related: [Diagnostics](15-diagnostics.md#the-complaint-catalogue).
+Related: [Diagnostics](15-diagnostics.md).
 
 <a id="production-erasure"></a>
-### **production erasure**
+### Production erasure
 
-Dev diagnostics, source maps for complaints, and evidence sentinels are absent
-from default production bundles. Budgets and teardown are verified on production
-builds.
+Removal of development diagnostics, evidence machinery, source locations, and
+complaint messages from default release bundles. Optional performance timing
+has a separate compile-time flag and is disabled by default.
 
-Related: [Diagnostics](15-diagnostics.md#production-erasure).
-
----
+Related: [Diagnostics](15-diagnostics.md).
 
 ## Lifecycle and delivery
 
 <a id="mount"></a>
-### **mount!** / **render!** / **unmount!**
+### `mount!`, `render!`, and `unmount!`
 
-Root lifecycle. `h/mount!` associates a DOM node, a
-[frame](../../../core/glossary.md#frame) id, and optional `:initial-events` (seed
-app-db before first paint), and returns an idempotent **root handle**.
-`render!` re-renders into that handle; `unmount!` is a no-op if already
-unmounted (safe for fixtures and reload hooks).
+The Hicasso root lifecycle.
+
+`h/mount!` associates a DOM container, a frame, optional `:initial-events`, and
+one root view. It returns a root handle. Initial events run in order before
+first paint.
+
+`h/render!` renders a new root element through the same handle.
+
+`h/unmount!` tears the root down and is safe to call more than once.
 
 ```clojure
 (defonce root
-  (h/mount! (js/document.getElementById "app")
-            {:frame :rf/default :initial-events [[:app/init]]}
-            [app-shell]))
+  (h/mount!
+   (js/document.getElementById "app")
+   {:frame :rf/default
+    :initial-events [[:app/init]]}
+   [app-shell {}]))
 ```
 
 Related: [Installation](installation.md).
 
 <a id="hydrate"></a>
-### **hydrate!**
+### `hydrate!`
 
-Two verbs on one job. **`re-frame.ssr/hydrate!`** installs the server payload
-into the client frame (state half). **`h/hydrate!`** adopts the server DOM for a
-Hicasso root (DOM half). Server and client share one React renderer; mismatches
-surface as hydration errors.
+Two functions complete hydration:
+
+- `re-frame.ssr/hydrate!` installs the server payload into the client frame;
+- `h/hydrate!` adopts existing server DOM for one Hicasso root.
+
+State hydration must run before DOM adoption.
 
 Related: [SSR and hydration](17-ssr-and-hydration.md).
 
 <a id="error-boundary"></a>
-### **error-boundary**
+### Error boundary
 
-`h/error-boundary` — React error region in the tree (`:fallback`, `:reset-key`,
-`:on-error`). Distinct from a re-render [boundary](#boundary); only this
-component catches throws. Expected failures stay data, not exceptions.
+`h/error-boundary` is a React error region with `:fallback`, `:reset-key`, and
+`:on-error`. It is different from a re-render [boundary](#boundary); only the
+error boundary catches descendant render and lifecycle exceptions.
+
+Expected failures remain ordinary app-db state.
 
 Related: [Errors](16-errors.md).
 
 <a id="user-visible-budget"></a>
-### **user-visible budget**
+### User-visible budget
 
-Performance contract in terms a user can notice (e.g. discrete interaction paint
-≤50 ms p95; controlled echo within one frame; broad ops ≤100 ms p95; zero
-teardown residue). Comparative bands and island parity sit beside these;
-synthetic scores never redefine "fast enough."
+A performance requirement expressed as an observable user outcome, such as:
 
-Related: [Performance](18-performance.md#the-budgets).
+- discrete interaction paint within 50 ms p95;
+- controlled echo within one frame;
+- broad operation within 100 ms p95;
+- zero teardown residue.
+
+Synthetic benchmark scores do not replace these budgets.
+
+Related: [Performance](18-performance.md).
 
 <a id="shadow-comparison"></a>
-### **shadow comparison**
+### Shadow comparison
 
-Also called **shadow mode**. Migration witness: dual-render
-[canonical DOM](#canonical-dom) / [intent](#intent) diff against a Reagent (or
-other) twin so conversion preserves behaviour before a codemod rewrite. Named
-refusal classes describe policy differences; bare drift is reported as drift.
+A migration witness that mounts a reference implementation and candidate under
+isolated equivalent state, drives both with one script, and compares canonical
+DOM plus event-intent streams at each checkpoint.
 
-Related: [Migration from Reagent](19-migration-from-reagent.md).
+Related: [Migrating from Reagent](19-migration-from-reagent.md).

@@ -1,167 +1,191 @@
 # Accessibility
 
-A screen reader announces "clickable, group" where you meant "Delete, button",
-and Tab skips your busiest control. Hicasso ships no accessibility subsystem,
-because the fix is not a subsystem. Semantic HTML and native controls already
-carry names, roles, and keyboard behaviour. Your job is mostly to keep those
-behaviours in place — and then prove it in tests.
+Start with semantic HTML. Native elements already provide names, roles,
+keyboard activation, focus behaviour, and platform integration. Hicasso does
+not replace those contracts with an accessibility subsystem.
 
-## Semantic HTML first
+Then derive ARIA state from the same application values that control the UI,
+and test the result at the lowest level that can prove it.
 
-Semantic elements give you the platform's behaviour at no cost. A `:button` is
-focusable, keyboard-activatable, and announced as a button. A `:div` with a
-click handler is none of those things. Every attribute you then add by hand is a
-copy of one platform behaviour, minus the ones you forgot:
+## Use semantic elements
+
+A button is focusable, keyboard-activatable, and announced as a button. A
+clickable `div` is not.
 
 ```clojure
-;; Don't — a click target only a mouse can find
-[:div.delete {:on-click [:article/delete id]} "Delete"]
+;; Don't: only a pointer user can reliably operate this.
+[:div.delete
+ {:on-click [:article/delete id]}
+ "Delete"]
 
-;; Do — focus, Enter, Space, and the announcement come with the tag
-[:button.delete {:on-click [:article/delete id]} "Delete"]
+;; Do: focus, Enter, Space, and the role come from the platform.
+[:button.delete
+ {:on-click [:article/delete id]}
+ "Delete"]
 ```
 
-The same choice repeats across the vocabulary:
+Apply the same rule throughout the page:
 
-- `:a` for navigation — [`route-link`](glossary.md#route-link) returns a real
-  anchor, so middle-click and copy-link work.
-- `:label` wrapping its control, or pointing at it with `:for`.
-- `:ul`/`:li` for lists, and `:table` for tabular data.
-- One `:h1` per page in the heading outline.
-- `:main`/`:nav`/`:aside` landmarks, so a reader can jump between regions.
+- use `:a` for navigation; `route-link` returns a real anchor;
+- pair labels and controls with a wrapping `:label` or matching `:for` and
+  `:id`;
+- use `:ul`/`:li` for lists and `:table` for tabular data;
+- keep a meaningful heading outline, normally with one page `:h1`;
+- use `:main`, `:nav`, and `:aside` landmarks.
 
-Use ARIA roles only where no element exists — a listbox, a tab strip. Then take
-the whole contract, keyboard included, as
-[the combobox in Overlays and focus](12-overlays-and-focus.md) does.
+Use ARIA roles when no native element expresses the widget, such as a listbox
+or tab strip. In that case, implement the complete keyboard and state contract,
+not only the role. The dropdown in
+[Overlays and focus](12-overlays-and-focus.md) is an example.
 
-## Names are ordinary attributes
+## Give controls an accessible name
 
-What an element shows visually is usually also its accessible name, with no work
-from you. The gaps are icon-only controls, and controls whose visible label lives
-elsewhere. The fix is data in the attribute map, per instance:
+Visible text usually supplies the name automatically. Add an explicit name for
+icon-only controls or when the visible label lives elsewhere:
 
 ```clojure
-[:button {:aria-label "Close" :on-click [:dialog/dismissed id]} "×"]
+[:button
+ {:aria-label "Close"
+  :on-click [:dialog/dismissed id]}
+ "×"]
 
 [:fieldset.form-group
- [:label {:for (str "email-" id)} "Email"]
- [:input {:id       (str "email-" id)
-          :type     :email
-          :value    (h/sub [:signup/email id])
-          :on-input [:signup/set-email id ::h/value]}]]
+ [:label {:for (str "email-" id)}
+  "Email"]
+ [:input
+  {:id       (str "email-" id)
+   :type     :email
+   :value    (h/sub [:signup/email id])
+   :on-input [:signup/set-email id ::h/value]}]]
 ```
 
-Ids that pair elements — `:for`/`:id`, `:aria-labelledby`, `:aria-describedby`,
-`:aria-activedescendant` — are per-instance strings. Build them from the same
-instance key that addresses the state
-([Ephemeral state](11-ephemeral-state.md#choosing-the-address)). Two instances
-that share one id are the accessibility form of two panels that share one
-address, and they break the same way.
+IDs used by `:for`, `:aria-labelledby`, `:aria-describedby`, and
+`:aria-activedescendant` must be unique per instance. Build them from the same
+stable instance key used for application state
+([Ephemeral state](11-ephemeral-state.md#choose-a-stable-instance-address)).
 
-`:aria-*` attributes pass through exactly as written
-([Views and reads](02-views-and-reads.md)), so there is nothing Hicasso-specific
-to learn — including on [`h/defhost`](glossary.md#defhost) crossings, where
-`aria-*` stays hyphenated.
+`:aria-*` and `:data-*` attributes pass through as written on native elements
+and declared hosts.
 
-## State assistive tech reads is the state you already have
+## Derive ARIA state from the real state
 
-A screen reader's view of your widget — expanded, selected, busy, invalid —
-must track app-db. The cheapest way to keep the two representations aligned is
-to derive both from one read:
+Do not keep a second accessibility-only copy of expanded, selected, busy, or
+invalid state. Read the fact once and use it for both behaviour and ARIA:
 
 ```clojure
 (h/defview filter-toggle [{:keys [id]}]
   (let [open? (h/sub [:filter-menu/open? id])]
-    [:button {:aria-haspopup "menu"
-              :aria-expanded open?              ;; the same fact the panel renders from
-              :on-click      [:filter-menu/toggled id]}
+    [:button
+     {:aria-haspopup "menu"
+      :aria-expanded open?
+      :on-click [:filter-menu/toggled id]}
      "Filter"]))
 ```
 
-The pages that own each widget already write this shape: `:aria-expanded` and
-`:aria-activedescendant` on [the dropdown](12-overlays-and-focus.md), and
-`:aria-current "page"` on [the active nav link](07-routing-and-navigation.md).
-`:aria-busy` sits on [the fetching suggestion list](08-async-resources.md), and
-`:inert` plus `:aria-hidden` ride [an exiting node](11-ephemeral-state.md). What
-those pages never do is mirror platform state back into app-db. Focus in
-particular belongs to the platform ([Ephemeral state](11-ephemeral-state.md)):
-you express [intent](glossary.md#intent) once, and the restore contracts do the
-rest.
+The same pattern appears elsewhere in the guide:
 
-Error display pairs the message to the field the same way — derived, per
-instance, and announced:
+- `:aria-expanded` and `:aria-activedescendant` on the dropdown;
+- `:aria-current "page"` on the active route link;
+- `:aria-busy` on a resource-backed suggestion list;
+- `:inert` and `:aria-hidden` on an exiting presence node.
+
+Focus is different: it remains browser state. Express one focus action when
+needed and let the browser or overlay contract restore it. Do not mirror the
+currently focused element in app-db.
+
+### Pair validation messages with fields
 
 ```clojure
-(when-let [error (h/sub [:editor/field-error :title])]
-  [:div.error-messages {:id "title-error" :role "alert"} error])
-;; and on the input: :aria-invalid true, :aria-describedby "title-error"
+(when-let [error
+           (h/sub [:editor/field-error :title])]
+  [:div.error-messages
+   {:id "title-error"
+    :role "alert"}
+   error])
 ```
 
-## Keyboard and focus have owners
+The corresponding input should carry:
 
-Keyboard behaviour is data: the key map, with IME composition handled centrally
-([Events as data](03-events-as-data.md)). Native controls bring their bindings
-with them. What is left is focus *movement*. Each case already has its owner
-page; this table is the inventory:
+```clojure
+{:aria-invalid true
+ :aria-describedby "title-error"}
+```
 
-| Moment | Conduct | Owner |
-|---|---|---|
-| Route change | Focus the keyed main region, `:tab-index -1`, `preventScroll` | [Routing and navigation](07-routing-and-navigation.md) |
-| Overlay opens / closes | `:auto-focus` [intent](glossary.md#intent) in; platform trap; restore on close | [Overlays and focus](12-overlays-and-focus.md) |
-| Composite widget (menu, listbox) | Focus stays on the trigger; `:aria-activedescendant` walks options | [Overlays and focus](12-overlays-and-focus.md) |
-| Exit animation | `:inert` + `:aria-hidden` ride the unmounting phase | [Ephemeral state](11-ephemeral-state.md) |
-| Virtualized list | The keyboard cannot reach rows that do not exist — decide, then verify in a browser | [Lists and collections](06-lists-and-collections.md) |
+Generate the message id per form instance when more than one form can appear on
+the page.
 
-## Prove it in the harness
+## Keyboard and focus ownership
 
-Names and roles are attributes in the semantic tree, so most accessibility claims
-are L2 data assertions. The harness, the fixtures, and the sabotage discipline
-are the same as everything else in [Testing](14-testing.md):
+Native controls already own their keyboard bindings. Hicasso's keyboard map
+expresses additional key-to-intent behaviour and suppresses mappings during IME
+composition ([Events as data](03-events-as-data.md)).
+
+Focus movement has specific owners:
+
+| Moment | Behaviour | Owner |
+| --- | --- | --- |
+| Route change | Focus a keyed `main` region with `:tab-index -1` and `preventScroll` | [Routing and navigation](07-routing-and-navigation.md) |
+| Overlay open and close | Apply `:auto-focus`, use the platform trap, restore the opener | [Overlays and focus](12-overlays-and-focus.md) |
+| Menu or listbox navigation | Keep DOM focus on the trigger and move `:aria-activedescendant` | [Overlays and focus](12-overlays-and-focus.md) |
+| Exit animation | Add `:inert` and `:aria-hidden` during unmounting | [Ephemeral state](11-ephemeral-state.md) |
+| Virtualised collection | Decide how keyboard users reach items that do not exist in the DOM and verify it in a browser | [Lists and collections](06-lists-and-collections.md) |
+
+## Test attributes as data
+
+Names, roles, and ARIA state are visible in the L2 semantic tree:
 
 ```clojure
 (deftest toggle-announces-its-state
-  (let [tree (ht/tree [views/filter-toggle {:id 7}]
-                      {:subs {[:filter-menu/open? 7] true}})
-        btn  (ht/attrs (ht/find tree #(= :button (:tag %))))]
+  (let [tree
+        (ht/tree
+         [views/filter-toggle {:id 7}]
+         {:subs {[:filter-menu/open? 7] true}})
+        btn
+        (ht/attrs
+         (ht/find tree #(= :button (:tag %))))]
     (is (= "menu" (:aria-haspopup btn)))
     (is (true? (:aria-expanded btn)))))
 
 (deftest toggle-announces-its-state--sabotage-twin
-  (let [tree (ht/tree [views/filter-toggle {:id 7}]
-                      {:subs {[:filter-menu/open? 7] false}})]
-    (is (false? (:aria-expanded (ht/attrs (ht/find tree #(= :button (:tag %)))))))))
+  (let [tree
+        (ht/tree
+         [views/filter-toggle {:id 7}]
+         {:subs {[:filter-menu/open? 7] false}})
+        btn
+        (ht/attrs
+         (ht/find tree #(= :button (:tag %))))]
+    (is (false? (:aria-expanded btn)))))
 ```
 
-Data cannot prove focus and traversal: where focus lands after a route change,
-whether Tab is trapped in a [modal](glossary.md#overlay), whether a virtualized
-grid is walkable. Those are engine facts, so they live in the browser tier, next
-to an automated axe pass over each screen's mounted state. The axe run is a
-floor, not the test. It catches missing names and broken pairings, and it says
-nothing about whether the keyboard *order* makes sense. Script that walk yourself
-for the screens where it matters.
+The sabotage twin proves that the assertion changes when the source state
+changes.
+
+Data tests cannot prove actual focus, Tab order, modal trapping, virtualised
+keyboard movement, or screen-reader/browser integration. Test those behaviours
+in real browser engines. Run an automated axe check on the mounted screen as a
+baseline, then script the keyboard walk for important flows. Axe can identify
+missing names and broken pairings; it cannot decide whether the traversal order
+makes sense.
 
 ## Troubleshooting
 
 | Symptom | Cause | Fix |
-|---|---|---|
-| A control cannot be reached with Tab | It is not a real control — a `:div`/`:span` with a click handler | Use `:button`, `:a`, or the real control; `:tab-index` on a div is the last resort, not the first |
-| An icon button announces nothing, or announces "×" | No accessible name beyond its glyph | `:aria-label` on the control |
-| A reader announces the wrong label, or none, for an input | The `:label` is not paired — missing `:for`, or an id shared between instances | Per-instance ids built from the instance key |
-| "Expanded" never changes in the reader while the panel opens | The `:aria-expanded` value is a literal, not the sub the panel renders from | Derive it from the same read |
-| Validation errors appear silently | The message div is not announced and not paired | `:role "alert"` on the message; `:aria-invalid` and `:aria-describedby` on the field |
-| Focus goes nowhere after navigating | The main region is not keyed and focusable | The route-focus recipe ([Routing and navigation](07-routing-and-navigation.md)) |
-| A fading toast still takes focus and clicks | The exit override lacks the a11y pair | `:inert` and `:aria-hidden` in `::motion/unmounting` ([Ephemeral state](11-ephemeral-state.md)) |
-| The [modal](glossary.md#overlay) traps focus but the page behind still scrolls | A hand-written dialog, not the native modal path | `overlay/modal` ([Overlays and focus](12-overlays-and-focus.md)) |
-| axe flags nothing but keyboard users are lost | axe checks attributes, not traversal order | Script the Tab walk in the browser tier for that screen |
+| --- | --- | --- |
+| Control cannot be reached with Tab | A `div` or `span` is acting as a control | Use the real `button`, `a`, input, or other native control; add `tab-index` to a generic element only when no semantic element fits |
+| Icon button is unnamed or announced only as “×” | Its glyph is the only name | Add `:aria-label` to the button |
+| Input has the wrong or no label | `:for` and `:id` do not match, or ids are reused across instances | Generate stable per-instance ids |
+| Screen reader's expanded state never changes | `:aria-expanded` is a literal or separate stale value | Derive it from the same subscription that controls the panel |
+| Validation message appears without announcement | The message is not a live alert and the field is not linked to it | Add `:role "alert"`, `:aria-invalid`, and `:aria-describedby` |
+| Focus does not move after route navigation | The new main region is not keyed or programmatically focusable | Use the route focus recipe |
+| Fading item still accepts focus and clicks | Exit appearance changed without disabling interaction | Add `:inert` and `:aria-hidden` in the unmounting override |
+| Modal traps focus but the background remains interactive | A non-modal or hand-written dialog is being used | Use `overlay/modal`, which calls `showModal` |
+| Axe passes but keyboard users still get lost | Automated rules cannot evaluate the intended traversal order | Script the Tab, arrow-key, Escape, and focus-return flows in browser tests |
 
-## When not to add more
+## When not to add ARIA or state
 
-- **Do not restate what the element already says.** `{:role "button"}` on a
-  `:button` and `{:aria-label "Save"}` beside visible "Save" text are noise at
-  best and contradictions at worst. ARIA fills gaps; prefer the element.
-- **Do not mirror focus or hover into app-db** to drive announcements. The
-  platform tracks them, and a mirror drifts
-  ([Ephemeral state](11-ephemeral-state.md)).
-- **Do not build an announcer service.** A `:role "alert"` region rendered from
-  state covers the occasional live announcement. A general live-region subsystem
-  is machinery before any caller needs it.
+- Do not repeat native semantics. `role="button"` on a `button`, or an
+  `aria-label` that contradicts visible text, makes the result worse.
+- Do not mirror hover or focus into app-db solely for announcements. The
+  browser already owns those facts.
+- Do not build a general announcer service before a real use case requires it.
+  A state-driven `role="alert"` region covers occasional live messages.

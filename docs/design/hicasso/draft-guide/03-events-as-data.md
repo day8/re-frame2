@@ -1,37 +1,27 @@
 # Events as data
 
-With reads in place from [Views and reads](02-views-and-reads.md), this page
-makes handlers data so trees stay inspectable.
-
-Handler attributes are where a data-oriented view layer usually stops being
-data. You write pure data down the whole tree. Then `:on-click` needs a
-function, so you write `#(rf/dispatch [:todo/toggle id])`. That node stops
-being inspectable, comparable, or assertable by equality.
-
-Put the event vector in the attribute. The runtime creates the callback.
+Hicasso accepts an event vector directly in an event attribute. The runtime
+creates the callback and dispatches that vector when the callback runs.
 
 ```clojure
 [:button {:on-click [:todo/toggle id]} "✓"]
 ```
 
-The tree still holds data at that node, so a test asserts the node with `=`,
-and a tool reads it off the tree. When the user clicks the button, the runtime
-dispatches the vector into the re-frame2 frame owned by the rendering view.
-The runtime built that callback at render, and the callback includes the frame
-so the later click still has context.
+The Hiccup tree still contains `[:todo/toggle id]`, so tests and tools can
+inspect and compare the interaction as data. The generated callback also
+retains the frame of the view that created it, which makes the later browser
+event safe even though the original render has ended.
 
-Any prop whose name is `on-` plus a letter is an event position. CamelCase
-`onClick` also works, for the migrating author. There is no list of approved
-event names to keep in step with the DOM. An event vector at an event position
-is an **[intent](glossary.md#intent)**: the meaning of the interaction, stated
-as data. That is the word this guide uses for it.
+Any prop named `on-` followed by a letter is treated as an event position.
+CamelCase spellings such as `onClick` are also accepted for migration. Hicasso
+does not maintain a fixed roster of DOM event names. An event vector in one of
+these positions is called an [intent](glossary.md#intent).
 
-## Value markers
+## Read values from the browser event
 
-Most handlers need a value out of the event. The runtime substitutes two
-reserved words, [`::h/value`](glossary.md#hvalue) and
-[`::h/checked`](glossary.md#hchecked), at dispatch time with the event
-target's `.value` and `.checked`:
+Most input handlers need `.value` or `.checked` from the event target. Hicasso
+replaces [`::h/value`](glossary.md#hvalue) and
+[`::h/checked`](glossary.md#hchecked) when the callback runs:
 
 ```clojure
 [:input {:value    (h/sub [:todo.ui/draft id])
@@ -42,24 +32,22 @@ target's `.value` and `.checked`:
          :on-change [:todo/set-done id ::h/checked]}]
 ```
 
-At dispatch, the handler receives `[:todo.ui/edit 7 "milk"]` or
-`[:todo/set-done 7 true]`. These are ordinary event vectors, the same as
-vectors that you dispatch by hand. Substitution happens at the intent vector's
-top level only. The runtime does not look for a marker in nested structure. If
-the vector has no marker, the runtime never peeks at the DOM event — so
-nothing is substituted, and nothing is read "for free."
+The dispatched events are ordinary vectors such as
+`[:todo.ui/edit 7 "milk"]` and `[:todo/set-done 7 true]`.
 
-These two words, plus [`::h/prevent`](glossary.md#hprevent) below and
-[`::h/revision`](glossary.md#hrevision)
-([Controlled inputs](04-controlled-inputs.md)), are the entire reserved
-vocabulary. For the full controlled round-trip — value in from a subscription,
-intent out, caret and same-turn echo — see
-[Controlled inputs](04-controlled-inputs.md).
+Marker replacement occurs only at the top level of the intent vector. Hicasso
+does not search nested data. When an intent contains no marker, the runtime
+does not read the DOM event.
 
-## Prevention is explicit
+The full reserved vocabulary is `::h/value`, `::h/checked`,
+[`::h/prevent`](glossary.md#hprevent), and
+[`::h/revision`](glossary.md#hrevision). The controlled-input chapter owns the
+round trip from subscription value to browser event and back.
 
-Nothing auto-prevents — not a click, and not a form submit. Prevention is a
-decision. The decision travels **as data**, in the intent itself:
+## Prevent browser defaults explicitly
+
+An intent does not automatically call `preventDefault`, including at
+`:on-submit`. Wrap the intent when the browser default must be prevented:
 
 ```clojure
 [:form {:on-submit [::h/prevent [:todo/submit]]}
@@ -68,58 +56,58 @@ decision. The decision travels **as data**, in the intent itself:
  [:button {:type :submit} "Add todo"]]
 ```
 
-`[::h/prevent INTENT]` prevents the browser default and dispatches the inner
-intent. The same head serves an anchor that acts as a button — a tab or a tag
-pill. An unconditional default *cannot* exist there, because a modifier-click
-on a real link must still open a tab:
+`[::h/prevent INTENT]` prevents the default and dispatches the one inner intent.
+It also works for an anchor being used as an application control:
 
 ```clojure
-[:a.nav-link {:href "#" :on-click [::h/prevent [:todo/filter-active]]}
+[:a.nav-link
+ {:href "#"
+  :on-click [::h/prevent [:todo/filter-active]]}
  "Active"]
 ```
 
-!!! warning "A bare intent at `:on-submit` still submits"
-    `{:on-submit [:todo/submit]}` dispatches your intent **and** lets the
-    browser navigate. There is no submit special case. If the page reloads on
-    submit, the [`::h/prevent`](glossary.md#hprevent) head is missing. The rare
-    form that wants a real browser submission omits the head.
+A real navigation link should normally use the routing module rather than this
+pattern. A modifier-click on a real link must remain available to the browser,
+which is why Hicasso does not prevent clicks or submits by default.
 
-The shape is fixed: exactly one inner intent vector. That inner vector is what
-actually gets dispatched. Two payloads, a keyword instead of a vector, a
-decorator inside a decorator — each is
-`:rf.error/hicasso-malformed-prevent`. The error names the attribute and fires
-at render time, not at the click. Markers still work inside the head:
-`[::h/prevent [:filter/set ::h/value]]` prevents and substitutes, because the
-runtime unwraps the decorator before it looks for the markers.
+!!! warning "A bare submit intent still performs the browser submission"
+    `{:on-submit [:todo/submit]}` dispatches the event and then allows the
+    browser default. If the page reloads, wrap the intent with `::h/prevent`.
+    Omit the wrapper only when a real browser form submission is intended.
 
-The prevent form is a head, not metadata on the vector, for one reason:
-**metadata does not participate in `=`**. An annotation would be invisible to
-a structural test that compares the tree, to `pr-str`, and to any code that
-hashes the intent. A head is visible to all three.
+The wrapper must contain exactly one inner intent vector. A keyword instead of
+a vector, a second payload, or a nested decorator raises
+`:rf.error/hicasso-malformed-prevent` during rendering and names the attribute.
+Markers remain valid inside the inner intent:
 
-## `h/event`: when you need the callback arguments
+```clojure
+[::h/prevent [:filter/set ::h/value]]
+```
 
-Sometimes you must read the callback's arguments before you know what to
-dispatch. Examples: a file list, a drag payload, a foreign component that
-calls `(on-change date)` with no DOM event. [`h/event`](glossary.md#hevent) is
-the one explicit event-producing form:
+The wrapper is represented in the vector rather than metadata because metadata
+does not participate in `=`, printing, or hashes. Structural tests and tools
+must be able to observe the prevention decision.
+
+## Use `h/event` when the arguments determine the event
+
+Some callback contracts provide values that cannot be expressed with the two
+markers: a file list, a drag payload, or a foreign component that calls
+`(on-change date)`. [`h/event`](glossary.md#hevent) creates a frame-aware
+callback whose body can inspect every argument and return an event vector:
 
 ```clojure
 [:input {:type      "file"
          :on-change (h/event [e]
-                      [:todo/attach (js/Array.from (.. e -target -files))])}]
+                      [:todo/attach
+                       (js/Array.from (.. e -target -files))])}]
 ```
 
-Its contract has three clauses, and they hold in **every** position:
+The contract is the same in native and foreign callback positions:
 
-- It **captures the frame at the place where you write it**. Inside a view
-  body, that is the rendering view's frame.
-- When the invoker calls it later, it receives **every argument that the
-  invoker passes, in order**: one DOM event at a native position,
-  `(date event)` from a value-first library — whatever the caller's contract
-  says.
-- The runtime **dispatches a returned event vector** to the captured frame.
-  `nil` dispatches nothing, so a conditional dispatch is an ordinary `when`:
+- `h/event` captures the current frame where it is created.
+- Its body receives every callback argument in the caller's order.
+- A returned vector is dispatched to the captured frame. Returning `nil`
+  dispatches nothing.
 
 ```clojure
 [:div {:on-drop (h/event [e]
@@ -128,64 +116,59 @@ Its contract has three clauses, and they hold in **every** position:
                     [:todo/attach-dropped (.-name f)]))}]
 ```
 
-The meaning never varies by position. An `h/event` given to a
-[`h/defhost`](glossary.md#defhost) callback, retained by a vendor SDK, or
-placed in a raw `#js` prop does the same thing: it runs, it can return a
-vector, and the runtime dispatches that vector to the frame it captured.
-Prevention inside an `h/event` is your task: the function holds the event, so
-it calls `.preventDefault` itself, as the drop example does.
+An `h/event` body owns imperative browser work such as `.preventDefault`; the
+`::h/prevent` wrapper is for the data-only intent form.
 
-**The vector spelling is event-first; `h/event` is not.** `::h/value`,
-`::h/checked`, and `::h/prevent` all read the DOM event, and they read it from
-argument one. Every native position and every event-first foreign contract
-puts the event there. A value-first invoker, such as a date picker's
-`(on-change date)`, has no event at argument one. Nothing guesses which
-argument might be an event. The intent raises
-`:rf.error/hicasso-intent-needs-the-event`. The error names the position and
-points to `h/event`, the spelling that sees the library's own arguments in
-order:
+The marker spelling assumes an event-first callback contract. It reads the DOM
+event from argument one. A value-first foreign component has no event there,
+so a marker-carrying intent raises
+`:rf.error/hicasso-intent-needs-the-event`. Use `h/event` and name the
+component's arguments instead:
 
 ```clojure
-(h/event [date _e] [:todo/set-due date])
+(h/event [date _event]
+  [:todo/set-due date])
 ```
 
-## Ordinary functions still work
+## Ordinary functions remain available
 
-An ordinary `fn` stays legal at any event position, with ordinary JavaScript
-callback semantics: it runs, and the runtime ignores its return value:
+Use a normal function when the callback is imperative and does not represent a
+re-frame event:
 
 ```clojure
-[:canvas {:on-pointer-move (fn [e] (draw! (.-clientX e) (.-clientY e)))}]
+[:canvas
+ {:on-pointer-move
+  (fn [e]
+    (draw! (.-clientX e) (.-clientY e)))}]
 ```
 
-Use an ordinary `fn` when the *work* is imperative and no intent exists:
-geometry, pointer capture, `stopPropagation`, an SDK's imperative call.
-Render props and slots on foreign components also take ordinary functions.
-They run during a foreign render, so they stay pure. A dispatch from inside
-one raises `:rf.error/hicasso-dispatch-in-render-position`
-([Interop](09-interop.md) owns that crossing). The intent vector is the taught
-default because it covers almost everything, not because functions are
-forbidden.
+Typical cases include pointer geometry, pointer capture, `stopPropagation`, or
+an SDK call. Foreign render props and slots also use ordinary functions; those
+functions run during a foreign render and must stay pure. Dispatching from a
+render position raises `:rf.error/hicasso-dispatch-in-render-position`.
 
-An ordinary `fn` must not dispatch on its own:
+Do not hand-roll an ambient dispatch closure:
 
 ```clojure
-;; Don't — a hand-rolled dispatch closure
-[:button {:on-click (fn [_] (rf/dispatch [:todo/toggle id]))} "✓"]
-;; the click arrives long after the render's extent is gone —
-;; :rf.error/no-frame-context, at the click
+;; Don't
+[:button
+ {:on-click (fn [_]
+              (rf/dispatch [:todo/toggle id]))}
+ "✓"]
+;; :rf.error/no-frame-context when the click runs
 
 ;; Do
 [:button {:on-click [:todo/toggle id]} "✓"]
 ```
 
-The intent vector and `h/event` exist so that the runtime answers the frame
-question at render, once.
+The browser invokes the callback after the rendering extent has gone, so an
+ambient `rf/dispatch` has no frame. Intents and `h/event` capture that context
+when the view is rendered.
 
-## Keyboard as data
+## Keyboard maps
 
-A [keyboard map](glossary.md#keyboard-map) is a data map from DOM `.key` string
-to intent — not a `case` over `.-key`:
+A keyboard event position may contain a map from the DOM `.key` string to an
+intent:
 
 ```clojure
 [:input {:value       (h/sub [:todo.ui/draft id])
@@ -194,40 +177,25 @@ to intent — not a `case` over `.-key`:
                        "Escape" [:todo.ui/cancel id]}}]
 ```
 
-The names are strings. The runtime matches them against the DOM event's own
-`.key`, and it ignores keys that you do not list. There is no modifier
-language: a handler that needs `ctrl+Enter` reads the event with `h/event`.
-Key maps are legal at **keyboard props only** (`:on-key-down`, `:on-key-up`).
-A map is not an intent spelling anywhere else.
+Unlisted keys do nothing. The keys are strings, and keyboard maps are valid
+only at `:on-key-down` and `:on-key-up`. There is no modifier grammar; use
+`h/event` when the handler must inspect combinations such as Ctrl+Enter.
 
-The composition rule is explicit, and the runtime owns it. An IME (input
-method editor) composes text such as Japanese or Chinese from several
-keystrokes. **A key event that arrives during IME composition matches nothing
-in the map.** While a user composes, Enter selects a candidate; it is not a
-commit. Escape cancels the composition; it is not your cancel. A wrong
-hand-written check makes every user who composes lose a sentence. The map
-applies the correct check centrally, and it includes the legacy signals that
-some browsers still send (see [Advanced](#advanced)).
+Keyboard maps also suppress application shortcuts during IME composition.
+Enter may be choosing a composition candidate and Escape may be cancelling the
+composition, so neither should dispatch the application's commit or cancel
+intent. The runtime performs this check centrally, including legacy browser
+signals described under [Advanced](#advanced).
 
-## Callbacks include their frame
+## Frame-safe callbacks and foreign APIs
 
-Every generated callback closes over its view's frame. Intent vectors capture
-the frame when the attribute is turned into a React prop; `h/event` captures
-it at creation. This matters because the browser invokes callbacks long after
-the render that created them, when the render's extent is gone. A hand-written
-`#(rf/dispatch …)` raises `:rf.error/no-frame-context` from that gap. The data
-spellings do not, because they closed over the frame.
+Generated intent callbacks and `h/event` callbacks retain their view's frame.
+Async application work should normally move to the event/effect layer, where
+`:dispatch-later` and other effects already receive the frame.
 
-**Async work belongs in the event layer, which already has the frame.** A view
-that sets a timeout and dispatches when the timeout fires is a mis-layered
-effect. An fx handler receives the frame in its context, and
-`:dispatch-later` states the delay as data. Move the work to the event layer,
-and the frame question moves with it.
-
-One case remains after that move: a dispatching closure that you give to **a
-caller you do not control** — an SDK attached through a ref, a library that
-calls back with a value. The frame is knowable during the render and nowhere
-else. Capture it there with core's one capture primitive:
+A remaining case is a dispatching closure retained by code you do not control,
+such as a vendor SDK attached through a ref. Capture the current frame during
+the view body:
 
 ```clojure
 (ns app.map
@@ -236,66 +204,70 @@ else. Capture it there with core's one capture primitive:
             [app.sdk :as sdk]))
 
 (h/defview map-panel [{:keys [id]}]
-  (let [{:keys [dispatch]} (rf/capture-frame)]   ;; the rendering view's frame
+  (let [{:keys [dispatch]} (rf/capture-frame)]
     [:div.map
-     {:ref (fn [node]                            ;; refs run after commit, not in render
+     {:ref (fn [node]
              (when node
-               (sdk/on-select node #(dispatch [:map/marker-selected id %]))))}]))
+               (sdk/on-select
+                 node
+                 #(dispatch [:map/marker-selected id %]))))}]))
 ```
 
-Inside a Hicasso body, `(rf/capture-frame)` resolves the view's frame. It
-returns `{:frame :dispatch :dispatch-sync :subscribe}` locked to that frame.
-`(rf/current-frame-id)` returns the bare id when a foreign API wants one.
-These are core's frame doors; Hicasso adds no duplicate. (Ambient
-`rf/dispatch` and `rf/subscribe` throw from a body. The capture doors include
-the frame; the ambient calls do not.) A captured handle is valid for
-the life of its frame's incarnation. If you destroy the frame and remount
-under the same id, an operation from the stale handle raises
-`:rf.error/frame-destroyed` and does not reach the successor frame. Capture
-from the live render, never from a stash.
+`(rf/capture-frame)` returns
+`{:frame :dispatch :dispatch-sync :subscribe}` bound to the rendering frame.
+`(rf/current-frame-id)` returns only the id when a foreign API needs it.
+Ambient `rf/dispatch` and `rf/subscribe` do not contain a frame and therefore
+throw in these contexts.
 
-The general rule: **intents are always safe; async work goes through `:fx`; a
-closure that crosses into foreign code captures `(rf/capture-frame)`.**
+A captured handle remains valid for that frame incarnation. Destroying the
+frame and creating another under the same id does not revive the old handle;
+using it raises `:rf.error/frame-destroyed` and does not reach the successor.
+Capture from the live render rather than keeping a global stash.
 
-One nearby case is not this page's case. An anchor that *navigates* is a
-[route link](glossary.md#route-link) from `re-frame.hicasso.routing`, not a
-hand-written `:on-click`.
-[Routing and navigation](07-routing-and-navigation.md) owns it.
+The practical rule is:
+
+- use an intent for an ordinary dispatching event
+- use an effect for application-owned async work
+- use `rf/capture-frame` for a closure retained by foreign code
+
+A link whose job is navigation belongs to the routing module's route-link
+surface rather than a custom click handler.
 
 ## Troubleshooting
 
-| Symptom | Error | Fix |
-|---|---|---|
-| Page navigates and reloads on form submit | none — nothing auto-prevents | Wrap the intent: `{:on-submit [::h/prevent [:todo/submit]]}` |
-| Throws at render naming an event attribute | `:rf.error/hicasso-malformed-prevent` | `[::h/prevent INTENT]` wraps exactly one inner intent vector — no second payload, no nesting |
-| Handler receives the literal `::h/value` keyword | none — marker below top level | Markers substitute at the vector's top level only; compute nested payloads in the handler, or read the event with `h/event` |
-| A foreign callback rejects a marker-carrying intent | `:rf.error/hicasso-intent-needs-the-event` | The invoker is value-first — no DOM event at argument one. Use `h/event`, which receives every argument in order |
-| Dispatch from a timeout or interval throws | `:rf.error/no-frame-context` | Own the async work in an fx handler (`:dispatch-later`); a closure handed to foreign code captures `(rf/capture-frame)` from the body |
-| Enter commits half-typed Japanese text | none — hand-rolled key handling | Use the `:on-key-down` map; composition is centralised there |
-| An intent fires but no handler runs | `:rf.error/no-such-handler` | Registration happens on namespace load; require the handlers namespace at boot |
-| A vector at a declared host callback is rejected | `:rf.error/hicasso-intent-at-a-non-event-contract` | That position's declared contract does not dispatch; give it the value its contract asks for ([Interop](09-interop.md)) |
-| A render prop that dispatches is rejected | `:rf.error/hicasso-dispatch-in-render-position` | Render props are pure output; move the dispatch to an event position ([Interop](09-interop.md)) |
+| Symptom | Error or cause | Fix |
+| --- | --- | --- |
+| A form dispatches and then reloads the page | Browser submission was not prevented | Use `{:on-submit [::h/prevent [:todo/submit]]}` |
+| Rendering reports a malformed prevent wrapper | `:rf.error/hicasso-malformed-prevent` | Wrap exactly one inner intent vector; do not nest decorators or add a second payload |
+| A handler receives the literal `::h/value` keyword | The marker was nested below the vector's top level | Keep the marker at top level or calculate the payload with `h/event`/the event handler |
+| A foreign callback rejects an intent that needs the event | `:rf.error/hicasso-intent-needs-the-event` | The callback is value-first. Use `h/event` and receive its actual arguments |
+| Dispatch from a timer or interval throws | `:rf.error/no-frame-context` | Move application async work to an effect. For foreign retention, capture the frame during rendering |
+| Enter commits unfinished IME text | A hand-written key handler bypassed the keyboard map | Use the keyboard map so composition events are suppressed centrally |
+| An intent fires but no handler runs | `:rf.error/no-such-handler` | Require the namespace that registers the handler before mounting |
+| A vector is rejected at a host callback | `:rf.error/hicasso-intent-at-a-non-event-contract` | That host position is not declared as an event contract; supply the value its declaration requires |
+| A render prop dispatches | `:rf.error/hicasso-dispatch-in-render-position` | Keep render props pure and move the dispatch to an event position |
+| A captured callback reaches a destroyed frame | `:rf.error/frame-destroyed` | Recreate the callback from a render attached to the current frame incarnation |
 
 ## When not to use an intent
 
-Do not use an intent when you need the event object itself and no dispatch:
-pointer coordinates, `dataTransfer`, `stopPropagation`, a DOM measurement.
-Those cases take ordinary functions, and an ordinary function is not a
-failure. Use `h/event` when you want to read the arguments *and* dispatch. Use
-a plain `fn` when you want to read the arguments and do other work.
+Use a plain function when you need the callback arguments but no dispatch:
+pointer coordinates, `dataTransfer`, DOM measurement, `stopPropagation`, or an
+imperative SDK operation.
+
+Use `h/event` when the arguments are needed to decide which event vector to
+dispatch. An ordinary function is not an error; the intent form is simply the
+normal choice for declarative application interactions.
 
 ## Advanced
 
-### IME and the key map
+### IME detection in keyboard maps
 
-The composition gate lives in the runtime, not in your view, because the
-correct check is easy to get wrong in two ways. First, the signal is split.
-Modern browsers set `isComposing` on the keyboard event, but some IME/browser
-pairs only send the legacy `keyCode` 229, which means "this keystroke belongs
-to the IME". The gate honours both signals. Second, the signal is on the
-**native** event. React's synthetic keyboard event drops `isComposing`. A
-hand-written handler that reads the synthetic object sees `undefined`, and it
-commits a candidate-selection Enter as a submit. That is silent data loss for
-every user who composes. The map therefore answers one question — "was this
-keystroke the user's or the IME's?" — once, centrally, and it matches nothing
-while composition is active.
+IME composition is signalled in more than one way. Modern browsers expose
+`isComposing` on the native keyboard event, while some IME/browser combinations
+use legacy `keyCode` 229. React's synthetic keyboard event may not preserve the
+native `isComposing` value.
+
+The runtime checks the native event and both signals. While composition is
+active, a keyboard map matches no application intent. Keeping this check in the
+runtime avoids treating candidate-selection Enter as submit or composition
+Escape as application cancel, both of which can discard user input.
