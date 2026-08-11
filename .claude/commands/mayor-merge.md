@@ -11,7 +11,7 @@ MAYOR LOOP (merge PRs).
 
 So the criterion is FIVE clauses and no one of them suffices. Resolve the head first — `gh pr view <pr> --json headRefName,headRefOid` — because clauses 4 and 5 are both keyed to it:
 
-1. `total` non-empty and inside this repo's band — ~86, and verify that with `gh pr checks` on recently merged PRs rather than trusting the number written here; a partial rollup of 11 is not a green one.
+1. `total` non-empty and inside this repo's band — ~91 as measured 2026-08-11, when PRs #7874 and #7875 both carried 91 checks — and verify that with `gh pr checks` on recently merged PRs rather than trusting the number written here; a partial rollup of 11 is not a green one. The band MOVES as the workflow matrix grows: this line read ~86 earlier in the same programme, which is exactly why the clause tells you to measure rather than trust the constant.
 2. Every check `state` in {`SUCCESS`, `SKIPPED`}, via `gh pr checks <pr> --json name,state,bucket`. The field is `state` — there is no `conclusion` field on this command, so ask for the one that exists. CANCELLED is not passed, and neither is anything else.
 3. Nothing nonterminal in the rollup.
 4. AND `gh run list --branch <headRefName> --commit <headRefOid> --limit 25 --json status,headSha,name` returns runs whose `status` is all `COMPLETED`. `--commit` is what keys this to the current head; the plain table has no `headSha` column at all, so request it in `--json` and compare it rather than eyeballing a listing that cannot show it.
