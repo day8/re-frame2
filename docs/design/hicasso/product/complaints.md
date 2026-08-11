@@ -98,6 +98,7 @@ rowed in the Hicasso section, and is the single live id without the
 | `:rf.error/hicasso-empty-vector` | wrote `[]` where hiccup was expected | — |
 | `:rf.error/hicasso-frame-outside-boundary` | asked for the frame with no Hicasso render extent in scope | — |
 | `:rf.error/hicasso-generation-fence-exhausted` | wrote to app-db from a body, on four consecutive runs | — |
+| `:rf.error/hicasso-host-bad-slots` | declared a `defhost` `:slots` that is not a set of ordinary prop names — a non-set, an entry that names no prop, `key`/`ref`, one slot spelled twice, or a position that is also a declared callback | — |
 | `:rf.error/hicasso-host-bad-ssr-policy` | gave a `defhost` a server policy outside the three it admits | ch09, ch17 |
 | `:rf.error/hicasso-host-callback-slot-collision` | declared two spellings of one callback slot on a `defhost` | — |
 | `:rf.error/hicasso-host-fallback-boundary-head` | put a `defview` or `defhost` head inside a declared fallback | ch09, ch17 |

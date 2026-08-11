@@ -203,7 +203,31 @@
 
   `opts` is optional and carries `:callbacks` — a FINITE map from exact
   prop names to `:event`, `:handler` or `:render`, never inferred from an
-  `on*` spelling — and `:ssr`, the server policy:
+  `on*` spelling — `:slots`, the ReactNode positions, and `:ssr`, the
+  server policy:
+
+      (defhost modal Modal
+        {:callbacks {:on-close :event}
+         :slots     #{:title :footer}})
+
+      [modal {:on-close [:dialog/cancel]
+              :title    [:h2 \"Delete article?\"]
+              :footer   [:button {:on-click [:article/delete id]} \"Delete\"]}]
+
+  **A `:slots` prop is markup, and every other prop is data.** Some of a
+  library's props are ReactNode positions — a modal's title, a compound
+  component's footer, `Suspense`'s fallback — and hiccup written at one
+  of them is lowered under the frame of the boundary that wrote the
+  crossing, so an intent inside a slot fires exactly as an intent inside
+  a child does. At an UNDECLARED prop hiccup stays data: `{:title [:h2
+  \"Tasks\"]}` hands the library the vector, silently, because a vector
+  is a legal value at a data position and nothing can be inferred. That
+  is why slots are declared and never guessed. For a one-off,
+  [[as-element]] crosses a real element through any prop.
+
+  A slot may not also be a declared callback, may not be `:key` or
+  `:ref`, and may not be spelled twice — all refused at the declaration
+  with `:rf.error/hicasso-host-bad-slots`.
 
       (defhost chart Chart
         {:ssr {:fallback [:div.chart-skeleton]}})
@@ -335,6 +359,49 @@
   it mints no boundary and adds no hook.
   [[re-frame.hicasso.impl.route-link/route-link]]."}
        route-link impl-route-link/route-link)
+
+     (def ^{:doc "`h/as-element` — **the one explicit hiccup→ReactNode
+  conversion** (rf2-hic-035). Answers the React element a hiccup form
+  lowers to, under the frame of the boundary currently rendering:
+
+      [virtual-list
+       {:item-count (count ids)
+        :render-row (h/fn [i]
+                      (h/as-element
+                        [:li.row {:on-click [:feed/open (nth ids i)]}
+                         (str (nth ids i))]))}]
+
+  **It exists because a `:render` return crosses UNCONVERTED.** A
+  declared `:render` position is invoked by the foreign component during
+  its own render, and the wrapper ends in a bare call
+  ([[re-frame.hicasso.impl.intent/render-callback]]) — so a string
+  renders and a returned hiccup vector reaches React, which refuses it
+  (*\"Objects are not valid as a React child\"*). This is the spelling
+  that turns the row into an element, and the row keeps its intents:
+  they fire later, on the user's click, into the frame of the boundary
+  that SUPPLIED the callback.
+
+  The other two places it is the answer are the two places a declaration
+  cannot reach. A `[:>]` escape has no `:slots`, so one element crosses
+  a prop with `(h/as-element [:h2 \"Tasks\"])`; and past the native
+  fence a hiccup vector is refused outright, so a native subtree takes
+  one Hicasso-rendered child the same way. Where the crossing IS
+  declared, prefer the declaration — `defhost`'s `:slots` lowers those
+  positions for every use site at once, and children have never needed a
+  conversion at all.
+
+  **Explicit rather than inferred, and that is the design.** Nothing in
+  the codec asks whether a value 'looks like' hiccup: at an undeclared
+  foreign prop a vector is data, because whether it is markup is a fact
+  about the foreign ABI and only the author holds it. This is what makes
+  every conversion at a crossing visible in the source.
+
+  Legal wherever a render extent is open — a body, or a render callback
+  the body supplied. Outside every extent it converts markup as usual,
+  and an intent written in that markup stays the loud
+  `:rf.error/hicasso-intent-outside-boundary` it is everywhere else.
+  [[re-frame.hicasso.impl.codec/as-element]]."}
+       as-element impl-codec/as-element)
 
      (def ^{:doc "`h/as-component` — **the outward bridge** (rf2-hic-032).
   Answers a real React component for a hiccup head, so a native parent —
