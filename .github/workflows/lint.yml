@@ -265,20 +265,26 @@ jobs:
         # supports `--retry-all-errors` (since 7.71). `-f` additionally means
         # an error page can never be mistaken for an archive.
         #
-        # The platform triple is written out rather than probed: this job is
+        # The URL is written out in full — platform triple and version pin
+        # literal, no shell interpolation — so that the string in this file is
+        # the string a reader is holding when they come here from a failed
+        # log, and so `scripts/check_fast_pr_gap.py` can still read the pin off
+        # this step (it reports which clj-kondo version CI pins, because a pass
+        # from a locally-installed clj-kondo of another version proves nothing).
+        # The platform is fixed rather than probed because this job is
         # `runs-on: ubuntu-latest`, i.e. linux/amd64, for which upstream
-        # publishes the `-static` build. Were the runner ever to change, the
-        # URL 404s and `-f` fails the step outright rather than installing
-        # something else. `/usr/local/bin` is on $PATH and is where the
-        # upstream script installs too, so the run step below is unchanged.
+        # publishes the `-static` build; were the runner to change, the URL
+        # 404s and `-f` fails the step loudly rather than installing something
+        # else. Bumping the pin means changing BOTH occurrences below — miss
+        # one and the URL 404s immediately, which is a louder failure than the
+        # one this step exists to stop. `/usr/local/bin` is on $PATH and is
+        # where the upstream script installed too, so nothing downstream moves.
         run: |
-          version=2026.04.15
-          dir="$(mktemp -d)"
           curl -fsSL --retry 5 --retry-all-errors --retry-delay 3 \
-            -o "$dir/clj-kondo.zip" \
-            "https://github.com/clj-kondo/clj-kondo/releases/download/v${version}/clj-kondo-${version}-linux-static-amd64.zip"
-          unzip -qq "$dir/clj-kondo.zip" clj-kondo -d "$dir"
-          sudo install -m 0755 "$dir/clj-kondo" /usr/local/bin/clj-kondo
+            -o /tmp/clj-kondo.zip \
+            https://github.com/clj-kondo/clj-kondo/releases/download/v2026.04.15/clj-kondo-2026.04.15-linux-static-amd64.zip
+          unzip -qq -o /tmp/clj-kondo.zip clj-kondo -d /tmp
+          sudo install -m 0755 /tmp/clj-kondo /usr/local/bin/clj-kondo
           clj-kondo --version
 
       # Cache the kondo classpath / project-analysis under
