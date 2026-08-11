@@ -1,18 +1,12 @@
 # Lists and collections
 
-Every app has a table that started at twenty rows and now holds two thousand.
-At that size, a plain map over the data is no longer the whole answer. Two
-decisions govern how a collection behaves from there: **what identifies a row**
-(keys) and **which rows find out when a row changes** ([read topology](glossary.md#read-topology)). This
-chapter owns both decisions.
-
-> **A key states which row this is. The [read topology](glossary.md#read-topology) states which rows an
-> update reaches.**
+A list of twenty rows is easy. At a few hundred or a few thousand, two
+choices decide how it behaves: **what identifies each row** (keys), and
+**which rows re-render when one row changes** (where you put the reads).
 
 ## Keys are identity
 
-Every list of children needs a `:key`. The key goes **in the props map** —
-there is no metadata spelling:
+Put a stable `:key` in each child's props map. There is no metadata form:
 
 ```clojure
 (ns app.orders
@@ -28,65 +22,52 @@ there is no metadata spelling:
      [order-row {:key id :id id}])])
 ```
 
-The key must be a **stable domain identifier** — the entity's id, not its
-position. React uses the key to decide which child is *the same child* across
-renders. Key by index, and an insertion at the top renames every row. Row 3's
-DOM, focus, selection, and half-typed input now belong to the data that moved
-into position 3. Key by domain id, and an insertion is one new node. Every
-other row keeps its identity, and the value-equality bail-out
-([Views and reads](02-views-and-reads.md)) usually stops its body from
-running at all.
+Use a **domain id**, not a position. React uses the key to decide which child
+is the same child across renders. Key by index, and an insertion at the top
+renames every row: focus, selection, and half-typed input jump with the
+index. Key by domain id, and an insertion is one new node; other rows keep
+their identity. Value-equality memoization often skips their bodies entirely
+([Views and reads](02-views-and-reads.md)).
 
-!!! warning "Never index, never the entity"
-    An index key breaks under reorder and insertion — controlled-input state
-    and animations visibly jump rows. A whole-entity key breaks under edit.
-    React coerces a non-primitive key to a string, so an edit silently changes
-    the row's key and **remounts** the row. Development names that case
-    `:rf.warning/hicasso-entity-key`. The warning points at the child and
-    tells you to key on a stable identifier. Strings, numbers, keywords,
-    uuids and symbols pass; the warning flags collections, JS objects, dates,
-    booleans and functions.
+!!! warning "Never index, never the whole entity"
+    An index key breaks under reorder and insertion. A whole-entity key
+    breaks under edit: React stringifies a non-primitive key, so an edit
+    changes the key and remounts the row. Development warns with
+    `:rf.warning/hicasso-entity-key` and points at the child. Strings,
+    numbers, keywords, uuids, and symbols are fine; collections, JS objects,
+    dates, booleans, and functions are not.
 
-Forget a key entirely and development gives you two warnings: React's own, and
-`:rf.warning/hicasso-missing-key`. The [Hicasso](glossary.md#hicasso) warning names the enclosing
-view, the child head, and the index of the first offender. The second warning
-exists because React dedupes its own warning per parent tag for the life of
-the page — under a `:ul`, every list after the first is silent. Hicasso's
-warning fires once per call site. It also fires at one crossing React cannot
-see at all: a seq passed as a *view's* children —
-`[card {} (for [t toasts] [toast-row {…}])]`. Hicasso realizes that seq and
-flattens it into direct children. React marks the flattened members validated
-and never warns about them, so there the Hicasso line is the only signal that
-shape gets. Both checks are development-only; a production build carries
-neither.
+If you omit a key, development emits two warnings: React's, and
+`:rf.warning/hicasso-missing-key`. The Hicasso warning names the enclosing
+view, the child head, and the index of the first offender. React dedupes its
+own warning per parent tag for the life of the page — under a `:ul`, later
+lists go silent — so Hicasso fires once per call site. It also covers a case
+React misses: a seq passed as a view's children,
+`[card {} (for [t toasts] [toast-row {…}])]`. Hicasso flattens that seq into
+direct children; React treats the flattened members as already validated and
+never warns. Both checks are development-only.
 
 ??? info "Coming from Reagent"
-    Hicasso does **not read** `^{:key id}` metadata. Keys live in the props
-    map: `[order-row {:key id :id id}]`. A carried-over metadata key is the
-    most common trigger of `:rf.warning/hicasso-missing-key`, and the message
-    says exactly that.
+    Hicasso does not read `^{:key id}` metadata. Keys live in the props map:
+    `[order-row {:key id :id id}]`. A leftover metadata key is a common cause
+    of `:rf.warning/hicasso-missing-key`.
 
-Keys are one half of list identity. The other half is the [read topology](glossary.md#read-topology):
-which rows *re-render*. That half is a genuine design choice.
+## Where the reads live
 
-## Choosing a read topology
+`h/sub` is legal anywhere in a view body, so you choose *where* the reads
+sit. For a collection, that choice decides what an update costs. Four shapes
+cover real workloads:
 
-[`h/sub`](glossary.md#hsub) is legal anywhere in a body, so you choose *where* the reads sit. For
-a collection, that position decides what an update costs. Four shapes cover
-real workloads:
-
-| Topology | Reads | Best at | Price |
+| Shape | Reads | Best at | Cost |
 |---|---|---|---|
-| **Fine** | each row reads its own entity | sparse, independent updates | one retained read per row; mount and heap grow with row count |
-| **Coarse** | one view-model read for the table | cheap mount; bulk replacement | every change recomputes the model and sweeps a props-compare over all rows |
-| **Chunked** | one read per block of rows | large mixed workloads | chunk membership shifts on insert and reorder |
-| **Windowed / virtualized** | fine reads, but only the visible window exists | collections whose DOM should not exist in full | the host owns scrolling; focus and accessibility need their own checks |
+| **Fine** | each row reads its own entity | sparse, independent updates | one retained read per row |
+| **Coarse** | one view-model for the table | cheap mount; bulk replacement | every change recomputes the model and props-compares all rows |
+| **Chunked** | one read per block of rows | large mixed workloads | chunk membership shifts on insert/reorder |
+| **Windowed** | fine reads, only visible rows exist | collections that should not fully exist in the DOM | host owns scrolling; focus and a11y need checks |
 
-Fine is the shape you already write by default. For most screens it is the
-right one. The rest of this section takes **one table** through all four
-shapes, so the deltas are visible. The screen is an orders table — customer,
-status, total. A websocket pushes status changes for single orders, and a
-refresh replaces the whole set.
+Fine is the default and the right choice for most screens. The rest of this
+section walks **one orders table** through all four shapes. A websocket
+updates single order statuses; a refresh replaces the whole set.
 
 ### Fine: rows read themselves
 
@@ -110,22 +91,19 @@ refresh replaces the whole set.
       [order-row {:key id :id id}])]])
 ```
 
-The parent reads only the ids; each row reads its own entity. When one order's
-status changes, one subscription's value changes, one row body runs, and one
-`<td>` commits. The parent does not re-render, because the ids did not move.
-That is the shape you want for sparse edits: **body work scales with
-changed rows, not mounted rows** (the narrow-update idea
-[Performance](18-performance.md) calls out for list updates).
+The parent reads only the ids; each row reads its own entity. When one
+order's status changes, one subscription changes, one row body runs, and one
+cell updates. The parent does not re-render if the ids did not move. Body
+work scales with changed rows, not mounted rows
+([Performance](18-performance.md)).
 
-The price is retention. A thousand mounted rows hold a thousand row reads, and
-mount establishes each of them. For a few hundred rows that cost is noise.
-When your profile names mount time or a bulk *replace-everything* operation,
-fine reads are the wrong shape. Coarse is built for that workload.
+The price is retention: a thousand mounted rows hold a thousand reads.
+For a few hundred rows that is usually noise. When a profile points at mount
+time or a bulk replace-everything, try coarse.
 
 ### Coarse: one view-model
 
-The delta: the table reads **one** subscription shaped for display. Rows
-render from props instead of reading.
+The table reads **one** subscription shaped for display. Rows take props:
 
 ```clojure
 (rf/reg-sub :orders/table-rows
@@ -151,27 +129,24 @@ render from props instead of reading.
       [order-row {:key (:id row) :row row}])]])
 ```
 
-The whole table retains one read, so mount is cheap. A bulk replacement is one
-recompute — the workload this shape is for. Sparse updates still work, but
-they travel differently: the view-model recomputes, the parent re-renders,
-and every row gets a props compare. Unchanged rows carry `=` row maps, so the
-bail-out stops their bodies from running — only the changed row executes.
-The cost that grew is the **sweep**: one compare across all rows per update,
-plus the view-model recompute itself. At 300 rows the sweep is cheap. At
-10,000 rows it is the line item your profile will name.
+Mount is cheap (one read). A bulk replacement is one recompute. Sparse
+updates still work, but differently: the view-model recomputes, the parent
+re-renders, and every row gets a props compare. Unchanged rows still
+compare `=` and skip their bodies — only the changed row runs. What grew is
+the **sweep**: one compare per row, plus the view-model recompute. At a few
+hundred rows that is usually fine; at tens of thousands your profile will
+name it.
 
-Two rules keep the bail-out honest here. First, rows must receive **values**.
-Persistent maps built with `select-keys` compare `=` across renders; a row
-that receives a freshly built closure re-renders on every sweep, which is one
-more reason event [intents](glossary.md#intent) are data. Second, the row map should carry only
-what the row shows. A `:updated-at` timestamp that nobody renders defeats `=`
-on every touch.
+Two rules keep the bail-out honest. Rows must receive **values** — maps from
+`select-keys` compare with `=` across renders; a fresh closure does not.
+Keep the row map to what the row shows: a `:updated-at` nobody renders
+defeats `=` on every touch. Event vectors as data help here
+([Events as data](03-events-as-data.md)).
 
 ### Chunked: bounding the sweep
 
-For large mixed workloads — a big collection with sparse updates *and* bulk
-operations — chunk the rows. Then no single read spans the table, and no
-sweep spans more than a block:
+For a large table with both sparse updates and bulk operations, chunk the
+rows so no single read or props sweep spans the whole table:
 
 ```clojure
 (rf/reg-sub :orders/chunk
@@ -193,30 +168,25 @@ sweep spans more than a block:
      [order-chunk {:key i :ids (vec ids)}])])
 ```
 
-A sparse update now changes one chunk's output. One chunk [boundary](glossary.md#boundary) re-renders,
-and the sweep is 50 compares instead of the whole table. Mount retains one
-read per block instead of one per row. The equality gate on subscriptions
-keeps the untouched chunks quiet: their selects re-run cheaply, their outputs
-are `=`, and nothing downstream moves.
+A sparse update changes one chunk's output. That chunk re-renders; the
+sweep is about 50 compares, not the whole table. Mount retains one read per
+block instead of one per row. Untouched chunks re-select cheaply, their
+outputs are `=`, and nothing downstream moves.
 
-Two notes. First, the chunk is keyed by **index**, and that is correct. A
-chunk is a positional window, not an entity — "rows 0–49" *is* its identity,
-and the entity keys live on the rows inside it. Second, insertion or reorder
-shifts ids across chunk borders. Those operations re-render every chunk they
-shift through — a bulk-shaped cost for a bulk-shaped change, which is the
-trade you accepted.
+Chunk by **index** is correct: a chunk is a positional window ("rows
+0–49"), not an entity. Entity keys still live on the rows inside. Insertion
+or reorder can shift ids across chunk borders and re-render every chunk they
+cross — a bulk-shaped cost for a bulk-shaped change.
 
 ### Windowed: only the visible rows exist
 
-Past a few thousand rows, ask why the DOM for row 8,000 exists at all. A
-**windowed read** materializes only what is visible. The simplest window is
-one you already have: pagination. The page number is app-db state, and
-`(h/sub [:orders/page n])` is a windowed read whose bounds move at click
-rate. When the product wants continuous scrolling instead, bring a
-virtualizer through [`h/defhost`](glossary.md#defhost) and let it own the window:
+Past a few thousand rows, ask whether row 8,000 needs a DOM node at all. The
+simplest window is pagination: page number in app-db, and
+`(h/sub [:orders/page n])` materializes one page. For continuous scrolling,
+bring a virtualizer through `h/defhost` and let it own the window:
 
 ```clojure
-;; A .cljs host namespace — JS requires stay out of .cljc bodies.
+;; A .cljs host namespace — keep JS requires out of .cljc bodies.
 (ns app.orders.virtual
   (:require ["react-virtuoso" :refer [Virtuoso]]
             [re-frame.hicasso :as h]))
@@ -235,83 +205,67 @@ virtualizer through [`h/defhost`](glossary.md#defhost) and let it own the window
                            [order-row {:id (nth ids index)}]))}]))
 ```
 
-Read the shape closely. Every piece does a job:
+What each piece does:
 
-- **`order-row` is the fine-read version** — `{:id id}`, reading its own
+- **`order-row` is still the fine-read version** — `{:id id}`, reading its own
   entity. Virtualization is fine reads with a bounded N. Only ~30 rows exist,
-  so only ~30 reads are retained, and a sparse update still touches exactly
-  one of them. The topology you started with was right; the window caps its
-  cost.
-- **`:item-content` is declared `:render`** — the library calls it during its
-  own render, and the body stays pure. The returned hiccup crosses through
-  [`h/as-element`](glossary.md#as-element), which yields a legal ReactNode. A plain `fn` is enough
-  here because the row is a `[order-row …]` head: it is a [boundary](glossary.md#boundary), so it
-  resolves the frame React already has in scope where the library renders it,
-  and intents written inside `order-row` dispatch to that frame exactly as they
-  would outside the host. Write [`h/event`](glossary.md#hevent) instead when the callback body itself
-  carries an intent ([Interop](09-interop.md)).
-- **The closure closes over `ids`, not over a read.** `(h/sub ...)` ran in the
-  body; the callback captures the *value*. A [`h/sub`](glossary.md#hsub) call inside the callback
-  would be a deferred read, and the runtime refuses it loudly.
-- **`:compute-item-key` carries the keys law across the crossing.** When a
-  virtualizer owns the list, it owns item identity too. Hand it the same
-  domain id you would have written at `:key`. It is a plain function that
-  returns a value, so it crosses by identity, undeclared.
-- Scroll position never touches app-db. High-rate motion is the host's own
-  mechanics ([Ephemeral state](11-ephemeral-state.md)). Your state sees reads,
-  not scrolling.
+  so only ~30 reads are retained; a sparse update still hits one of them.
+- **`:item-content` is `:render`** — the library calls it during its own
+  render; the body must stay pure. Return hiccup through `h/as-element` so
+  React gets a real element. A plain `fn` is fine when the row is a
+  `[order-row …]` head: that view resolves the frame where the library
+  renders it. Use `h/event` when the callback body itself carries an event
+  vector ([Interop](09-interop.md)).
+- **Close over `ids`, not over a read.** Call `h/sub` in the view body; the
+  callback captures the value. An `h/sub` inside the callback is a deferred
+  read and is refused.
+- **`:compute-item-key` carries domain ids** across the host. When a
+  virtualizer owns the list, hand it the same ids you would put at `:key`.
+- Scroll position stays out of app-db. High-rate motion is host mechanics
+  ([Ephemeral state](11-ephemeral-state.md)).
 
-The virtualizer's [server policy](glossary.md#server-policy) is the host default, Client-only. That
-default is what a DOM-measuring component wants;
-[chapter 17](17-ssr-and-hydration.md) owns the SSR story.
-[Interop](09-interop.md) owns full [`defhost`](glossary.md#defhost) mechanics, including callback
-contracts. Also verify focus and keyboard behavior in a browser test. The
-keyboard cannot reach rows that do not exist, and that is a product decision,
-not a bug.
+The virtualizer defaults to Client-only on the server; see
+[SSR and hydration](17-ssr-and-hydration.md). Full `defhost` mechanics are in
+[Interop](09-interop.md). Check focus and keyboard behaviour in a browser:
+rows that do not exist cannot receive keyboard focus.
 
 ## Oscillating read sets
 
-One caution applies across all four shapes. A boundary's subscriptions are
-exactly the reads its body just made. When control flow changes the body's
-read set, the boundary re-subscribes the **whole set**, not the one key that
-changed. That reconciliation is proportional to the current read count. A
-small set that oscillates is fine. A *large* one is the dangerous case.
-Consider a parent that itself reads hundreds of per-row subscriptions, under
-a filter that changes which rows are visible. Every keystroke of the filter
-then costs a hundreds-wide re-subscribe.
+A view's subscriptions are the reads its body just made. When control flow
+changes that set, the view re-subscribes the **whole set**, not one key. That
+cost scales with the current read count. A small set that oscillates is
+fine. A large one is not: a parent that reads hundreds of per-row
+subscriptions under a filter that changes membership re-subscribes hundreds
+of reads on every filter keystroke.
 
-The fix is structural, and you already saw both arms. Either push per-row
-reads down into row [boundaries](glossary.md#boundary): each row's set is then small and stable, and
-membership churn costs only the rows that actually enter or leave. Or go
+Fix it structurally. Push per-row reads into row views so each set is small
+and stable, and membership churn only costs rows that enter or leave. Or go
 coarse, where the set is one read that never churns. Xray shows reads per
-boundary and read-set churn directly ([Diagnostics](15-diagnostics.md)), so
-you observe this cost instead of guessing at it.
+view and read-set churn ([Diagnostics](15-diagnostics.md)).
 
 ## Troubleshooting
 
-| Symptom | What it is | Fix |
+| Symptom | Cause | Fix |
 |---|---|---|
-| Console warning names your view, a child head, and an index | `:rf.warning/hicasso-missing-key` — a list of children with no `:key` | Put `:key` in each member's props map. Reagent `^{:key}` metadata is not read |
-| A row remounts when you edit it; warning names the child | `:rf.warning/hicasso-entity-key` — the key is a value React coerces, so editing changed it | Key on a stable identifier: `{:key (:id row)}` |
-| Input state or animation jumps to a different row after insert/reorder | Index keys — position renamed the rows | Key on domain ids |
-| One order changes and every row re-renders | The read lives too high — coarse topology where the workload is sparse | Fine reads: rows read their own entity; or accept the sweep knowingly |
-| A page-wide write runs every row body despite the bail-out | Row props are not `=` — a fresh closure, a JS object, or dead weight in the row map | Intents as data, persistent values, `select-keys` to what the row shows |
-| Filter typing is heavy on a large list | A large oscillating read set in one [boundary](glossary.md#boundary), or a whole-table view-model recomputing per keystroke | Rows own their reads, chunk the table, or move the filter into the subscription |
-| A plain function — CLJS or a JS component — in head position is refused | `:rf.error/hicasso-bad-head` — only minted views, native tags, fragments and hosts are heads | Mint views with [`h/defview`](glossary.md#defview); declare foreign components once with [`h/defhost`](glossary.md#defhost) ([Interop](09-interop.md)) |
-| Virtualized list renders but rows are inert or mis-framed | Row hiccup returned raw from the render callback | Return it through [`h/as-element`](glossary.md#as-element); when the row itself carries an [intent](glossary.md#intent), write the callback as [`h/event`](glossary.md#hevent) so it captures the frame |
+| Console warning names your view, a child head, and an index | `:rf.warning/hicasso-missing-key` | Put `:key` in each member's props map. Reagent `^{:key}` metadata is not read |
+| Row remounts when you edit it; warning names the child | `:rf.warning/hicasso-entity-key` — key is a value React coerces | Key on a stable id: `{:key (:id row)}` |
+| Input state or animation jumps after insert/reorder | Index keys | Key on domain ids |
+| One order changes and every row re-renders | Read lives too high for a sparse workload | Fine reads: rows read their own entity; or accept the coarse sweep knowingly |
+| Page-wide write runs every row body despite the bail-out | Row props are not `=` — fresh closure, JS object, or dead weight in the map | Event vectors as data; persistent values; `select-keys` to what the row shows |
+| Filter typing is heavy on a large list | Large oscillating read set, or a whole-table view-model per keystroke | Rows own their reads, chunk the table, or filter inside the subscription |
+| Plain function or JS component in head position refused | `:rf.error/hicasso-bad-head` | Define views with `h/defview`; declare foreign components with `h/defhost` ([Interop](09-interop.md)) |
+| Virtualized list renders but rows are inert or mis-framed | Row hiccup returned raw from the render callback | Return through `h/as-element`; if the callback itself carries an event vector, use `h/event` |
 
 ## When not to tune a list
 
-- **Under a few hundred rows with sparse updates**: the fine default is
-  already the right topology. Write it and move on. This chapter's deltas
-  answer a *measured* cost ([Performance](18-performance.md)); they are not a
-  checklist.
-- **Do not virtualize a list people scan**: find-in-page, select-all, and
-  printing only see rows that exist. A virtualized 50-row settings list is
-  strictly worse than a plain one.
-- **Do not pre-chunk speculatively**: chunking answers a profiled sweep. The
-  extra layer of indirection is justified only by a measured cost.
-- **If typing is slow**, the problem is usually event volume in a controlled
-  surface, not list topology —
+- **Under a few hundred rows with sparse updates** — fine is already right.
+  Tune when a profile names a cost ([Performance](18-performance.md)).
+- **Do not virtualize a list people scan** — find-in-page, select-all, and
+  print only see rows that exist. A virtualized 50-row settings list is worse
+  than a plain one.
+- **Do not pre-chunk without a measured sweep** — the extra layer only pays
+  when the profile shows it.
+- **If typing is slow**, the problem is usually event volume on a controlled
+  field, not list shape —
   [Controlled inputs](04-controlled-inputs.md) and
-  [Performance](18-performance.md) own that diagnosis.
+  [Performance](18-performance.md).

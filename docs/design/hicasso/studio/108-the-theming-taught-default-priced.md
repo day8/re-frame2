@@ -119,7 +119,7 @@ nothing else.
 | Chapters already read | 02 (`defview`, `sub`, the memo default) | 03 (`reg-fx`, the closed effect map) |
 | Chapters newly required | none | 10 (`:platforms #{:client}`, or the server render throws on `js/document`) |
 | Extra steps to a working dark mode | none | an initial event, or the first paint is unthemed |
-| Preconditions to hold | one, already taught: keep the content below the scope behind a `defview` head ([Boundaries memoize by default](../draft-guide/02-views-and-reads.md#boundaries-memoize-by-default)) | none |
+| Preconditions to hold | one, already taught: keep the content below the scope behind a `defview` head ([Views skip work when props are equal](../draft-guide/02-views-and-reads.md#views-skip-work-when-props-are-equal)) | none |
 | Surprises inherited | one, and it is silent — §7.2 | three: time travel lies, Xray lies, a test fixture lies |
 | Ceiling | none | one theme per page (§5) |
 
@@ -278,7 +278,7 @@ sentence on A's SSR bullet rather than an unqualified *"no flash by construction
 
 `:ssr :render` landed on 2026-08-05 (`rf2-l0wfx`, `rf2-nv07k`), and with it guide
 10 §[`:render` — when the region has to be in the
-response](../draft-guide/17-ssr-and-hydration.md#render-and-client-only-at-the-host).
+response](../draft-guide/17-ssr-and-hydration.md#client-only-hosts-with-a-fallback).
 The load-bearing fact for theming is the one that ruling states about the other
 two policies: `:client-only` (**the default**) and `{:fallback …}` render *instead
 of* the component, so *"a provider at a crossing takes every descendant out of the
@@ -313,7 +313,7 @@ but a channel that exists, where the per-root attribute has none.
   design's claim that per-frame B needs `make-frame :fx-overrides`: `spec/002-Frames.md`
   §*The binary fx-handler signature* already gives an fx handler the frame id in
   its ctx under `:frame`. Since then `h/frame` has **shipped** and guide 03
-  §[Callbacks carry their frame](../draft-guide/03-events-as-data.md#callbacks-carry-their-frame)
+  §[Callbacks include their frame](../draft-guide/03-events-as-data.md#callbacks-include-their-frame)
   teaches *"an fx handler receives the frame id in its context"* as a first-class
   fact, echoed in guide 01's troubleshooting table. So B per-root is an app-owned
   `frame-id → node` map populated at mount plus one global fx reading `(:frame m)`
