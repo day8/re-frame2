@@ -259,19 +259,26 @@ at the real node through real React — and it is green on all three engines in 
 gate. It reaches the carve-out, the draft shadow and React's end-of-event restore; it does not reach the browser's
 composition **range**, because `Input.imeSetComposition` is a CDP method and CDP is Chromium's protocol.
 
-Per the operator ruling of 2026-08-10, that synthetic sequence **is** the ratified recurring witness, and real
-native-IME conduct beyond Chromium is settled once by a bounded manual session rather than by automation — the
-checklist is [`../native-ime-manual-witness.md`](../native-ime-manual-witness.md). Engine builds are those the pinned
-Playwright 1.59.1 installs.
+Per the operator ruling of 2026-08-10, that synthetic sequence **is** the ratified recurring witness. How the *other*
+tier is taken changed on 2026-08-11: the bounded manual session is retired as the acceptance path and real native-IME
+conduct beyond Chromium is settled instead by a **scripted witness** that drives a real Windows IME through the OS
+input stack — [`../native-ime-scripted-witness.md`](../native-ime-scripted-witness.md). The manual checklist
+([`../native-ime-manual-witness.md`](../native-ime-manual-witness.md)) remains the prose statement of what the eight
+checks mean, and the fallback if an engine will not accept scripted input at all.
+
+The scripted witness is **machine-bound and local** — Windows plus an installed Japanese IME, a visible desktop and the
+keyboard — so it is a dated observation rather than coverage. Nothing about the recurring tier moves: the synthetic
+three-engine gate is still what reds when the carve-out breaks. Engine builds are those the pinned Playwright 1.59.1
+installs.
 
 | Engine | Playwright build | Synthetic sequence | Native IME | Session date |
 |---|---|---|---|---|
 | Chromium | `chromium-1217` (147.0.7727.15) | Green | **Witness-verified** — real composition ranges driven over CDP by `bench/hicasso/ime_run.cjs` | n/a — automated |
-| Firefox | `firefox-1511` (148.0.2) | Green | **Pending the manual session** | — |
-| WebKit | `webkit-2272` (26.4) | Green | **Pending the manual session** | — |
+| Firefox | `firefox-1511` (148.0.2) | Green | **Pending the scripted witness** | — |
+| WebKit | `webkit-2272` (26.4) | Green | **Pending the scripted witness** | — |
 
-`rf2-hic-016` closes when the two pending cells are filled from that session, not before. Anything the session finds
-strange becomes a bead.
+`rf2-hic-016` closes when the two pending cells are filled from a run of that witness on Firefox and WebKit, not
+before. Anything it finds strange becomes a bead, one per divergence, with the engine name on it.
 
 ### 2.4 The default rule and how a row is upgraded
 

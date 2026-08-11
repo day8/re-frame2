@@ -204,11 +204,37 @@
 ;; The armed edges — the operator's way of reaching mid-composition
 ;; ---------------------------------------------------------------------------
 
-(def ^:private arm-delay-ms
+(def ^:private default-arm-delay-ms
   "Long enough to click the button, click back into the field and get a
   composition started. A human doing three things, not a machine doing
   one."
   5000)
+
+(defn- arm-delay-ms
+  "The armed delay, overridable per page load with `?arm-ms=<n>`.
+
+  The default is the OPERATOR's number and does not move. The override
+  exists for the gate, and it is what makes `armed-edges-are-wired` able
+  to fail: an arm that never arms is indistinguishable from a correctly
+  deferred one until something WAITS FOR THE FIRE, and waiting five
+  seconds twice in each of three engines to learn that is thirty seconds
+  on a required job. At 300ms it is under a second, so the section can
+  assert the thing its name claims.
+
+  A bad value falls back rather than throwing — a query string is user
+  input, and the testbed's job is to be open, not to be strict."
+  []
+  (let [raw (some-> js/window .-location .-search
+                    (->> (new js/URLSearchParams))
+                    (.get "arm-ms"))
+        n   (some-> raw js/Number)]
+    (if (and n (not (js/isNaN n)) (pos? n)) (long n) default-arm-delay-ms)))
+
+(defn- humanise-ms
+  "`5000` -> `\"5s\"`, `300` -> `\"300ms\"`. Whole seconds read as seconds so
+  the operator's default readout is the sentence it always was."
+  [ms]
+  (if (zero? (mod ms 1000)) (str (quot ms 1000) "s") (str ms "ms")))
 
 (def ^:private armed-events
   "What each arm fires. The SAME events the immediate buttons dispatch —
@@ -225,16 +251,31 @@
 ;; at arm time is what lets a driver witness both arms in the turn it
 ;; clicks them; before it, only the arm that was waited out was witnessed
 ;; at all, and the other could have been wired to nothing (#7815 audit).
+;; The effects ride in `:fx`, and that is not a style choice. re-frame2's
+;; effect-map is a CLOSED shape — `#{:db :rf.db/runtime :fx}` at the top
+;; level (migration M-8 / EP-0001) — so the v1 spelling these two handlers
+;; shipped with, a top-level `:dispatch-later` beside `:db`, ARMED NOTHING.
+;; Both arms were dead from the day they landed: the readout said
+;; `armed: bump -> [:tb/bump-revision] fires in 5s` and no timer existed
+;; behind it. Measured 2026-08-11 while building the scripted native-IME
+;; witness — 15s after the click the readout still read `armed`, while a
+;; plain `setTimeout(5000)` in the same page returned in 5006ms, so it was
+;; the effect and not the clock.
+;;
+;; `armed-edges-are-wired` could not see it: it reads the label and asserts
+;; "nothing has happened yet", which is true of a correctly deferred arm and
+;; equally true of one that never armed. That section now waits for the fire.
 (rf/reg-event :tb/arm
   (fn [{:keys [db]} [_ what]]
-    (let [event (armed-events what)]
-      {:db             (assoc db :armed {:what what :event event})
-       :dispatch-later {:ms arm-delay-ms :event [:tb/fire-armed event]}})))
+    (let [event (armed-events what)
+          ms    (arm-delay-ms)]
+      {:db (assoc db :armed {:what what :event event :ms ms})
+       :fx [[:dispatch-later {:ms ms :event [:tb/fire-armed event]}]]})))
 
 (rf/reg-event :tb/fire-armed
   (fn [{:keys [db]} [_ event]]
-    {:db       (assoc db :armed nil)
-     :dispatch event}))
+    {:db (assoc db :armed nil)
+     :fx [[:dispatch event]]}))
 
 ;; ---------------------------------------------------------------------------
 ;; The views — every field written the way authoring.md writes one
@@ -365,7 +406,8 @@
       "arm unmount (5s)"]
      [:span {:data-testid "armed"}
       (if what
-        (str "armed: " (name what) " -> " (pr-str event) " fires in 5s")
+        (str "armed: " (name what) " -> " (pr-str event)
+             " fires in " (humanise-ms (:ms armed)))
         "idle")]]))
 
 (h/defview app

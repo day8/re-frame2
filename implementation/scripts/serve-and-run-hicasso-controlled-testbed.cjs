@@ -242,7 +242,8 @@
  * which is the carve-out's whole point stated as a failure: the refusing
  * model's value written over a live draft. The guard was then restored
  * byte-identically (`git checkout --`, working tree clean) and WebKit
- * returned to 91 checks. A gate nobody has seen fail is not a gate.
+ * returned to 91 checks (the count of that day; the armed-edges repair of
+ * 2026-08-11 took it to 95). A gate nobody has seen fail is not a gate.
  *
  * ### And the same sabotage, used to measure ONE row against another
  *
@@ -347,7 +348,7 @@ const ENGINES = ONLY
 // names, so deleting a witness means deliberately editing the gate that
 // requires it.
 //
-// Sum today: 91, which is what each engine reports.
+// Sum today: 95, which is what each engine reports.
 // ---------------------------------------------------------------------------
 
 const REQUIRED_SECTIONS = {
@@ -363,7 +364,7 @@ const REQUIRED_SECTIONS = {
   'a-revision-arriving-mid-composition': 15,
   'owned-checked-pair': 6,
   'form-reset-and-fill-proxy': 3,
-  'armed-edges-are-wired': 5,
+  'armed-edges-are-wired': 9,
 };
 
 // The RECORDED rows, with the keys each must carry. Without this the
@@ -568,7 +569,7 @@ function runMutationTeeth() {
   bite('the check floor refuses a run that asserted almost nothing', () =>
     coverageReport({ checks: 3, sections: {} }).length
       === Object.keys(REQUIRED_SECTIONS).length
-    && coverageReport({ checks: 91, sections: fullSections() }).length === 0);
+    && coverageReport({ checks: 95, sections: fullSections() }).length === 0);
 
   // The hole this gate was reopened for: 55 checks with a floor of 50 meant
   // either three-row section could be deleted whole and still exit 0.
