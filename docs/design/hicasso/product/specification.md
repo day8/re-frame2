@@ -354,7 +354,7 @@ Novelty enters only through a small deciding experiment. The detailed designs an
 |---|---|---|
 | Complaint catalogue and cause-aware hot advisor | Adopt | Stable recovery guidance and cause-directed optimization are part of the core developer workflow; no automatic promotion |
 | Counterfactual topology advice | Spike | Retain only if blinded calibration predicts useful coarse/fine/chunked choices |
-| Capability receipts | Adopt (counts only) | Attempt facts derived post hoc from retained state, with no hot-loop tap; self time refused, because the clock grain is coarser than the quantity and the overhead scales with attempt count rather than cost |
+| Capability receipts | Adopt (counts only) | Attempt facts derived post hoc from retained state, so the receipt costs one tap per attempt at the body-run site and no per-read or per-node tap; self time refused, because the clock grain is coarser than the quantity and the overhead scales with attempt count rather than cost |
 | Replayable view capsules | Spike after L2 | One-shot, commit-owned, redacted; stop if representative views are mostly opaque |
 | Pull-shaped reads | Spike | Must beat hand-coarse ergonomics/cost without a per-leaf ledger or independent-churn regression |
 | Schema-driven generators | Spike | Graduate only if they find real defects/refusal gaps and shrink usefully |
