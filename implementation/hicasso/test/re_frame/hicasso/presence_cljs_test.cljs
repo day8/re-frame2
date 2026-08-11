@@ -203,6 +203,30 @@
     (is (= [:div.toast] (presence/with-phase [:div.toast] :present))
         "including a node with no props map, which is not given one")))
 
+(deftest a-legal-override-reaches-the-element-as-appearance-and-never-as-an-attribute
+  (testing "the docstring's own claim, MEASURED at the element rather than
+            asserted in prose (rf2-34a7). `with-phase` runs on a tray's
+            direct children, so this is the only route by which an override
+            reaches the codec at all — and what arrives there is an
+            ordinary attribute map with the two keys already gone"
+    (doseq [phase [:present :mounting :unmounting]]
+      (let [child [:div {:key 1
+                         :class "toast"
+                         :re-frame.hicasso/mounting   {:class "toast--enter"}
+                         :re-frame.hicasso/unmounting {:class "toast--exit"}}]
+            names (set (js/Object.keys (.-props (codec/as-element
+                                                  (presence/with-phase child phase)))))]
+        (is (not (contains? names "mounting")) (str "at " phase))
+        (is (not (contains? names "unmounting")) (str "at " phase)))))
+
+  (testing "and the same child written where NO tray can reach it is
+            refused by the codec's walk rather than emitted, which is the
+            other half of the sentence: between the two there is no route
+            to the DOM"
+    (is (thrown-with-msg?
+          js/Error #"no presence tray can reach"
+          (codec/as-element [:div {:re-frame.hicasso/mounting {:class "toast--enter"}}])))))
+
 (deftest a-boundary-child-takes-the-phase-as-an-ordinary-prop
   (let [card (codec/mark-boundary! (fn [_] nil))]
     (is (= [card {:key 1 :toast {:id 1} :rf/phase :unmounting}]

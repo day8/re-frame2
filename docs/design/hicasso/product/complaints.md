@@ -126,6 +126,7 @@ rowed in the Hicasso section, and is the single live id without the
 | `:rf.error/hicasso-presence-child-not-hiccup` | gave a presence boundary a child that is not a hiccup vector | — |
 | `:rf.error/hicasso-presence-child-unkeyed` | gave a presence child no `:key` | — |
 | `:rf.error/hicasso-presence-override-on-a-view` | wrote a phase-attribute override on a view head | ch11 |
+| `:rf.error/hicasso-presence-override-out-of-reach` | wrote a phase-attribute override where no presence tray can apply it — deeper than a tray's direct child, forwarded through a `:&` remainder, or under no tray at all | — |
 | `:rf.error/hicasso-presence-timeout-required` | left a presence boundary's timeout absent or not positive | — |
 | `:rf.error/hicasso-raw-no-component` | handed the raw escape `nil` in component position | ch09 |
 | `:rf.error/hicasso-raw-not-a-component` | handed the raw escape a value React will not mint a fiber for | ch09 |

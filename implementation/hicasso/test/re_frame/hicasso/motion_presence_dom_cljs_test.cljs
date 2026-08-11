@@ -315,3 +315,72 @@
                     "and the retained node went with the root rather than outliving it")))
             (finally (mount/release! handle))))
         (finally (restore!))))))
+
+;; ---------------------------------------------------------------------------
+;; The override that leaked, and the attribute it left behind (rf2-34a7)
+;; ---------------------------------------------------------------------------
+;;
+;; `impl/presence.cljs` used to say, of `with-phase`, that *the two
+;; override keys are always removed, so an override never reaches the DOM
+;; as an attribute*. The first clause was true and the second was scoped
+;; to it: `with-phase` runs on a tray's DIRECT children, and an override
+;; written anywhere else fell through to the ordinary prop walk, which
+;; takes `(name k)` — so `::h/mounting` was emitted as a `mounting`
+;; ATTRIBUTE onto the element and the animation never ran.
+;;
+;; **This is a DOM claim and only a DOM lane can settle it.** The node
+;; lane sees the emitted props OBJECT; whether a name on that object
+;; becomes an attribute on a painted node is React's answer, not the
+;; codec's, and the control below is what makes the leak a measurement
+;; rather than an inference.
+
+(deftest an-override-no-tray-can-reach-never-becomes-an-attribute
+  (if-not (mount/browser?)
+    (skip! ":node-test sees the props object, not a painted attribute")
+    (do
+      (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) false)
+      (rf/make-frame {:id frame-kw})
+
+      (testing "THE CONTROL: the walk really does put a bare `mounting` on
+                the page, so the namespaced key that shared its emitted
+                name really did leak. Without this row the refusal below
+                could be guarding a route that was never open"
+        (let [container (mount/fresh-container!)
+              handle    (mount/root! container frame-kw [:div.probe {:mounting "x"}])]
+          (try
+            (mount/settle!)
+            (let [node (.querySelector container ".probe")]
+              (is (some? node))
+              (is (= "x" (.getAttribute node "mounting"))
+                  "an author's own `:mounting` attribute — untouched, and
+                   painted, which is exactly the shape `::h/mounting` took"))
+            (finally (mount/release! handle)))))
+
+      (testing "and the override key itself is REFUSED before any element
+                exists, so nothing carries it to the DOM by that route"
+        (let [container (mount/fresh-container!)]
+          (is (thrown-with-msg?
+                js/Error #"no presence tray can reach"
+                (mount/root! container frame-kw
+                             [:div.probe {:re-frame.hicasso/mounting {:class "in"}}])))
+          (is (zero? (.-length (.querySelectorAll container "[mounting]")))
+              "and the container is empty of it — the refusal is not a
+               second write that undoes a first")))
+
+      (testing "while the LEGAL placement paints the override as appearance
+                and as nothing else: the merged class is on the node, and
+                neither key survives as an attribute"
+        (rf/with-frame frame-kw (rf/dispatch-sync [::seed [:a :b]]))
+        (let [container (mount/fresh-container!)
+              handle    (mount/root! container frame-kw [tray])]
+          (try
+            (mount/settle!)
+            (rf/with-frame frame-kw (rf/dispatch-sync [::set [:a]]))
+            (mount/settle!)
+            (let [exiting (.querySelector container ".toast--exit")]
+              (is (some? exiting) "premise: the exit phase is on the page")
+              (is (zero? (.-length (.querySelectorAll container "[unmounting]")))
+                  "the override arrived as `toast--exit`, never as an
+                   `unmounting` attribute")
+              (is (zero? (.-length (.querySelectorAll container "[mounting]")))))
+            (finally (mount/release! handle))))))))

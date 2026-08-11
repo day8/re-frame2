@@ -706,6 +706,28 @@
   :re-frame.hicasso/revision)
 
 ;; ---------------------------------------------------------------------------
+;; The presence override keys (HD-025), and why they live HERE
+;; ---------------------------------------------------------------------------
+;;
+;; They are `re-frame.hicasso.impl.presence`'s vocabulary and they are
+;; DEFINED here, for [[revision-key]]'s own reason one section up: this
+;; walk has to recognise them, and `presence` requires this namespace
+;; rather than the other way round. Writing the two literals a second
+;; time in the walk would leave a keyword with two homes, which is a
+;; drift waiting for the respelling `naming-ledger.md` row 31 holds open
+;; (`::motion/mounting`). One home, and `presence` reads them from it.
+
+(def mounting-key
+  "`::h/mounting` — the attribute overrides applied while a presence
+  child is entering."
+  :re-frame.hicasso/mounting)
+
+(def unmounting-key
+  "`::h/unmounting` — the attribute overrides applied while a presence
+  child is being retained on its way out."
+  :re-frame.hicasso/unmounting)
+
+;; ---------------------------------------------------------------------------
 ;; The reserved `:ref` value-space (HD-022)
 ;; ---------------------------------------------------------------------------
 
@@ -740,6 +762,62 @@
            :use-a-callback-ref-or-an-effect
            {:ref v :position k}))
   v)
+
+;; ---------------------------------------------------------------------------
+;; A presence override that no tray can reach (rf2-34a7)
+;; ---------------------------------------------------------------------------
+
+(defn- refuse-misplaced-override!
+  "`::h/mounting` / `::h/unmounting` reached a PROP WALK, which means no
+  presence tray applied them.
+
+  [[re-frame.hicasso.impl.presence/with-phase]] strips both keys off
+  every entry it renders and merges the phase's map in their place, and
+  it is applied to a tray's DIRECT children and to nothing else. So an
+  override on a legal placement is gone before this walk is reached, and
+  an override that arrives here was written somewhere the tray never
+  walks: on a grandchild, inside a child view's body, forwarded through
+  a `:&` remainder, or under no tray at all.
+
+  Two things went wrong at once and only the second was visible. The
+  animation the author declared never happened; and the map fell through
+  to [[convert-entry]], which takes `(name k)` and so emitted a
+  `mounting` / `unmounting` ATTRIBUTE onto the element — an internal
+  marker on the page.
+
+  Refused rather than silently dropped, because
+  [[re-frame.hicasso.impl.presence/with-phase]] already refuses the
+  override written one level UP, on a view head, on the stated grounds
+  that *silently dropping the map is the class of failure this whole
+  ruling exists to delete*. That ruling closed one door of two; this is
+  the other.
+
+  **Matched as the EXACT keyword**, [[revision-key]]'s doctrine
+  exception and for its reason: these are hicasso's own private keys,
+  not React positions. A check on the canonical SLOT — the rule `ref`
+  and `className` take — would refuse `[:div {:mounting \"x\"}]` too,
+  and a bare `:mounting` is an author's own attribute that presence
+  never claimed."
+  [k v]
+  (fail! :rf.error/hicasso-presence-override-out-of-reach
+         're-frame.hicasso.impl.codec/convert-props
+         (str "A presence attribute override was written at " (pr-str k)
+              " on an element no presence tray can reach. The two override "
+              "keys are stripped and merged on a motion/presence tray's "
+              "DIRECT children and nowhere else, so this one animates "
+              "nothing and would otherwise reach the DOM as a "
+              (pr-str (name k)) " attribute. Move it onto the tray's own "
+              "child; below a view head, branch on the :rf/phase prop "
+              "instead.")
+         :put-the-override-on-a-presence-child
+         {:override v :position k}))
+
+(defn ^boolean override-key?
+  "Is `k` one of the two presence override keys? One pointer compare
+  each, on the exact keyword."
+  [k]
+  (or (keyword-identical? mounting-key k)
+      (keyword-identical? unmounting-key k)))
 
 (defn- convert-entry
   "ONE prop into the emitted object — [[convert-props]]'s reducing
@@ -780,38 +858,48 @@
   exists to delete. Composing drops nothing, and it is what the slot
   means."
   [o k v]
-  (if (or (keyword-identical? :key k) (keyword-identical? revision-key k))
+  (cond
+    (or (keyword-identical? :key k) (keyword-identical? revision-key k))
     o
-    (if (or (keyword? k) (symbol? k))
-      (let [^PropSlot s (prop-slot k (name k))]
-        (when-not (.-reserved? s)
-          (unchecked-set o (.-js-name s)
-                         (convert-prop-value
-                           (cond
-                             (.-ref? s)
-                             (check-ref! k v)
 
-                             (.-class? s)
-                             (class-names (unchecked-get o class-slot) v)
+    ;; Beside the two skips because it is the same question asked of the
+    ;; same three private keywords — this one answers *refuse* rather
+    ;; than *drop*, and it never returns.
+    (override-key? k)
+    (refuse-misplaced-override! k v)
 
-                             (and (.-event? s) (keyword? k))
-                             (if (or (vector? v) (map? v) (fn? v))
-                               (intent/lower-prop k v)
-                               v)
+    (or (keyword? k) (symbol? k))
+    (let [^PropSlot s (prop-slot k (name k))]
+      (when-not (.-reserved? s)
+        (unchecked-set o (.-js-name s)
+                       (convert-prop-value
+                         (cond
+                           (.-ref? s)
+                           (check-ref! k v)
 
-                             :else
-                             (if (intent/callback? v)
-                               (intent/lower-prop k v)
-                               v)))))
-        o)
-      (let [n (cached-prop-name k)]
-        (when-not (reserved-name? n)
-          (unchecked-set o n (convert-prop-value
-                              (cond
-                                (identical? ref-slot n)   (check-ref! k v)
-                                (identical? class-slot n) (class-names (unchecked-get o class-slot) v)
-                                :else                     (intent/lower-prop k v)))))
-        o))))
+                           (.-class? s)
+                           (class-names (unchecked-get o class-slot) v)
+
+                           (and (.-event? s) (keyword? k))
+                           (if (or (vector? v) (map? v) (fn? v))
+                             (intent/lower-prop k v)
+                             v)
+
+                           :else
+                           (if (intent/callback? v)
+                             (intent/lower-prop k v)
+                             v)))))
+      o)
+
+    :else
+    (let [n (cached-prop-name k)]
+      (when-not (reserved-name? n)
+        (unchecked-set o n (convert-prop-value
+                            (cond
+                              (identical? ref-slot n)   (check-ref! k v)
+                              (identical? class-slot n) (class-names (unchecked-get o class-slot) v)
+                              :else                     (intent/lower-prop k v)))))
+      o)))
 
 (defn convert-props
   "One pass over the attribute map: fold a `:&` remainder under the
@@ -2805,8 +2893,19 @@
   looks like hiccup, because that is a fact about the foreign ABI and
   only the author holds it."
   [^js head declared slots o k v]
-  (if (keyword-identical? :key k)
+  (cond
+    (keyword-identical? :key k)
     o
+
+    ;; [[convert-entry]]'s arm, at the second prop door. A crossing that
+    ;; IS a tray's direct child has already had its overrides stripped
+    ;; and merged by `with-phase` — the tray does not care whether its
+    ;; child is a native node or a crossing — so an override arriving
+    ;; here is misplaced for the same reason and takes the same refusal.
+    (override-key? k)
+    (refuse-misplaced-override! k v)
+
+    :else
     (let [keyword-ish? (or (keyword? k) (symbol? k))
           ^PropSlot s  (when keyword-ish? (prop-slot k (name k)))
           slot         (if keyword-ish? (.-js-name s) (cached-prop-name k))
