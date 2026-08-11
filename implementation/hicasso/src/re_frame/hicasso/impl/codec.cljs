@@ -3188,14 +3188,27 @@
   hands the body back `:article-id` — so an author who writes the same
   keyword on both sides of the fence reads the same keyword in the body,
   and a JavaScript parent writing `articleId={7}` reaches the same place.
-  Witnessed over `slot-corpus` in
-  `re-frame.hicasso.outward-bridge-cljs-test`, on every row whose
-  authored key is already the canonical spelling.
+  Witnessed over `slot-corpus` in `re-frame.hicasso.native-abi-cljs-test`,
+  twice: every keyword or symbol row's decoded key emits back into the
+  SAME slot, and the taught spellings decode to themselves.
 
   A slot carrying a hyphen is answered verbatim, which is the only rule
   that can be right: the forward direction camelCases a key by consuming
   its hyphens, so a slot that still has one was never camelCased and
-  splitting it again would invent a key the author never wrote."
+  splitting it again would invent a key the author never wrote.
+
+  ## The one correspondence this does not have, stated
+
+  [[re-frame.hicasso.impl.slot/prop-name]]'s STRING arm is an escape from
+  the rule rather than a spelling within it — a string key means *emit
+  exactly this name*, so `\"on-input\"` emits `on-input`, which no keyword
+  reaches. Decoding that name gives `:on-input`, whose slot is `onInput`,
+  and the round trip is broken because the forward direction was never
+  a function of the hiccup vocabulary there. That is the right answer
+  anyway: a props MAP handed to a view body is application data, and a
+  body that receives `foo-bar` from a JavaScript parent wants
+  `:foo-bar` — answering the string back to make an internal law
+  universal would be optimising for the law rather than for the author."
   [s]
   (or (slot-keys s)
       (if (str/includes? s "-")
