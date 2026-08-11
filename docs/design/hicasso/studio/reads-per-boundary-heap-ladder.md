@@ -2604,9 +2604,12 @@ mechanical here rather than disciplinary.
 `:hicasso-bench` compiles both trees. An arm pointed back at the prototype
 therefore builds **green with zero warnings** and reads plausibly; it simply
 prices different software. Dispatch 1 demonstrated exactly that by reverting one
-seam. So the evidence is the rig's own **module graph**, read before the window
-opened, from a cleared cache entry so the analysis cache holds precisely what
-the entry point reached:
+seam. So the evidence is the rig's own **module graph**, read from a cleared
+cache entry so the analysis cache holds precisely what the entry point reached.
+It was read **twice**: once before the window opened, so a wrong rig would not
+cost a run — and once afterwards **from the build the driver itself made**,
+which is the read that matters, because it describes the very bundle the figures
+below came out of rather than a rehearsal of it. The two agree exactly:
 
 ```
 PRESENT  re_frame.hicasso.impl.mount.js      ABSENT  re_frame.bench.hicasso.arm1.runtime.js
