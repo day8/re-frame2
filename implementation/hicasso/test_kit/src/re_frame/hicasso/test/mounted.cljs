@@ -850,10 +850,10 @@
         (hm/advance-clock! m 300)
         (is (= 1 (count (toasts m)))))  ;; the deadline passed
 
-  Requires `{:clock true}` on the [[mount!]] that made `handle`, and
-  throws without it. That is not decoration: an advance with no clock
-  under it would move nothing and assert nothing, and the row would go
-  green for the reason it was written to rule out.
+  Requires `{:clock true}` on the [[mount!]] or [[hydrate!]] that made
+  `handle`, and throws without it. That is not decoration: an advance
+  with no clock under it would move nothing and assert nothing, and the
+  row would go green for the reason it was written to rule out.
 
   ## What advances
 
@@ -908,7 +908,7 @@
                            "and this handle owns none"
                            (if (some? held)
                              " any longer — it was released when the mount came down."
-                             ": mount! was not given {:clock true}.")
+                             ": mount! or hydrate! was not given {:clock true}.")
                            " An advance with no clock under it would move nothing "
                            "and assert nothing.")
                       {:ms ms :frame (:frame handle)})))
