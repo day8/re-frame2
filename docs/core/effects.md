@@ -286,7 +286,7 @@ When a handler returns `{:db new-db :fx [[a 1] [b 2] [c 3]]}`, four rules hold. 
 
 !!! warning "Gotcha — `:db` and `:fx` are the whole top level"
 
-    Application handlers return those two keys — plus, when a write carries a privacy consequence, the commit-plane classification effects (`:sensitive`, `:large`, and their `clear-` counterparts) that [app-db](app-db.md) teaches. Anything else at the top level is a malformed effect map. The runtime doesn't throw — it [fails closed](glossary.md#fail-loud-not-silent): it emits `:rf.error/effect-map-shape` naming the offending key, **drops** that key, and applies the legal ones (so your `:db` still lands). This is the safety net under a typo (`:dn` for `:db`) and under the old v1 reflex of returning a top-level `[:dispatch …]` — which belongs in an `:fx` row.
+    Application handlers return those two keys — plus, when a write carries a privacy consequence, the commit-plane classification effects (`:sensitive`, `:large`, and their `clear-` counterparts) that [app-db](app-db.md) teaches. Anything else at the top level is a malformed effect map. The runtime doesn't throw — it [fails closed](glossary.md#fail-loud-not-silent): it emits `:rf.error/effect-map-shape` naming the offending key and **refuses the whole event**. Nothing is applied — not even your `:db`. That is deliberate. Committing the state write while the effect you asked for quietly vanished is the worse failure: the screen updates, so the handler looks like it worked, and you find out weeks later. Refusing means you find out on the first run. This is the safety net under a typo (`:dn` for `:db`) and under the old v1 reflex of returning a top-level `[:dispatch …]` — which belongs in an `:fx` row.
 
 You can return `{:db … :fx [[id args] …]}`, chain follow-ups with `[:dispatch …]`,
 trust run-to-completion (a drain never paints halfway), and describe HTTP instead
@@ -297,7 +297,7 @@ That is the whole of the effect-map grammar — you can ship on it.
 
 | Symptom | Error / behaviour | Fix |
 |---|---|---|
-| Typo'd top-level key (`:dn`) | `:rf.error/effect-map-shape` — bad key dropped; legal keys still apply | Only `:db` and `:fx` (plus classification keys) at the top level |
+| Typo'd top-level key (`:dn`) | `:rf.error/effect-map-shape` — the event is refused; **nothing** is applied, not even `:db` | Only `:db` and `:fx` (plus classification keys) at the top level |
 | Unknown fx id | `:rf.error/no-such-fx` — that row fails; siblings still run | Register or fix the id |
 | One fx throws | `:rf.error/fx-handler-exception` — later rows still run; `:db` already committed | Independent rows by design; chain via reply events if you need dependency |
 | Bare `dispatch` in a handler | Breaks purity and the ledger | Return `:fx [[:dispatch …]]` |
