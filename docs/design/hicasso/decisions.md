@@ -1467,6 +1467,31 @@ cost is **unmeasured** and is named here rather than claimed away.
 
 ## HD-024 — One callback form; the position selects the contract
 
+> **Addendum, 2026-08-11 — a DECLARED ReactNode slot is a position row 3 does not
+> cover either, and it refuses the marked form (`rf2-hic-035`).** `defhost` now
+> takes a `:slots` option — the set of props at which the foreign component wants
+> MARKUP rather than data, a modal's title, a compound family's footer, a
+> `Suspense` fallback — and hiccup written at one of them is lowered by
+> `codec/as-element` inside the render window of the boundary that wrote the
+> crossing. That is the same window the crossing's CHILDREN are lowered in, so an
+> intent in a declared slot fires into the DECLARING boundary's frame exactly as an
+> intent in a child does; the slot borrows no frame from the foreign component,
+> which has none.
+>
+> **So a declared slot is neither reading of row 3.** It does not render-wrap the
+> marked form, and it is not unclaimed — it is claimed for markup, and markup has
+> no contract to give a function. An `h/fn` there is therefore a policy written and
+> never applied, and it **refuses**. The id is
+> `:rf.error/hicasso-host-unclaimed-callback`, the same one the unclaimed position
+> raises, because the fault and the recovery are the one thing said twice; the
+> message names which of the two positions it met. Row 3's parenthesis carries the
+> scope below.
+>
+> **The recovery the 2026-08-03 addendum left unspellable is spellable in the same
+> change**: `h/as-element` is exported. Where the crossing IS declared, prefer the
+> declaration — `:slots` lowers the position for every use site at once, and
+> children never needed a conversion at all.
+
 > **Addendum, 2026-08-06 — the position table's row 3 OVER-RECORDS: it never
 > covered a `defhost` slot the declaration left unclaimed, and that slot now
 > REFUSES the marked form (`rf2-2rtt6.115`, `rf2-2rtt6.116`).** Two beads, one
@@ -1552,18 +1577,25 @@ cost is **unmeasured** and is named here rather than claimed away.
 > edge (`front/intent_cljs_test`); the two purity edges — a direct dispatch inside
 > the call, and a synchronous lower-and-fire — are unmodified and still raise.
 >
-> **What the fence leaves open, stated rather than implied (`rf2-2rtt6.120`).**
+> **What the fence left open, and what closed it (`rf2-2rtt6.120`; closed
+> 2026-08-11 by `rf2-hic-035`).**
 > "No auto-conversion" means the return crosses UNCONVERTED — `render-callback`
 > ends in a bare `(apply f args)`, so a string renders and a vector reaches React
-> and is refused there. The author therefore has to make the element, and
-> `codec/as-element` is the conversion that would do it — but it is INTERNAL, and nothing on
-> the taught `h/` roster reaches it. **So the recovery has no spelling an author
-> can write today.** That is an open gap, not a missing sentence, and it is what
-> `rf2-2rtt6.120` holds. In particular **there is no `h/as-element`** — this
-> addendum illustrated the row with one until 2026-08-05, copied from
-> `front/intent/render-callback`'s own docstring, and so did four of the `[:>]`
-> design records under `studio/`. The docstring is corrected; the spelling was
-> never real.
+> and is refused there. That half is unchanged and is the design: the author makes
+> the element. What was open was the SPELLING for doing so. `codec/as-element` was
+> the conversion that would do it, it was INTERNAL, nothing on the taught `h/`
+> roster reached it, and so the recovery had no spelling an author could write — an
+> open gap rather than a missing sentence, and what `rf2-2rtt6.120` held. In
+> particular there was **no `h/as-element`**: this addendum illustrated the row with
+> one until 2026-08-05, copied from `front/intent/render-callback`'s own docstring,
+> as did four of the `[:>]` design records under `studio/`, and the spelling was not
+> real then. **It is real now.** `h/as-element` is exported from `re-frame.hicasso`
+> — the one explicit hiccup→ReactNode conversion, delegating to `codec/as-element`
+> — so the row is written `(h/as-element [:li {:on-click [:row/pick id]} …])` and
+> keeps its intents, which fire on the user's click into the frame of the boundary
+> that SUPPLIED the callback, exactly as this addendum rules above. The `studio/`
+> records that named the spelling before it existed are dated records of what was
+> believed then and stand unedited.
 
 **Ruling.** Hicasso ships **one** callback form — `h/fn` (spelling unfrozen) — and
 it is **an ordinary function**. The contract comes from the **position**, because
@@ -1573,7 +1605,7 @@ the runtime already knows every position it walks:
 |---|---|
 | a native `:on-*` prop | **event** — a returned VECTOR is dispatched; any other return is ignored |
 | a `defhost` `:callbacks` entry | as **declared** (`:event`, `:handler` or `:render`), never inferred from an `on*` name |
-| any other walked prop position (a slot, a foreign render prop — but NOT an unclaimed `defhost` slot, which refuses; see the 2026-08-06 addendum) | **render** — pure; the return is render output and is not dispatched, and dispatching from inside is `:rf.error/hicasso-dispatch-in-render-position`, **naming the position** |
+| any other walked prop position (a slot, a foreign render prop — but NOT an unclaimed `defhost` slot, and NOT one declared a ReactNode position in `:slots`; both refuse, see the 2026-08-06 and 2026-08-11 addenda) | **render** — pure; the return is render output and is not dispatched, and dispatching from inside is `:rf.error/hicasso-dispatch-in-render-position`, **naming the position** |
 | `:ref` | React's own: commit phase, node in, cleanup out. Excluded from lowering |
 | anywhere Hicasso does not walk (a raw `#js` prop) | it is a plain function; it runs, and its return is ignored |
 

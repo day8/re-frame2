@@ -147,7 +147,8 @@ There is **one** callback form, `h/fn`, and it is an **ordinary function**:
 |---|---|
 | a native `:on-*` prop | **event** — a returned vector is dispatched; any other return is ignored |
 | a `defhost` `:callbacks` entry | as **declared** (`:event`, `:handler` or `:render`) |
-| any other walked prop position (a slot, a foreign render prop) | **render** — pure; the return is output, and dispatching from inside is a loud error **naming the position** |
+| any other walked prop position (a native non-event prop, a foreign render prop) | **render** — pure; the return is output, and dispatching from inside is a loud error **naming the position** |
+| a `defhost` prop nothing claimed, and one declared a ReactNode position in `:slots` | **none to give** — the mark asks the POSITION for a contract, and neither has one: an unclaimed prop selected nothing, and a slot is claimed for markup. Both refuse with `:rf.error/hicasso-host-unclaimed-callback`, which names which of the two it met. A plain function at the unclaimed prop is untouched and crosses by identity |
 | `:ref` | React's own contract; not lowered |
 | anywhere Hicasso does not walk | a plain function; it runs, and its return is ignored |
 
@@ -301,6 +302,14 @@ component, with strong defaults:
 Usage `[date-picker {...}]` is indistinguishable from a native view; the JS
 require stays quarantined in one `.cljs` host namespace; the crossing has a
 declared identity for tooling; policy overrides live on the declaration.
+The declaration also names the props at which the component takes **markup**
+rather than data — `{:slots #{:title :footer}}` — and hiccup written at one of
+those is lowered in the render window of the boundary that wrote the crossing, so
+an intent inside a slot fires into that boundary's frame exactly as an intent in
+a child does. Every undeclared prop stays data: whether a vector at a foreign
+prop is markup is a fact about the foreign ABI, and only the author holds it, so
+the runtime never guesses. For a one-off, `h/as-element` crosses a real element
+through any prop.
 Upgrading a `[:>]` site to a declaration is three moves per namespace — collect
 the sites, emit the `defhost`, rewrite the call sites — and all three are by
 hand. The shipped migration codemod is a props-dialect **fixer**: it repairs the
