@@ -370,6 +370,7 @@ async function compositionSafety(page, w) {
   const run = await page.evaluate(() => {
     const node = window.__TB__.el('digits');
     node.focus();
+    const before = window.__TB__.model();
     const seen = [];
     const log = (t) => seen.push(t);
     node.addEventListener('compositionstart', () => log('start'));
@@ -388,13 +389,16 @@ async function compositionSafety(page, w) {
       isComposing: true, inputType: 'insertCompositionText', data: 'あい',
     });
 
-    const midModel = window.__TB__.model().fields.digits;
+    const mid = window.__TB__.model();
 
     window.__TB__.composition(node, 'compositionend', 'あい');
     const ended = window.__TB__.read('digits');
 
     return {
-      started, draft1, draft2, midModel, ended, seen,
+      started, draft1, draft2, ended, seen,
+      editsBefore: before.edits.digits || 0,
+      midEdits: mid.edits.digits,
+      midModel: mid.fields.digits,
       startCount: seen.filter((t) => t === 'start').length,
       endCount: seen.filter((t) => t === 'end').length,
     };
@@ -402,6 +406,11 @@ async function compositionSafety(page, w) {
 
   w.eq(run.draft1.value, '123あ', 'the first composing update survives in the field');
   w.eq(run.draft2.value, '123あい', 'the second composing update survives too');
+  // The PREMISE of the row below, without which it is not a witness at all:
+  // a model nothing spoke to has also "never moved". Both composing updates
+  // reached the store, so the stillness the next row reads is a REFUSAL
+  // rather than an absence.
+  w.eq(run.midEdits, run.editsBefore + 2, 'both composing updates reached the store');
   w.eq(run.midModel, '123', 'the refusing model never moved during the exchange');
   // The exchange was not destroyed: one start, one end. A value write
   // landing mid-composition is what mints a second `compositionstart` in
@@ -462,6 +471,7 @@ async function compositionReleaseEdges(page, w) {
   const unmounted = await page.evaluate(async () => {
     const node = window.__TB__.el('mountable');
     node.focus();
+    const before = window.__TB__.model();
     window.__TB__.composition(node, 'compositionstart', '');
     // A REFUSING field, so the draft in the element is one the model never
     // took — without that the row below would pass on a model that had
@@ -469,15 +479,25 @@ async function compositionReleaseEdges(page, w) {
     const draft = window.__TB__.edit('mountable', '9あ', 2, {
       isComposing: true, inputType: 'insertCompositionText', data: 'あ',
     });
-    const midModel = window.__TB__.model().fields.mountable;
+    const mid = window.__TB__.model();
     window.__TB__.el('toggle-mounted').click();
     await window.__TB__.settle();
     const gone = !!document.querySelector('[data-testid="mountable-gone"]');
     window.__TB__.el('toggle-mounted').click();
     await window.__TB__.settle();
-    return { draft: draft.value, midModel, gone, back: window.__TB__.read('mountable').value };
+    return {
+      draft: draft.value, gone,
+      editsBefore: before.edits.mountable || 0,
+      midEdits: mid.edits.mountable,
+      midModel: mid.fields.mountable,
+      back: window.__TB__.read('mountable').value,
+    };
   });
   w.eq(unmounted.draft, '9あ', 'the field held a draft the model had refused');
+  // Same premise as `composition-safety`'s: "refused it" is a claim about
+  // something the store was asked to do, and only the arrival counter can
+  // tell that apart from an exchange that dispatched nothing.
+  w.eq(unmounted.midEdits, unmounted.editsBefore + 1, 'the composing update reached the store');
   w.eq(unmounted.midModel, '9', 'and the model really had refused it');
   w.eq(unmounted.gone, true, 'the field unmounted mid-composition');
   w.eq(unmounted.back, '9', 'the remounted field shows the model, not a stranded draft');
