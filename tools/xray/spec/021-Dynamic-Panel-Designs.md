@@ -977,11 +977,12 @@ questions only a view registry could have answered.
 **The staged `freehand-views` deck inherits this disposition, and retiring it is
 four artefacts rather than one** (rf2-u5b4, against census rows X6/X7/X8). The
 deck exists for no purpose other than putting real connected occurrences in
-front of §3.4.1 and §3.4.2, so it cannot be migrated separately: a deck
-repointed at Hicasso would assert on precisely the five facts the table above
-says the target does not publish — the view id, the occurrence key, the
-lowering, the per-row read count and the whole Declared View Sites section — and
-retiring it early, while the panel still ships, would restore the gate-blindness
+front of §3.4.1 and §3.4.2, so it cannot be migrated separately: every fact its
+scenario asserts is one the table above puts in the **none** column — the view
+id, the occurrence key, the lowering, the per-row generation and the whole
+Declared View Sites section — leaving it nothing to assert but the frame and a
+read set scoped to the live boundary rather than to the commit. Nor can it go
+early: retiring it while the panel still ships would restore the gate-blindness
 rf2-6pohj closed, an empty roster and a roster emptied by a broken read being
 the same DOM. What goes with §3.4.1 and §3.4.2 is therefore
 `tools/xray/testbeds/freehand_views/`, the `:testbeds/freehand-views` build id
