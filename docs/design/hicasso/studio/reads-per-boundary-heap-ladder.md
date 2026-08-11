@@ -2579,6 +2579,317 @@ did not move.
 
 ---
 
+### The package itself, priced on this rung at last (rf2-fe0l)
+
+**2026-08-12.** Every candidate figure above this line was taken on
+`re-frame.bench.hicasso.arm1.*` — the prototype in the benchmark tree.
+`implementation/hicasso/src` is a deliberately frozen *copy* of that runtime,
+and until 2026-08-11 **no heap instrument pointed at the package at all**,
+which is why [budgets.md](../product/budgets.md) had to refuse its "re-measured
+on `implementation/hicasso`" deliverable and report the refusal instead.
+PR #7939 repointed this rig's four candidate seams at the package — the mount
+door, the runtime reset, and both residue reads — and left the donors, the
+floor, the harness, the fixtures, the fit rules and the order guard alone.
+**This section is the first reading taken through it**, and it is the anchor
+`rf2-hic-018` needs before it mutates the collector: a package baseline taken
+on the same instrument as the thing it will later be compared with.
+
+The two dispatches are deliberately separate. The rig merged, and its blobs
+were fixed by that merge, **before a single sample existed** — so the window
+below could not repair an arm it did not write, and pre-registration is
+mechanical here rather than disciplinary.
+
+#### The rig resolves the package, and the compile is not what says so
+
+`:hicasso-bench` compiles both trees. An arm pointed back at the prototype
+therefore builds **green with zero warnings** and reads plausibly; it simply
+prices different software. Dispatch 1 demonstrated exactly that by reverting one
+seam. So the evidence is the rig's own **module graph**, read before the window
+opened, from a cleared cache entry so the analysis cache holds precisely what
+the entry point reached:
+
+```
+PRESENT  re_frame.hicasso.impl.mount.js      ABSENT  re_frame.bench.hicasso.arm1.runtime.js
+PRESENT  re_frame.hicasso.impl.collector.js  ABSENT  re_frame.bench.hicasso.arm1.mount.js
+PRESENT  re_frame.hicasso.impl.inventory.js  ABSENT  re_frame.bench.hicasso.arm1.lang.js
+PRESENT  re_frame.hicasso.js                 ABSENT  re_frame.bench.hicasso.front.codec.js
+130 namespaces in the rig's graph; build=hicasso-bench initFn=re-frame.bench.p0-app/-main
+arm1 namespaces in graph: 0
+bench.hicasso.front namespaces in graph: 0
+hicasso.impl namespaces in graph: 16
+```
+
+**That read is worthless without a control, because an enumeration that finds
+nothing and an enumeration that looks nowhere print the same thing.** The
+control is a sibling program on the *same build id* that genuinely does require
+the prototype — `re-frame.bench.hicasso.clock-app/-main`, swapped in through the
+driver's own `P0_INIT_FN` override, with **no file in the rig touched**. It
+reports `arm1 namespaces in graph: 2`, `hicasso.impl namespaces in graph: 0`,
+and exits **1**. The reader can see the prototype when the prototype is there.
+
+Sixteen of the package's eighteen `impl.*` modules are in the graph;
+`impl.presence` and `impl.presence-react` are not reached from this arm, which
+is a property of what the arm exercises and not a defect.
+
+#### The rows
+
+`B` = 1,200 boundaries held fixed across every rung, 4 roots × 300 cells; six
+rounds; rungs 0/1/3/7/20 with Q = E on every one. `y` is exclusive retained
+bytes per boundary above the same-round, same-segment floor; bands are min–max
+across the six rounds. Residue is per boundary after teardown.
+
+| `reagent-subs` | reads | E | Q | exclusive B/boundary | residue B/bdy |
+|---|---:|---:|---:|---:|---:|
+| floor | 0 | 0 | 0 | 256 [248–265] | 4 [0–8] |
+| reagent | 0 | 0 | 0 | 511 [500–519] | 4 [−6–23] |
+| reagent | 1 | 1,200 | 1,200 | 1,678 [1,659–1,692] | 14 [−1–45] |
+| reagent | 3 | 3,600 | 3,600 | 3,391 [3,382–3,405] | 2 [−7–18] |
+| reagent | 7 | 8,400 | 8,400 | 6,704 [6,682–6,717] | 11 [1–20] |
+| reagent | 20 | 24,000 | 24,000 | 19,570 [19,556–19,585] | 6 [−9–46] |
+| **hicasso** | 0 | 0 | 0 | **1,100** [1,091–1,107] | 1 [−6–7] |
+| **hicasso** | 1 | 1,200 | 1,200 | **2,949** [2,934–2,965] | 3 [−10–19] |
+| **hicasso** | 3 | 3,600 | 3,600 | **5,400** [5,384–5,409] | 5 [−2–10] |
+| **hicasso** | 7 | 8,400 | 8,400 | **10,310** [10,293–10,331] | 7 [−5–18] |
+| **hicasso** | 20 | 24,000 | 24,000 | **29,650** [29,629–29,670] | −6 [−55–12] |
+
+| `uix-subs` | reads | E | Q | exclusive B/boundary | residue B/bdy |
+|---|---:|---:|---:|---:|---:|
+| floor | 0 | 0 | 0 | 255 [252–261] | 1 [0–6] |
+| uix | 0 | 0 | 0 | 220 [214–226] | 0 [0–1] |
+| uix | 1 | 1,200 | 1,200 | 3,286 [3,263–3,316] | 18 [0–39] |
+| uix | 3 | 3,600 | 3,600 | 9,114 [9,108–9,122] | 6 [−4–20] |
+| uix | 7 | 8,400 | 8,400 | 20,800 [20,786–20,816] | 13 [4–24] |
+| uix | 20 | 24,000 | 24,000 | 59,825 [59,812–59,832] | −31 [−106–3] |
+| **hicasso** | 0 | 0 | 0 | **1,095** [1,087–1,101] | −1 [−6–2] |
+| **hicasso** | 1 | 1,200 | 1,200 | **3,660** [3,653–3,665] | 1 [−8–7] |
+| **hicasso** | 3 | 3,600 | 3,600 | **7,602** [7,520–7,637] | −17 [−101–14] |
+| **hicasso** | 7 | 8,400 | 8,400 | **15,491** [15,428–15,540] | −14 [−69–27] |
+| **hicasso** | 20 | 24,000 | 24,000 | **43,681** [43,587–43,738] | −11 [−109–46] |
+
+#### The fitted lines
+
+`y = intercept + slope·R`, fitted over 1/3/7/20 only. `shell` is the directly
+measured R=0 rung and never the fitted intercept.
+
+| arm | slope B/read | intercept | shell (R=0, measured) | first read | r² |
+|---|---:|---:|---:|---:|---:|
+| `reagent-subs` \| reagent | 948 [947–948] | 493 [481–503] | 511 [500–519] | 1,167 [1,153–1,182] | 0.99871 |
+| `reagent-subs` \| **hicasso** | **1,417** [1,416–1,417] | 1,097 [1,085–1,110] | **1,100** [1,091–1,107] | 1,849 [1,836–1,859] | 0.99833 |
+| `uix-subs` \| uix | 2,980 [2,979–2,981] | 165 [149–177] | 220 [214–226] | 3,066 [3,049–3,090] | 0.99996 |
+| `uix-subs` \| **hicasso** | **2,115** [2,109–2,118] | 1,217 [1,187–1,251] | **1,095** [1,087–1,101] | 2,565 [2,557–2,575] | 0.99957 |
+
+All four are lines in R, and **6 of 6 rounds are linear on every arm** — the
+per-round verdict, not only the pooled one.
+
+#### Exactly one quantity moved, and the instrument says which
+
+The prototype's most recently published rows are directly above this section.
+Set the package beside them:
+
+| quantity | prototype (bench tree) | **package** (this run) | moved? |
+|---|---:|---:|---|
+| R=0 shell, Reagent segment | 1,099.5 / 1,098 / 1,100 B | **1,100** B | no |
+| R=0 shell, UIx segment | 1,097 / 1,096 / 1,099 B | **1,095** B | no |
+| slope, UIx segment | 2,115 [2,110–2,118] | **2,115** [2,109–2,118] | no |
+| **slope, Reagent segment** | 1,278 [1,275–1,280] | **1,417** [1,416–1,417] | **+139 B/read, +10.9%** |
+| Reagent donor shell | 504 / 509 / 509 B | 511 B | no |
+| UIx donor shell | 223 / 225 / 226 B | 220 B | no |
+| Reagent donor slope | 947 | 948 [947–948] | no |
+| UIx donor slope | 2,979 / 2,980 | 2,980 [2,979–2,981] | no |
+| floor, Reagent segment | 258 / 257 / 257 B | 256 B | no |
+| floor, UIx segment | 254 / 253 / 252 B | 255 B | no |
+
+**Nine of ten quantities reproduce; one moved, and the two bands are disjoint
+by 136 B** ([1,275–1,280] against [1,416–1,417]). Because every donor, both
+floors, both shells and the *other* candidate slope came back where the
+prototype left them, the move is the candidate's and not the instrument's —
+which is this studio's own standing rule for putting two sessions' figures in
+one table, applied here rather than invented for the occasion.
+
+**The mechanism is not attributed here, and the asymmetry is why.** A package
+carrying more per-read state than the frozen prototype would be expected to show
+it in *both* segments; it shows in one, to the byte, while the UIx segment
+reproduces `2,115` exactly and its ratio moves from `0.7099×` to `0.7098×`.
+Naming a cause would take ablations this window is not permitted to run — its
+terms are one invocation, and an instrument iterated until it explains itself is
+no longer the instrument the figures were taken on. **`rf2-hic-018` owns the
+attribution, and it now has the same-instrument package baseline that makes an
+attribution possible at all**, which is precisely what this bead existed to
+supply.
+
+What it does to the candidate's standing, stated plainly:
+
+| segment | donor | candidate | ratio, prototype | ratio, **package** |
+|---|---:|---:|---:|---:|
+| `reagent-subs` | 948 B/read | 1,417 B/read | 1.3492× | **1.4953×** (margin −49.5%) |
+| `uix-subs` | 2,980 B/read | 2,115 B/read | 0.7099× | **0.7098×** (margin 29.0%) |
+
+The verdict's *shape* is unchanged — won against UIx, lost to Reagent's
+`deref`-capture — but the loss against Reagent is materially deeper on the
+software that ships, and the bracket a shipped Hicasso sits in widens from
+`1,278 – 2,115` to **`1,417 – 2,115` B/read**.
+
+#### Against the 1,024 B line, which is now frozen
+
+The operator froze the shell's paper-fail line at the literal **1,024 B** on
+2026-08-12 (the ruling is recorded on `rf2-fe0l`), and adopted with it the rule
+that **a confidence band crossing that line is UNRESOLVED rather than a pass**.
+Neither clause is load-bearing for this row, and it is worth saying why:
+
+| R=0 shell, package | figure | worst round | vs 1,024 B |
+|---|---:|---:|---|
+| Reagent segment | 1,100 B | 1,091 B | **1.074× — over, in every round** |
+| UIx segment | 1,095 B | 1,087 B | **1.069× — over, in every round** |
+
+Every one of the twelve readings sits at or above 1,087 B, so the row is red
+under the frozen reading, red under the retired 1,000 B reading, and **not a
+band-crossing case at all**. The freeze changes no verdict here; it will matter
+at remediation, where the no-wrapper arm's 994 / 992 B sits exactly in the
+window the two readings disagree about.
+
+**The breach survives the move to the package**, which is the substantive news
+for `rf2-hic-018`: it is a property of the design and not an artefact of the
+prototype it was first measured on.
+
+#### Teardown, in bytes, on the package
+
+**All ten candidate rungs' residue bands straddle zero** — the point estimates
+run from −17 to +7 B per boundary and every band contains 0. The structural
+witness reports the same thing in objects, and exits on it: boundaries, edges,
+cells and entries all read **exactly zero after teardown on every arm of every
+round**. Teardown is therefore re-pinned on the package as *indistinguishable
+from zero*, which is the honest form of the claim — it is what a distributional
+reading can support, where the object counts are exact.
+
+One observation recorded rather than smoothed: two *donor* rungs' residue bands
+do not straddle zero (Reagent at R=7, 11 [1–20]; UIx at R=7, 13 [4–24]). Those
+are donor rows and not this page's to disposition, but a reader comparing
+columns should not have to notice it alone.
+
+#### The controls
+
+Every control below is **from this run**. Nothing is scaled in from another
+session and nothing is re-derived.
+
+**The positive control — the instrument has signal, and it is calibrated in
+bytes.** The same dense array of 587,500 unboxed doubles, **4,700,000 B fixed
+before the run**: measured **4,700,284 B** [4,699,042–4,700,872], ratio
+**1.0001** — 0.006% high, the closest reading this control has produced on this
+page. `ok` under `lane/control-verdict` at the driver's ±25% slack, which is the
+only band this session registers; the deviation is reported as a non-gating
+observation.
+
+**The ladder is its own control for the slope.** Reads walk 0 → 20, a twentyfold
+range, and every arm answers with a line: r² from 0.99833 to 0.99996, six of six
+rounds linear on all four. A per-read cost that could not be made to move with R
+would be a coincidence; this one moves with R exactly, in the right direction,
+on every arm.
+
+**The segment swap is the control for the shell.** The candidate is one view
+layer measured over two subscription substrates. Its R=0 shell reads 1,100 and
+1,095 B — **5 B apart**, so the shell does not depend on the substrate beneath
+it, which is what a *shell* figure must show. That the instrument can see a
+substrate difference at R=0 is not assumed either: the donors' own shells differ
+by **291 B** across the same two segments (511 against 220). The instrument is
+demonstrably capable of the reading it declines to make for the candidate.
+
+**The floor is the calibrator that licenses the cross-segment comparison.** It
+holds no re-frame state, so it is the same work either side of the seam, and it
+reads 256 and 255 B — 0.4% apart.
+
+**The fit refuses what it should refuse**, checked in the page before anything
+was measured: an exact line is recovered to the byte with R=0 excluded from the
+fit; a quadratic per-read term is rejected by the r² floor (0.96464 under 0.98);
+and an absurd R=0 rung of 99,999 B **does not move the fit by one bit** — which
+is what makes the shell and the slope independent quantities that may be pinned
+separately.
+
+**The arm-order guard** ran its twelve self-tests before installation, including
+a recorded 2.01× it is required to *refuse*, and returned **`reportable`** over
+the samples. **0 unverified of 154 mounts.** The driver exits non-zero on any of
+these; it exited **0**.
+
+#### Provenance
+
+Whole-tree anchor **`ce31a30b77`**, which is `origin/main` — the measured tree
+and the published tree are the same tree, and the working tree was clean
+(`git status --porcelain` empty) before the run and unchanged by it.
+
+The instrument, all under `implementation/core/test/re_frame/bench/`:
+
+| file | blob | vs the frame-prop run above |
+|---|---|---|
+| `p0_run.cjs` | `ce4f01a9e548dad37513929ea7e03ed0fe909f8f` | moved — one comment line, PR #7939 |
+| `p0_heap.cljs` | `ef9b5adcf0ef81487ddbab43affc2e46f229ffac` | moved — the four seams, PR #7939 |
+| `p0_hicasso.cljs` | `7a91564f59a216ae4c0d13535fdac65b0ef81481` | moved — the two doors, PR #7939 |
+| `p0_reagent.cljs` | `419e166a93526bfb32794fb6236c840068fbd417` | moved — docstring only |
+| `p0_uix.cljs` | `f1aaf9cb1e58a62c8c1429ea66bca8bdd8c76a56` | moved — docstring only |
+| `p0_fixture.cljc` | `de27135ce820229e782b86628c42f7fcca2b899f` | moved — see below |
+| `p0_arms.cljs` | `beced24315f740eede28cf5f32f855ff91bbd854` | — |
+| `p0_harness.cljs` | `e18c2f50d4f5985d7bc81ff99dfd173ae296f82b` | — |
+| `p0_floor.cljs` | `6b61e125f4bd4c479be9438b55d04c1d8d20e601` | — |
+
+**The donor and fixture blobs are NOT byte-identical to the runs this section
+compares against, and that is stated rather than glossed.** Three of them moved
+after 2026-08-04. `p0_reagent.cljs` and `p0_uix.cljs` moved by docstring alone
+(`606bad8445`, re-pointing a superseded owner citation). `p0_fixture.cljc` also
+carries an executable change (`eb17886c5b`, `rf2-2rtt6.140`): `seed-db` gained a
+grid-width arity that **defaults to the published `cells-n`**, and `:p0/fan`'s
+modulus became `(count (:cells db))` where it was the same constant — so every
+caller that passes nothing, the retention ladder included, gets the published
+page to the byte. That is an argument from construction; the *measurement* is
+that both donors and both floors came back on their published anchors, which is
+what actually settles it.
+
+The candidate arm is no longer in a table of its own, because **the candidate
+arm is now the package**. Its doors, under
+`implementation/hicasso/src/re_frame/hicasso/`:
+
+| file | blob |
+|---|---|
+| `impl/mount.cljs` | `ddf06f21e0ae2112031de6f835da389ed6760ec3` |
+| `impl/collector.cljs` | `3876ae023224f670e2cdaa086cf364f5fdbf4844` |
+| `impl/inventory.cljs` | `e1ac96953e7739aa30c8b7bfd7e752bc159fabda` |
+| `../hicasso.cljc` (the facade) | `405646b7bceab6d98d1fdb879932d7913b7f149e` |
+
+Sixteen `impl.*` modules are in the graph, so these four are the doors and not
+the whole arm; the tree anchor above is what pins the rest.
+
+Reproduce:
+
+```
+node implementation/core/test/re_frame/bench/p0_run.cjs --only ladder
+```
+
+(defaults `P0_LADDER_ROUNDS=6 P0_LADDER_RUNGS=0,1,3,7,20 P0_ROOTS=4`; no build
+id was added — the driver rides `:hicasso-bench` through `P0_BUILD` and
+`P0_INIT_FN`, merging `:output-dir` and `:init-fn` onto it, and clears that id's
+cache entry first.)
+
+**Conditions.** 2026-08-12 06:47–06:51 +1000, **one run** of ~3.5 minutes —
+the window's terms are a single invocation, and no second run was taken.
+Captured exit **0**. React 19.2.0, Reagent 2.0.1, UIx 1.4.4, node 24.13.0,
+`:advanced` with `goog.DEBUG false`, headless Chromium via Playwright,
+Windows 11, 24 logical cores. **Box verified quiet before and after**, by two
+readings that cover each other's blind spot: real CPU occupancy
+**4.17% / 3.02%** before and **2.15% / 2.35%** after — summed per-process
+CPU-time deltas over a 5-second window divided by the core count, never
+`LoadPercentage`, which reads 15–20% on this box at a true occupancy under 2% —
+and `\System\Processor Queue Length` **0 on every sample**, which is the
+decisive number because it says whether anything was *waiting* for a core.
+Throughout: 32 node processes (idle MCP servers), 129 chrome, **zero java**,
+~585 processes, ~17.2 GB free, no other worker running and no local gate.
+
+The occupancy is higher than the 1.4–3.0% the 2026-08-04 sections recorded, and
+the reason is visible in the counts: 129 chrome processes against 56, the
+operator's own idle browser. It is recorded rather than corrected for. This is a
+**retained-heap** row and not a clock row, and this page has already priced what
+contention does to it — a deliberately contended trial landed within about
+0.07% of a quiet six-round range, and was still refused as evidence. A box at
+2–4% with an empty run queue is far inside that.
+
+---
+
 ## 7. Anchors, and one that does not fully reproduce
 
 The R=0 rung is here to tie this instrument to the published sub-free rows
