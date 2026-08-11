@@ -366,14 +366,51 @@ that §3.4.1 and §3.4.2 cannot move to `re-frame.hicasso.tool`, because five of
 their eight questions have no answer there, so they stay on
 `re-frame.freehand.tool` until the Freehand tree goes. This deck is the
 browser-lane populated arm of exactly those two sections and has no other
-consumer, and every fact its scenario asserts — the view id, the occurrence key,
-the lowering, the per-row generation, the declared sites — sits in that
-disposition's **none** column. Repointing it would leave a scenario asserting
-facts that cannot exist; removing it while the panel still ships would restore
-the gate-blindness rf2-6pohj closed. So it goes when they go, under rf2-hic-062,
-and it is four artefacts: this source tree, the `:testbeds/freehand-views` build
-id, its port-8036 `:dev-http` entry, and the scenario together with its
-`STAGED_SURFACES` wiring.
+consumer.
+
+**Five of the nine facts its scenario asserts are the ones with no answer**, and
+they are the five this section describes above as the deck's reason for
+existing: the view id each row names, the occurrence key (both as row identity
+and as three freshly minted keys across a remount), the stated lowering, the
+per-row generation the tag prints, and the Declared View Sites section with its
+three manifest arms. **The remaining four are not**, and the record must not say
+they are — the frame carries across, the commit's reads degrade to a live edge
+set, the absent schema banner tests a Freehand-door read Hicasso does not
+publish, and the reactively-driven repaint is a substrate fact rather than one of
+§3.4's questions. So a re-point would leave a deck still asserting something; it
+is the five that make what it asserted stop being a populated ROSTER, and what
+survives is already rendered whole by the Hicasso tab. Removing it while the
+panel still ships would instead restore the gate-blindness rf2-6pohj closed.
+
+**So it goes when they go, under rf2-hic-062 — and it is EIGHT artefacts, not
+four.** Four are the deck; four more name it by build id or by scenario name
+from outside it. Exactly one reds a gate. The other seven go quietly stale,
+which is why this is a written checklist rather than a grep.
+
+| # | Artefact | The retirement pass | If left behind |
+|---|---|---|---|
+| 1 | `tools/xray/testbeds/freehand_views/` — `core.cljs` and `index.html` | delete the tree | dead source under a build id that is also going |
+| 2 | the `:testbeds/freehand-views` build in `implementation/shadow-cljs.edn` | delete the build map | a build compiling a deleted tree |
+| 3 | its port-8036 `:dev-http` entry in `implementation/shadow-cljs.edn` | delete the entry, freeing the 803x slot | a served root that no longer exists |
+| 4 | the `freehand-views populated Views roster` scenario and its `STAGED_SURFACES` entry in `tools/xray/testbeds/feature_matrix/scenarios.cjs` | delete both | **reds the PR smoke gate** against a panel that is gone |
+| 5 | the `DEV_HTTP` entry and the port-band comment in `implementation/scripts/dev-testbed.cjs` | delete both | the launcher advertises a URL for a build id shadow-cljs no longer knows — silently, because the drift guard in `dev-testbed.test.cjs` runs shadow-cljs → `DEV_HTTP` and never the reverse |
+| 6 | the build→URL row in `implementation/README.md` | delete the row | a documented testbed nobody can start |
+| 7 | the canonical covered-row pin in `coverage_matrix_metadata_test.clj` | drop it by one and rewrite its `12 -> 13` note | **RED, and the only one.** This scenario is the sole claimant of the `Mounted view reads (Freehand tool door, rf2-7gth0)` row, so the count moves the moment it goes |
+| 8 | the PR-smoke enumeration in `.github/workflows/test.yml` | drop the deck from the named list: 5 scenarios → 4, 4 staged surfaces → 3, 4 bundles → 3, and 12 → 11 in the nightly sweep | a comment naming a scenario that no longer exists |
+
+Beyond the eight, three re-reads rather than removals. The dated aggregate
+costings in `implementation/scripts/serve-and-run-xray-feature-gate.cjs` and in
+this document's own opening move with row 8's numbers, but neither names the
+deck and both already carry the date they were measured, so re-date them rather
+than treat them as breakage. [`027-Hicasso-Evidence.md`](027-Hicasso-Evidence.md)
+records that this deck's build id, port and scenario slot free up together at
+rf2-hic-062 — true, and written about the moment rather than outliving it. And
+the reactively-driven repaint above is the only browser-level proof that
+`:adapter/activate-derived-value!` holds end to end in a real DOM, while
+`re-frame.hicasso.impl.collector` calls that hook as well as the Freehand
+observation port does — so it is the one asserted fact whose MECHANISM outlives
+the deck, and the pass should confirm the surviving caller keeps a witness
+rather than assume the proof retires with the Freehand cells.
 
 ## Cross-references
 

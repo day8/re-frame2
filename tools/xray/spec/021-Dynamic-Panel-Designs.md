@@ -974,26 +974,50 @@ that moment: a Hicasso host's boundaries, reads, intents and explanations are
 answered in full by the Hicasso tab, and what disappears is exactly the set of
 questions only a view registry could have answered.
 
-**The staged `freehand-views` deck inherits this disposition, and retiring it is
-four artefacts rather than one** (rf2-u5b4, against census rows X6/X7/X8). The
-deck exists for no purpose other than putting real connected occurrences in
-front of §3.4.1 and §3.4.2, so it cannot be migrated separately: every fact its
-scenario asserts is one the table above puts in the **none** column — the view
-id, the occurrence key, the lowering, the per-row generation and the whole
-Declared View Sites section — leaving it nothing to assert but the frame and a
-read set scoped to the live boundary rather than to the commit. Nor can it go
-early: retiring it while the panel still ships would restore the gate-blindness
-rf2-6pohj closed, an empty roster and a roster emptied by a broken read being
-the same DOM. What goes with §3.4.1 and §3.4.2 is therefore
+**The staged `freehand-views` deck inherits this disposition** (rf2-u5b4,
+against census rows X6/X7/X8). It exists for no purpose other than putting real
+connected occurrences in front of §3.4.1 and §3.4.2, so it cannot be migrated
+separately — but the reason is FIVE of its assertions rather than all of them,
+and the distinction is worth stating precisely, because an absolute here would
+be false and would make the disposition read as special pleading.
+
+Its scenario asserts nine facts. **Five are identity or declaration facts, and
+every one of them sits in the table's none column**: the view id each row names,
+the occurrence key (asserted twice — as a row's identity, and as three freshly
+minted keys after a remount), the stated lowering (one interpreted against two
+compiled), the per-row generation the tag prints, and the whole Declared View
+Sites section with its three manifest arms. Those five are the deck's entire
+subject, because a populated roster IS identity plus declaration: re-pointed at
+the target, the scenario would have nothing left to be the populated arm OF.
+
+**The other four are not in that column.** The frame carries across unchanged.
+The commit's reads degrade rather than vanish, to the boundary's live edge set.
+The absent schema banner tests the Freehand door's version stamp, which the
+four-read Hicasso door does not publish at all, so it has no counterpart even to
+degrade to. And the reactively-driven repaint (rf2-2t126) is not one of §3.4's
+questions in the first place: it is a substrate fact about a Freehand `ViewCell`
+being notified through `:adapter/activate-derived-value!`. None of the four
+rescues the deck — the frame and the read set are already rendered whole by
+[`027-Hicasso-Evidence.md`](027-Hicasso-Evidence.md)'s tab, so a deck kept alive
+to re-assert them would be a second witness to a covered fact and no witness at
+all to the five that matter.
+
+Nor can it go early: retiring it while the panel still ships would restore the
+gate-blindness rf2-6pohj closed, an empty roster and a roster emptied by a broken
+read being the same DOM.
+
+**Retiring it is EIGHT artefacts, not four.** Four are the deck itself —
 `tools/xray/testbeds/freehand_views/`, the `:testbeds/freehand-views` build id
 and its port-8036 `:dev-http` entry (both in top-level
 `implementation/shadow-cljs.edn`), and the PR-smoke `freehand-views populated
 Views roster` scenario in `tools/xray/testbeds/feature_matrix/scenarios.cjs`
-together with its `STAGED_SURFACES` entry. A pass that takes the two sections
-and the `deps.edn` coordinate but leaves those behind reds the PR gate on a
-scenario whose panel no longer exists.
-[`017-Test-Coverage-Matrix.md`](017-Test-Coverage-Matrix.md) carries the deck's
-own record.
+together with its `STAGED_SURFACES` entry. Four more name the deck by build id
+or by scenario name from outside it, and exactly one of the eight reds a gate;
+the other seven fail silent, which is why
+[`017-Test-Coverage-Matrix.md`](017-Test-Coverage-Matrix.md) carries the whole
+checklist as part of the deck's own record rather than leaving it to a grep. A
+pass that takes the two sections and the `deps.edn` coordinate but leaves the
+deck behind reds the PR gate on a scenario whose panel no longer exists.
 
 ### §3.5 Queries
 
