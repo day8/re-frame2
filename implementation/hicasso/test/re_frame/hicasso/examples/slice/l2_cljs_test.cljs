@@ -64,7 +64,7 @@
 
 (deftest a-feed-row-links-through-routing-and-never-builds-a-url
   (let [a (tagged (row-tree {}) :a)]
-    (is (= "/article/intents" (:href (ht/attrs a)))
+    (is (= "/slice/article/intents" (:href (ht/attrs a)))
         "the href is the routing artefact's own synthesis — `views` names
          no URL anywhere, and this is the assertion that says so")
     (is (= "Intents are data" (ht/text a)))
