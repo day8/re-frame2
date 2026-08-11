@@ -499,5 +499,49 @@ Adding it moved six governance pins, each of which fails the build on drift:
 | `re-frame.hicasso.evidence-schema-cljs-test` | node | every shape in which a projection would claim more than it knows is refused, each with a positive control |
 | `re-frame.hicasso.tool-reads-cljs-test` | node (reactive substrate) | the four reads over real committed boundaries; the seeded-value privacy witness for a return value AND for a query argument; two frames sharing a sub id with asymmetric windows; the dispatch-ordered, fragment-merged intent stream; determinism; the production-nil arm |
 | `…panels.hicasso-helpers-cljs-test` | node + JVM | the five absences and the empties are pairwise distinct — including the four per-view empties; labels and testids are built from the projected key; a row key carries the WHOLE projected identity, so two frames' boundaries over one query do not collide; two query variants do not collapse; the key is INJECTIVE as a property over a generated space of 9261 identities, 10162 boundary keys and 441 intent rows, with a non-vacuity control that the space still defeats a lossy slug; the superseded v1 stamp is refused rather than mis-parsed; the schema pin; row projections |
-| `…panels.hicasso-cljs-test` | node (reactive substrate) | the four views answer on a running app; the loss states render under distinct testids, driven between two real window states; a sensitive query argument reaches neither the page nor a testid; the Reads and Why rows carry the frame on the page and in the testid; each view renders its own empty; both the superseded and an unknown stamp render the mismatch; the seam reshapes nothing |
+| `…panels.hicasso-cljs-test` | node (reactive substrate) | the four views answer on a running app; the populated roster arrives on a real `:rf.xray/trace-buffer` tick with no cache clear, against a held reaction proved stale first; the loss states render under distinct testids, driven between two real window states; a sensitive query argument reaches neither the page nor a testid; the Reads and Why rows carry the frame on the page and in the testid; each view renders its own empty; both the superseded and an unknown stamp render the mismatch; the seam reshapes nothing |
+| `frame_singleton_guard_test` | JVM (source text) | the sub-strip dispatches through the `reg-view`-injected frame-bound `dispatch`, never a bare global one |
 | `feature_matrix/scenarios.cjs` | browser | the tab reaches a real panel root in the shell sweep |
+
+### Why the populated arms have no browser row
+
+The browser lane sees this tab in one state. The shell sweep clicks `:hicasso`
+on the counter surface, which is not a Hicasso application, so the root it
+asserts is holding the `absent` note. That is the whole of the tab's browser
+coverage, and it is a decision rather than an unfilled gap.
+
+**The tab is one of four on the same footing.** Resources, Graph, Modules and
+Hicasso are documented exclusions from the panel gallery, with their coverage
+ruled to be the feature-matrix shipped-surface sweep plus their own per-panel
+CLJS unit tests (`panel_gallery/core.cljs` §Intentional gallery exclusions).
+`panel_gallery_inventory_smoke_cljs_test` fails the build if that partition
+drifts. Of the four, Hicasso has much the strongest unit lane.
+
+**Nothing about the populated rendering is out of that lane's reach.**
+`hicasso_cljs_test` mounts real boundaries through the real commit seam under a
+reactive substrate and stubs nothing between the runtime and the hiccup — its
+two `with-redefs` synthesise the loss arms and touch no populated path. Narrow
+the populated path and it reds: the roster's two-instance fold, both edge
+labels, the fan-out counts, the frame on the row and in its testid, the
+redaction of a sensitive query argument from both the text and the testids, and
+the two loss chips driven between two genuinely different window states.
+
+**What a browser is genuinely the authority on is held elsewhere.** That
+`Panel` mounts and routes under real React in the real chrome is the shell-sweep
+row above. That the sub-strip dispatches through the frame-bound `dispatch` is
+held by `frame_singleton_guard_test`, a source-text guard over every panel —
+broader than a per-panel click and cheaper. Liveness was the one property
+nothing asserted, and it needed no browser either: `:rf.xray/trace-buffer` is an
+ordinary app-db slot written by an ordinary dispatch, so the tick is drivable in
+Node, and the trace-tick row now drives it against a held reaction it proves
+stale first.
+
+**And the row would not be one assertion.** No surface staged in
+`feature_matrix/scenarios.cjs` is a Hicasso host, so a populated arm needs a new
+deck, a new `implementation/shadow-cljs.edn` build id and a new `:dev-http`
+port — the shape rf2-6pohj built for the Views panel. If that deck is ever
+wanted its moment is rf2-hic-062, because `testbeds/freehand-views` exists
+solely to give the Views panel a populated roster, that panel retires with the
+Freehand tree (`021-Dynamic-Panel-Designs.md` §3.4.3), and its build id, port
+and scenario slot free up together. This tab is the survivor of that
+disposition, not a casualty of it.

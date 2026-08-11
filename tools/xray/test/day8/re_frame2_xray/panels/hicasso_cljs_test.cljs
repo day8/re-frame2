@@ -159,6 +159,31 @@
     (refresh!)
     (hicasso/Panel)))
 
+(defn- render-now
+  "Render the panel the way the RUNNING shell renders it — no `refresh!`.
+
+  Every other row here reaches the runtime through `show!`, and `show!`
+  drops Xray's sub cache first. That is a harness mechanism; the shipped
+  panel has no such thing. This one renders against whatever the held
+  reaction currently answers, which is the only way to ask whether the tab
+  is a live projection or a screenshot of one."
+  []
+  (rf/with-frame :rf/xray (hicasso/Panel)))
+
+(defn- tick-trace!
+  "One trace-buffer tick, delivered the way the collector delivers it.
+
+  `trace-collector/refresh-trace-rings!` dispatches
+  `:rf.xray/sync-trace-buffer` with its snapshot on every coalesced task
+  drain; `:rf.xray/trace-buffer` reads the slot that dispatch writes
+  (rf2-43koh). Dispatching it directly is therefore the collector's own
+  seam, not a stand-in for it."
+  []
+  (rf/with-frame :rf/xray
+    (rf/dispatch-sync [:rf.xray/sync-trace-buffer
+                       [{:id 1 :op-type :rf.event
+                         :operation :rf.event/dispatched :tags {}}]])))
+
 ;; ---------------------------------------------------------------------------
 ;; Registration
 ;; ---------------------------------------------------------------------------
@@ -375,6 +400,47 @@
                         (string/includes? % "hicasso-tab-app"))
                   ids))))
     (release)))
+
+;; ---------------------------------------------------------------------------
+;; AND THEY KEEP ANSWERING AS THE APPLICATION RUNS
+;; ---------------------------------------------------------------------------
+
+(deftest the-populated-roster-arrives-on-the-TRACE-TICK-and-not-on-a-cache-clear
+  ;; rf2-r98a. The populated arms above are all reached through `show!`,
+  ;; and `show!` drops Xray's sub cache first. So every one of them proves
+  ;; what the panel renders GIVEN a fresh projection, and none of them
+  ;; proves the projection ever refreshes on its own — the tab's liveness
+  ;; was a comment on `:rf.xray.hicasso/data` and nothing else.
+  ;;
+  ;; That is the property a browser row was proposed for, and it does not
+  ;; need one. The tab is live because the sub composes off
+  ;; `:rf.xray/trace-buffer`, and that signal is an ordinary app-db slot
+  ;; written by an ordinary dispatch, so the tick is drivable right here.
+  ;;
+  ;; The middle assertion is the load-bearing one. Hicasso's tables are
+  ;; process-global rather than part of Xray's app-db, so a mount moves
+  ;; nothing the held reaction watches — which is precisely why a panel
+  ;; wired to no tick at all would sit on an empty roster forever while
+  ;; the application it is inspecting mounts boundaries. Without that
+  ;; control the last assertion would pass on a reaction that had simply
+  ;; never been computed before the tick.
+  (setup!)
+  (let [empty-testid "rf-xray-hicasso-empty-mounted"]
+    (is (contains? (testids (show! :mounted)) empty-testid)
+        "the projection is computed and HELD while nothing is mounted")
+    (let [release (mount! (fn [_] (h/sub [:htab/left]) nil))]
+      (is (contains? (testids (render-now)) empty-testid)
+          "NON-VACUITY: a real mount alone leaves the held reaction stale,
+           so the tick below is the only thing that can move this roster")
+      (tick-trace!)
+      (let [ids (testids (render-now))]
+        (is (contains? ids "rf-xray-hicasso-mounted")
+            "the trace tick re-fired the projection and the roster arrived —
+             with no cache clear anywhere in this test")
+        (is (not (contains? ids empty-testid))
+            "and the empty note is gone, so the roster replaced it rather
+             than rendering beside it"))
+      (release))))
 
 ;; ---------------------------------------------------------------------------
 ;; THE LOSS STATES ARE DISTINGUISHABLE ON THE PAGE
