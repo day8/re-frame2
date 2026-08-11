@@ -15,11 +15,15 @@
 
   ## The instrument, and what it can and cannot see
 
-  `re-frame.hicasso.impl.collector/body-runs` counts bodies React
+  [[re-frame.hicasso.test.mounted/bodies-run]] counts bodies React
   actually ran — a `React.memo` bail-out shows up as an increment that
   did not happen, so it measures adoption rather than inferring it from
-  the comparator. A test may reach it; the applications may not, and
-  `examples.witness-surface-cljs-test` is what says so.
+  the comparator. It is the kit's door onto the runtime's own always-on
+  counter (rf2-5mxe); this file read that counter directly until the door
+  existed, which was allowed — the fence in
+  `examples.witness-surface-cljs-test` is over APPLICATION namespaces —
+  but left the application's own witness naming an internal to state a
+  budget the specification states.
 
   **It cannot see a props compare.** That matters for reading the table
   below honestly: the guide's coarse shape with SCALAR props runs the
@@ -59,7 +63,6 @@
             [re-frame.hicasso.examples.grid.events :as events]
             [re-frame.hicasso.examples.grid.subs :as subs]
             [re-frame.hicasso.examples.grid.views :as views]
-            [re-frame.hicasso.impl.collector :as collector]
             [re-frame.hicasso.test.mounted :as hm]
             [re-frame.test-support :as test-support]))
 
@@ -158,14 +161,6 @@
   (.dispatchEvent n (js/Event. "input" #js {:bubbles true}))
   nil)
 
-(defn- bodies-run
-  "How many boundary bodies ran while `f` did — a delta, because the
-  counter is monotone and page-wide."
-  [f]
-  (collector/reset-body-runs!)
-  (f)
-  (collector/body-runs))
-
 (defn- amplification
   "The bodies one keystroke into cell `[row col]` runs, on a grid of
   `dimensions` built from `form`."
@@ -177,7 +172,7 @@
               (nth (array-seq (.querySelectorAll (:container m) "input"))
                    (+ (* row (:cols dimensions)) col)))]
     (try
-      (bodies-run #(do (type-into! n "1") (hm/settle! m)))
+      (hm/bodies-run #(do (type-into! n "1") (hm/settle! m)))
       (finally (hm/unmount! m)))))
 
 ;; ---------------------------------------------------------------------------
@@ -219,7 +214,7 @@
         ;; dispatch rather than on every changed READ would answer 2 here.
         (let [m (mount-grid! full)
               n (cell-node m 3 4)]
-          (is (= 0 (bodies-run #(do (type-into! n "x") (hm/settle! m))))
+          (is (= 0 (hm/bodies-run #(do (type-into! n "x") (hm/settle! m))))
               "a refusal notifies nothing, because the subscription's
                equality gate stops a value that did not move")
           (is (= "34" (.-value n))
@@ -231,7 +226,7 @@
     (if-not (browser?)
       (skip! "the broad contrast")
       (let [m (mount-grid! full)]
-        (is (= 11 (bodies-run #(hm/dispatch-and-settle! m [::events/clear-row {:row 2}])))
+        (is (= 11 (hm/bodies-run #(hm/dispatch-and-settle! m [::events/clear-row {:row 2}])))
             "ten cells and one total. The narrow number has something to
              be narrow COMPARED TO, and the same topology produces both —
              work follows the data, in either direction")

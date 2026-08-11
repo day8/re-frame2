@@ -150,7 +150,10 @@
 
   ## Scope
 
-  Dev/test only, and a browser tier: every door needs a real document.
+  Dev/test only, and a browser tier: every DRIVING door needs a real
+  document. The two page-wide readers do not — [[census]] and
+  [[bodies-run]] read runtime tables — but a reading is only worth what
+  built the page it describes, so both belong beside a mount all the same.
   Like `re-frame.hicasso.test` it lives in the kit's own source root
   (`hicasso/test_kit/src`), outside the artefact's published `:paths`, so
   nothing in a production bundle can reach it."

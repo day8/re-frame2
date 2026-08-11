@@ -20,23 +20,19 @@
   numbers from this application. Two of those five are counted here:
   `l0-cljs-test/one-keystroke-moves-exactly-one-address` is the write,
   and [[the-per-keystroke-body-count-is-one-and-does-not-grow]] is the
-  body count, read off `impl.collector/body-runs`.
+  body count, read off [[re-frame.hicasso.test.mounted/bodies-run]].
 
-  **That counter is an internal, and this test reaching it is a finding
-  rather than a convenience.** There is no public or test-kit door that
-  answers *how many boundary bodies ran*. `hm/census` counts cells,
-  edges and boundaries — residue, not work — and the Spec 009 render
-  measures are compiled out unless `re-frame.performance/enabled?`, which
-  no PR-lane build sets. So the one instrument for the budget the
-  specification states is `re-frame.hicasso.impl.collector/body-runs`,
-  and an application's own witness cannot measure its own budget without
-  reaching past the door it is evidence about. Reported by rf2-hic-078;
-  rf2-hic-045 and rf2-hic-071 both need it.
-
-  A test may make that reach — the fence in
-  `examples.witness-surface-cljs-test` is over APPLICATION namespaces,
-  and a test is allowed past a door the application may not. The
-  application itself names nothing but the door.
+  **That door is the kit's, and it used to be an internal's.** This file
+  read `impl.collector/body-runs` directly, because nothing else answered
+  *how many boundary bodies ran*: `hm/census` counts cells, edges and
+  boundaries — residue, not work — and Spec 009's render measures are
+  compiled out unless `re-frame.performance/enabled?`, which no PR-lane
+  build sets. A test is ALLOWED that reach (the fence in
+  `examples.witness-surface-cljs-test` is over APPLICATION namespaces),
+  so this was never a breach; it was an application's own witness unable
+  to state its budget in the vocabulary of the facade that mounted it.
+  Reported by rf2-hic-078, closed by rf2-5mxe, and rf2-hic-045 and
+  rf2-hic-071 both read the same door.
 
   ## Typing is a real DOM event, not a dispatch
 
@@ -53,7 +49,6 @@
             [re-frame.hicasso.examples.editor.events :as events]
             [re-frame.hicasso.examples.editor.subs :as subs]
             [re-frame.hicasso.examples.editor.views :as views]
-            [re-frame.hicasso.impl.collector :as collector]
             [re-frame.hicasso.test.mounted :as hm]
             [re-frame.test-support :as test-support]))
 
@@ -282,14 +277,6 @@
 ;; The per-keystroke body count — §13's second number
 ;; ---------------------------------------------------------------------------
 
-(defn- bodies-run
-  "How many boundary bodies ran while `f` did. A DELTA, because the
-  counter is monotone and page-wide."
-  [f]
-  (collector/reset-body-runs!)
-  (f)
-  (collector/body-runs))
-
 (deftest the-per-keystroke-body-count-is-one-and-does-not-grow
   (if-not (browser?)
     (skip! "a body count needs bodies")
@@ -298,14 +285,14 @@
       ;; The FIRST keystroke of an editing session moves `::subs/dirty?`
       ;; too, so the button row runs with the field. That is the ordinary
       ;; second body run and it is named rather than tuned away.
-      (let [first-burst (bodies-run #(do (type-into! n "a") (hm/settle! m)))]
+      (let [first-burst (hm/bodies-run #(do (type-into! n "a") (hm/settle! m)))]
         (is (= 2 first-burst)
             "the field and the button row — `::subs/dirty?` goes false to
              true exactly once per session"))
 
       (testing "and every keystroke after it runs ONE body"
         (doseq [ch ["b" "c" "d"]]
-          (is (= 1 (bodies-run #(do (type-into! n ch) (hm/settle! m))))
+          (is (= 1 (hm/bodies-run #(do (type-into! n ch) (hm/settle! m))))
               (str "typing " ch " ran a body that was not the title
                     field's. Four controls are on this page and three of
                     them read addresses this keystroke did not move; the
@@ -314,12 +301,12 @@
 
       (testing "including the field that normalises — a policy is not a cost"
         (let [slug (field-node m :slug)]
-          (is (= 1 (bodies-run #(do (type-into! slug "z") (hm/settle! m)))))))
+          (is (= 1 (hm/bodies-run #(do (type-into! slug "z") (hm/settle! m)))))))
 
       (testing "the count is a property of the TOPOLOGY, not of the form's size"
         ;; The editor has four controls. `grid.scaling-dom-cljs-test`
         ;; runs the same measurement over a hundred, and gets the same
         ;; answer — which is the sentence specification §6 asks for.
-        (is (= 1 (bodies-run #(do (type-into! n "e") (hm/settle! m))))))
+        (is (= 1 (hm/bodies-run #(do (type-into! n "e") (hm/settle! m))))))
 
       (hm/unmount! m))))
