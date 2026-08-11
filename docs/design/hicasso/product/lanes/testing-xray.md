@@ -18,7 +18,7 @@ The L2 harness is not a JVM renderer or alternate execution semantics. It invoke
 
 Before defining another schema, audit the existing versioned structural-tree and Spec-011 assertion utilities and reuse compatible data/helpers only; do not inherit another renderer, SSR authority, or simulated React lifecycle. Hooks, `n/$` results, native components, and raw/foreign hosts are opaque and refuse with a pointer to L3. Missing fixtures refuse; they are never replaced with fake React dispatchers.
 
-The mounted facade should provide isolated-frame `mount!`, `hydrate!`, `render!`, `dispatch-and-settle!`, `settle!`, `unmount!`, and `assert-clean!`. It should interoperate with Testing Library and user-event instead of introducing another selector language. Cleanup unmounts, waits for Hicasso quiescence, compares residue with the pre-mount baseline, and only then resets.
+The mounted facade should provide isolated-frame `mount!`, `hydrate!`, `render!`, `dispatch-and-settle!`, `settle!`, `advance-clock!`, `unmount!`, and `assert-clean!`. It should interoperate with Testing Library and user-event instead of introducing another selector language. Cleanup unmounts, waits for Hicasso quiescence, compares residue with the pre-mount baseline, and only then resets.
 
 Every witness names the equality it proves. Authored-data equality, semantic assertion-tree equality, canonical DOM, intent streams, React server bytes, and hydrated browser behavior are distinct claims. A normalized tree is never a proxy for hydration-wire parity, and L2 never claims React lifecycle parity.
 

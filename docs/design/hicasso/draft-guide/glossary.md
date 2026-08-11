@@ -559,8 +559,8 @@ Related: [Testing](14-testing.md#l2--the-semantic-harness).
 ### **mounted facade**
 
 `re-frame.hicasso.test.mounted` (alias `hm`). L3 helpers: isolated-frame
-mount, hydrate, rerender, dispatch-and-settle, settle, unmount,
-`assert-clean!` (residue vs pre-mount baseline after quiescence).
+mount, hydrate, rerender, dispatch-and-settle, settle, advance-clock,
+unmount, `assert-clean!` (residue vs pre-mount baseline after quiescence).
 
 Related: [Testing](14-testing.md#l3--the-mounted-facade).
 

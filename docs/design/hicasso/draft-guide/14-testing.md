@@ -212,7 +212,7 @@ and a residue guarantee:
 | `hm/rerender!` | renders a new element into the same root — for props-change tests |
 | `hm/dispatch-and-settle!` | dispatches into the mount's frame and returns once [Hicasso](glossary.md#hicasso) and React are quiescent |
 | `hm/settle!` | waits for quiescence after outside stimulation — a user-event pointer or keyboard sequence |
-| `hm/advance-clock!` | moves this mount's virtual clock forward by `ms` and runs everything that falls due on the way, with `setTimeout`, `setInterval` and `Date.now` moving in lockstep; needs `{:clock true}` on the `mount!` that made the handle, and throws without it |
+| `hm/advance-clock!` | moves this mount's virtual clock forward by `ms` and runs everything that falls due on the way, with `setTimeout`, `setInterval` and `Date.now` moving in lockstep; needs `{:clock true}` on the `mount!` or `hydrate!` that made the handle, and throws without it |
 | `hm/unmount!` | tears the root down |
 | `hm/assert-clean!` | after unmount: compares exact post-quiescence residue with the pre-mount baseline, reports, then resets; answers a promise of the report |
 

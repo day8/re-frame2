@@ -318,7 +318,7 @@ Ship a supported `re-frame.hicasso.test` namespace with a deliberately layered c
 
 L2 is an assertion model, not a renderer or React-parity oracle. It invokes one hook-free body under a discardable resolver and expands no children of its own: a nested Hicasso boundary is recorded as the CALL it is — its view id, the props the call site passed and the children the call site wrote — and its body does not run, so the node claims nothing about what that child would render. A test may name the body function or write the minted `defview` head: the mint attaches the body to the head under one dev-only own property — no registry and no map — so a harness that runs no hook can reach it, and an `:advanced` build with `goog.DEBUG` false carries no such property and refuses a minted head there. Hosts, raw React, hooks, identity, lifecycle, Suspense, and errors are opaque/L3; missing fixtures and escaped reads refuse.
 
-The mounted facade provides isolated-frame mount, hydrate, rerender, dispatch-and-settle, settle, unmount, and assert-clean. Cleanup waits for quiescence and compares residue with the pre-mount baseline before reset.
+The mounted facade provides isolated-frame mount, hydrate, rerender, dispatch-and-settle, settle, advance-clock, unmount, and assert-clean. Cleanup waits for quiescence and compares residue with the pre-mount baseline before reset.
 
 Every important gate has a negative or sabotage control so an accidentally empty population cannot pass. Apply the canonical native-tier checklist around native extraction, add migration-shadow tests for Reagent conversions, and run a bounded schema-driven generative spike for state/intent sequences.
 
