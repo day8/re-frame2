@@ -189,14 +189,94 @@
             author never claimed"
     (is (= "client-only" (.-server (n/marker probe)))))
 
-  (testing "and an explicit `{:server :render}` is recorded. Narrowing
-            caught: ignoring the declaration map entirely, which would
-            pass the default row above"
+  (testing "and an explicit `{:server :render}` is RECORDED — and recorded
+            is the whole of what this row claims (rf2-u9lk). **The policy
+            is not yet consulted**: nothing in this tier branches on the
+            field, because `adversarial-risks.md` defers native-surface
+            risks to Phase 3 and the server half of the declaration goes
+            with them. When a server path arrives, the row that covers it
+            asserts the EFFECT — bytes emitted or withheld — and this one
+            keeps its narrower subject. Narrowing caught: ignoring the
+            declaration map entirely, which would pass the default row
+            above"
     (is (= "render" (.-server (n/marker server-rendered)))))
 
   (testing "a plain function carries no marker, which is what makes the
             marker a discriminator rather than a decoration"
     (is (nil? (n/marker (fn [_]))))))
+
+(deftest the-declaration-map-is-checked-against-a-key-roster-and-a-value-roster
+  (testing "THE KEY ROSTER. `{:ssr :render}` is the `defhost` spelling on
+            the sibling door and the mistake an author is likeliest to
+            make, and it used to mint clean and stamp Client-only —
+            `mint-host!`'s own message is the ruling this repairs:
+            *reading past an option it does not know is how a policy comes
+            to be set and never applied*"
+    (let [d (refusal #(n/declared-server "app/x" {:ssr :render}))]
+      (is (= :rf.error/hicasso-native-unknown-option (:rf.error/id d)))
+      (is (= :declare-the-server-policy (:recovery d)))
+      (is (= :ssr (:option d)))
+      (is (= #{:server} (:options d))
+          "and the message hands back the roster rather than describing it")))
+
+  (testing "a typo in the key is the same fault and takes the same
+            refusal, which is the point of a roster over a spell-check"
+    (is (= :rf.error/hicasso-native-unknown-option
+           (:rf.error/id (refusal #(n/declared-server "app/x" {:sever :render})))))
+    (is (= :rf.error/hicasso-native-unknown-option
+           (:rf.error/id (refusal #(n/declared-server "app/x"
+                                                      {:server :render :fallback [:div]}))))
+        "an EXTRA key beside a legal one still vanished silently before"))
+
+  (testing "THE VALUE ROSTER. `{:server :rendr}` was stamped as the string
+            \"rendr\" and read back by `n/marker` as \"rendr\" — a policy
+            no reader could ever match, recorded with no complaint"
+    (let [d (refusal #(n/declared-server "app/x" {:server :rendr}))]
+      (is (= :rf.error/hicasso-native-bad-server-policy (:rf.error/id d)))
+      (is (= :declare-client-only-or-render (:recovery d)))
+      (is (= :rendr (:server d)))))
+
+  (testing "an explicit nil is a VALUE and not an absence — the roster
+            reads it as one, exactly as `declared-ssr` does one tier down,
+            because inferring the default from nil is how a typo becomes a
+            policy"
+    (is (= :rf.error/hicasso-native-bad-server-policy
+           (:rf.error/id (refusal #(n/declared-server "app/x" {:server nil}))))))
+
+  (testing "and `defhost`'s third form is NOT a value here. A fallback is
+            markup a GATE component renders in the crossing's place, and a
+            native component has no gate: it is its own element type"
+    (is (= :rf.error/hicasso-native-bad-server-policy
+           (:rf.error/id (refusal #(n/declared-server "app/x"
+                                                      {:server {:fallback [:div]}}))))))
+
+  (testing "the two legal shapes are untouched, and an absent map is the
+            conservative default rather than an error"
+    (is (= :client-only (n/declared-server "app/x" nil)))
+    (is (= :client-only (n/declared-server "app/x" {})))
+    (is (= :client-only (n/declared-server "app/x" {:server :client-only})))
+    (is (= :render (n/declared-server "app/x" {:server :render})))))
+
+(deftest the-macro-reaches-the-roster-rather-than-reading-past-it
+  (testing "the fault this whole bead is about is a check nothing calls,
+            so the routing is asserted rather than assumed: a declaration
+            written through `n/defcomponent` itself refuses, at LOAD, from
+            inside the extent `declaring!` opened — which is what puts the
+            author's own file and line on the refusal"
+    (let [d (refusal (fn [] (n/defcomponent minted-with-a-bad-option
+                              {:ssr :render}
+                              [^js _props]
+                              nil)))]
+      (is (= :rf.error/hicasso-native-unknown-option (:rf.error/id d)))
+      (is (= 're-frame.hicasso.native/defcomponent (:where d)))
+      (is (= "re-frame.hicasso.native-fence-cljs-test/minted-with-a-bad-option"
+             (:view d))
+          "the ambient view comes from the ledger the emitted `declaring!`
+           wrote, so the refusal names the declaration rather than the
+           macro")
+      (is (pos-int? (:line (:source d)))
+          "and the coordinate with it — a refusal raised at macroexpansion
+           would carry neither"))))
 
 (deftest the-declaration-captures-its-source-coordinate
   (testing "rf2-hic-007's coordinate, captured by the macro from its own
