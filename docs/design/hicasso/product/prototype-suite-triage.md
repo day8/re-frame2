@@ -20,25 +20,44 @@ Three verdicts, defined once:
 **13 PORT (5,108 lines) · 9 RE-AUTHORED (3,236) · 47 STAYS (19,691).** The three sum to 69 files and
 28,035 lines; every suite is named exactly once below, and line counts are `wc -l`.
 
-**Two rows have moved since, and the counts below are the census as it landed rather than the
+**Four rows have moved since, and the counts below are the census as it landed rather than the
 standing verdict.** rf2-b6ja found that `arm1/host_ssr_dom_cljs_test` (670) and
-`arm1/fallback_contents_cljs_test` (376) were parked in STAYS on a block that does not exist, so the
-standing verdict is **15 PORT (6,154) · 9 RE-AUTHORED (3,236) · 45 STAYS (18,645)** — still 69 files
-and 28,035 lines. Both rows keep their single home in STAYS (vi), where the bullet now carries the
-PORT verdict and the correction; see
-[The three sequencing questions, settled](#the-three-sequencing-questions-settled). **Both have
+`arm1/fallback_contents_cljs_test` (376) were parked in STAYS on a block that does not exist. STAYS
+(vi) then records two more corrections of the same shape: `front/codec_cljs_test` (1,593) and
+`arm1/raw_escape_dom_cljs_test` (403) were parked on the slot-corpus block, which rf2-b6ja settled
+as well, and both are marked **PORT, executed** in their own bullets. So the standing verdict is
+**17 PORT (8,150) · 9 RE-AUTHORED (3,236) · 43 STAYS (16,649)** — still 69 files and 28,035 lines.
+All four keep their single home in STAYS (vi), where each bullet carries the PORT verdict and the
+correction; see
+[The three sequencing questions, settled](#the-three-sequencing-questions-settled). **All four have
 since been ported** (PR #7842); a verdict says where a suite belongs, so executing one changes no
 count here.
+
+The original **13 PORT (5,108) · 9 RE-AUTHORED (3,236) · 47 STAYS (19,691)** above is the dated
+census and stays as written — the two figures answer different questions, and this document's
+convention is that a census is never rewritten by a later correction.
 
 **And every count in this document is a dated census, not a live inventory.** It was taken over 69
 files; read on `origin/main` at 2026-08-11 the bench tree holds **63** of them (25,268 lines). The
 six `front/*` rows — the first wave the PORT table's sequencing paragraph names — have gone, and the
 arithmetic closes exactly: their six line counts sum to 2,767, and 28,035 − 2,767 = 25,268. The two
-`:ssr` rows have since gone the same way (rf2-c78g), taking the tree to **61** files and 24,222
-lines — 25,268 − 670 − 376. The counts are deliberately left at their census values rather than
+`:ssr` rows have since gone the same way (rf2-c78g), taking the tree to **61** files and **24,223**
+lines. And the nine of
+[The nine ports whose originals still stand](#the-nine-ports-whose-originals-still-stand) have now
+gone too (rf2-3ewp), taking it to **52** files and **19,885** lines — 24,223 − 4,338, measured
+rather than derived. The counts are deliberately left at their census values rather than
 tracked, because the verdicts are what this document is for and a decision record that renumbers
 itself every time a row is acted on is a ledger nobody can audit. **Read the counts as of the
 census; read the tree for what is in it now.**
+
+**A membership subtlety that will otherwise be re-derived every time somebody re-counts.** The
+sentence opening this document calls the 69 "`*_cljs_test.cljs` / `.cljc` suites", and that
+description is one file wider than it reads: `arm1/render_measure_emit_nightly_test.cljs` (300) is
+one of the 69 — it is triaged by name in STAYS (v) — but it is named `*_test.cljs` without the
+`_cljs_test` infix, because its lane selects it on `-emit-nightly-test$`. A re-count with the
+literal glob therefore returns **one fewer file and 300 fewer lines** at every point in the chain
+above, which is exactly the gap between the 24,222 this paragraph used to carry (the arithmetic
+25,268 − 670 − 376) and the 24,223 that `wc -l` returns. The measured figures are the ones kept.
 
 ## Executing a verdict: a port is a move
 
@@ -83,8 +102,10 @@ other nine.** rf2-a15c landed eleven ported suites in PR #7842; rf2-c78g deleted
 originals; the remaining nine still stand, and under the default stated above every one of them is a
 duplicate that should have gone with its port.
 
-They are duplicates by measurement rather than by name. Each package file carries its bench
-original's `deftest` roster entire — same names, same count:
+They are duplicates by measurement rather than by name. **Eight of the nine package files carry
+their bench original's `deftest` roster entire — same names, same count. The ninth carries eight
+rows of which seven are identical and one is renamed**, and that one row is the drift this section
+goes on to record:
 
 | bench original | lines | deftests | package port | roster |
 |---|---|---|---|---|
@@ -120,7 +141,8 @@ already in the list, so the whole divergence is carried by the `deftest` name an
 it. That is precisely the shape this section warns about: *"the stale one keeps passing. Nothing goes
 red to announce it."* Five days after the ruling, the tree has an instance.
 
-**The reverse-dependency scan is clean, and the two prose references are not requires.** Each of the
+**The reverse-dependency scan is clean, and the two prose references are not requires.** (There were
+three, not two — see EXECUTED below.) Each of the
 nine namespaces is named by its own `ns` form and by nothing else in the repo. Two docstring mentions
 survive: `arm1/raw_escape_dom_cljs_test.cljs` line 6 wiki-links `front.codec-cljs-test`, and both
 files are in the table, so they go together; and
@@ -136,16 +158,28 @@ recognised is a host, and rf2-c78g measured that one shut for exactly this file 
 so a `.cljs` suite rides no JVM host to lose. All nine are `.cljs`. The default therefore decides
 every row.
 
-**Why the deletion is not executed here, and what it waits on.** `compile_gate.cjs` **derives** the
-lane's namespace roster by walking the directory rather than listing it — deliberately, in its own
-words, because *"a roster in this file would be the staleness class the gate exists to catch"* — so
-removing nine files changes what that gate compiles. **rf2-bl0j is rewriting that gate now**, and its
-version widens the walk to include the `*_cljs_test.cljs` files these nine are. Two branches changing
-one derived roster from opposite ends is a merge nobody should have to referee, so the deletion is
-sequenced behind that gate rather than raced against it. The `MIN_NAMESPACES` floor is **not** the
-obstacle and should not be quoted as one: it is 40 in both versions against a lane of ~101, and 92
-clears it comfortably. **Owner: rf2-3ewp**, which carries the measurement, the deletion-safety scan
-and the sequencing.
+**EXECUTED — rf2-3ewp, 2026-08-11.** All nine are deleted. The tree is 52 suites and 19,885 lines,
+which is 61 − 9 and 24,223 − 4,338 measured rather than derived. The deletion waited on rf2-bl0j
+because `compile_gate.cjs` **derives** the lane's namespace roster by walking the directory rather
+than listing it — deliberately, in its own words, because *"a roster in this file would be the
+staleness class the gate exists to catch"* — so removing nine files changes what that gate compiles,
+and two branches changing one derived roster from opposite ends is a merge nobody should have to
+referee. rf2-bl0j landed first (PR #7907). Executing behind it needed **no edit to the gate at
+all**: the nine live inside the walked directory, so the walk simply narrows, and rf2-bl0j's new
+`OUTSIDE_LANE_ENTRIES` roster names four files that all live outside `hicasso/` — none of them one
+of these. The `MIN_NAMESPACES` floor was never the obstacle and should not be quoted as one: 40
+against a walk that goes from 129 namespaces to 120.
+
+**Three prose citations dangled, not two, and the third is why the count matters.** The scan
+recorded above found two by searching for the dotted namespace form. A citation may also name a
+suite by its *path*, and two did: `state_cljs_test.cljs` pointed at `arm1/state-dom-cljs-test` and
+the Reagent codemod donor suite
+(`implementation/adapters/reagent/test/re_frame/reagent_codemod_contract_donor_cljs_test.cljs`)
+named the full bench path to `front/codec_cljs_test.cljs` as where its Hicasso half landed. All
+three now name the landed package suite. **No gate could have caught any of them** — the package
+may not `:require` the bench tree at all, so every reference into it is prose by construction, and
+prose is exactly what compiles fine while pointing at nothing. A search for one spelling of a name
+is not a search for the name.
 
 ## The three facts that decide most rows
 
@@ -353,12 +387,12 @@ Four are blocked on something concrete, and the block is the interesting part:
   question and found the queue behind it was never a lane question at all — a namespace that defines
   no `deftest` is not a test file, so the bijection gate never reaches a corpus. The corpus went
   across as an ordinary support namespace, `re-frame.hicasso.slot-corpus`, and both this row and the
-  one below went with it. The verdict here is therefore **PORT, executed**; the bench original still
-  stands and should not, which is
+  one below went with it. The verdict here is therefore **PORT, executed**; the bench original stood
+  for a further five days and has since been deleted (rf2-3ewp), which is
   [The nine ports whose originals still stand](#the-nine-ports-whose-originals-still-stand).
 - **`arm1/raw_escape_dom_cljs_test.cljs`** (403) — the `[:>]` raw escape against real React. Reads
   `front.codec-cljs-test`'s corpus; queued behind it for the same reason. **LANDED with it** — same
-  bead, same PR, same standing original.
+  bead, same PR, and its original deleted by the same rf2-3ewp.
 - **`arm1/host_ssr_dom_cljs_test.cljs`** (670) and **`arm1/fallback_contents_cljs_test.cljs`** (376)
   — `defhost`'s `:ssr` policy in all three places it has to hold, and the contract for what an
   `:ssr` fallback may contain. Genuine package behaviour, and at census time
