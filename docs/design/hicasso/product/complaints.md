@@ -118,6 +118,7 @@ rowed in the Hicasso section, and is the single live id without the
 | `:rf.error/hicasso-native-intent-in-prop` | put an intent vector at a native callback slot, past the fence where nothing lowers it | — |
 | `:rf.error/hicasso-native-map-as-child` | wrote a dynamic map in native props position, where it lands as a child | — |
 | `:rf.error/hicasso-native-slot-collision` | gave a native props map two source keys normalising to one React slot | — |
+| `:rf.error/hicasso-portal-no-target` | gave `h/portal` a `:target` that is not a DOM container — usually a lookup that answered nothing | — |
 | `:rf.error/hicasso-presence-child-not-hiccup` | gave a presence boundary a child that is not a hiccup vector | — |
 | `:rf.error/hicasso-presence-child-unkeyed` | gave a presence child no `:key` | — |
 | `:rf.error/hicasso-presence-override-on-a-view` | wrote a phase-attribute override on a view head | ch11 |
