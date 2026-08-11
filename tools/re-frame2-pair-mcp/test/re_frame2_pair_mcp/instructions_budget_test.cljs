@@ -62,9 +62,36 @@
   author who is spending the headroom hears about it while the response
   still ships perfectly. The reserve is a FRACTION of the cap rather
   than an absolute, so it tracks `default-max-tokens` the way the hard
-  assertion does — one constant to change, not two."
+  assertion does — one constant to change, not two.
+
+  ## A third line: the advertised hint must match the payload (rf2-wyza)
+
+  The two lines above bound the payload. `instructions-response-
+  advertises-its-real-size` bounds what the descriptor CLAIMS the
+  payload costs — its `:typicalTokens`, which clients read off
+  `tools/list` to budget the call. Retiring the catalogue cut the
+  response roughly in half and the hint stayed at 1,500 while the
+  response measured 2,164: 44% low when the rf2-wyza audit caught it,
+  and low in the direction that matters, since a client sizing a
+  context window against it under-provisions.
+
+  This tool is the one place that hint is knowable EXACTLY. Every other
+  descriptor advertises a response whose size depends on the app and the
+  args, so its `:typicalTokens` is a genuine estimate and nothing can
+  check it. This response is a fixed inline string with no narrowing
+  args — the same bytes on every call, in every app — so a hint that
+  disagrees with it is not an estimate that drifted, it is simply
+  wrong, and the measurement that settles it is one the test already
+  performs.
+
+  So the guard measures rather than remembers: it compares the shipped
+  hint against `cap/sum-payload-tokens` of the real response, through
+  the same production summing rule the cap uses. Pinning a second
+  hand-written constant here would have created exactly the drift it is
+  meant to catch, one file further away."
   (:require [cljs.test :refer-macros [deftest is async]]
             [re-frame2-pair-mcp.tools.cap :as cap]
+            [re-frame2-pair-mcp.tools.registry :as registry]
             [re-frame2-pair-mcp.tools.get-re-frame2-pair-instructions :as instr]))
 
 (def ^:private tool-name "get-re-frame2-pair-instructions")
@@ -75,9 +102,9 @@
   rf2-wyza made affordable.
 
   0.6 is chosen against what the prose costs and what it is for, not as
-  a round number. Post-rf2-wyza the text measures 2,164 tokens — 43% of
-  the cap — so a 3,000-token reserve leaves ~840 tokens of authoring
-  room, about 1,700 characters: a new convention section and a routing
+  a round number. Post-rf2-wyza the text measures ~2,270 tokens — 45% of
+  the cap — so a 3,000-token reserve leaves ~730 tokens of authoring
+  room, about 1,450 characters: a new convention section and a routing
   rule or two, which is the realistic edit here. It still trips ~2,800
   tokens before the response would break, so the warning arrives with
   room to think rather than as a deadline. Raising it is a DECISION
@@ -134,6 +161,77 @@
        "FIX: trim `instructions-text`. Raising authoring-reserve-fraction in "
        "this ns is a deliberate decision about how much early warning is worth, "
        "and it should be argued for, not reached for to clear a red."))
+
+(def ^:private hint-tolerance-fraction
+  "How far the shipped `:typicalTokens` may sit from the measured
+  response before the hint counts as wrong.
+
+  Not zero. `:typicalTokens` is a budgeting aid, so a round number is
+  the readable thing to ship, and exact equality would red this test on
+  every comma — turning a correctness guard into a two-file chore and
+  training authors to retype the number without reading it. 10% is
+  wide enough for a round hint and for ordinary prose edits, and far
+  too narrow for the 44% miss that occasioned it (rf2-wyza)."
+  0.10)
+
+(defn- typical-tokens-hint
+  "The `:typicalTokens` this tool advertises, read off the REGISTERED
+  descriptor rather than the `descriptors-data` def — the registered
+  vector is what `tools/list` projects, so this measures the number
+  clients actually receive."
+  []
+  (some #(when (= tool-name (:name %)) (:typicalTokens %))
+        registry/tool-descriptors))
+
+(defn- hint-drift-message
+  "The failure an author reads. Leads with the correction, because the
+  fix is to write one number down and there is no judgement in it."
+  [hint tokens]
+  (str tool-name " advertises a :typicalTokens that its response does not cost.\n"
+       "  advertised: " hint " tokens (:typicalTokens in "
+       "tools/re-frame2-pair-mcp/src/re_frame2_pair_mcp/tools/descriptors_data.cljs)\n"
+       "  measured  : " tokens " tokens (cap/sum-payload-tokens over the real result)\n"
+       "  drift     : " (js/Math.round (* 100 (/ (- hint tokens) tokens))) "%"
+       " (tolerated: " (int (* 100 hint-tolerance-fraction)) "%)\n"
+       "FIX: set :typicalTokens to " tokens " (or a round number within "
+       (int (* 100 hint-tolerance-fraction)) "% of it).\n"
+       "WHY THIS ONE IS CHECKABLE AT ALL: every other descriptor describes a "
+       "response whose size depends on the app and the args, so its hint is a "
+       "real estimate. This response is a fixed inline string with no narrowing "
+       "args - identical on every call in every app - so its cost is knowable "
+       "exactly, and a hint that disagrees is wrong rather than approximate.\n"
+       "WHY IT MATTERS: clients read :typicalTokens off tools/list to size a "
+       "call before making it. A hint reading LOW under-provisions the context "
+       "budget for the first call of a session - which is this tool's whole "
+       "purpose. Retiring the tool catalogue (rf2-wyza) halved the response and "
+       "left the hint 44% low; that is the drift this guard exists to stop "
+       "recurring.\n"
+       "NOTE: after editing `instructions-text`, expect this red - it is the "
+       "guard doing its job. Re-run and copy the measured figure; do NOT widen "
+       "hint-tolerance-fraction to clear it."))
+
+(deftest instructions-response-advertises-its-real-size
+  (async done
+    (-> (instr/get-re-frame2-pair-instructions-tool nil nil)
+        (.then (fn [result]
+                 (let [tokens (cap/sum-payload-tokens result)
+                       hint   (typical-tokens-hint)]
+                   ;; Self-check, mirroring the `(pos? tokens)` guard on the
+                   ;; budget assertion: a nil hint (tool renamed, descriptor
+                   ;; unregistered) would make the comparison below throw
+                   ;; rather than fail readably.
+                   (is (pos? (or hint 0))
+                       (str "no :typicalTokens found for " tool-name
+                            " in registry/tool-descriptors — the tool name or "
+                            "the descriptor registration changed"))
+                   (when (pos? (or hint 0))
+                     (is (<= (js/Math.abs (- hint tokens))
+                             (* hint-tolerance-fraction tokens))
+                         (hint-drift-message hint tokens))))
+                 (done)))
+        (.catch (fn [e]
+                  (is false (str tool-name " handler rejected: " (.-message e)))
+                  (done))))))
 
 (deftest instructions-response-fits-the-wire-token-budget
   (async done
