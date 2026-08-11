@@ -64,7 +64,6 @@ const fs = require('fs');
 const path = require('path');
 const readline = require('readline');
 const { spawn, spawnSync } = require('child_process');
-const playwright = require('playwright');
 const {
   createHarnessCleanup,
   resolveServePort,
@@ -713,6 +712,9 @@ function worst(verdicts) {
 async function driveEngine(engine, baseUrl, driver, args) {
   const inject = args.mode === 'inject';
   console.log(`\n=================== ${engine.toUpperCase()} ===================`);
+  // Required HERE rather than at module load, so `--self-test` needs no
+  // browser package at all and its claim to touch nothing is literal.
+  const playwright = require('playwright');
   const browser = await playwright[engine].launch({ headless: false });
   const build = browser.version();
   const pageErrors = [];
