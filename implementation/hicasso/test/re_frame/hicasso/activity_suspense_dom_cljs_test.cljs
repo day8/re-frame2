@@ -194,14 +194,32 @@
            (mount/release! handle)
            nil)))
 
-(defn- fail-and-finish!
-  [done label handle]
+(defn- report-failure!
+  "Record `label` against THIS row, release its root, and DELIBERATELY DO
+  NOT finish the row — the chain's single trailing `done` does that.
+
+  **A rejection handler may not sit downstream of the `.then` that calls
+  `done` (rf2-qpns).** `cljs.test/run-block` hands `done` a continuation
+  that runs the WHOLE REMAINDER of the run synchronously, so anything out
+  there that throws unwinds back into the callback that called `done`. A
+  `.catch` placed after that callback claims the foreign failure as its
+  own — this row's label, against whichever test is current by then,
+  reading a DOM its own teardown already emptied — and then calls `done` a
+  SECOND time, which does not merely warn: it re-forces `run-block`'s
+  delay, since a delay whose body threw is still unrealized, and runs the
+  offending namespace again.
+
+  The long-form account is on
+  [[re-frame.hicasso.reincarnation-paint-dom-cljs-test]]'s own
+  `report-failure!` (rf2-d3tc); the shape is the one
+  [[re-frame.hicasso.checkpoint-support/at-the-checkpoint]] already uses."
+  [label handle]
   (fn [e]
     (is false (str label " — " (.-message e)
                    " | DOM was " (pr-str (when handle (text handle)))
                    " | ownership " (pr-str (ownership))))
     (when handle (mount/release! handle))
-    (done)))
+    nil))
 
 ;; ---------------------------------------------------------------------------
 ;; The tree
@@ -405,8 +423,8 @@
                     "and the repaint did not add a second reader")
                 (exercised! :activity/reveal)
                 (teardown-census! handle)))
-            (.then (fn [_] (done)))
-            (.catch (fail-and-finish! done "activity lifecycle witness" handle)))))))
+            (.catch (report-failure! "activity lifecycle witness" handle))
+            (.then (fn [_] (done))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 2. The reveal corrects a stale fiber, and WHERE in the event loop
@@ -579,8 +597,8 @@
                              "from the reveal."))))
                 (exercised! :activity/reveal-corrects-a-stale-fiber)
                 (teardown-census! handle)))
-            (.then (fn [_] (done)))
-            (.catch (fail-and-finish! done "reveal paint-order witness" handle)))))))
+            (.catch (report-failure! "reveal paint-order witness" handle))
+            (.then (fn [_] (done))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 3. Suspense — a POST-COMMIT suspension hides the committed tree
@@ -717,8 +735,8 @@
                 (is (= 1 (reader-count [:acsd/a])))
                 (exercised! :suspense/post-commit-fallback-and-retry)
                 (teardown-census! handle)))
-            (.then (fn [_] (done)))
-            (.catch (fail-and-finish! done "post-commit suspension witness" handle)))))))
+            (.catch (report-failure! "post-commit suspension witness" handle))
+            (.then (fn [_] (done))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; The roster, asserted rather than described

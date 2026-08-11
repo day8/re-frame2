@@ -310,13 +310,31 @@
            (mount/release! handle)
            nil)))
 
-(defn- fail-and-finish!
-  [done label handle]
+(defn- report-failure!
+  "Record `label` against THIS row, release its root, and DELIBERATELY DO
+  NOT finish the row — the chain's single trailing `done` does that.
+
+  **A rejection handler may not sit downstream of the `.then` that calls
+  `done` (rf2-qpns).** `cljs.test/run-block` hands `done` a continuation
+  that runs the WHOLE REMAINDER of the run synchronously, so anything out
+  there that throws unwinds back into the callback that called `done`. A
+  `.catch` placed after that callback claims the foreign failure as its
+  own — this row's label, against whichever test is current by then,
+  reading a DOM its own teardown already emptied — and then calls `done` a
+  SECOND time, which does not merely warn: it re-forces `run-block`'s
+  delay, since a delay whose body threw is still unrealized, and runs the
+  offending namespace again.
+
+  The long-form account is on
+  [[re-frame.hicasso.reincarnation-paint-dom-cljs-test]]'s own
+  `report-failure!` (rf2-d3tc); the shape is the one
+  [[re-frame.hicasso.checkpoint-support/at-the-checkpoint]] already uses."
+  [label handle]
   (fn [e]
     (is false (str label " — " (.-message e)
                    " | ownership " (pr-str (ownership))))
     (when handle (mount/release! handle))
-    (done)))
+    nil))
 
 ;; ---------------------------------------------------------------------------
 ;; The views
@@ -529,8 +547,8 @@
                 (exercised! :effect/layout)
                 (exercised! :effect/passive)
                 (teardown-census! handle)))
-            (.then (fn [_] (done)))
-            (.catch (fail-and-finish! done "react-effect witness" handle)))))))
+            (.catch (report-failure! "react-effect witness" handle))
+            (.then (fn [_] (done))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 2. A read deferred across a Suspense retry
@@ -598,8 +616,8 @@
 
                 (exercised! :suspense/retry)
                 (teardown-census! handle)))
-            (.then (fn [_] (done)))
-            (.catch (fail-and-finish! done "suspense-retry witness" handle)))))))
+            (.catch (report-failure! "suspense-retry witness" handle))
+            (.then (fn [_] (done))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 3. A read deferred across an Activity reveal
@@ -669,8 +687,8 @@
 
                 (exercised! :activity/reveal)
                 (teardown-census! handle)))
-            (.then (fn [_] (done)))
-            (.catch (fail-and-finish! done "activity-reveal witness" handle)))))))
+            (.catch (report-failure! "activity-reveal witness" handle))
+            (.then (fn [_] (done))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; The controls that make the greens worth having

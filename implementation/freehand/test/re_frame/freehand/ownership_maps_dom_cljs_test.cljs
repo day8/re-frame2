@@ -538,8 +538,12 @@
               (.then (run (nth rows 1) #(command! :detach)))
               ;; row 2 — the path entered twice by hand before teardown.
               (.then (run (nth rows 2) #(do (command! :reclaim) (command! :reclaim))))
-              (.then (fn [_] (done)))
-              (.catch (fn [e] (is false (str "an order rejected: " e)) (done)))))))))
+              ;; The rejection handler sits UPSTREAM of the single trailing
+              ;; `done` (rf2-qpns): `done` runs the whole remainder of the run
+              ;; synchronously, so a `.catch` after it claims a foreign throw
+              ;; as this row's and fires `done` a second time.
+              (.catch (fn [e] (is false (str "an order rejected: " e)) nil))
+              (.then (fn [_] (done)))))))))
 
 ;; ===========================================================================
 ;; 3 — the two clocks

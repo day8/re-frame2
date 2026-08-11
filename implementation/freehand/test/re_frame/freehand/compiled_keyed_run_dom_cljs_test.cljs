@@ -188,10 +188,14 @@
                                  (step (rest remaining)))))
                     (js/Promise.resolve nil)))]
           (-> (step inherited-names)
-              (.then (fn [_] (done)))
+              ;; The rejection handler sits UPSTREAM of the single trailing
+              ;; `done` (rf2-qpns): `done` runs the whole remainder of the run
+              ;; synchronously, so a `.catch` after it claims a foreign throw
+              ;; as this row's and fires `done` a second time.
               (.catch (fn [e]
                         (is false (str "the duplicate sweep rejected: " e))
-                        (done)))))))))
+                        nil))
+              (.then (fn [_] (done)))))))))
 
 ;; ===========================================================================
 ;; React's string coercion is still the comparison

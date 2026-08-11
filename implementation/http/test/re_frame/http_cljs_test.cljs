@@ -563,15 +563,19 @@
                         "a Fetch Headers object is still built and passed to fetch")
                     (is (= "kept" (.get h "X-Good"))
                         "the valid header rides; only the bad pair was dropped")))))
-            (.then (fn [_] (done)))
             ;; A rejection / synchronous throw here is the PRE-FIX bug — the
-            ;; invalid header escaped the managed path.
+            ;; invalid header escaped the managed path. The handler sits
+            ;; UPSTREAM of the single trailing `done` (rf2-qpns): `done` runs
+            ;; the whole remainder of the run synchronously, so a `.catch`
+            ;; after it claims a foreign throw as this row's and fires `done`
+            ;; a second time.
             (.catch (fn [e]
                       (is false
                           (str "rf2-f5pguu regression — invalid header ESCAPED "
                                "the managed CLJS path (threw/rejected) instead "
                                "of surfacing a managed warning: " e))
-                      (done))))))))
+                      nil))
+            (.then (fn [_] (done))))))))
 
 (deftest cljs-fetch-crlf-header-value-surfaces-managed-warning-not-escape
   (testing "rf2-f5pguu — a header VALUE carrying a CR (`\\r`) is the
@@ -607,12 +611,14 @@
                         "the valid header survives the dropped CR/LF pair")
                     (is (nil? (.get h "X-Bad"))
                         "the response-splitting header was omitted, not sent")))))
-            (.then (fn [_] (done)))
+            ;; Handler upstream of the single trailing `done` — see the
+            ;; sibling row above (rf2-qpns).
             (.catch (fn [e]
                       (is false
                           (str "rf2-f5pguu regression — CR/LF header value escaped "
                                "the managed path: " e))
-                      (done))))))))
+                      nil))
+            (.then (fn [_] (done))))))))
 
 (deftest cljs-fetch-invalid-header-warning-redacts-denylisted-query-param
   (testing "rf2-f5pguu — the managed CLJS header-validation warning routes
@@ -644,10 +650,11 @@
                         ":sensitive? stamped at top level — a denylisted param name is a signal")
                     (is (= http-url/redacted-sentinel :rf/redacted)
                         "sanity: the redaction sentinel is the reserved keyword")))))
-            (.then (fn [_] (done)))
+            ;; Handler upstream of the single trailing `done` (rf2-qpns).
             (.catch (fn [e]
                       (is false (str "unexpected reject: " e))
-                      (done))))))))
+                      nil))
+            (.then (fn [_] (done))))))))
 
 (deftest cljs-fetch-valid-headers-emit-no-invalid-warning
   (testing "rf2-f5pguu — a request with only VALID headers emits NO
@@ -675,10 +682,11 @@
                 (let [h (aget @captured-init "headers")]
                   (is (= "alpha, beta" (.get h "X-Multi"))
                       "valid multi-valued header still accumulates per-element"))))
-            (.then (fn [_] (done)))
+            ;; Handler upstream of the single trailing `done` (rf2-qpns).
             (.catch (fn [e]
                       (is false (str "unexpected reject: " e))
-                      (done))))))))
+                      nil))
+            (.then (fn [_] (done))))))))
 
 (deftest zero-timeout-ms-does-not-arm-near-instant-abort
   (testing "rf2-ee38b.7 — `:timeout-ms 0` is an explicit opt-out (no
