@@ -102,7 +102,7 @@ rowed in the Hicasso section, and is the single live id without the
 | `:rf.error/hicasso-generation-fence-exhausted` | wrote to app-db from a body, on four consecutive runs | — |
 | `:rf.error/hicasso-host-bad-options` | gave a `defhost` declaration options that are not a map — usually a docstring written after the component instead of before it | — |
 | `:rf.error/hicasso-host-bad-slots` | declared a `defhost` `:slots` that is not a set of ordinary prop names — a non-set, an entry that names no prop, `key`/`ref`, a name the crossing can never emit (`__proto__`, `prototype`, `constructor`), one slot spelled twice, or a position that is also a declared callback | — |
-| `:rf.error/hicasso-host-bad-ssr-policy` | gave a `defhost` a server policy outside the three it admits | ch09, ch17 |
+| `:rf.error/hicasso-host-bad-ssr-policy` | gave a `defhost` a `:server` value outside the two it admits, or a `:fallback` the policy beside it cannot carry | ch09, ch17 |
 | `:rf.error/hicasso-host-callback-slot-collision` | declared two spellings of one callback slot on a `defhost` | — |
 | `:rf.error/hicasso-host-extra-form` | wrote a form after `defhost`'s options map — a second options map is not merged, it is discarded | — |
 | `:rf.error/hicasso-host-fallback-boundary-head` | put a `defview` or `defhost` head inside a declared fallback | ch09, ch17 |
@@ -110,7 +110,7 @@ rowed in the Hicasso section, and is the single live id without the
 | `:rf.error/hicasso-host-structural-callback` | declared a `defhost` callback contract at a position no contract can reach — `key`/`ref`, which carry no contract, or a name the crossing can never emit (`__proto__`, `prototype`, `constructor`) | — |
 | `:rf.error/hicasso-host-unclaimed-callback` | wrote the one callback form at a `defhost` position no callback contract claims — one nothing claims at all, or one declared a ReactNode slot, where markup lowers and there is no contract to give a function | ch09, ch15 |
 | `:rf.error/hicasso-host-undeclared-callback` | sent an intent to a `defhost` prop the declaration does not name | ch09, ch19 |
-| `:rf.error/hicasso-host-unknown-option` | gave a `defhost` declaration an option outside its roster | ch09, ch17 |
+| `:rf.error/hicasso-host-unknown-option` | gave a `defhost` declaration an option outside its roster `#{:callbacks :slots :server :fallback}` — the retired `:ssr` spelling included | ch09, ch17 |
 | `:rf.error/hicasso-intent-at-a-non-event-contract` | put an intent at a position declared `:handler` or `:render` | ch03, ch09 |
 | `:rf.error/hicasso-intent-needs-the-event` | wrote an event-reading intent at a value-first foreign callback | ch03, ch09 |
 | `:rf.error/hicasso-intent-outside-boundary` | lowered or fired an intent with no frame-locked dispatch bound | ch15, ch16 |
@@ -123,7 +123,7 @@ rowed in the Hicasso section, and is the single live id without the
 | `:rf.error/hicasso-native-intent-in-prop` | put an intent vector at a native callback slot, past the fence where nothing lowers it | — |
 | `:rf.error/hicasso-native-map-as-child` | wrote a dynamic map in native props position, where it lands as a child | — |
 | `:rf.error/hicasso-native-slot-collision` | gave a native props map two source keys normalising to one React slot | — |
-| `:rf.error/hicasso-native-unknown-option` | gave an `n/defcomponent` declaration map a key outside its roster `#{:server}` — `:ssr`, the `defhost` spelling, being the one most often borrowed | — |
+| `:rf.error/hicasso-native-unknown-option` | gave an `n/defcomponent` declaration map a key outside its roster `#{:server}` — `:fallback`, `defhost`'s sibling option, being the one most often borrowed | — |
 | `:rf.error/hicasso-portal-no-target` | gave `h/portal` a `:target` that is not a DOM container — usually a lookup that answered nothing | — |
 | `:rf.error/hicasso-presence-child-not-hiccup` | gave a presence boundary a child that is not a hiccup vector | — |
 | `:rf.error/hicasso-presence-child-unkeyed` | gave a presence child no `:key` | — |

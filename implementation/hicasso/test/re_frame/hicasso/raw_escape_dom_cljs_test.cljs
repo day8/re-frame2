@@ -8,7 +8,7 @@
   that a mounted React is the only honest witness for:
 
   1. **SSR is hard `:client-only`, and hydration's first pass agrees.**
-     The escape carries no declaration, so it carries no `:ssr` policy
+     The escape carries no declaration, so it carries no `:server` policy
      and there is no spelling for one. Server-absent and
      first-pass-absent are not two facts kept in step — they are ONE
      fact, because React reads the gate's SERVER snapshot under
@@ -215,7 +215,7 @@
 (deftest the-escape-renders-nothing-on-the-server-and-cannot-say-otherwise
   (fresh!)
   (testing "hard `:client-only`. The escape carries no declaration, so it
-            carries no `:ssr` policy and there is no inline spelling for
+            carries no `:server` policy and there is no inline spelling for
             one — a fallback is POLICY, and policy lives on declarations"
     (reset! !renders 0)
     (let [html (server-html [escape-page {}])]

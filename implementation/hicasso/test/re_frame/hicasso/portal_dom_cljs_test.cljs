@@ -38,7 +38,7 @@
 
   ## The declared policy reads `:render`, and the surface is Client-only
 
-  Both are true, of different things. `:ssr` describes the head's
+  Both are true, of different things. `:server` describes the head's
   COMPONENT, and that component is safe to run on the server: there it
   renders the caller's `:fallback`, or nothing, and never reaches for a
   container. The matrix row describes the SURFACE, which is Client-only
@@ -49,7 +49,7 @@
   ## The mutation witnesses
 
   Route the portal through the host gate instead of its own
-  (`:ssr :client-only` on the declaration) and
+  (`:server :client-only` on the declaration) and
   [[a-declared-fallback-stands-at-the-tree-position-on-the-server]] goes
   red on the fallback missing from the server HTML — the gate would
   swallow the prop before the component that renders it ever ran. Lower
@@ -148,7 +148,7 @@
   (react/useEffect (fn [] (swap! !child-mounts inc) js/undefined) #js [])
   (react/createElement "span" #js {:className "counted"} "in the rack"))
 
-(h/defhost counted-host counted {:ssr :render})
+(h/defhost counted-host counted {:server :render})
 
 (h/defview toast-body
   "A BOUNDARY inside the portal, and a second claim from the first one.
@@ -239,7 +239,7 @@
             caller's fallback and never reaches for a container. The
             SURFACE is Client-only, and §2 is where that is measured rather
             than declared"
-    (is (= :render (codec/host-ssr h/portal)))))
+    (is (= :render (codec/host-server h/portal)))))
 
 ;; ---------------------------------------------------------------------------
 ;; 2 — the server render: Client-only, on both arms (no DOM needed)

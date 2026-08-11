@@ -1,5 +1,5 @@
 (ns re-frame.hicasso.host-ssr-dom-cljs-test
-  "DEFHOST'S `:ssr` POLICY, PROVEN IN ALL THREE PLACES IT HAS TO HOLD
+  "DEFHOST'S `:server` POLICY, PROVEN IN ALL THREE PLACES IT HAS TO HOLD
   (rf2-2rtt6.85, HD-011).
 
   HD-011 listed \"SSR placeholder\" among `defhost`'s strong defaults;
@@ -13,16 +13,17 @@
   ## The policy
 
       (h/defhost chart Chart)                                ; :client-only
-      (h/defhost chart Chart {:ssr :client-only})            ; the same, said
-      (h/defhost chart Chart {:ssr {:fallback [:div.skel]}}) ; markup instead
-      (h/defhost themed (.-Provider ctx) {:ssr :render})     ; run it, server-side
+      (h/defhost chart Chart {:server :client-only})         ; the same, said
+      (h/defhost chart Chart {:fallback [:div.skel]})        ; markup instead
+      (h/defhost themed (.-Provider ctx) {:server :render})  ; run it, server-side
 
   `:client-only` renders nothing where the host sits until the client
-  has adopted the markup. `{:fallback <hiccup>}` renders that markup
+  has adopted the markup. A sibling `:fallback` renders that markup
   there instead. `:render` is the author asserting that the component
   is safe to run on the server, and it is the ONLY policy under which a
   crossing's CHILDREN reach the server response — §3 below. There is no
-  fourth value.
+  third policy, and `:fallback` beside `:render` is refused: the
+  component renders, so nothing stands in for it.
 
   WHAT MAY BE WRITTEN IN THAT FALLBACK is settled (rf2-nv07k, ruled
   2026-08-05): a fallback is inert markup, enforced — a `defview` or
@@ -31,9 +32,9 @@
   [[re-frame.hicasso.fallback-contents-cljs-test]]; nothing
   in this suite depends on it beyond the one refusal row below.
 
-  ## The three places, and why ONE mechanism covers the first two policies
+  ## The three places, and why ONE mechanism covers Client-only
 
-  A `:client-only` or `{:fallback …}` declaration mints one gate — a
+  A `:client-only` declaration mints one gate, fallback or no fallback — a
   component whose single `useSyncExternalStore` answers `false` from its
   SERVER snapshot and `true` from its client one. React reads the server
   snapshot under `renderToString` AND again on hydration's first client
@@ -75,7 +76,7 @@
   Make `:client-only` render something — `gate-unadopted` answering
   `true`, or the placeholder becoming the live element — and
   [[client-only-hydrates-with-nothing-there-and-mounts-after-adoption]]
-  goes red on React's own mismatch report. Make `{:fallback …}` render
+  goes red on React's own mismatch report. Make a declared `:fallback` render
   nothing — `mint-host-gate!`'s `placeholder` forced to `nil` — and
   [[the-server-render-honours-the-policy]] goes red on the fallback
   markup missing from the server HTML. Route `:render` through
@@ -167,13 +168,13 @@
       (.-children props))))
 
 (h/defhost bare-chart
-  "No `:ssr` written at all — the default is what an author gets."
+  "No `:server` written at all — the default is what an author gets."
   chart)
 
-(h/defhost client-only-chart chart {:ssr :client-only})
+(h/defhost client-only-chart chart {:server :client-only})
 
 (h/defhost fallback-chart chart
-  {:ssr {:fallback [:div.chart-skeleton {:data-live "no"} "loading"]}})
+  {:fallback [:div.chart-skeleton {:data-live "no"} "loading"]})
 
 ;; --- the `:render` fixtures: a provider, and something that reads it -------
 ;;
@@ -196,7 +197,7 @@
 
 (defn- theme-reader
   "A consumer BELOW the provider. The whole discriminator between
-  `:ssr :render` and the rejected `:ssr :children`: with the provider
+  `:server :render` and the rejected `:server :children`: with the provider
   above it this reads `dark`, and with only the children rendered it
   reads the context DEFAULT."
   [_props]
@@ -211,14 +212,14 @@
   "The guide's own provider example, declared the way the ruling says to
   declare it."
   (.-Provider theme-context)
-  {:ssr :render})
+  {:server :render})
 
 (h/defhost themed-client-only
   "The SAME provider under the default policy — the control that keeps
   the row below a fact about the policy rather than about the page."
   (.-Provider theme-context))
 
-(h/defhost reader-host theme-reader {:ssr :render})
+(h/defhost reader-host theme-reader {:server :render})
 
 ;; --- the FALSE assertion, and what it costs (rf2-hic-028) -----------------
 ;;
@@ -238,11 +239,11 @@
   [_props]
   (throw (js/ReferenceError. "window is not defined")))
 
-(h/defhost unsafe-render-host browser-only {:ssr :render})
+(h/defhost unsafe-render-host browser-only {:server :render})
 
 (h/defhost unsafe-client-only-host browser-only)
 
-(h/defhost counted-reader-host counted-reader {:ssr :render})
+(h/defhost counted-reader-host counted-reader {:server :render})
 
 ;; ---------------------------------------------------------------------------
 ;; The pages
@@ -378,35 +379,36 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest the-default-policy-is-client-only
-  (testing "an author who writes no :ssr gets the conservative answer, and
+  (testing "an author who writes no :server gets the conservative answer, and
             an author who writes it explicitly gets the same one — a
             foreign component is exactly the node whose render may reach
             for `window`, and the door does not guess"
-    (is (= :client-only (codec/host-ssr bare-chart)))
-    (is (= :client-only (codec/host-ssr client-only-chart))))
-  (testing "and a declared fallback reads back as the data it was written as"
-    (is (= {:fallback [:div.chart-skeleton {:data-live "no"} "loading"]}
-           (codec/host-ssr fallback-chart)))))
+    (is (= :client-only (codec/host-server bare-chart)))
+    (is (= :client-only (codec/host-server client-only-chart))))
+  (testing "and a declared :fallback is MARKUP rather than a policy value
+            (rf2-mo4o): the host is Client-only either way, which is what
+            the two-policy matrix says and what the sibling native door
+            already recorded"
+    (is (= :client-only (codec/host-server fallback-chart)))))
 
-(deftest the-third-policy-is-render-and-it-is-an-assertion
-  (testing "rf2-l0wfx. `:render` is accepted as a bare keyword, alongside
-            the two — the author asserting that this component is safe to
-            run on the server"
-    (is (= :render (codec/host-ssr themed)))
-    (is (= :render (codec/host-ssr reader-host))))
-  (testing "and it reads back as data like every other policy, so a server
+(deftest the-other-policy-is-render-and-it-is-an-assertion
+  (testing "rf2-l0wfx. `:render` is the second of the two — the author
+            asserting that this component is safe to run on the server"
+    (is (= :render (codec/host-server themed)))
+    (is (= :render (codec/host-server reader-host))))
+  (testing "and it reads back as data like the other policy, so a server
             walk that wants to state what it is honouring still can"
-    (is (= :client-only (codec/host-ssr themed-client-only)))
-    (is (some? (codec/mint-host! "ssr/render-plus-callbacks" chart
-                                 {:callbacks {:on-pick :event} :ssr :render}))
-        "and it composes with :callbacks, which is the other option")))
+    (is (= :client-only (codec/host-server themed-client-only)))
+    (is (some? (codec/mint-host! "server/render-plus-callbacks" chart
+                                 {:callbacks {:on-pick :event} :server :render}))
+        "and it composes with :callbacks, which is another option")))
 
 (deftest the-declaration-refuses-a-policy-it-cannot-honour
-  (testing "a fourth value is refused at the declaration, naming the three"
+  (testing "a third value is refused at the declaration, naming the two"
     (is (= :rf.error/hicasso-host-bad-ssr-policy
-           (error-id #(codec/mint-host! "ssr/server" chart {:ssr :server}))))
+           (error-id #(codec/mint-host! "server/server" chart {:server :server}))))
     (is (= :rf.error/hicasso-host-bad-ssr-policy
-           (error-id #(codec/mint-host! "ssr/true" chart {:ssr true})))))
+           (error-id #(codec/mint-host! "server/true" chart {:server true})))))
   (testing "and the three spellings an author reaches for INSTEAD of
             `:render` stay refused, every one of them (rf2-l0wfx). They
             assert a structural property nobody can check — that the
@@ -415,32 +417,36 @@
             silent wrongness"
     (doseq [v [:children :transparent :passthrough]]
       (is (= :rf.error/hicasso-host-bad-ssr-policy
-             (error-id #(codec/mint-host! (str "ssr/" (name v)) chart {:ssr v})))
+             (error-id #(codec/mint-host! (str "server/" (name v)) chart {:server v})))
           (str (pr-str v) " must stay refused"))))
-  (testing "a fallback MAP spelling of it is not a spelling of it either —
+  (testing "a map spelling of it is not a spelling of it either —
             `:render` is a bare keyword, and a policy that admitted both
             would be two ways to say one thing"
     (is (= :rf.error/hicasso-host-bad-ssr-policy
-           (error-id #(codec/mint-host! "ssr/render-map" chart
-                                        {:ssr {:render true}})))))
+           (error-id #(codec/mint-host! "server/render-map" chart
+                                        {:server {:render true}})))))
   (testing "an explicit nil is a value, not an absence — `:client-only` is
             the default of an ABSENT key, and inferring it from nil is how
             a typo becomes a policy"
     (is (= :rf.error/hicasso-host-bad-ssr-policy
-           (error-id #(codec/mint-host! "ssr/nil" chart {:ssr nil})))))
-  (testing "a fallback map is exactly one key with a value"
+           (error-id #(codec/mint-host! "server/nil" chart {:server nil})))))
+  (testing "a :fallback belongs to Client-only ALONE (rf2-mo4o). Under
+            `:render` the component itself renders on the server, so there
+            is nothing for a placeholder to stand in for, and a declaration
+            carrying both says two incompatible things"
     (is (= :rf.error/hicasso-host-bad-ssr-policy
-           (error-id #(codec/mint-host! "ssr/empty" chart {:ssr {}}))))
+           (error-id #(codec/mint-host! "server/render-plus-fallback" chart
+                                        {:server :render :fallback [:div.s]})))))
+  (testing "while an explicit nil fallback is a value here too — it is a
+            placeholder that renders nothing, written by an author who
+            believes they wrote one"
     (is (= :rf.error/hicasso-host-bad-ssr-policy
-           (error-id #(codec/mint-host! "ssr/nil-fb" chart {:ssr {:fallback nil}}))))
-    (is (= :rf.error/hicasso-host-bad-ssr-policy
-           (error-id #(codec/mint-host! "ssr/extra" chart
-                                        {:ssr {:fallback [:div] :timeout 3}})))))
+           (error-id #(codec/mint-host! "server/nil-fb" chart {:fallback nil})))))
   (testing "and a fallback that is not hiccup fails HERE, at the
             declaration, rather than one render into a server response —
             it is walked once at mint, where the author's stack is"
     (is (= :rf.error/hicasso-empty-vector
-           (error-id #(codec/mint-host! "ssr/bad-fb" chart {:ssr {:fallback []}})))))
+           (error-id #(codec/mint-host! "server/bad-fb" chart {:fallback []})))))
   (testing "as does a `defview` head written into a fallback — a fallback
             is inert markup and that is enforced (rf2-nv07k). The full
             contract, both directions, is
@@ -448,8 +454,8 @@
             the two halves were ruled together and the refusal is one of
             this declaration's own"
     (is (= :rf.error/hicasso-host-fallback-boundary-head
-           (error-id #(codec/mint-host! "ssr/live-fb" chart
-                                        {:ssr {:fallback [client-only-page {}]}}))))))
+           (error-id #(codec/mint-host! "server/live-fb" chart
+                                        {:fallback [client-only-page {}]}))))))
 
 (deftest the-declaration-refuses-an-option-it-does-not-know
   (testing "`mint-host!` read :callbacks and IGNORED the rest, so a
@@ -457,14 +463,29 @@
             defect class as an intent crossing as inert data, and it gets
             the same refusal"
     (is (= :rf.error/hicasso-host-unknown-option
-           (error-id #(codec/mint-host! "ssr/typo" chart {:sssr :client-only}))))
+           (error-id #(codec/mint-host! "server/typo" chart {:sserver :client-only}))))
     (is (= :rf.error/hicasso-host-unknown-option
-           (error-id #(codec/mint-host! "ssr/legacy" chart
+           (error-id #(codec/mint-host! "server/legacy" chart
                                         {:callbacks {} :hydrate? true})))))
-  (testing "while the two it does know are accepted together"
-    (is (some? (codec/mint-host! "ssr/both" chart
+  (testing "AND THAT IS WHERE THE RETIRED `:ssr` SPELLING LANDS (rf2-mo4o).
+            There is no alias and no deprecation path — this is pre-alpha,
+            so a rename is a rename — and the option roster is what says
+            so, in both of the shapes `:ssr` used to take"
+    (is (= :rf.error/hicasso-host-unknown-option
+           (error-id #(codec/mint-host! "server/retired-render" chart
+                                        {:ssr :render}))))
+    (is (= :rf.error/hicasso-host-unknown-option
+           (error-id #(codec/mint-host! "server/retired-client-only" chart
+                                        {:ssr :client-only}))))
+    (is (= :rf.error/hicasso-host-unknown-option
+           (error-id #(codec/mint-host! "server/retired-fallback" chart
+                                        {:ssr {:fallback [:div.s]}})))))
+  (testing "while the four it does know are accepted together"
+    (is (some? (codec/mint-host! "server/all" chart
                                  {:callbacks {:on-pick :event}
-                                  :ssr       {:fallback [:div.s]}})))))
+                                  :slots     #{:title}
+                                  :server    :client-only
+                                  :fallback  [:div.s]})))))
 
 ;; ---------------------------------------------------------------------------
 ;; 2 — the server render (no DOM needed; runs under :node-test too)
@@ -495,7 +516,7 @@
           "nor did its body run"))))
 
 ;; ---------------------------------------------------------------------------
-;; 3 — `:ssr :render`: the component runs, and so do its CHILDREN
+;; 3 — `:server :render`: the component runs, and so do its CHILDREN
 ;;
 ;; The defect rf2-l0wfx filed and the ruling that answers it, in one
 ;; place. Every row here is a `renderToString`, so they run under
@@ -509,7 +530,7 @@
             something that is not the component and the whole subtree
             leaves the server response with it — silently, because the
             server snapshot and hydration's first client pass agree by
-            construction. This row is what `:ssr :render` exists to make
+            construction. This row is what `:server :render` exists to make
             unnecessary, and it stays green because the DEFAULT is
             unchanged: the door still does not guess"
     (let [html (server-html [provider-page-client-only {}])]
@@ -533,7 +554,7 @@
       (is (re-find #"class=\"body\"" html)
           (str "as markup, not as stray text: " html))))
   (testing "AND THE CONTEXT VALUE IS THE DECLARED ONE, which is what
-            separates this policy from `:ssr :children`. A consumer under
+            separates this policy from `:server :children`. A consumer under
             the provider reads `dark`; the same consumer with no provider
             above it reads the context DEFAULT, and a policy that rendered
             only the children would have emitted exactly that"

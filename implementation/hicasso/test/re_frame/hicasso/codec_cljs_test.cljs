@@ -1015,7 +1015,7 @@
 ;; The escape is `defhost` with the declaration erased, so almost every
 ;; row below is a PARITY row: the same fixture component, the same prop
 ;; corpus, one answer. What is not parity is stated as its own row — the
-;; carrier, the head test, the value roster, and the fact that no `:ssr`
+;; carrier, the head test, the value roster, and the fact that no `:server`
 ;; policy is spellable here (the DOM/SSR half of that lives in
 ;; [[re-frame.hicasso.raw-escape-dom-cljs-test]], which needs a server renderer).
 

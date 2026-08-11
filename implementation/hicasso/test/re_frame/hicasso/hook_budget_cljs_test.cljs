@@ -38,8 +38,8 @@
      collector over a per-read hook: N reads = N hooks cannot satisfy this
      budget on any rung, and no amount of care about the other two claims
      substitutes for it;
-  4. and a `defhost` crossing costs the DOOR one hook under a gated `:ssr`
-     policy and none under `:ssr :render`, while the hosted component's
+  4. and a `defhost` crossing costs the DOOR one hook under a gated
+     `:server` policy and none under `:server :render`, while the hosted component's
      own hooks stay its own affair and the shell's ledger does not move
      (§5, re-authored from `arm1/host_hatch_dom_cljs_test` — the one row
      of that suite that needed this probe).
@@ -174,10 +174,10 @@
   hosted-widget)
 
 (h/defhost render-host
-  "The same component under `:ssr :render` — the policy that mints NO
+  "The same component under `:server :render` — the policy that mints NO
   gate, so the head's slot carries the foreign component itself."
   hosted-widget
-  {:ssr :render})
+  {:server :render})
 
 (h/defview gated-page
   "One boundary, one read, one gated crossing."
@@ -300,7 +300,7 @@
 ;; hook and the widget's own three arrive in a single indistinguishable
 ;; sequence. A server render separates them: the gate's server snapshot is
 ;; `false`, so under `:client-only` the count isolates the DOOR with the
-;; foreign component provably not rendered, and `:ssr :render` — the policy
+;; foreign component provably not rendered, and `:server :render` — the policy
 ;; that mints no gate at all — supplies the arm where the widget's hooks DO
 ;; run. Two policies, one page shape, and the difference between them is the
 ;; whole of what a crossing costs.
@@ -348,7 +348,7 @@
       (is (some? (re-find #"hosted" html))))
 
     (testing "the boundary's two come first and nothing of the door's
-              follows them — `:ssr :render` mints no gate, so a crossing
+              follows them — `:server :render` mints no gate, so a crossing
               under it costs ZERO hooks, which is the half of the price
               statement the gated row cannot show"
       (is (= ["useContext" "useSyncExternalStore"] (vec (take 2 hooks))))
