@@ -1,6 +1,13 @@
 # Guide authoring
 
-This document governs pages under `/docs`.
+This document governs the published pages under `/docs` — the guide and
+reference corpus MkDocs builds and ships.
+
+It does not govern `docs/design/`. Those trees are durable design records kept
+for this project's own maintainers, deliberately excluded from the site, and
+they answer to a different brief. If you are editing one, read
+[What CI enforces](#what-ci-enforces) anyway: the gate that covers this corpus
+does not cover that one.
 
 The goal is simple: help a competent developer understand re-frame2 quickly,
 accurately, and with as little friction as possible.
@@ -861,6 +868,15 @@ And definitely not:
 On docs PRs: `mkdocs build --strict`, the link/anchor validator
 (`scripts/check_doc_slugs.py`), and residue scans in
 `.github/workflows/docs.yml`.
+
+`mkdocs build --strict` sees only the published corpus. `mkdocs.yml`'s
+`exclude_docs` block keeps `docs/design/freehand/` and `docs/design/hicasso/`
+out of the site, so a green build has inspected none of their pages — never
+cite it as the gate for a change confined to either. Two gates do cover them:
+`scripts/check_doc_slugs.py` validates link targets and heading anchors across
+the whole corpus, design trees included, and `scripts/check_provenance_pins.py`
+runs on changed pages under `docs/design/hicasso/`. Nothing checks their
+tables, rendering, or nav, so verify those by hand and say so in the PR body.
 
 Everything else is human judgment: feature PRs update the affected guide page
 (or say why not); click live cells you touched; prefer cited `examples/`
