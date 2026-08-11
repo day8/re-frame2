@@ -332,7 +332,10 @@ decision is the operator's.
 
 The current breach stands at **R=0 = 1,100 B / 1,095 B on the package**, against
 the frozen `1,024 B` line. It is a **live pressure owned by `rf2-hic-018`**, not
-a disposition this page may make, and it is never silently normalised into a
+a disposition this page may make — that disposition has since been taken, and it
+is [the substrate decision record](substrate-decision.md#52-the-read-free-boundary-shell--the-disposition)'s:
+the substrate arm is refused on the evidence, the breach is carried red, and the
+line is not re-registered. The row here is never silently normalised into a
 percentage allowance — §6 says in terms that a relative regression allowance
 cannot recolour the red shell row.
 
