@@ -147,7 +147,9 @@
   four rows (rf2-ouwh8).
 
   Authority: `docs/EP/EP-0038-the-hicasso-view-layer-programme.md`;
-  the bar and the P0 table are operator-owned on bead rf2-2rtt6.1.
+  the bar and the P0 table are operator-owned on the governance set that
+  superseded bead rf2-2rtt6.1 on 2026-08-10, enumerated once in
+  `docs/design/hicasso/studio/README.md`.
   Spec donor: rf2-ssn1o (closed, do-not-refile)."
   (:require ["react-dom" :as react-dom]
             [goog.object :as gobj]

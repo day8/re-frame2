@@ -57,7 +57,9 @@
   value-stable by construction, so key churn cannot enter what the arms
   measure.
 
-  Owner: the operator-owned standard bead rf2-2rtt6.1; this arm rf2-2rtt6.4."
+  Owner: the operator-owned governance set that superseded the standard bead
+  rf2-2rtt6.1 on 2026-08-10, enumerated once in
+  `docs/design/hicasso/studio/README.md`; this arm rf2-2rtt6.4."
   (:require [re-frame.core :as rf]))
 
 ;; ---------------------------------------------------------------------------

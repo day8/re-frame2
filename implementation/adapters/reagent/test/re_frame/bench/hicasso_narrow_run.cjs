@@ -5,8 +5,9 @@
 //   HN_ROUNDS=6 node .../hicasso_narrow_run.cjs --no-build
 //
 // Bead rf2-2rtt6.3. The bar, the budgets and the P0 table this feeds are
-// operator-owned on rf2-2rtt6.1; workers append measurements and only the
-// operator amends the numbers.
+// operator-owned on the governance set that superseded rf2-2rtt6.1 on
+// 2026-08-10, enumerated once in `docs/design/hicasso/studio/README.md`;
+// workers append measurements and only the operator amends the numbers.
 //
 // WHAT IS BEING PRICED, AND WHY IT IS ONE NUMBER AND NOT TWO
 // ----------------------------------------------------------

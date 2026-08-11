@@ -28,7 +28,9 @@
   pipeline and the signal graph, so it is a LOWER BOUND on Reagent and not
   a fair denominator. Everything here goes through `re-frame.core`.
 
-  Owner: rf2-2rtt6.1 (standard); this arm rf2-2rtt6.4."
+  Owner: the operator-owned governance set that superseded rf2-2rtt6.1 on
+  2026-08-10, enumerated once in `docs/design/hicasso/studio/README.md`;
+  this arm rf2-2rtt6.4."
   (:require [re-frame.bench.p0-fixture :as fx]
             [re-frame.core :as rf])
   (:require-macros [re-frame.core :refer [reg-view]]))

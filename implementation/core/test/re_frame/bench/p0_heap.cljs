@@ -65,8 +65,10 @@
   plan asked for. A Q that is asserted rather than counted is the same
   class of decoration as a mount count that is printed and not gated.
 
-  Owner: rf2-2rtt6.1 (standard); this arm rf2-2rtt6.4; the fan-out family
-  and the additive model rf2-5prok."
+  Owner: the operator-owned governance set that superseded rf2-2rtt6.1 on
+  2026-08-10, enumerated once in `docs/design/hicasso/studio/README.md`;
+  this arm rf2-2rtt6.4; the fan-out family and the additive model
+  rf2-5prok."
   (:require ["react-dom" :as react-dom]
             ["react-dom/client" :as react-dom-client]
             [clojure.string :as str]

@@ -31,7 +31,9 @@
   spelling; the counterpart Reagent arm is a `reg-view` derefing
   `(rf/subscribe …)` once. Neither is doing the other's work.
 
-  Owner: rf2-2rtt6.1 (standard); this arm rf2-2rtt6.4."
+  Owner: the operator-owned governance set that superseded rf2-2rtt6.1 on
+  2026-08-10, enumerated once in `docs/design/hicasso/studio/README.md`;
+  this arm rf2-2rtt6.4."
   (:require [re-frame.adapter.uix :as uix-adapter]
             [re-frame.bench.p0-fixture :as fx]
             [uix.core :refer [$ defui]]))

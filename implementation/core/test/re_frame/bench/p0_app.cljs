@@ -56,7 +56,9 @@
 
   Built and driven by `p0_run.cjs` beside this file.
 
-  Owner: rf2-2rtt6.1 (standard); this arm rf2-2rtt6.4."
+  Owner: the operator-owned governance set that superseded rf2-2rtt6.1 on
+  2026-08-10, enumerated once in `docs/design/hicasso/studio/README.md`;
+  this arm rf2-2rtt6.4."
   (:require [cljs.reader :as reader]
             [re-frame.bench.hicasso.lane :as lane]
             [re-frame.bench.order-guard :as guard]
