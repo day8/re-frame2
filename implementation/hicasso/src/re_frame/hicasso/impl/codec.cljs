@@ -117,7 +117,7 @@
   |---|---|---|---|
   | Native tag | attr map | trailing forms; seqs realized once and flattened one level; `nil`/`false` render nothing, `true` errors | `:key` in the attr map |
   | Boundary (a marked `defview` product) | one props map, every lazy sequence in it realized and every unforced `delay` in it refused ([[realize-deep]]) | trailing forms as `(:children props)`, a realized vector | `:key` in the props map, extracted before the body sees props |
-  | Host (a `defhost` declaration — HD-011) | attr map: declared `:callbacks` slots lowered by their DECLARED contract, `:ref` a callback ref (HD-022's vector refusal holds here), the class slot coerced and composed by [[class-names]] exactly as at a native tag (rf2-2rtt6.119), an `h/fn` at any slot none of those claimed REFUSED (rf2-2rtt6.116), everything else converted shallowly ([[host-prop-value]]) | trailing forms converted hiccup→element, handed to the foreign component as React children | `:key` in the attr map |
+  | Host (a `defhost` declaration — HD-011) | attr map: declared `:callbacks` slots lowered by their DECLARED contract, declared `:slots` lowered hiccup→ReactNode by [[as-element]] under the writing boundary's frame (rf2-hic-035), `:ref` a callback ref (HD-022's vector refusal holds here), the class slot coerced and composed by [[class-names]] exactly as at a native tag (rf2-2rtt6.119), an `h/fn` at any slot none of those claimed REFUSED (rf2-2rtt6.116), everything else converted shallowly ([[host-prop-value]]) | trailing forms converted hiccup→element, handed to the foreign component as React children | `:key` in the attr map |
   | Fragment `[:<> …]` | optional attr map | trailing forms | on the fragment's props map |
 
   A React element is a legal child anywhere. No metadata keys, no second
@@ -1243,7 +1243,7 @@
   wrong docstring, was a no-op that looked like a setting. That is the
   same defect class as an intent crossing as inert data, and it gets
   the same treatment: refused, at the declaration."
-  #{:callbacks :ssr})
+  #{:callbacks :slots :ssr})
 
 ;; --- The gate -------------------------------------------------------------
 ;;
@@ -1429,6 +1429,118 @@
              :declare-client-only-a-fallback-or-render
              {:host host-name :ssr policy}))))
 
+;; --- The declared ReactNode positions (rf2-hic-035) ------------------------
+;;
+;; A foreign component's props are DATA, and a host prop is converted
+;; shallowly for exactly that reason ([[host-prop-value]]). But some of a
+;; library's props are not data at all: a modal's `title`, a compound
+;; component's `footer`, `Suspense`'s `fallback`. Those are MARKUP
+;; positions — React calls the type `ReactNode` — and hiccup written at
+;; one of them today crosses through `clj->js` and reaches the library as
+;; a nested JavaScript array, which renders as `h2Tasks` or as nothing at
+;; all. It is the sharpest SILENT trap the crossing has: a vector is a
+;; legal value at a data position, so nothing can be inferred and nothing
+;; throws.
+;;
+;; `:slots` is the declaration that deletes it, and DECLARATION is the
+;; whole mechanism:
+;;
+;;     (h/defhost modal Modal {:slots #{:title :footer}})
+;;
+;; Hiccup at a declared slot is lowered by [[as-element]] under the
+;; render window of the boundary that wrote the crossing — the same
+;; window the crossing's CHILDREN are lowered in — so an intent inside a
+;; declared slot fires into the declaring boundary's frame exactly as an
+;; intent in a child does. Everything undeclared is untouched, so this
+;; adds no guessing anywhere: the runtime never asks whether a vector
+;; "looks like" hiccup, because the answer to that question is a property
+;; of the foreign ABI and only the author knows it.
+;;
+;; **The refusals are one id**, and that is deliberate. Every way a
+;; `:slots` declaration can be malformed — a value that is not a set, an
+;; entry that cannot name a prop, `key`/`ref`, two spellings of one slot,
+;; a slot that is also a declared callback — is the same fault (*this
+;; declaration does not name a set of ordinary ReactNode positions*) with
+;; the same recovery, so it is one complaint with one home, as
+;; [[declared-ssr]] is for every malformed policy.
+
+(defn- slot-key-name
+  "The prop name a `:slots` entry spells, or nil when the entry cannot
+  name a prop at all. Keywords, symbols and strings are the three
+  spellings [[cached-prop-name]] accepts; a number, a vector or a nested
+  set is not a prop position and is refused rather than normalised into
+  some slot nobody wrote."
+  [k]
+  (when (or (keyword? k) (symbol? k) (string? k))
+    (cached-prop-name k)))
+
+(defn- refuse-bad-slots!
+  "The one `:slots` refusal. `why` completes the sentence *\"defhost NAME
+  declares :slots …\"*, and the ex-data carries the whole declaration
+  beside the offending entry, because a malformed set is read by looking
+  at what else is in it."
+  [host-name slots why data]
+  (fail! :rf.error/hicasso-host-bad-slots
+         're-frame.hicasso.impl.codec/mint-host!
+         (str "defhost " host-name " declares :slots " (pr-str slots) ", and "
+              why " :slots is a SET of ordinary prop names — the positions "
+              "where the foreign component takes markup rather than data, "
+              "such as a modal's title or a Suspense fallback — and hiccup "
+              "written at one of them is lowered under the frame that wrote "
+              "the crossing. Every other prop stays data.")
+         :declare-slots-as-a-set-of-ordinary-props
+         (assoc data :host host-name :slots slots)))
+
+(defn- declared-slots
+  "The canonical slots this declaration names as ReactNode positions, as
+  a set of emitted slot names — or the empty set, which is what a
+  declaration that says nothing gets and what the `[:>]` escape has
+  forever.
+
+  Normalised at MINT, like `:callbacks`, so `{:slots #{:on-empty}}` and a
+  call site writing `:onEmpty` name the one position and the lookup the
+  crossing performs per prop is one `contains?`.
+
+  `callbacks` is the already-normalised contract map, and the collision
+  against it is checked HERE rather than in either walk because the two
+  declarations are read together exactly once. A slot that is also a
+  declared callback is not a resolvable position: `:render` invokes the
+  value and a slot lowers it, and no order of those two is the one the
+  author meant."
+  [host-name opts callbacks]
+  (if-some [slots (:slots opts)]
+    (do
+      (when-not (set? slots)
+        (refuse-bad-slots! host-name slots "that is not a set." {}))
+      (reduce
+        (fn [acc k]
+          (let [slot (slot-key-name k)]
+            (when (nil? slot)
+              (refuse-bad-slots! host-name slots
+                (str (pr-str k) " does not name a prop.") {:position k}))
+            (when (structural-slot? k)
+              (refuse-bad-slots! host-name slots
+                (str (pr-str k) " is a structural slot: `key` is React's "
+                     "identity contract and `ref` is HD-016's node handle, "
+                     "and neither carries markup.")
+                {:position k}))
+            (when (contains? acc slot)
+              (refuse-bad-slots! host-name slots
+                (str "two spellings land on the one slot " (pr-str slot)
+                     " — declare it once.")
+                {:position k :slot slot}))
+            (when (contains? callbacks slot)
+              (refuse-bad-slots! host-name slots
+                (str (pr-str k) " is also declared in :callbacks, where it "
+                     "carries the " (pr-str (get callbacks slot)) " contract. "
+                     "A position is a callback or it is markup; it cannot be "
+                     "both, and nothing decides which the value meant.")
+                {:position k :slot slot :contract (get callbacks slot)}))
+            (conj acc slot)))
+        #{}
+        slots))
+    #{}))
+
 (defn mint-host!
   "THE ONE-LINE DECLARATION (HD-011). Give the crossing to `component` a
   name, a policy, and a place: returns the host HEAD — a marked carrier
@@ -1442,15 +1554,18 @@
   export) and the render-time alternative is React's own error naming
   nothing the author wrote.
 
-  `opts` carries `:callbacks` — the finite contract map above — and
+  `opts` carries `:callbacks` — the finite contract map above —
+  `:slots`, the set of ReactNode positions ([[declared-slots]]), and
   `:ssr`, the server policy (`:client-only` by default,
-  `{:fallback <hiccup>}`, or `:render`). Each callback key is normalized
-  to its canonical slot at MINT time, so the lookup the crossing
-  performs per prop is one `get`; a contract outside the roster, a
-  declaration on a structural slot (`key`/`ref` are React's, not
-  positions), two spellings landing on one slot, an `:ssr` value outside
-  the three, a `defview` or `defhost` head written into a fallback, and
-  an option key outside `#{:callbacks :ssr}` are all refused at the
+  `{:fallback <hiccup>}`, or `:render`). Callback keys and slot names
+  are both normalized to their canonical slot at MINT time, so the
+  lookup the crossing performs per prop is one `get` and one
+  `contains?`; a contract outside the roster, a declaration on a
+  structural slot (`key`/`ref` are React's, not positions), two
+  spellings landing on one slot, a malformed `:slots` set, a position
+  declared both a callback and a slot, an `:ssr` value outside the
+  three, a `defview` or `defhost` head written into a fallback, and an
+  option key outside `#{:callbacks :slots :ssr}` are all refused at the
   declaration, where the author's stack is the declaration site.
 
   ## What the `gate` slot holds, and why it is not always a gate
@@ -1481,8 +1596,9 @@
               're-frame.hicasso.impl.codec/mint-host!
               (str "defhost " host-name " was declared with " (pr-str k)
                    ", which is not an option. A declaration carries "
-                   ":callbacks and :ssr. Reading past an option it does not "
-                   "know is how a policy comes to be set and never applied.")
+                   ":callbacks, :slots and :ssr. Reading past an option it "
+                   "does not know is how a policy comes to be set and never "
+                   "applied.")
               :declare-callbacks-or-ssr
               {:host host-name :option k :options host-options})))
    (let [ssr (declared-ssr host-name opts)
@@ -1519,6 +1635,9 @@
                (assoc m slot contract)))
            {}
            (or (:callbacks opts) {}))
+         ;; After `declared`, because a slot that is also a declared
+         ;; callback is refused and the contract map is what says so.
+         slots (declared-slots host-name opts declared)
          ;; The policy IS the type. `:render` mints no gate at all —
          ;; the foreign component is the element's own type, so the
          ;; server render, hydration's first pass and a fresh mount are
@@ -1529,6 +1648,7 @@
                                        (mint-host-gate! host-name component
                                                         (:fallback ssr)))
                        "callbacks"   declared
+                       "slots"       slots
                        "ssr"         ssr
                        "displayName" host-name}]
      (unchecked-set head host-marker true)
@@ -2399,18 +2519,30 @@
   asked for anything, so there is nothing to leave unanswered. This
   refuses the unanswered REQUEST — never functions at the crossing, and
   never the form itself, which is legal at every slot a declaration
-  claims."
-  [^js head k]
+  claims.
+
+  **A declared ReactNode slot is one of the positions that leaves it
+  unanswered** (rf2-hic-035), and the message says so rather than
+  claiming nothing claims the prop. A slot claims the position for
+  MARKUP: it lowers hiccup ([[as-element]]) and has no callback contract
+  to select, so an `h/fn` there is the same policy written and never
+  applied. `node-slot?` is what the message branches on; the fault, the
+  id and the recovery are one."
+  [^js head k node-slot?]
   (fail! :rf.error/hicasso-host-unclaimed-callback
          're-frame.hicasso.impl.codec/host-element
          (str "The host " (unchecked-get head "displayName") " was handed an "
-              "h/fn at " (pr-str k) ", which no position claims — its "
+              "h/fn at " (pr-str k) ", which no CALLBACK contract claims — its "
               "declaration names " (pr-str (into #{} (keys (unchecked-get head "callbacks"))))
-              ". An h/fn asks the POSITION for a contract, and an unclaimed "
-              "slot has none to give: it would cross as an ordinary function "
-              "whose return the library discards, so an intent it returned "
-              "would never dispatch. Declare " (pr-str k) " in :callbacks, or "
-              "hand a plain function.")
+              (if node-slot?
+                (str " and declares " (pr-str k) " a ReactNode slot, which is "
+                     "a markup position: it lowers hiccup, and it has no "
+                     "contract to give a function. ")
+                ". An h/fn asks the POSITION for a contract, and an unclaimed "
+                "slot has none to give: it would cross as an ordinary function "
+                "whose return the library discards, so an intent it returned "
+                "would never dispatch. ")
+              "Declare " (pr-str k) " in :callbacks, or hand a plain function.")
          :declare-the-slot-or-hand-a-plain-function
          {:host     (unchecked-get head "displayName")
           :position k
@@ -2467,8 +2599,24 @@
 
   It composes, for the reason [[convert-entry]] composes: two spellings
   of one element's class are two map keys and one React slot, and letting
-  the last write win drops a class silently."
-  [^js head declared o k v]
+  the last write win drops a class silently.
+
+  ## The declared ReactNode slot (rf2-hic-035)
+
+  `slots` is the declaration's other roster, and its arm sits BESIDE the
+  callback one for the same reason: a declared position means what the
+  declaration says it means. A slot's value goes through [[as-element]]
+  — the same conversion the crossing's CHILDREN take, in the same render
+  window — so hiccup at a declared slot lowers under the frame that
+  wrote the crossing, a string or a ready React element passes as-is,
+  and a seq splices. An `h/fn` there is refused
+  ([[refuse-unclaimed-host-callback!]]): markup is not a contract.
+
+  An UNDECLARED prop is untouched by all of this, which is the property
+  the whole mechanism exists to preserve. Nothing asks whether a vector
+  looks like hiccup, because that is a fact about the foreign ABI and
+  only the author holds it."
+  [^js head declared slots o k v]
   (if (keyword-identical? :key k)
     o
     (let [keyword-ish? (or (keyword? k) (symbol? k))
@@ -2488,6 +2636,17 @@
 
             (contains? declared slot)
             (intent/lower-declared-prop k v (get declared slot))
+
+            ;; A ReactNode position: hiccup lowers, everything React
+            ;; already accepts as a child passes. Above the class arm
+            ;; because a declared position outranks a slot's own
+            ;; coercion, and below the callback one because the two
+            ;; rosters are disjoint by construction (`declared-slots`
+            ;; refuses the overlap at the declaration).
+            (contains? slots slot)
+            (do (when (intent/callback? v)
+                  (refuse-unclaimed-host-callback! head k true))
+                (as-element v))
 
             ;; The slot's own coercion, and the slot's own composition —
             ;; the same law [[convert-entry]] takes at the native
@@ -2512,7 +2671,7 @@
                 ;; slot pays either, and the NATIVE walk
                 ;; ([[convert-entry]]) is not on this path at all.
                 (when (intent/callback? v)
-                  (refuse-unclaimed-host-callback! head k))
+                  (refuse-unclaimed-host-callback! head k false))
                 ;; The SLOT, never the key: `:class` and `:className` are
                 ;; one position, and the named-value rule is written
                 ;; against where the value lands (rf2-vrvv9).
@@ -2535,13 +2694,17 @@
   lower every DECLARED slot by its declared contract
   ([[re-frame.hicasso.impl.intent/lower-declared-prop]] — an
   `h/fn` takes the contract's wrapper, an intent vector or key-map
-  lowers as at a native position), refuse an event-spelled intent at an
-  UNDECLARED slot and an `h/fn` at any UNCLAIMED one, and convert
-  everything else shallowly ([[host-prop-value]]) under its camelCased
-  name.
+  lowers as at a native position), lower every declared `:slots`
+  position hiccup→ReactNode ([[as-element]], rf2-hic-035), refuse an
+  event-spelled intent at an UNDECLARED slot and an `h/fn` at any
+  UNCLAIMED one, and convert everything else shallowly
+  ([[host-prop-value]]) under its camelCased name.
 
   Children are trailing forms converted hiccup→element and handed to the
-  foreign component as ordinary React children — HD-011's third default.
+  foreign component as ordinary React children — HD-011's third default,
+  and the conversion a declared `:slots` position takes too, in the same
+  render window, which is why an intent inside a slot and an intent
+  inside a child fire into the one frame.
 
   The element's TYPE is whatever the declaration put in its `gate`
   slot, and that is where the `:ssr` policy lives: under `:client-only`
@@ -2559,9 +2722,10 @@
   [argv]
   (let [^js head   (nth argv 0)
         declared   (unchecked-get head "callbacks")
+        slots      (unchecked-get head "slots")
         has-props? (props-map? argv 1)
         props      (merge-caller (if has-props? (nth argv 1) {}))
-        js-props   (reduce-kv (partial host-entry head declared) #js {} props)]
+        js-props   (reduce-kv (partial host-entry head declared slots) #js {} props)]
     (when-some [k (:key props)] (unchecked-set js-props "key" k))
     (make-element (unchecked-get head "gate") js-props argv (if has-props? 2 1))))
 
@@ -2634,12 +2798,19 @@
 
 (def ^:private raw-crossing
   "What [[host-entry]] reads at a `[:>]` prop in place of a declaration:
-  a `displayName` for its refusal messages and an EMPTY roster. The
-  escape has no `mint-host!` and mints nothing per site — this is one
+  a `displayName` for its refusal messages and EMPTY rosters. The escape
+  has no `mint-host!` and mints nothing per site — this is one
   module-level value, and `callbacks` is a ClojureScript map because
-  that is what the refusals project into their `:declared` ex-data."
+  that is what the refusals project into their `:declared` ex-data.
+
+  `slots` is empty for the reason every other erasure is empty: a
+  ReactNode position is DECLARED, and the escape is the door with the
+  declaration erased. Hiccup at a `[:>]` prop is therefore data, and
+  `h/as-element` is the per-site spelling that crosses one element
+  through it."
   #js {"displayName" "[:>]"
-       "callbacks"   {}})
+       "callbacks"   {}
+       "slots"       #{}})
 
 (def ^:private raw-gate
   "THE ONE GATE, shared by every `[:>]` crossing on every page.
@@ -2859,7 +3030,7 @@
   (let [component  (nth argv 1)
         has-props? (props-map? argv 2)
         props      (merge-caller (if has-props? (nth argv 2) {}))
-        js-props   (reduce-kv (partial host-entry raw-crossing {}) #js {} props)
+        js-props   (reduce-kv (partial host-entry raw-crossing {} #{}) #js {} props)
         carrier    #js {"c" component "p" js-props}]
     (when-some [k (:key props)] (unchecked-set carrier "key" k))
     (make-element raw-gate carrier argv (if has-props? 3 2))))
