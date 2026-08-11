@@ -71,6 +71,7 @@
   #?(:clj (:require [re-frame.source-coords :as source-coords]))
   #?(:cljs
      (:require [re-frame.hicasso.impl.boundary :as impl-boundary]
+               [re-frame.hicasso.impl.codec :as impl-codec]
                [re-frame.hicasso.impl.collector :as impl-collector]
                [re-frame.hicasso.impl.intent :as impl-intent]
                [re-frame.hicasso.impl.mount :as impl-mount]
@@ -334,6 +335,23 @@
   it mints no boundary and adds no hook.
   [[re-frame.hicasso.impl.route-link/route-link]]."}
        route-link impl-route-link/route-link)
+
+     (def ^{:doc "`h/as-component` — **the outward bridge** (rf2-hic-032).
+  Answers a real React component for a hiccup head, so a native parent —
+  `n/defcomponent`, UIx, or plain JavaScript — mounts a minted Hicasso
+  view under the frame it is already in:
+
+      (def article-card* (h/as-component article-card))
+
+  Declared once at top level, beside the view. The parent's props arrive
+  as the view's ordinary props map (`articleId` → `:article-id`),
+  children at `:children`, values by identity; the frame comes from React
+  context, and no second root, state owner or props ABI appears anywhere.
+  Sits HERE rather than on the native tier because a UIx or JavaScript
+  parent must not have to require the native namespace — and therefore
+  ship it — to cross inward.
+  [[re-frame.hicasso.impl.codec/as-component]]."}
+       as-component impl-codec/as-component)
 
      ;; ---- the root lifecycle: mount, re-render, tear down ----------------
      ;;

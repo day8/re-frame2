@@ -3142,6 +3142,132 @@
     (as-element hiccup)))
 
 ;; ---------------------------------------------------------------------------
+;; THE OUTWARD BRIDGE (rf2-hic-032) — the codec's other half
+;; ---------------------------------------------------------------------------
+;;
+;; Every other function in this file ENCODES: a hiccup form goes in and a
+;; React element comes out. The bridge is the one place the traffic runs
+;; the other way — a React parent holds a props OBJECT and wants a
+;; Hicasso element — so the decode belongs here, beside the vocabulary it
+;; is the inverse of, and nowhere else.
+;;
+;; **The bridge mints no crossing of its own.** It converts the props and
+;; then calls [[vec->element]], which is the same entry every hiccup
+;; vector in every body already goes through. That is what makes "one
+;; props/children ABI" (native-boundary law, clause 5) true by
+;; construction rather than by inspection: there is no second element
+;; builder to keep in step, `rfProps` is written in exactly the one place
+;; it was written before, and the bridge inherits every refusal the codec
+;; already raises at the coordinates the complaint register already
+;; records — a head outside the closed set refuses as
+;; `:rf.error/hicasso-bad-head` from [[vec->element]], from out here as
+;; from a body.
+
+(def ^:private slot-keys
+  "The three React spellings read back to the hiccup key they came from.
+
+  [[re-frame.hicasso.impl.slot/prop-name]] is deliberately NOT injective
+  — `:class`, `:className`, `\"class\"` and `:x/class` are one slot — so
+  an inverse has to CHOOSE, and it chooses the spelling the guide
+  teaches. `className` therefore arrives at a body as `:class`, which is
+  the key that body's author would have written."
+  {"className" :class "htmlFor" :for "charSet" :charset})
+
+(defn prop-key
+  "The hiccup prop key a React slot name came from —
+  [[re-frame.hicasso.impl.slot/prop-name]] read backwards.
+
+  `\"onClick\"` → `:on-click`; `\"aria-label\"` and `\"data-index\"` pass
+  through, because the forward rule leaves those two families alone; a
+  `--custom-property` is preserved verbatim; the three React renames go
+  back to their HTML spellings through [[slot-keys]].
+
+  **The round trip is the contract**, and it is what lets the two fences
+  compose. A native parent writing `(n/$ card {:article-id 7})` has its
+  key lowered to `\"articleId\"` by the native macro, and this function
+  hands the body back `:article-id` — so an author who writes the same
+  keyword on both sides of the fence reads the same keyword in the body,
+  and a JavaScript parent writing `articleId={7}` reaches the same place.
+  Witnessed over `slot-corpus` in
+  `re-frame.hicasso.outward-bridge-cljs-test`, on every row whose
+  authored key is already the canonical spelling.
+
+  A slot carrying a hyphen is answered verbatim, which is the only rule
+  that can be right: the forward direction camelCases a key by consuming
+  its hyphens, so a slot that still has one was never camelCased and
+  splitting it again would invent a key the author never wrote."
+  [s]
+  (or (slot-keys s)
+      (if (str/includes? s "-")
+        (keyword s)
+        (keyword (str/replace s #"[A-Z]" #(str "-" (str/lower-case %)))))))
+
+(defn- outward-props
+  "A React props object, decoded into the ordinary ClojureScript props map
+  a boundary body destructures. Shallow, by identity, own properties
+  only — the mirror of what [[boundary-element]] does on the way out,
+  and no deeper for the same reason: the values are the parent's, and
+  converting them would be the deep conversion HD-011 refuses in the
+  other direction.
+
+  React's children arrive at the `children` slot and therefore land at
+  `:children`, which is where [[boundary-element]] puts a hiccup body's
+  children too — one spelling, whichever side of the bridge filled it."
+  [^js js-props]
+  (if (nil? js-props)
+    {}
+    (persistent!
+      (reduce (fn [m s] (assoc! m (prop-key s) (unchecked-get js-props s)))
+              (transient {})
+              (js/Object.keys js-props)))))
+
+(defn as-component
+  "**Hand a hiccup head to React.** Answers a real React function
+  component, so a native parent — `n/defcomponent`, UIx, or plain
+  JavaScript — can render a minted Hicasso view without a second root,
+  a second frame, or a sight of the internal `rfProps` ABI.
+
+      (def article-card* (h/as-component article-card))
+      ;; on the React side: <ArticleCard articleId={7} />
+
+  The parent's props arrive as the view's ordinary props map
+  ([[prop-key]]), React's children arrive at `:children`, and values
+  cross by identity. Called ONCE, at top level, beside the view it
+  bridges: it allocates a component, so minting one inside a render would
+  hand React a fresh element type on every pass and remount the subtree —
+  `n/lazy`'s law and `defcomponent`'s, for the same reason.
+
+  ## What it preserves, and why the list is short
+
+  Nothing here re-implements the crossing. The element is built by
+  [[vec->element]] from `[head props]`, so the view keeps its stable memo
+  wrapper (a fresh-but-`=` props map still bails out under
+  [[boundary-props=]]), its reads, its teardown, and its refusals — and
+  the head's own `:key` identity stays React's, written by the parent on
+  the element it creates. The frame is the one the surrounding React
+  context carries, which is what makes this a bridge rather than a root:
+  the shell reads the same `re-frame.adapter.context/frame-context` a
+  boundary two levels up reads, through any foreign components in
+  between. Rendered outside every Hicasso root the shell refuses with
+  `:rf.error/no-frame-context`, unchanged.
+
+  **`*dispatch*` is not bound, and neither is `*frame*`**, for
+  [[root-element]]'s reason: this wrapper is not a boundary body, so an
+  intent vector written in the props of a `[:div]` handed through here
+  stays the loud `:rf.error/hicasso-intent-outside-boundary` it is
+  everywhere else. A frame-fed head ([[mark-frame-prop!]]) is the one
+  head this does not serve; it refuses with `:rf.error/no-frame-prop`,
+  whose recovery already names the outward bridge as the creator that
+  must supply the frame."
+  [head]
+  (let [named     (when (fn? head) (unchecked-get head "displayName"))
+        component (fn hicasso-as-component [js-props]
+                    (vec->element [head (outward-props js-props)]))]
+    (unchecked-set component "displayName"
+                   (str "hicasso/as-component" (when named (str "(" named ")"))))
+    component))
+
+;; ---------------------------------------------------------------------------
 ;; Cache observation — for the tests and the bench, never for the runtime
 ;; ---------------------------------------------------------------------------
 

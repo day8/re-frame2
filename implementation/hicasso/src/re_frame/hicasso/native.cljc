@@ -100,6 +100,27 @@
   the pair: a commit observed through the hook is a BLOCKING update and
   no part of this surface is transition-aware.
 
+  ## The ABI helpers, and the two directions across the boundary
+
+  [[memo]] and [[lazy]] are `react/memo` and `react/lazy` with the tier
+  [[marker]] carried across, and they are the whole helper surface: React
+  19 hands a function component its `ref` as an ordinary prop, so refs
+  need no helper and get none. Neither helper touches props or children —
+  the ABI is one raw JavaScript props object at every rung, and a second
+  \"fast\" one does not appear here or anywhere else in the tier.
+
+  Crossing the boundary is likewise not this namespace's invention in
+  either direction. **Inward** — hiccup mounting an island — a native
+  component is a foreign React component like any other, so it enters
+  through the seams that already exist: `h/defhost` for a named crossing,
+  the `[:>]` escape for a one-off. Neither knows this tier exists, and
+  that is what keeps clause 6 true: an interpreted-only bundle cannot
+  reach the native runtime through a door that never names it.
+  **Outward** — a native parent mounting a Hicasso view — is
+  `h/as-component`, and it lives on the interpreted door for the mirror
+  reason: a UIx or JavaScript parent must not have to require this
+  namespace, and therefore ship it, to cross.
+
   ## Dependency isolation
 
   This namespace is separately reachable and nothing in `re-frame.hicasso`
@@ -318,6 +339,113 @@
   and the reason a raw `react/memo` wrapper loses it."
        [x]
        (when (some? x) (unchecked-get x tier-sentinel)))
+
+     ;; ----------------------------------------------------------------
+     ;; The two ABI helpers (rf2-hic-032)
+     ;; ----------------------------------------------------------------
+     ;;
+     ;; TWO, and refs make a third that needs no code. React 19 hands a
+     ;; function component its `ref` as an ordinary prop, so `:ref` is
+     ;; already the one ABI at the one slot and a `forwardRef` helper
+     ;; would be a wrapper that preserved what nothing was taking away.
+     ;;
+     ;; What `react/memo` and `react/lazy` DO take away is the marker.
+     ;; Both answer a NEW object — a memo record, a lazy record — and the
+     ;; marker is an own property of the component they were handed, so
+     ;; the display name and the declared server policy stop at the
+     ;; wrapper and Xray names an anonymous boundary where an island
+     ;; should be. Neither changes the props or children ABI at all: a
+     ;; memo passes props through untouched and a lazy resolves TO the
+     ;; component. So the whole of the repair is carrying the two stamps
+     ;; across, and these helpers are deliberately nothing else.
+
+     (defn- carry!
+       "Copy `f`'s display name and tier marker onto `wrapper`, and answer
+  the wrapper. Both are absent for a component this tier did not mint —
+  a UIx `defui`, a handwritten React function — and the copy is silently
+  a no-op there rather than a refusal: UIx is a supported authoring
+  route, so memoising one of its components through here is legal and
+  simply carries nothing, which is exactly what it had."
+       [wrapper f]
+       (when-some [d (unchecked-get f "displayName")]
+         (unchecked-set wrapper "displayName" d))
+       (when-some [m (marker f)]
+         (unchecked-set wrapper tier-sentinel m))
+       wrapper)
+
+     (defn memo
+       "**`React.memo`, with the marker intact.**
+
+      (n/defcomponent quote-cell* [^js props] …)
+      (def quote-cell (n/memo quote-cell*))
+
+  Identical semantics to `react/memo` — a shallow props comparison, or
+  the `props=` you supply, and React's own bail-out — and the ONE
+  difference is that the memo record carries [[marker]] and the display
+  name forward. `(react/memo quote-cell*)` works at runtime and is the
+  defect: Xray shows an anonymous boundary, and the seams that recognise
+  a native head no longer do.
+
+  Declared at top level, never in a render. A memo record IS the element
+  type React reconciles on, so one minted inside a body is a fresh type
+  per pass — no bail-out, and a remount instead. That is `React.memo`'s
+  own law, not an addition.
+
+  **It does not survive a hot reload, and must not.** A save
+  re-evaluates the module, [[component]] allocates a fresh function, this
+  allocates a fresh memo around it, and React replaces the subtree. A
+  clean remount across a save is the designed conduct (rf2-hic-015); a
+  helper that preserved identity here would be fighting the contract."
+       ([f] (carry! (react/memo f) f))
+       ([f props=] (carry! (react/memo f props=) f)))
+
+     (defn lazy
+       "**`React.lazy`, with the marker intact and the loader unwrapped.**
+
+      (def chart-loadable (lazy/loadable app.charts.island/heavy-chart))
+      (def heavy-chart (n/lazy #(lazy/load chart-loadable)))
+
+  `load` is `React.lazy`'s contract with one knot untied: a thunk
+  returning a promise, which resolves **to the component** rather than to
+  a `#js {:default component}` module record. Every ClojureScript code
+  splitter already resolves to the value — `shadow.lazy/load` does — so
+  the module wrapper would be a shape the author invents for React and
+  then never reads. This puts it on once, where it is React's business.
+
+  Suspend and error conduct are React's whole: while the promise is
+  pending the nearest Suspense host shows its fallback, and a rejection
+  throws into the render for the nearest `h/error-boundary` to catch and
+  a `:reset-key` to retry.
+
+  ## The marker, and the one field that cannot be known yet
+
+  A lazy head is a head before its component exists, so its marker is
+  minted here and its `:name` is filled in when the payload arrives —
+  the SAME object throughout, so a seam that read it early sees the name
+  appear rather than being handed a second marker to reconcile. Before
+  arrival the honest answer is that the head has no name, and that is
+  what it says.
+
+  **`:server` is `client-only` and is not the inner component's to
+  override.** The server never sent the chunk, so no policy the component
+  declares can make bytes exist: the region is Client-only whatever
+  `n/defcomponent` said, and the server carries the fallback.
+
+  Declared at top level, never in a render — `React.lazy`'s own law.
+  Minting inside a body allocates a fresh identity per pass, so the
+  fallback flashes and the load re-triggers on every render of the
+  parent."
+       [load]
+       (let [m     #js {:name nil :server "client-only"}
+             lazy* (react/lazy
+                     (fn []
+                       (.then (load)
+                              (fn [component]
+                                (when-some [inner (marker component)]
+                                  (unchecked-set m "name" (unchecked-get inner "name")))
+                                #js {:default component}))))]
+         (unchecked-set lazy* tier-sentinel m)
+         lazy*))
 
      ;; ----------------------------------------------------------------
      ;; The two hooks (rf2-hic-031)
