@@ -1298,7 +1298,7 @@
   therefore never a rule about content; it was a property of the walk.
 
   Two facts made the absence a defect rather than a narrow rule
-  (measured, `arm1/fallback_contents_cljs_test`):
+  (measured, `re-frame.hicasso.fallback-contents-cljs-test`):
 
   1. **The declared placeholder is not a value.** [[mint-host-gate!]]
      walks once and reuses the element everywhere, and its stated reason
@@ -1377,7 +1377,7 @@
   body runs later. [[refuse-deferring-heads-in-fallback!]] closes that,
   structurally and ahead of the walk, so the sentence is true as
   written. Its docstring carries the two measurements that decided it;
-  `arm1/fallback_contents_cljs_test` is the contract.
+  `re-frame.hicasso.fallback-contents-cljs-test` is the contract.
 
   The gate hands its own props straight through to the foreign
   component, so the crossing's props object is exactly the one
