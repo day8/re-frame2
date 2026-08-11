@@ -41,7 +41,8 @@
 // namespace the row names. A moved, renamed or deleted arm therefore REDS this
 // gate and names the file, instead of dropping silently out of the entry list
 // the way a walk would let it. That is rf2-bl0j's principle applied, not
-// improved on.
+// improved on — and it is the same three-field roster PR #7907 landed as
+// `OUTSIDE_LANE_ENTRIES` in the hicasso lane's gate, so the two read alike.
 //
 // ## ONE build, and the measurement that decided it
 //
@@ -163,7 +164,18 @@ const TAG = 'bspine-compile';
 
 /**
  * THE COVERED SET. Every row is a namespace that, on main at rf2-cfqk, was
- * compiled by no pull-request gate. Paths are relative to `implementation/`.
+ * compiled by no pull-request gate. Paths are relative to `implementation/`,
+ * both halves are verified — the file must exist AND declare that exact
+ * namespace — and `why` says what the row is, so a reader deciding whether it
+ * still belongs does not have to open it.
+ *
+ * The shape follows the sibling roster in the hicasso lane's own gate
+ * (`../../bench/hicasso/compile_gate.cjs`, `OUTSIDE_LANE_ENTRIES`, PR #7907):
+ * same three fields, same both-halves check, same reason.
+ *
+ * NO FLOOR, deliberately, and for the reason that roster gives too: a floor
+ * guards a WALK, where a silent under-recovery is possible. Every row here is
+ * checked individually and by name, which is strictly stronger.
  *
  * Adding an arm to either bench tree does NOT cover it — check whether some
  * gate reaches it, and add a row here if none does.
@@ -172,31 +184,107 @@ const ENTRIES = [
   // The two Node attribution instruments. Neither is named `*-cljs-test`,
   // nothing test-shaped requires either, and their own drive commands are
   // hand-run `--config-merge` rides on `:ui-bench`.
-  { ns: 're-frame.bench.read-attribution-cljs', file: 'core/test/re_frame/bench/read_attribution_cljs.cljs' },
-  { ns: 're-frame.bench.write-attribution', file: 'core/test/re_frame/bench/write_attribution.cljs' },
+  {
+    ns: 're-frame.bench.read-attribution-cljs',
+    file: 'core/test/re_frame/bench/read_attribution_cljs.cljs',
+    why: "the READ path priced on the host re-frame2 ships to — read_attribution.clj's CLJS counterpart, arm for arm",
+  },
+  {
+    ns: 're-frame.bench.write-attribution',
+    file: 'core/test/re_frame/bench/write_attribution.cljs',
+    why: "where the bytes of a NARROW WRITE go — the decomposition of B8's 457,181-byte write leg",
+  },
 
   // The seventeen B-spine arms. Their drivers ride `:freehand-release`, and
   // their only workflow home — `.github/workflows/freehand-bench.yml` — is
   // `schedule:`-only and gates nothing. `:browser-test-freehand-bench`
   // selects `.+-dom-cljs-test$` within the same namespace, so it does not
   // reach them either.
-  { ns: 're-frame.freehand.bench.b6-prod-app', file: 'freehand/test/re_frame/freehand/bench/b6_prod_app.cljs' },
-  { ns: 're-frame.freehand.bench.b6-profile-app', file: 'freehand/test/re_frame/freehand/bench/b6_profile_app.cljs' },
-  { ns: 're-frame.freehand.bench.b6-witnesses-flat', file: 'freehand/test/re_frame/freehand/bench/b6_witnesses_flat.cljc' },
-  { ns: 're-frame.freehand.bench.b6-yield-app', file: 'freehand/test/re_frame/freehand/bench/b6_yield_app.cljs' },
-  { ns: 're-frame.freehand.bench.b7-app', file: 'freehand/test/re_frame/freehand/bench/b7_app.cljs' },
-  { ns: 're-frame.freehand.bench.b7-heap', file: 'freehand/test/re_frame/freehand/bench/b7_heap.cljs' },
-  { ns: 're-frame.freehand.bench.b7-mount-frame', file: 'freehand/test/re_frame/freehand/bench/b7_mount_frame.cljs' },
-  { ns: 're-frame.freehand.bench.b7-pageerror-probe', file: 'freehand/test/re_frame/freehand/bench/b7_pageerror_probe.cljs' },
-  { ns: 're-frame.freehand.bench.b8-alloc', file: 'freehand/test/re_frame/freehand/bench/b8_alloc.cljs' },
-  { ns: 're-frame.freehand.bench.b8-app', file: 'freehand/test/re_frame/freehand/bench/b8_app.cljs' },
-  { ns: 're-frame.freehand.bench.b9-app', file: 'freehand/test/re_frame/freehand/bench/b9_app.cljs' },
-  { ns: 're-frame.freehand.bench.b9-nc', file: 'freehand/test/re_frame/freehand/bench/b9_nc.cljs' },
-  { ns: 're-frame.freehand.bench.b10-prod-app', file: 'freehand/test/re_frame/freehand/bench/b10_prod_app.cljs' },
-  { ns: 're-frame.freehand.bench.reads-ladder', file: 'freehand/test/re_frame/freehand/bench/reads_ladder.cljs' },
-  { ns: 're-frame.freehand.bench.reads-ladder-app', file: 'freehand/test/re_frame/freehand/bench/reads_ladder_app.cljs' },
-  { ns: 're-frame.freehand.bench.spine-ablation', file: 'freehand/test/re_frame/freehand/bench/spine_ablation.cljs' },
-  { ns: 're-frame.freehand.bench.spine-ablation-app', file: 'freehand/test/re_frame/freehand/bench/spine_ablation_app.cljs' },
+  {
+    ns: 're-frame.freehand.bench.b6-prod-app',
+    file: 'freehand/test/re_frame/freehand/bench/b6_prod_app.cljs',
+    why: "B6's PRODUCTION entry — the same rows under :advanced with goog.DEBUG false",
+  },
+  {
+    ns: 're-frame.freehand.bench.b6-profile-app',
+    file: 'freehand/test/re_frame/freehand/bench/b6_profile_app.cljs',
+    why: "B6's PROFILING entry — one update arm in a tight loop, nothing else sharing the window",
+  },
+  {
+    ns: 're-frame.freehand.bench.b6-witnesses-flat',
+    file: 'freehand/test/re_frame/freehand/bench/b6_witnesses_flat.cljc',
+    why: "B6's ABLATION witness — one boundary instead of 300, deciding per-ELEMENT vs per-BOUNDARY",
+  },
+  {
+    ns: 're-frame.freehand.bench.b6-yield-app',
+    file: 'freehand/test/re_frame/freehand/bench/b6_yield_app.cljs',
+    why: 'does B6\'s update window still need its microtask yield (rf2-vxfjt)',
+  },
+  {
+    ns: 're-frame.freehand.bench.b7-app',
+    file: 'freehand/test/re_frame/freehand/bench/b7_app.cljs',
+    why: "B7's :advanced entry — one bundle, two modes, both rows read from the shipped artefact",
+  },
+  {
+    ns: 're-frame.freehand.bench.b7-heap',
+    file: 'freehand/test/re_frame/freehand/bench/b7_heap.cljs',
+    why: 'B7 — RETAINED HEAP per live boundary, across substrates',
+  },
+  {
+    ns: 're-frame.freehand.bench.b7-mount-frame',
+    file: 'freehand/test/re_frame/freehand/bench/b7_mount_frame.cljs',
+    why: "B7 — what the :frame opt costs inside B6's timed mount window (rf2-prjh0)",
+  },
+  {
+    ns: 're-frame.freehand.bench.b7-pageerror-probe',
+    file: 'freehand/test/re_frame/freehand/bench/b7_pageerror_probe.cljs',
+    why: "the real B7 app plus one detached throw — b7_run.cjs's pageerror refusal, watched firing (rf2-va5nm)",
+  },
+  {
+    ns: 're-frame.freehand.bench.b8-alloc',
+    file: 'freehand/test/re_frame/freehand/bench/b8_alloc.cljs',
+    why: 'B8 — bytes ALLOCATED per write, across substrates (what a write TOUCHES, not what it keeps)',
+  },
+  {
+    ns: 're-frame.freehand.bench.b8-app',
+    file: 'freehand/test/re_frame/freehand/bench/b8_app.cljs',
+    why: "B8's :advanced entry — mounts the update arms once and hands the page to b8_run.cjs",
+  },
+  {
+    ns: 're-frame.freehand.bench.b9-app',
+    file: 'freehand/test/re_frame/freehand/bench/b9_app.cljs',
+    why: "B9's :advanced entry — one bundle, two modes, both existing instruments with the ablated arm added",
+  },
+  {
+    ns: 're-frame.freehand.bench.b9-nc',
+    file: 'freehand/test/re_frame/freehand/bench/b9_nc.cljs',
+    why: 'B9 — the concurrent-store contract ABLATED, priced on the clock and the heap (rf2-so3io)',
+  },
+  {
+    ns: 're-frame.freehand.bench.b10-prod-app',
+    file: 'freehand/test/re_frame/freehand/bench/b10_prod_app.cljs',
+    why: "B10's PRODUCTION entry — DC-09's two-clock envelope under :advanced",
+  },
+  {
+    ns: 're-frame.freehand.bench.reads-ladder',
+    file: 'freehand/test/re_frame/freehand/bench/reads_ladder.cljs',
+    why: 'the reads-per-boundary HEAP LADDER — standing bytes at 1 / 3 / 7 / 20 reads, Reagent and UIx',
+  },
+  {
+    ns: 're-frame.freehand.bench.reads-ladder-app',
+    file: 'freehand/test/re_frame/freehand/bench/reads_ladder_app.cljs',
+    why: "that ladder's :advanced entry — one bundle, one substrate per page load",
+  },
+  {
+    ns: 're-frame.freehand.bench.spine-ablation',
+    file: 'freehand/test/re_frame/freehand/bench/spine_ablation.cljs',
+    why: 'the UIx spine PER-READ ablation — what the 3,550 bytes a UIx subscription read costs are made of',
+  },
+  {
+    ns: 're-frame.freehand.bench.spine-ablation-app',
+    file: 'freehand/test/re_frame/freehand/bench/spine_ablation_app.cljs',
+    why: "that ablation's :advanced entry — one bundle, one substrate per page load",
+  },
 ];
 
 /**
