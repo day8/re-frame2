@@ -82,11 +82,12 @@
             [re-frame.bench.p0-reagent :as rg]
             [re-frame.bench.p0-uix :as ux]
             [re-frame.frame :as frame]
-            ;; THE CANDIDATE'S THREE DOORS, and they are the PACKAGE's
-            ;; (rf2-fe0l). They used to be `re-frame.bench.hicasso.arm1.*`
-            ;; — the frozen prototype `implementation/hicasso/src` was
-            ;; moved from — so every heap figure this file ever produced
-            ;; priced a bench-tree copy rather than the product. The
+            ;; THE CANDIDATE ARM'S THREE DOORS, called at four seams, and
+            ;; they are the PACKAGE's now (rf2-fe0l). They used to be
+            ;; `re-frame.bench.hicasso.arm1.*` — the frozen prototype
+            ;; `implementation/hicasso/src` was moved from — so every
+            ;; heap figure this file ever produced priced a bench-tree
+            ;; copy rather than the product. The
             ;; equivalents are 1:1 and named here so a reader can check
             ;; the claim: `impl.mount/root!` for the mount door,
             ;; `impl.collector/reset-runtime!` for the page-wide fixture
@@ -164,13 +165,13 @@
 
   The unmount is NOT `impl.mount/release!`, and the difference is the
   whole survival metric. `release!` ends with
-  `impl.collector/reset-runtime!`,
-  which drops every cell, edge and cached entry by force — an arm torn
-  down that way would answer zero residue whatever it had leaked, and
-  would also destroy the sibling roots of a multi-root arm. This unmounts
-  the root and nothing else, so React's own `useSyncExternalStore`
-  cleanup is what releases the edges and the references, and the residue
-  the driver reads afterwards is a measurement rather than a reset."
+  `impl.collector/reset-runtime!`, which drops every cell, edge and
+  cached entry by force — an arm torn down that way would answer zero
+  residue whatever it had leaked, and would also destroy the sibling
+  roots of a multi-root arm. This unmounts the root and nothing else, so
+  React's own `useSyncExternalStore` cleanup is what releases the edges
+  and the references, and the residue the driver reads afterwards is a
+  measurement rather than a reset."
   [hiccup-of selector expected]
   {:selector    selector
    :expected    expected
