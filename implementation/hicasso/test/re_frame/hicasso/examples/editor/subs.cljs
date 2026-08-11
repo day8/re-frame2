@@ -3,14 +3,14 @@
 
   Four fields and four subscription cells, because the per-keystroke
   budget is a fact about the READ TOPOLOGY and about nothing else.
-  `docs/design/hicasso/draft-guide/18-performance.md` §The cost of one
-  keystroke walks it: one write, the subscriptions reading that address
-  recompute, equality gates stop every one whose output did not move, and
-  the boundaries whose reads changed are notified. With a field per cell
-  that is **one** changed subscription and **one** body run per
-  keystroke — write amplification 1, independent of how many fields the
-  form has. `editor.flow-dom-cljs-test` measures it rather than asserting
-  the arithmetic.
+  `docs/design/hicasso/draft-guide/18-performance.md` §Trace one
+  controlled keystroke walks it: one write, the subscriptions reading
+  that address recompute, equality gates stop every one whose output did
+  not move, and the boundaries whose reads changed are notified. With a
+  field per cell that is **one** changed subscription and **one** body
+  run per keystroke — write amplification 1, independent of how many
+  fields the form has. `editor.flow-dom-cljs-test` measures it rather
+  than asserting the arithmetic.
 
   [[field]] is PARAMETRIC, so the four cells are four entries under one
   registration rather than four registrations. A parametric subscription

@@ -13,12 +13,13 @@
   [[text-field]] is the unit of re-render. Four controls means four
   boundaries, each reading its own address, so a keystroke in the title
   notifies the title's boundary and no other
-  (`docs/design/hicasso/draft-guide/18-performance.md` §The cost of one
-  keystroke). [[editor]] itself reads NOTHING: it is a layout body that
-  runs at mount and, thereafter, only when a prop of its own changes.
-  That absence is the load-bearing part, and `editor.l2-cljs-test`
-  asserts it the only way it can be asserted — by handing the body an
-  EMPTY fixture map and letting the kit refuse any read it makes.
+  (`docs/design/hicasso/draft-guide/18-performance.md` §Trace one
+  controlled keystroke). [[editor]] itself reads NOTHING: it is a layout
+  body that runs at mount and, thereafter, only when a prop of its own
+  changes. That absence is the load-bearing part, and
+  `editor.l2-cljs-test` asserts it the only way it can be asserted — by
+  handing the body an EMPTY fixture map and letting the kit refuse any
+  read it makes.
 
   ## What was NOT needed here
 

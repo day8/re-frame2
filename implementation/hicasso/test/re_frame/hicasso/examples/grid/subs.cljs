@@ -9,8 +9,8 @@
   value; exactly one boundary is notified. The other ninety-nine are
   **never notified** — not notified-and-bailed-out, which is a different
   and more expensive thing
-  (`docs/design/hicasso/draft-guide/18-performance.md` §The cost of one
-  keystroke).
+  (`docs/design/hicasso/draft-guide/18-performance.md` §Scale the same
+  topology to a grid).
 
   [[dimensions]] is read by the grid body and by the row bodies, and it
   does not move while anybody is typing. That is the second half of the
