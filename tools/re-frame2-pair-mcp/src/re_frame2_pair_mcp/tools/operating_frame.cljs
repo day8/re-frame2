@@ -23,7 +23,7 @@
   ## Why these ops exist
 
   re-frame2 is multi-frame (Spec 002). Every frame-targeted read/write
-  (`dispatch`, `snapshot`, `get-path`, `subscribe`, `list-subscriptions`,
+  (`dispatch`, `snapshot`, `get-path`, `read-sub`, `list-subscriptions`,
   …) resolves an *operating frame*: explicit per-call `:frame` (tier 1) →
   session pin (tier 2) → sole-registered frame (tier 3) → nil
   (tier 4, ambiguous). When two-plus frames are registered and the call
@@ -37,6 +37,27 @@
   tools wire them onto the wire so a multi-frame agent declares its
   operating frame ONCE and escapes the per-call `:frame` threading,
   delivering the implicit-until-reset UX the contract designs for.
+
+  ## `subscribe` is outside the cascade (rf2-wyza)
+
+  The pin governs ops that RESOLVE a frame. `subscribe` does not resolve
+  one: `subscribe-tool` reads no `:frame` arg, and the runtime
+  `subscribe!` it emits destructures only `{:topic :filter
+  :max-buffered-events :max-buffered-bytes}` — `current-frame` is never
+  consulted. Delivery is a global fan-out (`dispatch-trace-to-subs!`
+  offers every trace event to every subscription), so scope is the
+  subscription's own filter — `{:frame :foo}`, matched by
+  `pure/trace-matches?` and `pure/epoch-matches?` — and a pinned session
+  that omits it streams every frame. The one place the pin does reach a
+  stream is the drain's elision registry: `subscribe`'s drain form
+  threads `current-frame` as the per-element FALLBACK frame for a
+  genuinely frameless event, which selects whose sensitive/large
+  declarations apply, never which events arrive.
+
+  So `subscribe` must not be listed among the ops this pin scopes. The
+  descriptor, the `:missing-frame` hint below and the onboarding blob's
+  routing rule 6 each name the exception; `skills/re-frame2-pair/SKILL.md`
+  §Multi-frame model has carried the correct wording throughout.
 
   ## The trio
 
@@ -142,10 +163,13 @@
            :hint   (str "usage: set-operating-frame {frame \":stories\"}. "
                         "Pin the session's operating frame so subsequent "
                         "frame-targeted ops (dispatch, snapshot, get-path, "
-                        "subscribe, …) resolve to it instead of refusing with "
+                        "read-sub, …) resolve to it instead of refusing with "
                         ":ambiguous-frame. The public address is the FRAME id "
                         "(EP-0023: image -> frame -> event stream); call "
-                        "get-operating-frame to see the registered frames.")}))
+                        "get-operating-frame to see the registered frames. "
+                        "subscribe is the exception — it takes no :frame and "
+                        "ignores the pin; scope a stream with its filter, "
+                        "{:frame :stories}.")}))
 
       ;; Refuse pinning a reserved `:rf/*` TOOL frame as the session's
       ;; operating frame BEFORE any nREPL round-trip. A tool frame
