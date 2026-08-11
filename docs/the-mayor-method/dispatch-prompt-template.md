@@ -45,6 +45,13 @@ repair/commit/push — let the mayor decide.
 Do NOT `git stash` — stashes are repo-global and surface in other workers'
 worktrees, cross-contaminating them. Commit to your branch instead.
 
+Concurrent workers SHARE one session scratchpad directory, so name every scratch
+file you write outside your worktree FOR that worktree — `pr-body-<worktree>.md`,
+never `pr-body.md`. A generic name is silently overwritten by a peer: nothing
+errors, and the loser can READ the survivor and take a PR body with plausible
+structure and the wrong subject for its own. Confirm a scratch file is your own
+before believing it.
+
 If you create a `node_modules` symlink/junction in your worktree, remove the
 LINK (never its target) before you report done: a later `git worktree remove`
 follows it and deletes the shared tree it points at.
@@ -174,7 +181,11 @@ none of them is obvious from the gate command itself.
   A separate invocation starts a *fresh* shell whose `$?` is not the gate's but
   whatever that shell last did, which is typically the `cd`: silent, and it
   yields a plausible zero. That is this bullet's own defeat by a second route,
-  so a paraphrase that drops the single line drops the rule.
+  so a paraphrase that drops the single line drops the rule. **The number you
+  quote is the one you captured** — never one the harness reports about the same
+  run, which is a different measurement and has disagreed: on 2026-08-11 a
+  worker's gate was surfaced as *completed (exit code 0)* while the run's own
+  captured status was 1.
 - **Put *every* gate artefact where git ignores it** — the log and the exit-code
   file both. `*.log`, `*.exit` and `*-exit.txt` all are, so this leaves nothing
   behind:
@@ -316,6 +327,7 @@ reports everything.
 - Same-file races between concurrent workers → enumerate in-flight surfaces.
 - Edits leaking into the mayor checkout (esp. silent new-file leaks) → boundary block + post-write both-trees check.
 - Cross-worktree contamination via `git stash` → no-stash rule (stashes are repo-global).
+- A peer silently overwriting a worker's scratch file, or the loser reading the survivor as its own → worktree-named scratch files + confirm-before-believing (the shared-temp-directory rule, extended past gate logs).
 - Worktree cleanup deleting *through* a `node_modules` link into the shared tree it points at → the worker unlinks before reporting done, and the cleanup path disarms before removing.
 - "Green locally" merged into a red CI gate → gate the transitive surface; merge on CI, not the hand-off; a real failure gets a fix-worker, never `--admin`.
 - A passing synthetic test that routes around the real bug → reproduce the actual failing path.
