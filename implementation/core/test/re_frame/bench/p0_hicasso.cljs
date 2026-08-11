@@ -20,14 +20,25 @@
   both donor rungs are measured here, in one run, in the same rounds, on
   the instrument the published per-read gates are stated on.
 
-  ## The arm IS the runtime, not a model of it
+  ## The arm IS the shipped package, not a model of it
 
-  Every read goes through `re-frame.bench.hicasso.arm1.runtime/sub` — the
-  ambient collector the operator ruled the shipping read surface on
-  2026-07-31 — and every boundary is minted by that arm's own `defview`.
-  Nothing here re-implements the shell, the index, the entry cache or the
-  commit path. A hand-rolled imitation would be pricing this file rather
-  than the design.
+  Every read goes through `re-frame.hicasso/sub` — the ambient collector
+  the operator ruled the shipping read surface on 2026-07-31 — and every
+  boundary is minted by the package's own `defview`. Nothing here
+  re-implements the shell, the index, the entry cache or the commit path.
+  A hand-rolled imitation would be pricing this file rather than the
+  design.
+
+  And it is `implementation/hicasso/src` those doors reach, not the
+  `re-frame.bench.hicasso.arm1.*` prototype the package was moved from
+  (rf2-fe0l). Until this repoint no heap instrument pointed at the
+  package at all: the prototype's own docstring says it lives off every
+  production source path, and `hicasso/scripts/check_freeze.py` says the
+  same from the other side, so a heap figure taken through it priced a
+  frozen copy whose divergence from the product is expected and
+  permanent. The direction of the dependency is the allowed one — the
+  bench tree may require the package; the SEALED rule forbids only the
+  reverse.
 
   ## A loop, and why it is not the UIx arm's unrolling
 
@@ -54,9 +65,9 @@
   Owner: the operator-owned governance set that superseded rf2-2rtt6.1 on
   2026-08-10, enumerated once in `docs/design/hicasso/studio/README.md`;
   this arm rf2-2rtt6.34."
-  (:require [re-frame.bench.hicasso.arm1.runtime :refer [sub]]
-            [re-frame.bench.p0-fixture :as fx])
-  (:require-macros [re-frame.bench.hicasso.arm1.lang :refer [defview]]))
+  (:require [re-frame.bench.p0-fixture :as fx]
+            [re-frame.hicasso :refer [sub]])
+  (:require-macros [re-frame.hicasso :refer [defview]]))
 
 (defview lad-cell
   "One Hicasso boundary reading `r` DISTINCT subscriptions — the same
