@@ -32,7 +32,7 @@
   other, `todomvc.events` already holds it, and a second registration
   would take it away from an application that needs it more. An
   unmatched URL therefore leaves the route id nil, which
-  [[re-frame.hicasso.examples.todo.subs/showing]] already reads as
+  `re-frame.hicasso.examples.todo.subs`'s `::showing` already reads as
   `:all` — a URL is user input, so the filter coerces rather than
   trusting.
 

@@ -18,7 +18,7 @@ It is deliberately the second reading of one instrument. `rf2-hic-025`'s slice i
 | `reg-state` | the per-row edit draft |
 | `root!` / `render!` | the entry point and its `^:dev/after-load` hook |
 | `::h/value` · `::h/checked` | the new-to-do box, the edit box, two checkboxes |
-| `::h/clear` | cancelling an edit — the only framework-named EVENT the application dispatches |
+| `::h/clear` | cancelling an edit — from the view on Escape, and from the commit handler's `:fx` |
 | the `:on-key-down` **key map** | Enter and Escape, as data; see finding N1 |
 
 **Never reached:** `use-subs`, `boundary`, `unmount!`, `hfn`, `hframe`, `portal`, `as-element`, `as-component`, `defhost`, `::h/revision`, `::h/prevent`, `motion/presence`, and the whole native tier.
@@ -112,7 +112,7 @@ An author who reads only the door and needs Enter-and-Escape reaches for the one
 
 This application declares it in `db`, the namespace that owns the shape, because `db/draft` names a **place** rather than an action and therefore reads correctly on both sides. That is a one-sentence convention with no mechanism attached, and it is the kind of thing a facade should state once rather than let two applications answer differently.
 
-### N3. An event handler cannot ask a `reg-state` question, and cannot answer one synchronously
+### N3. An event handler is on neither side of `reg-state`'s pair
 
 `reg-state` gives a widget a subscription and a setter. **An event handler has neither.** This application's commit-an-edit handler has to know two things the sugar owns, and the door offers a different-shaped answer for each:
 
@@ -124,14 +124,18 @@ This application declares it in `db`, the namespace that owns the shape, because
     ;; `:ui` root, so the literal is written out here.
     (if-some [text (get-in db [:ui db/draft id])]
       {:db …
-       ;; (b) the CLEAR. The only public clear is an EVENT, so ending the
-       ;; interaction is a dispatch to the back of the router queue rather
-       ;; than part of the same commit.
+       ;; (b) the CLEAR. The only public clear is an EVENT, so one
+       ;; transition is expressed as a `:db` and a `:dispatch` rather
+       ;; than as one `:db`.
        :fx [[:dispatch [::h/clear db/draft id]]]}
       {})))
 ```
 
-Neither is a reach past the door — `:ui` is documented app-space and `::h/clear` is the door's own spelling — and both are places where the sugar stops one step short of the call site that needed it. The read costs a hardcoded framework keyword in application code; the clear costs a turn, so a committed edit's editor closes one router tick after the model moves. (Imperceptible on a page. Visible immediately in a test, which is how it was found.)
+Neither is a reach past the door — `:ui` is documented app-space and `::h/clear` is the door's own spelling — and both are places where the sugar stops one step short of the call site that needed it.
+
+**What the clear does NOT cost, checked rather than assumed.** The obvious worry is a turn: `:dispatch` is the queued form, so the editor would close one router tick after the model moved. It does not. A Hicasso intent runs through the frame's `dispatch-sync`, and `re-frame.router/dispatch-sync!` drains synchronously-enqueued events **to fixed point** — a `:dispatch` from the seed handler's `:fx` is picked up by the same drain. Both tiers agree: the L0 row reads the draft as gone on the next line, and the mounted row finds the editor absent after one `hm/settle!`. Recorded because the cost was expected and is not there, which is worth as much as a cost that is.
+
+So the finding is about SHAPE, not latency: one state transition is written in two effect kinds because the door publishes no `db`-level clear.
 
 Worth noting what this bought: reading the draft from `app-db` rather than off the DOM event is what makes the handler safe to fire twice, so **Escape beats a late blur by construction** — the blur dispatches the same commit, finds no draft, and returns `{}`. The reference TodoMVC solves the same race by relying on the cancelled input unmounting before its blur can land. Modelling it was strictly better, and the only reason it took thought is that the read had to be hand-rolled.
 
@@ -139,7 +143,7 @@ Worth noting what this bought: reading the draft from `app-db` rather than off t
 
 ### N4. A `:ref` must be a stable function, and nothing on the door says so
 
-The edit box focuses itself when it opens, which is one line of React's own `:ref` contract. Written inline in the body it is a bug with no error: a fresh closure every render is a different identity, so React detaches and re-attaches the ref on every keystroke, refocusing the field and throwing the caret to the end of the text.
+The edit box focuses itself when it opens, which is one line of React's own `:ref` contract. Written inline in the body it is a bug with no error: a fresh closure every render is a different identity, so React detaches the old ref (calling it with `nil`) and attaches the new one **on every commit** — which for a controlled field is every keystroke. "Focus on mount" silently becomes "run on every render", and a ref that does real work — an observer, a measurement, a subscription — tears itself down and sets itself up again each time. (Focus is the forgiving case: re-focusing the already-focused element is a no-op, which is exactly why this one would have shipped.)
 
 ```clojure
 ;; Top-level, because its IDENTITY is what React uses to decide whether to
