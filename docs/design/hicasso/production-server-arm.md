@@ -20,11 +20,16 @@ the shipped Node entry does not have), and §10's Arm B table (repriced from tha
 contract). Nothing else changed, and the page still draws no conclusion.
 
 **Amended 2026-08-11 (`rf2-t2ba`), from the `rf2-2rtt6` ruling's packet-hygiene
-item.** One cell moved. §9's root-naming row let the walk arm read as though a
-Hicasso root were already a Var the JVM could call, while its sidecar
-counterpart carried the absence clause; `rf2-2rtt6.88`'s ruling comment
+item.** Two places moved, in two passes. §9's root-naming row let the walk arm
+read as though a Hicasso root were already a Var the JVM could call, while its
+sidecar counterpart carried the absence clause; `rf2-2rtt6.88`'s ruling comment
 establishes that **neither host has a callable Hicasso root today** — which is
-what §5 has said all along — and the row now says so on both sides.
+what §5 has said all along — and the row now says so on both sides. The
+merged-PR audit on that pass then found the same premise earlier and less
+guarded: §1's paragraph introducing job one's two inputs had a db snapshot and a
+root form both in hand where a JVM walk would run. That paragraph now says what
+§5 and §9 say — **neither arm has both inputs in the form job one requires** —
+and names what each is missing.
 
 Two facts of status travel with that correction, so that a later reader is not
 misled about what this page is. `rf2-2rtt6.88` closed as **ruled on 2026-08-08:
@@ -72,10 +77,16 @@ payload is Spec 011's, the mismatch machinery is Spec 011's, and neither arm may
 mint a parallel Hicasso-only mechanism. **So the arms are a choice about job one
 only** — and the interesting costs are what job one drags behind it.
 
-Job one's two inputs are not equally available to both arms. A db snapshot and a
-root form are both in hand where a JVM walk would run; only one of them is, and
-neither in the shape the sentence implies, where a sidecar would. That is where
-the sidecar's real contract lives — §5.
+Job one's two inputs are not equally available to the two arms, and **neither
+arm has both of them in the form job one requires**. Where a JVM walk would run
+the state is in hand — `ssr-ring` holds the post-drain request frame, and
+`compute-sub` is `.cljc`, so the JVM can read against it — but the root form is
+not: a Hicasso root's head is a JavaScript function `defview` mints at namespace
+load, with no JVM referent, and no registry maps a name back to it on either
+host. Where a sidecar would run the root form can be built, because the bundle
+that renders it holds the codec — but the JVM has no name to ask for one by, and
+the state has to arrive as a projection under a policy nobody has written. What
+each arm is missing, and what supplying it would cost, is §4 and §5.
 
 ## 2. The floor both arms stand on — what is already built
 
