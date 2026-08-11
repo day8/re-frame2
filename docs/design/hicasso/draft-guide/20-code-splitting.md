@@ -179,10 +179,33 @@ law holds through both, because commit owns acquisition
   committed subscription ownership releases. Demand rides the same
   membership, so a hidden pane's demand-driven resources release too. App-db
   state is untouched: the pane's addresses keep their values. On reveal, the
-  current read set reacquires and corrects before visible paint, so a
-  revealed pane never paints stale content. Xray reports hidden-retained
-  work as its own honest label, and does not collapse it into mounted or
-  unmounted ([Diagnostics](15-diagnostics.md)).
+  current read set reacquires. Xray reports hidden-retained work as its own
+  honest label, and does not collapse it into mounted or unmounted
+  ([Diagnostics](15-diagnostics.md)).
+
+- **When the reveal is a click, it is already correct.** A hidden pane holds
+  no subscription, so writes that land while it is hidden do not reach it —
+  the pane comes back holding whatever it last rendered, and something has
+  to correct it. When the reveal is flushed inside the event that caused it,
+  which is what a user clicking a tab gets, React re-renders the retained
+  subtree as part of revealing it and reads the store during that render.
+  The pane is correct before it is on screen.
+
+- **A reveal you schedule can show one stale frame.** Flip `:mode` from a
+  timer, a promise, or a transition and React reveals the retained subtree
+  without re-rendering it: the only signal that state moved arrives when
+  React re-subscribes, and it re-subscribes in an effect that React flushes
+  in a later task. A frame can be painted in between, showing the value the
+  pane last rendered. It is one frame, measured, and gated so it cannot
+  quietly widen. It is also never a *torn* frame — what you see is a real
+  earlier state of that pane, whole, not a mixture of two.
+
+  So do not hide a pane whose content must never be a moment out of date.
+  **On an account or tenant switch, unmount or re-key the pane rather than
+  retaining it** — a consistent old commit is still the previous account's
+  numbers, and Activity retention is a state-preservation feature, not a
+  disclosure boundary. Where retention is genuinely wanted, drive `:mode`
+  from the discrete event itself rather than from a timer that fires later.
 
 ## Troubleshooting
 
@@ -197,6 +220,7 @@ law holds through both, because commit owns acquisition
 | Local state inside a lazily loaded island resets whenever you save | Nothing is wrong. A reload allocates a fresh component, so the element type changes and React remounts the subtree — the designed HMR conduct, and [`defview`](glossary.md#defview)'s too | Nothing to fix. State that must outlive a save belongs in `app-db`, read back through [`n/use-sub`](glossary.md#nuse-sub) |
 | The lazy region is missing from server HTML | Client-only by design — the server carries the fallback, never the un-arrived component | Make the fallback a same-footprint skeleton; the live component mounts after adoption |
 | A hidden pane's state is gone on reveal | The pane was unmounted, not hidden — a `when`, not an Activity `:mode` flip | Hide with `:mode "hidden"` to retain UI state; unmount when you mean gone. App-db state at addresses survives either way |
+| A revealed pane shows its old contents for a frame before catching up | Nothing is broken. A hidden pane holds no subscription, and the reveal was scheduled — from a timer, a promise or a transition — so React re-subscribes in an effect it flushes a task later | Reveal from the discrete event instead, where the correction lands inside the reveal's own render. For a pane that must never show an earlier state — an account or tenant switch — unmount or re-key rather than retain |
 
 ## When not to split
 
