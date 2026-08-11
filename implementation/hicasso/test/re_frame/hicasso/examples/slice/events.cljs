@@ -126,9 +126,9 @@
 ;; ---------------------------------------------------------------------------
 
 (def save-delay-ms
-  "How long the stand-in server takes. Named rather than inlined because
-  the mounted witness advances the virtual clock by exactly this much,
-  and a witness that guessed would be asserting about its own guess."
+  "How long the stand-in server takes. Small, because the mounted witness
+  waits for the REPLY rather than for this number — see the namespace
+  docstring — and every millisecond here is one the browser lane spends."
   40)
 
 (rf/reg-event ::save
