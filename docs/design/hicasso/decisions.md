@@ -640,9 +640,9 @@ instance props can express.
 > vanished server-side"* is now "declare it, with `{:ssr :render}`" — which
 > finally works.
 >
-> Witnessed in `arm1/host_ssr_dom_cljs_test` (the refusal roster, the
+> Witnessed in `re-frame.hicasso.host-ssr-dom-cljs-test` (the refusal roster, the
 > server-render children and context rows, and the hydration row that counts
-> mounts), `arm1/fallback_contents_cljs_test` (the refusal, both directions,
+> mounts), `re-frame.hicasso.fallback-contents-cljs-test` (the refusal, both directions,
 > with every legitimate fallback position proven individually) and
 > `ssr/entry_cljs_test` (the corpus row, at a handed-in and a nested position).
 
@@ -696,8 +696,8 @@ instance props can express.
 > hosted-page hook census was updated to state the new truth rather than
 > deleted, and now reads the shell's two, then the door's one, then nothing
 > that is not the hosted component's own roster. Witnessed in
-> `arm1/host_ssr_dom_cljs_test` (declaration, server render, fresh mount,
-> hydration) and `arm1/host_hatch_dom_cljs_test` (the hook census).
+> `re-frame.hicasso.host-ssr-dom-cljs-test` (declaration, server render, fresh
+> mount, hydration) and `arm1/host_hatch_dom_cljs_test` (the hook census).
 
 **Ruling.** **`defhost` is the door, and the only form taught**: a one-line
 declaration with strong defaults (shallow camelCase props, hiccup children →
