@@ -189,7 +189,12 @@
             the rule every other roster in this codec already keeps"
     (is (some? (codec/mint-host! "slots/kebab" panel {:slots #{:on-empty}})))
     (is (some? (codec/mint-host! "slots/camel" panel {:slots #{:onEmpty}})))
-    (is (some? (codec/mint-host! "slots/string" panel {:slots #{"title"}}))))
+    (is (some? (codec/mint-host! "slots/string" panel {:slots #{"title"}})))
+    (is (some? (codec/mint-host! "slots/near-reserved" panel
+                                 {:slots #{:constructor-label :prototypes}}))
+        "and the reserved-name refusal is asked of the WHOLE emitted slot,
+         not of a substring of it — an ordinary prop that merely reads like
+         one of the three still mints"))
   (testing "and it composes with the two options that were already there"
     (is (some? (codec/mint-host! "slots/all" panel
                                  {:callbacks {:on-close :event}
@@ -224,6 +229,20 @@
       (is (= :rf.error/hicasso-host-bad-slots
              (error-id #(codec/mint-host! (str "slots/" k) panel {:slots #{k}})))
           (str (pr-str k) " must stay refused"))))
+  (testing "a reserved emitted name, in every spelling. The crossing skips
+            `__proto__`, `prototype` and `constructor` before it reads any
+            declaration — the props object handed to React has a prototype
+            — so a slot declared at one of them would mint, read correct,
+            and silently never deliver: the exact trap :slots exists to
+            delete, wearing the fix's clothes"
+    (doseq [k [:__proto__ :prototype :constructor
+               '__proto__ 'prototype 'constructor
+               "__proto__" "prototype" "constructor"]]
+      (is (= :rf.error/hicasso-host-bad-slots
+             (error-id #(codec/mint-host! (str "slots/reserved-" (pr-str k)) panel
+                                          {:slots #{k}})))
+          (str (pr-str k) " must be refused at the declaration, because the "
+               "crossing can never emit it"))))
   (testing "two spellings of one slot. Whichever the fold reached second
             would silently be the same entry, so the set would carry one
             position the author wrote twice and could not see"

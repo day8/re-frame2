@@ -1480,11 +1480,24 @@
 ;;
 ;; **The refusals are one id**, and that is deliberate. Every way a
 ;; `:slots` declaration can be malformed — a value that is not a set, an
-;; entry that cannot name a prop, `key`/`ref`, two spellings of one slot,
-;; a slot that is also a declared callback — is the same fault (*this
-;; declaration does not name a set of ordinary ReactNode positions*) with
-;; the same recovery, so it is one complaint with one home, as
-;; [[declared-ssr]] is for every malformed policy.
+;; entry that cannot name a prop, `key`/`ref`, a name the crossing can
+;; never emit, two spellings of one slot, a slot that is also a declared
+;; callback — is the same fault (*this declaration does not name a set of
+;; ordinary ReactNode positions*) with the same recovery, so it is one
+;; complaint with one home, as [[declared-ssr]] is for every malformed
+;; policy.
+;;
+;; **A declaration that mints and can never fire is the trap wearing the
+;; fix's clothes** (rf2-hic-035, merged-PR audit of #7876). [[host-entry]]
+;; skips the write entirely at a reserved emitted name — `__proto__`,
+;; `prototype`, `constructor`, the roster [[reserved-name?]] holds — and
+;; it does so ABOVE the declared-slot arm, because the props object handed
+;; to React has a prototype the caches no longer do. So
+;; `{:slots #{:constructor}}` used to mint, read correct, and silently
+;; never deliver: markup written there could not reach the component and
+;; nothing threw. That is the SAME silent-declaration failure `:slots`
+;; exists to delete, so it is refused at the declaration beside the other
+;; five, on the same id.
 
 (defn- slot-key-name
   "The prop name a `:slots` entry spells, or nil when the entry cannot
@@ -1550,6 +1563,16 @@
                      "identity contract and `ref` is HD-016's node handle, "
                      "and neither carries markup.")
                 {:position k}))
+            (when (reserved-name? slot)
+              (refuse-bad-slots! host-name slots
+                (str (pr-str k) " lands on " (pr-str slot) ", which the "
+                     "crossing never writes: the props object handed to "
+                     "React has a prototype, so that name is skipped before "
+                     "any declaration is read and markup declared there "
+                     "could not arrive. A slot that mints and can never "
+                     "fire is the silent declaration :slots exists to "
+                     "delete.")
+                {:position k :slot slot}))
             (when (contains? acc slot)
               (refuse-bad-slots! host-name slots
                 (str "two spellings land on the one slot " (pr-str slot)
@@ -1587,7 +1610,8 @@
   are both normalized to their canonical slot at MINT time, so the
   lookup the crossing performs per prop is one `get` and one
   `contains?`; a contract outside the roster, a declaration on a
-  structural slot (`key`/`ref` are React's, not positions), two
+  structural slot (`key`/`ref` are React's, not positions), a slot at a
+  name the crossing can never emit ([[reserved-name?]]), two
   spellings landing on one slot, a malformed `:slots` set, a position
   declared both a callback and a slot, an `:ssr` value outside the
   three, a `defview` or `defhost` head written into a fallback, and an
@@ -2637,6 +2661,13 @@
   wrote the crossing, a string or a ready React element passes as-is,
   and a seq splices. An `h/fn` there is refused
   ([[refuse-unclaimed-host-callback!]]): markup is not a contract.
+
+  The `reserved?` skip sits ABOVE both declaration arms and stays there
+  — the props object has a prototype, and no declaration may talk the
+  codec into poisoning it. What that costs is paid at the DECLARATION
+  instead: [[declared-slots]] refuses a slot at a reserved emitted name,
+  so the only shape this arm can be unreachable for is one that never
+  minted (rf2-hic-035).
 
   An UNDECLARED prop is untouched by all of this, which is the property
   the whole mechanism exists to preserve. Nothing asks whether a vector
