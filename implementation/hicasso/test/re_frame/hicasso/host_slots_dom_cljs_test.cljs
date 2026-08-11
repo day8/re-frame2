@@ -249,7 +249,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest a-declared-slot-crosses-as-a-reactnode
-  (let [props (crossing-props [panel-host {:title  [:h2.t "Delete article?"]
+  (let [^js props (crossing-props [panel-host {:title  [:h2.t "Delete article?"]
                                            :footer "cancel"
                                            :size   "wide"}])]
     (testing "hiccup at a declared slot is an ELEMENT by the time the
@@ -269,7 +269,7 @@
   ;; declaration removed. If this ever answers an element, the codec has
   ;; started guessing that a vector is markup, and every foreign ABI that
   ;; legitimately takes a vector of data is broken by the guess.
-  (let [props (crossing-props [bare-panel {:title [:h2.t "Delete article?"]}])]
+  (let [^js props (crossing-props [bare-panel {:title [:h2.t "Delete article?"]}])]
     (testing "at an UNDECLARED prop the vector crosses as data, silently,
               exactly as it did before slots existed. That is not a defect
               left standing: which prop is markup is a fact about the
@@ -289,7 +289,7 @@
                         [panel-host {:title (h/hfn [] [:h2 "no"])}])))))
   (testing "while a PLAIN function at the same prop of an undeclared
             crossing is untouched, because it never asked for anything"
-    (is (fn? (.-title (crossing-props [bare-panel {:title (fn [] nil)}]))))))
+    (is (fn? (.-title ^js (crossing-props [bare-panel {:title (fn [] nil)}]))))))
 
 (deftest a-ref-at-a-crossing-keeps-hd-022s-rules
   ;; Named by this bead and unchanged by it: a slot declaration adds a
@@ -299,8 +299,8 @@
   (testing "a callback ref crosses by identity — React 19 carries `ref` as
             an ordinary prop, so the gate forwards the very function the
             author wrote and the identity React re-attaches on is theirs"
-    (let [f     (fn [_])
-          props (crossing-props [panel-host {:ref f :title [:h2.t "T"]}])]
+    (let [f        (fn [_])
+          ^js props (crossing-props [panel-host {:ref f :title [:h2.t "T"]}])]
       (is (identical? f (.-ref props)))))
   (testing "and a VECTOR there is the reserved data spelling, refused at
             the crossing rather than handed to React as an array it would
@@ -314,14 +314,14 @@
             erasing the declaration costs is exactly what the declaration
             carried — here, every ReactNode position. Hiccup at a `[:>]`
             prop is data"
-    (let [props (crossing-props [:> panel {:title [:h2.t "Tasks"]}])
-          inner (.-p props)]
+    (let [^js props (crossing-props [:> panel {:title [:h2.t "Tasks"]}])
+          ^js inner (.-p props)]
       (is (array? (.-title inner)))))
   (testing "and the per-site recovery is the explicit conversion, which
             crosses a real element through any prop of any crossing"
-    (let [props (crossing-props
-                  [:> panel {:title (h/as-element [:h2.t "Tasks"])}])
-          inner (.-p props)]
+    (let [^js props (crossing-props
+                      [:> panel {:title (h/as-element [:h2.t "Tasks"])}])
+          ^js inner (.-p props)]
       (is (react/isValidElement (.-title inner)))
       (is (= "h2" (.-type (.-title inner)))))))
 
@@ -329,7 +329,7 @@
   (testing "React's own compound, declared as chapter 20 teaches it. The
             fallback is a ReactNode prop, so the recipe is a slot
             declaration and nothing else"
-    (let [props (crossing-props [suspense {:fallback [:p.skeleton "loading"]}])]
+    (let [^js props (crossing-props [suspense {:fallback [:p.skeleton "loading"]}])]
       (is (react/isValidElement (.-fallback props)))
       (is (= "p" (.-type (.-fallback props)))))))
 
