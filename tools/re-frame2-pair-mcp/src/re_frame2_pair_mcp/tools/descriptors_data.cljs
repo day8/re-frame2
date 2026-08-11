@@ -2104,7 +2104,13 @@
                      "1. Session bootstrap: {} -> {:ok? true :tool \"get-re-frame2-pair-instructions\" :text \"re-frame2-pair quick reference...\"}. "
                      "2. Cached on second call (universal cache opt-in): {:cache true} -> {:rf.mcp/cache-hit {:hash ... :via :result-hash :hint \"...\"}} (after the first uncached call). "
                      "3. With budget override: {:max-tokens 0} -> {:ok? true :text \"...\"} (cap disabled; the text always fits comfortably).")
-   :typicalTokens 1500
+   ;; Measured, not estimated. The response is a fixed inline string with no
+   ;; narrowing args, so its cost is knowable exactly;
+   ;; `instructions_budget_test`'s `instructions-response-advertises-its-real-
+   ;; size` holds this figure to `cap/sum-payload-tokens` of the real result
+   ;; (within 10%) and prints the measurement when it drifts. Edit
+   ;; `instructions-text` and expect that red — copy the figure it names.
+   :typicalTokens 2300
    :annotations inline-read-only-annotations
    :outputSchema envelope-or-marker
    :inputSchema {:type "object"
