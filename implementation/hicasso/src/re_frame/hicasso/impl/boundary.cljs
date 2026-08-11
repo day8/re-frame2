@@ -29,7 +29,7 @@
   stayed true when the frame binding below arrived: `contextType` is a
   property of the component, not a hook call, so it is invisible at
   React's dispatcher. `arm1_lifecycle_dom_cljs_test` counts a healthy
-  page there and `arm1_boundary_intent_dom_cljs_test` counts one in its
+  page there and `boundary_intent_dom_cljs_test` counts one in its
   ERROR state, rather than either asserting it here: a page wrapping a
   Hicasso boundary in one of these still reads two.
 

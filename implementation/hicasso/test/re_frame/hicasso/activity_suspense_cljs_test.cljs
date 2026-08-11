@@ -1,5 +1,5 @@
 (ns re-frame.hicasso.activity-suspense-cljs-test
-  "ACTIVITY HIDE/REVEAL AND SUSPENSE CONDUCT, AT THE SEAM (rf2-hic-014).
+  "ACTIVITY HIDE/REVEAL, AT THE SEAM (rf2-hic-014).
 
   > - hide releases committed subscription ownership without destroying
   >   re-frame state;
@@ -46,6 +46,27 @@
 
   Driving the seam is emphatically not how a witness says React hides
   anything. That claim is the DOM file's, and this file does not make it.
+
+  ## Nor is a Suspense fallback this seam, and section 6 used to say it was
+
+  The bead pairs Activity with Suspense because the two look like one
+  Offscreen mechanism — the primary tree hidden with `display: none`, its
+  host nodes retained. React 19.2 does not treat them alike: hiding for a
+  **fallback** leaves the primary tree's PASSIVE effects mounted, so the
+  `useSyncExternalStore` subscription survives the suspension and the
+  retry's registration is `identical?` to the pre-suspension one. That was
+  measured, on the browser lane, by
+  [[re-frame.hicasso.activity-suspense-dom-cljs-test/a-post-commit-suspension-retains-the-subscription-and-the-retry-leaves-exact-ownership]]
+  — on the run that row failed, having been written expecting the release
+  the Activity rows assert.
+
+  So **no row in this file speaks for Suspense**. Section 6 drives the
+  detach/reacquire seam four times and once called itself a suspend/retry
+  witness, which was false evidence against the DOM measurement rather
+  than merely loose wording (merged-PR audit #7792): a reader taking it at
+  its name would have believed a retained subscription was released and
+  rebuilt four times over. The algebra was never the false part; the
+  mechanism it was claimed for was.
 
   ## The observable is IDENTITY, never a count
 
@@ -135,7 +156,7 @@
 ;; ---------------------------------------------------------------------------
 
 (def ^:private declared-population
-  "The Activity/Suspense transitions this file undertakes to exercise.
+  "The Activity transitions this file undertakes to exercise.
   [[the-declared-population-was-actually-exercised]] asserts that every
   one of them was reached at runtime, so the roster cannot drift into a
   list of things the suite used to do."
@@ -145,7 +166,7 @@
     :activity/reveal-reacquires
     :activity/conditional-read-moved-while-hidden
     :activity/retained-intent-across-a-reincarnation
-    :suspense/repeated-hide-reveal-cycles
+    :activity/repeated-hide-reveal-cycles
     :lifecycle/three-states-distinguished})
 
 (defonce ^:private !exercised (atom #{}))
@@ -772,16 +793,22 @@
     (exercised! :activity/retained-intent-across-a-reincarnation)))
 
 ;; ---------------------------------------------------------------------------
-;; 6. Suspense conduct — repeated hide/reveal cycles leave EXACT ownership
+;; 6. Repeated ACTIVITY hide/reveal cycles leave EXACT ownership
 ;; ---------------------------------------------------------------------------
 
-(deftest repeated-suspend-retry-cycles-leave-exactly-one-commits-ownership
-  ;; A Suspense fallback and a hidden `<Activity>` are the same mechanism:
-  ;; React hides the already-committed primary tree, destroying its
-  ;; effects, and re-creates them when the retry resolves. So the conduct
-  ;; a suspend/retry cycle owes is the conduct of a hide/reveal, and the
-  ;; property that a single cycle cannot state is REPETITION — a leak of
-  ;; one membership per cycle looks exactly like a correct single cycle.
+(deftest repeated-hide-reveal-cycles-leave-exactly-one-commits-ownership
+  ;; The property a single cycle cannot state is REPETITION: a leak of one
+  ;; membership per cycle looks exactly like a correct single cycle at the
+  ;; census, and a reveal that found its predecessor's subscription still
+  ;; installed reads exactly like one that rebuilt its own.
+  ;;
+  ;; **This row was named for suspend/retry until merged-PR audit #7792,
+  ;; and that name was false evidence.** The cycle below is the Activity
+  ;; detach/reacquire seam driven four times, and a Suspense fallback is
+  ;; not that mechanism — the DOM row named in this file's ns docstring
+  ;; measured the retained subscription and the retry's `identical?`
+  ;; registration. The arithmetic here was never the false part, so it is
+  ;; unchanged; the mechanism it was claimed for is.
   (async done
     (seeded!)
     (let [!regs (atom [])]
@@ -790,12 +817,12 @@
               reg       (sole-reader [:acs/a])]
           (swap! !regs conj reg)
           (is (= {:cells 1 :cell-refs 1 :boundaries 1 :edges 1} (ownership))
-              (str "cycle " cycle ": the retry owns exactly one membership"))
+              (str "cycle " cycle ": the reveal owns exactly one membership"))
           (is (some? reg)
               (str "cycle " cycle ": and exactly one registration holds it"))
           (hide! committed)
           (is (zero? (reader-count [:acs/a]))
-              (str "cycle " cycle ": the suspension releases it whole"))))
+              (str "cycle " cycle ": the hide releases it whole"))))
 
       (testing "four cycles, four distinct registrations — no cycle reused a
                 predecessor's, which is what says each reveal genuinely
@@ -812,7 +839,7 @@
               "four reveals, four registration identities — no cycle found a
                subscription still installed")))
 
-      (exercised! :suspense/repeated-hide-reveal-cycles)
+      (exercised! :activity/repeated-hide-reveal-cycles)
 
       (.then (inventory/quiesced!)
              (fn [_]
@@ -903,6 +930,6 @@
   ;; Ordered last by `cljs.test`'s declaration order, which is what makes it
   ;; readable: every row above has run by the time this one does.
   (is (= declared-population @!exercised)
-      (str "every declared Activity/Suspense transition must be reached at
+      (str "every declared Activity transition must be reached at
             runtime. Missing: "
            (pr-str (set/difference declared-population @!exercised)))))
