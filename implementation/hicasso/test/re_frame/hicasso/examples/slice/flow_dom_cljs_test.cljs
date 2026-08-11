@@ -13,30 +13,49 @@
   more — `re-frame.hicasso.test.mounted`'s own witnesses reach
   `impl.collector` and `impl.mount` for good reasons. This one does not,
   and the three helpers below are why: `browser?`, `skip!` and the act
-  flag are four lines each, and writing them here keeps the whole slice —
+  flag are one line each, and writing them here keeps the whole slice —
   application and suite — readable as something a consumer could have
-  written. A test that had to reach past the door to test an application
-  written on the door would be reporting something.
+  written.
 
-  ## What is driven, and what is dispatched
+  ## TWO CLICKS, TWO SETTLING RULES — the rf2-hic-025 report's finding 7
 
-  A route-link is CLICKED, once, with `HTMLElement.click()` — the real
-  event, through React's own event system, with routing's real
-  `activate-link!` deciding. Every other navigation goes through
-  `[:rf.route/navigate …]`, which is the same public door a handler
-  would use and is what a programmatic navigation IS.
+  A Hicasso intent dispatches through the runtime's own **synchronous**
+  frame-locked door, so after a real click on `.save` or `.discard` the
+  handlers have run, `app-db` has moved and React has committed: the next
+  line reads the repainted page. That is what `hm/settle!` is for and it
+  is all that is needed.
 
-  Typing is a real `input` event after a write through the prototype's
-  own `value` setter, which is the only way to move a React-controlled
-  field without also updating React's change tracker — a plain `set!`
-  updates the tracker too, after which React reads the node as already
-  agreeing and no `input` reaches the model.
+  A **route-link** is different. `re-frame.routing/activate-link!` ends in
+  `router/dispatch!` — the ASYNC door — so the click returns with the
+  navigation merely enqueued, and the router drains it on
+  `interop/next-tick`, a next-turn TASK. `hm/settle!` is an empty
+  `flushSync` and cannot help: there is nothing scheduled in React yet.
+  Nothing at either call site says which of the two a click is.
 
-  ## Time is the mount's, and it is advanced by exactly the delay
+  The same is true of the stand-in server's reply, and there it is the
+  application being ordinary rather than routing being special: an fx
+  that dispatches a reply uses `rf/dispatch`, exactly as
+  `day8/re-frame2-http` does, so **every async mutation reply in any
+  re-frame2 application arrives through a router drain.**
 
-  The stand-in server waits `events/save-delay-ms`. Each save row
-  advances the mount's virtual clock by that much and reads the next
-  line, so there is no wall-clock wait anywhere and no polling.
+  So the rows below wait on the CONDITION rather than on a duration:
+  `re-frame.test-support/poll-until`, which is the supported door for
+  exactly this and returns a promise that composes with `async done`.
+
+  ## Why there is no virtual clock here, although the facade offers one
+
+  `hm/mount!`'s `{:clock true}` would fire the stand-in server's
+  `setTimeout` on demand, and it was the first thing tried. It cannot
+  work, for a reason worth recording: the clock **replaces the global
+  `setTimeout`**, and `poll-until`'s own interval is a `js/setTimeout`.
+  Under a virtual clock the poll never gets a second probe. And the clock
+  alone is not enough either — firing the server's timer only ENQUEUES
+  the reply, and the drain that delivers it is a macrotask the clock
+  deliberately does not drive.
+
+  Two supported waiting mechanisms, and an async mutation needs both at
+  once. The poll is the one that works, and it is the honest instrument
+  anyway: what this file is waiting for is a reply, not a duration.
 
   ## Browser lane
 
@@ -56,21 +75,13 @@
             [re-frame.test-support :as test-support]))
 
 ;; ---------------------------------------------------------------------------
-;; The lane, and the three lines this file writes rather than imports
+;; The lane, and the two lines this file writes rather than imports
 ;; ---------------------------------------------------------------------------
 
 (defn- browser? [] (exists? js/document))
 
 (defn- skip! [why]
   (is true (str "a mounted flow needs a real React DOM — " why)))
-
-(defn- leave-act-environment!
-  "React's `act` queue is not the browser's scheduler, and every reading
-  here is taken outside it — a commit measured in this file is the commit
-  a user's page performs. Set outright; it is one assignment."
-  []
-  (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) false)
-  nil)
 
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture
@@ -80,7 +91,9 @@
      ;; async test under a fn-form fixture and aborts the namespace.
      :async?        true
      :init-fn       (fn []
-                      (leave-act-environment!)
+                      ;; React's `act` queue is not the browser's scheduler,
+                      ;; and every reading here is taken outside it.
+                      (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) false)
                       ;; The reset restores the registrar to a baseline
                       ;; captured when this form was EVALUATED, which is
                       ;; before `routes` finished loading. See that
@@ -96,9 +109,9 @@
 (defn- text [m sel] (some-> (node m sel) .-textContent))
 
 (defn- click!
-  "A real click, and then a settle. `HTMLElement.click()` is what a
-  `user-event` sequence ultimately performs; the settle is the rule every
-  door in the facade keeps for the ones it does not own."
+  "A real click on a Hicasso intent, and then a settle. `HTMLElement.click()`
+  is what a `user-event` sequence ultimately performs; the intent's own
+  dispatch is synchronous, so the settle is all that is owed."
   [m sel]
   (.click (node m sel))
   (hm/settle! m))
@@ -125,16 +138,26 @@
 
 (defn- app-db [m] (rf/app-db-value (:frame m)))
 
+(defn- drained
+  "Wait for `pred` to hold, then flush React and answer a promise of the
+  handle — the ROUTER-DRAIN counterpart of `hm/settle!`, for the two
+  places a click leaves work merely enqueued (see the namespace
+  docstring §TWO CLICKS).
+
+  A bounded condition poll rather than a sleep: it returns as soon as the
+  reply lands, and fails at a deadline with `:rf.error/poll-until-timeout`
+  naming the label rather than hanging the run."
+  [m pred label]
+  (-> (test-support/poll-until pred {:label label})
+      (.then (fn [_] (hm/settle! m)))))
+
 (defn- mount-app!
   "The whole application, on its own root and its own frame, seeded and
-  pointed at a route. The clock is this mount's — the stand-in server
-  waits on `setTimeout`, and a witness that waited on the wall clock for
-  it would be the flake this repository keeps out of its gates."
+  pointed at a route. `:initial-events` drain to fixed point before the
+  first render, so the page a row opens on is already the seeded one."
   ([] (mount-app! [:rf.route/navigate {:to routes/feed}]))
   ([nav-event]
-   (hm/mount! [views/app {}]
-              {:clock          true
-               :initial-events [[::events/seed] nav-event]})))
+   (hm/mount! [views/app {}] {:initial-events [[::events/seed] nav-event]})))
 
 (defn- at-article!
   "Mounted, with the article route already resolved."
@@ -145,6 +168,19 @@
   "Tear down, assert this mount left nothing behind, and end the row."
   [m done]
   (-> (hm/unmount! m) (hm/assert-clean!) (.then done)))
+
+(defn- finish-after
+  "End the row when `p` settles, reporting a rejected `p` as a failure
+  rather than letting the deadline hang the whole run — and tearing the
+  mount down either way, so one stuck row cannot make the NEXT row's
+  residue reading wrong."
+  [p m done]
+  (-> p
+      (.catch (fn [e]
+                (is false (str "the flow never settled: "
+                               (or (ex-message e) (str e)) " "
+                               (pr-str (ex-data e))))))
+      (.then (fn [_] (finish m done)))))
 
 ;; ---------------------------------------------------------------------------
 ;; 1 — the feed, and a real click on a real link
@@ -175,12 +211,15 @@
         ;; The real event, through React's own event system, with routing's
         ;; own `activate-link!` deciding. Nothing here calls preventDefault
         ;; — if the click were not claimed, this page would navigate away.
-        (click! m ".article-list li:nth-child(2) .article-link")
-        (is (= routes/article (read-sub m [:rf.route/id])))
-        (is (= {:slug "intents"} (read-sub m [:rf.route/params])))
-        (is (= "Intents are data" (text m ".article-title")))
-        (is (some? (node m ".editor")))
-        (finish m done)))))
+        (.click (node m ".article-list li:nth-child(2) .article-link"))
+        (-> (drained m
+                     #(= routes/article (read-sub m [:rf.route/id]))
+                     "the route-link's navigate to drain")
+            (.then (fn [_]
+                     (is (= {:slug "intents"} (read-sub m [:rf.route/params])))
+                     (is (= "Intents are data" (text m ".article-title")))
+                     (is (some? (node m ".editor")))))
+            (finish-after m done))))))
 
 (deftest a-slug-nobody-published-renders-a-page-rather-than-throwing
   (if-not (browser?)
@@ -236,13 +275,22 @@
       (let [m (at-article! "controls")]
         (is (false? (.-checked (node m "#slice-published"))))
         (click! m "#slice-published")
-        (is (true? (:published? (read-sub m [::subs/draft "controls"]))))
+        (is (true? (:published? (read-sub m [::subs/draft "controls"])))
+            "a Hicasso intent dispatches SYNCHRONOUSLY — no drain, no poll,
+             the next line reads the moved model")
         (is (true? (.-checked (node m "#slice-published"))))
         (finish m done)))))
 
 ;; ---------------------------------------------------------------------------
 ;; 3 — the async mutation: refused, then retried, then saved
 ;; ---------------------------------------------------------------------------
+
+(defn- replied
+  "Wait for the save region of `slug` to leave `:saving`."
+  [m slug]
+  (drained m
+           #(not= :saving (:status (read-sub m [::subs/save-state slug])))
+           (str "the stand-in server's reply for " slug)))
 
 (deftest a-save-the-server-refuses-shows-its-reason-and-keeps-the-draft
   (if-not (browser?)
@@ -254,28 +302,30 @@
         (type-into! m ".field-title" "Intents are data")
         (click! m ".save")
 
-        (testing "in flight"
+        (testing "in flight — read on the line after the click, with no wait"
           (is (= "Saving…" (text m ".save")))
           (is (true? (.-disabled (node m ".save"))))
           (is (nil? (node m ".save-problem"))
               "nothing is claimed until the reply lands"))
 
-        (hm/advance-clock! m events/save-delay-ms)
-
-        (testing "refused"
-          (is (= "That title is already used by another article. Try again"
-                 (text m ".save-problem")))
-          (is (= "alert" (.getAttribute (node m ".save-problem") "role")))
-          (is (= "rgb(176, 32, 32)" (.. (node m ".save-problem") -style -color))
-              "the colour is the THEME TOKEN, read through a sub and applied
-               as a value — which is why a witness can read it back")
-          (is (= "Intents are data" (.-value (node m ".field-title")))
-              "the draft survived the refusal; losing what the user typed
-               because the server disagreed is the cruellest failure mode")
-          (is (= "Controlled, synchronously" (:title (db/article (app-db m) "controls")))
-              "and the article did not move"))
-
-        (finish m done)))))
+        (-> (replied m "controls")
+            (.then
+              (fn [_]
+                (is (= "That title is already used by another article. Try again"
+                       (text m ".save-problem")))
+                (is (= "alert" (.getAttribute (node m ".save-problem") "role")))
+                (is (= "rgb(176, 32, 32)" (.. (node m ".save-problem") -style -color))
+                    "the colour is the THEME TOKEN, read through a sub and
+                     applied as a value — which is why a witness can read
+                     it back")
+                (is (= "Intents are data" (.-value (node m ".field-title")))
+                    "the draft survived the refusal; losing what the user
+                     typed because the server disagreed is the cruellest
+                     failure mode")
+                (is (= "Controlled, synchronously"
+                       (:title (db/article (app-db m) "controls")))
+                    "and the article did not move")))
+            (finish-after m done))))))
 
 (deftest retrying-with-a-title-the-server-accepts-saves-and-clears-the-region
   (if-not (browser?)
@@ -284,26 +334,29 @@
       (let [m (at-article! "controls")]
         (type-into! m ".field-title" "Intents are data")
         (click! m ".save")
-        (hm/advance-clock! m events/save-delay-ms)
-        (is (some? (node m ".save-problem")) "refused, as above")
+        (-> (replied m "controls")
+            (.then (fn [_]
+                     (is (some? (node m ".save-problem")) "refused, as above")
+                     (type-into! m ".field-title" "Controlled, revisited")
+                     (click! m ".retry")
+                     (replied m "controls")))
+            (.then (fn [_]
+                     (is (nil? (node m ".save-problem")))
+                     (is (= "Saved." (text m ".save-ok")))
+                     (is (= "Controlled, revisited"
+                            (:title (db/article (app-db m) "controls")))
+                         "the article moved")
+                     (is (false? (read-sub m [::subs/dirty? "controls"]))
+                         "and the draft was cleared by the commit")
 
-        (type-into! m ".field-title" "Controlled, revisited")
-        (click! m ".retry")
-        (hm/advance-clock! m events/save-delay-ms)
-
-        (is (nil? (node m ".save-problem")))
-        (is (= "Saved." (text m ".save-ok")))
-        (is (= "Controlled, revisited" (:title (db/article (app-db m) "controls")))
-            "the article moved")
-        (is (false? (read-sub m [::subs/dirty? "controls"]))
-            "and the draft was cleared by the commit")
-
-        (testing "the feed shows the new title, because it reads the article"
-          (hm/dispatch-and-settle! m [:rf.route/navigate {:to routes/feed}])
-          (is (some #{"Controlled, revisited"}
-                    (mapv #(.-textContent %) (nodes m ".article-link")))))
-
-        (finish m done)))))
+                     (hm/dispatch-and-settle! m [:rf.route/navigate {:to routes/feed}])
+                     (is (some #{"Controlled, revisited"}
+                               (mapv #(.-textContent %) (nodes m ".article-link")))
+                         "the feed shows the new title, because it reads the
+                          article — and `dispatch-and-settle!` uses the
+                          runtime's SYNCHRONOUS door, so this one needs no
+                          poll")))
+            (finish-after m done))))))
 
 (deftest a-locally-invalid-draft-never-reaches-the-server
   (if-not (browser?)
@@ -312,11 +365,13 @@
       (let [m (at-article! "intents")]
         (type-into! m ".field-title" "   ")
         (click! m ".save")
-        ;; No clock advance: there is nothing in flight to advance, and
-        ;; the region is already on screen. A row that advanced anyway
-        ;; would pass whether or not the request was skipped.
+        ;; No poll and no drain: there is nothing in flight to wait for.
+        ;; The region is on screen on the line after the click, which is
+        ;; the assertion — a row that waited anyway would pass whether or
+        ;; not the request was skipped.
         (is (= "A title is required. Try again" (text m ".save-problem")))
         (is (nil? (node m ".save-ok")))
+        (is (= :failed (:status (read-sub m [::subs/save-state "intents"]))))
         (finish m done)))))
 
 ;; ---------------------------------------------------------------------------
@@ -355,7 +410,7 @@
   (if-not (browser?)
     (skip! ":node-test has no React DOM")
     (async done
-      (let [m (at-article! "controls")
+      (let [m   (at-article! "controls")
             ;; Captured at Spec 009's `:events` port — the substrate's own
             ;; public stream — so the script is what the PAGE dispatched
             ;; and holds no hook into the rendering under test.
@@ -364,28 +419,29 @@
                                (fn [record]
                                  (when (= (:frame m) (:frame record))
                                    (swap! log conj (:event record)))))
-        (try
-          (type-into! m ".field-title" "Ready")
-          (click! m "#slice-published")
-          (click! m ".save")
-          (hm/advance-clock! m events/save-delay-ms)
-
-          ;; STATED, not compared against a second capture: two captures
-          ;; agree about a drift they share, and a written-out vector does
-          ;; not. The materialized values are in it — `::h/value` and
-          ;; `::h/checked` are substituted before the handler ever runs,
-          ;; so this is what a handler actually received.
-          (is (= [[::events/edit "controls" :title "Ready"]
-                  [::events/toggle-published "controls" true]
-                  [::events/save {:slug "controls"}]
-                  [::events/saved {:slug "controls"
-                                   :draft {:title "Ready"
-                                           :body "The model is the only place the text lives."
-                                           :published? true}}]]
-                 @log))
-          (finally
-            (rf/unregister-listener! :events ::script)))
-        (finish m done)))))
+        (type-into! m ".field-title" "Ready")
+        (click! m "#slice-published")
+        (click! m ".save")
+        (-> (replied m "controls")
+            (.then
+              (fn [_]
+                ;; STATED, not compared against a second capture: two
+                ;; captures agree about a drift they share, and a
+                ;; written-out vector does not. The materialized values
+                ;; are in it — `::h/value` and `::h/checked` are
+                ;; substituted before the handler ever runs, so this is
+                ;; what a handler actually received.
+                (is (= [[::events/edit "controls" :title "Ready"]
+                        [::events/toggle-published "controls" true]
+                        [::events/save {:slug "controls"}]
+                        [::events/saved
+                         {:slug  "controls"
+                          :draft {:title      "Ready"
+                                  :body       "The model is the only place the text lives."
+                                  :published? true}}]]
+                       @log))))
+            (.finally (fn [] (rf/unregister-listener! :events ::script)))
+            (finish-after m done))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 6 — two mounts cannot see each other
