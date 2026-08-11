@@ -301,10 +301,12 @@
 ;; `commit-fx-effects`), not dropped. All OTHER unknown top-level keys remain
 ;; shape errors.
 ;;
-;; The runtime polices this contract: any top-level key outside the closed set
-;; emits a structured :rf.error/effect-map-shape trace per Spec 009 §Error
-;; contract, with :recovery :logged-and-skipped. The offending key is dropped
-;; (NOT merged silently nor routed through the fx machinery).
+;; The runtime polices this contract at the router's FINAL-effects boundary:
+;; a top-level key outside the closed set REFUSES the event. Nothing commits —
+;; no `:db`, no `:rf.db/runtime`, no classification install, no `:fx` — and
+;; :rf.error/effect-map-shape is emitted through the always-on error-emit
+;; substrate (Spec 009 §Error contract, recovery :fix-effect). See
+;; [[effect-map-defect]].
 
 (def ^:private closed-effect-map-keys
   "The closed set of top-level effect-map keys a `reg-event` handler may
@@ -323,154 +325,114 @@
   These are all COMMIT-PLANE effects (state-bearing, applied at the atomic
   commit boundary), distinct from the open `:fx` do-fx plane. The four
   classification keys (EP-0025) join `:db` / `:rf.db/runtime` here so
-  `police-final-effects!` does NOT drop them as foreign top-level keys.
+  [[effect-map-defect]] does NOT report them as foreign top-level keys.
   Widening this set is a Spec change; any other top-level key is a shape
   error."
   #{:db :rf.db/runtime :fx
     :sensitive :large :clear-sensitive :clear-large})
 
-(defn- police-effect-map-shape!
-  "Emit :rf.error/effect-map-shape for each top-level key in `effects`
-  outside `closed-effect-map-keys`. Per Spec migration M-8 + EP-0001 the
-  effect-map is closed at the top level (`#{:db :rf.db/runtime :fx}`).
-  Returns the list of offending keys (which the caller drops).
-
-  Hot-path short-circuit: the well-shaped case is the
-  overwhelming majority — handlers return `{}`, `{:db ...}`, `{:fx ...}`,
-  or `{:db ... :fx ...}`. Allocating an `offending` vector per dispatch
-  for the every-key-walks-the-closed-set check is wasted work. Pre-check
-  via `every?` (no allocation), and fall through to the doseq/vec build
-  only when at least one key is offending."
-  ([effects event]
-   (police-effect-map-shape! effects event (constantly true)))
-  ([effects event continue?]
-   (if (every? closed-effect-map-keys (keys effects))
-     nil
-     (let [event-id (when (vector? event) (first event))
-           offending (->> (keys effects)
-                          (remove closed-effect-map-keys)
-                          (vec))]
-       ;; Error listeners are synchronous callback boundaries. If the first
-       ;; diagnostic destroys the exact event owner, no second diagnostic may
-       ;; be attributed to a same-id successor.
-       (loop [ks (seq offending)]
-         (when (and ks (continue?))
-           (let [k      (first ks)
-                 v      (get effects k)
-                 reason (str "Effect-map for `" event-id "` returned top-level key `" k
-                             "`; only `:db`, `:rf.db/runtime`, and `:fx` are allowed at the top level.")]
-             (trace/emit-error! :rf.error/effect-map-shape
-                                {:failing-id        event-id
-                                 :rf.trace/event-id event-id
-                                 :rf.event/v        event
-                                 :offending-key     k
-                                 :value             v
-                                 :reason            reason
-                                 :recovery          :logged-and-skipped})
-             (recur (next ks)))))
-       offending))))
-
-;; ---- :fx VALUE-shape policing --------------------------------------------
+;; ---- the FINAL-effects shape carrier (rf2-04tx) ---------------------------
 ;;
-;; `police-effect-map-shape!` above polices the top-level KEYS only. This
-;; checks the one shape it does NOT: the :fx VALUE. Per Spec-Schemas
-;; §:rf/effect-map the :fx value is `[:vector [:tuple :keyword :any]]` — a
-;; sequential of [fx-id args] pairs. A handler that returns a non-sequential
-;; :fx value (e.g. `{:fx :oops}` or `{:fx {:dispatch [...]}}` — a plausible
-;; forgot-the-outer-vector typo) is caught here. Without this check the value
-;; would be assoc'd straight into the effects map, and `fx/do-fx`'s
-;; `(doseq [pair fx-vec] ...)` would throw an uncaught host exception
-;; ("Don't know how to create ISeq from: …") AFTER the :db commit — escaping
-;; `process-event!` into the drain's emergency release with app-db mutated, no
-;; structured trace, no `:on-error` fire, downstream queued events abandoned.
+;; ONE check at ONE boundary. `effect-map-defect` is a PURE first-defect-or-nil
+;; validator over the effects map the ROUTER is about to consume — the same
+;; shape as `re-frame.elision/classification-effect-defect`, and consumed at the
+;; same place (`re-frame.router/commit-and-flow!`'s FINAL-effects boundary,
+;; immediately before the commit). The router emits `:rf.error/effect-map-shape`
+;; IN-BAND (never a throw — a throw there escapes into
+;; `drain-emergency-release!` and abandons the rest of the drained queue) and
+;; ABORTS the event: no `:db`, no `:rf.db/runtime`, no classification install,
+;; no `:fx`. No partial commit.
 ;;
-;; We close the gap symmetric with M-8: a non-sequential (and non-nil) :fx
-;; value emits :rf.error/effect-map-shape (recovery :logged-and-skipped) and
-;; is DROPPED — `:db` still commits, the cascade is not aborted, and there is
-;; no low-level throw. `nil` stays the legal "no fx" no-op (equivalent to an
-;; absent :fx).
+;; ## Why refuse rather than drop (rf2-04tx)
+;;
+;; The runtime RECOGNISES the key — it polices it on every dispatch, in every
+;; build — and then declines to honour it. Dropping it is the named violation
+;; shape of Conventions §No silent swallow: the `:db` write lands while the
+;; effect the programmer wrote never runs, so the handler LOOKS like it worked.
+;; That partial-success disguise is what defeats a gate asserting a label plus
+;; "nothing has happened yet"; it hid a dead `:dispatch-later` timer in the
+;; hicasso testbed's operator instruments, and an eleven-week-dead
+;; `persist-chart-collapsed` fx inside Xray itself. Both go red on first run
+;; under the refusal.
+;;
+;; The refusal is UNIFORM ACROSS BUILDS and NOT configurable. Erasing it in
+;; production would make dev abort what production commits — a build fork
+;; strictly worse than either uniform choice. The DETECTION was already
+;; unconditional and free (the zero-allocation `every?` pre-check below), so the
+;; refusal hangs off an already-taken cold branch: no hot-path cost.
+;;
+;; ## What is NOT here
+;;
+;; Case (c) — a malformed ENTRY inside an otherwise-well-shaped `:fx` vector —
+;; is NOT this check. That row lives on the post-commit best-effort do-fx plane
+;; (`re-frame.fx/fx-entry-ok?`) and KEEPS `:logged-and-skipped` per-entry
+;; recovery: the offending entry is dropped and its siblings still run. The line
+;; falls on the commit boundary, matching the standing FX atomicity asymmetry —
+;; pre-commit envelope validity is transactional, post-commit fx are
+;; best-effort.
 
-(defn- fx-value-ok?
-  "True iff the `:fx` value in `effects` is shaped well enough to walk — i.e.
-  absent, `nil` (legal no-op), or sequential (the documented
-  `[[fx-id args] ...]` vector). A non-nil, non-sequential `:fx` value is the
-  forgot-the-outer-vector typo: emit :rf.error/effect-map-shape naming the
-  offending handler and return false so the caller drops `:fx`."
+(defn effect-map-defect
+  "PURE fail-loud-INPUT validator for the TOP-LEVEL shape of the FINAL effects
+  map. Returns the FIRST defect as a map `{:offending-key <k> :value <bad>
+  :reason <string>}` — or nil when the envelope is well-shaped. Does NOT throw
+  and does NOT emit; the caller (the router's FINAL-effects boundary) emits
+  `:rf.error/effect-map-shape` in-band and aborts the event pre-commit,
+  mirroring the `legacy-runtime-root` / `classification-effect-shape`
+  rejections at that same boundary.
+
+  Two defect cases, checked in that order:
+
+    (a) BAD TOP-LEVEL KEY — a key outside `closed-effect-map-keys` (per Spec
+        migration M-8 + EP-0001). The commonest v1 reflex: a top-level
+        `:dispatch` / `:dispatch-later` / `:http` / a user-registered fx-id
+        sitting beside `:db`.
+    (b) BAD `:fx` VALUE — a non-`nil`, non-sequential `:fx` (`{:fx :oops}`,
+        `{:fx {…}}` — the forgot-the-outer-vector typo). Per Spec-Schemas
+        §:rf/effect-map the `:fx` value is `[:vector [:tuple :keyword :any]]`.
+        `nil` stays the legal \"no fx\" no-op (equivalent to an absent `:fx`).
+
+  A non-map `effects` (the `nil` / no-effects-produced case) has no top-level
+  shape to police and yields nil — the non-map HANDLER RETURN is a different
+  category (`:rf.error/effect-handler-bad-return`, emitted at the handler-return
+  site).
+
+  `event` (the originating event vector) names the offending handler in the
+  `:reason`; the caller supplies the event-id tags.
+
+  Hot-path short-circuit: the well-shaped case is the overwhelming majority —
+  handlers return `{}`, `{:db …}`, `{:fx …}`, or `{:db … :fx …}`. The key check
+  is an allocation-free `every?` and the `:fx` check a single `sequential?`, so
+  a clean effect map costs two predicate walks and allocates nothing."
   [effects event]
-  (let [fx-val (:fx effects)]
-    (if (or (not (contains? effects :fx))
-            (nil? fx-val)
-            (sequential? fx-val))
-      true
-      (let [event-id (when (vector? event) (first event))
-            reason   (str "Effect-map for `" event-id "` returned a `:fx` value of type `"
-                          (pr-str (type fx-val))
-                          "`; `:fx` must be a vector of `[fx-id args]` pairs"
-                          " (e.g. `[[:dispatch [:saved]]]`) — did you forget the outer vector?")]
-        (trace/emit-error! :rf.error/effect-map-shape
-                           {:failing-id        event-id
-                            :rf.trace/event-id event-id
-                            :rf.event/v        event
-                            :offending-key     :fx
-                            :value             fx-val
-                            :reason            reason
-                            :recovery          :logged-and-skipped})
-        false))))
-
-;; ---- final-effects boundary policing -------------------------------------
-;;
-;; `commit-fx-effects` (below) polices the effect-map shape + the whole-`:fx`
-;; value for a `reg-event` HANDLER RETURN — at the moment the handler-wrapping
-;; interceptor's `:before` commits the returned effects map. That is BEFORE the
-;; `:after` interceptor pass runs (`execute-chain` runs every `:before` then
-;; every `:after` — see `re-frame.interceptor/execute-chain`).
-;;
-;; So the per-handler-return checks DO NOT cover effects that arrive at the
-;; commit boundary by another route: a framework / user `:after` interceptor
-;; mutates `[:effects …]` after the handler-return checks have already run
-;; (docs/core §09 documents `:after` interceptors adding/modifying
-;; `:effects`/`:fx`).
-;;
-;; The router consumes the FINAL `(:effects final-ctx)` after the whole chain
-;; (every `:before` AND every `:after`) has run. `police-final-effects!` is
-;; the single authoritative shape gate applied THERE, so the closed
-;; effect-map + whole-`:fx` contract holds uniformly regardless of how an
-;; effect reached the final context (the handler return, framework
-;; interceptors, or a user `:after`). It returns the CLEANED effects map —
-;; foreign top-level keys dropped, a non-sequential `:fx` dropped — so a
-;; malformed final effect never reaches `commit-frame-effects!` (silent
-;; ignore of a foreign key) nor `fx/do-fx` (a raw host throw after the db
-;; commit). Both drops emit `:rf.error/effect-map-shape`
-;; (`:logged-and-skipped`) exactly like the per-handler-return path.
-
-(defn police-final-effects!
-  "Police the FINAL effects map the router is about to consume against the
-  closed effect-map contract (per Spec-Schemas §:rf/effect-map + EP-0001):
-  top-level keys are `#{:db :rf.db/runtime :fx}` and the `:fx` value is a
-  sequential of `[fx-id args]` pairs. Returns the CLEANED effects map with
-  any offending top-level key and a non-sequential `:fx` value dropped;
-  each drop emits `:rf.error/effect-map-shape` (`:logged-and-skipped`).
-
-  This is the boundary gate covering effects that bypass the
-  `commit-fx-effects` per-handler-return checks — an `:after`-interceptor
-  mutation. `nil` / a non-map effects value (no effects
-  produced) passes through untouched.
-
-  Hot-path short-circuit: when the effects map is already well-shaped (the
-  overwhelming majority — `{}`, `{:db …}`, `{:fx [...]}`, `{:db … :fx …}`),
-  `police-effect-map-shape!` allocates nothing and `fx-value-ok?` is a
-  single `sequential?` check, so the map is returned unchanged with no
-  reconstruction."
-  ([effects event]
-   (police-final-effects! effects event (constantly true)))
-  ([effects event continue?]
-   (if-not (map? effects)
-     effects
-     (let [offending (police-effect-map-shape! effects event continue?)
-           cleaned   (if (seq offending) (apply dissoc effects offending) effects)]
-       (if (or (not (continue?)) (fx-value-ok? cleaned event))
-         cleaned
-         (dissoc cleaned :fx))))))
+  (when (map? effects)
+    (let [event-id (when (vector? event) (first event))]
+      (if-not (every? closed-effect-map-keys (keys effects))
+        ;; (a) — the first foreign key in the map's own key order (source order
+        ;; for the small maps handlers return). One defect, one message: naming
+        ;; every foreign key at once would bury the first mistake.
+        (let [k (first (remove closed-effect-map-keys (keys effects)))]
+          {:offending-key k
+           :value         (get effects k)
+           :reason        (str "Effect-map for `" event-id "` returned top-level key `" k
+                               "`; the effect-map is closed — `:db`, `:rf.db/runtime`"
+                               " and `:fx` (plus the four commit-plane"
+                               " classification keys) are the only top-level keys."
+                               " Move `" k "` into `:fx` (e.g. `{:fx [[" k " …]]}`)."
+                               " The event is refused until corrected — nothing"
+                               " committed.")})
+        ;; (b) — the whole-`:fx` value.
+        (let [fx-val (:fx effects)]
+          (when-not (or (not (contains? effects :fx))
+                        (nil? fx-val)
+                        (sequential? fx-val))
+            {:offending-key :fx
+             :value         fx-val
+             :reason        (str "Effect-map for `" event-id "` returned a `:fx` value of type `"
+                                 (pr-str (type fx-val))
+                                 "`; `:fx` must be a vector of `[fx-id args]` pairs"
+                                 " (e.g. `[[:dispatch [:saved]]]`) — did you forget the"
+                                 " outer vector? The event is refused until corrected —"
+                                 " nothing committed.")}))))))
 
 ;; ---- handler-as-interceptor wrapper ---------------------------------------
 ;;
@@ -600,18 +562,21 @@
   app-db)
 
 (defn- commit-fx-effects
-  "fx-kind commit: enforce the closed effect-map (M-8 + EP-0001) and assoc
-  :db / :rf.db/runtime / :fx into the context. Bad-return / nil-return policy
-  lives here too — `nil` is the documented legal no-op; any
-  non-map return emits :rf.error/effect-handler-bad-return with :no-recovery
-  and the dispatch becomes a no-op.
+  "fx-kind commit: project the handler's returned effect map into the context.
+  Bad-return / nil-return policy lives here — `nil` is the documented legal
+  no-op; any non-map return emits :rf.error/effect-handler-bad-return with
+  :no-recovery and the dispatch becomes a no-op.
 
-  Two shape checks run before commit: `police-effect-map-shape!` rejects
-  top-level keys outside `#{:db :rf.db/runtime :fx}` (M-8 + EP-0001), and
-  `fx-value-ok?` rejects a non-sequential `:fx` value — both emit
-  :rf.error/effect-map-shape (:logged-and-skipped) and DROP the offending
-  slot, so a malformed effect map never reaches `fx/do-fx` to throw a raw
-  host exception after the :db commit.
+  ONE CHECK AT ONE BOUNDARY (rf2-04tx). This site does NOT police the
+  effect-map's top-level shape and is NOT an abort site. It projects the
+  returned map VERBATIM — foreign top-level keys and a malformed `:fx` value
+  included — so the shape the programmer actually wrote reaches the router's
+  FINAL-effects boundary, where `effect-map-defect` decides ONCE. That is what
+  makes the decision uniform across the two routes a top-level key can arrive
+  by: a handler return (here) and an `:after`-interceptor insertion (which
+  lands after this `:before` has already run). A key projected here is never
+  ACTED on — the router refuses the whole event before any commit, and only
+  closed-set keys are read downstream.
 
   EP-0001: `:db` targets the app-db partition; `:rf.db/runtime`
   targets the runtime-db partition (reserved by convention — a non-framework
@@ -638,30 +603,12 @@
         (if (live?) ctx (assoc ctx :rf/stale-incarnation? true)))
       :else
       (do
-        (police-effect-map-shape! effects event live?)
         (when (live?)
           (police-runtime-effect-authority! ctx event effects))
         (if-not (live?)
           (assoc ctx :rf/stale-incarnation? true)
-          (let [fx-ok? (or (not (contains? effects :fx))
-                           (fx-value-ok? effects event))]
-            (if-not (live?)
-              (assoc ctx :rf/stale-incarnation? true)
-              (cond-> ctx
-                (contains? effects :db)
-                (interceptor/assoc-effect :db (:db effects))
-                (contains? effects :rf.db/runtime)
-                (interceptor/assoc-effect :rf.db/runtime (:rf.db/runtime effects))
-                (and (contains? effects :fx) fx-ok?)
-                (interceptor/assoc-effect :fx (:fx effects))
-                (contains? effects :sensitive)
-                (interceptor/assoc-effect :sensitive (:sensitive effects))
-                (contains? effects :large)
-                (interceptor/assoc-effect :large (:large effects))
-                (contains? effects :clear-sensitive)
-                (interceptor/assoc-effect :clear-sensitive (:clear-sensitive effects))
-                (contains? effects :clear-large)
-                (interceptor/assoc-effect :clear-large (:clear-large effects))))))))))
+          (cond-> ctx
+            (seq effects) (update :effects merge effects)))))))
 
 (def event-handler-interceptor-id
   "The single `:id` the framework stamps on the handler-wrapping interceptor

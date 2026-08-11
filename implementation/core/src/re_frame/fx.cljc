@@ -1704,10 +1704,14 @@
 
 ;; ---- per-entry :fx-shape policing (rf2-n6d3m) -----------------------------
 ;;
-;; `events.cljc/fx-value-ok?` (rf2-24zly) polices the whole `:fx` VALUE at
-;; commit time: a non-`nil`, non-sequential value (`{:fx :oops}`) is dropped
-;; with :rf.error/effect-map-shape before it ever reaches `do-fx`. This is the
-;; level DOWN: an individual ENTRY inside an otherwise-well-shaped `:fx` vector.
+;; `events.cljc/effect-map-defect` polices the whole `:fx` VALUE at the router's
+;; FINAL-effects boundary: a non-`nil`, non-sequential value (`{:fx :oops}`)
+;; REFUSES the event pre-commit (rf2-04tx) so it never reaches `do-fx`. This is
+;; the level DOWN: an individual ENTRY inside an otherwise-well-shaped `:fx`
+;; vector — and the granularity line falls on the commit boundary. The envelope
+;; is pre-commit, so it is transactional; these rows are already on the
+;; post-commit best-effort do-fx plane, so a bad row is DROPPED and its
+;; siblings still run (`:logged-and-skipped`), exactly as before.
 ;;
 ;; Per `:rf/effect-map` (Spec-Schemas §:rf/effect-map) each entry is a
 ;; `[:tuple :keyword :any]` — a `[fx-id args]` vector. The do-fx walk used to
@@ -1744,9 +1748,10 @@
 ;;   non-`nil`, non-empty,   → the clear typo (a keyword / map / string / number
 ;;   NON-vector entry          / list where a `[fx-id args]` vector was meant).
 ;;                             Emit :rf.error/effect-map-shape naming the entry +
-;;                             handler (recovery :logged-and-skipped, symmetric
-;;                             with rf2-24zly) and DROP just that entry — sibling
-;;                             entries still run, the cascade is not aborted.
+;;                             handler (recovery :logged-and-skipped — the
+;;                             post-commit fx plane is best-effort) and DROP just
+;;                             that entry — sibling entries still run, the
+;;                             cascade is not aborted.
 
 (defn- fx-entry-ok?
   "True iff an individual `:fx` entry `pair` is shaped well enough to walk —
@@ -1796,15 +1801,23 @@
                           "entry must be a `[fx-id args]` vector of at most two elements "
                           "(e.g. `[:dispatch [:saved]]` or the no-args `[:fx-id]`)"
                           " — the surplus element(s) would be silently discarded."))]
-      (trace/emit-error! :rf.error/effect-map-shape
-                         {:failing-id        event-id
-                          :rf.trace/event-id event-id
-                          :rf.event/v        event
-                          :frame             frame-id
-                          :offending-key     :fx
-                          :value             pair
-                          :reason            reason
-                          :recovery          :logged-and-skipped})
+      ;; Channel: BOTH axes (rf2-04tx). The whole `:rf.error/effect-map-shape`
+      ;; category is always-on — the envelope cases (a)/(b) refuse the event at
+      ;; the router's FINAL-effects boundary, and this entry-level case rides
+      ;; the same channel so a production build hears about a dropped `:fx`
+      ;; entry too. `:failing-id` EQUALS `:event-id`, so `emit-error-both!`'s
+      ;; component-attribution lift does not fire and the interpolating
+      ;; `:reason` stays on the DCE'd dev trace.
+      (emit-fx-error! :rf.error/effect-map-shape
+                      event event-id frame-id nil
+                      {:failing-id        event-id
+                       :rf.trace/event-id event-id
+                       :rf.event/v        event
+                       :frame             frame-id
+                       :offending-key     :fx
+                       :value             pair
+                       :reason            reason
+                       :recovery          :logged-and-skipped})
       false)))
 
 ;; ---- dry-run effect sink (rf2-j538f7.39) ----------------------------------
@@ -1842,8 +1855,8 @@
   conditional-fx no-op (skipped, no trace); a non-`nil`, non-empty
   NON-vector entry (the forgot-the-inner-vector typo) emits
   :rf.error/effect-map-shape and is dropped while sibling entries still
-  run. This composes one level down from rf2-24zly's whole-`:fx`-value
-  check (events.cljc/`fx-value-ok?`), which already rejected a
+  run. This composes one level down from the whole-`:fx`-value check
+  (events.cljc/`effect-map-defect`), which already REFUSED the event on a
   non-sequential `:fx` value before it reached this walk.
 
   Dry-run (rf2-j538f7.39): when `*effect-sink*` is bound, each well-shaped
