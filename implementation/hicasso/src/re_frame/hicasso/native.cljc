@@ -10,10 +10,16 @@
         (:require [re-frame.hicasso.native :as n]))
 
       (n/defcomponent hot-row
-        {:server :render}
+        {:server :render}                 ; recorded; read in Phase 3
         [^js props]
         (n/$ :button {:class \"hot-row\" :on-click (.-onOpen props)}
              (.-label props)))
+
+  The declaration map carries `:server` and nothing else, its key and
+  its value are both refused off their rosters at the declaration, and
+  the policy it records is **consulted by no runtime path yet** — see
+  [[defcomponent]] and [[declared-server]], which say so where the
+  author is standing rather than only here.
 
   ## The two-languages fence, which is the whole architecture
 
@@ -62,8 +68,9 @@
   Every refusal is minted by [[re-frame.hicasso.impl.error/fail!]], so
   it carries rf2-hic-007's shape whole — id, the fn that refused, the
   reason, an actionable recovery, and the ambient view and coordinate
-  when a declaration extent is open. Five ids, all of them reserved for
-  this tier by the complaint register before it existed:
+  when a declaration extent is open. Seven ids — five reserved for this
+  tier by the complaint register before it existed, plus the two the
+  declaration door minted when it gained its rosters (rf2-u9lk):
 
   | Id | Raised when |
   |---|---|
@@ -72,6 +79,8 @@
   | `:rf.error/hicasso-native-intent-in-prop` | an event vector is written at a native callback slot |
   | `:rf.error/hicasso-native-children-in-props` | `:children` is written in a props map, which has one child channel |
   | `:rf.error/hicasso-native-slot-collision` | two source keys normalise to one React slot |
+  | `:rf.error/hicasso-native-unknown-option` | a `defcomponent` declaration map carries a key outside `#{:server}` |
+  | `:rf.error/hicasso-native-bad-server-policy` | `:server` carries a value outside `#{:client-only :render}` |
 
   The first two fire at EXPANSION for a literal and at RUNTIME for a
   dynamic value; the runtime half is `debug-enabled?`-gated, so under
@@ -315,6 +324,86 @@
              (unchecked-set o s v))
            o)
          x))
+
+     (def ^:private component-options
+       "Every key an [[defcomponent]] declaration map may carry.
+
+  ONE today, and the roster exists precisely because it is one: a
+  declaration read for `:server` and silent about everything else
+  accepted `{:ssr :render}` — the `defhost` spelling, on the sibling
+  door — and `{:sever :render}`, and stamped Client-only in both cases
+  while the author read the source and saw a policy (rf2-u9lk)."
+       #{:server})
+
+     (def ^:private server-policies
+       "Every value `:server` may take. `defhost`'s `:ssr` admits a third
+  form, `{:fallback <hiccup>}`, and this door deliberately does not: a
+  fallback is markup rendered by a GATE component in the crossing's
+  place, and a native component has no gate — [[component]] mints the
+  author's own function as the element type and nothing wraps it."
+       #{:client-only :render})
+
+     (defn declared-server
+       "The `:server` policy `decl` carries, VALIDATED — the two rosters
+  `mint-host!` has, at the one declaration door in the package that had
+  neither (rf2-u9lk).
+
+  Absent means `:client-only`: the conservative answer, so an author who
+  writes nothing and an author who writes the default explicitly get the
+  same one, and `:render` — the assertion *this component is safe to run
+  on the server* — is never reached by omission.
+
+  **Called at LOAD, from inside [[defcomponent]]'s expansion, and not at
+  macroexpansion.** Two things follow from that and both are the reason.
+  `error/fail!`'s ambient `:view` and `:source` come from the ledger the
+  emitted `declaring!` has just written, so a refusal raised here names
+  the file and line of the declaration; a refusal raised during
+  expansion would carry neither. And this package has no JVM test lane
+  at all, so a compile-time refusal would be witnessed by nothing this
+  repo runs.
+
+  ## What the policy does NOT yet do (Phase 3)
+
+  The value is recorded on the tier marker and **consulted by no runtime
+  path**. There is no server walk in this tier and no SSR branch that
+  reads it: `docs/design/hicasso/product/lanes/adversarial-risks.md`
+  defers native-surface risks to Phase 3, and the server half of this
+  declaration is deferred with them. Validating it now is still worth
+  doing — a policy recorded WRONG is worse than one recorded and not yet
+  read, because the day it is read the mistake is years old — but a
+  reader must not take `{:server :render}` for a live instruction. See
+  [[defcomponent]]'s docstring, which says the same thing where the
+  author is standing."
+       [component-name decl]
+       (doseq [k (keys decl)]
+         (when-not (contains? component-options k)
+           (error/fail! :rf.error/hicasso-native-unknown-option
+                        're-frame.hicasso.native/defcomponent
+                        (str "n/defcomponent " component-name " was declared with "
+                             (pr-str k) ", which is not an option. A native "
+                             "declaration carries :server and nothing else — the "
+                             "`defhost` door's spelling is :ssr, and it is the "
+                             "one this key is most often borrowed from. Reading "
+                             "past an option it does not know is how a policy "
+                             "comes to be set and never applied.")
+                        :declare-the-server-policy
+                        {:component component-name :option k
+                         :options component-options})))
+       (let [policy (get decl :server :client-only)]
+         (if (contains? server-policies policy)
+           policy
+           (error/fail! :rf.error/hicasso-native-bad-server-policy
+                        're-frame.hicasso.native/defcomponent
+                        (str "n/defcomponent " component-name " declares :server "
+                             (pr-str policy) ". The policy is :client-only — the "
+                             "default, meaning the component is not run on the "
+                             "server — or :render, meaning it is safe to run "
+                             "there and does. There is no third value, and "
+                             "`defhost`'s {:fallback …} is not one of them: a "
+                             "fallback needs a gate component to render it, and "
+                             "a native component is its own element type.")
+                        :declare-client-only-or-render
+                        {:component component-name :server policy}))))
 
      (defn component
        "Mint what [[defcomponent]] `def`s: the author's function, stamped
@@ -739,7 +828,20 @@
 
   An optional declaration map before the argument vector carries the
   server policy — `{:server :render}` or `{:server :client-only}` — and
-  omitting it means Client-only.
+  omitting it means Client-only. It carries nothing else, and both the
+  key and the value are checked against their rosters at the
+  declaration, where the author's stack still points at it
+  ([[declared-server]]).
+
+  **The policy is RECORDED and not yet consulted** (rf2-u9lk). It is
+  stamped on the tier marker, where a tool can read it, and no runtime
+  path in this tier branches on it: there is no server walk here and no
+  SSR arm, because `adversarial-risks.md` defers native-surface risks to
+  Phase 3 and the server half of this declaration goes with them. So
+  `{:server :render}` is a declaration of intent that Phase 3 will read,
+  not an instruction anything follows today — the one thing about this
+  door a reader must not assume, since every neighbouring sentence
+  describes machinery that does run.
 
   Like `defview` this is not a compiler: it reads no body, expands to a
   `def`, and captures the name and the source coordinate (rf2-hic-007)
@@ -759,14 +861,18 @@
            decl     (when (map? (first more)) (first more))
            [argv & body] (if decl (next more) more)
            cname    (str (ns-name *ns*) "/" sym)
-           coord    (source-coords/coords-form (meta &form) *file* (ns-name *ns*))
-           server   (get decl :server :client-only)]
+           coord    (source-coords/coords-form (meta &form) *file* (ns-name *ns*))]
        `(def ~(if doc (vary-meta sym assoc :doc doc) sym)
           (do
             (when re-frame.interop/debug-enabled?
               (re-frame.hicasso.impl.error/declaring! ~cname ~coord))
             (try
-              (component ~cname ~server (fn ~argv ~@body))
+              ;; `declared-server` VALIDATES and answers, so the read and
+              ;; the two rosters are one call and cannot disagree — and it
+              ;; is an argument, so it runs inside this `try`, after
+              ;; `declaring!` has put the coordinate on the ledger and
+              ;; before `declared!` takes it off again.
+              (component ~cname (declared-server ~cname ~decl) (fn ~argv ~@body))
               (finally
                 (when re-frame.interop/debug-enabled?
                   (re-frame.hicasso.impl.error/declared!)))))))))
