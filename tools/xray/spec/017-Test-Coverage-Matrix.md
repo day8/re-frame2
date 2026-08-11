@@ -359,6 +359,22 @@ assertion is therefore pinned to the readout's DOM NODE as well as its text: a
 repaint writes into the node already standing there, a remount replaces it, and
 both halves have to hold.
 
+**Disposition — the deck retires with the panel, and is not independently
+migratable (rf2-u5b4).** The reason is the panel's rather than the deck's:
+[`021-Dynamic-Panel-Designs.md`](021-Dynamic-Panel-Designs.md) §3.4.3 records
+that §3.4.1 and §3.4.2 cannot move to `re-frame.hicasso.tool`, because five of
+their eight questions have no answer there, so they stay on
+`re-frame.freehand.tool` until the Freehand tree goes. This deck is the
+browser-lane populated arm of exactly those two sections and has no other
+consumer, and every fact its scenario asserts — the view id, the occurrence key,
+the lowering, the per-row read count, the declared sites — is one the target
+does not publish. Repointing it would leave a scenario asserting facts that
+cannot exist; removing it while the panel still ships would restore the
+gate-blindness rf2-6pohj closed. So it goes when they go, under rf2-hic-062,
+and it is four artefacts: this source tree, the `:testbeds/freehand-views` build
+id, its port-8036 `:dev-http` entry, and the scenario together with its
+`STAGED_SURFACES` wiring.
+
 ## Cross-references
 
 - [`000-Vision.md`](./000-Vision.md) - panel inventory and the five canonical questions.
