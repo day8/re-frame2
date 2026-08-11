@@ -136,12 +136,12 @@
      [:button {:id       "save"
                :type     "button"
                :disabled (not dirty?)
-               :on-click [::events/save {:at "now"}]}
+               :on-click [::events/save]}
       "Save"]
      [:button {:id       "discard"
                :type     "button"
                :disabled (not dirty?)
-               :on-click [::events/discard {}]}
+               :on-click [::events/discard]}
       "Discard"]]))
 
 (h/defview readout

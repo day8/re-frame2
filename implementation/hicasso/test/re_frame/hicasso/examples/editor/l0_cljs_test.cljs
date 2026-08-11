@@ -142,7 +142,7 @@
       (type! frame :title "Committed")
       (is (= "Intents are data" (read-sub frame [::subs/committed :title]))
           "typing does not move the article")
-      (rf/dispatch-sync [::events/save {:at "t0"}] {:frame frame})
+      (rf/dispatch-sync [::events/save] {:frame frame})
       (is (= "Committed" (read-sub frame [::subs/committed :title])))
       (is (= "Committed" (read-sub frame [::subs/field :title]))
           "and the draft still holds it — a save is not a reset")
@@ -156,7 +156,7 @@
       (is (= 0 (read-sub frame [::subs/revision]))
           "the subscription's own default answers 0 for the absent key, so
            the fields have a revision to render before any discard")
-      (rf/dispatch-sync [::events/discard {}] {:frame frame})
+      (rf/dispatch-sync [::events/discard] {:frame frame})
       (is (= (get-in events/seed [:article :title])
              (read-sub frame [::subs/field :title]))
           "the model is back")
@@ -167,7 +167,7 @@
            the FIRST discard a reset rather than a nil arithmetic error,
            and nothing on the public door says an application needs a
            counter at all — rf2-hic-025 finding 5, confirmed")
-      (rf/dispatch-sync [::events/discard {}] {:frame frame})
+      (rf/dispatch-sync [::events/discard] {:frame frame})
       (is (= 2 (read-sub frame [::subs/revision]))
           "and a second discard bumps again, so two resets in a row are two
            distinct triggers rather than one repeated value"))))
