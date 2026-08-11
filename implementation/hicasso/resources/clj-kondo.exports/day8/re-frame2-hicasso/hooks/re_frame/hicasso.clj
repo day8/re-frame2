@@ -824,7 +824,7 @@
   Not `defn`: a host declares no argument vector, because the props it
   accepts are the foreign component's business rather than the
   declaration's. `opts` is analysed as an ordinary expression so a
-  reference inside `:ssr` / `:callbacks` is neither unresolved nor unused."
+  reference inside `:fallback` / `:callbacks` is neither unresolved nor unused."
   [{:keys [node]}]
   (let [[_defhost sym & more] (:children node)
         [doc more]            (if (api/string-node? (first more))

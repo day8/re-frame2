@@ -43,13 +43,14 @@
   is now built as [[raw-element]] — the same crossing with the
   declaration erased (rf2-2rtt6.103).
   Neither is HD-011's SSR placeholder, which HD-020(d) left inert until
-  the operator ruled SSR into scope: `:ssr` is a declaration option
-  with three values (rf2-2rtt6.85, rf2-l0wfx). For the two gated ones
-  [[mint-host-gate!]] is the one mechanism that serves the server
-  render, hydration's first client pass and a fresh `createRoot` mount
-  alike; `:ssr :render` mints no gate and renders the component itself
-  server-side, which is the only policy under which a crossing's
-  CHILDREN reach the server response at all.
+  the operator ruled SSR into scope: `:server` is a declaration option
+  with two values, and `:fallback` is its sibling (rf2-2rtt6.85,
+  rf2-l0wfx, rf2-mo4o). Under `:client-only` [[mint-host-gate!]] is the
+  one mechanism that serves the server render, hydration's first client
+  pass and a fresh `createRoot` mount alike; `:server :render` mints no
+  gate and renders the component itself server-side, which is the only
+  policy under which a crossing's CHILDREN reach the server response at
+  all.
 
   ## Codec-work caching only (HD-004)
 
@@ -1237,30 +1238,41 @@
 ;; author spells the prop — while an undeclared `onFoo` never becomes an
 ;; event position no matter how event-shaped its name is.
 ;;
-;; ## The `:ssr` policy — HD-011's placeholder, activated (rf2-2rtt6.85)
+;; ## The `:server` policy — HD-011's placeholder, activated (rf2-2rtt6.85)
 ;;
 ;; HD-011 listed "SSR placeholder" among `defhost`'s strong defaults and
 ;; HD-020(d) left it inert; the operator's 2026-08-04 ruling makes SSR
-;; required scope, so the placeholder is now real. THREE VALUES, and the
-;; author writes at most one of them:
+;; required scope, so the placeholder is now real. TWO POLICIES, and a
+;; sibling option that belongs to one of them:
 ;;
-;;     :ssr :client-only        ; THE DEFAULT — omit :ssr and this is it
-;;     :ssr {:fallback <hiccup>}
-;;     :ssr :render             ; "this component is safe on the server"
+;;     :server :client-only     ; THE DEFAULT — omit :server and this is it
+;;     :server :render          ; "this component is safe on the server"
+;;     :fallback <hiccup>       ; Client-only's placeholder, and only its
 ;;
 ;; `:client-only` renders NOTHING where the host sits until the client
-;; has adopted the markup; `{:fallback …}` renders that hiccup there
-;; instead; `:render` runs the component itself, server-side, with its
-;; real props and its real children. Anything else is refused at the
-;; declaration. The DEFAULT is the conservative one because a foreign
-;; React component is exactly the node whose render may reach for
-;; `window` — the door cannot know, so it does not guess. `:render` is
-;; the AUTHOR saying, which is a different thing from the door guessing.
+;; has adopted the markup, or the declared `:fallback` hiccup if there is
+;; one; `:render` runs the component itself, server-side, with its real
+;; props and its real children. Anything else is refused at the
+;; declaration, `:fallback` under `:render` included. The DEFAULT is the
+;; conservative one because a foreign React component is exactly the node
+;; whose render may reach for `window` — the door cannot know, so it does
+;; not guess. `:render` is the AUTHOR saying, which is a different thing
+;; from the door guessing.
 ;;
-;; **The third value is rf2-l0wfx's ruling** (2026-08-05), and the case
+;; **The key is `:server` and the values are the two sides that render**
+;; (rf2-mo4o, applying naming-ledger row 21). `:ssr` named the TECHNIQUE
+;; and admitted the fallback as a third value shape — an enum sometimes
+;; replaced by a nested map — while `n/defcomponent`, the sibling door in
+;; this same package, already took `:server` with these two values and
+;; refused the `:ssr` spelling outright
+;; ([[re-frame.hicasso.native/declared-server]]). One library, one policy
+;; concept, one spelling; and a fallback reads as what it is, markup at
+;; the crossing rather than a policy value.
+;;
+;; **`:render` is rf2-l0wfx's ruling** (2026-08-05), and the case
 ;; that filed it is a context PROVIDER: a transparent wrapper that
 ;; contributes no markup of its own and exists solely to carry a
-;; subtree. Under either of the first two policies the unadopted arm
+;; subtree. Under Client-only the unadopted arm
 ;; returns something that is not the component, so the crossing's
 ;; CHILDREN are dropped and the provider deletes the whole application
 ;; from the server response — silently, because the server snapshot and
@@ -1269,7 +1281,7 @@
 ;;
 ;; ## Two shapes, and which one a declaration mints
 ;;
-;; For `:client-only` and `{:fallback …}` **ONE mechanism serves the
+;; For `:client-only`, with or without a fallback, **ONE mechanism serves the
 ;; server, the hydration pass and the fresh mount**, and it is
 ;; [[mint-host-gate!]]: a one-hook component whose `useSyncExternalStore`
 ;; answers `false` from its SERVER snapshot and `true` from its client
@@ -1298,7 +1310,7 @@
 ;; component therefore pays a full subtree destroy-and-rebuild the moment
 ;; adoption swaps the type. That is free when the thing torn down is an
 ;; inert skeleton; it is not free when it is the application, and it is
-;; why `:ssr :children` — "render `props.children` in place of the
+;; why `:server :children` — "render `props.children` in place of the
 ;; component" — was refused rather than adopted: it restores the markup
 ;; without the provider above it, so every consumer below reads the
 ;; context DEFAULT server-side (silent-absent becomes silent-wrong), and
@@ -1307,7 +1319,7 @@
 ;; **The price, stated because it changed** (rf2-2rtt6.85): the door used
 ;; to mint no wrapper, no fiber and no hook — the foreign component was
 ;; the element's own type. A gated declaration mints ONE gate, so a
-;; crossing under the first two policies costs one fiber and one hook; a
+;; Client-only crossing costs one fiber and one hook; a
 ;; `:render` crossing costs neither. HD-020(b)'s ≤2 budget is a statement
 ;; about Hicasso's BOUNDARY shells and is untouched either way: the gate
 ;; is not a boundary, holds no subscription, and reads no frame.
@@ -1315,7 +1327,7 @@
 (def ^:private host-marker "hicassoHost")
 
 ;; [[host-head?]] is the predicate over that marker and reads naturally
-;; beside [[host-ssr]], at the end of this section. The fallback walk
+;; beside [[host-server]], at the end of this section. The fallback walk
 ;; below needs it three definitions earlier.
 (declare host-head?)
 
@@ -1327,11 +1339,16 @@
 (def ^:private host-options
   "Every key a declaration may carry. [[mint-host!]] read `:callbacks`
   and SILENTLY IGNORED everything else until rf2-2rtt6.85 — so a
-  misspelled `:ssr`, or a policy invented by an author reading the
+  misspelled `:server`, or a policy invented by an author reading the
   wrong docstring, was a no-op that looked like a setting. That is the
   same defect class as an intent crossing as inert data, and it gets
-  the same treatment: refused, at the declaration."
-  #{:callbacks :slots :ssr})
+  the same treatment: refused, at the declaration.
+
+  `:ssr` is not in the roster and is not aliased to `:server`: this is
+  pre-alpha and a rename is a rename (rf2-mo4o), so the retired spelling
+  lands on [[mint-host!]]'s unknown-option refusal, which names the four
+  keys that exist."
+  #{:callbacks :slots :server :fallback})
 
 ;; --- The gate -------------------------------------------------------------
 ;;
@@ -1431,7 +1448,7 @@
 
   **The workaround it deletes is superseded, not merely removed.**
   Writing a provider's subtree a second time as the declaration's
-  fallback was `rf2-l0wfx`'s only recovery; `:ssr :render` is now the
+  fallback was `rf2-l0wfx`'s only recovery; `:server :render` is now the
   honest one, and it renders the real subtree with the real context
   value and no duplication.
 
@@ -1442,7 +1459,7 @@
   (if-some [kind (deferring-head-kind form)]
     (fail! :rf.error/hicasso-host-fallback-boundary-head
            're-frame.hicasso.impl.codec/mint-host!
-           (str "defhost " host-name " declares an :ssr fallback carrying the "
+           (str "defhost " host-name " declares a :fallback carrying the "
                 kind " head " (head-name form) " at position " (pr-str path)
                 ". A fallback is INERT MARKUP: it is walked into ONE element "
                 "at the declaration, outside any frame, and that element is "
@@ -1450,8 +1467,8 @@
                 "later makes one declared placeholder render a different "
                 "document per frame and per write, which is not a "
                 "placeholder. Write plain hiccup there, or declare "
-                ":ssr :render and render the real subtree on the server.")
-           :write-inert-hiccup-or-declare-ssr-render
+                ":server :render and render the real subtree on the server.")
+           :write-inert-hiccup-or-declare-server-render
            {:host host-name :head (head-name form) :position path :kind kind})
     (cond
       (vector? form)
@@ -1468,9 +1485,9 @@
 
 (defn- mint-host-gate!
   "The one component a GATED declaration mints: the foreign component
-  behind its `:ssr` policy. `:client-only` and `{:fallback …}` mint one
-  of these; `:ssr :render` mints none, and the head's `gate` slot
-  carries the foreign component itself.
+  behind its `:server` policy. `:client-only` mints one of these, with
+  or without a declared `:fallback`; `:server :render` mints none, and
+  the head's `gate` slot carries the foreign component itself.
 
   `fallback` is walked into an element HERE, at the declaration —
   which is where every other host refusal fires, so a fallback that is
@@ -1506,38 +1523,81 @@
     (unchecked-set gate "displayName" host-name)
     gate))
 
-(defn- declared-ssr
-  "The `:ssr` policy this declaration carries, validated. Absent means
-  `:client-only` — the ruled default, so an author who writes nothing
-  gets the conservative answer and an author who writes the default
-  explicitly gets the same one.
+(defn- refuse-server-policy!
+  "The one server-policy refusal — for a `:server` value outside the two
+  and for a `:fallback` that cannot belong to the policy beside it.
+  `why` completes the sentence *\"defhost NAME …\"*.
 
-  `:render` is the third value (rf2-l0wfx, 2026-08-05) and it is an
-  ASSERTION: *this component is safe to render on the server*. The two
-  spellings an author reaches for instead — `:children` and
-  `:transparent` — stay refused, and so do `:passthrough` and `:server`.
-  They assert a structural property nobody can check and deliver the
-  subtree under the WRONG context value; `:render` names both the
-  conduct (the component renders) and the claim (it is safe to)."
+  ONE id for both, because they are one fault: *this declaration does not
+  name a server policy the door can honour*. It is the shape
+  [[refuse-bad-slots!]] has, for the same reason."
+  [host-name why data]
+  (fail! :rf.error/hicasso-host-bad-ssr-policy
+         're-frame.hicasso.impl.codec/mint-host!
+         (str "defhost " host-name " " why " There are TWO policies: "
+              ":server :client-only — the default, meaning the host region "
+              "renders nothing until the client adopts it — and "
+              ":server :render, meaning the component itself is safe to run "
+              "on the server and does. :fallback is the sibling option, "
+              "hiccup that renders in the host's place until adoption, and "
+              "it belongs to Client-only alone: under :render the component "
+              "renders, so there is nothing for a placeholder to stand in "
+              "for.")
+         :declare-render-or-client-only-with-an-optional-fallback
+         (assoc data :host host-name)))
+
+(defn- declared-server
+  "The `:server` policy this declaration carries, validated — one of the
+  TWO the SSR matrix admits, and the same two `n/defcomponent` takes on
+  the sibling door ([[re-frame.hicasso.native/declared-server]]). Absent
+  means `:client-only` — the ruled default, so an author who writes
+  nothing gets the conservative answer and an author who writes the
+  default explicitly gets the same one.
+
+  `:render` is rf2-l0wfx's value (2026-08-05) and it is an ASSERTION:
+  *this component is safe to render on the server*. The spellings an
+  author reaches for instead — `:children`, `:transparent`,
+  `:passthrough` — stay refused. They assert a structural property nobody
+  can check and deliver the subtree under the WRONG context value;
+  `:render` names both the conduct (the component renders) and the claim
+  (it is safe to)."
   [host-name opts]
-  (let [policy (get opts :ssr :client-only)]
+  (let [policy (get opts :server :client-only)]
     (if (or (keyword-identical? :client-only policy)
-            (keyword-identical? :render policy)
-            (and (map? policy)
-                 (= 1 (count policy))
-                 (some? (:fallback policy))))
+            (keyword-identical? :render policy))
       policy
-      (fail! :rf.error/hicasso-host-bad-ssr-policy
-             're-frame.hicasso.impl.codec/mint-host!
-             (str "defhost " host-name " declares :ssr " (pr-str policy)
-                  ". The policy is :client-only — the default, meaning the "
-                  "host region renders nothing until the client adopts it — "
-                  "or {:fallback <hiccup>}, meaning that markup renders "
-                  "there instead, or :render, meaning the component itself "
-                  "is safe to run on the server and does. There is no "
-                  "fourth value.")
-             :declare-client-only-a-fallback-or-render
-             {:host host-name :ssr policy}))))
+      (refuse-server-policy! host-name
+        (str "declares :server " (pr-str policy) ", which is neither.")
+        {:server policy}))))
+
+(defn- declared-fallback
+  "The hiccup this declaration carries at `:fallback`, or nil when it
+  carries none. A sibling option rather than a policy VALUE (rf2-mo4o):
+  `:server` answers which arm applies and `:fallback` is the Client-only
+  arm's payload. That is the split the guide teaches, and it is what
+  makes the policy displayable — an enum, rather than an enum sometimes
+  replaced by a nested map. The sibling native door has `:server` with
+  the same two values and no `:fallback` at all, deliberately: a fallback
+  is markup a GATE renders in the crossing's place, and a native
+  component is its own element type
+  ([[re-frame.hicasso.native/server-policies]]).
+
+  `contains?` and not `if-some`, exactly as [[declared-slots]] draws it:
+  an explicit `nil` is a VALUE and the default belongs to an ABSENT key,
+  so `{:fallback nil}` is a placeholder that renders nothing written by
+  an author who believes they wrote one."
+  [host-name opts server]
+  (when (contains? opts :fallback)
+    (let [fallback (:fallback opts)]
+      (when (keyword-identical? :render server)
+        (refuse-server-policy! host-name
+          "declares :fallback beside :server :render."
+          {:server server :fallback fallback}))
+      (when (nil? fallback)
+        (refuse-server-policy! host-name
+          "declares :fallback nil, and an explicit nil is a value rather than an absence."
+          {:server server :fallback nil}))
+      fallback)))
 
 ;; --- The declared ReactNode positions (rf2-hic-035) ------------------------
 ;;
@@ -1572,7 +1632,7 @@
 ;; never emit, two spellings of one slot, a slot that is also a declared
 ;; callback — is the same fault (*this declaration does not name a set of
 ;; ordinary ReactNode positions*) with the same recovery, so it is one
-;; complaint with one home, as [[declared-ssr]] is for every malformed
+;; complaint with one home, as [[refuse-server-policy!]] is for every malformed
 ;; policy.
 ;;
 ;; **A declaration that mints and can never fire is the trap wearing the
@@ -1640,7 +1700,7 @@
   author meant."
   [host-name opts callbacks]
   ;; `contains?` and not `if-some`: an explicit `nil` is a VALUE, and the
-  ;; default belongs to an ABSENT key. `:ssr` draws the line in the same
+  ;; default belongs to an ABSENT key. `:fallback` draws the line in the same
   ;; place and for the same reason — inferring the default from a nil is
   ;; how a typo becomes a setting.
   (if (contains? opts :slots)
@@ -1725,9 +1785,9 @@
   nothing the author wrote.
 
   `opts` carries `:callbacks` — the finite contract map above —
-  `:slots`, the set of ReactNode positions ([[declared-slots]]), and
-  `:ssr`, the server policy (`:client-only` by default,
-  `{:fallback <hiccup>}`, or `:render`). Callback keys and slot names
+  `:slots`, the set of ReactNode positions ([[declared-slots]]),
+  `:server`, the policy (`:client-only` by default, or `:render`), and
+  `:fallback`, Client-only's placeholder markup. Callback keys and slot names
   are both normalized to their canonical slot at MINT time, so the
   lookup the crossing performs per prop is one `get` and one
   `contains?`; a contract outside the roster, a declaration on a
@@ -1735,17 +1795,17 @@
   or a SLOT at a name the crossing can never emit ([[reserved-name?]] —
   both rosters, because the crossing skips the name whichever one
   declared it), two spellings landing on one slot, a malformed `:slots`
-  set, a position declared both a callback and a slot, an `:ssr` value
-  outside the three, a `defview` or `defhost` head written into a
-  fallback, and an option key outside `#{:callbacks :slots :ssr}` are
-  all refused at the declaration, where the author's stack is the
-  declaration site.
+  set, a position declared both a callback and a slot, a `:server` value
+  outside the two, a `:fallback` beside `:render`, a `defview` or
+  `defhost` head written into a fallback, and an option key outside
+  `#{:callbacks :slots :server :fallback}` are all refused at the
+  declaration, where the author's stack is the declaration site.
 
   ## What the `gate` slot holds, and why it is not always a gate
 
   The head's `gate` slot is the React TYPE [[host-element]] creates
-  every crossing from, and the `:ssr` policy is expressed by choosing
-  it. Under `:client-only` and `{:fallback …}` it is
+  every crossing from, and the `:server` policy is expressed by choosing
+  it. Under `:client-only`, fallback or no fallback, it is
   [[mint-host-gate!]]'s product — one fiber, one hook, and the foreign
   component behind it. Under `:render` it is the foreign component
   ITSELF: HD-011's original zero-wrapper, zero-fiber, zero-hook shape,
@@ -1779,10 +1839,10 @@
             're-frame.hicasso.impl.codec/mint-host!
             (str "defhost " host-name " was given " (pr-str opts) " as its "
                  "options, and a declaration's options are a MAP of "
-                 ":callbacks, :slots and :ssr. The commonest way to arrive "
-                 "here is a docstring written AFTER the component instead of "
-                 "before it, which leaves the real options map as a trailing "
-                 "form nothing reads.")
+                 ":callbacks, :slots, :server and :fallback. The commonest way "
+                 "to arrive here is a docstring written AFTER the component "
+                 "instead of before it, which leaves the real options map as "
+                 "a trailing form nothing reads.")
             :pass-a-map-of-options
             {:host host-name :options opts}))
    (doseq [k (keys opts)]
@@ -1791,12 +1851,13 @@
               're-frame.hicasso.impl.codec/mint-host!
               (str "defhost " host-name " was declared with " (pr-str k)
                    ", which is not an option. A declaration carries "
-                   ":callbacks, :slots and :ssr. Reading past an option it "
-                   "does not know is how a policy comes to be set and never "
-                   "applied.")
-              :declare-callbacks-or-ssr
+                   ":callbacks, :slots, :server and :fallback. Reading past an "
+                   "option it does not know is how a policy comes to be set "
+                   "and never applied.")
+              :declare-callbacks-slots-server-or-fallback
               {:host host-name :option k :options host-options})))
-   (let [ssr (declared-ssr host-name opts)
+   (let [server   (declared-server host-name opts)
+         fallback (declared-fallback host-name opts server)
          declared
          (reduce-kv
            (fn [m k contract]
@@ -1849,13 +1910,13 @@
          ;; server render, hydration's first pass and a fresh mount are
          ;; one tree and there is nothing to swap at adoption.
          ^js head #js {"component"   component
-                       "gate"        (if (keyword-identical? :render ssr)
+                       "gate"        (if (keyword-identical? :render server)
                                        component
                                        (mint-host-gate! host-name component
-                                                        (:fallback ssr)))
+                                                        fallback))
                        "callbacks"   declared
                        "slots"       slots
-                       "ssr"         ssr
+                       "server"      server
                        "displayName" host-name}]
      (unchecked-set head host-marker true)
      head)))
@@ -1919,16 +1980,18 @@
   [v]
   (and (some? v) (true? (unchecked-get v host-marker))))
 
-(defn host-ssr
-  "The `:ssr` policy `head` was declared with — `:client-only`,
-  `{:fallback <hiccup>}` or `:render`. The declaration read back as
-  data, for a server walk that wants to state the policy it is
-  honouring (rf2-2rtt6.86) and for the witnesses that assert on it.
-  Nothing on the render path reads it: the policy is enforced by WHICH
-  TYPE the declaration mints — a gate for the first two, the foreign
-  component itself for `:render`."
+(defn host-server
+  "The `:server` policy `head` was declared with — `:client-only` or
+  `:render`, the same two `n/marker` records on the sibling door. The
+  declaration read back as data, for a server walk that wants to state
+  the policy it is honouring (rf2-2rtt6.86) and for the witnesses that
+  assert on it. Nothing on the render path reads it: the policy is
+  enforced by WHICH TYPE the declaration mints — a gate for Client-only,
+  the foreign component itself for `:render`. A declared `:fallback` is
+  not read back: it is markup the gate already closed over, and the
+  policy is the two-value fact this answers."
   [^js head]
-  (unchecked-get head "ssr"))
+  (unchecked-get head "server"))
 
 ;; ---------------------------------------------------------------------------
 ;; Hiccup shape
@@ -2994,10 +3057,10 @@
   inside a child fire into the one frame.
 
   The element's TYPE is whatever the declaration put in its `gate`
-  slot, and that is where the `:ssr` policy lives: under `:client-only`
-  and `{:fallback …}` it is the gate ([[mint-host-gate!]]), one fiber
+  slot, and that is where the `:server` policy lives: under
+  `:client-only` it is the gate ([[mint-host-gate!]]), one fiber
   and one hook, with the foreign component behind it once the markup is
-  adopted; under `:ssr :render` it is the foreign component itself and
+  adopted; under `:server :render` it is the foreign component itself and
   the crossing costs neither. Everything else is unchanged by that
   choice: the props object built here is the object the foreign
   component receives either way, `:key` is React's on the crossing's
@@ -3031,7 +3094,7 @@
 ;; declaration erased, and what erasing the declaration costs you is
 ;; exactly what the declaration carried.** No author-chosen crossing
 ;; name; no `:callbacks` contracts, so every prop here is UNCLAIMED; no
-;; `:ssr` policy, so the crossing is hard `:client-only` and that is
+;; `:server` policy, so the crossing is hard `:client-only` and that is
 ;; unspellable; refusals at render time rather than once at a
 ;; declaration; one generic marker for every crossing instead of a
 ;; minted identity; and the JS require lands in the view namespace

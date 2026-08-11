@@ -204,8 +204,8 @@
 
   `opts` is optional and carries `:callbacks` — a FINITE map from exact
   prop names to `:event`, `:handler` or `:render`, never inferred from an
-  `on*` spelling — `:slots`, the ReactNode positions, and `:ssr`, the
-  server policy:
+  `on*` spelling — `:slots`, the ReactNode positions, `:server`, the
+  server policy, and `:fallback`, Client-only's placeholder markup:
 
       (defhost modal Modal
         {:callbacks {:on-close :event}
@@ -243,19 +243,19 @@
   `:onEmpty` get one answer between them.
 
       (defhost chart Chart
-        {:ssr {:fallback [:div.chart-skeleton]}})
+        {:fallback [:div.chart-skeleton]})
 
       (defhost themed (.-Provider theme-context)
-        {:ssr :render})
+        {:server :render})
 
-  `:ssr :client-only` is the DEFAULT and needs no writing: the host
+  `:server :client-only` is the DEFAULT and needs no writing: the host
   region renders nothing on the server and nothing on hydration's first
   client pass, and the foreign component mounts once the markup is
-  adopted. `{:fallback <hiccup>}` renders that markup there instead.
+  adopted. A declared `:fallback` renders that markup there instead.
   A fresh (non-hydrated) mount renders the foreign component on its
-  first pass under either policy — the placeholder never flashes.
+  first pass either way — the placeholder never flashes.
 
-  `:ssr :render` is the third value and it is an ASSERTION: *this
+  `:server :render` is the other policy and it is an ASSERTION: *this
   component is safe to render on the server*. The declaration then mints
   no gate at all — the component is the element's own type — so the same
   component, the same props, the same context and the same CHILDREN
@@ -266,15 +266,16 @@
   provider needs. If the assertion is false the server render throws —
   `window is not defined` — loudly and at the crossing.
 
-  There is no fourth value, and an option `defhost` does not know is
-  refused rather than ignored.
+  There is no third policy, `:fallback` beside `:render` is refused —
+  the component renders, so nothing stands in for it — and an option
+  `defhost` does not know is refused rather than ignored.
 
   **A declared fallback is INERT MARKUP, and that is enforced.** It is
   walked into one element at the declaration and reused at every use
   site, so a `defview` or `defhost` head written there — an element
   whose body runs later — is refused with
   `:rf.error/hicasso-host-fallback-boundary-head`. Write plain hiccup,
-  or declare `:ssr :render` and render the real subtree.
+  or declare `:server :render` and render the real subtree.
 
   Policy lives on the declaration, so every use site inherits it; the
   defaults, the refusals and the crossing itself are
@@ -332,7 +333,7 @@
 
   `defview` opens one so that a refusal from a body can name the boundary
   it came from. `defhost` opens one for a nearer reason: the refusals
-  above — an unknown option, a fourth `:ssr` value, a boundary head in a
+  above — an unknown option, a third `:server` value, a boundary head in a
   declared fallback — are raised by `mint-host!` DURING the expansion's
   own `def`, at namespace load, with no render anywhere on the stack. The
   extent is what puts the offending declaration's file and line on them.
