@@ -132,8 +132,8 @@ Comparative bands follow: an initial mount ceiling of 1.25x direct UIx; tuned br
 
 **The ideas ledger** (full designs in `lanes/left-field-ideas.md`, and in its operator-local source `fable/left-field-ideas.md`, which is not published in this tree):
 
-- *Adopt*: complaint catalogue, cause-aware hot advisor, direct React output with the Hicasso-owned native tier (`n/$` and companions; gates in Part II).
-- *Spike with deciding rules*: committed-read resource demand; pull-shaped reads; schema-driven generators; counterfactual topology advice; capability receipts; replayable view capsules after L2; MCP-queryable runtime and migration shadowing through existing tools; shared read-set notification groups after a census.
+- *Adopt*: complaint catalogue, cause-aware hot advisor, capability receipts (counts only; self time refused), direct React output with the Hicasso-owned native tier (`n/$` and companions; gates in Part II).
+- *Spike with deciding rules*: committed-read resource demand; pull-shaped reads; schema-driven generators; counterfactual topology advice; replayable view capsules after L2; MCP-queryable runtime and migration shadowing through existing tools; shared read-set notification groups after a census.
 - *Watch*: a read-free shell as a read-nothing optimization, not a heap fix; codec shape planning only when classification/lowering exceeds 10% of hot-boundary self time; intent replay through Story; keyed-list maintenance only after a red bulk verdict; a future React store seam.
 - *Reject*: compiler/JIT modes, second renderers, worker view runtimes, signals replacement, universal callback cells, and hydration-free inference.
 
