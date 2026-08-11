@@ -1508,8 +1508,12 @@
   value and a slot lowers it, and no order of those two is the one the
   author meant."
   [host-name opts callbacks]
-  (if-some [slots (:slots opts)]
-    (do
+  ;; `contains?` and not `if-some`: an explicit `nil` is a VALUE, and the
+  ;; default belongs to an ABSENT key. `:ssr` draws the line in the same
+  ;; place and for the same reason — inferring the default from a nil is
+  ;; how a typo becomes a setting.
+  (if (contains? opts :slots)
+    (let [slots (:slots opts)]
       (when-not (set? slots)
         (refuse-bad-slots! host-name slots "that is not a set." {}))
       (reduce
