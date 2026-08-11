@@ -34,6 +34,20 @@
   forced a re-render, or one whose callbacks read an unmoved `Date.now`,
   fails one half of that row each.
 
+  ## The other half: the INSTRUMENT'S own transactions and boundaries
+
+  Presence is what the clock is FOR; the rows below it are about the
+  clock as a thing installed on a page. `mount!` installs it before it
+  seeds the frame — a timer armed by an `:initial-events` step has to be
+  this mount's — so a step that FAILS escapes before any handle exists to
+  release the hold through, and a clock left installed does not fail the
+  run, it hangs it or greens it (rf2-4mvd). And what the clock hands back
+  at the boundary is a claim of its own: ids that cannot be confused with
+  the platform's, and an interval that resumes on the deadline it had
+  left rather than a fresh full period (rf2-w2e6). Those rows read the
+  five platform functions directly, and drive a captured scheduler that
+  records what it was asked for.
+
   ## Browser lane
 
   Every row needs a real document and a real React DOM: the timers are
@@ -63,6 +77,14 @@
 (rf/reg-sub ::toasts (fn [db _] (:toasts db)))
 
 (rf/reg-event ::set (fn [{:keys [db]} [_ ks]] {:db (assoc db :toasts (vec ks))}))
+
+(rf/reg-event ::boom
+  ;; A setup step that FAILS, deterministically. The chain catches the
+  ;; handler-body throw in band and strict construction turns it into
+  ;; `:rf.error/initial-events-step-failed` — which is the escape route
+  ;; rf2-4mvd is about: it leaves `mount!` from `mint-frame!`, before the
+  ;; frame, the container, the root or the handle exist.
+  (fn [_ _] (throw (js/Error. "the seeding step fails, deliberately"))))
 
 (def ^:private retention-ms
   "The retention window every row drives. A whole second, so that
@@ -105,6 +127,52 @@
   "One clocked mount of the tray, seeded with two toasts."
   []
   (hm/mount! [tray] {:clock true :initial-events [[::set [:a :b]]]}))
+
+;; ---------------------------------------------------------------------------
+;; Reading the PLATFORM — the five functions the clock replaces
+;; ---------------------------------------------------------------------------
+
+(def ^:private surface-names
+  "The whole of what an install replaces — each key under the name a red
+  should call it by. One place, so that a row asserting the platform came
+  back cannot assert about four of them and leave the fifth frozen."
+  {:set-timeout    "js/setTimeout"
+   :clear-timeout  "js/clearTimeout"
+   :set-interval   "js/setInterval"
+   :clear-interval "js/clearInterval"
+   :date-now       "js/Date.now"})
+
+(defn- platform-surface
+  "The five functions as they are RIGHT NOW. Identity is the whole of the
+  reading: two of these maps agree exactly when the same functions are
+  installed."
+  []
+  {:set-timeout    (.-setTimeout js/globalThis)
+   :clear-timeout  (.-clearTimeout js/globalThis)
+   :set-interval   (.-setInterval js/globalThis)
+   :clear-interval (.-clearInterval js/globalThis)
+   :date-now       (.-now js/Date)})
+
+(defn- install-surface!
+  "Put `surface` back on the globals. Every row below that can be red is
+  red about a clock that stayed installed, so each of them repairs the
+  page unconditionally once it has taken its reading — a witness that
+  detected the leak and then left it in place would take the rest of the
+  browser run down with it."
+  [surface]
+  (set! (.-setTimeout js/globalThis)    (:set-timeout surface))
+  (set! (.-clearTimeout js/globalThis)  (:clear-timeout surface))
+  (set! (.-setInterval js/globalThis)   (:set-interval surface))
+  (set! (.-clearInterval js/globalThis) (:clear-interval surface))
+  (set! (.-now js/Date)                 (:date-now surface))
+  nil)
+
+(defn- surface-is!
+  "Assert `actual` is `expected`, function by function so a red names the
+  one that is wrong."
+  [expected actual why]
+  (doseq [[k nm] surface-names]
+    (is (identical? (get expected k) (get actual k)) (str nm " — " why))))
 
 ;; ---------------------------------------------------------------------------
 ;; W1 — the discriminating row: retired at the deadline, and not before it
@@ -234,3 +302,137 @@
                              (.then (fn [report]
                                       (is (true? (:clean? report)))
                                       (done)))))))))))))
+
+;; ---------------------------------------------------------------------------
+;; W4 — a clocked mount that FAILS puts the platform back (rf2-4mvd)
+;; ---------------------------------------------------------------------------
+;;
+;; The install is `mount!`'s first act, deliberately: a timer armed by an
+;; `:initial-events` step is one this mount has to be able to drive. That
+;; ordering is what makes the failure interesting. Strict construction runs
+;; the seeding inside `rf/make-frame`, so a step that fails leaves `mount!`
+;; from `mint-frame!` — before a frame, a container, a root or a HANDLE
+;; exists, and therefore before anything the caller could pass to `unmount!`.
+;;
+;; The row makes the step fail and then reads the globals. Asserting the
+;; throw alone would prove nothing whatever: core raises
+;; `:rf.error/initial-events-step-failed` whether or not the clock came down
+;; with it, and a run that inherits a frozen `setTimeout` does not go red —
+;; it hangs, or it goes GREEN on a surface it never exercised.
+
+(deftest a-failed-clocked-mount-leaves-no-clock-installed
+  (if-not (mount/browser?)
+    (sup/skip! ":node-test has no React DOM, so no root and no clock")
+    (async done
+      (let [platform (platform-surface)
+            frames   (set (rf/frame-ids))
+            thrown   (try (hm/mount! [tray] {:clock          true
+                                             :initial-events [[::set [:a]] [::boom]]})
+                          nil
+                          (catch :default e e))
+            after    (platform-surface)]
+
+        (testing "premise: the seeding really failed, and the door delivered
+                  CORE's refusal unchanged — same id, same failing step"
+          (is (some? thrown) "mount! threw")
+          (is (= :rf.error/initial-events-step-failed (:rf.error/id (ex-data thrown))))
+          (is (= [::boom] (:event (ex-data thrown))))
+          (is (= 1 (:step-index (ex-data thrown)))))
+
+        (testing "the provisional frame is absent — core tore it down and the
+                  facade never adopted it"
+          (is (= frames (set (rf/frame-ids)))))
+
+        (testing "AND THE CLOCK IS GONE. This is the reading the row exists
+                  for: the hold was taken before the failing step ran, and
+                  there was never a handle to give it back through, so
+                  nothing but `mount!` itself could release it"
+          (surface-is! platform after "the platform's own again after a failed clocked mount"))
+
+        ;; Whatever the reading found, the page is the page from here on.
+        (install-surface! platform)
+
+        (testing "and the HOLD went with the globals, not just the globals:
+                  the clock is holder-counted, so a leaked holder would show
+                  up as the NEXT clocked mount's unmount failing to restore
+                  anything"
+          (let [m (two-toasts)]
+            (is (not (identical? (:set-timeout platform) (.-setTimeout js/globalThis)))
+                "premise: this mount really installed a clock of its own")
+            (hm/unmount! m)
+            (surface-is! platform (platform-surface)
+                         "back after the only remaining holder let go")
+            (install-surface! platform)
+            (-> (hm/assert-clean! m)
+                (.then (fn [report]
+                         (is (true? (:clean? report)))
+                         ;; The last word is the platform's: a real timer,
+                         ;; on the real scheduler, actually firing.
+                         (js/setTimeout
+                           (fn []
+                             (is true "a real timer still settles after a failed clocked mount")
+                             (done))
+                           0))))))))))
+
+;; ---------------------------------------------------------------------------
+;; W5 — the failure releases EXACTLY its own hold (rf2-4mvd)
+;; ---------------------------------------------------------------------------
+;;
+;; The clock is page-wide because the thing it replaces is, so it is
+;; holder-counted and two clocked mounts share one. That makes the repair
+;; two-sided, and a row that only proved "the globals came back" would be
+;; blind to the other side: a failed mount that RESTORED the platform would
+;; take the instrument out from under a peer that is still driving it, and
+;; the peer's next advance would move nothing.
+;;
+;; So this row runs the failure with a clocked peer standing, and asserts
+;; both directions — the peer's clock survives the failure and still works,
+;; and the peer's own teardown is then enough to put the platform back.
+
+(deftest a-failed-clocked-mount-releases-only-its-own-hold
+  (if-not (mount/browser?)
+    (sup/skip! ":node-test has no React DOM, so no root and no clock")
+    (async done
+      (let [platform (platform-surface)
+            peer     (two-toasts)
+            clocked  (platform-surface)]
+
+        (testing "premise: the peer is standing on a clock"
+          (is (not (identical? (:set-timeout platform) (:set-timeout clocked)))))
+
+        (let [thrown (try (hm/mount! [tray] {:clock true :initial-events [[::boom]]})
+                          nil
+                          (catch :default e e))]
+
+          (testing "premise: the second clocked mount fails in its seeding"
+            (is (= :rf.error/initial-events-step-failed (:rf.error/id (ex-data thrown)))))
+
+          (testing "the peer's clock is UNDISTURBED — the failed call gave back
+                    one hold, and one hold is not the installation"
+            (surface-is! clocked (platform-surface) "still the clock the peer is using"))
+
+          (testing "…and the peer can still DRIVE it. The strongest reading
+                    here, because a restored platform would leave these
+                    globals looking fine to `identical?` on a later install
+                    and still move nothing on an advance"
+            (hm/dispatch-and-settle! peer [::set [:a]])
+            (is (= 2 (toast-count peer)) "retained, mid-exit")
+            (hm/advance-clock! peer (dec retention-ms))
+            (is (= 2 (toast-count peer)) "one millisecond short")
+            (hm/advance-clock! peer 1)
+            (is (= 1 (toast-count peer)) "and gone at its deadline")))
+
+        (hm/unmount! peer)
+
+        (testing "and now — the peer being the last holder — the platform comes
+                  back. A failure that released NOTHING would leave a holder
+                  standing and this reading would still be the clock's"
+          (surface-is! platform (platform-surface)
+                       "the platform's own again once the peer let go"))
+
+        (install-surface! platform)
+
+        (-> (hm/assert-clean! peer)
+            (.then (fn [report]
+                     (is (true? (:clean? report)))
+                     (done))))))))

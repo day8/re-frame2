@@ -593,7 +593,8 @@
                        BEFORE anything else this call does, so a timer
                        armed by `:initial-events` or by the first render's
                        effects is already this clock's; released by
-                       [[unmount!]].
+                       [[unmount!]], or by the throw that stops this call
+                       ever answering a handle.
 
   ## What it records before it renders
 
@@ -612,10 +613,22 @@
   A form the runtime refuses is refused here too, with the runtime's own
   `ex-info` re-thrown unchanged — same id, same reason, same recovery,
   same offending value — and the page put back exactly as this call found
-  it: no frame registered, no container appended, no counter moved. So
+  it: no frame registered, no container appended, no counter moved, and
+  no clock left installed. So
   `(try (hm/mount! form) (catch :default e (ex-data e)))` is the whole of
   a refusal witness, and there is no handle to be given because there is
   nothing left to tear down.
+
+  The clock is the one allocation [[abandon!]] cannot undo, because it is
+  taken before there is anything to hang it on: a `:initial-events` step
+  that fails leaves from `mint-frame!` with core's own
+  `:rf.error/initial-events-step-failed`, before a frame, a container, a
+  root or a handle exists. So the hold belongs to the CALL until
+  [[handle-for]] hands it to the mount, and the `try` below is that
+  lifetime — one release, on every escaping path, of exactly the one hold
+  this call took (rf2-4mvd). A clocked peer mount therefore keeps the
+  clock it is standing on: the release is a decrement, and the failed
+  call gives back only its own.
 
   React 19 is why this needs saying: a body that throws does not re-throw
   out of `flushSync`, so before PR #7822's audit this door answered a
@@ -627,20 +640,28 @@
    ;; seeding below already runs handlers and the render below already
    ;; runs effects — either can arm a timer, and one armed on the platform
    ;; clock is one this mount can never drive.
+   ;;
+   ;; ONE release covers every way out of this call that is not a handle,
+   ;; the render refusal below included — it throws through this catch
+   ;; rather than releasing for itself, so no path can decrement twice
+   ;; and restore the platform out from under a clocked peer.
    (when clock (install-clock!))
-   (let [[frame-kw ordinal] (mint-frame! initial-events)
-         baseline           (census)
-         node               (or container (mount/fresh-container!))
-         !refusal           (volatile! nil)
-         root               (catching-root! node frame-kw form
-                                            (fn [error]
-                                              (when (nil? @!refusal)
-                                                (vreset! !refusal error))))]
-     (if-some [refusal @!refusal]
-       (do (abandon! frame-kw node (some? container) root)
-           (when clock (release-clock!))
-           (throw refusal))
-       (handle-for root ordinal baseline (boolean clock))))))
+   (try
+     (let [[frame-kw ordinal] (mint-frame! initial-events)
+           baseline           (census)
+           node               (or container (mount/fresh-container!))
+           !refusal           (volatile! nil)
+           root               (catching-root! node frame-kw form
+                                              (fn [error]
+                                                (when (nil? @!refusal)
+                                                  (vreset! !refusal error))))]
+       (if-some [refusal @!refusal]
+         (do (abandon! frame-kw node (some? container) root)
+             (throw refusal))
+         (handle-for root ordinal baseline (boolean clock))))
+     (catch :default e
+       (when clock (release-clock!))
+       (throw e)))))
 
 (defn hydrate!
   "Mount `form` by ADOPTING server-rendered bytes already in the
