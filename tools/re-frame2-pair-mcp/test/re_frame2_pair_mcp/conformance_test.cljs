@@ -2261,12 +2261,15 @@
 ;; (describe-image / record / read-recording) carry recent isError-contract
 ;; fixes the corpus is supposed to ratchet.
 ;;
-;; This mirrors onboarding_catalogue_test's registered-tools coverage
-;; assertion: every `registry/tool-names` entry MUST own >=1 corpus
-;; fixture. A newly-registered tool with no fixture now fails HERE at
-;; compile-authoring time instead of escaping the ratchet.
+;; Every `registry/tool-names` entry MUST own >=1 corpus fixture. A
+;; newly-registered tool with no fixture now fails HERE at
+;; compile-authoring time instead of escaping the ratchet. Since
+;; rf2-wyza retired the hand-maintained onboarding catalogue, this is
+;; the LAST authoring-time assertion in the artefact that a new tool
+;; must satisfy by name — `onboarding_routing_test` deliberately no
+;; longer requires every tool to appear in prose.
 ;;
-;; NB: unlike onboarding_catalogue_test we do NOT assert the reverse
+;; NB: we do NOT assert the reverse
 ;; (no phantom fixture tools) — the corpus deliberately carries a
 ;; `no-such-tool` fixture for the :unknown-tool pipeline path, which is
 ;; not (and must not be) a registered tool.
