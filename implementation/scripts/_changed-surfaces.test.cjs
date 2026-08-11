@@ -4154,6 +4154,30 @@ test('the cljs job runs BOTH hicasso gates the classifier arm schedules (rf2-8a6
   );
 });
 
+test('the cljs job runs the uncovered-bench compile gate (rf2-cfqk)', () => {
+  // Same shape as the assertion above, for the same reason and one directory
+  // wider. rf2-bl0j measured forward reachability from every PR gate's roots
+  // over 213 bench namespaces and found 23 reachable from nothing; four were
+  // rostered into the hicasso lane's gate, and `test:bspine-compile` is the
+  // only thing that compiles the other nineteen.
+  //
+  // WHICH JOB is the claim, not merely THAT it is scheduled —
+  // `scripts/check_gate_scheduling.py` already refuses a gate with no
+  // scheduled home anywhere. Both of the gate's input trees
+  // (implementation/core/* and implementation/freehand/*) arm
+  // `cljs_node_test` and nothing narrower, so moving the step to a job lit by
+  // some other output would leave it green on precisely the diffs that can
+  // break its subject — coverage that reads as coverage and is not, which is
+  // the defect the gate exists to close.
+  const block = jobBlock(fs.readFileSync(WORKFLOW, 'utf8'), 'cljs');
+  assert.match(
+    block,
+    /run: npm run test:bspine-compile$/m,
+    'the cljs job must run the uncovered-bench compile gate; the nineteen '
+      + 'namespaces it compiles are reachable from no other PR gate',
+  );
+});
+
 // ---------------------------------------------------------------------------
 // rf2-hic-021's complaint-catalogue contract, and the reverse edges that made a
 // classifier-gated home wrong for it (audit of PR #7808; repair under rf2-ibje).
