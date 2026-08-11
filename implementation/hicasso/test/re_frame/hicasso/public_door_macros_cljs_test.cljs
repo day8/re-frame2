@@ -25,13 +25,14 @@
   symbol and def-layout detail would make safe refactoring noisy for no
   consumer confidence.
 
-  Three witnesses cover the three macros. `defview`'s round-trip — a
-  boundary minted through the door, asserted `boundary-head?`, rendering
-  a live subscription read — is [[re-frame.hicasso.smoke-cljs-test]]'s
-  and stays there. Witness C below is a different claim about the same
-  macro, and it is here because it is about the EXPANSION rather than
-  about the runtime: what `defview` names inside the fn it emits
-  (rf2-jan2).
+  Witnesses A, B and C cover the three macros; D and E (rf2-3f11) are a
+  second claim about `defhost`, this time about the SHAPE of the form
+  rather than the value it hands on. `defview`'s round-trip — a boundary
+  minted through the door, asserted `boundary-head?`, rendering a live
+  subscription read — is [[re-frame.hicasso.smoke-cljs-test]]'s and stays
+  there. Witness C below is a different claim about the same macro, and
+  it is here because it is about the EXPANSION rather than about the
+  runtime: what `defview` names inside the fn it emits (rf2-jan2).
 
   ## Why these assertions and not others
 
@@ -192,3 +193,89 @@
             `rf:render:<name>` on"
     (is (= "re-frame.hicasso.public-door-macros-cljs-test/ticket"
            (unchecked-get ticket "displayName")))))
+
+;; ---------------------------------------------------------------------------
+;; Witnesses D and E — `h/defhost`'s two shapes, and what is outside them
+;; (rf2-3f11)
+;; ---------------------------------------------------------------------------
+;;
+;; The door's arity is part of its contract, and it was the one part
+;; nothing checked. `[component opts]` is a fixed-width destructure over a
+;; variadic tail, so a second options map minted as if absent — the head
+;; read back consistent (it simply had no slots) and the markup written at
+;; a declared slot could never arrive. `mint-host!` refuses an option key
+;; it does not know for exactly that reason, one layer down; this is the
+;; same rule at the door.
+;;
+;; The refusals are driven THROUGH THE MACRO where the fault is in the
+;; form, and through `mint-host!` directly where the fault is in a value —
+;; which is also the non-macro caller's path, and the one the door-macro
+;; witnesses above already use for the same reason.
+
+(defn- error-id
+  "The `:rf.error/id` of whatever `f` threw, or nil if it returned."
+  [f]
+  (try (f) nil (catch :default e (:rf.error/id (ex-data e)))))
+
+(defn- error-data
+  [f]
+  (try (f) nil (catch :default e (ex-data e))))
+
+(deftest defhost-refuses-a-form-after-its-options-map
+  (testing "a second options map is not merged and never was — it is
+            DISCARDED, so the declaration is refused at the door rather than
+            minting a head whose declared slots silently do not exist"
+    (let [data (error-data
+                 #(h/defhost two-options-host badge-component
+                    {:ssr :render}
+                    {:slots #{:title}}))]
+      (is (= :rf.error/hicasso-host-extra-form (:rf.error/id data))
+          (str "the tail was refused and named. Raised: " (pr-str data)))
+      (is (= ['{:slots #{:title}}] (:extra data))
+          "and the refusal carries the FORM that would have been dropped,
+           quoted rather than evaluated")
+      (is (= "re-frame.hicasso.public-door-macros-cljs-test/two-options-host"
+             (:host data))
+          "named by the declaration it belongs to")))
+
+  (testing "THE NEAR MISS, and it is the whole reason this guard has to be
+            exact: the legal three-form shape — docstring, component, options
+            — is one form longer than the refused two-form one and must still
+            mint, keep its `opts`, and carry its docstring"
+    (is (true? (codec/host-head? badge))
+        "the two-argument shape, declared at the top of this file")
+    (is (= :render (codec/host-ssr badge))
+        "with its options intact")))
+
+(deftest defhost-refuses-options-that-are-not-a-map
+  (testing "`mint-host!` went straight from the nil-component check to
+            `(keys opts)`, so a non-map reached `keys` and whatever that
+            raised was not a declaration refusal. `h/reg-state` has had this
+            guard since it was written; this is the same guard on the
+            comparable surface"
+    (let [data (error-data #(codec/mint-host! "doc/in-the-wrong-place"
+                                              badge-component
+                                              "a docstring in the wrong place"))]
+      (is (= :rf.error/hicasso-host-bad-options (:rf.error/id data))
+          (str "refused, and from the door rather than from inside `keys`. "
+               "Raised: " (pr-str data)))
+      (is (= "a docstring in the wrong place" (:options data))
+          "carrying the value it was given")))
+
+  (testing "and every other non-map is refused the same way"
+    (is (= :rf.error/hicasso-host-bad-options
+           (error-id #(codec/mint-host! "bad/vec" badge-component [:ssr :render]))))
+    (is (= :rf.error/hicasso-host-bad-options
+           (error-id #(codec/mint-host! "bad/kw" badge-component :render))))
+    (is (= :rf.error/hicasso-host-bad-options
+           (error-id #(codec/mint-host! "bad/set" badge-component #{:ssr})))))
+
+  (testing "THE NEAR MISS. `nil` is *no options*, which is exactly what the
+            two-arity call means, so a guard that refused it would refuse the
+            door's own commonest shape. All three legal spellings still mint"
+    (is (true? (codec/host-head? (codec/mint-host! "ok/nil" badge-component nil))))
+    (is (true? (codec/host-head? (codec/mint-host! "ok/empty" badge-component {}))))
+    (is (true? (codec/host-head? (codec/mint-host! "ok/arity2" badge-component))))
+    (is (= :render (codec/host-ssr (codec/mint-host! "ok/opts" badge-component
+                                                     {:ssr :render})))
+        "and a real options map still reaches the declaration")))

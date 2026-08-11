@@ -1675,6 +1675,28 @@
                  "`:default` against a library with no default export.")
             :hand-the-declaration-a-real-component
             {:host host-name}))
+   ;; THE SHAPE, before the roster (rf2-3f11). Without this the doseq
+   ;; below hands a non-map to `keys`, and what the author gets is
+   ;; whichever internal error `keys` raises on their value — not a
+   ;; declaration refusal naming the offending form, which is the whole
+   ;; point of the extent `defhost` opens. `h/reg-state` has carried
+   ;; exactly this guard since it was written
+   ;; ([[re-frame.hicasso.impl.state/reg-state]],
+   ;; `:rf.error/hicasso-state-bad-option`); this is that guard on the
+   ;; comparable surface, and `nil` is legal here for the same reason it
+   ;; is there — it is *no options*, which is what the two-arity call
+   ;; means.
+   (when-not (or (nil? opts) (map? opts))
+     (fail! :rf.error/hicasso-host-bad-options
+            're-frame.hicasso.impl.codec/mint-host!
+            (str "defhost " host-name " was given " (pr-str opts) " as its "
+                 "options, and a declaration's options are a MAP of "
+                 ":callbacks, :slots and :ssr. The commonest way to arrive "
+                 "here is a docstring written AFTER the component instead of "
+                 "before it, which leaves the real options map as a trailing "
+                 "form nothing reads.")
+            :pass-a-map-of-options
+            {:host host-name :options opts}))
    (doseq [k (keys opts)]
      (when-not (contains? host-options k)
        (fail! :rf.error/hicasso-host-unknown-option
@@ -1749,6 +1771,59 @@
                        "displayName" host-name}]
      (unchecked-set head host-marker true)
      head)))
+
+(defn refuse-host-extra-forms!
+  "Refuse a `defhost` FORM that carries anything after its options map,
+  naming the forms that would have been discarded and the two legal
+  shapes.
+
+  [[mint-host!]] refuses an option key it does not know, and the reason
+  its own message gives — *reading past an option it does not know is
+  how a policy comes to be set and never applied* — is the reason this
+  exists one layer above it. `defhost`'s macro destructured `[component
+  opts]` off a variadic tail and dropped everything after the second
+  form, so
+
+      (h/defhost modal Modal
+        {:callbacks {:on-close :event}}
+        {:slots #{:title}})
+
+  minted, read back consistent (the head simply has no slots), and the
+  markup written at `:title` could never arrive. Two options maps are
+  not merged and never were; the second was read by nothing.
+
+  ## Why this fires at namespace LOAD and not at macroexpansion
+
+  The fault is in the FORM, so the macro detects it at expansion — the
+  discarded forms are QUOTED into this call and nothing after `opts` is
+  ever evaluated. What the macro does not do is throw there, and there
+  are two reasons, the second of which is the stronger:
+
+  1. This package has no JVM test lane at all (`TESTING.md`: hicasso is
+     deliberately off `implementation_jvm`, because its runtime requires
+     React), and a CLJS suite cannot witness a refusal that stops the
+     build compiling. A guard nobody has watched fire is not evidence.
+  2. A refusal raised at expansion carries LESS than every sibling
+     `defhost` refusal. [[re-frame.hicasso.impl.error/fail!]]'s ambient
+     `:view` and `:source` come from the ledger the EMITTED
+     `declaring!` call writes, so raising inside the declaration extent
+     — where `mint-host!`'s own refusals are raised — is what puts the
+     offending declaration's file and line on this one too.
+
+  Neither costs anything the macro-time throw would have bought: the
+  `def` is aborted either way, and the extra forms are not evaluated
+  either way."
+  [host-name extra]
+  (fail! :rf.error/hicasso-host-extra-form
+         're-frame.hicasso/defhost
+         (str "defhost " host-name " was written with " (count extra)
+              " form(s) after its options map, and nothing reads them: "
+              (pr-str (vec extra)) ". A declaration is (defhost name "
+              "component) or (defhost name component opts), each with an "
+              "optional docstring in SECOND position — before the component, "
+              "never after it. Two options maps are not merged.")
+         :write-one-options-map-and-put-any-docstring-before-the-component
+         {:host host-name :extra (vec extra)}))
 
 (defn host-head?
   "Is `v` a minted host head? One own-property read behind a nil guard;

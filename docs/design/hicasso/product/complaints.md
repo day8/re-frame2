@@ -100,9 +100,11 @@ rowed in the Hicasso section, and is the single live id without the
 | `:rf.error/hicasso-empty-vector` | wrote `[]` where hiccup was expected | — |
 | `:rf.error/hicasso-frame-outside-boundary` | asked for the frame with no Hicasso render extent in scope | — |
 | `:rf.error/hicasso-generation-fence-exhausted` | wrote to app-db from a body, on four consecutive runs | — |
+| `:rf.error/hicasso-host-bad-options` | gave a `defhost` declaration options that are not a map — usually a docstring written after the component instead of before it | — |
 | `:rf.error/hicasso-host-bad-slots` | declared a `defhost` `:slots` that is not a set of ordinary prop names — a non-set, an entry that names no prop, `key`/`ref`, a name the crossing can never emit (`__proto__`, `prototype`, `constructor`), one slot spelled twice, or a position that is also a declared callback | — |
 | `:rf.error/hicasso-host-bad-ssr-policy` | gave a `defhost` a server policy outside the three it admits | ch09, ch17 |
 | `:rf.error/hicasso-host-callback-slot-collision` | declared two spellings of one callback slot on a `defhost` | — |
+| `:rf.error/hicasso-host-extra-form` | wrote a form after `defhost`'s options map — a second options map is not merged, it is discarded | — |
 | `:rf.error/hicasso-host-fallback-boundary-head` | put a `defview` or `defhost` head inside a declared fallback | ch09, ch17 |
 | `:rf.error/hicasso-host-no-component` | declared a `defhost` over `nil` | — |
 | `:rf.error/hicasso-host-structural-callback` | declared a `defhost` callback contract at a position no contract can reach — `key`/`ref`, which carry no contract, or a name the crossing can never emit (`__proto__`, `prototype`, `constructor`) | — |
