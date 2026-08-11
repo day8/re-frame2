@@ -2086,9 +2086,14 @@
 
 (def get-re-frame2-pair-instructions
   {:name "get-re-frame2-pair-instructions"
-   :description (str "Return the re-frame2-pair-mcp agent-onboarding text (rf2-fnpqg): tool catalogue, EDN posture, "
+   :description (str "Return the re-frame2-pair-mcp agent-onboarding text (rf2-fnpqg): six routing rules "
+                     "(which tool to reach for at each decision), EDN posture, "
                      "tagged-mutation conventions, streaming subscribe semantics, the wire-boundary "
-                     "pipeline. Inline prose, no nREPL round-trip — call this at session start to orient "
+                     "pipeline. It does NOT enumerate the tools (rf2-wyza) — you already hold every "
+                     "descriptor from tools/list, and a name that misses returns :unknown-tool with the "
+                     "live name list; what the text adds is the CROSS-tool judgement no single "
+                     "description can carry. "
+                     "Inline prose, no nREPL round-trip — call this at session start to orient "
                      "before the first real op. Mirrors story-mcp's `get-story-instructions`. Returns "
                      "`{:ok? true :tool \"get-re-frame2-pair-instructions\" :text <string>}` — a single text slot "
                      "the agent host renders verbatim. "

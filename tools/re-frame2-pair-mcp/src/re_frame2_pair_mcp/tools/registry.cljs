@@ -257,8 +257,8 @@
     ;; CLOSED-WORLD (rf2-6amhbt): the onboarding text is an inline `def`
     ;; in the bundle — zero socket bytes — so the server dispatches it at
     ;; the pre-connection boundary (bypassing `ensure-connection!`). An
-    ;; agent orienting on a fresh/degraded session gets the catalogue
-    ;; instead of a misleading `:nrepl-port-not-found`.
+    ;; agent orienting on a fresh/degraded session gets the routing
+    ;; rules instead of a misleading `:nrepl-port-not-found`.
     :closed-world? true
     :descriptor data/get-re-frame2-pair-instructions}])
 
@@ -285,7 +285,13 @@
   sees via `tools/list`, in the same authoring order as `tools`. The
   dispatcher in `tools.cljs` folds this into the `:unknown-tool` error
   `:hint` so a model that typo'd a name (or called a removed alias) can
-  see the live catalogue and recover without a round-trip."
+  see the live catalogue and recover without a round-trip.
+
+  That hint is now load-bearing. Since rf2-wyza retired the
+  hand-maintained enumeration from the onboarding text, `tools/list`
+  and this hint are the ONLY places an agent learns what exists — the
+  handshake for the whole set, this for a miss. Do not trim it to a
+  bare `did you mean`."
   (mapv :name tools))
 
 (def ^:private cacheable-set

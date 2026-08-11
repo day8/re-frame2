@@ -44,12 +44,41 @@
   about half a token of budget, and the effective prose budget is about
   half the nominal cap. An author estimating headroom from the raw
   character count of `instructions-text` will be wrong by a factor of
-  two, which is precisely how a draft lands 88 tokens over."
+  two, which is precisely how a draft lands 88 tokens over.
+
+  ## Two lines, not one: a reserve as well as the cap (rf2-wyza)
+
+  rf2-3dmj landed only the hard assertion — a reserve BELOW the cap was
+  deferred, because at 4,888/5,000 any reserve would have been red the
+  day it landed, and trimming prose to create one was the exact
+  deferral that bead forbade. Retiring the `## Tool catalogue` removed
+  ~3,600 tokens and with them that obstacle, so the reserve lands here.
+
+  It buys an EARLY WARNING. Without it the only signal is the hard
+  stop, which arrives as a broken first-contact response; with it, an
+  author who is spending the headroom hears about it while the response
+  still ships perfectly. The reserve is a FRACTION of the cap rather
+  than an absolute, so it tracks `default-max-tokens` the way the hard
+  assertion does — one constant to change, not two."
   (:require [cljs.test :refer-macros [deftest is async]]
             [re-frame2-pair-mcp.tools.cap :as cap]
             [re-frame2-pair-mcp.tools.get-re-frame2-pair-instructions :as instr]))
 
 (def ^:private tool-name "get-re-frame2-pair-instructions")
+
+(def ^:private authoring-reserve-fraction
+  "Share of `default-max-tokens` the onboarding prose may consume before
+  the early-warning assertion trips — the reserve rf2-3dmj deferred and
+  rf2-wyza made affordable.
+
+  0.6 is chosen against what the prose costs and what it is for, not as
+  a round number. Post-rf2-wyza the text sits near a third of the cap,
+  so 0.6 leaves room to roughly double the prose — far more than a
+  routing rule or a new convention section needs — while still tripping
+  a full 2,000 tokens before the response would break. Raising it is a
+  DECISION about how much early warning is worth, not a way to make a
+  red go away; the honest fix is almost always to trim."
+  0.6)
 
 (defn- over-budget-message
   "The failure an author reads. Names the budget, the current usage and
@@ -67,8 +96,12 @@
        "because this tool takes no narrowing args.\n"
        "FIX: shorten `instructions-text` in "
        "tools/re-frame2-pair-mcp/src/re_frame2_pair_mcp/tools/"
-       "get_re_frame2_pair_instructions.cljs. The `## Tool catalogue` section is "
-       "~75% of it and is the only part that grows with the tool count.\n"
+       "get_re_frame2_pair_instructions.cljs. Every section there is a "
+       "CONVENTION or a routing rule - constant in size, none of it indexed by "
+       "the tool count - so a breach means the prose itself grew, and trimming "
+       "it is the whole fix. NOT by re-adding a per-tool enumeration: that was "
+       "retired (rf2-wyza) precisely because it was the one part that grew, and "
+       "`tools/list` plus the :unknown-tool hint already carry the tool set.\n"
        "EXCHANGE RATE: the prose rides the wire TWICE - once as the pr-str EDN "
        ":content[0].text and once as the :structuredContent JSON - so one "
        "character of prose costs ~0.5 tokens of this budget (~2 characters per "
@@ -76,6 +109,26 @@
        "NOT THE FIX: raising default-max-tokens. It is a cross-MCP constant in "
        "re-frame.mcp-base.overflow shared with story-mcp, and raising it only "
        "defers the same failure to a larger blob (rf2-3dmj)."))
+
+(defn- over-reserve-message
+  "The EARLY warning. Distinguished from `over-budget-message` in the
+  first line, because the two demand different responses: this one does
+  not break anything today, and an author who reads it as the hard stop
+  will either panic or (worse) raise the fraction to clear it."
+  [tokens budget reserve]
+  (str tool-name " is over its AUTHORING RESERVE (the early warning, not the "
+       "hard cap - the response still ships correctly today).\n"
+       "  usage  : " tokens " tokens\n"
+       "  reserve: " reserve " tokens (" (int (* 100 authoring-reserve-fraction))
+       "% of the " budget "-token wire cap)\n"
+       "  to cap : " (- budget tokens) " tokens still remaining\n"
+       "This is the warning rf2-3dmj deferred and rf2-wyza made affordable: it "
+       "fires while there is still room to think, so the onboarding text never "
+       "reaches the cap - where the WHOLE response becomes an overflow marker "
+       "and a fresh session gets no onboarding text at all.\n"
+       "FIX: trim `instructions-text`. Raising authoring-reserve-fraction in "
+       "this ns is a deliberate decision about how much early warning is worth, "
+       "and it should be argued for, not reached for to clear a red."))
 
 (deftest instructions-response-fits-the-wire-token-budget
   (async done
@@ -102,7 +155,14 @@
                             "measuring nothing; re-check cap/sum-payload-tokens "
                             "against the tool's result envelope"))
                    (is (false? replaced?)
-                       (over-budget-message tokens budget)))
+                       (over-budget-message tokens budget))
+                   ;; The early line, asserted AFTER the hard one so that a
+                   ;; run which breached both reads top-down as "broken" then
+                   ;; "and you were warned", rather than leading with the
+                   ;; softer of the two failures.
+                   (let [reserve (js/Math.floor (* authoring-reserve-fraction budget))]
+                     (is (<= tokens reserve)
+                         (over-reserve-message tokens budget reserve))))
                  (done)))
         (.catch (fn [e]
                   (is false (str tool-name " handler rejected: " (.-message e)))

@@ -148,7 +148,7 @@ On any failed precondition, discover-app returns structured edn (`{:ok? false :r
 
 The nREPL session persists between turns. A full page refresh drops the runtime, but the preload re-installs it on the next bundle load — no manual reconnect. Every op checks the load-time marker (`js/globalThis.__re_frame2_pair_runtime`) first; if missing, the op refuses with the runtime-side `:runtime-not-preloaded` hint pointing here. (That per-op check is distinct from `discover-app`'s richer ladder, which on the same missing-marker condition reports the more precise `:runtime-loaded-but-preload-missing` — see [references/errors.md](references/errors.md#discover-app-preload-failure-ladder).)
 
-For a refresher on the MCP surface before the first real op, optionally call `get-re-frame2-pair-instructions` — inline onboarding text (tool catalogue, EDN posture, tagged-mutation conventions, streaming-subscribe semantics, the wire pipeline) with no nREPL round-trip.
+For a refresher on the MCP surface before the first real op, optionally call `get-re-frame2-pair-instructions` — inline onboarding text (six routing rules for which tool to reach for, then the EDN posture, tagged-mutation conventions, streaming-subscribe semantics, the wire pipeline) with no nREPL round-trip. It does not list the tools; `tools/list` already gave you every descriptor.
 
 ---
 

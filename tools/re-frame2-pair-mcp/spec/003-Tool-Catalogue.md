@@ -4040,11 +4040,26 @@ idempotent-read-only annotation set.
 
 ## get-re-frame2-pair-instructions
 
-Agent-onboarding text (rf2-fnpqg). Returns an inline prose summary
-of re-frame2-pair-mcp's tool catalogue, the EDN posture, the `:origin :pair`
-tagged-mutation convention, the streaming `subscribe` semantics,
-and the wire-boundary pipeline (precheck → elision → diff-encode
-→ dedup → cap).
+Agent-onboarding text (rf2-fnpqg). Returns inline prose: a
+`## Routing rules` section of six rules naming which tool to reach
+for at each decision, then the conventions — the EDN posture, the
+`:origin :pair` tagged-mutation convention, the streaming
+`subscribe` semantics, and the wire-boundary pipeline (precheck →
+elision → diff-encode → dedup → cap).
+
+**It does not enumerate the tools** (rf2-wyza). It used to — a
+33-entry `## Tool catalogue` that was 75% of the blob and the only
+section indexed by the tool count, leaving 112 tokens of margin under
+the wire cap. That enumeration duplicated the `tools/list`
+descriptors an agent already holds from the handshake, and a name
+that misses is answered live by the `:unknown-tool` hint, which folds
+`registry/tool-names` into the error. What no per-tool descriptor can
+carry is CROSS-tool judgement — `read-sub`'s own description does say
+"PREFER this over raw eval-cljs", but that preference sits inside its
+~2,400-character paragraph, invisible until you already chose to read
+about `read-sub`. The routing rules are that missing global
+first-contact index, and nothing else. The full per-tool reference is
+this document.
 
 Mirrors story-mcp's `get-story-instructions` — agent hosts call
 this at session start to orient before the first real op. No nREPL
@@ -4076,9 +4091,13 @@ streaming machinery — just text.
 
 Maintenance: the text lives in
 `tools/get_re_frame2_pair_instructions.cljs` as the `instructions-text` def.
-Edit it when the catalogue grows or shrinks. The structural peer
-is the `re-frame2-pair-mcp.tools/tool-descriptors` docstring;
-keep the two in lockstep when adding or removing tools.
+**Adding a tool does not oblige an edit there** — that obligation went
+with the catalogue. Edit it when a routing JUDGEMENT changes: a new
+tool that supersedes an older route, or a stated preference that
+turned out to be wrong. `test/re_frame2_pair_mcp/onboarding_routing_test.cljs`
+guards the one failure the prose can still cause — a rule naming a
+tool that is not registered, which the agent would then call and get
+`:unknown-tool` for.
 
 **The prose has a hard budget, and it is the wire cap** (rf2-3dmj). The
 response egresses through the universal wire-boundary cap like any
