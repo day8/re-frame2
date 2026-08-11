@@ -106,13 +106,14 @@ have opposite operational rules:
 | Machine sensitivity | **none** — a counter reads the same on a loaded box | high — needs a quiet window |
 | Where it belongs | ordinary blocking PR gates | pinned interleaved evidence runs |
 | Profile needed | any | P-DEV-1 only |
-| Anchored on `implementation/hicasso` today? | **yes** | **no** — see §6 |
+| Anchored on `implementation/hicasso` today? | **yes** | **the heap rows S1–S5, yes** — since 2026-08-12, §6; the clock rows, no |
 
 The practical consequence, and the reason it is worth naming: **the
 deterministic family did not need this measurement window at all.** A body
 count is a delta on a monotone integer counter; contention cannot move it. Only
-the distributional family needs the quiet box — and that is exactly the family
-this page could not re-pin.
+the distributional family needs the quiet box — which is exactly why this page
+could not re-pin that family when it was written, and why the re-pin it refused
+had to be taken later, alone, in a window of its own.
 
 ---
 
@@ -155,29 +156,54 @@ control that gives the row its meaning: the same app in a coarse shape scales
 and D1/D2's flatness is a property of the topology, not of a blind instrument.
 
 **On D9.** This is teardown residue in **counters and objects**, which is a
-deterministic reading the package can make. It is *not* the evidence
-baseline's teardown row, which is stated in **retained bytes** on the pinned
-heap arms — a distributional figure, and one of the three this page could not
-re-pin. The two must not be conflated: a mount can leave zero residue counters
-and still retain bytes.
+deterministic reading the package can make. It is *not* S5, the teardown row
+stated in **retained bytes** — a distributional figure, taken in its own quiet
+window and re-pinned on the package only on 2026-08-12. The two must not be
+conflated: a mount can leave zero residue counters and still retain bytes, and
+the two halves are not interchangeable evidence even now that both are package
+figures. D9's counters are **exactly** zero; S5's bytes are *indistinguishable
+from* zero, which is the strongest form a distributional reading takes.
 
 ---
 
-## 4. Distributional rows, carried forward and NOT re-pinned
+## 4. Distributional rows — S1–S5 re-pinned on the package, S6–S7 carried
 
-Every figure here is carried unchanged from
-[the evidence baseline](lanes/evidence-baseline.md#pinned-economic-evidence).
-None was re-measured on `implementation/hicasso`, for the reason in §6.
+**S1–S5 are package figures as of 2026-08-12.** They were re-measured on
+`implementation/hicasso` in one solo quiet-window run, on the same P0 ladder
+`rf2-hic-006` had to refuse — repointed at the package by PR #7939 and read
+through by `rf2-fe0l`. **S6 and S7 are still carried unchanged** from
+[the evidence baseline](lanes/evidence-baseline.md#pinned-economic-evidence)
+and are **not** package figures: no package-resident clock instrument exists,
+and the allocation row has no publishable claim to re-pin.
 
 | # | Estimand | Pinned figure | Instrument | Status |
 |---|---|---|---|---|
-| S1 | R=0 boundary shell, Reagent segment | `1,103 B` | P0 bench ladder, bench-tree candidate arm | not re-pinned on the package |
-| S2 | R=0 boundary shell, UIx segment | `1,097 B` | as S1 | not re-pinned on the package |
-| S3 | Per-read retained, Hicasso vs Reagent | `1,278` vs `947 B/read` | as S1 | K3 scoreboard (a) — owned by `rf2-hic-070` |
-| S4 | Per-read retained, Hicasso vs UIx | `2,115` vs `2,980 B/read` | as S1 | K3 scoreboard (b) — owned by `rf2-hic-070` |
-| S5 | Teardown, retained **bytes** | zero on the pinned heap arms | as S1 | not re-pinned on the package |
-| S6 | Cold mount vs direct UIx-on-subs | `1.1718x` [1.1263–1.2190] n=8; `1.1976x` [1.1504–1.2468] n=6 | final K1 estimator | registered `1.10x` gate missed; `1.25x` is a *proposal* only |
-| S7 | Warm allocation | no publishable claim | allocation instrument | no fitted series clears the quality floor |
+| S1 | R=0 boundary shell, Reagent segment | `1,100 B` [1,091–1,107] | P0 ladder, **package** candidate arm | **package figure** — over the frozen `1,024 B` line in every round |
+| S2 | R=0 boundary shell, UIx segment | `1,095 B` [1,087–1,101] | as S1 | **package figure** — over `1,024 B` in every round |
+| S3 | Per-read retained, Hicasso vs Reagent | `1,417` vs `948 B/read` | as S1 | **package figure**; K3 scoreboard (a) — owned by `rf2-hic-070` |
+| S4 | Per-read retained, Hicasso vs UIx | `2,115` vs `2,980 B/read` | as S1 | **package figure**; K3 scoreboard (b) — owned by `rf2-hic-070` |
+| S5 | Teardown, retained **bytes** | indistinguishable from zero — all ten candidate rungs' bands straddle 0 | as S1 | **package figure** |
+| S6 | Cold mount vs direct UIx-on-subs | `1.1718x` [1.1263–1.2190] n=8; `1.1976x` [1.1504–1.2468] n=6 | final K1 estimator | **bench-tree figure** — registered `1.10x` gate missed; `1.25x` is a *proposal* only |
+| S7 | Warm allocation | no publishable claim | allocation instrument | **bench-tree** — no fitted series clears the quality floor |
+
+The run's evidence, its controls and its full provenance are
+[on the ladder's studio page](../studio/reads-per-boundary-heap-ladder.md#the-package-itself-priced-on-this-rung-at-last-rf2-fe0l);
+what follows is only what the re-pin does to this page's rows.
+
+**S3 is the one figure that moved, and the instrument says it is the
+candidate's.** Nine of the ten quantities the run took — both donors, both
+floors, both shells and the UIx-segment slope — came back on the prototype's
+published anchors. S3's candidate slope did not: `1,278 → 1,417 B/read`,
+`+139 B` and `+10.9%`, with the two bands disjoint. The governed contrast
+against Reagent therefore deepens from `1.3492×` to `1.4953×`, while S4's win
+against UIx is unchanged to the fourth decimal (`0.7099× → 0.7098×`).
+**Attribution is `rf2-hic-018`'s**, and it is deliberately not attempted here:
+the window's terms are a single invocation, and the ablations that would name a
+cause are exactly what a measurement window may not run.
+
+**S1 and S2 carry the substantive news for the shell.** The breach is not an
+artefact of the prototype — it survives the move to the package essentially
+unchanged, at `1,100` and `1,095 B` against `1,103` and `1,097 B`.
 
 **S6 carries a standing prohibition.** The `1.25x` cold-mount ceiling is a
 proposal pending the operator's sitting. Until ratification the registered
@@ -209,14 +235,52 @@ not, and cannot be until a package-resident clock instrument exists.
 | Cold mount ≤ 1.25x direct UIx (subject to ratification) | proposal only; `1.10x` registered line stands |
 | Broad updates ≤ 1.25x best relevant adapter after topology tuning | 1.25–1.5x is a **warning band**: attribute cause, one bounded topology pass, test a local island |
 | Sustained > 1.5x | cannot graduate as ordinary Hicasso until fixed or deliberately classified a native-host use case |
-| R=0 shell meets the frozen byte-exact `1 KB` line | **not** governed by baseline-plus-10%; see §5 |
+| R=0 shell meets the frozen byte-exact `1,024 B` line | **not** governed by baseline-plus-10%; see §5 |
 | Per-read retained ≤ 10% regression on same pinned witness | governed by the K3 disposition (`rf2-hic-070`) |
 | Native island within 5% or 1 ms of the same component mounted directly | co-instrumented against both handwritten React and UIx |
 | An escape recovers ≥ 20%, saves ≥ 2 ms p95, or converts a failed budget to a pass | an island missing its threshold is simplified or removed — **thresholds do not widen to keep it** |
 
 ---
 
-## 5. The read-free boundary shell: the byte-exact line
+## 5. The read-free boundary shell: the byte-exact line, now FROZEN at 1,024 B
+
+> **RULED, 2026-08-12 (operator-directed, operator-overturnable).** The paper-fail
+> line is frozen at the literal **`1,024 B`**. Spell it that way everywhere; the
+> ambiguous `1 KB` spelling retires. Adopted with it: **a confidence band that
+> crosses 1,024 B is UNRESOLVED, not a pass**, and no substrate is selected on a
+> point-estimate difference inside that band. The ruling text is on `rf2-fe0l`.
+>
+> The rest of this section is the record of *why* the freeze was needed and
+> what it does and does not decide. It is kept as written — the recommendation
+> below is the reasoning the ruling adopted, not a live question — because a
+> page edited to look as though it had always known the answer stops being a
+> record of how the answer was reached.
+
+### What the package reading does to this row
+
+The shell has now been measured on `implementation/hicasso` itself
+([the run](../studio/reads-per-boundary-heap-ladder.md#the-package-itself-priced-on-this-rung-at-last-rf2-fe0l)),
+and the freeze is **not load-bearing for the present verdict** on either tree:
+
+| R=0 shell | Reagent segment | UIx segment | worst round | vs `1,024 B` |
+|---|---:|---:|---:|---|
+| pinned baseline row (bench tree) | 1,103 B | 1,097 B | — | over |
+| ladder re-take on the shipping bench tree | 1,099.5 B | 1,097 B | — | over |
+| **the package (S1 / S2)** | **1,100 B** | **1,095 B** | 1,091 / 1,087 B | **1.074× / 1.069× — over, in every round** |
+| frame-prop variant (bench tree) | 1,054 B | 1,051 B | 1,047 B | over |
+
+Every one of the twelve package readings sits at or above **1,087 B**, so the
+row is red under the frozen reading, red under the retired 1,000 B one, and
+**not a band-crossing case at all**. What the freeze forestalls is still ahead:
+the no-wrapper arm's `994` / `992 B` sits exactly in the window the two readings
+disagreed about, so a remediation landing there would have been decided by a
+coin-flip. It no longer can be.
+
+**The breach is a property of the design, not of the prototype.** That is the
+substantive finding the package re-pin adds, and it is `rf2-hic-018`'s to
+disposition.
+
+### The record: why the freeze was needed
 
 `rf2-hic-006` asks this page to resolve, **from the registered instrument's
 source of record**, whether the paper-fail line is 1,000 B or 1,024 B.
@@ -260,26 +324,65 @@ grounds that `KB` in a memory context conventionally expands to 2^10 and the
 instrument reports raw bytes either way. Recorded as a recommendation; the
 decision is the operator's.
 
+> **This recommendation was adopted on 2026-08-12, on these grounds.** See the
+> ruling at the head of this section. The sentence above is left standing as
+> the reasoning that was put to the operator, not as a live question.
+
 ### The breach is carried, never normalised
 
-The current breach stands at **R=0 = 1,103 B / 1,097 B** against the registered
-`1 KB` line. It is a **live pressure owned by `rf2-hic-018`**, not a
-disposition this page may make, and it is never silently normalised into a
+The current breach stands at **R=0 = 1,100 B / 1,095 B on the package**, against
+the frozen `1,024 B` line. It is a **live pressure owned by `rf2-hic-018`**, not
+a disposition this page may make, and it is never silently normalised into a
 percentage allowance — §6 says in terms that a relative regression allowance
 cannot recolour the red shell row.
 
 One drift is recorded rather than smoothed. The baseline's pinned Reagent
-figure is `1,103 B`; the ladder's later paired re-takes on the shipping tree
-read `1,101 B` and `1,099.5 B`, and the UIx segment reads `1,097 B` in all
-of them. The arms overlap in band and the page itself notes the difference. The
-baseline row is left as the pinned figure because a measurement record edited to
-match a later run stops being a record — but a re-pin on the package (§6) would
-supersede all of them, and until it happens **`1,103 B` is a bench-tree figure,
-not a package figure.**
+figure was `1,103 B`; the ladder's later paired re-takes on the shipping bench
+tree read `1,101 B` and `1,099.5 B`, and the UIx segment reads `1,097 B` in all
+of them. The arms overlap in band and the ladder page itself notes the
+difference. Those rows are left exactly as measured, because a measurement
+record edited to match a later run stops being a record. **What has changed is
+which of them this page pins**: the package re-pin (§6) has now happened, so
+S1/S2 are `1,100` and `1,095 B` and the earlier figures are the bench-tree
+lineage behind them rather than the live rows. That the package reading landed
+within 3 B and 2 B of the bench-tree one is a result, not a formality — it is
+the reason the whole prior lineage remains readable as evidence about the same
+design.
 
 ---
 
-## 6. The re-pin on the moved package: REFUSED
+## 6. The re-pin on the moved package: REFUSED, then DISCHARGED
+
+> **DISCHARGED 2026-08-12 by `rf2-fe0l`.** The refusal below stands as the
+> record of why this page could not deliver the re-pin, and every word of its
+> diagnosis held: no heap instrument pointed at the package, and the registered
+> one had drifted from its own pin. Both were fixed in the order this section
+> asked for. PR #7939 repointed the existing P0 ladder's four candidate seams at
+> `re-frame.hicasso` — **reusing the driver, donors, floor, harness, fixtures,
+> fit rules and order guard unchanged, so the estimator did not move** — and it
+> merged, fixing the rig's blobs, *before* any sample existed. One solo
+> quiet-window run then took the package arm and **both** donor arms in the same
+> run set, as this section required. S1–S5 in §4 are package figures as a
+> result.
+>
+> Two of this section's stated conditions were met differently from the way it
+> guessed, and the difference is worth recording. **No new build id was needed
+> and no hot-zone file was touched**: the driver already rides `:hicasso-bench`
+> through `P0_BUILD` / `P0_INIT_FN`, and `hicasso/src` is already on that build's
+> source paths, so `:hicasso-heap-bench` was deferred rather than built (to
+> `rf2-hic-071`, reconsidered only if this becomes a standing gate). And the
+> `~5% common-mode offset` caution below is about the **two harnesses** — P0
+> against the freehand ladder — not about two runs of this one; the
+> cross-session comparison in the studio section is licensed instead by the
+> donors reproducing their published anchors within 1 B, which is this corpus's
+> own standing rule.
+>
+> **The instrument-drift half is closed by supersession, not by repair.** The
+> eleven pinned blobs tabulated below have not been made to match; they never
+> can be, and `front/sub_index.cljs` no longer exists. What has changed is that
+> the drift is no longer *un-attributable*: the run below took the package and
+> both donors on one instrument in one session, so the delta between it and the
+> prototype is read against same-run donors rather than against a stale pin.
 
 `rf2-hic-006` asks for the shell, per-read and teardown baselines
 **re-measured on `implementation/hicasso`** so later gates have a
