@@ -510,8 +510,8 @@ The tab has no populated arm on a STAGED SURFACE. The shell sweep clicks
 `:hicasso` on the counter surface, which is not a Hicasso application, so the
 root it asserts is holding the `absent` note. That is the whole of the tab's
 staged-surface browser coverage, and it is a decision rather than an unfilled
-gap — but it is not the whole of the tab's browser coverage, because liveness
-is held in a browser and separately, three paragraphs down.
+gap. It is not the whole of the tab's browser coverage, though: liveness has a
+browser row of its own, three paragraphs down.
 
 **The tab is one of four on the same footing.** Resources, Graph, Modules and
 Hicasso are documented exclusions from the panel gallery, with their coverage
