@@ -2,9 +2,12 @@
   "Authoring-time budget guard for the onboarding prose (rf2-3dmj).
 
   `get-re-frame2-pair-instructions` returns one hand-written string —
-  `instructions-text` in `tools/get_re_frame2_pair_instructions.cljs` —
-  and that string grows every time a tool is added to the catalogue. It
-  egresses through the same wire-boundary cap as every other response,
+  `instructions-text` in `tools/get_re_frame2_pair_instructions.cljs`.
+  It used to grow with every tool added; rf2-wyza retired the per-tool
+  enumeration that made it do so, and what remains is conventions and
+  six routing rules, all constant in the tool count. So a breach now
+  means the PROSE grew — which is exactly why the guard is still here.
+  It egresses through the same wire-boundary cap as every other response,
   so once the response exceeds `default-max-tokens` the WHOLE payload is
   replaced by the `{:rf.mcp/overflow ...}` marker: the first call an
   agent makes on a fresh session returns no onboarding text at all, and
@@ -72,12 +75,14 @@
   rf2-wyza made affordable.
 
   0.6 is chosen against what the prose costs and what it is for, not as
-  a round number. Post-rf2-wyza the text sits near a third of the cap,
-  so 0.6 leaves room to roughly double the prose — far more than a
-  routing rule or a new convention section needs — while still tripping
-  a full 2,000 tokens before the response would break. Raising it is a
-  DECISION about how much early warning is worth, not a way to make a
-  red go away; the honest fix is almost always to trim."
+  a round number. Post-rf2-wyza the text measures 2,164 tokens — 43% of
+  the cap — so a 3,000-token reserve leaves ~840 tokens of authoring
+  room, about 1,700 characters: a new convention section and a routing
+  rule or two, which is the realistic edit here. It still trips ~2,800
+  tokens before the response would break, so the warning arrives with
+  room to think rather than as a deadline. Raising it is a DECISION
+  about how much early warning is worth, not a way to make a red go
+  away; the honest fix is almost always to trim."
   0.6)
 
 (defn- over-budget-message
