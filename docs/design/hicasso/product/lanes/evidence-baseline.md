@@ -6,7 +6,7 @@ This baseline records the current product facts that constrain implementation. Q
 
 - Hicasso is the selected native adapter design.
 - The proposed `1.25x` K1 product ceiling is not operative. Phase 0 prepares its scoped record for operator ratification at the 2026-08-27 sitting; the registered `1.10x` gate remains the only adjudicated line until then.
-- The implementation remains under the benchmark tree rather than an installable `implementation/hicasso` package.
+- The implementation is the `implementation/hicasso` artefact (`day8/re-frame2-hicasso`); the benchmark tree's `re-frame.bench.hicasso.arm1.*` is the frozen prototype it was moved from, and the two diverge permanently by design. **Every heap row in this baseline is measured on the package as of 2026-08-12**; rows sourced elsewhere say so.
 - Public names are provisional until the ordinary application and host/hot-path witnesses pass.
 - The interpreted React-function-component path is the ordinary product path. An explicitly native element/component surface is the local escape; compiled Hiccup, own-renderer and second-emitter paths are outside the design.
 - React-library interop and SSR/hydration correctness are core product obligations; UIx, library-specific wrappers, and the deployable Node service are optional.
@@ -31,10 +31,10 @@ The proposed Hicasso-native namespace is not demonstrated value yet. It remains 
 | Interpreted lowering | At or below stock Reagent on the measured walk rows | [`rf2-2rtt6.63`](../../studio/our-walk-against-reagents.md) | Do not assume Hiccup interpretation is the dominant pressure |
 | Narrow update | Workload-specific parity/win evidence | [Corrected-clock rows](../../studio/rows-re-adjudicated-on-the-corrected-clock.md) | Require changed-work scaling; make no universal “narrow is faster” claim |
 | Broad update | Governed Hicasso/Reagent intervals remain instrument-limited; no general magnitude | [`rf2-vp0j7` evidence lineage](../../studio/bulk-broad-re-taken.md) | Do not optimize from a refused or non-governed comparator |
-| Boundary shell | Current pinned `R=0` shells are `1,103 B` on the Reagent segment and `1,097 B` on the UIx segment, above the registered `1 KB` paper-fail line under either 1,000 B or 1,024 B | [Current heap ladder](../../studio/reads-per-boundary-heap-ladder.md) | The row is red; freeze the byte-exact line, then remediate it or require a separate prospective operator disposition before ABI freeze |
-| Retained reads | Hicasso `1,278 B/read` versus Reagent `947 B/read`; Hicasso `2,115 B/read` versus UIx `2,980 B/read` | [Current heap ladder](../../studio/reads-per-boundary-heap-ladder.md) | Choose the under-collector substrate explicitly; keep governed shipped-path viability, parent-relative architecture progress, and author preference as separate scoreboards |
+| Boundary shell | Current pinned `R=0` shells are `1,100 B` on the Reagent segment and `1,095 B` on the UIx segment, **measured on the package**, above the frozen `1,024 B` paper-fail line in every round | [Current heap ladder](../../studio/reads-per-boundary-heap-ladder.md#the-package-itself-priced-on-this-rung-at-last-rf2-fe0l) | The row is red, and the breach survived the move off the prototype, so it is a property of the design; the byte-exact line is frozen, so what remains is to remediate it or require a separate prospective operator disposition before ABI freeze |
+| Retained reads | Hicasso `1,417 B/read` versus Reagent `948 B/read`; Hicasso `2,115 B/read` versus UIx `2,980 B/read`, **measured on the package** | [Current heap ladder](../../studio/reads-per-boundary-heap-ladder.md#the-package-itself-priced-on-this-rung-at-last-rf2-fe0l) | Choose the under-collector substrate explicitly; keep governed shipped-path viability, parent-relative architecture progress, and author preference as separate scoreboards |
 | Warm allocation | No fitted series clears the registered quality floor | [Allocation survival metric](../../studio/the-survival-metrics-allocation-half.md) and [instrument contract](../../allocation-instrument-rework.md) | Publish no allocation claim yet |
-| Teardown | Zero retained bytes and objects on the pinned heap arms | [Current heap ladder](../../studio/reads-per-boundary-heap-ladder.md) | Preserve as an absolute invariant |
+| Teardown | Zero retained objects and retained bytes indistinguishable from zero on the pinned heap arms, **measured on the package** — the object counts are exact, the byte bands straddle zero | [Current heap ladder](../../studio/reads-per-boundary-heap-ladder.md#the-package-itself-priced-on-this-rung-at-last-rf2-fe0l) | Preserve as an absolute invariant |
 | SSR/hydration | Node/React spike produces deterministic hydratable fixtures | [SSR spike witness](../../studio/ssr-spike-witness.md) | Product service, isolation and operations remain to build |
 
 The heap result has three non-substitutable scoreboards: governed viability against Reagent, architecture progress against the UIx parent, and author preference from the dogfood witness. None is a replacement denominator for another.
@@ -49,7 +49,7 @@ The baseline remains a decisive miss against the registered K1 gate. The [primar
 
 ### Read-free boundary shell
 
-The current result is red against the `1 KB` paper-fail line under either byte interpretation. The primary performance contract owns the exact-line freeze, remediation path and any later prospective disposition. No acceptance exists, the K1 decision does not waive this row, and a percentage regression allowance cannot make it green.
+The current result is red against the paper-fail line, which the operator froze at `1,024 B` on 2026-08-12 — and it was red under the retired 1,000 B reading too, in every round, so no verdict here turned on the freeze. The primary performance contract owns the remediation path and any later prospective disposition. No acceptance exists, the K1 decision does not waive this row, and a percentage regression allowance cannot make it green.
 
 ### Bulk, retained heap, and allocation
 
