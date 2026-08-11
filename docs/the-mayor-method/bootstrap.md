@@ -86,8 +86,15 @@ of a drain; the binding rule is hot-zone parallelism, not strict same-surface.
   provider outage the same day six PRs at once reported MERGEABLE with zero
   checks; the rule as written would have taken all six. So the criterion is
   completeness *and* cleanliness: a non-empty rollup, every check concluded, and a
-  total in the band this repo's PRs actually produce — learn that number, because
-  a partial rollup of 11 where ~86 are expected is no greener than an empty one.
+  total in the band this repo's PRs actually produce — MEASURE that band with
+  `gh pr checks` on recently-merged PRs rather than trusting a number written
+  down, because it MOVES as the workflow matrix grows and a constant on this page
+  goes stale exactly where it has to be right. A constant did stand here, read
+  ~86, and was wrong within the same programme; the current measurement lives
+  with its date and its evidence in this repo's merge loop
+  (`.claude/commands/mayor-merge.md`, clause 1), which is one place to keep
+  current rather than two. A rollup carrying a fraction of the checks a full one
+  carries is no greener than an empty one.
   A gate that verifies the absence of bad news rather than the presence of good
   news is the same fail-open class the project spends its days hunting in its own
   instruments; the merge decision is not exempt from it. Short or empty is a
