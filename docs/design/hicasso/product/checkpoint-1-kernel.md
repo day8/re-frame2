@@ -24,18 +24,20 @@ where it would be believed longest.
 |---|---|
 | The eight kernel risks, their required contracts, deciding witnesses and remedies | [`lanes/adversarial-risks.md`](lanes/adversarial-risks.md#phase-1-kernel-risks) |
 | What Phase 1 must deliver, and the words its exit is written in | [`specification.md` §12](specification.md#12-action-programme), indexed by [`lanes/delivery-programme.md`](lanes/delivery-programme.md) |
-| The review protocol this record discharges, and its three sections | `rf2-hic-019` |
+| The review protocol this record discharges — §1 Completeness, §2 Correctness, §3 Quality | `rf2-hic-019` |
 | What each miss is, its severity, and what it takes to close it | [`correction-ledger.md`](correction-ledger.md#the-ledger), and the bead each row names |
 | Whether the kernel exit is met | this file — and today the answer is *not established* |
 
-One owner per fact. The five findings are **not** restated here: their text lives in the ledger row and their full
-detail in the bead. A third copy is a third thing to drift.
+One owner per fact. Bare `§1`, `§2` and `§3` throughout this page mean the review protocol's three sections;
+specification sections are always written as `specification.md §N`. The five findings are **not** restated here:
+their text lives in the ledger row and their full detail in the bead. A third copy is a third thing to drift.
 
 ## 1. Why the verdict is HELD, and what would discharge it
 
 ### 1.1 The four dependencies that were open
 
-`rf2-hic-019` depends on `rf2-hic-010` … `rf2-hic-018` and `rf2-hic-029`. Six had landed. These four had not:
+`rf2-hic-019`'s dependency set is `rf2-hic-010` … `rf2-hic-018`, `rf2-hic-029`, and the ledger bead `rf2-hic-073`
+— eleven, of which seven had landed. These four had not:
 
 | Open dependency | What it owes | What its absence costs this checkpoint |
 |---|---|---|
@@ -82,7 +84,7 @@ Three verdicts are used and `pass` is not among them:
 | 7 | Callback identity and retirement | **incomplete** (`rf2-hic-029` open) | pending its witness | HELD — witness set incomplete |
 | 8 | Hydration isolation | complete (`rf2-hic-012`) | **absent in any form** (`rf2-1mmn`) | **MISS** |
 
-Two readings of that table must not be taken.
+Two readings of that table would be wrong, and both are easy.
 
 **"Not indicted" is not "verified".** In the sabotage column it means only that `rf2-1mmn`'s audit of the controls
 did not name the row. This checkpoint did not inventory those controls and did not execute one deliberately, so the
@@ -205,3 +207,7 @@ Recorded so that a later reviewer meeting them knows they were seen and judged, 
 It is not a partial pass, and it may not be cited as one. It is not the closure of `rf2-hic-019`, which stays open.
 It is not evidence about the browser lane, which did not run. It is the honest state of Checkpoint 1 on
 `main`@`27c5d12754`: five misses in what could be reviewed, and a kernel exit that has not been adjudicated.
+
+Provenance: `rf2-hic-019` ran under a read-only, no-PR fence and could write neither this page nor the ledger rows
+itself, so it carried both verbatim in `rf2-0bu1`, which published them. Every finding, count and verdict above is
+the checkpoint's; nothing was re-derived, and the two suite results are quoted rather than re-measured.
