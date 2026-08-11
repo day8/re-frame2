@@ -212,6 +212,28 @@
 
 (h/defhost reader-host theme-reader {:ssr :render})
 
+;; --- the FALSE assertion, and what it costs (rf2-hic-028) -----------------
+;;
+;; `:render` is an assertion the author makes, and the matrix's closing
+;; requirement is what happens when it is FALSE: *a host that renders
+;; server-side unsafely fails loudly at the crossing*. The real spelling
+;; is a `ReferenceError` reading `window` under a server runtime — which
+;; cannot be staged here, because both lanes this suite runs in HAVE a
+;; `window` (`:node-test` supplies one, `:browser-test` is one). So the
+;; component throws that error itself, with that message, which is the
+;; same shape reaching React by the same route; what is under test is
+;; the CONDUIT, and nothing about it varies with who constructed the
+;; error.
+
+(defn- browser-only
+  "The component whose author declared `:render` and was wrong."
+  [_props]
+  (throw (js/ReferenceError. "window is not defined")))
+
+(h/defhost unsafe-render-host browser-only {:ssr :render})
+
+(h/defhost unsafe-client-only-host browser-only)
+
 (h/defhost counted-reader-host counted-reader {:ssr :render})
 
 ;; ---------------------------------------------------------------------------
@@ -262,6 +284,23 @@
    [themed-client-only {:value "dark"}
     [:p.body "THE ENTIRE APPLICATION"]
     [reader-host {}]]])
+
+(h/defview unsafe-render-page
+  "A page whose one crossing declares `:render` over a component that is
+  not server-safe."
+  [_]
+  [:div.page
+   [:h1.title (collector/sub [:hicasso.ssr/title])]
+   [unsafe-render-host {}]])
+
+(h/defview unsafe-client-only-page
+  "The same component under the DEFAULT policy — the control that makes
+  the row below a fact about the assertion rather than about the
+  component."
+  [_]
+  [:div.page
+   [:h1.title (collector/sub [:hicasso.ssr/title])]
+   [unsafe-client-only-host {}]])
 
 (h/defview unprovided-page
   "The consumer with NO provider above it — what a policy that rendered
@@ -506,6 +545,35 @@
       (is (re-find #"class=\"theme-reader\"" html)
           (str "a childless `:render` crossing rendered its component: "
                html)))))
+
+(deftest a-false-render-assertion-fails-loudly-at-the-crossing
+  (fresh!)
+  (testing "**THE CLOSING ROW OF THE CANONICAL MATRIX** (rf2-hic-028): a
+            host that renders server-side unsafely fails LOUDLY, at the
+            crossing. `:render` is the author asserting that a component is
+            safe on the server, and an assertion nothing checks is only
+            worth having if being wrong about it is unmissable — so the
+            throw propagates out of `renderToString` rather than being
+            swallowed into a hole in the response. A policy that quietly
+            emitted a page with the crossing missing would hand the author
+            a half-rendered document and no reason for it"
+    (let [thrown (try (server-html [unsafe-render-page {}]) ::did-not-throw
+                      (catch :default e e))]
+      (is (not= ::did-not-throw thrown)
+          "the server render failed rather than completing without it")
+      (is (re-find #"window is not defined" (ex-message thrown))
+          (str "carrying the runtime's own message, unwrapped — the author
+                needs the ReferenceError, not a translation of it: "
+               (ex-message thrown)))))
+  (testing "and the SAME component under the default policy renders a clean
+            page, so the failure above belongs to the assertion and not to
+            the component. This is the recovery the guide names, measured:
+            drop back to Client-only"
+    (let [html (server-html [unsafe-client-only-page {}])]
+      (is (re-find #"quarterly" html)
+          (str "the page rendered whole — which is the proof that the
+                component's body never ran, because a body that ran would
+                have thrown the same ReferenceError: " html)))))
 
 ;; ---------------------------------------------------------------------------
 ;; 4 — a fresh mount: no placeholder, ever
