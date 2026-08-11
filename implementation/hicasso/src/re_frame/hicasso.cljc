@@ -286,6 +286,38 @@
   coordinate — the name for `displayName`, and both for every diagnostic
   the crossing raises.
 
+  ## Two shapes, and a tail is REFUSED rather than dropped (rf2-3f11)
+
+      (defhost name component)
+      (defhost name component opts)
+
+  each with an optional docstring in SECOND position — before the
+  component, never after it. Anything past `opts` is refused with
+  `:rf.error/hicasso-host-extra-form`, and options that are not a map
+  with `:rf.error/hicasso-host-bad-options`.
+
+  The macro used to destructure `[component opts]` off a variadic tail
+  and drop everything later in silence, so
+
+      (defhost modal Modal
+        {:callbacks {:on-close :event}}
+        {:slots #{:title}})   ;; <- minted; the :slots map was GONE
+
+  read back consistent — the head simply had no slots — and the markup
+  written at `:title` could never arrive. Two options maps are not
+  merged and never were. [[defview]]'s `[argv & body]` has no tail to
+  lose, which is what made this the one door in the family that
+  swallowed one; the refusal closes the gap `mint-host!`'s own
+  unknown-option message already gives the reason for — *reading past an
+  option it does not know is how a policy comes to be set and never
+  applied* — one layer above that guard.
+
+  Positional flexibility is deliberately NOT the repair. A docstring
+  after the component binds to `opts` (the probe reads only the first
+  form of the tail, which is the component symbol) and pushes the real
+  options map into the discarded tail, so it is refused at whichever of
+  the two guards it reaches first rather than accommodated.
+
   ## The declaration extent earns its keep here (rf2-hic-007)
 
   `defview` opens one so that a refusal from a body can name the boundary
@@ -307,7 +339,20 @@
   whole ex-data before it throws."
      [sym & more]
      (let [doc         (when (string? (first more)) (first more))
-           [component opts] (if doc (rest more) more)
+           forms       (if doc (rest more) more)
+           [component opts] forms
+           ;; THE TAIL, refused rather than dropped (rf2-3f11). The
+           ;; destructure above is fixed-width over a seq of arbitrary
+           ;; length, so everything past `opts` used to vanish silently
+           ;; — `defview`'s `[argv & body]` has no such tail to lose,
+           ;; and this was the one door in the family that swallowed
+           ;; one. Detected HERE, in the form, so the extra forms are
+           ;; quoted rather than evaluated; raised at load, inside the
+           ;; declaration extent, so the refusal carries the same
+           ;; coordinate every other `defhost` refusal carries. See
+           ;; `impl.codec/refuse-host-extra-forms!` for both halves of
+           ;; that argument.
+           extra       (seq (drop 2 forms))
            host-name   (str (ns-name *ns*) "/" sym)
            coord       (source-coords/coords-form (meta &form) *file* (ns-name *ns*))]
        `(def ~(if doc (vary-meta sym assoc :doc doc) sym)
@@ -315,8 +360,11 @@
             (when re-frame.interop/debug-enabled?
               (re-frame.hicasso.impl.error/declaring! ~host-name ~coord))
             (try
-              (re-frame.hicasso.impl.codec/mint-host!
-                ~host-name ~component ~(or opts {}))
+              ~(if extra
+                 `(re-frame.hicasso.impl.codec/refuse-host-extra-forms!
+                    ~host-name '~(vec extra))
+                 `(re-frame.hicasso.impl.codec/mint-host!
+                    ~host-name ~component ~(or opts {})))
               (finally
                 (when re-frame.interop/debug-enabled?
                   (re-frame.hicasso.impl.error/declared!)))))))))
