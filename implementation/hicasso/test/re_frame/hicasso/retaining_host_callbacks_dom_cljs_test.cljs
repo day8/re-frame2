@@ -346,14 +346,30 @@
 (defn- run-arm!
   "Mount `form`, tick [[ticks]] times, and answer the vendor's body count.
   The mount is one run, so 1 is a bail-out and 1 + [[ticks]] is a memo
-  defeated by identity."
+  defeated by identity.
+
+  ## The teardown is `unmount!`, never `release!`, and that is load-bearing
+
+  `impl.mount/release!` is the FIXTURE door: it empties the runtime's
+  tables outright. Called here — nine times in one `doseq`, milliseconds
+  after the previous suite handed the runner on — it empties them under
+  a neighbouring suite whose own teardown chain is still draining, and
+  that suite fails with an empty container for a reason that has nothing
+  to do with it. `reincarnation_paint_dom_cljs_test`'s W1 and W2 rows
+  went red exactly that way, reported against whichever test happened to
+  be current; a control run with this file moved aside was green
+  (1284 tests, 7971 assertions), which is how the cause was pinned.
+
+  `unmount!` is the ordinary door and touches nothing the runtime holds.
+  Nothing here needs more: `use-fixtures` resets the runtime between
+  deftests, and [[fresh!]] destroys any live frame before each arm."
   [form]
   (fresh!)
   (let [handle (mount/root! (mount/fresh-container!) frame-id form)]
     (try
       (dotimes [_ ticks] (mount/dispatch! handle [::tick]))
       @!sink-runs
-      (finally (mount/release! handle)))))
+      (finally (mount/unmount! handle)))))
 
 ;; ---------------------------------------------------------------------------
 ;; 1 — THE GRID. What a memoized vendor costs, per carrier
@@ -406,7 +422,7 @@
                                               "data-tick"))
                 "the parent painted every tick, so the bail-out rows above were
                  given something to bail out of")
-            (finally (mount/release! handle)))))
+            (finally (mount/unmount! handle)))))
 
       (testing "and the vendor is one component, so the two answers are
                 comparable rather than two different memos"
@@ -435,7 +451,7 @@
             (is (= (inc ticks) (count @!held)))
             (is (= (inc ticks) (count (set @!held)))
                 "every one of them is a distinct object")
-            (finally (mount/release! handle)))))
+            (finally (mount/unmount! handle)))))
 
       (testing "the identity-stable carriers hand it the SAME function every
                 render, so the bail-out above is `Object.is` answering true
@@ -448,7 +464,7 @@
               (dotimes [_ ticks] (mount/dispatch! handle [::tick]))
               (is (= 1 (count @!held))
                   (str (name arm) " re-rendered the vendor"))
-              (finally (mount/release! handle)))))))))
+              (finally (mount/unmount! handle)))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 3 — RETENTION. A callback the vendor kept still routes inside its own
@@ -476,7 +492,7 @@
                 "and nothing is refused: staleness across renders is not
                  staleness across incarnations, and only the second is a
                  fault"))
-          (finally (mount/release! handle)))))))
+          (finally (mount/unmount! handle)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 4 — TEARDOWN and RETIREMENT. Harmless afterwards, and LOUDLY so
@@ -540,7 +556,7 @@
               (mount/settle!)
               (is (= 1 (pings)) "the live incarnation's own vendor writes its own app-db")
               (is (empty? refusals)))
-            (finally (mount/release! handle))))))))
+            (finally (mount/unmount! handle))))))))
 
 (deftest NEGATIVE-CONTROL-an-unpinned-capture-does-reach-the-successor
   ;; Section 5's safety half asserts a NON-event, and the bead names the
@@ -617,4 +633,4 @@
                  and the vendor are not boundaries, and the pin the safety
                  rests on is a memo row acquired once per incarnation rather
                  than work done per render")
-            (finally (mount/release! handle))))))))
+            (finally (mount/unmount! handle))))))))
