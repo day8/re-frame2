@@ -211,7 +211,7 @@
               the `finally` does can reach a refusal already on its way out"
       (is (= {:rf.error/id :rf.error/hicasso-host-unknown-option
               :where       're-frame.hicasso.impl.codec/mint-host!
-              :recovery    :declare-callbacks-or-ssr
+              :recovery    :declare-callbacks-slots-server-or-fallback
               :view        "re-frame.hicasso.error-shape-cljs-test/refusing-declaration"
               :option      :not-an-option}
              (select-keys data [:rf.error/id :where :recovery :view :option])))

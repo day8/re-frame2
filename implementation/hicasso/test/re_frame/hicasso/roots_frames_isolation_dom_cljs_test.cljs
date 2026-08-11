@@ -120,7 +120,7 @@
     #js [])
   nil)
 
-(h/defhost exploder exploding-cleanup-component {:ssr :render})
+(h/defhost exploder exploding-cleanup-component {:server :render})
 
 (h/defview fragile-panel
   "[[panel]]'s tree with the charge attached. Same subscriptions, same

@@ -418,6 +418,51 @@ instance props can express.
 
 ## HD-011 — The interop door
 
+> **Addendum, 2026-08-12 — the policy option is `:server` with TWO values, and
+> `:fallback` is its SIBLING (`rf2-mo4o`).** This amends the 2026-08-05 and
+> 2026-08-04 addenda below, which stand as the dated records they are. Nothing
+> about the policies themselves changed; only how a declaration spells them.
+>
+> **The declaration.** `defhost`'s `opts` carry `:server`, whose value is either
+> `:client-only` — the **default**, applied when `:server` is absent — or
+> `:render`; and `:fallback`, hiccup that renders where the host sits until the
+> client adopts the markup. `:fallback` belongs to Client-only ALONE: under
+> `:render` the component itself renders on the server, so there is nothing for a
+> placeholder to stand in for, and a declaration carrying both is refused. The
+> option roster is `#{:callbacks :slots :server :fallback}`.
+>
+>     (defhost chart Chart {:fallback [:div.chart-skeleton]})
+>     (defhost themed (.-Provider ctx) {:server :render})
+>
+> **Why it moved, and why it did not wait for the naming sweep.** Naming-ledger
+> row 21 had recommended `:server` since the packet opened, and the whole
+> normative corpus already spelled it that way — the 22-chapter guide uniformly,
+> the `n/defcomponent` ABI note verbatim. What made this a divergence repair
+> rather than a taste call is that the contradiction had become **code-vs-code
+> inside one shipped artefact**: `n/defcomponent` refused every key but `:server`
+> while `defhost` refused `:server` itself, so the declaration a reader copied
+> out of the guide minted on one door and was refused by the other. The ledger's
+> own machinery applies a recommendation as a default before the sitting (row 23,
+> `rf2-0ckh`), and that is the route this took; the sitting can still overturn it.
+>
+> **No alias, no deprecation path.** This is pre-alpha and a rename is a rename,
+> so `{:ssr …}` is not translated — it lands on
+> `:rf.error/hicasso-host-unknown-option`, which names the four keys that exist.
+> **No id was minted and none retired**: an id names a refusal rather than an
+> option, so a `:server` value outside the two, and a `:fallback` the policy
+> beside it cannot carry, both raise the existing
+> `:rf.error/hicasso-host-bad-ssr-policy`. Its recovery keyword moved with the
+> option (`:declare-render-or-client-only-with-an-optional-fallback`), as row 23's
+> did.
+>
+> **What those two addenda still say correctly**, read with this spelling:
+> everything about the policies' conduct. One gate serves Client-only across the
+> server render, hydration's first pass and a fresh mount; `:render` mints no gate
+> and is the only arm under which a crossing's children reach the server; a
+> declared fallback is inert markup and that is enforced; and `[:>]` still carries
+> no declaration and must never grow a `:server` spelling of its own — the answer
+> to *"my provider vanished server-side"* is "declare it, with `{:server :render}`".
+
 > **Addendum, 2026-08-07 — the `[:>]` raw escape is BUILT, and its shape is
 > "`defhost` with the declaration erased" (`rf2-2rtt6.103`).** The ruling below
 > adopted the escape and left five edges open; the design programme closed them

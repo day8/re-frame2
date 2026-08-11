@@ -159,8 +159,8 @@
 
 (h/defhost rows-host row-list {:callbacks {:render-row :render}})
 
-(h/defhost themed (.-Provider theme-context) {:ssr :render})
-(h/defhost badge theme-badge {:ssr :render})
+(h/defhost themed (.-Provider theme-context) {:server :render})
+(h/defhost badge theme-badge {:server :render})
 
 (h/defhost suspense
   "React's own compound, declared the way chapter 20 teaches it."
@@ -216,7 +216,7 @@
     (is (some? (codec/mint-host! "slots/all" panel
                                  {:callbacks {:on-close :event}
                                   :slots     #{:title}
-                                  :ssr       :render})))))
+                                  :server    :render})))))
 
 (deftest the-declaration-refuses-a-slots-set-it-cannot-honour
   (testing "not a set. A vector or a map would each have to be read as
@@ -230,7 +230,7 @@
     (is (= :rf.error/hicasso-host-bad-slots
            (error-id #(codec/mint-host! "slots/nil" panel {:slots nil})))
         "an explicit nil is a value and not an absence — the same rule
-         `:ssr nil` takes, and for the same reason: inferring the default
+         `:server nil` takes, and for the same reason: inferring the default
          from nil is how a typo becomes a setting"))
   (testing "an entry that names no prop. Normalising a number into some
             slot nobody wrote is how a declaration comes to be inert"

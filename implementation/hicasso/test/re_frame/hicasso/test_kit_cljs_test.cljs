@@ -153,7 +153,7 @@
 (defn- badge-component [^js props]
   (react/createElement "b" #js {"className" "badge"} (.-label props)))
 
-(h/defhost badge badge-component {:ssr :render})
+(h/defhost badge badge-component {:server :render})
 
 ;; The `<name>-body` pair, which is the spelling this suite's own examples
 ;; teach — and which used to be unrenderable (rf2-jan2). `h/defview` named

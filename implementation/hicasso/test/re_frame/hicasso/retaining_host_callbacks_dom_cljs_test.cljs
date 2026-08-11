@@ -178,7 +178,7 @@
 (def ^:private sink (react/memo sink-body))
 
 (h/defhost sink-event
-  "The crossing under the RULED DEFAULT `:ssr :client-only`, so the grid
+  "The crossing under the RULED DEFAULT `:server :client-only`, so the grid
   measures the path a consumer gets by writing nothing. The gate that
   policy mints is a plain function component that hands its props object
   straight to the foreign component, so it changes what is compared not

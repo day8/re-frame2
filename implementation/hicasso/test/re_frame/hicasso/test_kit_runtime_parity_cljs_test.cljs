@@ -138,7 +138,7 @@
 ;; The table
 ;; ---------------------------------------------------------------------------
 
-(h/defhost a-host js/Object {:ssr :client-only})
+(h/defhost a-host js/Object {:server :client-only})
 
 (defn- raw-component [] nil)
 

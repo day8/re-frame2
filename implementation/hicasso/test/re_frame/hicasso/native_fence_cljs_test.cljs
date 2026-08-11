@@ -206,10 +206,11 @@
     (is (nil? (n/marker (fn [_]))))))
 
 (deftest the-declaration-map-is-checked-against-a-key-roster-and-a-value-roster
-  (testing "THE KEY ROSTER. `{:ssr :render}` is the `defhost` spelling on
-            the sibling door and the mistake an author is likeliest to
-            make, and it used to mint clean and stamp Client-only —
-            `mint-host!`'s own message is the ruling this repairs:
+  (testing "THE KEY ROSTER. `{:ssr :render}` is the spelling `defhost`
+            carried until rf2-mo4o, and a plausible mistake for anyone
+            reading older material. It used to mint clean here and stamp
+            Client-only — `mint-host!`'s own message is the ruling
+            this repairs:
             *reading past an option it does not know is how a policy comes
             to be set and never applied*"
     (let [d (refusal #(n/declared-server "app/x" {:ssr :render}))]
@@ -237,15 +238,16 @@
       (is (= :rendr (:server d)))))
 
   (testing "an explicit nil is a VALUE and not an absence — the roster
-            reads it as one, exactly as `declared-ssr` does one tier down,
-            because inferring the default from nil is how a typo becomes a
-            policy"
+            reads it as one, exactly as the host codec's own
+            `declared-server` does one tier down, because inferring the
+            default from nil is how a typo becomes a policy"
     (is (= :rf.error/hicasso-native-bad-server-policy
            (:rf.error/id (refusal #(n/declared-server "app/x" {:server nil}))))))
 
-  (testing "and `defhost`'s third form is NOT a value here. A fallback is
-            markup a GATE component renders in the crossing's place, and a
-            native component has no gate: it is its own element type"
+  (testing "and `defhost`'s sibling `:fallback` has no counterpart here,
+            as a value or as a key. A fallback is markup a GATE component
+            renders in the crossing's place, and a native component has no
+            gate: it is its own element type"
     (is (= :rf.error/hicasso-native-bad-server-policy
            (:rf.error/id (refusal #(n/declared-server "app/x"
                                                       {:server {:fallback [:div]}}))))))

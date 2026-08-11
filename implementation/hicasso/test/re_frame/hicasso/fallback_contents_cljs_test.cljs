@@ -1,5 +1,5 @@
 (ns re-frame.hicasso.fallback-contents-cljs-test
-  "WHAT A `defhost` `:ssr` FALLBACK MAY CONTAIN — **THE CONTRACT**
+  "WHAT A `defhost` `:fallback` MAY CONTAIN — **THE CONTRACT**
   (rf2-nv07k, ruled 2026-08-05).
 
   [[re-frame.hicasso.impl.codec/mint-host-gate!]] states the rule
@@ -52,7 +52,7 @@
   naming the host, the offending head and its position in the declared
   form. The workaround this deletes — writing a provider's subtree a
   second time as the declaration's fallback, which was `rf2-l0wfx`'s only
-  recovery — is SUPERSEDED rather than merely removed: `:ssr :render` now
+  recovery — is SUPERSEDED rather than merely removed: `:server :render` now
   renders the real subtree on the server, with the real context value and
   no duplication ([[re-frame.hicasso.host-ssr-dom-cljs-test]]).
 
@@ -148,7 +148,7 @@
   "A `defhost` head written into a fallback — a second deferring head, so
   the rule is not a `defview` fact."
   inner-component
-  {:ssr {:fallback [:em.inner-fallback "INNER-FALLBACK"]}})
+  {:fallback [:em.inner-fallback "INNER-FALLBACK"]})
 
 ;; ---------------------------------------------------------------------------
 ;; Helpers
@@ -165,7 +165,7 @@
   is about the declaration can put its own hiccup in it."
   [host-name fallback]
   (codec/mint-host! host-name (.-Provider theme-context)
-                    {:ssr {:fallback fallback}}))
+                    {:fallback fallback}))
 
 (defn- server-html [frame hiccup]
   (react-dom-server/renderToString
@@ -250,7 +250,7 @@
       (is (= [1 1 0] (:position data))
           "the index route into the DECLARED form — the div's child 1 is the
            span, whose child 1 is the offending vector, whose head is at 0")
-      (is (= :write-inert-hiccup-or-declare-ssr-render (:recovery data))
+      (is (= :write-inert-hiccup-or-declare-server-render (:recovery data))
           "and the recovery names the supersession, not just the ban")
       (is (re-find #"fb/named" (ex-message (try (host-with-fallback
                                                   "fb/named"

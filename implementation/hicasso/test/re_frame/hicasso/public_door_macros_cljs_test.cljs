@@ -117,7 +117,7 @@
   [^js props]
   (react/createElement "b" #js {"className" "badge"} (.-label props)))
 
-(h/defhost badge badge-component {:ssr :render})
+(h/defhost badge badge-component {:server :render})
 
 (defn- html
   [hiccup]
@@ -134,7 +134,7 @@
             only reason the server render below produces anything at all —
             `:client-only`, the default a dropped argument would leave,
             renders no host region on the server"
-    (is (= :render (codec/host-ssr badge))))
+    (is (= :render (codec/host-server badge))))
 
   (testing "and the minted var is a legal hiccup head inside an ordinary tree,
             with the crossing rendering the foreign component's own markup"
@@ -227,7 +227,7 @@
             minting a head whose declared slots silently do not exist"
     (let [data (error-data
                  #(h/defhost two-options-host badge-component
-                    {:ssr :render}
+                    {:server :render}
                     {:slots #{:title}}))]
       (is (= :rf.error/hicasso-host-extra-form (:rf.error/id data))
           (str "the tail was refused and named. Raised: " (pr-str data)))
@@ -244,7 +244,7 @@
             mint, keep its `opts`, and carry its docstring"
     (is (true? (codec/host-head? badge))
         "the two-argument shape, declared at the top of this file")
-    (is (= :render (codec/host-ssr badge))
+    (is (= :render (codec/host-server badge))
         "with its options intact")))
 
 (deftest defhost-refuses-options-that-are-not-a-map
@@ -264,11 +264,11 @@
 
   (testing "and every other non-map is refused the same way"
     (is (= :rf.error/hicasso-host-bad-options
-           (error-id #(codec/mint-host! "bad/vec" badge-component [:ssr :render]))))
+           (error-id #(codec/mint-host! "bad/vec" badge-component [:server :render]))))
     (is (= :rf.error/hicasso-host-bad-options
            (error-id #(codec/mint-host! "bad/kw" badge-component :render))))
     (is (= :rf.error/hicasso-host-bad-options
-           (error-id #(codec/mint-host! "bad/set" badge-component #{:ssr})))))
+           (error-id #(codec/mint-host! "bad/set" badge-component #{:server})))))
 
   (testing "THE NEAR MISS. `nil` is *no options*, which is exactly what the
             two-arity call means, so a guard that refused it would refuse the
@@ -276,6 +276,6 @@
     (is (true? (codec/host-head? (codec/mint-host! "ok/nil" badge-component nil))))
     (is (true? (codec/host-head? (codec/mint-host! "ok/empty" badge-component {}))))
     (is (true? (codec/host-head? (codec/mint-host! "ok/arity2" badge-component))))
-    (is (= :render (codec/host-ssr (codec/mint-host! "ok/opts" badge-component
-                                                     {:ssr :render})))
+    (is (= :render (codec/host-server (codec/mint-host! "ok/opts" badge-component
+                                                     {:server :render})))
         "and a real options map still reaches the declaration")))
