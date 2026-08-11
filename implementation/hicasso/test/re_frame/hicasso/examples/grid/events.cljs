@@ -41,9 +41,13 @@
   intent carries THREE arguments rather than two — the collision does not
   soften as the payload grows, it gets worse, because a three-argument
   positional vector is exactly where a payload map would have started to
-  pay for itself."
-  (:require [clojure.string :as str]
-            [re-frame.core :as rf]))
+  pay for itself.
+
+  [[::seed]] and [[::clear-row]] carry no marker, so both take the
+  canonical payload map — `[::clear-row {:row 2}]` — and between them
+  they are this bead's live exhibit of the shape the convention asks for
+  working exactly as advertised where nothing needs substituting."
+  (:require [re-frame.core :as rf]))
 
 (def default-dimensions
   "Ten by ten — §7's *100-cell grid*, and the size every witness that
@@ -122,4 +126,4 @@
   "The DOM id of one cell — `\"cell-3-4\"`. Same reason as
   [[cell-label]]."
   [row col]
-  (str/join "-" ["cell" row col]))
+  (str "cell-" row "-" col))

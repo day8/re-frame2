@@ -149,18 +149,19 @@
 
 (rf/reg-event ::save
   {:doc "Commit the draft. The one place `:article` moves."}
-  ;; The canonical `[<id> {<k> <v>}]` shape, and it is written here to
-  ;; make the contrast in the namespace docstring visible in the source
-  ;; rather than only described: this handler may have it because its
-  ;; payload carries no marker, and [[::edit]] may not because its does.
-  (fn [{:keys [db]} [_ {:keys [at]}]]
-    {:db (-> db
-             (assoc :article (:draft db))
-             (assoc :saved-at at))}))
+  ;; No payload, because a save at this size has nothing to say. Both
+  ;; handlers below COULD take the canonical `[<id> {<k> <v>}]` map —
+  ;; neither carries a marker — and that is the whole shape of the
+  ;; collision in the namespace docstring: the map is available to every
+  ;; handler that needs no substitution and to none that does. The live
+  ;; exhibit is the sibling application's `examples.grid.events/clear-row`,
+  ;; which genuinely carries `{:row 2}`.
+  (fn [{:keys [db]} _]
+    {:db (assoc db :article (:draft db))}))
 
 (rf/reg-event ::discard
   {:doc "Throw the draft away and re-baseline the fields — the reset."}
-  (fn [{:keys [db]} [_ _]]
+  (fn [{:keys [db]} _]
     ;; TWO moves, and the second is the one nothing on the door asks for.
     ;; Restoring `:draft` moves the MODEL back; bumping `:revision` is
     ;; what tells a controlled field to take it even where React's own

@@ -210,11 +210,12 @@
   a new PUBLIC dependency arriving, and a witness that quietly grew one
   would stop being the small honest thing a facade freeze reads.
 
-  Read the two columns together. The editor needs `clojure.string` for
-  one normalisation and the grid needs it for one id; both need
-  `re-frame.core`, the door, and an adapter. **Neither needs anything
-  else at all**, and between them they cover four controlled policies,
-  three markers, a reset and a hundred fields."
+  Read the two columns together. **THREE** foreign namespaces build a
+  hundred controlled fields — `re-frame.core`, the door, and an adapter —
+  and the editor's fourth is `clojure.string`, for the one normalisation
+  that makes its slug field a normalising field. Between them the two
+  applications cover four controlled policies, a refusal, three markers,
+  a reset and a hundred fields, and that is the whole list."
   {"the four-field editor"
    {"clojure.string"       "one normalisation — `slugify`"
     "re-frame.core"        "events and subscriptions"
@@ -223,8 +224,7 @@
                             (Spec 006 §Adapter selection at boot)"}
 
    "the 100-cell grid"
-   {"clojure.string"       "one id spelling — `cell-id`"
-    "re-frame.core"        "events and subscriptions"
+   {"re-frame.core"        "events and subscriptions"
     "re-frame.hicasso"     "the public door — defview, sub, root!, render!"
     "re-frame.adapter.uix" "the reactive adapter, installed once at boot"}})
 

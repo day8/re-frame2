@@ -249,11 +249,13 @@
           "`false` and not nil — per 004B a false attribute is RECORDED
            and a nil one is dropped, so `(is (nil? …))` here would be
            green against a button that had no disabled slot at all")
-      (is (= [[::events/save {:at "now"}] [::events/discard {}]]
+      (is (= [[::events/save] [::events/discard]]
              (mapv (comp :on-click ht/attrs) btns))
-          "both carry the CANONICAL payload map, which they may because
-           neither carries a marker — the contrast with the fields, in
-           one tree"))))
+          "no payload, and no marker either. Both COULD take the canonical
+           `[<id> {<k> <v>}]` map — which is the whole shape of the
+           collision above: the map is available to every intent that needs
+           no substitution and to none that does. The grid's
+           `[::grid.events/clear-row {:row 2}]` is the live exhibit"))))
 
 (deftest the-readout-reads-only-committed-addresses
   ;; The fixture map is the assertion: four `::subs/committed` reads and
