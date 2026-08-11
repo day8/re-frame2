@@ -127,10 +127,22 @@
         ;; false for every ordinary mount and false again the moment
         ;; THIS root's closer commits.
         ;;
-        ;; A SERVER render entry opens a window of its own around its own
-        ;; request, so the server's HTML and the client's first pass agree
-        ;; by construction; that agreement is the whole reason the window
-        ;; is read here in the RENDER rather than in the effect below.
+        ;; Read here in the RENDER rather than in the effect below
+        ;; because the first client pass must ALREADY be `:present`: an
+        ;; effect runs after that pass has painted `::h/mounting` over
+        ;; DOM the server already delivered, which is the flash this
+        ;; branch exists to avoid.
+        ;;
+        ;; THE SERVER HALF DOES NOT EXIST YET (rf2-kpig). Nothing in
+        ;; this tier opens a window around a server render, so
+        ;; `adopting-here?` reads `nil` there and the tray emits
+        ;; `:mounting` children that the hydrating client then renders
+        ;; `:present` — the divergence measured in
+        ;; `re-frame.hicasso.presence-ssr-seam-dom-cljs-test`.
+        ;; rf2-hic-046 has RULED the Render arm: a request-scoped
+        ;; server door will mint one window per request and make the
+        ;; two halves agree by construction. Until it lands, this line
+        ;; is client-only.
         next       (if (roots/adopting-here?) (presence/settle stepped) stepped)]
     ;; Adjusting state while rendering — React's own answer to "a value
     ;; derived from props that must persist". `step` is idempotent, so the

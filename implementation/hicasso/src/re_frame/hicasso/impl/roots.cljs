@@ -51,9 +51,22 @@
 (defn open-adoption-window!
   "Open a window and answer it — the ONLY handle on it there is.
 
-  Minted per `hydrate-root!` call and per server render/request. Born
-  open: the renders that follow it are adopting server-rendered DOM until
-  something calls [[close-adoption-window!]] on this very object.
+  Minted per `hydrate-root!` call — TODAY'S ONLY MINTER. Its one
+  product consumer is `impl.mount/tree`, which scopes it over that
+  root's subtree with [[with-adoption]] when the handle carries an
+  `:adoption`. **No server-render entry exists in this tier**, so a
+  server render finds no provider above it, reads the adoption
+  context's `nil` default, and [[adopting?]] calls that closed —
+  measured in `re-frame.hicasso.presence-ssr-seam-dom-cljs-test`.
+
+  rf2-hic-046 has RULED the Render arm for motion and presence, which
+  adds a second minter: one window per server render/request, scoped
+  over that request's tree (rf2-6tmu's repair shape, item 5). That
+  door is named here because it is DECIDED, not because it is built.
+
+  Born open: the renders that follow it are adopting server-rendered
+  DOM until something calls [[close-adoption-window!]] on this very
+  object.
 
   A bare mutable ref rather than a registry entry, and deliberately.
   A registry keyed by frame cannot work — several roots may intentionally
