@@ -43,10 +43,6 @@
   [tree tag]
   (ht/find tree #(= tag (:tag %))))
 
-(defn- all-tagged
-  [tree tag]
-  (ht/find-all tree #(= tag (:tag %))))
-
 (defn- classed
   "The first node in `tree` carrying `class` — the slice's own hook for
   finding a region, and the same hook the mounted suite uses, so the two
