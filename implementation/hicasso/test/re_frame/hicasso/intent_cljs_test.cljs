@@ -691,7 +691,7 @@
               (is (= "preventDefault" (:needed data)))
               (is (= "a-value" (:argument data)))
               (is (re-find #":on-pick" (ex-message e)) "it names the POSITION")
-              (is (re-find #"h/fn" (ex-message e)) "and the spelling that works"))))))
+              (is (re-find #"h/hfn" (ex-message e)) "and the spelling that works"))))))
     (testing "`:on-submit`'s auto-prevent is the same law, reached by the
               policy default rather than by the head"
       (let [h (intent/with-frame d (fn [] (intent/lower-prop :on-submit [:go])))]

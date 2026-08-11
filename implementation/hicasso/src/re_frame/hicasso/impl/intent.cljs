@@ -738,7 +738,7 @@
                 "what every native position and every event-first foreign "
                 "contract hands it. A value-first invoker — (on-pick value "
                 "event) — has no event there, and nothing can guess which of "
-                "its arguments is one. Write an h/fn instead: the one form "
+                "its arguments is one. Write an h/hfn instead: the one form "
                 "receives every argument the invoker passed, in order.")
            :write-an-h-fn-at-a-value-first-position
            {:position k :form form :argument e :needed slot})))
@@ -930,7 +930,7 @@
            (str "The " (pr-str navigate-head) " decorator at " (pr-str k)
                 " carries the veto " (pr-str veto) ", which is outside the "
                 "closed roster: nil, [" (pr-str prevent-head) " [:my-event …]] "
-                "(cancel the navigation and dispatch this instead), h/fn, or a "
+                "(cancel the navigation and dispatch this instead), h/hfn, or a "
                 "plain function. A bare intent vector is refused — the click "
                 "already produces the one routing intent; wrap the vector in "
                 (pr-str prevent-head) " to veto the navigation, or move the "
@@ -1159,7 +1159,7 @@
                      "foreign component's own render, where dispatching is "
                      ":rf.error/hicasso-dispatch-in-render-position. "))
               "Declare " (pr-str k) " :event if what happens there is an "
-              "event, or write an h/fn that does the " (pr-str contract)
+              "event, or write an h/hfn that does the " (pr-str contract)
               " work. The contract comes from the position, so the value "
               "never gets to overrule it.")
          :declare-the-position-event-or-write-an-h-fn

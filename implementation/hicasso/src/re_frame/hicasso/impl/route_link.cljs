@@ -162,7 +162,7 @@
            're-frame.hicasso.impl.route-link/route-link
            (str "route-link's :on-click is the pre-navigation veto; it takes nil, "
                 "[" (pr-str intent/prevent-head) " [:my-event …]] (cancel the "
-                "navigation and dispatch this instead), h/fn, or a plain function — "
+                "navigation and dispatch this instead), h/hfn, or a plain function — "
                 "never " (pr-str on-click) ". A bare intent vector is refused "
                 "because the click already produces the one routing intent; an "
                 "application reaction belongs behind the routing event, or inside "

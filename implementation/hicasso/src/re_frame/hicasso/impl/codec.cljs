@@ -2791,13 +2791,13 @@
   (fail! :rf.error/hicasso-host-unclaimed-callback
          're-frame.hicasso.impl.codec/host-element
          (str "The host " (unchecked-get head "displayName") " was handed an "
-              "h/fn at " (pr-str k) ", which no CALLBACK contract claims — its "
+              "h/hfn at " (pr-str k) ", which no CALLBACK contract claims — its "
               "declaration names " (pr-str (into #{} (keys (unchecked-get head "callbacks"))))
               (if node-slot?
                 (str " and declares " (pr-str k) " a ReactNode slot, which is "
                      "a markup position: it lowers hiccup, and it has no "
                      "contract to give a function. ")
-                (str ". An h/fn asks the POSITION for a contract, and an "
+                (str ". An h/hfn asks the POSITION for a contract, and an "
                      "unclaimed slot has none to give: it would cross as an "
                      "ordinary function whose return the library discards, so "
                      "an intent it returned would never dispatch. "))
