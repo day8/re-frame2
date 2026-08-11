@@ -75,6 +75,78 @@ copies' lanes rather than reading the path filters: derive which builds select e
 deleted. The measurements are in
 [2. the `:ssr` trio](#2-the-ssr-trio--not-blocked-and-the-third-member-is-a-different-bead).
 
+### The nine ports whose originals still stand
+
+**rf2-hic-008, 2026-08-11 16:37 AUSEST.** The convention above was ruled while eleven ports were
+already on the ground, and it resolved the two it was written about. **It was never applied to the
+other nine.** rf2-a15c landed eleven ported suites in PR #7842; rf2-c78g deleted two of their bench
+originals; the remaining nine still stand, and under the default stated above every one of them is a
+duplicate that should have gone with its port.
+
+They are duplicates by measurement rather than by name. Each package file carries its bench
+original's `deftest` roster entire — same names, same count:
+
+| bench original | lines | deftests | package port | roster |
+|---|---|---|---|---|
+| `arm1/boundary_intent_dom_cljs_test.cljs` | 453 | 7 | `boundary_intent_dom_cljs_test.cljs` | identical |
+| `arm1/callback_form_dom_cljs_test.cljs` | 156 | 3 | `callback_form_dom_cljs_test.cljs` | identical |
+| `front/codec_cljs_test.cljs` | 1,593 | 67 | `codec_cljs_test.cljs` | identical |
+| `arm1/hframe_cljs_test.cljs` | 360 | 8 | `hframe_cljs_test.cljs` | identical |
+| `arm1/hframe_dom_cljs_test.cljs` | 458 | 5 | `hframe_dom_cljs_test.cljs` | identical |
+| `arm1/keywarn_dom_cljs_test.cljs` | 190 | 3 | `keywarn_dom_cljs_test.cljs` | identical |
+| `arm1/presence_intent_dom_cljs_test.cljs` | 460 | 8 | `presence_intent_dom_cljs_test.cljs` | **one row renamed** |
+| `arm1/raw_escape_dom_cljs_test.cljs` | 403 | 6 | `raw_escape_dom_cljs_test.cljs` | identical |
+| `arm1/state_dom_cljs_test.cljs` | 265 | 4 | `state_dom_cljs_test.cljs` | identical |
+
+4,338 lines over nine files, out of the bench tree's 61 suites and 24,223 lines (`wc -l`, read on
+`origin/main` at the timestamp above).
+
+**The discriminator is a measurement because it also separates the other class.**
+`arm1/first_registration_cljs_test.cljs` shares its basename with a package file too and is **not**
+in the table: it carries five `deftest`s against the package file's one, and the claims differ. That
+is correct and expected — it is a RE-AUTHORED row, rf2-wjag wrote the package's witness from the
+behaviour rather than from the file, and a re-authoring leaves its original standing by definition.
+A roster comparison puts the nine on one side of that line and `first_registration` on the other,
+which a basename match cannot do.
+
+**One pair has already drifted, which is the ruling's own predicted failure mode observed.**
+`presence_intent_dom_cljs_test`'s eighth row is
+`presence-costs-three-hooks-and-the-shell-still-costs-two` in the bench tree and
+`presence-costs-four-hooks-and-the-shell-still-costs-two` on the package. The counts are both right
+about their own subject: rf2-6tmu gave the package's presence a root-scoped adoption window — a
+second `useContext` — and the prototype never received it. **Both copies are green**, because the
+assertion beneath the name is over `(distinct tail)` and a second `useContext` collapses into a name
+already in the list, so the whole divergence is carried by the `deftest` name and the prose around
+it. That is precisely the shape this section warns about: *"the stale one keeps passing. Nothing goes
+red to announce it."* Five days after the ruling, the tree has an instance.
+
+**The reverse-dependency scan is clean, and the two prose references are not requires.** Each of the
+nine namespaces is named by its own `ns` form and by nothing else in the repo. Two docstring mentions
+survive: `arm1/raw_escape_dom_cljs_test.cljs` line 6 wiki-links `front.codec-cljs-test`, and both
+files are in the table, so they go together; and
+`implementation/hicasso/test/re_frame/hicasso/roots_frames_support.cljs` line 53 cites
+`arm1.hframe-dom-cljs-test` as the provenance of a technique it reimplements. That second one
+dangles when the file goes, and whoever removes it owns re-pointing it — a citation into a deleted
+file is a reference to git history, not a link. Neither is a dependency; see
+[the `[[wiki-link]]` lesson](#2-the-ssr-trio--not-blocked-and-the-third-member-is-a-different-bead).
+
+**No exception is available for any of the nine.** The only capability the exception has ever
+recognised is a host, and rf2-c78g measured that one shut for exactly this file class:
+`check_test_lane_bijection.py`'s `loadable_by` gives JVM lanes `.clj` and `.cljc` and nothing else,
+so a `.cljs` suite rides no JVM host to lose. All nine are `.cljs`. The default therefore decides
+every row.
+
+**Why the deletion is not executed here, and what it waits on.** `compile_gate.cjs` **derives** the
+lane's namespace roster by walking the directory rather than listing it — deliberately, in its own
+words, because *"a roster in this file would be the staleness class the gate exists to catch"* — so
+removing nine files changes what that gate compiles. **rf2-bl0j is rewriting that gate now**, and its
+version widens the walk to include the `*_cljs_test.cljs` files these nine are. Two branches changing
+one derived roster from opposite ends is a merge nobody should have to referee, so the deletion is
+sequenced behind that gate rather than raced against it. The `MIN_NAMESPACES` floor is **not** the
+obstacle and should not be quoted as one: it is 40 in both versions against a lane of ~101, and 92
+clears it comfortably. **Owner: rf2-3ewp**, which carries the measurement, the deletion-safety scan
+and the sequencing.
+
 ## The three facts that decide most rows
 
 ### 1. All 69 already run on every PR
@@ -597,6 +669,11 @@ row needs no follow-up bead** — it needed the tier named, and the tier is name
   blocked and has since been ported. The third is a documented no, and the measurement behind it is
   the one worth carrying forward — the file already rides two jobs where it sits, and the move is
   what would cost it one.
+- **It does not execute the verdicts it records, and executing one is not finished until the
+  original is gone.** Every PORT row is now across, but nine of the ports left their bench originals
+  standing and one of those pairs has already drifted — see
+  [The nine ports whose originals still stand](#the-nine-ports-whose-originals-still-stand). That is
+  rf2-3ewp's, sequenced behind rf2-bl0j.
 - **It does not distinguish a `[[wiki-link]]` from a `:require` by tooling, because nothing here
   can.** Three of this document's blockers turned out to be docstring cross-references read as
   dependencies, and one of them was in a correction of the other two. The counts are stated as
