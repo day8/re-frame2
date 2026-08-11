@@ -23,6 +23,7 @@
   (test-support/make-reset-runtime-fixture
     {:adapter       uix-adapter/adapter
      :ambient-frame nil
+     :async?        true
      :init-fn       (fn [] (collector/reset-runtime!))}))
 
 (deftest a-perfectly-ordinary-row
