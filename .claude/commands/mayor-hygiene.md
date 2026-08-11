@@ -34,4 +34,11 @@ Exit 1 means **nothing was destroyed**: either the tree is intact and this scrip
 
 `--dry-run` reports the whole partition up front — `WOULD_REMOVE=` (clean), `WOULD_NEED_FORCE=` (all build output, sweepable) or `WOULD_REFUSE_KEEP=` (needs a human first) — so survey before you sweep, and hand the `[KEEP]` trees back to the operator rather than deciding for them.
 
-Delete merged local + origin worker branches (NEVER delete a branch whose PR is not verifiably MERGED). Then `git remote prune origin` for stale tracking refs and clear any stray stashes. **Merge state is the test for a branch, never for a worktree** — conflating the two is how the reaping rule above went wrong. An open PR is one more reason to leave a worktree alone; the test is still its agent's report. Report what was pruned, what was left locked, and which (if any) needs a process-kill or reboot to clear.
+Delete merged local + origin worker branches (NEVER delete a branch whose PR is not verifiably MERGED). **Establish that with an exact `headRefName` equality, never with `--search "head:<branch>"`** — the search substring-matches, so `head:worker/activity-hic014` answered with the PR for `worker/activity-hic014b`, a different branch, and ranked that sibling FIRST. Request the field in `--json` and compare it yourself rather than trusting the tool's match:
+
+```sh
+gh pr list --state merged --limit 60 --json number,state,headRefName \
+  --jq '.[]|select(.headRefName=="worker/<branch>")|"\(.number) \(.state)"'
+```
+
+Then `git remote prune origin` for stale tracking refs and clear any stray stashes. **Merge state is the test for a branch, never for a worktree** — conflating the two is how the reaping rule above went wrong. An open PR is one more reason to leave a worktree alone; the test is still its agent's report. Report what was pruned, what was left locked, and which (if any) needs a process-kill or reboot to clear.
