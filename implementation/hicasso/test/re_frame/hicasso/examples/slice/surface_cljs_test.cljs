@@ -10,7 +10,7 @@
   what the build was built from, including the edges a `:refer`,
   a `:use` or a `:require-macros` establishes and an `ns`-form regex
   would miss. See
-  [[re-frame.hicasso.examples.slice.require-graph]] for the mechanism and
+  [[re-frame.hicasso.examples.require-graph]] for the mechanism and
   for why the emitted graph cannot go stale.
 
   ## Two claims, and they are different
@@ -37,7 +37,7 @@
             [re-frame.hicasso.examples.slice.routes]
             [re-frame.hicasso.examples.slice.subs]
             [re-frame.hicasso.examples.slice.views])
-  (:require-macros [re-frame.hicasso.examples.slice.require-graph :as rg]))
+  (:require-macros [re-frame.hicasso.examples.require-graph :as rg]))
 
 (def ^:private app-namespaces
   "Every namespace the slice's APPLICATION is made of. The test suites
