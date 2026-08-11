@@ -1259,6 +1259,29 @@
 (def ^:private gate-adopted (fn [] true))
 (def ^:private gate-unadopted (fn [] false))
 
+(defn ^boolean adopted?
+  "**THE ADOPTION READ** — `false` while React is producing server bytes
+  and again on hydration's FIRST client pass, `true` on every render
+  after the client has adopted that markup, and `true` on the very first
+  pass of a fresh `createRoot` mount, which consults no server snapshot
+  at all.
+
+  One React hook, and the whole of the client-only mechanism above: the
+  server snapshot and hydration's first pass answer the same thing BY
+  CONSTRUCTION, so there is no mismatch for React to reconcile, and a
+  fresh mount never shows a placeholder it would immediately replace.
+
+  A hook, so it is legal only from inside a component's own render.
+  [[mint-host-gate!]] is one caller; the portal helper
+  ([[re-frame.hicasso.impl.portal]]) is the other, and the second caller
+  is why the triple above is read through a name rather than written
+  inline. Three module-level functions compared by identity are exactly
+  the kind of thing a second copy gets subtly wrong — a fresh closure
+  per render re-subscribes every host on every render — and one name
+  makes that unrepresentable rather than merely unlikely."
+  []
+  (react/useSyncExternalStore gate-no-subscribe gate-adopted gate-unadopted))
+
 (defn- deferring-head-kind
   "Which DEFERRING head `x` is — the door that minted it, named the way
   an author wrote it — or `nil` if it is not one.
@@ -1389,8 +1412,7 @@
     (refuse-deferring-heads-in-fallback! host-name [] fallback))
   (let [placeholder (when (some? fallback) (as-element fallback))
         gate        (fn [props]
-                      (if (react/useSyncExternalStore
-                            gate-no-subscribe gate-adopted gate-unadopted)
+                      (if (adopted?)
                         (react/createElement component props)
                         placeholder))]
     (unchecked-set gate "displayName" host-name)

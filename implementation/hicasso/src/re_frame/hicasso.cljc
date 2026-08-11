@@ -75,6 +75,7 @@
                [re-frame.hicasso.impl.collector :as impl-collector]
                [re-frame.hicasso.impl.intent :as impl-intent]
                [re-frame.hicasso.impl.mount :as impl-mount]
+               [re-frame.hicasso.impl.portal :as impl-portal]
                [re-frame.hicasso.impl.route-link :as impl-route-link]
                [re-frame.hicasso.impl.state :as impl-state]))
   #?(:cljs (:require-macros [re-frame.hicasso :refer [defview defhost hfn]])))
@@ -353,6 +354,34 @@
   parametric subscription and one setter event under `[:ui ::concern ikey]`,
   and nothing else. [[re-frame.hicasso.impl.state/reg-state]]."}
        reg-state impl-state/reg-state)
+
+     (def ^{:doc "`h/portal` — **hiccup into `createPortal`** (rf2-hic-028).
+  A legal hiccup head taking `:target`, the DOM container the subtree
+  renders into, and optionally `:fallback`, markup for the portal's own
+  tree position while the page is server-rendered:
+
+      [h/portal {:target js/document.body}
+       [:div.toast {:on-click [:toast/dismiss]} \"saved\"]]
+
+  Three facts, and nothing else to learn. **Events bubble through the
+  REACT tree**, so an `:on-click` on a hiccup ancestor sees clicks inside
+  the toast although its DOM node sits on `body`, and intents fire into
+  the writing boundary's frame exactly as they do in an ordinary child.
+  **A changed `:target` is a remount**, because React reconciles a portal
+  position by its container — so keep the target stable rather than
+  computing one per render. **It is client-only**: `createPortal` needs a
+  container that already exists, a server render has none, so the
+  portalled subtree is absent from the response and `:fallback` is what a
+  caller puts at the tree position instead.
+
+  A `:target` that is not a DOM node — overwhelmingly a lookup that
+  answered nothing — is refused with
+  `:rf.error/hicasso-portal-no-target`, naming the value.
+
+  The raw mechanism, for containers the application does not own.
+  Anchoring, dismissal and focus conduct are the overlay module's.
+  [[re-frame.hicasso.impl.portal/portal]]."}
+       portal impl-portal/portal)
 
      (def ^{:doc "One real anchor, as data — href and click decision taken
   whole from routing's late-bound seams. A plain function, not a boundary:
