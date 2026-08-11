@@ -38,7 +38,13 @@
   Four frames, one body run each through the same [[rt/render-body]] door
   phase B's setup uses, and the same [[rt/commit-boundary!]] seam its
   `commit` arm rides. Nothing here is timed and no number is published —
-  the claim is about reachability, not cost."
+  the claim is about reachability, not cost.
+
+  Which is exactly why row 2 arms its macrotask at the FIRST mint rather
+  than after the harvest: a reap horizon is a duration from one entry's
+  own minting, so a settle armed at the end of the setup is racing the
+  setup's wall-clock and nothing else. Timing the harvest is not this
+  file's business, and this is how it declines to."
   (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as uix-adapter]
             [re-frame.bench.hicasso.arm1.runtime :as rt]
@@ -64,20 +70,23 @@
   (doseq [f commit-frames] (dogfood/make-frame! f 3))
   nil)
 
+(defn- render-one!
+  "One body run through the runtime's own door, and the read-set entry
+  that run minted read back off [[rt/last-reads]]. The entry comes back
+  UNCLAIMED — `refs` zero, reaper armed **from this instant** — which is
+  the state the real setup leaves behind and the state the baseline is
+  taken in."
+  [f]
+  (rt/render-body f
+                  (fn [_] [:li (str (rt/sub [:dogfood/todo 0]))
+                           (str (rt/sub [:dogfood/remaining]))])
+                  {})
+  (rt/last-reads))
+
 (defn- harvest!
-  "Phase B's setup: one body run per frame through the runtime's own
-  door, and the read-set entry that run minted read back off
-  [[rt/last-reads]]. Every entry comes back UNCLAIMED — `refs` zero,
-  reaper armed — which is the state the real setup leaves behind and the
-  state the baseline is taken in."
+  "Phase B's setup: [[render-one!]] per frame."
   []
-  (mapv (fn [f]
-          (rt/render-body f
-                          (fn [_] [:li (str (rt/sub [:dogfood/todo 0]))
-                                   (str (rt/sub [:dogfood/remaining]))])
-                          {})
-          (rt/last-reads))
-        commit-frames))
+  (mapv render-one! commit-frames))
 
 (defn- commit-arm!
   "Phase B's `commit` arm and its teardown: the shipping commit half
@@ -122,24 +131,40 @@
 (deftest one-bare-macrotask-lands-in-front-of-the-reap-horizon
   (async done
     (seeded!)
-    (harvest!)
-    (testing "why row 1 is not free: one `lane/settle!` after the render
-             every unclaimed entry is STILL cached — that survival is the
-             hydration margin rf2-2rtt6.84 bought, and it is what makes a
-             residue reading taken there disagree with one taken after the
-             runtime has quiesced"
-      (-> (lane/settle!)
-          (.then (fn [_]
-                   (is (= (count commit-frames) (:entries (rt/residue)))
-                       "a bare macrotask is inside the horizon: every
-                        harvested entry is still in the cache")
-                   (app/residue-settle!)))
-          (.then (fn [_]
-                   (is (zero? (:entries (rt/residue)))
-                       "past it they are gone — two readings, two answers,
-                        and only the second is a baseline")
-                   (rt/reset-runtime!)
-                   (done)))))))
+    ;; ARMED AT THE FIRST MINT, with the other three renders behind it in
+    ;; the same tick. Every reaper's horizon starts when ITS OWN entry is
+    ;; minted, so a macrotask armed after the whole harvest is not
+    ;; measured against the horizon at all — it is measured against what
+    ;; the harvest left of it. Node drains one duration's timer list per
+    ;; pass, so the row turns on a single comparison: the settle's expiry
+    ;; against the FIRST reaper's, which is `settle-armed - first-mint`
+    ;; against 3 ms. Armed at the end, that interval is three whole
+    ;; renders — ~1.3 ms on a quiet box, past 3 ms on a loaded CI runner
+    ;; inside the consolidated node-test bundle, where this read 2 of 4
+    ;; on one and 1 of 4 on another. That is the SETUP'S COST arriving as
+    ;; a residue reading. Armed here it is the tail of one render, and
+    ;; 4 ms goes back to being React's commit margin rather than a budget
+    ;; for a test's own setup.
+    (render-one! (first commit-frames))
+    (let [settled (lane/settle!)]
+      (run! render-one! (rest commit-frames))
+      (testing "why row 1 is not free: one `lane/settle!` after the render
+               every unclaimed entry is STILL cached — that survival is the
+               hydration margin rf2-2rtt6.84 bought, and it is what makes a
+               residue reading taken there disagree with one taken after the
+               runtime has quiesced"
+        (-> settled
+            (.then (fn [_]
+                     (is (= (count commit-frames) (:entries (rt/residue)))
+                         "a bare macrotask is inside the horizon: every
+                          harvested entry is still in the cache")
+                     (app/residue-settle!)))
+            (.then (fn [_]
+                     (is (zero? (:entries (rt/residue)))
+                         "past it they are gone — two readings, two answers,
+                          and only the second is a baseline")
+                     (rt/reset-runtime!)
+                     (done))))))))
 
 ;; ===========================================================================
 ;; 3 — and the gate itself holds across the `commit` arm
