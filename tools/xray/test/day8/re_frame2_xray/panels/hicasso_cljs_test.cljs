@@ -433,10 +433,19 @@
           "NON-VACUITY: a real mount alone leaves the held reaction stale,
            so the tick below is the only thing that can move this roster")
       (tick-trace!)
-      (let [ids (testids (render-now))]
-        (is (contains? ids "rf-xray-hicasso-mounted")
-            "the trace tick re-fired the projection and the roster arrived —
-             with no cache clear anywhere in this test")
+      (let [tree (render-now)
+            ids  (testids tree)]
+        ;; A BOUNDARY ROW, not the section wrapper. `rf-xray-hicasso-mounted`
+        ;; is the wrapper `mounted-view` renders in every arm — the empty
+        ;; note lives inside it — so asserting the wrapper would pass on the
+        ;; stale empty roster this row exists to catch. That is the bead's own
+        ;; question turned on this test, and the first draft failed it.
+        (is (some #(string/starts-with? % "rf-xray-hicasso-boundary-") ids)
+            "the trace tick re-fired the projection and a boundary ROW
+             arrived — with no cache clear anywhere in this test")
+        (is (string/includes? (text-of tree) "[:htab/left]")
+            "and the row names the read the boundary really holds, so the
+             assertion above cannot pass on a row projected from nothing")
         (is (not (contains? ids empty-testid))
             "and the empty note is gone, so the roster replaced it rather
              than rendering beside it"))
