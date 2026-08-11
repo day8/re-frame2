@@ -223,15 +223,15 @@ the compatibility claim. S10 says so in its own first line: Story is a **consume
 `re-frame.ui` can enter Story's substrate roster through the sanctioned seam; the tool UI is not
 written on `defview`. Delete the donor and what is lost is the evidence, not a Story feature.
 
-**Why S11 counts, and why it was missed twice** (`rf2-gj0a`). It is X13's species one tool over — a
-donor name shipped inside a runtime string rather than a `:require` — but it errs harder in the
-under-count direction than X13 does, in two ways. X13's two hits at least *appear* in the grep, so a
-reader auditing `registry.cljs`'s ten hits could reach them; S11's does not appear at all, because
-the census's pattern is lowercase and the message says `Freehand`. And the string is not
-developer-facing, as X13's `js/console.warn` is: it is the `:message` **a Story author reads when
-their `[:flush-presence]` step refuses**, so a stale one sends a user to require a namespace nobody
-ships. That is the failure this row exists to prevent: a reader disposing of Story's donor rows on
-this census's authority would leave that sentence standing.
+**Why S11 counts, and why the earlier passes missed it** (`rf2-gj0a`). It is X13's species one tool
+over — a donor name shipped inside a runtime string rather than a `:require` — but it errs harder in
+the under-count direction than X13 does, in two ways. X13's two hits at least *appear* in the grep,
+so a reader auditing `registry.cljs`'s ten hits could reach them; S11's does not appear at all,
+because the census's pattern is lowercase and the message says `Freehand`. And where X13's
+`js/console.warn` is developer-facing, this string reaches a **user**: it is the `:message` a Story
+author reads when their `[:flush-presence]` step refuses, so a stale one sends them to require a
+namespace nobody ships. That is the failure this row exists to prevent — a reader disposing of
+Story's donor rows on this census's authority would leave that sentence standing.
 
 **And unlike X13, this one now has the guard.** The census notes above that Pair's P6 is the guard
 its wire string earned and that X13 has no equivalent; S11's equivalent is one assertion, added by
