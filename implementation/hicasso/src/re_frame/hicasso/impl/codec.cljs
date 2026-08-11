@@ -2538,10 +2538,10 @@
                 (str " and declares " (pr-str k) " a ReactNode slot, which is "
                      "a markup position: it lowers hiccup, and it has no "
                      "contract to give a function. ")
-                ". An h/fn asks the POSITION for a contract, and an unclaimed "
-                "slot has none to give: it would cross as an ordinary function "
-                "whose return the library discards, so an intent it returned "
-                "would never dispatch. ")
+                (str ". An h/fn asks the POSITION for a contract, and an "
+                     "unclaimed slot has none to give: it would cross as an "
+                     "ordinary function whose return the library discards, so "
+                     "an intent it returned would never dispatch. "))
               "Declare " (pr-str k) " in :callbacks, or hand a plain function.")
          :declare-the-slot-or-hand-a-plain-function
          {:host     (unchecked-get head "displayName")
