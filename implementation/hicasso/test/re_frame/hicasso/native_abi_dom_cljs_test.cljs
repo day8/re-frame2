@@ -123,7 +123,8 @@
   [^js props]
   (swap! !island-runs inc)
   (reset! !island-props props)
-  (n/$ :b {:class "island"} (str (.-label props) "/" (n/use-sub [::label]))))
+  (let [label (n/use-sub [::label])]
+    (n/$ :b {:class "island"} (str (.-label props) "/" label))))
 
 (def ^:private hot-cell (n/component "app/hot-cell" :client-only island-body))
 (def ^:private memo-cell (n/memo hot-cell))
@@ -573,7 +574,7 @@
                             Narrowing caught: a bridge wrapper retaining a
                             cell reference — the screen is gone and the
                             runtime still holds the subscription"
-                    (is (= {:cell-refs 0 :boundaries 0 :edges 0} census))))
+                    (is (= support/released census))))
 
                 (exercised! :bridge/teardown)
                 (done)))

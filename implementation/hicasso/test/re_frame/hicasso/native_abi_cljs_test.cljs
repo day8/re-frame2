@@ -14,7 +14,7 @@
 
   | row | what it establishes | the one-line narrowing it catches |
   |---|---|---|
-  | [[a-decoded-slot-emits-back-into-the-slot-it-came-from]] | the bridge's inverse is a real inverse of the slot rule, over the whole corpus | an inverse that re-splits a name the forward rule never joined — `data-userId` |
+  | [[a-decoded-slot-emits-back-into-the-slot-it-came-from]] | the bridge's inverse is a real inverse of the slot rule over the corpus's keyword and symbol vocabulary, and the string escape it cannot invert is named rather than skipped | an inverse that re-splits a name the forward rule never joined — `data-userId` |
   | [[the-taught-spellings-decode-to-themselves]] | `className` comes back as `:class`, not as `:class-name` | a missing rename table, which row 1 passes with because both spellings emit into `className` |
   | [[a-native-parents-props-arrive-as-the-views-own-props-map]] | the outward bridge's whole promise, measured in the body | a bridge that handed the body the raw JavaScript object — the second ABI clause 5 forbids |
   | [[the-outward-bridge-adds-no-refusal-of-its-own]] | a bad head refuses through the codec's own id and coordinate | a bridge that minted a private complaint, which is a spelling no catalogue carries |
@@ -127,12 +127,12 @@
    :--brand-hue     "--brand-hue"})
 
 (deftest a-decoded-slot-emits-back-into-the-slot-it-came-from
-  (testing "for every authored key in the corpus, decoding its slot and
-            re-emitting the result lands on the SAME slot. That is the
-            law an inverse of a non-injective rule can actually keep —
-            `:class`, `:className`, `\"class\"` and `:x/class` are one
-            slot, so the inverse chooses a spelling and what must survive
-            is the slot, not the choice.
+  (testing "for every keyword or symbol authored key in the corpus,
+            decoding its slot and re-emitting the result lands on the
+            SAME slot. That is the law an inverse of a non-injective rule
+            can actually keep — `:class`, `:className`, `\"class\"` and
+            `:x/class` are one slot, so the inverse chooses a spelling
+            and what must survive is the slot, not the choice.
 
             Narrowing caught: an inverse that re-splits a name the
             forward rule never joined. `data-userId` keeps its hyphen
@@ -140,14 +140,39 @@
             that camel-split it would answer `:data-user-id` and emit
             `data-user-id` — a prop React sends to the DOM under a name
             the author never wrote"
-    (doseq [[k expected-slot] (merge slot-corpus/corpus bridge-corpus)]
+    (doseq [[k expected-slot] (merge slot-corpus/corpus bridge-corpus)
+            :when             (not (string? k))]
       (let [slot    (slot/prop-name k)
             decoded (codec/prop-key slot)]
         (is (= expected-slot slot)
             (str "the corpus row itself moved: " (pr-str k)))
         (is (= slot (slot/prop-name decoded))
             (str "decoding " (pr-str slot) " gave " (pr-str decoded)
-                 ", which emits into " (pr-str (slot/prop-name decoded))))))))
+                 ", which emits into " (pr-str (slot/prop-name decoded)))))))
+
+  (testing "and the string keys the loop above steps over are named here
+            rather than swept up, because a reader who checks the corpus
+            will find them. A string key is an escape FROM the rule — it
+            means `emit exactly this name` — so `\"on-input\"` emits a slot
+            no keyword reaches, and decoding it gives `:on-input`, whose
+            slot is `onInput`. The correspondence is broken because the
+            forward direction was never a function of the hiccup
+            vocabulary there.
+
+            That is the right answer anyway: a props map handed to a body
+            is application data, and a body receiving `foo-bar` from a
+            JavaScript parent wants `:foo-bar`. Answering the string back
+            would make the law universal by handing the author a key
+            their destructuring cannot see"
+    (is (= "on-input" (slot/prop-name "on-input")))
+    (is (= :on-input (codec/prop-key "on-input")))
+    (is (= "onInput" (slot/prop-name (codec/prop-key "on-input"))))
+
+    (testing "the two string rows that DO round trip do it through the
+              rename table, which is the whole reason they behave
+              differently from the one above"
+      (is (= :class (codec/prop-key (slot/prop-name "class"))))
+      (is (= :for (codec/prop-key (slot/prop-name "for")))))))
 
 (deftest the-taught-spellings-decode-to-themselves
   (testing "the keys the guide teaches come back as themselves, so a
