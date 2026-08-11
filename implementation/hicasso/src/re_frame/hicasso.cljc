@@ -227,8 +227,10 @@
   [[as-element]] crosses a real element through any prop.
 
   A slot may not also be a declared callback, may not be `:key` or
-  `:ref`, and may not be spelled twice — all refused at the declaration
-  with `:rf.error/hicasso-host-bad-slots`.
+  `:ref`, may not be a name the crossing can never emit (`__proto__`,
+  `prototype`, `constructor`), and may not be spelled twice — all
+  refused at the declaration with
+  `:rf.error/hicasso-host-bad-slots`.
 
       (defhost chart Chart
         {:ssr {:fallback [:div.chart-skeleton]}})

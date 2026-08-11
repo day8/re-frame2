@@ -623,14 +623,26 @@
   `:render` return crosses UNCONVERTED: a string renders, a vector reaches
   React and is refused there. Something has to turn the row into an
   element, and the something is
-  [[re-frame.hicasso.impl.codec/as-element]] — which is INTERNAL.
-  Nothing on the authoring surface reaches it, so **the recovery this
-  paragraph describes has no spelling an author can write today**; that
-  gap is `rf2-2rtt6.120`, and it is a real gap rather than a missing
-  sentence. In particular there is **no `h/as-element`**: an earlier
-  revision of this docstring illustrated the row with one, and four design
-  documents copied the spelling out of here before anyone checked that it
-  resolved.
+  [[re-frame.hicasso.impl.codec/as-element]] — **exported as
+  `h/as-element`**, so the recovery this paragraph describes is one an
+  author writes:
+
+      (h/fn [i]
+        (h/as-element
+          [:li {:on-click [:row/pick (nth ids i)]} (str (nth ids i))]))
+
+  It lowers under the frame of the boundary currently rendering, which
+  under this wrapper is the SUPPLYING boundary's — so the row's own
+  intent obeys the same temporal law the paragraph above states, and the
+  conversion stays a thing the author asked for rather than a guess about
+  what a returned vector meant.
+
+  This docstring is why the spelling is worth stating precisely: it
+  carried `h/as-element` as an illustration before the export existed,
+  four design documents copied it out of here, and a later revision
+  over-corrected to *\"there is no `h/as-element`\"*. Both are now
+  behind us — rf2-hic-035 shipped the export, and this paragraph is its
+  upstream source of truth.
 
   So the wrapper captures the ambient dispatch AND frame at LOWERING
   time — the supplying boundary's, because the wrapper is minted during
