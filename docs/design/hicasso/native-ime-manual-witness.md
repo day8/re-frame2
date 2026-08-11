@@ -1,5 +1,18 @@
 # Native IME on Firefox and WebKit — the one bounded manual witness
 
+> **SUPERSEDED AS THE ACCEPTANCE PATH (operator ruling, 2026-08-11).** The manual session is retired: the results that
+> fill §2.3 now come from the scripted witness at
+> [`native-ime-scripted-witness.md`](native-ime-scripted-witness.md), which drives a **real** Windows IME from a
+> script. The 2026-08-10 fence quoted in §1 below — "no automation attempts at real IME (ruled over-engineering)" — was
+> explicitly overturned.
+>
+> **This document is not retired, and it is not history.** It remains the prose statement of what each of the eight
+> checks *means*, which field it reads and why that field and not another; the scripted witness implements these
+> semantics rather than restating them, and §7 of that document maps check to code. It also remains the **fallback**:
+> if an engine turns out not to accept scripted OS-level input at all, a human with this checklist is what is left.
+> Read §5 for the checks. Read §3.1 before running any `playwright install` — that hazard is unchanged and is still
+> stated only here.
+
 A checklist for a single operator session. It is run **once**, by hand, and its results are written into
 [`product/dispositions.md` §2.3](product/dispositions.md#23-per-control-and-dom-conformance-dispositions). It is not a
 gate, it does not run in CI, and nothing here is scheduled to repeat.
@@ -29,8 +42,11 @@ The operator ruled on that gap on 2026-08-10, and the ruling is what this docume
 So the recurring witness is the synthetic sequence, and it is enough. This session answers one narrower question the
 synthetic sequence cannot: does a **real** IME, holding a **real** composition range, behave the same way?
 
-**Do not try to automate this.** Driving a real IME from a script was considered and ruled over-engineering. If the
-session is awkward, that is the expected cost of running it once.
+~~**Do not try to automate this.** Driving a real IME from a script was considered and ruled over-engineering. If the
+session is awkward, that is the expected cost of running it once.~~ — **overturned on 2026-08-11.** The operator
+sanctioned exactly this automation; see [`native-ime-scripted-witness.md`](native-ime-scripted-witness.md). The
+sentence is struck rather than deleted because the ruling it recorded was real, and a reader who finds this fence
+quoted elsewhere needs to see where it went.
 
 ## 2. What you need
 

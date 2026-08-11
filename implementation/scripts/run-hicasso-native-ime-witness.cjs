@@ -498,6 +498,18 @@ async function cell(page, field) {
   };
 }
 
+// The READBACK line, printed under every check. It is not decoration: a
+// verdict that short-circuits on an unmet premise says nothing about whether
+// the DOM reads actually returned anything, and a rehearsal in which every
+// selector silently resolved to `null` would print the same eight
+// INCONCLUSIVEs as one in which they all worked. This is the line that
+// separates them.
+const fmtCell = (c) => `field=${JSON.stringify(c.value)} trace=${c.committed} ` +
+  `edits=${c.edits}${c.selectionStart === null ? '' : ` caret=${c.selectionStart}`}`;
+const fmtEv = (e) => `cs=${e.compositionstart} cu=${e.compositionupdate} ` +
+  `ce=${e.compositionend} composingIn=${e.composingInputs} settledIn=${e.settledInputs} ` +
+  `process=${e.processKeydowns} esc=${e.escapeKeydowns}`;
+
 // ---------------------------------------------------------------------------
 // The checks, as they are actually driven
 // ---------------------------------------------------------------------------
@@ -515,6 +527,7 @@ const RUNNERS = {
     return {
       ...W.abortVerdict({ before, after, evidence, seed: W.SEEDS.plain }),
       evidence: { before, after, ...evidence },
+      readback: `before-ESC ${fmtCell(before)} | after-ESC ${fmtCell(after)} | ${fmtEv(evidence)}`,
     };
   },
 
@@ -529,6 +542,7 @@ const RUNNERS = {
     return {
       ...W.draftVisibleVerdict({ during, evidence, seed: W.SEEDS.digits }),
       evidence: { during, ...evidence },
+      readback: `during ${fmtCell(during)} | ${fmtEv(evidence)}`,
     };
   },
 
@@ -550,6 +564,7 @@ const RUNNERS = {
     return {
       ...W.caretVerdict({ during, evidence, seed: W.SEEDS.upper, caretAt: 1 }),
       evidence: { during, ...evidence },
+      readback: `during ${fmtCell(during)} | ${fmtEv(evidence)}`,
     };
   },
 
@@ -566,6 +581,7 @@ const RUNNERS = {
     return {
       ...W.survivesModelVerdict({ early, late, evidence, seed: W.SEEDS.digits }),
       evidence: { early, late, ...evidence },
+      readback: `early ${fmtCell(early)} | late ${fmtCell(late)} | ${fmtEv(evidence)}`,
     };
   },
 
@@ -596,6 +612,8 @@ const RUNNERS = {
     return {
       ...worst([refusing, accepting]),
       evidence: { digits: { ...afterDigits, ...evDigits }, plain: { ...afterPlain, ...evPlain } },
+      readback: `digits ${fmtCell(afterDigits)} ${fmtEv(evDigits)} | `
+        + `plain ${fmtCell(afterPlain)} ${fmtEv(evPlain)}`,
     };
   },
 
@@ -614,6 +632,7 @@ const RUNNERS = {
     return {
       ...W.commitAddsNoIntentVerdict({ before, after, evidence }),
       evidence: { before, after, ...evidence },
+      readback: `before-ENTER ${fmtCell(before)} | after-ENTER ${fmtCell(after)} | ${fmtEv(evidence)}`,
     };
   },
 
@@ -638,6 +657,8 @@ const RUNNERS = {
         duringDraft, afterFire, evidence, seed: W.SEEDS['revision-strict'], armedFired,
       }),
       evidence: { readout, duringDraft, afterFire, armedFired, ...evidence },
+      readback: `armed=${JSON.stringify(readout)} fired=${armedFired} | `
+        + `during ${fmtCell(duringDraft)} | after-fire ${fmtCell(afterFire)} | ${fmtEv(evidence)}`,
     };
   },
 
@@ -669,6 +690,9 @@ const RUNNERS = {
         pageErrors: pageErrors.slice(),
       }),
       evidence: { afterBlur, readout, armedFired, gone, blur: evidence, unmount: evUnmount },
+      readback: `after-blur ${fmtCell(afterBlur)} ${fmtEv(evidence)} | `
+        + `armed=${JSON.stringify(readout)} fired=${armedFired} unmounted=${gone} `
+        + `${fmtEv(evUnmount)}`,
     };
   },
 };
@@ -770,6 +794,7 @@ async function driveEngine(engine, baseUrl, driver, args) {
       results.push({ id: check.id, n: check.n, title: check.title, ...out });
       const mark = { TICK: '[x]', CROSS: '[!]', INCONCLUSIVE: '[ ]' }[out.verdict];
       console.log(`${mark} ${label}\n      ${out.why}`);
+      if (out.readback) console.log(`      READBACK ${out.readback}`);
       if (check.priority) {
         console.log('      ^ PRIORITY CASE (the ruling\'s check 5, and the ' +
           'unresolved operator observation of 2026-08-11)');

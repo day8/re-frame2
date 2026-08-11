@@ -810,6 +810,26 @@ async function formResetAndFillProxy(page, w) {
 // It still runs LAST deliberately: the armed dispatches land five seconds
 // later, which is a wait no gate should spend and a bump no later section
 // should receive. The page closes long before either fires.
+// The armed delay this section drives at, and the ceiling it waits under.
+// `ARM_MS` is passed to the page as `?arm-ms` AND asserted in the readout,
+// so the two cannot drift.
+const ARM_MS = 300;
+const ARM_FIRE_CEILING_MS = 5000;
+
+/** Wait for an armed edge to land, failing with the section's own words. */
+async function waitForArm(page, predicate, arg, whatFailed) {
+  try {
+    await page.waitForFunction(predicate, arg, { timeout: ARM_FIRE_CEILING_MS });
+  } catch {
+    throw new Error(
+      `${whatFailed} within ${ARM_FIRE_CEILING_MS}ms of arming at ${ARM_MS}ms. ` +
+      'The readout said it was armed, so the arm dispatched; what did not ' +
+      'happen is the deferred effect. Check that `:tb/arm` returns its ' +
+      '`:dispatch-later` INSIDE `:fx` — re-frame2\'s effect-map is closed ' +
+      'and a v1 top-level key is silently carried by nothing.');
+  }
+}
+
 async function armedEdgesAreWired(page, w) {
   const before = await page.evaluate(() => ({
     label: window.__TB__.el('armed').textContent,
@@ -835,6 +855,50 @@ async function armedEdgesAreWired(page, w) {
   w.eq(unmount.label, 'armed: unmount -> [:tb/toggle-mounted] fires in 5s',
     'and the event the unmount arm will fire, which nothing pinned before');
   w.eq(unmount.mounted, before.mounted, 'the field is still mounted — this one is deferred too');
+
+  // AND THE FIRE. Everything above is equally true of an arm that never
+  // armed: the label is rendered from the dispatch that set it, and
+  // "nothing has happened yet" is exactly what a dead timer looks like.
+  // Both arms shipped DEAD for that reason — `:tb/arm` returned a v1
+  // top-level `:dispatch-later` beside `:db`, which re-frame2's closed
+  // effect-map (`#{:db :rf.db/runtime :fx}`, migration M-8) does not
+  // carry — and this section was green in three engines throughout,
+  // while the operator instrument it claims to pin could not fire.
+  // Measured 2026-08-11: 15s after the click the readout still read
+  // `armed`, while a plain 5000ms `setTimeout` in the same page returned
+  // in 5006ms.
+  //
+  // `?arm-ms` shortens the OPERATOR's five seconds for this section only.
+  // It costs under a second per engine rather than the thirty the #7815
+  // audit rightly refused, and the readout is rendered from the same
+  // number, so a stuck default reads wrong here before anything is
+  // waited on.
+  const base = page.url().split('?')[0];
+  await page.goto(`${base}?arm-ms=${ARM_MS}`, { waitUntil: 'commit' });
+  await page.waitForSelector('[data-testid="hicasso-controlled-testbed"]');
+
+  const seed = await page.evaluate(() => window.__TB__.model().revision);
+  await page.locator('[data-testid="arm-bump"]').click();
+  w.eq(await page.evaluate(() => window.__TB__.el('armed').textContent),
+    `armed: bump -> [:tb/bump-revision] fires in ${ARM_MS}ms`,
+    'the readout is rendered from the delay actually armed, not a constant');
+
+  await waitForArm(page, (r) => window.__TB__.model().revision > r, seed,
+    'the armed bump never fired');
+  const fired = await page.evaluate(() => ({
+    revision: window.__TB__.model().revision,
+    label: window.__TB__.el('armed').textContent,
+  }));
+  w.eq(fired.revision, seed + 1, 'the armed bump FIRES its event');
+  w.eq(fired.label, 'idle', 'and the readout returns to idle when it does');
+
+  await page.locator('[data-testid="arm-unmount"]').click();
+  await waitForArm(page,
+    () => document.querySelector('[data-testid="mountable-gone"]') !== null,
+    null, 'the armed unmount never fired');
+  w.eq(await page.evaluate(() =>
+    document.querySelector('[data-testid="mountable"]') === null),
+  true, 'and the armed unmount fires its own, different event');
 }
 
 // ---------------------------------------------------------------------------
