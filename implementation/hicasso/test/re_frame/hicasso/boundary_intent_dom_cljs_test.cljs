@@ -31,10 +31,10 @@
 
   ## The closed roster rides here too (rf2-czlb)
 
-  Rows 8–10 are a different subject on the same instrument, and they are
-  here because they need exactly what [[watched-root!]] already builds: a
-  refusal raised inside the class's own `render` escapes to the boundary
-  ABOVE, so reading it takes a watcher. The claim is that
+  Rows 8 and 9 are a different subject on the same instrument, and they
+  are here because they need exactly what [[watched-root!]] already
+  builds: a refusal raised inside the class's own `render` escapes to the
+  boundary ABOVE, so reading it takes a watcher. The claim is that
   `h/boundary`'s four props are a CLOSED roster and a shape, refused
   rather than dropped — `{:on-errors …}` used to mint, cross `rfProps`
   intact and be consulted by nothing, and `{:on-error :app/failed}` used
@@ -188,7 +188,7 @@
 
 (defn- caught-id
   "The stable id of whatever escaped to the watcher, or nil if nothing
-  did. Rows 8–10 branch on the id rather than on the message."
+  did. Rows 8 and 9 branch on the id rather than on the message."
   []
   (:rf.error/id (ex-data @!caught)))
 
