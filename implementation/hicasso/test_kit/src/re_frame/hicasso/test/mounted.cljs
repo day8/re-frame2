@@ -220,26 +220,53 @@
   A repeating timer's period is floored at 1 ms. The platform floors it
   too (and clamps harder still for nested timers); without a floor a
   zero-period interval inside an advance would be due forever at the same
-  instant and the advance would not terminate."
+  instant and the advance would not terminate.
+
+  **The id counts DOWN from zero, and that is what keeps the two
+  schedulers' handles apart.** A platform handle is positive BY
+  DEFINITION — HTML's timer initialisation steps mint \"an
+  implementation-defined integer that is greater than zero\" — so a
+  negative number is one no browser can ever have issued, and the two id
+  domains cannot meet however long the window stays open. Without that,
+  they overlap from the first timer: [[disarm!]] decides which scheduler
+  an id belongs to purely by looking it up, so a virtual timer numbered
+  1 answers to the `clearTimeout` of a real timer numbered 1 that was
+  armed before the install — the real one lives on and the virtual one
+  dies in its place (rf2-w2e6)."
   [repeat? f delay args]
   (let [d (if (and (number? delay) (pos? delay)) delay 0)]
-    (:seq (swap! !clock
-                 (fn [c]
-                   (let [id (inc (:seq c))]
-                     (-> c
-                         (assoc :seq id)
-                         (assoc-in [:pending id]
-                                   {:id     id
-                                    :f      f
-                                    :args   args
-                                    :due    (+ (:now c) d)
-                                    :period (when repeat? (max 1 d))}))))))))
+    (- (:seq (swap! !clock
+                    (fn [c]
+                      (let [n  (inc (:seq c))
+                            id (- n)]
+                        (-> c
+                            (assoc :seq n)
+                            (assoc-in [:pending id]
+                                      {:id     id
+                                       :f      f
+                                       :args   args
+                                       :due    (+ (:now c) d)
+                                       :period (when repeat? (max 1 d))})))))))))
+
+(defn- arm-ordinal
+  "The ordinal a timer was armed with. Ids count down from zero (see
+  [[arm!]]), so negating one recovers the order it was armed in — which
+  is the order timers due at the same instant fire in, and the order a
+  handover gives them back in."
+  [e]
+  (- (:id e)))
 
 (defn- disarm!
   "Drop the virtual timer `id`, and answer whether there was one. False
-  means the id is not this clock's — a timer armed before the install —
-  and the caller hands it to the platform's own clearer, which is what
-  keeps a `clearTimeout` across the boundary honest."
+  means the id is not this clock's — a timer armed before the install, or
+  a virtual one that has already fired — and the caller hands it to the
+  platform's own clearer, which is what keeps a `clearTimeout` across the
+  boundary honest.
+
+  Honest in BOTH directions, because the id domains are disjoint (see
+  [[arm!]]): a live platform handle can never be found in this table, and
+  a spent virtual handle passed on to the platform names nothing the
+  platform holds."
   [id]
   (if (contains? (:pending @!clock) id)
     (do (swap! !clock update :pending dissoc id) true)
@@ -284,6 +311,14 @@
   nobody can act on. So every outstanding timer is re-armed on the real
   scheduler with the time it had left.
 
+  **An interval's time left is its NEXT TICK, not its period**, and only
+  the ticks after that one are a cadence. So a repeating timer goes back
+  as a one-shot for what remained of the tick it was already waiting for,
+  and that one-shot arms the platform's own repeat at the original
+  period. A `setInterval` for the full period here would hand a timer
+  with 1 ms to run a whole fresh 1000 and shift its phase for the rest of
+  the page's life (rf2-w2e6).
+
   What that does not preserve is the ids: from here on they are the
   platform's, so a `clearTimeout` held across the boundary no longer
   reaches its timer. Nothing in the runtime clears a timer it armed once
@@ -300,11 +335,17 @@
         (set! (.-clearInterval g) (:clear-interval real))
         (set! (.-now js/Date)     (:date-now real))
         (reset! !clock nil)
-        (doseq [e (sort-by :id (vals pending))]
+        (doseq [e (sort-by arm-ordinal (vals pending))
+                :let [left (max 0 (- (:due e) now))]]
           (if-some [p (:period e)]
-            (.apply (:set-interval real) g (to-array (list* (:f e) p (:args e))))
+            (.call (:set-timeout real) g
+                   (fn []
+                     (.apply (:f e) g (to-array (:args e)))
+                     (.apply (:set-interval real) g
+                             (to-array (list* (:f e) p (:args e)))))
+                   left)
             (.apply (:set-timeout real) g
-                    (to-array (list* (:f e) (max 0 (- (:due e) now)) (:args e)))))))))
+                    (to-array (list* (:f e) left (:args e)))))))))
   nil)
 
 (defn- release-clock-for!
@@ -335,7 +376,7 @@
     (let [c   @!clock
           due (->> (vals (:pending c))
                    (filter (fn [e] (<= (:due e) target)))
-                   (sort-by (juxt :due :id))
+                   (sort-by (juxt :due arm-ordinal))
                    first)]
       (if (nil? due)
         (do (swap! !clock update :now max target) fired)

@@ -174,6 +174,54 @@
   (doseq [[k nm] surface-names]
     (is (identical? (get expected k) (get actual k)) (str nm " — " why))))
 
+(defn- recorder
+  "A recording scheduler over `platform`. Installed BEFORE a clocked
+  mount, it is what `install-clock!` captures and what a release hands
+  back to — so a row can read what the clock asked the platform for, and
+  with which ids.
+
+  It DELEGATES every call to the genuine function. A stub that only
+  recorded would strand the runtime's own reapers at handover and turn
+  `assert-clean!` red for a reason with nothing to do with the row.
+
+  And it hands out ids of its own, counting up from 1 — which is where a
+  fresh page's timer ids start, and therefore exactly the domain a
+  virtual handle must not be able to walk into. A row that armed only
+  virtual timers could never see a collision at all.
+
+  Answers `{:surface … :log … :cancel! …}`: the surface to install, the
+  log as an atom of `{:kind :timeout|:interval|:cleared, :f, :delay,
+  :args, :id}`, and a `cancel!` that stops a logged entry's real timer
+  without logging."
+  [platform]
+  (let [g     js/globalThis
+        !log  (atom [])
+        !live (atom {})
+        !next (atom 0)
+        arm   (fn [kind real-fn]
+                (fn [f delay & args]
+                  (let [real (.apply real-fn g (to-array (list* f delay args)))
+                        id   (swap! !next inc)]
+                    (swap! !live assoc id real)
+                    (swap! !log conj {:kind kind :f f :delay delay :args (vec args) :id id})
+                    id)))
+        ;; One clearer for both kinds, which is the platform's own rule.
+        stop! (fn [id]
+                (when-some [real (get @!live id)]
+                  (swap! !live dissoc id)
+                  (.call (:clear-timeout platform) g real)
+                  true))
+        clear (fn [id]
+                (when (stop! id) (swap! !log conj {:kind :cleared :id id}))
+                js/undefined)]
+    {:log     !log
+     :cancel! (fn [entry] (stop! (:id entry)) nil)
+     :surface {:set-timeout    (arm :timeout (:set-timeout platform))
+               :clear-timeout  clear
+               :set-interval   (arm :interval (:set-interval platform))
+               :clear-interval clear
+               :date-now       (:date-now platform)}}))
+
 ;; ---------------------------------------------------------------------------
 ;; W1 — the discriminating row: retired at the deadline, and not before it
 ;; ---------------------------------------------------------------------------
@@ -436,3 +484,164 @@
             (.then (fn [report]
                      (is (true? (:clean? report)))
                      (done))))))))
+
+;; ---------------------------------------------------------------------------
+;; W6 — the two schedulers' handles are DISJOINT (rf2-w2e6)
+;; ---------------------------------------------------------------------------
+;;
+;; The clock replaces the global scheduler but not the timers already armed
+;; on the real one, so `clearTimeout` inside the window has to decide which
+;; of two schedulers an id belongs to — and it decides by looking the number
+;; up in its own table. That is only honest while the two id domains are
+;; disjoint, which they were not: the platform numbers a fresh page's timers
+;; from 1 and the clock numbered its own from 1 as well.
+;;
+;; The failure is silent in BOTH directions from one collision. A
+;; `clearTimeout` meant for the real timer finds the virtual one and kills it
+;; instead, leaving the real one running; and once the virtual timer has
+;; fired, ordinary cleanup of its now-stale id is passed to the platform and
+;; cancels the unrelated real timer.
+;;
+;; A row using only virtual timers cannot see any of this. This one arms two
+;; real timers BEFORE the install, through a captured scheduler that hands
+;; out the ids a fresh page hands out.
+
+(deftest a-virtual-handle-cannot-alias-a-platform-one
+  (if-not (mount/browser?)
+    (sup/skip! ":node-test has no React DOM, so no root and no clock")
+    (async done
+      (let [platform              (platform-surface)
+            {:keys [log surface]} (recorder platform)
+            !fired                (atom [])
+            note                  (fn [k] (fn [] (swap! !fired conj k)))
+            cleared?              (fn [id]
+                                    (boolean (some (fn [e] (and (= :cleared (:kind e))
+                                                                (= id (:id e))))
+                                                   @log)))]
+        (install-surface! surface)
+        (let [r1 (js/setTimeout (note :real-1) 60000)
+              r2 (js/setTimeout (note :real-2) 60000)
+              m  (two-toasts)
+              v1 (js/setTimeout (note :v1) 50)
+              v2 (js/setTimeout (note :v2) 100)
+              iv (js/setInterval (note :iv) 50)]
+
+          (testing "premise: the scheduler the clock captured numbers its
+                    timers the way a platform does — from 1, upward, positive
+                    — and the first two of them are real timers armed BEFORE
+                    the install"
+            (is (= [1 2] [r1 r2])))
+
+          (testing "so no virtual handle can be a platform handle — not these
+                    two, and not any the platform has yet to issue. A platform
+                    handle is positive BY DEFINITION (HTML's timer
+                    initialisation steps), and the clock's count the other way,
+                    which is the whole of the disjointness. Reading it as
+                    `(not= r1 v1)` would prove only that these particular
+                    numbers missed each other"
+            (is (every? neg? [v1 v2 iv])))
+
+          (testing "clearing a REAL id reaches the real clearer instead of
+                    being swallowed by a virtual timer wearing that number"
+            (js/clearTimeout r1)
+            (is (cleared? r1) "the captured scheduler was asked to cancel it"))
+
+          (testing "…and the virtual timers are untouched by it. A collision
+                    would have cleared THIS one and left the real one running"
+            (hm/advance-clock! m 50)
+            (is (= [:v1 :iv] @!fired)))
+
+          (testing "and a SPENT virtual id — the ordinary cleanup of a timer
+                    that has already fired — cannot cancel an unrelated real
+                    timer. It is out of the table, so it goes to the platform;
+                    it just names nothing the platform holds"
+            (hm/advance-clock! m 50)
+            (is (= [:v1 :iv :v2 :iv] @!fired) "premise: v2 fired, so its id is stale")
+            (js/clearTimeout v2)
+            (is (not (cleared? r2)) "the real timer numbered 2 is still armed"))
+
+          (testing "either clearer cancels either kind, as the platform's own
+                    do — and on both sides of the boundary"
+            (js/clearTimeout iv)
+            (hm/advance-clock! m 500)
+            (is (= [:v1 :iv :v2 :iv] @!fired) "a clearTimeout retired the VIRTUAL interval")
+            (js/clearInterval r2)
+            (is (cleared? r2) "and a clearInterval reached the REAL timeout"))
+
+          (hm/unmount! m)
+          (install-surface! platform)
+          (-> (hm/assert-clean! m)
+              (.then (fn [report]
+                       (is (true? (:clean? report)))
+                       (done)))))))))
+
+;; ---------------------------------------------------------------------------
+;; W7 — an interval hands back the deadline it had left (rf2-w2e6)
+;; ---------------------------------------------------------------------------
+;;
+;; `release-clock!` promises every outstanding timer goes back to the real
+;; scheduler "with the time it had left", and for a one-shot it did: `(:due
+;; e) - now`. A repeating one was handed its whole PERIOD, so an interval
+;; released one millisecond before its tick waited another full period for
+;; it and every tick after that was out of phase — for the rest of the
+;; page's life, and invisibly.
+;;
+;; Asserting that the interval eventually fires would not see this. The row
+;; asserts the FIRST post-release deadline, by reading what the captured
+;; scheduler was asked for, and then drives the handover by hand so that no
+;; reading here depends on the wall clock.
+
+(deftest an-interval-hands-back-the-deadline-it-had-left
+  (if-not (mount/browser?)
+    (sup/skip! ":node-test has no React DOM, so no root and no clock")
+    (async done
+      (let [platform                      (platform-surface)
+            {:keys [log surface cancel!]} (recorder platform)
+            !ticks                        (atom [])
+            intervals                     (fn [es] (filterv #(= :interval (:kind %)) es))]
+        (install-surface! surface)
+        (let [m (two-toasts)]
+          (js/setInterval (fn [& args] (swap! !ticks conj (vec args))) retention-ms "tick" 7)
+          (hm/advance-clock! m (dec retention-ms))
+          (is (empty? @!ticks) "premise: one virtual millisecond short of the first tick")
+
+          (let [mark (count @log)
+                _    (hm/unmount! m)
+                over (vec (drop mark @log))]
+            (install-surface! platform)
+
+            (testing "the handover asked the captured scheduler for no INTERVAL
+                      at all. One here is the phase shift itself: a timer with
+                      one millisecond to run, given a whole fresh second"
+              (is (empty? (intervals over))))
+            ;; Whatever that found, nothing this row armed is left repeating.
+            (doseq [e (intervals over)] (cancel! e))
+
+            (let [firsts (filterv #(and (= :timeout (:kind %)) (= 1 (:delay %))) over)]
+              (testing "…it asked for a ONE-MILLISECOND timeout — what was left
+                        of the tick the interval was already waiting for"
+                (is (seq firsts)))
+
+              ;; Cancel the real arming and fire it here, so the readings below
+              ;; are this row's rather than the wall clock's.
+              (doseq [e firsts] (cancel! e))
+              (let [mark2 (count @log)]
+                (doseq [e firsts] ((:f e)))
+
+                (testing "firing it runs the interval's own callback — once, and
+                          with the arguments it was armed with"
+                  (is (= [["tick" 7]] @!ticks)))
+
+                (testing "…and only THEN is the original cadence re-armed, at
+                          the period the caller asked for"
+                  (let [after (vec (drop mark2 @log))]
+                    (is (some (fn [e] (and (= :interval (:kind e))
+                                           (= retention-ms (:delay e))
+                                           (= ["tick" 7] (:args e))))
+                              after))
+                    (doseq [e (intervals after)] (cancel! e))))))
+
+            (-> (hm/assert-clean! m)
+                (.then (fn [report]
+                         (is (true? (:clean? report)))
+                         (done))))))))))
