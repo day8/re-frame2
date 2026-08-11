@@ -8,11 +8,23 @@ Assumes a capable agent. Placeholders:
 - `<ASSIGNED_WORKTREE>` — this worker's worktree (subdir of `<WORKTREE_ROOT>`)
 - `<BEAD_ID>` — the tracker id
 
-> **Project-specifics live with the project, not here.** The stance, the hot-zone
-> file list, the surface→gate matrix, the pre-checkin command, and the worktree
-> root are facts about *one* repo — keep them in that repo's agent-instructions
-> (this repo: `CLAUDE.md` + `TESTING.md`). This file is the reusable, OS-neutral
+> **Project-specifics live with the project, not here.** The hot-zone file list,
+> the surface→gate matrix, the pre-checkin command, and the worktree root are
+> facts about *one* repo — keep them in that repo's agent-instructions (this
+> repo: `CLAUDE.md` + `TESTING.md`). This file is the reusable, OS-neutral
 > method; pull the concrete values from there at dispatch time.
+>
+> **The stance is project-specific too, but it is PASTED rather than pulled, and
+> it lives in its own file.** Keep it as a single quoted block in ONE file and
+> paste that block verbatim into every preamble — in this repo
+> `.claude/commands/mayor-posture.md`, which is also the loop that rereads it.
+> Not `CLAUDE.md` and not `TESTING.md`: neither carries a stance at all, so a
+> brief that sends a worker there for one sends it somewhere the words are not.
+> And a summary is not a lighter version of the stance. The lenses say what good
+> looks like; everything after them says when to STOP — so a paraphrase keeps the
+> memorable half and drops the restraining one, and what survives does not read
+> as incomplete. It reads as a stance that wants MORE of everything, which is
+> precisely the failure the second half exists to prevent.
 
 ## Worktree boundary — paste verbatim into every editing dispatch
 
@@ -65,7 +77,10 @@ edit-guard is caught from the other side. Install per the project's hook scripts
 
 ```text
 You are implementing <BEAD_ID> in <project + one-line description>.
-<Project stance — from the operator; e.g. pre-alpha / production-stable / refactor-only.>
+<PROJECT STANCE — paste the stance block VERBATIM from the one file that owns it
+(this repo: `.claude/commands/mayor-posture.md`). Do NOT summarise it. The lenses
+say what good looks like; the clauses after them say when to STOP, and a
+paraphrase keeps the first half and drops the second.>
 
 READ THE BEAD BEFORE THE BRIEF, AND READ IT BOTTOM-UP — MANDATORY.
 `bd show <BEAD_ID>` prints DESCRIPTION first, and the description is the OLDEST
