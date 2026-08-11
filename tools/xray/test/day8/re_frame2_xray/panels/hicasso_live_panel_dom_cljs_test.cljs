@@ -218,16 +218,21 @@
 
             ;; ---- phase 3: one tick, and the roster is on screen -----------
             (flush-render! tick-trace!)
-            (let [rows (boundary-rows container)]
+            (let [rows (boundary-rows container)
+                  ;; `some->`, so an empty roster reds the row below as a
+                  ;; clean assertion failure rather than throwing on nil and
+                  ;; reporting the same defect twice — once as a failure and
+                  ;; once as an uncaught error.
+                  row-text (str (some-> (first rows) .-textContent))]
               (is (= 1 (count rows))
                   (str "the trace tick re-fired the live panel and ONE boundary "
                        "row committed to the DOM — with no cache clear and no "
                        "second call to Panel anywhere in this test. DOM: "
                        (.-textContent container)))
-              (is (string/includes? (.-textContent (first rows)) "[:hlive/left]")
+              (is (string/includes? row-text "[:hlive/left]")
                   (str "and the row names the read the boundary really holds, so "
                        "the assertion above cannot pass on a row projected from "
-                       "nothing. row text: " (.-textContent (first rows)))))
+                       "nothing. row text: " (pr-str row-text))))
             (is (nil? (q container "[data-testid=\"rf-xray-hicasso-empty-mounted\"]"))
                 "the empty note is gone from the DOM — the roster REPLACED it
                  rather than rendering beside it")
