@@ -139,6 +139,30 @@
     :match? #(or (= % "re-frame.hicasso.test")
                  (str/starts-with? % "re-frame.hicasso.test."))}])
 
+(deftest every-fence-predicate-fires
+  ;; THE SABOTAGE CONTROL. The fence below is green today because the
+  ;; slice is clean, and it would be just as green if a predicate had
+  ;; been written wrong — `starts-with? "re-frame.hicasso.impl"` without
+  ;; the trailing dot, say, or a family whose four spellings all miss.
+  ;; So each predicate is shown one name it MUST catch and one it must
+  ;; not, and the row that matters is the second: `re-frame.hicasso`
+  ;; itself is the public door, and a fence that swallowed it would fail
+  ;; every application rather than protect one.
+  (let [breaches {"a Hicasso internal"   "re-frame.hicasso.impl.collector"
+                  "the benchmark tree"   "re-frame.bench.hicasso.front.codec"
+                  "a development tool"   "re-frame.xray.mount"
+                  "the test kit"         "re-frame.hicasso.test.mounted"}]
+    (doseq [{:keys [label match?]} forbidden]
+      (is (contains? breaches label)
+          (str "the fence grew a family with no sabotage row: " label))
+      (is (true? (boolean (match? (get breaches label))))
+          (str "the " label " predicate does not catch "
+               (pr-str (get breaches label)) " — it would let one through"))
+      (is (false? (boolean (match? "re-frame.hicasso")))
+          (str "the " label " predicate catches the PUBLIC DOOR"))
+      (is (false? (boolean (match? "re-frame.core")))
+          (str "the " label " predicate catches core")))))
+
 (deftest the-slice-names-no-private-namespace
   (doseq [{:keys [label why match?]} forbidden]
     (let [breaches (filterv (fn [[_ to]] (match? to)) foreign-edges)]

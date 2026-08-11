@@ -90,11 +90,19 @@
     (hm/settle! m)))
 
 (defn- click-theme!
+  "Click the theme button by its VISIBLE LABEL in the page's current
+  locale — the way a user picks it — rather than by position. Position
+  would still pass if the two buttons swapped, and a locale switch that
+  reordered them is one of the things this file is watching for."
   [m theme]
   (let [buttons (array-seq (.querySelectorAll (:container m) ".theme-choice"))
-        want    (i18n/t (rf/subscribe-once [::subs/locale] {:frame (:frame m)})
-                        (keyword "theme" (name theme)))]
-    (.click (first (filter #(= want (.-textContent %)) buttons)))
+        locale  (rf/subscribe-once [::subs/locale] {:frame (:frame m)})
+        want    (i18n/t locale (keyword "theme" (name theme)))
+        button  (first (filter #(= want (.-textContent %)) buttons))]
+    (is (some? button)
+        (str "no theme button reads " (pr-str want) " in " (pr-str locale)
+             "; the page offers " (pr-str (mapv #(.-textContent %) buttons))))
+    (.click button)
     (hm/settle! m)))
 
 (defn- surface-of [m] (.. (node m ".slice") -style -background))

@@ -12,12 +12,12 @@
   The bead's acceptance fences the APPLICATION, and a test is allowed
   more — `re-frame.hicasso.test.mounted`'s own witnesses reach
   `impl.collector` and `impl.mount` for good reasons. This one does not,
-  and the three helpers below are why: `browser?`, `skip!` and the act
-  flag are one line each, and writing them here keeps the whole slice —
-  application and suite — readable as something a consumer could have
-  written.
+  and the two helpers below are why: `browser?` and `skip!` are one line
+  each, the act flag is one more inside the fixture, and writing them
+  here keeps the whole slice — application and suite — readable as
+  something a consumer could have written.
 
-  ## TWO CLICKS, TWO SETTLING RULES — the rf2-hic-025 report's finding 7
+  ## TWO CLICKS, TWO SETTLING RULES — the report's findings 6 and 7
 
   A Hicasso intent dispatches through the runtime's own **synchronous**
   frame-locked door, so after a real click on `.save` or `.discard` the

@@ -13,8 +13,8 @@ The most useful single fact for a facade freeze is the list of doors an ordinary
 | Reached | Used for |
 |---|---|
 | `defview` | every boundary — six of them |
-| `sub` | every read but two |
-| `use-subs` | one body, and see finding 4 |
+| `sub` | every read in five of the six bodies |
+| `use-subs` | the sixth body's two reads, and see finding 4 |
 | `boundary` | one, around the routed pane |
 | `route-link` | two link sites |
 | `reg-state` | one per-row disclosure flag |
@@ -99,7 +99,7 @@ The mechanism should stay; what is missing is that nothing on the door says *you
 
 ### 6. Two clicks on one page settle differently, and nothing says which
 
-**Found by a red gate, not by reading.** The first mounted run failed four rows in one place and four in another, and the two failures have one cause.
+**Found by a red gate, not by reading.** The first mounted run failed twelve assertions across four rows, and every one of them has this single cause.
 
 A **Hicasso intent** dispatches through the runtime's own synchronous frame-locked door. After a real click on `.save` or `.discard` the handlers have run, `app-db` has moved and React has committed; the next line reads the repainted page, and `hm/settle!` is all that is owed.
 
@@ -129,6 +129,7 @@ So the two supported waiting mechanisms are mutually exclusive, and an async mut
 - **`reg-sub`'s two-fn form puts a one-argument fn beside a two-argument one.** The `input-fn` takes `query-v`; the computation fn takes `[inputs query-v]`. They sit adjacent in the same form and the mistake compiles. The `:<-` chain avoids it and is what the slice uses.
 - **A `false` attribute is recorded; a `nil` one is dropped.** Per 004B. So an L2 row asserting "this button is not disabled" wants `(is (false? …))`, not `(is (nil? …))` — worth one line in the kit's `attrs` docstring.
 - **The `h/boundary` fallback can only be asserted as data.** Driving it needs something to throw, which a testbed does not carry (testbeds model proper re-frame2 and hold no deliberate bugs). The slice asserts the fallback markup and the `:reset-key` at L2 and states the limit rather than inventing a crash.
+- **A residue census is page-wide, and `assert-clean!` says so beautifully.** The two-mount isolation row unmounted one mount and asserted it while its peer was still standing, and the failure read *"1 other facade mount(s) were still standing when this reading was taken, so their cells are inside it. Take every mount down before asserting any of them clean."* That is the whole diagnosis and the whole remedy, in the failure itself. Recorded as the one place the instrument was better than the author.
 
 ## Where the slice is gated
 

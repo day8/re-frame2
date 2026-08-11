@@ -270,9 +270,10 @@
 
 (defn- shell-tree [route]
   (ht/tree [views/app {}]
-           {:subs {[:rf.route/id]           route
-                   [::subs/token :surface]  "rgb(18, 21, 26)"
-                   [::subs/token :ink]      "rgb(232, 234, 237)"}}))
+           {:subs {[:rf.route/id]              route
+                   [::subs/token :surface]     "rgb(18, 21, 26)"
+                   [::subs/token :ink]         "rgb(232, 234, 237)"
+                   [::subs/t :app/pane-error]  "This page could not be displayed."}}))
 
 (deftest the-shell-paints-from-tokens-and-routes-the-pane
   (let [tree     (shell-tree routes/article)
@@ -293,7 +294,10 @@
              (:fallback (ht/attrs boundary)))
           "the fallback is INERT MARKUP, and asserting it as data is the
            only honest thing this tier can say about it: driving it needs
-           something to throw, which a testbed does not carry"))
+           something to throw, which a testbed does not carry. Its
+           sentence is READ THROUGH A SUB like every other — the fixture
+           above is what proves it, because a hardcoded string would need
+           no fixture and this row would refuse the one it was given"))
 
     (testing "the pane itself is the article page"
       (is (= "re-frame.hicasso.examples.slice.views/article-page"
