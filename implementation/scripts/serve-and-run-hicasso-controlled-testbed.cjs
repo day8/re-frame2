@@ -680,7 +680,17 @@ async function driveEngine(engine, baseUrl) {
     await page.waitForSelector('[data-testid="hicasso-controlled-testbed"]',
       { timeout: SPEC_TIMEOUT_MS });
 
-    result = await withTimeout(SPEC.run(page, { engine }), SPEC_TIMEOUT_MS,
+    // The navigation ceiling travels WITH the context, because a section that
+    // re-navigates is doing the same navigation to the same server as the one
+    // above and must be bounded by the same number. Copying the literal into
+    // the spec would make two budgets for one operation, free to drift.
+    result = await withTimeout(
+      SPEC.run(page, {
+        engine,
+        navWaitUntil: NAV_WAIT_UNTIL,
+        navTimeoutMs: NAV_TIMEOUT_MS,
+      }),
+      SPEC_TIMEOUT_MS,
       `${SPEC.name} (${engine})`);
 
     if (pageErrors.length > 0) {
