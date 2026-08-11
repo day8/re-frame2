@@ -1269,11 +1269,11 @@
 ;; concept, one spelling; and a fallback reads as what it is, markup at
 ;; the crossing rather than a policy value.
 ;;
-;; **`:render` is rf2-l0wfx's ruling** (2026-08-05), and the case
-;; that filed it is a context PROVIDER: a transparent wrapper that
+;; **`:render` is rf2-l0wfx's ruling** (2026-08-05), and the case that
+;; filed it is a context PROVIDER: a transparent wrapper that
 ;; contributes no markup of its own and exists solely to carry a
-;; subtree. Under Client-only the unadopted arm
-;; returns something that is not the component, so the crossing's
+;; subtree. Under Client-only the unadopted arm returns something that
+;; is not the component, so the crossing's
 ;; CHILDREN are dropped and the provider deletes the whole application
 ;; from the server response — silently, because the server snapshot and
 ;; hydration's first client pass agree by construction. `:render` is the
@@ -1281,8 +1281,8 @@
 ;;
 ;; ## Two shapes, and which one a declaration mints
 ;;
-;; For `:client-only`, with or without a fallback, **ONE mechanism serves the
-;; server, the hydration pass and the fresh mount**, and it is
+;; For `:client-only`, with or without a fallback, **ONE mechanism
+;; serves the server, the hydration pass and the fresh mount**, and it is
 ;; [[mint-host-gate!]]: a one-hook component whose `useSyncExternalStore`
 ;; answers `false` from its SERVER snapshot and `true` from its client
 ;; one. React reads the server snapshot under `renderToString` and again
@@ -1319,8 +1319,8 @@
 ;; **The price, stated because it changed** (rf2-2rtt6.85): the door used
 ;; to mint no wrapper, no fiber and no hook — the foreign component was
 ;; the element's own type. A gated declaration mints ONE gate, so a
-;; Client-only crossing costs one fiber and one hook; a
-;; `:render` crossing costs neither. HD-020(b)'s ≤2 budget is a statement
+;; Client-only crossing costs one fiber and one hook; a `:render`
+;; crossing costs neither. HD-020(b)'s ≤2 budget is a statement
 ;; about Hicasso's BOUNDARY shells and is untouched either way: the gate
 ;; is not a boundary, holds no subscription, and reads no frame.
 
@@ -1595,7 +1595,8 @@
           {:server server :fallback fallback}))
       (when (nil? fallback)
         (refuse-server-policy! host-name
-          "declares :fallback nil, and an explicit nil is a value rather than an absence."
+          (str "declares :fallback nil, and an explicit nil is a value "
+               "rather than an absence.")
           {:server server :fallback nil}))
       fallback)))
 
@@ -1632,8 +1633,8 @@
 ;; never emit, two spellings of one slot, a slot that is also a declared
 ;; callback — is the same fault (*this declaration does not name a set of
 ;; ordinary ReactNode positions*) with the same recovery, so it is one
-;; complaint with one home, as [[refuse-server-policy!]] is for every malformed
-;; policy.
+;; complaint with one home, as [[refuse-server-policy!]] is for every
+;; malformed policy.
 ;;
 ;; **A declaration that mints and can never fire is the trap wearing the
 ;; fix's clothes** (rf2-hic-035, merged-PR audit of #7876). [[host-entry]]
@@ -1700,8 +1701,8 @@
   author meant."
   [host-name opts callbacks]
   ;; `contains?` and not `if-some`: an explicit `nil` is a VALUE, and the
-  ;; default belongs to an ABSENT key. `:fallback` draws the line in the same
-  ;; place and for the same reason — inferring the default from a nil is
+  ;; default belongs to an ABSENT key. `:fallback` draws the line in the
+  ;; same place and for the same reason — inferring the default from a nil is
   ;; how a typo becomes a setting.
   (if (contains? opts :slots)
     (let [slots (:slots opts)]
@@ -1787,8 +1788,8 @@
   `opts` carries `:callbacks` — the finite contract map above —
   `:slots`, the set of ReactNode positions ([[declared-slots]]),
   `:server`, the policy (`:client-only` by default, or `:render`), and
-  `:fallback`, Client-only's placeholder markup. Callback keys and slot names
-  are both normalized to their canonical slot at MINT time, so the
+  `:fallback`, Client-only's placeholder markup. Callback keys and slot
+  names are both normalized to their canonical slot at MINT time, so the
   lookup the crossing performs per prop is one `get` and one
   `contains?`; a contract outside the roster, a declaration on a
   structural slot (`key`/`ref` are React's, not positions), a CONTRACT
