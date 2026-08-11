@@ -100,8 +100,17 @@
 (defn- nc-current?
   "`cell/current?` — the candidate's body revision is still the cell's and
   the frame incarnation it resolved against is still live. UNCHANGED by
-  the ablation; copied because it is private."
-  [cand s]
+  the ablation; copied because it is private.
+
+  `cand` carries its type, and that is not decoration (rf2-cfqk). The
+  original reads these fields INSIDE the namespace that `deftype`s
+  `RenderCandidate`, where the analyser already knows them; a copy taken
+  out of that namespace does not inherit the knowledge, so every
+  `(.-field cand)` here is an un-inferrable property access and shadow's
+  externs inference says so. Naming the type is what makes the copy
+  compile the way the original does, which is exactly the fidelity the
+  copy exists for."
+  [^cell/RenderCandidate cand s]
   (and (= (.-generation cand) (:generation s))
        (let [f (.-frame cand)]
          (or (nil? f)
@@ -205,8 +214,10 @@
 
   The currency re-check STAYS: `nc-stage!`'s `obs/acquire!` is still
   callback-capable, so a publication that skipped it could publish stale
-  ownership. Only the tear check goes."
-  [cand]
+  ownership. Only the tear check goes.
+
+  `cand` is typed for the reason [[nc-current?]] gives."
+  [^cell/RenderCandidate cand]
   (let [c  (.-cell cand)
         s0 @(.-state c)]
     (if-not (nc-current? cand s0)
