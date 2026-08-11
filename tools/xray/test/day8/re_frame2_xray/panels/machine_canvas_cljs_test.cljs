@@ -104,6 +104,40 @@
           :fx :rf.xray.machine-canvas/persist-chart-collapsed))
       "persist-chart-collapsed fx is in the registrar"))
 
+(deftest persist-chart-collapsed-fx-actually-fires-rf2-04tx
+  (testing "rf2-04tx — the set-chart-collapsed handler must REACH the
+            persist fx, not merely have one registered. The handler used
+            to return the fx-id as a TOP-LEVEL effect key beside `:db`;
+            the effect map is closed, so the runtime policed the key as
+            `:rf.error/effect-map-shape` and dropped it — the `:db` write
+            landed, the toggle looked like it worked, and the operator's
+            choice never reached localStorage. `persist-chart-collapsed-
+            fx-registered` above cannot see that: a registered fx nobody
+            routes to satisfies it perfectly. This one observes the do-fx
+            plane, which is the only place the drop is visible."
+    (setup-xray-frame!)
+    (rf/with-frame :rf/xray
+      (let [persisted (atom [])]
+        (rf/dispatch-sync
+          [:rf.xray.machine-canvas/set-chart-collapsed
+           {:machine-id :auth/login :mode :collapsed}]
+          {:fx-overrides
+           {:rf.xray.machine-canvas/persist-chart-collapsed
+            (fn [_ctx by-id] (swap! persisted conj by-id))}})
+        (is (= 1 (count @persisted))
+            "the persist fx ran exactly once — it reached the :fx walk")
+        (is (= {:auth/login true} (first @persisted))
+            "and carried the POST-mutation chart-collapsed map")
+        (rf/dispatch-sync
+          [:rf.xray.machine-canvas/set-chart-collapsed
+           {:machine-id :checkout/flow :mode :collapsed}]
+          {:fx-overrides
+           {:rf.xray.machine-canvas/persist-chart-collapsed
+            (fn [_ctx by-id] (swap! persisted conj by-id))}})
+        (is (= {:auth/login true :checkout/flow true} (second @persisted))
+            "a second toggle persists the WHOLE by-id map, not just the
+             machine that moved — the reload-restore contract")))))
+
 ;; ---- 3. Chart view hiccup shape ---------------------------------------
 
 (defn- hiccup-seq [tree]
