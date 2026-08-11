@@ -98,18 +98,28 @@ and `scrollTo()`. [Hicasso](glossary.md#hicasso) does not invent meaning for tho
 ;; ids came from (h/sub [:feed/ids]) earlier in the body
 [virtual-list
  {:item-count (count ids)
-  :render-row (fn [i]
+  :render-row (h/event [i]
                 (h/as-element
                   [:li.row {:on-click [:feed/open (nth ids i)]}
                    (str (nth ids i))]))}]
 ```
 
 [`h/as-element`](glossary.md#as-element) is the one explicit hiccup-to-element conversion, and the
-declared position supplies the frame. The row built in that body carries its
+marked form is what carries the frame across the invocation: [`h/event`](glossary.md#hevent) captures
+the supplying [boundary](glossary.md#boundary)'s frame when the body lowers it, and the library's
+later call runs under that frame. The row built in that body carries its
 [intents](glossary.md#intent). The intents fire later, on the user's click, into the frame of the
 [boundary](glossary.md#boundary) that *supplied* the callback. A dispatch *while* the call runs raises
 `:rf.error/hicasso-dispatch-in-render-position`, and the error names the
 position.
+
+**Write the marked form whenever the row carries [intents](glossary.md#intent).** A plain function
+is legal at every contract and crosses untouched — no wrapper, and therefore no
+frame. That is the right choice when the callback returns markup with no intents
+in it: a `[some-view {…}]` head is a [boundary](glossary.md#boundary), and it resolves the frame
+React already has in scope where the library renders it. It is the wrong choice
+the moment an intent appears in the row itself, because lowering one with no
+frame in scope raises `:rf.error/hicasso-intent-outside-boundary`.
 
 Two laws close the contract. First, **the declaration wins at every carrier**.
 The `:event` contract accepts an intent vector or a key-map. The `:handler`
