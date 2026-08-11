@@ -974,6 +974,26 @@ that moment: a Hicasso host's boundaries, reads, intents and explanations are
 answered in full by the Hicasso tab, and what disappears is exactly the set of
 questions only a view registry could have answered.
 
+**The staged `freehand-views` deck inherits this disposition, and retiring it is
+four artefacts rather than one** (rf2-u5b4, against census rows X6/X7/X8). The
+deck exists for no purpose other than putting real connected occurrences in
+front of §3.4.1 and §3.4.2, so it cannot be migrated separately: a deck
+repointed at Hicasso would assert on precisely the five facts the table above
+says the target does not publish — the view id, the occurrence key, the
+lowering, the per-row read count and the whole Declared View Sites section — and
+retiring it early, while the panel still ships, would restore the gate-blindness
+rf2-6pohj closed, an empty roster and a roster emptied by a broken read being
+the same DOM. What goes with §3.4.1 and §3.4.2 is therefore
+`tools/xray/testbeds/freehand_views/`, the `:testbeds/freehand-views` build id
+and its port-8036 `:dev-http` entry (both in top-level
+`implementation/shadow-cljs.edn`), and the PR-smoke `freehand-views populated
+Views roster` scenario in `tools/xray/testbeds/feature_matrix/scenarios.cjs`
+together with its `STAGED_SURFACES` entry. A pass that takes the two sections
+and the `deps.edn` coordinate but leaves those behind reds the PR gate on a
+scenario whose panel no longer exists.
+[`017-Test-Coverage-Matrix.md`](017-Test-Coverage-Matrix.md) carries the deck's
+own record.
+
 ### §3.5 Queries
 
 | From | Reads |
