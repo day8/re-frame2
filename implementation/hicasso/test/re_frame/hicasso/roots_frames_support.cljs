@@ -484,14 +484,32 @@
   cannot pass on a sabotage that was simply switched on.
 
   A fresh page-window per arming, so two armings in one row cannot
-  inherit each other's shut."
+  inherit each other's shut.
+
+  **The replacement reader still takes the context hook, and must.**
+  `adopting-here?` is a React HOOK — the shipped one is a `useContext` —
+  and a replacement that simply answered the page-global would render
+  `impl.presence-react` with three hooks where the shipped code renders
+  four. React counts hooks per fiber, so the same tray re-rendering after
+  the arming was undone would raise \"rendered more hooks than during the
+  previous render\": a sabotage breaking a DIFFERENT rule than the one
+  under test, and a red that says nothing about adoption. So the original
+  is called first, unconditionally and outside the `or`, and its answer
+  is widened rather than replaced. For an ordinary root — every row this
+  arms — the context answers false and the reading IS the page-global,
+  which is the pre-fix behaviour exactly."
   [f]
   (let [page-window   #js {"open" false}
         mint-original roots/open-adoption-window!
         here-original roots/adopting-here?]
     (set! roots/open-adoption-window!
           (fn [] (set! (.-open page-window) true) page-window))
-    (set! roots/adopting-here? (fn [] (roots/adopting? page-window)))
+    (set! roots/adopting-here?
+          (fn []
+            ;; Let-bound, never inlined into the `or`: short-circuiting
+            ;; past it would skip the hook, which is the whole hazard.
+            (let [in-this-roots-own-window? (here-original)]
+              (or (roots/adopting? page-window) in-this-roots-own-window?))))
     (try (f page-window)
          (finally
            (set! roots/open-adoption-window! mint-original)
