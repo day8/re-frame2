@@ -185,13 +185,27 @@ reason.
 This is the difference between "a lot of agents did things" and "the
 project advanced."
 
-**Merge trap:** `--delete-branch` does not survive a worker worktree. The
-merge itself lands — six in a row here, every one reaching `MERGED` — but a
-branch still checked out in a worktree cannot be deleted locally, and gh
-abandons the remote deletion along with it; five of those six were still on
-the remote afterwards. So merge with `gh pr merge --rebase --delete-branch`
-(this repo rebases — `--squash` would collapse a worker's commits into one),
-verify `MERGED`, then `git push origin --delete <branch>` yourself. None of
+**Merge trap, and the fix that removes it:** `--delete-branch` does not
+survive a worker worktree. The merge itself lands — six in a row here, every
+one reaching `MERGED` — but a branch still checked out in a worktree cannot
+be deleted locally, and gh abandons the remote deletion along with it; five
+of those six were still on the remote afterwards. The remedy is not a
+better-timed cleanup, it is to stop asking the client to do the deletion at
+all. Turn on the repository's `delete_branch_on_merge` setting, and merge
+with `gh pr merge --rebase` (this repo rebases — `--squash` would collapse a
+worker's commits into one). GitHub then deletes the head branch server-side
+as the merge lands, and the server does not care what a worktree is holding,
+so there is no orphan to clean up and nothing to remember afterwards.
+
+That also disposes of a tempting ordering. Reaping the worktree first did
+make `--delete-branch` work — measured, four for four — but it is no longer
+a reason to do anything, because there is no longer an orphan to avoid. The
+reap stays in the hygiene pass, authorised by the agent's own completion
+report and by nothing else; a merge never authorises one. `git push origin
+--delete <branch>` survives only as the fallback for the rare ref still
+present after a verified `MERGED` — head-ref branch protection, or a
+cross-repo PR whose head lives in a fork the server will not touch — and it
+deletes that ref, never a worktree. None of
 that needs `--admin`: none of the six used it, and a branch-cleanup annoyance
 is not grounds to bypass the merge criterion. And leave
 local cleanup until the worker has **reported done**. Not until it looks
