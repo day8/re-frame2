@@ -1,25 +1,48 @@
 (ns re-frame2-pair-mcp.tools.get-re-frame2-pair-instructions
   "Tool: get-re-frame2-pair-instructions — agent-onboarding text.
 
-  Mirrors story-mcp's `get-story-instructions`. Returns an inline
-  prose summary of re-frame2-pair-mcp's tool catalogue + the conventions an
-  agent needs to drive the surface effectively (EDN posture,
-  `:origin :pair` tagged mutations, streaming subscribe semantics,
-  the wire-boundary cap + dedup + elision pipeline).
+  Mirrors story-mcp's `get-story-instructions`. Returns the
+  conventions an agent needs to drive the surface effectively (EDN
+  posture, `:origin :pair` tagged mutations, streaming subscribe
+  semantics, the wire-boundary cap + dedup + elision pipeline) plus a
+  short `## Routing rules` index of which tool to reach for.
+
+  IT DOES NOT ENUMERATE THE TOOLS (rf2-wyza). It used to — a 33-entry
+  `## Tool catalogue` that was 75% of the blob and the only section
+  that grew with the tool count, leaving 112 tokens of margin under
+  the wire cap. That enumeration duplicated the `tools/list`
+  descriptors the host already has at handshake, and a miss is
+  answered live by the `:unknown-tool` hint, which folds
+  `registry/tool-names` into the error. What the descriptors cannot
+  carry is CROSS-tool judgement — each one's preference is buried in
+  its own ~2,400-char paragraph — so this text keeps only that: the
+  global first-contact routing index.
 
   `instructions-text` ships inline as a single string so the artefact
   is self-contained — no resource read at boot, one MCP frame, zero
   socket bytes. The structural peer in story-mcp
   (`story-instructions-text` in `re-frame.story-mcp.tools.dev`) uses
-  the same inline-`(str ...)` shape, kept aligned so AI pairs reading
-  both servers see one answer to the onboarding-text question."
+  the same inline-`(str ...)` shape — and carries no tool catalogue
+  either — kept aligned so AI pairs reading both servers see one
+  answer to the onboarding-text question."
   (:require [re-frame2-pair-mcp.tools.wire :as wire]))
 
 (def instructions-text
   "Inline onboarding prose. Inline `(str ...)` of `\\n`-glued lines —
-  see the ns docstring for the rationale (mirrors story-mcp). Edit
-  this string when the catalogue changes; the docstring on
-  `re-frame2-pair-mcp.tools/tool-descriptors` is the structural peer."
+  see the ns docstring for the rationale (mirrors story-mcp).
+
+  Adding a tool does NOT oblige an edit here (rf2-wyza): `tools/list`
+  and the `:unknown-tool` hint carry the tool set. Edit this string
+  when a routing JUDGEMENT changes — a new tool that supersedes an
+  older route, or a preference that turned out to be wrong.
+
+  PARSE CONTRACT for `## Routing rules` (guarded by
+  `onboarding_routing_test`): inside that section, a backticked
+  lowercase-kebab identifier means A REGISTERED TOOL NAME and nothing
+  else. Keywords (`:frame`), slashed names (`tools/list`) and plain
+  prose are ignored by the parser, so they stay free-form — but do not
+  backtick a bare word like `nil` there, or the guard will read it as
+  a phantom tool."
   (str
     "re-frame2-pair-mcp agent quick reference.\n"
     "Full spec: tools/re-frame2-pair-mcp/spec/003-Tool-Catalogue.md.\n"
@@ -32,113 +55,40 @@
     "lives for the session; each tool routes through one of the\n"
     "eight Tool-Pair primitives on the runtime side.\n"
     "\n"
-    "## Tool catalogue\n"
+    "## Routing rules\n"
     "\n"
-    "  discover-app          — verify nREPL + preloaded runtime; run first.\n"
-    "  orient                — app-shape orientation in one round-trip: liveness,\n"
-    "                          frames (all / app / operating), per-app-frame\n"
-    "                          app-db top-keys, registrar counts + high-value\n"
-    "                          ids, machines. First-contact on an unfamiliar app\n"
-    "                          (rf2-3bu3d.8); drill via list-handlers / snapshot.\n"
-    "  eval-cljs             — eval a CLJS form; returns the EDN value.\n"
-    "                          Optional :frame arg (rf2-ntuzf) wraps the form\n"
-    "                          in (re-frame.core/with-frame ...) for multi-\n"
-    "                          frame apps.\n"
-    "  dispatch              — fire an event tagged :origin :pair. Surfaces a\n"
-    "                          :cascade-summary slot (rf2-6yqdl) projecting\n"
-    "                          what happened — :db-diff, :fx-fired, :outcome,\n"
-    "                          :elapsed-ms, etc. One round-trip, no\n"
-    "                          watch-epochs correlation needed. Optional\n"
-    "                          :frame arg (e.g. \":rf/xray\") targets a named\n"
-    "                          frame in a multi-frame app; an untargetable\n"
-    "                          frame returns a structured error, never a\n"
-    "                          {:mode ...} no-op (rf2-ldfnx).\n"
-    "  dispatch-dry-run      — simulate a cascade WITHOUT committing\n"
-    "                          (rf2-17hvp). Full reducer + interceptor chain\n"
-    "                          run, schema validation fires, machine\n"
-    "                          transitions simulate — but NO fx execute and\n"
-    "                          the app-db rolls back. :would-fire-effects\n"
-    "                          enumerates what WOULD have fired. NOT --allow-\n"
-    "                          writes-gated; the contract IS 'no observable\n"
-    "                          effect'.\n"
-    "  restore-epoch         — time-travel undo; rewind a frame to a prior\n"
-    "                          epoch (gated behind --allow-writes). Surfaces a\n"
-    "                          :cascade-summary + :unreplayable-effects vector\n"
-    "                          (rf2-6yqdl) listing fx the original cascade\n"
-    "                          fired that the restore cannot undo.\n"
-    "  replace-app-db        — state injection; replace a frame's app-db\n"
-    "                          with EDN data (gated behind --allow-writes).\n"
-    "  trace-window          — epochs in the last N ms (cursor-paginated).\n"
-    "  watch-epochs          — pull-mode poll for matching epochs.\n"
-    "  tail-build            — wait for a hot-reload to land.\n"
-    "  snapshot              — coarse per-frame mega-read (app-db, subs,\n"
-    "                          machines, epochs, traces).\n"
-    "  get-path              — read a single value at `path` from a\n"
-    "                          frame's app-db.\n"
-    "  read-sub              — validated one-shot subscription read (rf2-3bu3d.7):\n"
-    "                          derefs a registered sub for a frame and returns its\n"
-    "                          value; unknown sub-id returns :nearest matches, not\n"
-    "                          a silent nil. Prefer over raw eval-cljs subscribe.\n"
-    "  read-dom              — view-plane read; querySelectorAll → per-node\n"
-    "                          {:tag :text :attrs} EDN (read-only,\n"
-    "                          text/node-capped; rf2-nfjil).\n"
-    "  read-ui               — typed ui/read (rf2-3bu3d.1): given a view-id / point\n"
-    "                          / selector, return the rendered subtree (elided) PLUS\n"
-    "                          the producing re-frame2 :entity (view-id + source-coord)\n"
-    "                          in one round-trip. The complement to read-dom — no\n"
-    "                          testids needed; rides the view<->DOM map.\n"
-    "  read-mounted-boundaries — Hicasso boundaries mounted now; read-set keyed.\n"
-    "  read-read-attribution — reverse edge: which boundaries read each sub.\n"
-    "  explain-render — which reads moved; :cause :unknown, candidates are leads.\n"
-    "  record                — install a background signal recorder and\n"
-    "                          return a :recording-id; the human interacts\n"
-    "                          while it samples (rf2-zo4b9).\n"
-    "  read-recording        — read back a recorder's change-log. :drain\n"
-    "                          consumes the buffer (poll → consume → repeat);\n"
-    "                          :stop reads-and-closes (rf2-zo4b9).\n"
-    "  watch-until           — block until a predicate over a signal-set\n"
-    "                          holds (or :timeout-ms elapses; rf2-zo4b9).\n"
-    "  subscribe             — streaming subscription; emits each batch\n"
-    "                          as a notifications/progress.\n"
-    "  unsubscribe           — close a streaming subscription.\n"
-    "  list-subscriptions    — list the LIVE reactive sub-cache for a frame\n"
-    "                          (matches snapshot :sub-cache; rf2-qicji).\n"
-    "                          Optional :frame / :include-values.\n"
-    "  list-streams          — list active streaming-tap subscriptions +\n"
-    "                          queue stats (the streaming diagnostic\n"
-    "                          list-subscriptions formerly carried).\n"
-    "  get-stream-controls   — report SERVER-SIDE streaming resource-control\n"
-    "                          state: effective caps, active slots vs limit,\n"
-    "                          token-bucket pressure, abuse-window count. The\n"
-    "                          'why was my stream denied / quiet / terminated?'\n"
-    "                          diagnostic (rf2-a0kxsb). In-process, no nREPL —\n"
-    "                          answers even when the runtime is down. Cross-check\n"
-    "                          :active against list-streams for leaked slots.\n"
-    "  handler-meta          — return :source-coord + :doc + :tags for a\n"
-    "                          registered handler (event / sub / fx / cofx /\n"
-    "                          interceptor / view / frame / route / flow /\n"
-    "                          head / error-projector / machine).\n"
-    "  list-handlers         — enumerate every registered id under a kind\n"
-    "                          (the discovery peer of handler-meta). Pass\n"
-    "                          :frame to enumerate that frame's image-resolved\n"
-    "                          ids (EP-0023).\n"
-    "  describe-image        — describe a frame's running image generation —\n"
-    "                          composed images, kinds,\n"
-    "                          per-kind counts (+ :include-ns provenance). The\n"
-    "                          'what behaviour does this frame run, and where\n"
-    "                          did each piece come from?' read (rf2-srobm0).\n"
-    "  set-operating-frame   — pin the session's operating frame — the frame\n"
-    "                          frame-targeted ops (dispatch, snapshot, get-path,\n"
-    "                          read-sub, …) resolve to without a per-call :frame.\n"
-    "                          The escape from :ambiguous-frame in multi-frame apps\n"
-    "                          (rf2-zomfq).\n"
-    "  reset-operating-frame — clear the session operating-frame pin; targeted ops\n"
-    "                          revert to sole-frame / :ambiguous-frame resolution.\n"
-    "                          Idempotent (rf2-zomfq).\n"
-    "  get-operating-frame   — report the operating-frame triple {:frames :selected\n"
-    "                          :operating} (:operating nil = ambiguous). Pure read;\n"
-    "                          call to see what targeted ops resolve to (rf2-zomfq).\n"
-    "  get-re-frame2-pair-instructions — this text.\n"
+    "The `tools/list` descriptors say what each tool does; these say\n"
+    "which one to reach for. Behind all six: a typed tool validates its\n"
+    "arguments and names its failure, `eval-cljs` does neither — so\n"
+    "`eval-cljs` is the last resort, not the default.\n"
+    "\n"
+    "  1. First contact — `discover-app`, then `orient`. Drill from\n"
+    "     there with `list-handlers` for the ids under a kind, then\n"
+    "     `handler-meta` for one id's source-coord and body.\n"
+    "  2. One app-db value — `get-path`. One subscription — `read-sub`,\n"
+    "     which validates the sub-id and returns `:nearest` matches on a\n"
+    "     miss where a raw deref returns a silent nil. `snapshot` is a\n"
+    "     coarse first look or a bounded subtree, never the default read.\n"
+    "  3. What a `dispatch` DID — its own `:cascade-summary`, not a\n"
+    "     `watch-epochs` correlation. What it WOULD do —\n"
+    "     `dispatch-dry-run`, which runs the full chain, fires no fx and\n"
+    "     rolls the app-db back.\n"
+    "  4. Rendered output WITH provenance — `read-ui`, which returns the\n"
+    "     subtree plus the view-id and source-coord that produced it. A\n"
+    "     raw selector read, provenance irrelevant — `read-dom`.\n"
+    "  5. Waiting on the app, never a poll loop — `watch-until` for a\n"
+    "     predicate over a signal-set, `record` + `read-recording` to\n"
+    "     sample while a human drives the UI, `subscribe` to stream,\n"
+    "     `tail-build` for a hot reload.\n"
+    "  6. Multi-frame — `set-operating-frame` ONCE, rather than a\n"
+    "     `:frame` arg on every call; it is the escape from\n"
+    "     `:ambiguous-frame`. `get-operating-frame` reports what\n"
+    "     targeted ops resolve to.\n"
+    "\n"
+    "That is the whole routing index — this text does NOT list the tool\n"
+    "set. `tools/list` ships every descriptor at handshake, a name that\n"
+    "misses returns `:unknown-tool` with the live name list in its hint,\n"
+    "and the per-tool reference is the spec named at the top.\n"
     "\n"
     "## EDN posture\n"
     "\n"
