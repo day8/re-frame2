@@ -10,11 +10,11 @@
   1. **`::h/clear`.** Cancelling an edit removes the `h/reg-state` entry,
      and the door's spelling for that is a FRAMEWORK-NAMED event,
      `[::h/clear ::concern ikey]`. A handler that has to end an edit as
-     part of doing something else — [[commit-edit]] below — therefore
+     part of doing something else — `::commit-edit` below — therefore
      dispatches it, and this namespace `:require`s the view door for the
      sole purpose of spelling one keyword. Nothing else here needs it.
 
-  2. **The literal `:ui`.** [[commit-edit]] has to ask *is this row
+  2. **The literal `:ui`.** `::commit-edit` has to ask *is this row
      being edited?*, and `h/reg-state` answers that question with a
      subscription and a setter — neither of which is available to an
      event handler. What IS available is the app-db layout the sugar

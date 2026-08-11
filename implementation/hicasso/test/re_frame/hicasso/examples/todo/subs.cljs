@@ -13,7 +13,7 @@
 
   ## The filter is not stored, so it cannot be stale
 
-  [[showing]] is the interesting one. It reads routing's own
+  `::showing` is the interesting one. It reads routing's own
   `[:rf.route/id]` and `[:rf.route/params]` — registered by the routing
   artefact, reached by ID rather than by dependency, so this namespace
   requires only `re-frame.core` and its own routes — and answers a

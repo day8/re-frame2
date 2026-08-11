@@ -2,8 +2,9 @@
   "THE SHAPE, AND THE ONE PIECE OF WIDGET STATE (rf2-hic-086).
 
   The todos, and nothing derived. The active filter is NOT here — it is
-  read off the URL by [[re-frame.hicasso.examples.todo.subs/showing]], so
-  the address bar and the highlighted tab cannot disagree. Neither is
+  read off the URL by `re-frame.hicasso.examples.todo.subs`'s
+  `::showing`, so the address bar and the highlighted tab cannot
+  disagree. Neither is
   \"how many are left\": a count of a map this file already holds is a
   subscription, not a fact.
 

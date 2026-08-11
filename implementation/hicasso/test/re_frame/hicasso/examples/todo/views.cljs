@@ -22,27 +22,33 @@
      id] \"Escape\" [::h/clear db/draft id]}` is a first-class lowered
      shape — one `.key` lookup per event, composition-gated centrally so
      an IME's Enter commits nothing — and it is why this file contains no
-     callback at all. It is also documented NOWHERE an author reads:
+     callback at all. It is also **absent from the door**:
      `re-frame.hicasso`'s own docstrings never mention it, and the only
-     statement of the four event-value shapes is in
-     `re-frame.hicasso.impl.intent`, a namespace the door tells authors
-     they never need to open. See the authoring report; without it, the
-     Todo class's Enter/Escape pair reaches for `h/fn` and hand-written
-     `.-key` tests.
+     statement of the four event-value shapes a runtime reader can reach
+     is `re-frame.hicasso.impl.intent`'s, in the namespace the door tells
+     authors they never need to open. (The draft guide and
+     `docs/design/hicasso/authoring.md` teach it; neither is what an
+     editor shows on `h/`.) Without it, the Todo class's Enter/Escape
+     pair reaches for the one callback form and a hand-written `.-key`
+     test — losing the composition gate with it.
 
   3. **A `:ref` must be a STABLE function**, so [[focus-on-mount]] is a
      top-level `def`. React detaches and re-attaches a ref whose identity
-     changed, so a `(fn [node] …)` written inline in a body would re-run
-     on every keystroke — refocusing the field, and moving the caret to
-     the end of the text on every character. Nothing on the door says so,
-     and the failure is a caret that jumps rather than an error.
+     changed, so a `(fn [node] …)` written inline in a body would run on
+     every COMMIT rather than on mount — which for a controlled field is
+     every keystroke. Focus is the forgiving case (re-focusing the
+     already-focused element does nothing), and that is exactly why it
+     would have shipped; a ref that observed, measured or subscribed
+     would tear itself down and set itself up again per character.
 
   ## Every controlled element is `:value` / `:checked` plus an intent
 
-  No ref, no local draft, no `onChange` closure, no effect reconciling
-  two copies of the text, and no `:readOnly` to hush React about a
-  checkbox it does not drive: `::h/value` and `::h/checked` say *the
-  thing the user just did*, and the model is the only place it lives."
+  No local draft, no `onChange` closure, no effect reconciling two
+  copies of the text, no ref anywhere near the VALUE, and no `:readOnly`
+  to hush React about a checkbox it does not drive: `::h/value` and
+  `::h/checked` say *the thing the user just did*, and the model is the
+  only place it lives. (The one `:ref` in this file touches focus and
+  nothing else.)"
   (:require [clojure.string :as str]
             [re-frame.hicasso :as h]
             [re-frame.hicasso.examples.todo.db :as db]
@@ -132,10 +138,10 @@
 
   The key is the domain id and never the position. A list keyed by its
   index reuses the wrong row the moment the order changes — and here it
-  would do worse than that: flipping the filter from All to Active
-  removes rows from the MIDDLE of the list, so an index-keyed row would
-  keep the DOM node, the caret and the open editor belonging to a
-  different to-do."
+  would do worse than that: flipping the filter can remove a row from
+  the MIDDLE of the list, and an index-keyed survivor would then keep
+  the DOM node, the caret and the open editor belonging to a different
+  to-do."
   [_]
   [:section.main
    [:input#toggle-all.toggle-all
