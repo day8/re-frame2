@@ -33,6 +33,19 @@
             (is (true? (.-checked (tl/getByRole (:container m) \"checkbox\"))))
             (-> (hm/unmount! m) (hm/assert-clean!) (.then done)))))
 
+  ## Two readers stand outside that pattern
+
+      (hm/census)        → what the runtime RETAINS, right now
+      (hm/bodies-run f)  → how many boundary bodies ran while `f` did
+
+  Neither takes a handle, because neither reads a mount: both are
+  page-wide readings of the runtime. They are opposite numbers and a
+  witness usually wants a particular one of them — [[census]] is residue,
+  what survived, and it is what [[assert-clean!]] compares; [[bodies-run]]
+  is work, what happened, and it is what a budget stated in bodies is
+  asserted with. A keystroke that ran a hundred bodies and a keystroke
+  that ran one leave the same census.
+
   The handle is the runtime's own root handle (`impl.mount`) with this
   namespace's bookkeeping added beside it, so `(:container m)` and
   `(:frame m)` are the real container node and the real frame id rather
@@ -434,6 +447,98 @@
   does, rather than through a second assembly of the same numbers."
   []
   (assoc (inventory/residue) :frames (set (rf/frame-ids))))
+
+;; ---------------------------------------------------------------------------
+;; The work counter — the census's opposite number
+;; ---------------------------------------------------------------------------
+
+(defn bodies-run
+  "**How many boundary bodies ran while `f` did.** [[census]] answers what
+  the page RETAINS; this answers what a change COST.
+
+      (is (= 1 (hm/bodies-run #(do (type-into! n \"a\") (hm/settle! m)))))
+
+  The two are not interchangeable and the difference is the whole reason
+  this door exists. A keystroke that ran one body and a keystroke that ran
+  a hundred leave the SAME census — residue is what survived, not what
+  happened — so a budget stated in bodies (product specification §6,
+  *narrow-update body work scales with changed rows rather than all
+  mounted rows*) could be asserted by nothing this facade offered.
+
+  It is a DELTA, taken by zeroing the runtime's counter and reading it
+  back, because the counter is monotone. `f` is run for its effect and
+  its value is discarded.
+
+  ## Settle inside `f`, or the count is short
+
+  A body React has not run yet is not in this number. `f` must therefore
+  carry whatever makes the work happen *and* whatever commits it —
+  [[settle!]] after a raw DOM event, [[dispatch-and-settle!]] for an
+  intent, [[advance-clock!]] for anything with a delay on it. The doors
+  in this facade all commit through `flushSync`, so a thunk built out of
+  them is settled by construction.
+
+  ## Page-wide, and therefore handle-free
+
+  The runtime keeps ONE integer for the whole process, so this reading
+  cannot be attributed to a mount and does not pretend to be: like
+  [[census]], and unlike every driving door here, it takes no handle. A
+  sibling mount that re-renders while `f` runs is inside the number, and
+  the remedy is the one [[assert-clean!]] already asks for — take the
+  other mounts down, or do not read across them.
+
+  **Nor is there a per-BOUNDARY form**, and that is a fact about the
+  runtime rather than an omission here. Attributing runs to one boundary
+  needs a durable per-boundary id, which `impl.collector` states it
+  cannot have at this arm's fences: the id would have to survive a
+  re-subscribe, the shell has no per-instance storage that is not a React
+  hook, and a third hook breaks the ≤2-hook budget (HD-020) that
+  `hook-budget-cljs-test` enforces at React's own dispatcher. So
+  page-wide is what the counter *is*, and per-boundary attribution is
+  done the way both witness applications do it — arithmetic over an exact
+  expected total.
+
+  ## What it can and cannot see
+
+  It counts bodies React ACTUALLY RAN. The bump is inside the runtime's
+  `run-once`, below React's comparator, so a `React.memo` bail-out shows
+  up as an increment that did not happen — which makes this a measurement
+  of adoption rather than an inference from the comparator's behaviour.
+  React's own end-of-event repair RAISES the count rather than hiding it,
+  which is the safe direction: the repair cannot make a spurious run look
+  like no run.
+
+  **It cannot see a props compare or an element allocation.** A coarse
+  read handing scalar props to N children runs the parent and the one
+  child whose props moved — the same two bodies a narrow shape runs —
+  while allocating N elements and comparing N props maps. Those are real
+  costs and this instrument is blind to them, so a witness that read this
+  number as *the* cost of a keystroke would be overstating it. What it
+  does see is the shape where nothing bails: a child prop carrying a
+  closure minted in the parent's render, which never compares equal.
+
+  ## Why the kit owns it
+
+  The counter is `impl.collector`'s and is always-on by an explicit
+  ruling (rf2-2rtt6.84 (6)) — the arm's builds are `:advanced` with
+  `goog.DEBUG false`, where a debug-gated instrument is not an instrument
+  but dead code. Every consumer of it is a test, so the door belongs at
+  the tier its consumers run on rather than on the public door, and this
+  namespace is where the thing being measured was mounted. It costs a
+  production bundle nothing: the kit sits in `hicasso/test_kit/src`,
+  outside the artefact's published `:paths`, so a consumer that never
+  writes a test never carries it (rf2-5mxe).
+
+  Spec 009's `rf:render:<view-name>` measures are a different instrument
+  and not a substitute. They are compiled out unless
+  `re-frame.performance/enabled?`, which no PR-lane build sets; and the
+  bracket deliberately spans the generation fence's whole retry loop,
+  where this counter bumps once per body INVOCATION — so on a body the
+  fence re-ran the two disagree by design."
+  [f]
+  (collector/reset-body-runs!)
+  (f)
+  (collector/body-runs))
 
 (defn- leaked
   "What `now` has that `baseline` did not — the report's `:leaked` map, or
