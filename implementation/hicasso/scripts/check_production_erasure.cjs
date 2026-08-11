@@ -59,6 +59,34 @@
  * this file names for it, so a rename fails the gate rather than reporting
  * a green absence for a string nobody emits any more.
  *
+ * ## A tap drags its namespace's requires onto the shipped path
+ *
+ * The evidence row below says `re-frame.hicasso.evidence` is dev-only BY
+ * REACHABILITY rather than by any marker on it, and one rule follows from
+ * that which this gate keeps having to teach the hard way (rf2-hic-081,
+ * rf2-nkr3). Reachability is a property of NAMESPACES, not of expressions:
+ * a collector tap on the shipped path is reachable from the public door,
+ * so everything the tap's namespace `:require`s is reachable too. The
+ * capability-receipts spike put a receipt envelope in `impl/receipt` and
+ * required `re-frame.hicasso.evidence` to build it. Nothing the tap DID
+ * was dev surface; the gate went red on what the tap's namespace
+ * IMPORTED.
+ *
+ * So, for any runtime-tapped evidence: RAW COUNTERS WHERE THE TAP IS,
+ * ENVELOPE IN A DEV-ONLY CONSUMER. Split that way the same spike read OK
+ * against this gate — 5 sentinels absent, 3 positive controls present.
+ *
+ * It is written down because it cannot be seen at the edit site. The diff
+ * that breaks it adds no dev surface and touches no dev namespace; it adds
+ * a `:require`, and a reviewer reading it has nothing to notice. Nor can
+ * the failure teach it: the message this gate prints names the leaked
+ * SENTINEL, not the mechanism, so the reader it sends here is the reader
+ * who still has to be told why an import alone was enough.
+ *
+ * The source-side counterpart is `check_optional_module_reachability.py`,
+ * which decides the same property over `:require` forms rather than over a
+ * bundle, for the optional modules where absence is the contract.
+ *
  * ## What this gate does NOT cover, and why
  *
  * `defview` / `defhost` SOURCE COORDINATES (rf2-hic-007) are not
