@@ -279,7 +279,15 @@ of a drain; the binding rule is hot-zone parallelism, not strict same-surface.
   names repeat across sessions, so a cleanup that matches a name will eventually
   match a historical artefact and delete live work. Require the merged PR's head
   commit to equal the worktree's HEAD, and read the worktree ↔ branch mapping from
-  the tool rather than deriving either from the other. Beware that zero commits,
+  the tool rather than deriving either from the other. Nor need the name be stale
+  to betray you: it can be a live prefix of another live one, with the tool's own
+  search doing the matching. `gh pr list --search "head:worker/activity-hic014"`
+  also returns the PR for `worker/activity-hic014b`, and ranks the sibling first,
+  so a loop reading the top row reads one branch's state as another's — here it
+  read OPEN for a branch whose own PR had merged and merely skipped it, but the
+  same shape reversed deletes a live worker's branch on its sibling's verdict.
+  Ask for `headRefName` in `--json` and compare it for equality yourself; a search
+  term substring-matches, and only equality identifies. Beware that zero commits,
   clean tree, no PR describes both an abandoned worker and one that started a
   minute ago — and freshness does not break that tie either, however reasonable
   it sounds. Nothing observable about the tree does; see the next bullet.
