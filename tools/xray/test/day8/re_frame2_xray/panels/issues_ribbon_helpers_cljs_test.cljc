@@ -552,3 +552,42 @@
              {:id 1 :op-type :error
               :operation :rf.error/handler-exception
               :rf.trace/trigger-handler {:source-coord {:file "src/foo.cljs"}}})))))
+
+;; ---- (14) the effect-map refusal reads on the GENERIC row (rf2-04tx) -----
+;;
+;; The refusal ships NO bespoke Xray UI, and that is the claim under test: an
+;; operator diagnosing a refused event reads the ordinary issue row and gets
+;; the category, the offending KEY, and the source of the handler that wrote
+;; it. If this row ever went blank in the middle cell, the operator would see
+;; that an event was refused without being told which key did it — and the
+;; whole point of the refusal is to name the mistake.
+
+(deftest effect-map-shape-reads-on-the-generic-issue-row
+  (testing "a refused effect-map projects category / offending key / source
+            onto the generic row — no bespoke panel needed"
+    (let [row (h/project-issue
+                (assoc
+                  (error-ev 11 :rf.error/effect-map-shape
+                            {:recovery :fix-effect
+                             :tags {:failing-id        :boot/arm
+                                    :rf.trace/event-id :boot/arm
+                                    :rf.event/v        [:boot/arm]
+                                    :offending-key     :dispatch-later
+                                    :value             {:ms 5000 :event [:boot/fire]}
+                                    :reason            (str "Effect-map for `:boot/arm` returned top-level key "
+                                                            "`:dispatch-later`; the effect-map is closed.")}})
+                  :rf.trace/trigger-handler {:source-coord {:file "src/app/boot.cljs"
+                                                            :line 88}}))]
+      (is (= :error (:severity row))
+          "an effect-map refusal is an ERROR row")
+      (is (= "effect-map-shape" (:category row))
+          "the category cell names the category")
+      (is (= :fix-effect (:recovery row))
+          "the recovery cell says the event aborts until the effect is fixed")
+      (is (re-find #":dispatch-later" (:description row))
+          "the description NAMES THE OFFENDING KEY — the one fact the operator
+           needs and the only discriminator between refusals")
+      (is (re-find #":boot/arm" (:description row))
+          "and it names the handler that wrote it")
+      (is (= "src/app/boot.cljs:88" (:source-coord row))
+          "the source cell points at the handler's own line"))))
