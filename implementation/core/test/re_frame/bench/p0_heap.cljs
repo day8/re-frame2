@@ -72,8 +72,6 @@
   (:require ["react-dom" :as react-dom]
             ["react-dom/client" :as react-dom-client]
             [clojure.string :as str]
-            [re-frame.bench.hicasso.arm1.mount :as hic-mount]
-            [re-frame.bench.hicasso.arm1.runtime :as hic-rt]
             [re-frame.bench.hicasso.lane :as lane]
             [re-frame.bench.order-guard :as guard]
             [re-frame.bench.p0-arms :as arms]
@@ -84,6 +82,21 @@
             [re-frame.bench.p0-reagent :as rg]
             [re-frame.bench.p0-uix :as ux]
             [re-frame.frame :as frame]
+            ;; THE CANDIDATE'S THREE DOORS, and they are the PACKAGE's
+            ;; (rf2-fe0l). They used to be `re-frame.bench.hicasso.arm1.*`
+            ;; — the frozen prototype `implementation/hicasso/src` was
+            ;; moved from — so every heap figure this file ever produced
+            ;; priced a bench-tree copy rather than the product. The
+            ;; equivalents are 1:1 and named here so a reader can check
+            ;; the claim: `impl.mount/root!` for the mount door,
+            ;; `impl.collector/reset-runtime!` for the page-wide fixture
+            ;; reset, `impl.inventory/residue` for the structural census.
+            ;; Bench requiring package is the allowed direction;
+            ;; `hicasso/scripts/check_freeze.py`'s SEALED rule forbids
+            ;; only package requiring bench.
+            [re-frame.hicasso.impl.collector :as hic-collector]
+            [re-frame.hicasso.impl.inventory :as hic-inventory]
+            [re-frame.hicasso.impl.mount :as hic-mount]
             [reagent.core :as r]
             [reagent.dom.client :as rdc]
             [uix.dom :as uix-dom]))
@@ -136,12 +149,22 @@
    :unmount-one (fn [rt] (uix-dom/unmount-root rt))})
 
 (defn- hicasso-root-arm
-  "One root of the Hicasso candidate arm (rf2-2rtt6.34), through Arm 1's
-  OWN root door — `arm1.mount/root!` installs the frame provider, renders
-  inside a `flushSync` and returns the handle its `release!` takes.
+  "One root of the Hicasso candidate arm (rf2-2rtt6.34), through the
+  PACKAGE's OWN root door — `re-frame.hicasso.impl.mount/root!` installs
+  the frame provider, renders inside a `flushSync` and returns the handle
+  its `release!` takes.
 
-  The unmount is NOT `arm1.mount/release!`, and the difference is the
-  whole survival metric. `release!` ends with `runtime/reset-runtime!`,
+  **Seam 1 of the four this file pointed at the prototype** (rf2-fe0l).
+  The other three are the runtime reset in [[prepare!]] and the two
+  `residue` reads — the live structural census in [[mount!]] and the
+  post-unmount one in [[install!]]. Nothing else in this file names a
+  substrate, which is why repointing those four is the whole of making
+  the heap ladder price the product instead of the frozen copy it was
+  moved from.
+
+  The unmount is NOT `impl.mount/release!`, and the difference is the
+  whole survival metric. `release!` ends with
+  `impl.collector/reset-runtime!`,
   which drops every cell, edge and cached entry by force — an arm torn
   down that way would answer zero residue whatever it had leaked, and
   would also destroy the sibling roots of a multi-root arm. This unmounts
@@ -381,7 +404,7 @@
    ;; own residue lands in the baseline, and no arm's teardown is ever
    ;; forced — which is what leaves the survival metric something to
    ;; measure (rf2-2rtt6.34).
-   (hic-rt/reset-runtime!)
+   (hic-collector/reset-runtime!)
    (let [segment (first (filter #(= segment-id (:id %)) arms/segments))]
      (when segment (arms/enter-segment! segment (long grid-width))))
    true))
@@ -444,7 +467,7 @@
         live       (live-key-count)]
     (reset! held {:arm (keyword arm-id) :unmount-one unmount-one
                   :handles handles :containers containers})
-    (let [hic (hic-rt/residue)]
+    (let [hic (hic-inventory/residue)]
       #js {:elements     elements
            :expected     want
            :keys         live
@@ -948,11 +971,11 @@
 ;; proportional to the CHANGE, not to the read count. The unchanged case
 ;; allocates nothing", and H1's pre-registered prediction is that "the
 ;; allocation slope across warm 1/3/7/20 reads is FLAT AT ZERO",
-;; **falsified by** a non-flat slope. The mechanism is [[entry-matches?]]
-;; in `arm1/runtime.cljs` — an ordered pairwise compare of the cached
-;; entry's key array against the scratch, which allocates nothing, so a
-;; warm re-render whose read set did not change re-uses `subscribe`'s
-;; identity and the commit does no work.
+;; **falsified by** a non-flat slope. The mechanism is `entry-matches?`
+;; in `re-frame.hicasso.impl.collector` — an ordered pairwise compare of
+;; the cached entry's key array against the scratch, which allocates
+;; nothing, so a warm re-render whose read set did not change re-uses
+;; `subscribe`'s identity and the commit does no work.
 ;;
 ;; That is a claim about EDGE MAINTENANCE and not about the whole render.
 ;; A warm re-render at R reads also allocates R query vectors in the arm's
@@ -1241,7 +1264,7 @@
              ;; HD-002 clause (d)'s failure and a different and worse
              ;; finding than a large per-boundary figure.
              :hicassoResidue (fn []
-                               (let [r (hic-rt/residue)]
+                               (let [r (hic-inventory/residue)]
                                  #js {:cells      (:cells r)
                                       :cellRefs   (:cell-refs r)
                                       :boundaries (:boundaries r)

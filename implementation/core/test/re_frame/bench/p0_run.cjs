@@ -1880,7 +1880,7 @@ function summariseAlloc(row, refused) {
 }
 
 // The candidate's structural claim, as numbers the run exits on. The
-// arm IS `arm1.runtime`, so its own index and cell tables can be
+// arm IS the package's own collector, so its index and cell tables can be
 // counted, and "one subscription/epoch hook per boundary plus N edges
 // in a shared index" stops being a sentence in a docstring:
 //
