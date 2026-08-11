@@ -447,3 +447,52 @@
   whichever slots the envelope hoists."
   [ev]
   (merge (:tags ev) ev))
+
+;; ---------------------------------------------------------------------------
+;; The sabotage — the page-global adoption window, restored and executing
+;; ---------------------------------------------------------------------------
+
+(defn with-page-global-adoption
+  "Run `f` with the PRE-rf2-6tmu **page-global** adoption window restored,
+  and put the shipped doors back afterwards whatever `f` does. Answers
+  what `f` answers; `f` is handed the page-global window itself, so a row
+  can assert on the state its readings are taken in.
+
+  `checkpoint-support/with-macrotask-deferral` is the model, and the
+  claim is the same one: the code under test is unmodified and unaware.
+  Two writes, because the defect was ONE FACT IN TWO PLACES and either
+  alone is a different bug:
+
+  - `impl.roots/open-adoption-window!` answers one ref for the whole page
+    instead of minting a fresh one per root, so every hydrating root
+    shares a window and the FIRST closer shuts it for all of them.
+  - `impl.roots/adopting-here?` reads THAT ref rather than the React
+    context above it, so every presence tray on the page answers to it —
+    including one in an ordinary root that is adopting nothing.
+
+  Everything else is the shipped code: the window object has the shipped
+  shape, `adopting?`, `close-adoption-window!`, `with-adoption` and
+  `impl.mount/adoption-window-closer` are untouched, and `hydrate-root!`
+  mints through the same door it always did. What this moves is the
+  window's SCOPE and nothing else, which is exactly the mutation the
+  hydration suite's rows used to describe in prose.
+
+  **Born SHUT**, unlike a real window, and that is what keeps a row using
+  it honest: nothing is adopting until a root hydrates, so a row has to
+  open it the way the page does — by hydrating — rather than inheriting
+  an open flag from the arming. A row that asserts the shut premise first
+  cannot pass on a sabotage that was simply switched on.
+
+  A fresh page-window per arming, so two armings in one row cannot
+  inherit each other's shut."
+  [f]
+  (let [page-window   #js {"open" false}
+        mint-original roots/open-adoption-window!
+        here-original roots/adopting-here?]
+    (set! roots/open-adoption-window!
+          (fn [] (set! (.-open page-window) true) page-window))
+    (set! roots/adopting-here? (fn [] (roots/adopting? page-window)))
+    (try (f page-window)
+         (finally
+           (set! roots/open-adoption-window! mint-original)
+           (set! roots/adopting-here? here-original)))))

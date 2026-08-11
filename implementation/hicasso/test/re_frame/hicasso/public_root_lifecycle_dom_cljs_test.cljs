@@ -250,3 +250,126 @@
               "this witness left its own container in the shared
                browser-test document")
           (collector/reset-runtime!))))))
+
+;; ---------------------------------------------------------------------------
+;; W3 (rf2-1mmn) — THE EXECUTING SABOTAGE CONTROL for kernel risk row 2
+;; ---------------------------------------------------------------------------
+
+(defn- pre-rf2-31xm-teardown!
+  "The public teardown door AS IT WAS BEFORE rf2-31xm narrowed it: take
+  this root down, drop its container, and empty the process-global
+  runtime.
+
+  **The sabotage needs no mock and no seam, because that door still
+  exists under an honest name.** `impl.mount/release!` is `unmount!` plus
+  the container removal plus `collector/reset-runtime!` — precisely the
+  meaning rf2-31xm took off the public facade, retained as the fixture
+  door for a suite that owns the whole page. So the mutation is not a
+  hypothetical reconstruction: it is the shipped page-wide door, called
+  where the root-scoped one belongs.
+
+  This is the one place in this file where `impl.mount` performs an act
+  rather than taking a reading, and the header's rule survives it whole.
+  That rule forbids the impl door from doing what the PUBLIC door is
+  supposed to be able to do; total teardown is the one thing the public
+  door must NOT be able to do, which is the whole of rf2-31xm."
+  [handle]
+  (mount/release! handle))
+
+;; Kernel risk row 2 of `docs/design/hicasso/product/lanes/adversarial-risks.md`
+;; — *independent roots and SSR requests cannot reset, adopt, dirty, or release
+;; one another's state* — is a correctness gate, and that register's gate
+;; construction rule asks every one of them for "a sabotage mutation that makes
+;; each correctness gate red". Until rf2-1mmn this family had none that ran:
+;; this suite and `roots-frames-isolation-dom-cljs-test` carried no sabotage in
+;; any form, and a reviewer cannot re-run what is not there.
+;;
+;; The mutation is the register's own first verb. `collector/reset-runtime!`
+;; empties every table this arm holds, and every one of them is one-per-page
+;; and keyed by frame — its docstring says so out loud — so a teardown door
+;; that calls it releases every sibling root's state along with its own. W1
+;; above asserts that root A's teardown does not. This row plants the door
+;; that does, and watches W1's three readings invert.
+;;
+;; Both halves run the same construction, and they red in opposite directions:
+;;
+;;   - the ARMED half reds if the page-wide door stops being page-wide, which
+;;     is what a control that has quietly become a no-op looks like;
+;;   - the DISARMED half reds if root-scoped teardown regresses to page-wide,
+;;     which is the defect W1 exists to catch, and which shipped once already.
+;;
+;; The stranding reading is the one worth having, and it is why the row does
+;; not stop at the counts. A runtime emptied under a live root throws nothing
+;; and clears nothing: the markup React last committed stays on the page, the
+;; mount point stays connected, and the only symptom is a screen that has
+;; stopped moving. The armed half asserts all three — dead tables, a frozen
+;; label, and a page that still looks perfectly well.
+(deftest a-page-wide-teardown-door-strands-the-sibling-root
+  (if-not (mount/browser?)
+    (skip! ":node-test has no DOM")
+    (do
+      ;; DISARMED — the shipped root-scoped door.
+      (let [_ (fresh!)
+            a (h/root! (mount/fresh-container!) frame-a [panel {:tag "a"}])
+            b (h/root! (mount/fresh-container!) frame-b [panel {:tag "b"}])]
+        (try
+          (is (= #{[frame-a label-q] [frame-b label-q]} (cell-keys))
+              (str "premise: two roots, two frames, one cell each; got "
+                   (pr-str (cell-keys))))
+          (h/unmount! a)
+          (testing "DISARMED — root B keeps its cell, keeps its reader, and stays
+                    LIVE across its sibling's teardown"
+            (is (contains? (cell-keys) [frame-b label-q])
+                (str "got " (pr-str (cell-keys))))
+            (is (= 1 (readers-of [frame-b label-q])))
+            (mount/dispatch! b [::relabel "beta-again"])
+            (is (= "beta-again" (text-at b ".label"))
+                "root B stopped repainting when root A was torn down"))
+          (finally
+            (h/unmount! b)
+            (detach! a)
+            (detach! b)
+            (is (= [false false] [(connected? a) (connected? b)])
+                "this witness left one of its own containers in the shared
+                 browser-test document")
+            (collector/reset-runtime!))))
+
+      ;; ARMED — the same construction, torn down through the page-wide door.
+      (let [_ (fresh!)
+            a (h/root! (mount/fresh-container!) frame-a [panel {:tag "a"}])
+            b (h/root! (mount/fresh-container!) frame-b [panel {:tag "b"}])]
+        (try
+          (is (= #{[frame-a label-q] [frame-b label-q]} (cell-keys))
+              (str "premise: the same two roots as the disarmed half; got "
+                   (pr-str (cell-keys))))
+          (pre-rf2-31xm-teardown! a)
+          (testing "ARMED — root A's teardown reached the process-global runtime
+                    and took root B's state with it"
+            (is (= #{} (cell-keys))
+                (str "THE SABOTAGE DID NOT SABOTAGE — the page-wide door left the
+                      cell table standing, so W1's key reading is not a
+                      discrimination; got " (pr-str (cell-keys))))
+            (is (zero? (readers-of [frame-b label-q]))
+                "root B's boundary must have lost the cell it was reading"))
+
+          (testing "and root B is STRANDED — the half a count cannot show.
+                    Nothing threw, nothing complained, its markup is the markup
+                    React last committed and its mount point is still connected.
+                    The only symptom is a screen that has stopped moving, which
+                    is exactly why W1 reads the tables and the dispatch rather
+                    than the DOM"
+            (mount/dispatch! b [::relabel "beta-again"])
+            (is (= "beta" (text-at b ".label"))
+                (str "the page-wide door left root B repainting, so the dispatch
+                      reading in W1 is not a discrimination either; got "
+                     (pr-str (text-at b ".label"))))
+            (is (true? (connected? b))
+                "and the page still looks perfectly well"))
+          (finally
+            (h/unmount! b)
+            (detach! a)
+            (detach! b)
+            (is (= [false false] [(connected? a) (connected? b)])
+                "this witness left one of its own containers in the shared
+                 browser-test document")
+            (collector/reset-runtime!)))))))
