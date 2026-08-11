@@ -1,9 +1,10 @@
 # Errors
 
-A view body throws: `nil` where a map was expected, a key that moved, a shape
-that last week's code cannot handle. React's default is not a red box around
-the broken component. React unmounts the entire root, and the user gets a
-blank page.
+When a view throws during render, React does not automatically replace only
+that view with an error message. Without an error boundary, React can unmount
+the entire root and leave the user with a blank page.
+
+Wrap independently useful regions with `h/error-boundary`:
 
 ```clojure
 (ns app.articles
@@ -12,53 +13,88 @@ blank page.
 (h/defview article-page [{:keys [id]}]
   [:main
    [site-header {}]
-   [h/error-boundary {:fallback [:p.oops "We couldn't load this article."]}
+
+   [h/error-boundary
+    {:fallback
+     [:p.oops "We couldn't load this article."]}
     [article-body {:id id}]]
+
    [site-footer {}]])
 ```
 
-If `article-body` throws during render, the header and footer stay up, and the
-paragraph takes the article's place. Nothing else in the tree notices.
+If `article-body` throws while rendering, the fallback replaces that region.
+The header and footer remain mounted.
 
-[`h/error-boundary`](glossary.md#error-boundary) is a component you write into
-the tree. It is not the re-render unit that a
-[`defview`](glossary.md#defview) creates
-([Views and reads](02-views-and-reads.md)). Only `h/error-boundary` catches.
+`h/error-boundary` is the component that catches. A normal `defview` boundary
+only defines an independently re-rendering view; it is not an error boundary.
 
-## The three keys
+## Boundary options
 
-`h/error-boundary` takes exactly three props. There is no built-in
-classification, retry policy, or logging. Those are your app's decisions, and
-you make them in `:on-error`.
+An error boundary accepts three props:
 
-| Key | Shape | What it does |
+| Prop | Shape | Behaviour |
 | --- | --- | --- |
-| `:fallback` | hiccup, or `(fn [error] hiccup)` | renders instead of the children once something below has thrown |
-| `:reset-key` | any value, compared with `=` | changing it clears the caught failure and remounts the children |
-| `:on-error` | an event vector, or a plain function | fires once per caught failure |
+| `:fallback` | Hiccup, or `(fn [error] hiccup)` | Replaces the children after a caught failure |
+| `:reset-key` | Any value compared with `=` | When it changes, clear the caught failure and remount the children |
+| `:on-error` | Event vector or plain function | Run once for each caught failure |
 
-**`:fallback` can read the error.** Pass a function, and the function receives
-the thrown value. Show `(ex-message error)` in development and a plain sentence
-in production. The returned hiccup is lowered like any other,
-[intents](glossary.md#intent) included, under the frame where the region was
-mounted.
+### Fallbacks
 
-**`:reset-key` is how retry works.** The region never guesses. When the key
-changes, it clears the caught failure and remounts the children — a fresh
-mount, not a re-render of the survivors. If the children throw again, the
-region catches again. A counter in app-db is the usual shape.
+A fallback may be static Hiccup:
 
-**`:on-error` fires once per caught failure.** The region dispatches an event
-vector with the error appended — `[:diagnostics/record-failure]` reaches its
-handler as `[:diagnostics/record-failure error]` — in the region's frame. If
-you pass a plain function, the region calls it with the error and dispatches
-nothing. Once means once, even under StrictMode: the throwing render can run
-twice in development, and React still reports a single catch.
+```clojure
+{:fallback [:p.oops "This panel failed."]}
+```
 
-## A nested region, with retry
+Or it may inspect the thrown value:
 
-Regions nest, and the inner region wins. The nearest region above a throw
-catches it; everything outside that region continues to render.
+```clojure
+{:fallback
+ (fn [error]
+   [:div.oops
+    [:p "This panel failed."]
+    [:pre (ex-message error)]])}
+```
+
+Use detailed messages in development and user-safe copy in production. Hiccup
+returned by the fallback is rendered under the same frame as the boundary, so
+its event intents work normally.
+
+Keep fallbacks simple. A fallback that reads the same broken state or performs
+heavy work can throw itself. That second failure is caught only by the next
+boundary above it.
+
+### Retry with `:reset-key`
+
+A caught boundary remains in the failed state until its `:reset-key` changes.
+The change clears the failure and **remounts** the children. It does not
+re-render the surviving failed subtree.
+
+Use an app-db counter or generation value when the user presses Retry.
+
+### Report with `:on-error`
+
+An event vector receives the thrown error as its final argument:
+
+```clojure
+:on-error [:diagnostics/record-failure]
+```
+
+The handler receives:
+
+```clojure
+[:diagnostics/record-failure error]
+```
+
+The event dispatches into the boundary's frame. A plain function is called
+with the error and does not dispatch anything.
+
+`on-error` runs once for each caught failure. Development StrictMode may run
+the failing render more than once, but one React catch produces one report.
+
+## Nested boundaries and retry
+
+The nearest error boundary above the throw handles it:
 
 ```clojure
 (ns app.reports
@@ -66,7 +102,8 @@ catches it; everything outside that region continues to render.
             [re-frame.hicasso :as h]))
 
 (rf/reg-sub :chart/attempt
-  (fn [db _query] (:chart/attempt db)))
+  (fn [db _query]
+    (:chart/attempt db 0)))
 
 (rf/reg-event :chart/retry
   (fn [{:keys [db]} _event]
@@ -74,61 +111,75 @@ catches it; everything outside that region continues to render.
 
 (rf/reg-event :diagnostics/record-failure
   (fn [{:keys [db]} [_ error]]
-    {:db (update db :diagnostics/failures (fnil conj []) (ex-message error))}))
+    {:db (update db
+                 :diagnostics/failures
+                 (fnil conj [])
+                 (ex-message error))}))
 
-(h/defview reports-page [_props]
+(h/defview reports-page [_]
   [:main
    [report-header {}]
-   [h/error-boundary {:fallback [:p.oops "We couldn't show this report."]}
+
+   [h/error-boundary
+    {:fallback
+     [:p.oops "We couldn't show this report."]}
+
     [report-summary {}]
-    [h/error-boundary {:fallback  (fn [_error]
-                                    [:div.panel-oops
-                                     [:p "The live chart failed."]
-                                     [:button {:on-click [:chart/retry]}
-                                      "Try again"]])
-                       :reset-key (h/sub [:chart/attempt])
-                       :on-error  [:diagnostics/record-failure]}
+
+    [h/error-boundary
+     {:fallback
+      (fn [_error]
+        [:div.panel-oops
+         [:p "The live chart failed."]
+         [:button {:on-click [:chart/retry]}
+          "Try again"]])
+      :reset-key (h/sub [:chart/attempt])
+      :on-error  [:diagnostics/record-failure]}
      [live-chart {}]]]])
 ```
 
-When `live-chart` throws, the inner region catches. The panel shows its
-fallback, `report-summary` and the header stay up, and the outer region never
-fires. The retry button is an ordinary intent. Its handler increments
-`:chart/attempt`, the `:reset-key` changes, and the chart remounts. If the bad
-data is still there, the region catches again.
+If `live-chart` throws:
 
-A throw in `report-summary`, which sits outside the inner region, lands in the
-outer region instead: the whole report body is replaced, and the header
-survives.
+- the inner boundary catches it;
+- the chart region shows its fallback;
+- the report summary and header remain;
+- the outer boundary does not report the failure.
 
-**A fallback that throws is caught by the next region up.** A fallback that
-re-reads the state that just failed can turn one broken panel into a broken
-page. Keep fallbacks plain: static markup, a retry intent, nothing heavy.
+The Retry button increments `:chart/attempt`. The reset key changes and the
+chart mounts from scratch. If it throws again, the boundary catches the new
+failure.
 
-## What it never sees
+A throw from `report-summary`, which is outside the inner boundary, reaches the
+outer boundary instead.
 
-The region inherits React's rule exactly.
+## What an error boundary catches
 
-**Caught:** a throw from render, and a throw from the lifecycle and effects of
-the tree below the region.
+The boundary follows React's error-boundary rules.
 
-**Not caught:** anything the browser calls outside render — an event handler, a
-`setTimeout`, a promise continuation. Those failures belong to re-frame2, not
-to the view layer. An intent's handler runs inside the event pipeline. The
-pipeline catches the throw, reports a structured error record
-(`:rf.error/handler-exception`, with the event, frame, and recovery attached),
-and the app continues to run. A raw `fn` callback that throws goes to the
-browser's error channel like any other JavaScript. Either way the region's
-fallback never shows — nothing below the region failed to *render*.
+**Caught:** throws during render and throws from lifecycle or effect work in
+the descendant React tree.
 
-## Expected failures stay data
+**Not caught:** work the browser invokes outside render, including event
+handlers, timers, and promise continuations.
 
-If you can name the failure in advance, the failure is state, not an exception.
-A request can 404, a form can be invalid, a resource can be unavailable. Model
-each in app-db, and render each with an ordinary view.
+A re-frame2 event handler runs in the event pipeline. If it throws, the
+pipeline reports `:rf.error/handler-exception` with the event, frame, and
+recovery data, then keeps the application runtime alive. It does not render a
+view fallback.
+
+A raw JavaScript callback that throws reaches the browser's error channel.
+Again, the error boundary does not see it because no descendant failed during
+React rendering or lifecycle.
+
+## Expected failures are state
+
+Use app-db status values for failures you can name in advance: a 404, invalid
+input, an unavailable resource, or an expected permission denial.
+
+Do not throw to express ordinary control flow:
 
 ```clojure
-;; Don't — a 404 is not an exception, and a region is not control flow
+;; Don't: a missing article is an expected state.
 (h/defview article-body [{:keys [id]}]
   (let [article (h/sub [:article/by-id id])]
     (when (nil? article)
@@ -136,49 +187,53 @@ each in app-db, and render each with an ordinary view.
     [:article (:title article)]))
 ```
 
+Render the status explicitly:
+
 ```clojure
 (h/defview article-body [{:keys [id]}]
   (case (h/sub [:article/status id])
     :loading [loading-placeholder {}]
     :failed  [load-failed {:id id}]
-    [:article (:title (h/sub [:article/by-id id]))]))
+    [:article
+     (:title (h/sub [:article/by-id id]))]))
 ```
 
-The second version is testable with `=`, renders a real message instead of a
-generic fallback, and leaves the region free for the failure you did not plan
-for. Fetch status and mutation status are ordinary app-db state;
-[Async resources](08-async-resources.md) owns that shape.
+The explicit version is easy to test, can show a precise message, and reserves
+the error boundary for failures the application did not plan for. Resource and
+mutation statuses are covered in [Async resources](08-async-resources.md).
 
-## Where regions go
+## Place boundaries at useful recovery regions
 
-Regions do not go everywhere, and not once at the root. A single root region is
-a whole-page fallback — not much better than a blank screen, and navigation
-goes down with the page. One region per view is noise; most views cannot fail
-independently of their parent.
+A single boundary around the root turns every failure into a whole-page
+fallback and may remove navigation along with the broken content. A boundary
+around every small view creates noise without useful recovery.
 
-The useful grain is **a region the user can still work without**: a panel, a
-tab body, a sidebar widget, a route's main content. Ask what the rest of the
-page is worth if this part is gone. If the answer is "nothing", put the region
-higher.
+Place a boundary around a region the user can continue without:
+
+- a dashboard panel;
+- a tab body;
+- a sidebar widget;
+- a route's main content while the surrounding shell remains usable.
+
+Ask what should stay available when this region fails. Put the boundary at the
+level that preserves it.
 
 ## Troubleshooting
 
 | Symptom | Cause | Fix |
 | --- | --- | --- |
-| Whole page blanks when one view throws | Nothing caught it — React unmounts the root by default | Put `h/error-boundary` around the region that can fail |
-| A throw from an event handler is not caught by the region | Handlers run in the event pipeline, not in render; the pipeline catches it and reports `:rf.error/handler-exception` | Expected — read the error record; the view layer never sees it |
-| Fallback shows and never leaves | No `:reset-key`, or the key never changes | Drive the key from app-db and bump it to retry |
-| Retry button in the fallback does nothing | The intent lowers under the region's frame; without a frame in scope it raises `:rf.error/hicasso-intent-outside-boundary` | Keep the fallback ordinary hiccup inside the mounted tree; dispatch a plain intent |
-| One panel breaks and the page follows it down | The fallback itself threw; the next region up caught that | Keep fallbacks plain — no reads of the failed state, no heavy work |
-| `:on-error` seems to fire twice in development | It does not — StrictMode re-runs the failing render; React reports one catch | Two fires means two real failures |
-| The region did not catch during a server render | React routes server render errors through its server error channel; client regions never see them | The surface's server policy owns that path ([SSR and hydration](17-ssr-and-hydration.md)) |
+| One view throws and the whole page blanks | No boundary caught the render failure, so React unmounted the root | Wrap the independently recoverable region with `h/error-boundary` |
+| An event-handler exception does not show the fallback | Event handlers run in the re-frame2 pipeline, not descendant React render | Inspect the `:rf.error/handler-exception` record; do not expect a view fallback |
+| Fallback appears and never clears | There is no `:reset-key`, or its value never changes | Drive a generation value from app-db and change it on Retry |
+| Retry intent in the fallback raises `:rf.error/hicasso-intent-outside-boundary` | The fallback was rendered outside the mounted Hicasso/frame tree | Keep fallback Hiccup inside the boundary and use an ordinary event intent |
+| A panel fallback throws and the larger page fallback appears | The fallback itself failed and the next outer boundary caught it | Keep fallbacks small and avoid re-reading the failed state |
+| `:on-error` appears to fire twice in development | Two distinct failures occurred; StrictMode alone still produces one report per catch | Inspect the two error records and their causes |
+| A server-render throw is not caught by the client boundary | Server rendering uses the server error channel; a client error boundary cannot handle server execution | Apply the surface's server policy and server error handling ([SSR and hydration](17-ssr-and-hydration.md)) |
 
-## When not to use it
+## When not to use an error boundary
 
-- **The failure is expected** — a 404, invalid input, an empty result. That is
-  app-db state rendered by an ordinary view. A region there is a worse version
-  of a status key.
-- **Around every view** — a region earns its place at the grain of "the user
-  can still work without this"; below that grain it is noise.
-- **As loading UI** — a fallback is for failure, not for pending. Pending is
-  data too.
+Do not use it:
+
+- for an expected failure such as a 404, validation error, or empty result;
+- around every small view without an independent recovery experience;
+- as loading UI. Pending is state, not a render exception.

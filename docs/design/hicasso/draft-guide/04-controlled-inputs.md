@@ -1,13 +1,9 @@
 # Controlled inputs
 
-Intents and markers from [Events as data](03-events-as-data.md) are enough for
-buttons. A text field controlled by app-db has a harder job: every keystroke
-is a full round trip, and the usual bugs are dropped characters, a caret that
-jumps to the end, IME compositions destroyed mid-word, and rejections that
-never show. Hicasso centralises that path as a
-[controlled-field law](glossary.md#controlled-field). You write ordinary
-`:value` and `:on-input`; the runtime keeps the round trip inside one browser
-turn.
+A controlled text field sends every edit through app-db and receives the
+committed value back through a subscription. Hicasso keeps that round trip in
+the same browser turn and handles caret and IME behaviour for the normal
+`:value`/`:on-input` form.
 
 ```clojure
 (h/defview title-field [{:keys [id]}]
@@ -16,81 +12,70 @@ turn.
            :on-input [:todo.ui/edit id ::h/value]}])
 ```
 
-You write ordinary `:value` and `:on-input`, with no caret helper and no local
-atom. `:on-change` works the same way. If a field has both, both can fire, and
-the runtime converges once. For checkboxes, use
-[`::h/checked`](glossary.md#hchecked) the same way — the placeholders and the
-key map are taught in [Events as data](03-events-as-data.md).
+No local atom or caret helper is required. `:on-change` uses the same path. If
+a field defines both handlers, both may fire and the runtime converges once.
+Checkboxes use [`::h/checked`](glossary.md#hchecked); file inputs use
+[`h/event`](glossary.md#hevent) because the platform owns their value.
 
-## What the law guarantees
+## The controlled-field contract
 
-The value on screen is app-db state, so every keystroke is a round trip:
-keystroke → dispatch → handler → commit → subscription → re-render → DOM
-value. The framework keeps that whole path **inside the same browser turn**.
-Because of this, four guarantees hold without any code from you:
+For each keystroke, the path is:
 
-1. **Same-turn echo.** Dispatch runs synchronously inside the discrete browser
-   event. The commit's echo is back in the field before the browser finishes
-   the event — on screen within one frame. Fast typists do not drop or
-   reorder characters.
-2. **Committed echo.** The field shows what your handler committed, not what
-   the user typed. If you accept the keystroke, it stays. If you rewrite it,
-   the rewrite shows. If you reject it, the field holds the model value.
-3. **Caret and selection stay in place** when the model rejects or rewrites
-   the typed text, including edits in the middle of the string. The framework
-   never remounts the input to reset it. A remount destroys focus, selection,
-   and any live composition.
-4. **Composition is safe.** An Enter during composition selects an IME
-   candidate and commits nothing. A live composition is never overwritten
-   while it runs. A rejection or normalization lands whole when the
-   composition ends.
+`browser event → dispatch → event handler → app-db commit → subscription → view → DOM`
 
-Rejection uses the same path as acceptance. Return `nil` from the handler, and
-the field stays on the model value with the caret intact. You do not write
-special rejection code in the view:
+Hicasso completes this path inside the discrete browser turn. That provides
+four guarantees:
+
+1. **The committed value returns in the same turn.** Fast typing does not lose
+   or reorder characters merely because the field is controlled.
+2. **The model remains authoritative.** The field displays the value committed
+   by the handler. Accepted input remains, normalized input shows the
+   normalized value, and rejected input returns to the unchanged model value.
+3. **Caret and selection are preserved** when the model rejects or rewrites an
+   edit, including edits in the middle of a string. The node is not remounted.
+4. **IME composition is not interrupted.** Keyboard maps do not treat
+   composition Enter or Escape as application commands, and a model correction
+   waits until the composition closes.
+
+A handler rejects an edit by returning `nil`; the view needs no special branch:
 
 ```clojure
 (rf/reg-event :todo.ui/set-qty
   (fn [{:keys [db]} [_ id typed]]
     (if (re-matches #"\d*" typed)
       {:db (assoc-in db [:todo id :qty] typed)}
-      nil)))                                       ;; rejected — model unchanged
+      nil)))
 ```
 
-Two smaller clauses complete the law. Controlled means the model owns the
-screen value at every commit. So foreign drift — autofill, a browser
-extension, a script that writes `.value` — is repaired the next time the
-element commits. Events that land after unmount find nothing. A blur delivered
-to a field that has just left the tree is a no-op, with zero residue.
+Controlled means the model owns the displayed value after every commit. If
+autofill, a browser extension, or another script changes `.value`, the next
+commit restores the model. An event delivered after the field unmounts is a
+no-op, including a late blur; it leaves no retained input state.
 
-Every keystroke on a controlled field is a full pipeline run: state write,
-subscription recomputation, view run, React commit, painted echo. The
-[performance chapter](18-performance.md) publishes that path, with counts for
-the four-field editor and the controlled grid. This page owns the law; that
-page owns the cost.
+Every controlled keystroke is a complete event-pipeline run. The performance
+chapter owns the measurements and budgets; this page owns the behaviour.
 
-??? info "If you come from Reagent"
-    The usual Reagent pattern wraps an input in a local ratom, so that async
-    rendering cannot drop keystrokes or move the caret. Do not bring that
-    pattern here. The controlled path is synchronous end to end, and the
-    runtime owns caret and composition. A local atom adds nothing, and it
-    re-creates the twin-atom stack that the [forms module](05-forms.md)
-    exists to remove.
+??? info "For readers coming from Reagent"
+    A common Reagent pattern adds a local ratom to protect a field from async
+    rendering. Do not copy that pattern into Hicasso. The controlled path is
+    synchronous and the runtime already preserves selection and composition.
+    When an edit needs a separate draft/commit lifecycle, use the forms module
+    rather than building a second atom stack.
 
-## The whole control family
+## Supported controls
 
-The same value-in / intent-out shape covers every control for which the
-platform gives you a value:
+The same value-in, event-out form applies to the controls with a single
+platform value:
 
-| Control | Value in | Intent out |
-|---|---|---|
-| `:input` (text, email, password, search, url, tel) | `:value` | `:on-input` with [`::h/value`](glossary.md#hvalue) |
-| `:textarea` | `:value` | `:on-input` with [`::h/value`](glossary.md#hvalue) |
-| `:input` number, date, time, range | `:value` | `:on-input` with [`::h/value`](glossary.md#hvalue) — the DOM hands you strings; parse in the handler |
-| `:input` checkbox | `:checked` | `:on-change` with [`::h/checked`](glossary.md#hchecked) |
-| `:input` radio | `:checked` per option | `:on-change` carrying the option's own value literally |
-| `:select` | `:value` on the select | `:on-change` with [`::h/value`](glossary.md#hvalue) |
-| `:input` file | none — the platform owns a file input's value | `:on-change` with [`h/event`](glossary.md#hevent), reading `.files` off the event |
+| Control | Value supplied by the view | Event form |
+| --- | --- | --- |
+| Text-like `:input` (`text`, `email`, `password`, `search`, `url`, `tel`) | `:value` | `:on-input` with `::h/value` |
+| `:textarea` | `:value` | `:on-input` with `::h/value` |
+| Number, date, time, and range inputs | `:value` | `:on-input` with `::h/value`; parse the string in the handler |
+| Checkbox | `:checked` | `:on-change` with `::h/checked` |
+| Radio option | `:checked` for each option | `:on-change` carrying that option's value literally |
+| `:select` | `:value` on the select | `:on-change` with `::h/value` |
+| File input | no controlled value | `:on-change` with `h/event`, reading `.files` |
 
 ```clojure
 [:select {:value     (h/sub [:todo.ui/priority])
@@ -103,18 +88,15 @@ platform gives you a value:
          :on-change [:todo/set-done id ::h/checked]}]
 ```
 
-A control that is *not* on the list is rejected instead of half-working. A
-contenteditable region is the named case. It has no single true value for the
-controlled contract to converge on, so a `:value` binding on it throws at
-source. The recovery is real: rich text is a job for a
-[declared host](09-interop.md) or a [named native island](10-native-tier.md),
-where the editor library owns the DOM that it must own.
+Unsupported controlled shapes are rejected rather than approximated. In
+particular, a contenteditable region has no single value that Hicasso can
+reconcile. Binding `:value` to it throws at the source. Use a declared foreign
+host or named native island so the rich-text editor can own the DOM it needs.
 
-## Forwarding attributes
+## Forward caller attributes safely
 
-At some point you wrap a field once, and you let call sites pass placeholder,
-`name`, a test id, and more. The recipe is an ordinary merge, with your owned
-entries last:
+A reusable field can accept ordinary caller attributes while retaining its
+control slots. Merge the caller map first and the owned entries last:
 
 ```clojure
 (h/defview field [{:keys [id busy?] :as attrs}]
@@ -124,31 +106,31 @@ entries last:
            :disabled busy?
            :on-input [:todo.ui/edit-field id ::h/value]})])
 
-[field {:id :title :busy? busy? :type "text" :placeholder "Todo title"}]
+[field {:id :title
+        :busy? busy?
+        :type "text"
+        :placeholder "Todo title"}]
 ```
 
-**The literal keys you write always win.** The law binds on the React slot
-where a key lands, not on its spelling. A forwarded `:onInput` against your
-`:on-input`, or `"value"` against your `:value`, reaches nothing that matters.
-A forwarded map can never replace the owned value, checked, handler, key, or
-revision slots of a control. When you *want* a caller's value to win, do not
-write your literal. Put the element's own classes on the tag
-(`[:input.form-control …]`). Never forward `:key` or
-[`::h/revision`](glossary.md#hrevision): these keys address the element *you*
-wrote, and the runtime reads them only from the map you wrote.
+Literal owned keys win by presence. A caller cannot replace the field's value,
+checked state, handler, key, or revision by supplying an alternative spelling
+such as `:onInput` or `"value"`; the controlled contract binds to the React
+slot reached by the authored literal. When callers should own a slot, do not
+write that literal in the wrapper.
 
-## Resets are by revision, never by value
+Put the wrapper's own classes on the Hiccup tag so they compose with a caller's
+`:class`. Do not forward `:key` or [`::h/revision`](glossary.md#hrevision): both
+refer to the element authored by the wrapper and are read only from that
+map.
 
-To force a field back to a value — a form reset, a revert, a server-normalized
-write that comes back — is a real intent, and it has its own door: an
-**explicit revision** from the caller. The runtime never infers a reset from a
-comparison of the incoming value with a target. With a value-equality reset, a
-user who types the "reset" value loses the edit in progress. Also, a
-same-value reassertion (the caller rejects a draft and restores the old value)
-becomes invisible.
+## Reset with `::h/revision`
 
-[`::h/revision`](glossary.md#hrevision) is that one door. The view reads it like
-any other value, beside `:value`:
+A reset must be an explicit domain event. Hicasso never infers a reset because
+the incoming value equals a particular target. Value-based reset detection
+cannot distinguish a user typing that value from an application reset, and it
+cannot observe a same-value reassertion.
+
+Place [`::h/revision`](glossary.md#hrevision) beside the controlled `:value`:
 
 ```clojure
 (h/defview revertable-field [{:keys [id]}]
@@ -158,155 +140,130 @@ any other value, beside `:value`:
            :on-input    [:todo.ui/edit-field id ::h/value]}])
 ```
 
-The revert event does both halves: it restores the value **and** moves the
-revision. A `[:button {:on-click [:todo.ui/revert id]} "Revert"]` fires it:
+The reset event updates both the value and the revision:
 
 ```clojure
 (rf/reg-event :todo.ui/revert
   (fn [{:keys [db]} [_ id]]
     {:db (-> db
-             (assoc-in [:todo.ui :fields id] (get-in db [:todo.ui :saved id]))
-             (update-in [:todo.ui :baselines id] inc))}))   ;; the revision moves
+             (assoc-in [:todo.ui :fields id]
+                       (get-in db [:todo.ui :saved id]))
+             (update-in [:todo.ui :baselines id] inc))}))
 ```
 
-**Only a revision change resets.** A `:value` that moves under an unchanged
-revision is ordinary controlled conduct: the field shows it, and nothing
-consults the revision on the way. The comparison is `=`, so a revision value
-that is equal but freshly built is inert. The same move covers async
-normalization. When the server's canonical form of the typed text comes back,
-write the value and move the revision. The field re-baselines to it, even if
-the user has started to type again.
+```clojure
+[:button {:on-click [:todo.ui/revert id]} "Revert"]
+```
 
-**A reset is not a remount.** The draft in the field goes. The node itself
-stays, and the focus on it stays. The caret lands at the end of the model
-value on the commit that applies the reset. That is the platform's own
-conduct for a `value` assignment.
+Only a revision change triggers the reset behaviour. A new value under an
+equal revision is an ordinary controlled update. Revisions compare with `=`,
+so a freshly constructed but equal persistent value is unchanged.
 
-!!! warning "Write a revision the way you would write an instance key"
-    A revision created in render changes on every render, so it resets the
-    field on every render. Never use a render-order index, a counter that the
-    body increments, or `random-uuid`. A revision is a domain fact that your
-    *events* put in app-db: a record id, a load generation, a "form opened at"
-    stamp, or a counter that your revert handler increments.
+Async normalization uses the same rule: write the canonical value and advance
+the revision when the server result should replace the current draft. This can
+supersede text entered since the request began, so the event must encode the
+application's intended conflict policy rather than treating every response as
+a reset.
 
-The runtime raises `:rf.error/hicasso-revision-not-controlled` on anything that
-is not controlled text — a `:div`, a `select`, a value-less checkbox, an input
-with no `:value`. The error names the element and the source. The runtime never
-reads the prop from a forwarded map, so a caller cannot force a re-baseline on
-a field whose author did not write one. The prop never reaches the DOM as an
-attribute, on the client or on the server.
+A reset keeps the existing DOM node and focus. It discards the current draft;
+the caret moves to the end of the assigned model value, which is the browser's
+normal behaviour for a value assignment.
 
-This is the single prop and nothing more: no commit or cancel intents, no
-acknowledgement that a reset landed, no caret-policy options. When you want
-draft-and-commit behavior — free edits, commit on Enter or blur, cancel on
-Escape — use the [forms module](05-forms.md). The module *consumes* this
-trigger; it does not extend it.
+!!! warning "A revision must be stable domain state"
+    Do not create a revision in the view body with `random-uuid`, a render
+    counter, or a collection index. That changes on every render and therefore
+    resets on every render. Store a meaningful generation in app-db: a record
+    id, load generation, form-open stamp, or counter incremented by a reset
+    event.
+
+`::h/revision` is legal only on controlled text input or textarea. Using it on
+a `div`, `select`, value-less checkbox, or input with no `:value` raises
+`:rf.error/hicasso-revision-not-controlled`, naming the element and source.
+The prop is consumed by Hicasso and never becomes a DOM attribute on the client
+or server. A forwarded map cannot activate it for a field whose author did not
+write it.
+
+Revision provides only re-baselining. It does not add commit, cancel,
+acknowledgement, or caret-policy options. Use the forms module for a draft that
+commits on Enter or blur and cancels on Escape.
 
 ## Troubleshooting
 
-| Symptom | Error / mechanism | Fix |
-|---|---|---|
-| Characters drop when typing fast | Something async sat between keystroke and commit — debounce, `setTimeout`, a queued effect | Keep the controlled write synchronous; debounce *consumers* of the value, not the write itself |
-| Caret jumps to the end on every keystroke | Value reasserted without caret preservation | Runtime bug, not your view — report it |
-| Enter commits half-typed text mid-composition | A hand-written key handler bypassed the intent path | Use the data key map ([Events as data](03-events-as-data.md)); the composition check lives there |
-| Composition dies when the model rejects mid-draft | On the controlled path this cannot happen — composition is left alone until it ends. Something else wrote the field: a ref, a foreign script, an uncontrolled sibling | Find the second writer; the controlled element must have one |
-| An IME commit lands stale text, then corrects itself | Something async sat between keystroke and commit, so the composition's close reconciled against a model the deferred write had not reached | Keep the controlled write synchronous; the composition survives either way — only what it commits is late |
-| Typing the "reset" value clears the field | A reset keyed on value equality somewhere in your code | Move `::h/revision`; a value comparison is not a reset |
-| The field resets on every render | A revision created in render — `random-uuid`, a render-order index, a counter the body increments | Read a revision your *events* wrote into app-db |
-| The field never resets, and devtools shows a `revision="…"` attribute | A bare `:revision`. The match is the exact namespaced keyword. Every other spelling flows through as an ordinary attribute, silently. A namespaced value loses its namespace on the way, so two distinct revisions can collapse to one | Write `::h/revision` |
-| `:rf.error/hicasso-revision-not-controlled` at render | `::h/revision` on something that is not controlled text — a `:div`, a `:select`, a value-less checkbox | Put the revision on the controlled `input`/`textarea` whose draft it re-baselines; a select or checkbox resets by writing the model |
-| Focus lost after validation fails | Something remounted the node | Never remount to reset — that is exactly what destroys focus |
+| Symptom | Error or cause | Fix |
+| --- | --- | --- |
+| Fast typing drops characters | The controlled write was deferred through a timer, debounce, queued effect, or promise | Commit the field value synchronously. Debounce downstream consumers, not the write |
+| The caret moves to the end after each accepted/rejected edit | The normal controlled path failed to preserve selection | Treat this as a runtime bug and report it; do not remount or add a second writer |
+| Enter commits unfinished composition text | A custom key handler bypassed Hicasso's keyboard map | Use the data keyboard map so IME checks run centrally |
+| A rejected edit kills the active composition | Another writer changed the DOM value during composition | Find the ref, foreign script, or uncontrolled sibling writing the same field; a controlled field must have one writer |
+| IME text briefly lands stale and then corrects | The app-db write was deferred beyond the input turn | Keep the controlled write synchronous. The composition survives, but a deferred model update arrives late |
+| Typing the application's reset value clears the field | Application code inferred reset from value equality | Advance `::h/revision` only for explicit reset events |
+| The field resets on every render | The view creates a new revision while rendering | Read a stable revision written to app-db by events |
+| A `revision="…"` attribute appears and the field never resets | The page used bare `:revision`; only the exact namespaced `::h/revision` is reserved | Use `::h/revision`. Other spellings are ordinary DOM attributes and may lose namespace information |
+| Rendering raises `:rf.error/hicasso-revision-not-controlled` | Revision was placed on a control outside the supported text path | Put it on the controlled input/textarea. Reset a select or checkbox by updating its model value |
+| Focus disappears after validation fails | Code remounted the input | Keep the node and let the controlled path restore the model value |
 
-## When not to control an input
+## When not to control a field
 
-Controlled means that every keystroke writes app-db. On a dense grid, that is
-one dispatch per cell per keystroke. Measure that cost before you accept it
-(the [performance chapter](18-performance.md) owns the method).
+A controlled field writes app-db on every keystroke. Measure that path before
+using it across a dense editable grid.
 
-If the user's edit must be a *draft* — commit on Enter or blur, revert on
-Escape, reject without loss of the field — do not build that yourself on top
-of this page. That is the [forms module](05-forms.md).
+Use the [forms module](05-forms.md) when the user needs a separate draft that
+commits on Enter or blur, cancels on Escape, or survives validation failure.
 
-If no other code needs the intermediate values — a scratch field in a
-[modal](glossary.md#overlay), a filter box that only feeds a debounced query —
-leave the input uncontrolled (`:default-value` to seed it, no `:value`) and
-commit on blur. DOM-owned state is a legitimate explicit choice. The cost is
-this: app-db, tests, and tools cannot see the text in mid-edit.
+Use an uncontrolled input (`:default-value` without `:value`) when no other
+part of the application needs the intermediate text, such as a scratch field
+whose value is read only on blur. That choice keeps mid-edit text in the DOM,
+so app-db, tests, SSR, and tools cannot observe it until the commit.
 
 ## Advanced
 
-### Same-turn mechanics, and the one `flushSync`
+### Same-turn convergence and `flushSync`
 
-Dispatch for a controlled element runs synchronously inside the discrete
-browser event. Store notification is synchronous too, so React commits the
-echo in the same turn. The value is back in the DOM before the browser
-finishes the event.
+A controlled event dispatches synchronously, and store notification is also
+synchronous. React therefore receives the model echo during the same discrete
+browser event.
 
-`flushSync` is not a general default. The one exception is the controlled-text
-**converge**. The converge flushes the pending commit before React's
-end-of-event restore, so value *and caret* are correct in the same turn —
-including when the model rejected or normalized the keystroke. That path runs
-once per keystroke, on controlled text entry only (an `input` that has a
-caret, or a `textarea`, with a non-nil `:value`). It also runs once at the
-close of an IME composition. Everywhere else it is inert, and a page with no
-controlled input pays nothing for it. If your own code needs `flushSync` for
-anything else, that is a design problem, not a feature.
+Hicasso uses `flushSync` only for controlled-text convergence. It commits the
+pending value before React's end-of-event restore so that both the value and
+selection are correct when the handler accepts, rejects, or normalizes an
+edit. The path runs once per controlled text keystroke and once when an IME
+composition closes. Pages without a controlled text input do not pay for it.
+Using `flushSync` elsewhere in application code should be treated as an
+architecture problem rather than a normal Hicasso technique.
 
-### Rejection and React's restore
+### Rejection and React restoration
 
-When the handler returns `nil`, the DOM node can hold the typed character for
-a short time. React reasserts the model value when the discrete event ends.
-React's restore discards the caret, so the runtime itself restores caret and
-selection on that converge path. You still only write `nil`.
+When the handler returns `nil`, the DOM may briefly contain the typed
+character. React restores the unchanged model value at the end of the discrete
+event, but that restore normally loses selection. Hicasso restores the caret
+and selection on the controlled converge path. The handler still only returns
+`nil`.
 
-### IME composition
+### Composition handling
 
-Two rules apply. Both are automatic on the controlled-text path and the data
-key map:
+While IME composition is active, Hicasso does not overwrite the field with a
+rejected or normalized model value. The handler may still receive each
+composing update, but the visible composition remains intact until the user
+commits it. The model correction then applies as one value.
 
-**An Enter during composition commits nothing.** In mid-composition, Enter
-selects an IME candidate; it is not a submit. The key map gates that
-centrally. The signal mechanics (native event, legacy fallbacks) are in the
-Advanced section of [Events as data](03-events-as-data.md).
+This differs from plain React behaviour, where writing a corrected controlled
+value during composition can abort the composition. Repeated aborts can also
+compound normalized text; the runtime avoids both loss and duplication by
+excluding the live composition from restoration.
 
-**A live composition is not overwritten.** If the model rejects or normalizes
-the text that the IME composed so far, nothing writes the field while the
-composition runs — not the converge, and not React's end-of-event restore.
-Your handler still runs on every composing update. The field continues to show
-the composition until the user commits it, and the rejection or normalization
-applies whole when the composition ends.
+### Resets that must wait
 
-That second rule diverges from plain React. In plain React, a corrected value
-written during composition aborts the exchange: the kana in flight vanish, and
-the next update starts a fresh composition on a half-written draft. On a
-*normalizing* field, plain React does worse than lose the composition. Each
-aborted draft is written back, and the IME composes on top of it. So the
-sequence `s`, `sh`, commit ends the model at `SSHSH`, where this runtime
-commits the `SH` that was typed. The live composition is excluded from that
-restore on purpose.
+A revision change cannot always be applied immediately:
 
-### A reset that cannot land immediately
+- **During composition**, applying it would abort the user's IME exchange. The
+  field converges when composition ends, on blur, on unmount, or at the next
+  non-composing input. Later accepted composing updates may supersede the reset
+  by normal event order.
+- **During hydration**, a revision received before the server node is adopted
+  becomes the field's first observed revision and has no predecessor to compare
+  against. The server node and any user draft survive. A later revision change
+  resets normally. A caller that requires the swallowed reset must issue a new
+  revision after adoption.
 
-There are two cases. Both are documented conduct, not bugs.
-
-**In mid-composition.** A revision change that arrives while a composition runs
-lands at the close of the exchange: composition end, blur, unmount, or the
-next non-composing input. The reason is the same reason that nothing else
-writes the field there — the only immediate write available would abort the
-composition silently. The model is correct at all times; the screen converges
-at the close.
-
-The deferral cannot strand the field: every exit converges the field to the
-model current at that time. But the deferral does not promise that the reset
-*survives*. On a field that accepts, the model continues to take every
-composing update while the reset is pending. So an edit after the reset,
-including the composition's own final input, supersedes the reset by ordinary
-event order, exactly as it would at rest.
-
-**In mid-hydration.** A revision that moves before the runtime adopts the
-server-rendered tree is absorbed. The adoption render reads it as the field's
-*first* revision — a change with no predecessor. So nothing fires, the
-server's node survives, and any user draft in the field survives with it. The
-next revision change after adoption resets the field normally, on that same
-node. The field is never stranded. A reset that fell in this window is
-swallowed; the caller must send it again.
+In both cases app-db remains the authoritative model; only the safe time for
+writing the existing DOM node is deferred.

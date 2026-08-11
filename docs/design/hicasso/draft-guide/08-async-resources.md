@@ -1,210 +1,210 @@
 # Async resources
 
-Async replies arrive late, out of order, and for screens that no longer
-exist. The transport is the core resource model (`re-frame.resources`):
-registered reads, causes, status maps you can subscribe to, and mutations
-that invalidate by tag. That corpus teaches the model. This page owns the
-Hicasso patterns on top — starting with the race that overwrites draft
-edits — then per-instance mutation status, cancellation, and demand-driven
-committed reads.
+The core resources model owns registered reads, cache identity, causes,
+mutation status, invalidation, and managed transport. Hicasso views consume
+those facts with `h/sub`. This page covers the view-facing race patterns:
+merging a late reply into a newer draft, per-instance mutation state,
+optimistic updates, cancellation, and demand tied to committed reads.
 
-In a Hicasso view, read a resource with the same `h/sub` as any subscription.
+## Merge a settled reply into the current draft
 
-## A late reply must not overwrite newer edits
+A save reply may be current for the request while the user has already changed
+the draft. Writing the complete server value over the draft deletes those new
+edits. Dropping the reply loses accepted normalization.
 
-The user saves a profile. The server normalizes fields and replies 800 ms
-later. During those 800 ms the user kept typing. If you write the reply over
-the draft, you delete the newest edits. If you drop the reply, you lose the
-normalization. The fix is a **correlation recipe**: capture a basis when
-work starts, compare when the result lands, and let newer facts win their
-slots. For drafts, that recipe is a **settle-merge**.
+Two mechanisms solve different races:
 
-Two protections do different jobs:
+- **Supersession** is enforced by the runtime. A reply from an older attempt
+  under the same instance is suppressed and never reaches the continuation.
+- **Settle-merge** is application policy. A current reply is compared with the
+  params that were sent, field by field, so newer draft values win their own
+  slots.
 
-- **Supersession** is the runtime's job. When a reply loses the race with a
-  *newer attempt* under the same instance, the runtime suppresses that reply.
-  It never reaches you.
-- **Settle-merge** is your job. A reply that reaches you is current, but the
-  *draft* may have changed after you sent it. Merge the reply into the draft;
-  do not overwrite the draft.
-
-Registration is ordinary. The submit handler starts the write with the draft
-as params and a continuation:
+Register and execute the mutation normally:
 
 ```clojure
 (ns app.profile
   (:require [re-frame.core :as rf]
-            [re-frame.resources]          ;; resource/mutation model
-            [re-frame.http.managed]))     ;; HTTP transport
+            [re-frame.resources]
+            [re-frame.http.managed]))
 
 (rf/reg-mutation :profile/save
-  {:params-schema [:map [:username :string] [:bio :string] [:email :string]]
+  {:params-schema [:map
+                   [:username :string]
+                   [:bio :string]
+                   [:email :string]]
    :scope         :rf.scope/global
-   :invalidates   (fn [{:keys [username]} _result] #{[:profile username]})}
+   :invalidates   (fn [{:keys [username]} _result]
+                    #{[:profile username]})}
   (fn [profile _ctx]
-    {:request {:method :put :url "/api/profile" :body {:profile profile}}
+    {:request {:method :put
+               :url    "/api/profile"
+               :body   {:profile profile}}
      :decode  :json}))
 
-;; from your submit handler; draft = the current [:profile :draft]
-[:rf.mutation/execute {:mutation :profile/save
-                       :params   draft
-                       :instance [:profile-save]
-                       :reply-to [:profile/save-settled]}]
+[:rf.mutation/execute
+ {:mutation :profile/save
+  :params   draft
+  :instance [:profile-save]
+  :reply-to [:profile/save-settled]}]
 ```
 
-The recipe lives in the continuation. The uniform reply carries the decoded
-`:value` *and* the accepted `:params` — the basis you sent, so you do not
-carry it by hand:
+The uniform reply includes the accepted `:params`, so the continuation has the
+basis used by the request:
 
 ```clojure
-;; Field by field: settled value lands only where the draft still matches
-;; what was sent; a newer edit keeps its field.
 (rf/reg-event :profile/save-settled
   (fn [{:keys [db]} [_ {:keys [status value params error]}]]
     (if (= :ok status)
       {:db (-> db
-               (assoc-in [:profile :saved] (:profile value))
-               (update-in [:profile :draft]
-                          (fn [draft]
-                            (reduce-kv (fn [d field sent]
-                                         (if (= (get d field) sent)
-                                           (assoc d field (get-in value [:profile field]))
-                                           d))
-                                       draft
-                                       params))))}
+               (assoc-in [:profile :saved]
+                         (:profile value))
+               (update-in
+                [:profile :draft]
+                (fn [draft]
+                  (reduce-kv
+                   (fn [d field sent]
+                     (if (= (get d field) sent)
+                       (assoc d field
+                              (get-in value [:profile field]))
+                       d))
+                   draft
+                   params))))}
       {:db (assoc-in db [:profile :save-error] error)})))
 ```
 
-A field that did not change after the send takes the settled value; a field
-that changed keeps the newer edit. `:reply-to` fires only for a reply the
-runtime accepts as current — never for a stale or superseded reply, and only
-after cache consequences and instance settlement. The comparison left for
-you is current draft against sent params.
+A field that still equals the sent value accepts the server result. A field
+that changed after the request keeps the new draft value. `:reply-to` runs only
+after the runtime has accepted the reply as current, applied cache
+consequences, and settled the mutation instance.
 
-The same shape answers other "late result versus newer truth" cases. In a
-debounce, a generation number is the basis. In optimistic rollback, the
-runtime captures the basis for you. Validation display for drafts — touched
-fields and submit gating — is the forms module's job ([Forms](05-forms.md)).
+The same correlation shape appears elsewhere: a debounce compares a generation
+number, and optimistic rollback compares a captured cache basis. The forms
+module owns touched-field display and submit gating; settle-merge only protects
+the draft/server race.
 
-## Per-instance mutation status
+## Track writes per instance
 
-A feed has many favorite buttons. "Is my save in flight?" is a per-button
-fact. Status is keyed by an instance id you choose. Key the instance per
-row, and each button watches its own write:
+A screen may have many independent writes of the same mutation. Choose an
+instance id that matches the unit whose status the UI should display:
 
 ```clojure
 (h/defview favorite-button [{:keys [slug favorited?]}]
-  (let [save (h/sub [:rf/mutation {:instance [:favorite slug]}])]
-    [:button {:class    (when favorited? "active")
-              :disabled (:pending? save)
-              :on-click [:rf.mutation/execute
-                         {:mutation :article/favorite
-                          :params   {:slug slug}
-                          :instance [:favorite slug]
-                          :cause    [:click :article/favorite]}]}
+  (let [save (h/sub [:rf/mutation
+                     {:instance [:favorite slug]}])]
+    [:button
+     {:class    (when favorited? "active")
+      :disabled (:pending? save)
+      :on-click [:rf.mutation/execute
+                 {:mutation :article/favorite
+                  :params   {:slug slug}
+                  :instance [:favorite slug]
+                  :cause    [:click :article/favorite]}]}
      (if favorited? "Favorited" "Favorite")]))
 ```
 
-The click is one literal event vector — mutation, params, instance, and
-cause, all data. A structural test can assert the whole write with `=`. The
-instance sub yields `:pending?`, `:success?`, `:error?`, `:settled?`,
-`:optimistic?`, `:result`, and `:error`. Focused projections such as
-`[:rf.mutation/pending? {…}]` exist when a button needs one boolean.
+The event vector contains the mutation, params, instance, and cause as data.
+The instance subscription provides `:pending?`, `:success?`, `:error?`,
+`:settled?`, `:optimistic?`, `:result`, and `:error`. Focused subscriptions
+such as `[:rf.mutation/pending? {:instance …}]` are available when a view needs
+one projection.
 
-Two instance rules matter. **Different instances never overwrite each
-other** — two rows save concurrently with independent status. **The same
-instance supersedes** — re-execute while pending and the runtime suppresses
-the earlier attempt's reply. A settled `:error` stays until you retry with
-the same execute, or dismiss it with
-`[:rf.mutation/clear {:instance …}]` (which also best-effort aborts in-flight
-work).
+Different instance ids settle independently. Re-executing the same instance
+supersedes its previous pending attempt, so the older reply cannot update the
+cache or invoke its continuation. A settled error remains until another
+execute replaces it or `[:rf.mutation/clear {:instance …}]` dismisses it. Clear
+also requests a best-effort abort if work is still in flight.
 
-### Optimistic flip, automatic rollback
+Instance identity is therefore policy. `[:favorite slug]` allows rows to write
+concurrently; `[:favorite]` makes every row compete for one status and
+supersession lane.
 
-A favorite toggle should not wait hundreds of milliseconds. Declare the
-optimistic plan on the registration. The runtime flips the cache before the
-request, then commits, rolls back, or reconciles at settle time:
+## Optimistic updates and rollback
+
+Declare an optimistic patch on the mutation registration. The runtime snapshots
+the current entries, applies the patch before the request, and settles that
+snapshot on success, error, or cancellation:
 
 ```clojure
 (rf/reg-mutation :article/favorite
-  {:params-schema   [:map [:slug :string]]
-   :scope           :rf.scope/global
-   :optimistic-tags (fn [{:keys [slug]}]
-                      [{:scope :rf.scope/global
-                        :tags  #{[:article slug]}
-                        :patch (fn [old] (update-in old [:article :favorited] not))}])
-   :invalidates     (fn [{:keys [slug]} _result] #{[:article slug] [:article-list]})}
+  {:params-schema [:map [:slug :string]]
+   :scope         :rf.scope/global
+   :optimistic-tags
+   (fn [{:keys [slug]}]
+     [{:scope :rf.scope/global
+       :tags  #{[:article slug]}
+       :patch (fn [old]
+                (update-in old [:article :favorited] not))}])
+   :invalidates
+   (fn [{:keys [slug]} _result]
+     #{[:article slug] [:article-list]})}
   (fn [{:keys [slug]} _ctx]
-    {:request {:method :post :url (str "/api/articles/" slug "/favorite")}
+    {:request {:method :post
+               :url (str "/api/articles/" slug "/favorite")}
      :decode  :json}))
 ```
 
-You never write the rollback. The runtime snapshots each entry before the
-forward patch. On `:error` or cancellation it restores that snapshot — so an
-inverse patch cannot drift. On success, the authoritative reply overwrites
-the guess. If a concurrent write lands between flip and settle, the default
-`:on-conflict :invalidate` does not restore the snapshot over newer truth: it
-marks the entry stale and lets a refetch settle it. While the flip is
-unconfirmed, the instance carries `:optimistic? true`.
+On error or cancellation, the runtime restores the captured snapshot rather
+than asking application code to calculate an inverse patch. On success, the
+authoritative reply replaces the optimistic guess.
 
-## Cancellation and supersession
+If another write changes the entry between the optimistic patch and settlement,
+the default `:on-conflict :invalidate` avoids restoring an old snapshot over
+newer data. It marks the entry stale so a refetch can resolve the conflict.
+`:on-conflict :force` should be used only when overwriting concurrent truth is
+explicitly intended. The instance reports `:optimistic? true` until the guess
+is settled.
 
-Nothing cancels implicitly, and you do not hand-code the race:
+## Cancellation and supersession ownership
 
-| Concern | Owner | What happens |
-|---|---|---|
-| Reply beaten by a newer attempt, same instance | Runtime | Suppressed; its `:reply-to` never fires |
-| Reply beaten by a newer fetch, same resource identity | Runtime | New generation supersedes; stale reply never touches the cache |
-| Dismiss a settled error, abandon a write | You | `[:rf.mutation/clear {:instance …}]` — clears status, best-effort abort |
-| Stop a read you no longer want | You | Withdraw the read — demand releases (below); in-flight work aborts best-effort |
-| What "newer" means | You | Identity is the policy: instance and params decide which attempts race |
+| Concern | Owner | Result |
+| --- | --- | --- |
+| An older write reply loses to a newer attempt under the same instance | Runtime | Older reply is suppressed; its continuation never runs |
+| An older resource fetch loses to a newer generation of the same identity | Runtime | Stale reply cannot update the cache |
+| A user dismisses an error or abandons a write | Application | Dispatch mutation clear; status clears and in-flight work is aborted best-effort |
+| A view no longer needs a resource | Application state plus committed-read demand | Remove the read; ownership releases and transport aborts best-effort |
+| Which attempts compete | Application identity design | Instance id and resource params define the race |
 
-When you choose `[:favorite slug]` over `[:favorite]` as the instance, you
-choose what supersedes what. The runtime enforces the race you declared.
+No screen unmount automatically cancels every write. A mutation may remain
+meaningful after navigation. Express cancellation through the domain state or
+explicit clear event that owns it.
 
-## Demand-driven committed reads
+## Tie resource demand to a committed read
 
-The patterns above leave one correlation hand-written: the lifetime of a
-resource versus the view that reads it. Route `:resources` owns page data,
-and that is correct for page identity. Some resources are keyed by view-local
-state — typeahead suggestions, picker options, a hover preview. Those belong
-to no route. The hand-written answer is ceremony: ensure on mount, release
-on unmount, re-ensure on parameter change — each step a chance for a leak.
-
-Hicasso closes that with the committed read. A resource read may declare
-demand:
+Route `:resources` should own data required by page identity. Some reads instead
+exist only while a local view is committed: typeahead suggestions, picker
+options, or a hover preview. Add `:demand true` to that resource subscription:
 
 ```clojure
-(h/sub [:rf/resource {:resource :app/suggestions
-                      :params   {:q q}
-                      :demand   true}])
+(h/sub
+ [:rf/resource
+  {:resource :app/suggestions
+   :params   {:q q}
+   :demand   true}])
 ```
 
-Rules:
+Demand follows these rules:
 
-- **Commit acquires.** When a render that took this read commits, the read
-  owns demand for that resource and params. The ensure runs after commit. A
-  render alone acquires nothing. An abandoned render, a StrictMode
-  double-invoke, and a retry each acquire zero times.
-- **Liveness releases.** Demand releases on unmount, on parameter change
-  (old identity releases as the new acquires), and when a committed render
-  stops taking the read (for example a conditional becomes false). Reads in
-  branches are legal, so that last case is ordinary.
-- **Demand is not retention.** Release withdraws the ownership hold. The
-  cached entry then lives out its ordinary lifetime (`:gc-after-ms`). Moving
-  between two queries can rejoin warm entries instead of refetching.
-- **Nothing else is inferred.** Debounce, supersession, refresh-with-data,
-  and cancellation stay where this page already put them. Demand decides
-  *that* the resource is wanted while the read is live, not *how* it behaves.
-- **It costs nothing elsewhere.** Demand uses committed-read membership the
-  runtime already keeps. A view that reads no resource carries none of this.
+- **Only commit acquires.** A render that is abandoned, retried, or probed by
+  StrictMode acquires nothing. The ensure begins after the render commits.
+- **Committed liveness releases.** Unmount, parameter change, or a committed
+  branch that stops taking the read releases the old identity.
+- **Release is not immediate cache deletion.** The ownership hold ends, then
+  the entry follows its normal `:gc-after-ms` policy. A later view may rejoin a
+  warm entry.
+- **Demand does not choose every policy.** Debounce, staleness, refresh with
+  previous data, supersession, and transport cancellation remain explicit in
+  their own layers.
+- **Passive reads remain passive.** Without `:demand true`, the subscription
+  projects the cache and does not cause work. If no route, prefetch, ensure, or
+  demand exists, `:idle` is honest and permanent.
 
-Without `:demand true`, the sub is the core passive projection and never
-causes work. A missing cause still means an honest, permanent `:idle`.
+The runtime already tracks committed read membership, so views without resource
+demand pay none of this work.
 
-### Typeahead end to end
+## Typeahead example
 
-This example exercises the policies together.
+Register the resource with cache policies:
 
 ```clojure
 (rf/reg-resource :app/suggestions
@@ -213,18 +213,24 @@ This example exercises the policies together.
    :stale-after-ms 30000
    :gc-after-ms    60000}
   (fn [{:keys [q]} _ctx]
-    {:request {:method :get :url "/api/suggest" :params {:q q}}
+    {:request {:method :get
+               :url    "/api/suggest"
+               :params {:q q}}
      :decode  :json}))
 ```
 
-Debounce is explicit policy at the event layer. The input echoes every
-keystroke (controlled write stays synchronous). Debounce the *consumers* of
-a value, never the write ([Controlled inputs](04-controlled-inputs.md)). A
-generation guards the committed query so a stale timer commits nothing:
+Keep each controlled keystroke synchronous and debounce only the committed
+query consumed by the resource. A generation prevents an old timer from
+committing:
 
 ```clojure
-(rf/reg-sub :search/text        (fn [db _] (get-in db [:search :text] "")))
-(rf/reg-sub :search/committed-q (fn [db _] (get-in db [:search :committed-q] "")))
+(rf/reg-sub :search/text
+  (fn [db _]
+    (get-in db [:search :text] "")))
+
+(rf/reg-sub :search/committed-q
+  (fn [db _]
+    (get-in db [:search :committed-q] "")))
 
 (rf/reg-event :search/input
   (fn [{:keys [db]} [_ text]]
@@ -232,36 +238,45 @@ generation guards the committed query so a stale timer commits nothing:
       {:db (-> db
                (assoc-in [:search :text] text)
                (assoc-in [:search :gen] gen))
-       :fx [[:dispatch-later {:ms 250 :event [:search/settle gen]}]]})))
+       :fx [[:dispatch-later
+             {:ms 250
+              :event [:search/settle gen]}]]})))
 
 (rf/reg-event :search/settle
   (fn [{:keys [db]} [_ gen]]
     (if (= gen (get-in db [:search :gen]))
-      {:db (assoc-in db [:search :committed-q] (get-in db [:search :text]))}
+      {:db (assoc-in db
+                     [:search :committed-q]
+                     (get-in db [:search :text]))}
       {})))
 
 (rf/reg-event :search/clear
   (fn [{:keys [db]} _]
     {:db (update db :search assoc
-                 :text "" :committed-q ""
-                 :gen  (inc (get-in db [:search :gen] 0)))}))
+                 :text ""
+                 :committed-q ""
+                 :gen (inc (get-in db [:search :gen] 0)))}))
 ```
 
-The list exists only while a committed query exists, and its committed read
-declares demand:
+The result view declares demand and retains previous data during a parameter
+change:
 
 ```clojure
 (h/defview suggestion-list [{:keys [q]}]
   (let [{:keys [data loading? fetching?]}
-        (h/sub [:rf/resource {:resource       :app/suggestions
-                              :params         {:q q}
-                              :demand         true
-                              :keep-previous? true}])]
-    [:ul.suggestions {:aria-busy (boolean (or loading? fetching?))}
+        (h/sub
+         [:rf/resource
+          {:resource       :app/suggestions
+           :params         {:q q}
+           :demand         true
+           :keep-previous? true}])]
+    [:ul.suggestions
+     {:aria-busy (boolean (or loading? fetching?))}
      (if (and loading? (not data))
        [:li.hint "Searching…"]
        (for [s (:suggestions data)]
-         [:li {:key (:id s)} (:label s)]))]))
+         [:li {:key (:id s)}
+          (:label s)]))]))
 
 (h/defview search-box []
   (let [text (h/sub [:search/text])
@@ -276,72 +291,58 @@ declares demand:
        [suggestion-list {:q q}])]))
 ```
 
-Timeline:
+The lifecycle is observable:
 
-1. **`c` … `cl`** — each keystroke echoes through the controlled input. The
-   generation increments. Nothing fetches. Debounce is event-layer policy.
-2. **250 ms of quiet** — the surviving timer's generation matches;
-   `:committed-q` becomes `"cl"`. `suggestion-list` mounts and the render
-   commits. The committed read acquires demand for `{:q "cl"}` and the fetch
-   begins. If React had discarded that render, nothing would have been
-   acquired.
-3. **`clo` before the reply lands** — parameters change. `{:q "cl"}`
-   releases; `{:q "clo"}` acquires. The in-flight request for `{:q "cl"}`
-   aborts best-effort. If its reply arrives anyway, the runtime's stale-reply
-   check suppresses it. With `:keep-previous? true`, the `"cl"` list stays on
-   screen with `:fetching?` true (refresh-with-data, not a flash of empty).
-4. **Escape or navigate away mid-fetch** — `:search/clear` empties the
-   committed query. The list unmounts; demand releases. Cancellation was a
-   state change you wrote, not a lifecycle hook.
-5. **Typing `cl` again soon** — release made the entry demand-free; it did
-   not destroy it. Within `:gc-after-ms`, the read rejoins the warm entry. If
-   still fresh within `:stale-after-ms`, no request occurs.
+1. Keystrokes update `:search/text` immediately. Each one increments the
+   generation; no fetch starts yet.
+2. After 250 ms of quiet, only the current generation commits `q`. The list
+   mounts, its render commits, and demand starts the fetch. A discarded render
+   would have acquired nothing.
+3. A new committed query releases the old identity and acquires the new one.
+   The old transport aborts best-effort, and any late reply is suppressed by
+   generation checks. `:keep-previous? true` keeps previous results visible
+   while `:fetching?` reports the refresh.
+4. Escape or navigation removes the read. Demand releases without a lifecycle
+   hook written by the view.
+5. Repeating a query before its `:gc-after-ms` expiry rejoins the cached entry.
+   If it is still fresh under `:stale-after-ms`, no request is made.
 
-There is no ensure-on-mount effect, release-on-unmount cleanup, or
-params-change watcher. The correlation between read liveness and resource
-demand has one owner — the read.
-
-Under Xray, held demand is a bounded projection: which resources are owned
-by which committed reads, and why each fetch fired
-([Diagnostics](15-diagnostics.md)). On the server, the view is Client-only by
-default — a deterministic fallback and zero acquisition, because acquisition
-is a client commit fact. Hydration then adopts without a duplicate fetch
-([SSR and hydration](17-ssr-and-hydration.md)).
+Xray can show which committed read holds demand and which cause started a
+fetch. On the server, a Client-only view performs no commit and therefore
+acquires no demand; hydration acquires on the client without treating the
+server render as a cause.
 
 ## Troubleshooting
 
 | Symptom | Cause | Fix |
-|---|---|---|
-| Permanent `:idle` skeleton | Nothing declares demand or any other cause | `:demand true` on the committed read — or a route `:resources` entry / explicit ensure where the route owns the data |
-| `:rf.error/resources-artefact-missing` at boot | Resource model not loaded | `(:require [re-frame.resources])`, usually with `re-frame.http.managed` |
-| Suggestions flash empty on every keystroke | Each params value is a new cache identity | `:keep-previous? true` on the read; render `:fetching?` as the quiet indicator |
-| Results for an old query overwrite new ones | Hand-rolled fetch outside the resource model | Let the runtime own replies — identity plus generation suppress stale ones |
-| Read throws after the render, naming the query | Read escaped the direct synchronous body — callback, promise, timer, lazy seq | Read during the body and close over the value ([Views and reads](02-views-and-reads.md)) |
-| Every row's button goes pending together | One shared instance id | Key the instance per row: `[:favorite slug]` |
-| Keystrokes vanish when a save reply lands | Reply written wholesale over the draft | Settle-merge: take settled values only where the draft still equals the sent basis |
-| Optimistic value reverts over a newer concurrent write | `:on-conflict :force` restores the snapshot blindly | Keep the default `:invalidate` — stale-mark and refetch |
+| --- | --- | --- |
+| A resource remains permanently `:idle` | No route resource, prefetch, explicit ensure, or demanded committed read owns it | Add `:demand true` where the view owns the lifetime, or choose the appropriate external cause |
+| Boot raises `:rf.error/resources-artefact-missing` | The resources model was not loaded | Require `re-frame.resources`, normally with `re-frame.http.managed` |
+| Typeahead flashes empty on every new query | Each params value is a different cache identity and previous data is hidden | Set `:keep-previous? true` and use `:fetching?` for the quiet refresh state |
+| Old query results replace new ones | Fetching was implemented outside the resource identity/generation model | Register the resource and let the runtime suppress stale replies |
+| A resource read throws after render | `h/sub` escaped into a callback, promise, timer, or deferred sequence | Read during the synchronous body and retain the resulting status/data value |
+| Every row button becomes pending together | All writes use one instance id | Include row identity, such as `[:favorite slug]` |
+| A save reply erases keystrokes entered after submission | The continuation overwrote the complete draft | Settle-merge against the accepted `:params`; preserve fields that no longer equal the sent basis |
+| Optimistic rollback overwrites a concurrent update | Conflict policy forces the old snapshot | Use the default `:on-conflict :invalidate` unless forced rollback is an explicit business rule |
+| A cleared/unmounted view still receives a meaningful mutation reply | Mutations are not implicitly cancelled by view lifetime | Choose an instance and explicit cancellation/clear policy; do not treat unmount as ownership unless the domain says so |
 
-## When not to use demand
+## When not to use demanded reads
 
-Demand-driven reads own **resource lifetimes that match a read's lifetime**.
-They are not a general fetch library:
+| Job | Better owner |
+| --- | --- |
+| Data required by the current URL | Route `:resources`, including SSR and transition blocking |
+| Warming data before any view needs it | Route-link `:prefetch :intent` or an explicit ensure |
+| Manual refresh | `[:rf.resource/refetch …]` event |
+| One-off uncached request | Managed HTTP |
+| Drafts, field validation, and submit gating | Forms module |
+| Multi-stage workflow | A state machine that owns resource causes and transitions |
 
-| Job | Owner |
-|---|---|
-| Page-identity data — the article this URL names | Route `:resources`: the route owns it, blocks the transition honestly, and runs under SSR |
-| Warming data no read wants yet | Routing's `:prefetch :intent`, or an explicit ownerless ensure ([Routing and navigation](07-routing-and-navigation.md)) |
-| "Refetch on click" | `[:rf.resource/refetch …]` — an event, because that is a cause, not a lifetime |
-| A one-off uncached call | Managed HTTP: request out, uniform reply in |
-| Draft state, validation gating, submit flow | The forms module ([Forms](05-forms.md)) |
-| Multi-step async workflow with named stages | A machine owning the ensures, with resource status driving transitions |
+Demand expresses a lifetime only when a committed view read is the owner. It
+cannot represent data that no view currently reads.
 
-If no view reads the resource, demand cannot express it. A demand with no
-reader is exactly the hand-written correlation this feature removes.
-
-??? info "Coming from TanStack Query?"
-    `useQuery` is close: read it and it fetches; unmount and it forgets.
-    Three differences matter. Acquisition happens at commit, so speculative
-    renders fetch nothing. Policies are not call-site options: debounce lives
-    in your events, staleness and GC on the registration, supersession in the
-    runtime's identity rules. The cache is causal: writes invalidate by
-    declared tags, not by a remembered `invalidateQueries`.
+??? info "For readers coming from TanStack Query"
+    The closest analogy is a query acquired by a mounted reader. Hicasso
+    acquires at commit rather than speculative render. Debounce remains event
+    policy, staleness and GC stay on the registration, and supersession follows
+    explicit identities. Mutations invalidate declared causal tags rather than
+    depending on a later call-site `invalidateQueries`.

@@ -1,26 +1,30 @@
 # Code splitting and lazy loading
 
-Your admin area is a large part of the bundle, and most sessions never open it.
-This page splits the build so that code loads when it is first wanted. It covers
-three things:
+Split code when a large area of the application is rarely visited. The normal
+split is a route or screen module. React lazy loading is useful when the area
+is already a native React island.
 
-- the **route/module grain**, which covers almost every real split;
-- the `React.lazy` bridge for [native islands](glossary.md#native-island);
-- what Suspense and Activity do to your reads while a subtree waits or hides.
+This page covers:
 
-## The route/module grain
+- route-level shadow-cljs modules;
+- `n/lazy` and Suspense for native components;
+- subscription and resource ownership while React suspends or hides a tree.
 
-The default answer needs no React machinery. shadow-cljs compiles the area into
-its own module. The load is an ordinary effect, and "has it arrived?" is app-db
-state that your shell renders like any other fact.
+## Split at the route or screen boundary
+
+The default approach does not need Suspense. Compile the screen into its own
+shadow-cljs module, load that module through an effect, and render its arrival
+state from app-db.
 
 ```clojure
-;; shadow-cljs.edn — the admin area becomes its own module
-{:modules {:main  {:entries [app.core]}
-           :admin {:entries [app.admin] :depends-on #{:main}}}}
+;; shadow-cljs.edn
+{:modules
+ {:main  {:entries [app.core]}
+  :admin {:entries [app.admin]
+          :depends-on #{:main}}}}
 ```
 
-One gate namespace holds the loadable, the effect, and the events:
+One gate namespace can own the loadable value, effect, state, and events:
 
 ```clojure
 (ns app.admin-gate
@@ -28,76 +32,86 @@ One gate namespace holds the loadable, the effect, and the events:
             [re-frame.hicasso :as h]
             [shadow.lazy :as lazy]))
 
-(def admin-screen (lazy/loadable app.admin/admin-screen))
+(def admin-screen
+  (lazy/loadable app.admin/admin-screen))
 
 (rf/reg-fx :app/load-module!
-  {:doc       "Load a compiled module; dispatch the outcome into the calling frame."
+  {:doc "Load a compiled module and dispatch the result into the calling frame."
    :platforms #{:client}}
-  (fn [{:keys [frame]} {:keys [loadable on-loaded on-failed]}]
+  (fn [{:keys [frame]}
+       {:keys [loadable on-loaded on-failed]}]
     (-> (lazy/load loadable)
-        (.then  (fn [_] (rf/dispatch on-loaded {:frame frame})))
-        (.catch (fn [_] (rf/dispatch on-failed {:frame frame}))))))
+        (.then
+         (fn [_]
+           (rf/dispatch on-loaded {:frame frame})))
+        (.catch
+         (fn [_]
+           (rf/dispatch on-failed {:frame frame}))))))
 
 (rf/reg-sub :modules/admin
-  (fn [db _] (get-in db [:modules :admin] :absent)))
+  (fn [db _]
+    (get-in db [:modules :admin] :absent)))
 
 (rf/reg-event :admin/wanted
   (fn [{:keys [db]} _]
     (when-not (= :loaded (get-in db [:modules :admin]))
       {:db (assoc-in db [:modules :admin] :loading)
-       :fx [[:app/load-module! {:loadable  admin-screen
-                                :on-loaded [:admin/module-loaded]
-                                :on-failed [:admin/module-failed]}]]})))
+       :fx [[:app/load-module!
+             {:loadable  admin-screen
+              :on-loaded [:admin/module-loaded]
+              :on-failed [:admin/module-failed]}]]})))
 
 (rf/reg-event :admin/module-loaded
-  (fn [{:keys [db]} _] {:db (assoc-in db [:modules :admin] :loaded)}))
+  (fn [{:keys [db]} _]
+    {:db (assoc-in db [:modules :admin] :loaded)}))
 
 (rf/reg-event :admin/module-failed
-  (fn [{:keys [db]} _] {:db (assoc-in db [:modules :admin] :failed)}))
+  (fn [{:keys [db]} _]
+    {:db (assoc-in db [:modules :admin] :failed)}))
 ```
 
-Wire the load to the route — `:on-match` dispatches when the route activates —
-and render the arrival as state:
+Load the module when the route activates and render all three states:
 
 ```clojure
-(rf/reg-route :app/admin {:on-match [[:admin/wanted]]} "/admin")
+(rf/reg-route :app/admin
+  {:on-match [[:admin/wanted]]}
+  "/admin")
 
 (h/defview admin-entry [_]
   (case (h/sub [:modules/admin])
-    :loaded  [@admin-screen {}]     ;; the loadable derefs to the view
-    :failed  [:div.load-failed
-              [:p "Couldn't load this area."]
-              [:button {:on-click [:admin/wanted]} "Try again"]]
-    [:div.screen-skeleton {:aria-busy true}]))
+    :loaded
+    [@admin-screen {}]
+
+    :failed
+    [:div.load-failed
+     [:p "Couldn't load this area."]
+     [:button {:on-click [:admin/wanted]}
+      "Try again"]]
+
+    [:div.screen-skeleton
+     {:aria-busy true}]))
 ```
 
-Every piece is machinery you already know. The pending placeholder is a branch,
-not a Suspense fallback. The failure is a value with a retry
-[intent](glossary.md#intent), not an exception. After the load, `@admin-screen`
-is the [`h/defview`](glossary.md#defview) view — still a re-render
-[boundary](glossary.md#boundary), with its reads and name intact. The
-`:loading`/`:loaded` check is the dedupe, so navigation away and back never
-double-loads.
+The pending state is a normal branch. Failure is app-db data with an ordinary
+retry intent. After loading, `@admin-screen` resolves to the original
+`h/defview`, so it keeps its name, frame, reads, and independent re-render
+behaviour.
 
-Warming works the same way as data prefetch: dispatch `[:admin/wanted]` from a
-nav link's hover intent, and the module downloads before the click. Hot reload is
-undisturbed — a loaded module's namespaces reload like any others, and an
-unloaded module has nothing to reload.
+The `:loading` and `:loaded` state is the deduplication rule. Leaving and
+returning to the route does not start a second load.
 
-## The React bridge: `n/lazy` and a Suspense host
+You can warm the module by dispatching `[:admin/wanted]` from a link hover or
+focus intent. A loaded module participates in hot reload normally. An unloaded
+module has no loaded namespace to reload.
 
-A [native island](glossary.md#native-island) or a React-shaped screen can instead
-load through React's own lazy machinery. That is the right choice when the region
-already lives on the [native tier](glossary.md#native-tier) and you want React to
-own the pending swap. The bridge is [`n/lazy`](glossary.md#nlazy), the ABI helper
-from [the native tier](10-native-tier.md). It has the same
-thunk-returning-a-promise contract as `React.lazy`, and it resolves to the
-component. It keeps the component marker, so Xray still names the
-[boundary](glossary.md#boundary) and embedding checks still recognize the head.
-What it does not do is carry the component across a hot reload, and it is not
-meant to: creating a component is allocation, never a lookup by name, so a save
-re-evaluates the module, allocates a fresh component, and React replaces the
-subtree. A clean remount across a save is the designed conduct, not a fault.
+## Lazy native components with Suspense
+
+Use React's lazy model when the split region is already a native island or
+React-first screen. `n/lazy` has the same loader contract as `React.lazy`, but
+preserves Hicasso's native component marker, display name, and server-policy
+metadata.
+
+Declare loadables and lazy components at namespace top level:
 
 ```clojure
 (ns app.charts.gate
@@ -106,128 +120,149 @@ subtree. A clean remount across a save is the designed conduct, not a fault.
             [re-frame.hicasso.native :as n]
             [shadow.lazy :as lazy]))
 
-(def chart-loadable (lazy/loadable app.charts.island/heavy-chart))
+(def chart-loadable
+  (lazy/loadable app.charts.island/heavy-chart))
 
-;; Declared at top level, never inside a body.
-(def heavy-chart (n/lazy #(lazy/load chart-loadable)))
+(def heavy-chart
+  (n/lazy #(lazy/load chart-loadable)))
 
 (h/defhost chart-host heavy-chart)
-(h/defhost suspense react/Suspense {:slots #{:fallback}})
+
+(h/defhost suspense react/Suspense
+  {:slots #{:fallback}})
 ```
+
+Mount the lazy host under Suspense and an error boundary:
 
 ```clojure
 (h/defview metrics-panel [_]
-  [h/error-boundary {:fallback  [:div.chart-oops
-                                 [:p "The chart failed to load."]
-                                 [:button {:on-click [:chart/retry]} "Try again"]]
-                     :reset-key (h/sub [:chart/attempt])}
-   [suspense {:fallback [:div.chart-skeleton {:aria-busy true}]}
-    [chart-host {:points (h/sub [:metrics/series])}]]])
+  [h/error-boundary
+   {:fallback
+    [:div.chart-oops
+     [:p "The chart failed to load."]
+     [:button {:on-click [:chart/retry]}
+      "Try again"]]
+    :reset-key (h/sub [:chart/attempt])}
+
+   [suspense
+    {:fallback
+     [:div.chart-skeleton
+      {:aria-busy true}]}
+    [chart-host
+     {:points (h/sub [:metrics/series])}]]])
 ```
 
-While the code loads, React shows the Suspense fallback — Hiccup in a declared
-slot, like any other ([Interop](09-interop.md)). A loader rejection throws into
-the render, so the nearest [`h/error-boundary`](glossary.md#error-boundary)
-catches it, and the `:reset-key` counter is the retry, as in
-[Errors](16-errors.md) — the next attempt re-runs the loader.
+The declared `:fallback` slot converts Hiccup to a ReactNode. If the loader
+promise rejects, React throws during render and the nearest
+`h/error-boundary` catches it. Changing the boundary's `:reset-key` retries the
+lazy subtree.
 
-!!! warning "Declare lazy components outside render"
-    [`n/lazy`](glossary.md#nlazy) (like `React.lazy`) creates a component
-    identity. When that creation happens inside a body, every render creates a
-    fresh identity, so React unmounts and remounts the subtree — and re-triggers
-    the load — each time the body runs. Both declarations above are top-level
-    `def`s; keep yours at top level too.
+!!! warning "Create lazy components once"
+    `n/lazy` creates a React component identity. Calling it inside a view body
+    creates a new identity on every render, remounts the subtree, and can
+    restart the load. Keep both the loadable and lazy component in top-level
+    definitions.
 
-Under SSR, the lazy region is a Client-only surface. The server bytes carry the
-deterministic fallback, and adoption mounts the live component when its code
-arrives. The runtime makes no hydration claim for bytes the server never sent
-([SSR and hydration](17-ssr-and-hydration.md)).
+A namespace save reallocates the lazy component during hot reload, so React
+remounts that subtree. This is the normal HMR behaviour for named native
+components and `defview` identities. State that must survive a save belongs in
+app-db.
 
-## While a subtree waits, or hides
+Under SSR, the lazy host remains Client-only. Server HTML contains the
+deterministic fallback. The live component mounts after hydration when its
+code arrives ([SSR and hydration](17-ssr-and-hydration.md)).
 
-Both mechanisms on this page hand a subtree's lifecycle to React. The read law
-holds through both, because commit owns acquisition
-([Views and reads](02-views-and-reads.md), [Async resources](08-async-resources.md)):
+## What happens to reads during suspension
 
-- **A suspended attempt owns nothing.** Render probes reads; commit installs
-  them. An attempt that React parks on a fallback has committed nothing, so it
-  holds no subscriptions and no resource demand. When the code arrives, the real
-  render commits, and it acquires at that point — once.
-- **Suspense here is for code arrival, not for data.** Do not wire subscriptions
-  to promises to suspend on your app's data. re-frame2 state reaches React as an
-  external store, and React documents that an external-store update can replace
-  visible content with the fallback. Data pending is explicit state — the
-  five-status resource projection and `:keep-previous?` already render it
-  ([Async resources](08-async-resources.md)).
-- **Activity hide releases; reveal reacquires.** Some panes must keep their UI
-  state while hidden — scroll position, half-built form widgets. For those panes,
-  host React's `Activity` like any wrapper, and drive `:mode` from state:
+Committed renders own subscriptions and demand. Speculative renders do not.
 
-  ```clojure
-  (h/defhost activity react/Activity)
+### A suspended attempt acquires nothing
 
-  [activity {:mode (if (h/sub [:inbox/visible?]) "visible" "hidden")}
-   [inbox-pane {}]]
-  ```
+A view may probe `h/sub` while React attempts a render. If that attempt
+suspends and React shows the fallback, the attempted subtree did not commit.
+It installs no subscriptions and acquires no demand-driven resources.
 
-  While the pane is hidden, React cleans up effects, and the subtree's committed
-  subscription ownership releases. Demand rides the same membership, so a hidden
-  pane's demand-driven resources release too. App-db state is untouched: the
-  pane's addresses keep their values. On reveal, the current read set
-  reacquires. Xray reports hidden-retained work as its own label, and does not
-  collapse it into mounted or unmounted ([Diagnostics](15-diagnostics.md)).
+When the code arrives and the real subtree commits, the committed read set is
+installed once.
 
-- **When the reveal is a click, it is already correct.** A hidden pane holds no
-  subscription, so writes that land while it is hidden do not reach it — the pane
-  comes back holding whatever it last rendered, and something has to correct it.
-  When the reveal is flushed inside the event that caused it, which is what a
-  user clicking a tab gets, React re-renders the retained subtree as part of
-  revealing it and reads the store during that render. The pane is correct before
-  it is on screen.
+### Use Suspense for code, not application data
 
-- **A reveal you schedule can show one stale frame.** Flip `:mode` from a timer,
-  a promise, or a transition and React reveals the retained subtree without
-  re-rendering it: the only signal that state moved arrives when React
-  re-subscribes, and it re-subscribes in an effect that React flushes in a later
-  task. A frame can be painted in between, showing the value the pane last
-  rendered. It is one frame, measured, and gated so it cannot quietly widen. It
-  is also never a *torn* frame — what you see is a real earlier state of that
-  pane, whole, not a mixture of two.
+Do not turn subscription values into promises to suspend on data. re-frame2
+state reaches React through an external-store model, and an external-store
+update can cause Suspense to replace visible content with a fallback.
 
-  So do not hide a pane whose content must never be a moment out of date. **On
-  an account or tenant switch, unmount or re-key the pane rather than retaining
-  it** — a consistent old commit is still the previous account's numbers, and
-  Activity retention preserves UI state; it is not a disclosure boundary. Where
-  retention is genuinely wanted, drive `:mode` from the discrete event itself
-  rather than from a timer that fires later.
+Resource pending, refreshing, failed, and stale states are already explicit
+data. Render them with the resource projection and `:keep-previous?`
+([Async resources](08-async-resources.md)).
+
+## Retaining hidden native UI with Activity
+
+React Activity can retain a native or hosted subtree while hiding it. Declare
+it as a host and control its mode from app state:
+
+```clojure
+(h/defhost activity react/Activity)
+
+[activity
+ {:mode (if (h/sub [:inbox/visible?])
+          "visible"
+          "hidden")}
+ [inbox-pane {}]]
+```
+
+While hidden:
+
+- React cleans up effects;
+- committed subscription ownership releases;
+- demand-driven resources release;
+- app-db state remains unchanged;
+- retained React UI state, such as a browser-owned scroll position, can remain.
+
+When the pane becomes visible, it reacquires the reads made by its reveal
+render. Xray labels hidden-retained work separately from mounted and unmounted
+work.
+
+### Discrete reveal is current before paint
+
+When a user click changes Activity from hidden to visible, React renders the
+retained subtree as part of the discrete reveal. It reads current app-db before
+the pane becomes visible.
+
+### Scheduled reveal can show one old frame
+
+When a timer, promise, or transition changes the mode, React may reveal the
+retained subtree before its external-store subscription effect is restored.
+One frame can show the last complete state the pane rendered before it was
+hidden. It is an older coherent pane, not a mixture of old and new values.
+
+Do not retain a pane where even one frame of previous content is unacceptable.
+An account or tenant switch is the clearest example: a coherent old account is
+still the wrong account. Unmount or re-key that subtree instead.
+
+Use Activity only when preserving host-owned UI state is worth the retention
+cost. Ordinary application state already survives unmount in app-db.
 
 ## Troubleshooting
 
 | Symptom | Cause | Fix |
-|---|---|---|
-| Navigation to the split route renders nothing, and then the screen appears after a delay | The shell renders the loaded view unconditionally, so the pre-load render was empty | Branch on the module status; render the skeleton and failed states |
-| The module double-loads on repeated visits | The load event does not consult state | Gate on the status, as `:admin/wanted` does — `:loading`/`:loaded` is the dedupe |
-| Works in `watch`, 404s in a release build | Module config drift — a missing `:depends-on`, or the entry namespace not in the module | Declare the dependency edge; keep one entries list per module |
-| The Suspense fallback flashes on every render of the parent | The lazy component was created inside a body — fresh identity, fresh mount, fresh load | Declare [`n/lazy`](glossary.md#nlazy) (and the loadable) at top level |
-| A failed chunk load leaves the skeleton up forever | Nothing catches the loader's rejection | Wrap the Suspense host in [`h/error-boundary`](glossary.md#error-boundary); retry through `:reset-key` |
-| Xray shows an anonymous re-render unit where a named island should be | Raw `React.lazy` erased the component marker — the display name and the declared server policy went with it | Use [`n/lazy`](glossary.md#nlazy) — same semantics, marker intact ([Native tier](10-native-tier.md)) |
-| Local state inside a lazily loaded island resets whenever you save | Nothing is wrong. A reload allocates a fresh component, so the element type changes and React remounts the subtree — the designed HMR conduct, and [`defview`](glossary.md#defview)'s too | Nothing to fix. State that must outlive a save belongs in `app-db`, read back through [`n/use-sub`](glossary.md#nuse-sub) |
-| The lazy region is missing from server HTML | Client-only by design — the server carries the fallback, never the un-arrived component | Make the fallback a same-footprint skeleton; the live component mounts after adoption |
-| A hidden pane's state is gone on reveal | The pane was unmounted, not hidden — a `when`, not an Activity `:mode` flip | Hide with `:mode "hidden"` to retain UI state; unmount when you mean gone. App-db state at addresses survives either way |
-| A revealed pane shows its old contents for a frame before catching up | Nothing is broken. A hidden pane holds no subscription, and the reveal was scheduled — from a timer, a promise or a transition — so React re-subscribes in an effect it flushes a task later | Reveal from the discrete event instead, where the correction lands inside the reveal's own render. For a pane that must never show an earlier state — an account or tenant switch — unmount or re-key rather than retain |
+| --- | --- | --- |
+| Split route is blank until code arrives | The view dereferences the loaded module without rendering pending and failed states | Branch on module status and show a skeleton or failure UI |
+| Repeated visits start repeated module loads | The load event ignores existing `:loading` or `:loaded` state | Gate the effect on the status as `:admin/wanted` does |
+| Development watch works but release returns a module 404 | Module entries or `:depends-on` edges differ in the release configuration | Declare the module dependency and keep one authoritative entries list |
+| Suspense fallback appears after every parent render | `n/lazy` is created inside a body, producing a new component identity | Move the loadable and lazy component to top-level definitions |
+| Failed chunk leaves the skeleton forever | No error boundary handles the loader rejection | Wrap Suspense with `h/error-boundary` and retry by changing `:reset-key` |
+| Xray shows an anonymous lazy island | Raw `React.lazy` removed Hicasso's native marker | Use `n/lazy` |
+| Local state resets after a source save | HMR created a new component identity and React remounted | Expected. Store durable state in app-db and read it with `n/use-sub` |
+| Lazy area is absent from server HTML | The lazy component is Client-only | Provide a same-footprint fallback; the component mounts after adoption |
+| Hidden pane loses UI state | It was unmounted with a conditional rather than retained with Activity | Use `:mode "hidden"` when retention is intentional |
+| Scheduled reveal briefly shows old content | The hidden pane had no active subscription and React restored it after the reveal paint | Reveal from the discrete event, or unmount/re-key when stale display is unacceptable |
 
-## When not to split
+## When not to split or retain
 
-- **A small bundle.** One module that loads fast is simpler than three modules
-  that each need a loading state. Split when a measured area is big and rarely
-  visited, not on principle.
-- **Below the route or screen grain.** Per-widget chunks multiply pending states
-  and round trips; users already expect a pause at the route, not on every
-  widget.
-- **For data.** Suspense is not your loading UI, and lazy loading is not your
-  fetch layer. Resource status is explicit state with a better vocabulary
-  ([Async resources](08-async-resources.md)).
-- **Hiding what should unmount.** Activity pays a retention cost to keep UI
-  state alive. A pane whose meaningful state already lives at app-db addresses
-  survives unmount at no cost ([Ephemeral state](11-ephemeral-state.md)) — hide
-  only what is expensive to rebuild, or what the platform owns, like scroll.
+- Do not split a small bundle merely to create architectural symmetry.
+- Prefer the route or screen boundary. Per-widget chunks create many loading
+  states and network round trips.
+- Do not use Suspense as the application's data-fetching state model.
+- Do not retain a pane whose useful state already lives in app-db and is cheap
+  to rebuild.
+- Never use Activity retention as a security or disclosure boundary.

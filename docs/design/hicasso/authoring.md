@@ -315,7 +315,7 @@ the sites, emit the `defhost`, rewrite the call sites — and all three are by
 hand. The shipped migration codemod is a props-dialect **fixer**: it repairs the
 crossings you already have and leaves them `[:>]`, minting no declaration and
 hoisting nothing. The hoist that would mint them is demand-gated and unbuilt
-([the codemod](draft-guide/19-migration-from-reagent.md#step-4--run-the-codemod)).
+([the codemod](draft-guide/19-migration-from-reagent.md#4-apply-the-mechanical-codemod)).
 **The one raw escape** (HD-011), explicitly secondary to the declaration:
 `[:> Component props & children]` — same foreign lowering path, same default
 conversions, `.cljs`-only at that node, reduced structural identity; for

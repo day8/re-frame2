@@ -1,238 +1,243 @@
-# Migration from Reagent
+# Migrating from Reagent
 
-You have a working Reagent codebase and want it on
-[Hicasso](glossary.md#hicasso) without an unverified rewrite. This page covers
-the view layer: components, Hiccup dialect, local state, and interop sites. If
-the app is still on re-frame v1, migrate events and subscriptions first. This
-page assumes re-frame2 underneath.
+This page covers the view-layer migration from Reagent to Hicasso: component
+definitions, Hiccup differences, local state, and React interop.
 
-Three tools, in this order:
+It assumes the application already uses re-frame2 events and subscriptions. If
+it still uses re-frame v1 shapes, complete that migration first.
 
-1. **The reporter** classifies every foreign crossing — converts mechanically,
-   needs a person, or will raise at runtime — and puts a named class and a
-   recovery sentence on each line.
-2. **[Shadow comparison](glossary.md#shadow-comparison)** (also called shadow
-   mode) proves that a ported screen matches the original. It is a dev-only dual
-   mount that diffs [canonical DOM](glossary.md#canonical-dom) and
-   [intent](glossary.md#intent) streams.
-3. **The codemod** repairs the `[:>]` props dialect where the rewrite is
-   decidable from source text. It is idempotent.
+Use three migration tools in this order:
 
-Do not run the codemod first. Verify with the reporter and shadow comparison,
-then let a tool change source with the proof re-run afterward.
+1. **Reporter** — classify every foreign React crossing and identify mechanical
+   rewrites, human decisions, and runtime blockers.
+2. **Shadow comparison** — run the Reagent original and Hicasso port side by
+   side and compare canonical DOM and intent streams.
+3. **Codemod** — apply only source transformations whose behaviour is
+   decidable from the code.
 
-## Step 1 — run the reporter
+Do not start with the codemod. Read the report, port and prove a screen, then
+apply mechanical edits and run the proof again.
 
-The migration tool ships with Hicasso. It runs on a bare JVM against any Reagent
-corpus. It does not load your app, and in its default mode it changes nothing:
+## 1. Generate the migration report
+
+The reporter runs on a JVM without loading the application. Its default mode
+changes no files:
 
 ```bash
 cd re-frame2/migration/reagent-to-hicasso/codemod
 
-clojure -M:run path/to/your/src/          # classify; touch nothing
-clojure -M:run --report out.edn src/      # choose where the report goes
+clojure -M:run path/to/your/src/
+clojure -M:run --report out.edn src/
 ```
 
-Reagent *converted* props on the way across a `[:>]` crossing — deep-camelCase
-nested keys, keyword values to string names, `r/partial` wrapping, metadata
-keys. Hicasso does not convert. `[:>]` stays legal, so a migrated site can keep
-rendering while meaning something different. The reporter reads every `[:>]`
-site and puts each in one of three buckets:
+Reagent converted props crossing through `[:>]`. Among other behaviours, it
+camel-cased nested keys, converted keyword values to names, wrapped
+`r/partial`, and read metadata keys. Hicasso does not perform that conversion.
+A `[:>]` form may therefore continue rendering while sending different values
+to the component.
 
-| Bucket | Named classes | What it means |
-|---|---|---|
-| Converts mechanically | the six rewrite families W1–W6 (step 4) | The codemod repairs these sites and preserves their behaviour |
-| Needs your hands | `:computed-props`, `:computed-value`, `:computed-nested-key`, `:adapt-def-site`, `:cljc-site`, `:parse-error`, `:event-carrier-goes-live`, `:key-conflict`, `:string-tag-unparseable`, `:normalized-key-collision`, `:css-var-repair`, `:named-ref`, `:amp-key` | Either the source text does not say what crosses, or a rewrite would change behaviour. Some classes mark places where Reagent was already broken and the move *repairs* behaviour; check that the repaired behaviour is what you want |
-| Will refuse at runtime | `:intent-needs-a-declaration`, `:dangerous-html`, `:r>-site`, `:f>-site`, `:as-element-island`, `:reagent-api-residue` | Migration blockers — these pages raise (or quietly misrender) under Hicasso until a person decides |
+The reporter classifies every crossing:
 
-Treat the report as the migration plan. It is one EDN file with deterministic
-ordering. The tool writes it on a clean run too, and the file includes the count
-of sites left untouched — so "not in the report" is never ambiguous. Every entry
-has file, line, and column against your input, the source form as text, and a
-recovery sentence. The report also carries each component's *name*, which the
-runtime cannot: a `[:>]` refusal at runtime prints the constant `"[:>]"`.
+| Category | Named classes | Meaning |
+| --- | --- | --- |
+| Mechanical | W1–W6, described below | The codemod can preserve the previous behaviour from source text alone |
+| Human decision | `:computed-props`, `:computed-value`, `:computed-nested-key`, `:adapt-def-site`, `:cljc-site`, `:parse-error`, `:event-carrier-goes-live`, `:key-conflict`, `:string-tag-unparseable`, `:normalized-key-collision`, `:css-var-repair`, `:named-ref`, `:amp-key` | The source does not contain enough information for a safe rewrite, or the change repairs previously broken behaviour that must be reviewed |
+| Runtime blocker | `:intent-needs-a-declaration`, `:dangerous-html`, `:r>-site`, `:f>-site`, `:as-element-island`, `:reagent-api-residue` | The site will raise or silently misrender until someone chooses the correct Hicasso shape |
 
-The report ends with a **suggestions block** — candidate
-[`h/defhost`](glossary.md#defhost) declarations with guessed `:callbacks` maps.
-The block is labelled as guesses. Fluent's `onRenderCell` and Ant's `onRow` are
-event-*spelled* render props whose return value the caller reads: pasting an
-`:event` contract onto one blanks the cell renderer, and the runtime raises
-nothing. You choose every contract. The tool never synthesizes one.
+The report is deterministic EDN. Each entry includes:
 
-Read the report before you write any code. It tells you which screens are
-mechanical, which need decisions, and which pages raise on a branch that smoke
-tests never reach.
+- file, line, and column;
+- the source form as text;
+- its classification;
+- a recovery sentence;
+- the component name where it can be recovered statically.
 
-## Step 2 — port a screen by hand
+It is written even when no problematic sites exist and includes the count of
+untouched sites, so absence from the report is meaningful.
 
-Migrate screen by screen, not file type by file type. Much of the port is
-deletion — closures become data, and state machinery becomes addresses:
+The final suggestions block contains possible `h/defhost` declarations and
+possible callback contracts. Treat them as drafts. A prop named like an event
+may actually be a render prop whose return value the library consumes. For
+example, declaring a render prop as `:event` can replace its return value with
+a dispatch path and blank the UI without a useful runtime error. Confirm every
+contract against the component library's documentation.
 
-| Reagent habit | [Hicasso](glossary.md#hicasso) |
-|---|---|
-| `defn` component returning Hiccup | [`h/defview`](glossary.md#defview) — a re-render [boundary](glossary.md#boundary), used as a head |
-| `@(rf/subscribe [:q])` in the body | `(h/sub [:q])` — legal in branches, loops, and helpers |
-| `#(rf/dispatch [:x])` handlers | the event vector itself; [`h/event`](glossary.md#hevent) when the callback's arguments matter |
-| `r/atom` in a form-2 closure | a forms-module draft or an explicit app-db address — there is no local-state tier |
-| `r/with-let` | ordinary `let`; state that must survive a re-render is application state |
-| form-3 / `r/create-class` lifecycle | a callback ref at the host edge, or a named native component ([Native tier](10-native-tier.md)) |
+## 2. Port one screen by hand
+
+Migrate a complete screen rather than changing all component declarations,
+then all handlers, then all crossings across the repository. A screen-level
+port gives shadow comparison a useful unit.
+
+Common translations:
+
+| Reagent | Hicasso |
+| --- | --- |
+| `defn` component returning Hiccup | `h/defview`, mounted as a Hiccup head |
+| `@(rf/subscribe [:q])` | `(h/sub [:q])`, including in branches, loops, and helpers |
+| `#(rf/dispatch [:x])` | the event vector itself; use `h/event` when callback arguments matter |
+| `r/atom` inside a Form-2 closure | app-db or the forms module; Hicasso has no local-state tier |
+| `r/with-let` | ordinary `let`; durable state belongs outside render |
+| Form-3 or `r/create-class` lifecycle | callback refs or a named native component |
 | `r/track`, `reaction`, `r/cursor` | layered subscriptions |
 | `^{:key k}` metadata | `:key` in the props map |
-| `[:> Component …]` | legal as-is; the codemod repairs the dialect; declare with [`h/defhost`](glossary.md#defhost) what you keep ([Interop](09-interop.md)) |
-| `r/adapt-react-class` | nothing — the codemod rewrites it to `[:>]`; declare it if it stays |
-| `r/as-element` in a render prop | [`h/as-element`](glossary.md#as-element), at a declared `:render` position |
-| `r/reactify-component` | [`h/as-component`](glossary.md#outward-bridge) — the [outward bridge](glossary.md#outward-bridge) |
+| `[:> Component ...]` | remains legal; repair its prop dialect and declare repeated crossings with `h/defhost` |
+| `r/adapt-react-class` | direct `[:>]` or a declared host |
+| `r/as-element` inside a render prop | `h/as-element` under a declared `:render` callback contract |
+| `r/reactify-component` | `h/as-component`, the outward bridge |
 
-Two of these ports fail loudly, which helps. A Reagent-style
-`#(rf/dispatch …)` closure still *runs* when the library or DOM calls it, but
-the bare ambient dispatch inside it raises `:rf.error/no-frame-context` — the
-recovery names the event-vector and [`h/event`](glossary.md#hevent) spellings.
-An [intent](glossary.md#intent) vector at an undeclared `[:>]` prop raises at
-render instead of crossing as an inert array. The inert array is what Reagent
-did, and the handler never fired there either.
+Two common mistakes fail loudly:
 
-## Step 3 — prove it with shadow comparison
+- A Reagent-style `#(rf/dispatch ...)` callback has no captured frame when the
+  browser invokes it later, so ambient dispatch raises
+  `:rf.error/no-frame-context`. Use an intent vector or `h/event`.
+- An event vector at an undeclared `[:>]` prop raises instead of crossing as an
+  inert JavaScript array. Under Reagent that inert value did not produce a
+  working handler either; the migration forces you to decide the callback's
+  contract.
 
-A port that "looks right" is not proof. [Shadow comparison](glossary.md#shadow-comparison)
-mounts the Reagent original and the Hicasso port together against isolated
-copies of the same seeded frame; drives both with one script; and diffs the
-[canonical DOM](glossary.md#canonical-dom) plus the [intent](glossary.md#intent)
-streams at every checkpoint.
+## 3. Prove the port with shadow comparison
+
+`ht/shadow!` mounts the original and candidate against isolated copies of the
+same seeded frame. One interaction script drives both implementations. At
+each checkpoint it compares canonical DOM and the intent stream.
 
 ```clojure
 (ns app.migration.article-row-shadow
   (:require [re-frame.hicasso.test :as ht]
-            [app.views.article-row-reagent :as old]   ;; the original, untouched
-            [app.views.article-row :as new]))         ;; the Hicasso port
+            [app.views.article-row-reagent :as old]
+            [app.views.article-row :as new]))
 
-(ht/shadow! {:reference      [old/article-row {:article-id 7}]
-             :candidate      [new/article-row {:article-id 7}]
-             :initial-events [[:demo/install-fixture]]
-             :script         [{:click "button.edit"}
-                              {:type  ["input.title" "Better title"]}
-                              {:click "button.save"}]})
+(ht/shadow!
+ {:reference      [old/article-row {:article-id 7}]
+  :candidate      [new/article-row {:article-id 7}]
+  :initial-events [[:demo/install-fixture]]
+  :script         [{:click "button.edit"}
+                   {:type  ["input.title" "Better title"]}
+                   {:click "button.save"}]})
 ;; => {:status :green :checkpoints 4}
 ```
 
-Each side gets its own copy of the seeded frame, so writes never cross, and a
-divergence compounds: when the port dispatches a different intent at step one,
-its state — and therefore its DOM — drifts further at every later step. At each
-checkpoint the harness compares the canonical DOM of both mounts and the intents
-that each side's handlers dispatched. A red names the checkpoint and the exact
-node or intent that differed. When the harness can attribute a difference to a
-*declared* policy — a Client-only crossing region, a named refusal — it reports
-that classification, not bare drift.
+Each side receives its own frame copy, so writes cannot leak between the two
+implementations. A different intent at the first checkpoint causes the states
+and later DOM to diverge independently, which makes the original cause visible.
 
-**Green means behaviourally identical over the flows the script drives.** Script
-the screen's real flows, not one click. Trust the comparator only after you have
-watched it fail: flip one prop in the port and confirm the run goes red at the
-correct node.
+A red result identifies the checkpoint and the exact DOM node or intent that
+differs. When the difference follows a declared policy, such as a Client-only
+region, the report identifies the policy instead of presenting it as an
+unexplained DOM mismatch.
 
-Omit `:script`, and the dual mount stays up in your dev build: you drive the app
-by hand, and every committed render is a checkpoint, live-diffed. That mode suits
-exploratory porting — leave the shadow mounted while you work.
+A green result means the implementations matched for the flows in the script.
+It does not prove untested paths. Script the real screen behaviour rather than
+a single happy click.
 
-Shadow comparison is dev-only. The harness, the dual mount, and the Reagent
-dependency itself are development scope; when the last shadow goes green, Reagent
-leaves your `deps.edn`. The scope is limited: shadow comparison compares
-canonical DOM and intent streams, not focus, caret, IME, or paint. Those are
-browser facts; the browser tier of [Testing](14-testing.md) covers them.
+Add a sabotage control before trusting the comparator: deliberately change a
+candidate prop and confirm the run turns red at the expected checkpoint.
 
-When the shadow is green, delete the original. Two copies of one screen can
-diverge.
+Omit `:script` for interactive development. Both mounts remain live and each
+committed render becomes a checkpoint as you use the screen manually.
 
-## Step 4 — run the codemod
+Shadow comparison covers canonical DOM and intent streams. It does not prove
+focus, caret, IME, layout, or paint behaviour. Use the browser levels from
+[Testing](14-testing.md) for those claims.
 
-With the report read and the proof in place, let the tool repair the mechanical
-dialect:
+When the screen is green and its browser tests pass, remove the Reagent
+original. Keeping both copies invites future divergence.
+
+## 4. Apply the mechanical codemod
 
 ```bash
-# from the tool directory, as in step 1
-clojure -M:run --rewrite src/             # dry run: what would change
-clojure -M:run --rewrite --write src/     # apply it
+clojure -M:run --rewrite src/
+clojure -M:run --rewrite --write src/
 ```
 
-The codemod writes whole files through a lossless parser, so formatting,
-comments, and line endings survive — a CRLF file comes back CRLF. Exit is `0`
-for any run that completed: a migration tool that fails your build over a
-decision only you can make is a tool you run once. There are six rewrite
-families:
+The first command is a dry run. The second writes files.
 
-| | At | Written | Preserving |
-|---|---|---|---|
-| W1 | `^{:key k}` on the vector | `:key k` inside the props map | Reagent read the metadata key; Hicasso reads `(:key props)` — left alone the key goes dead |
-| W2 | a literal map reached from the props map through map values | the same map, its literal keys respelled camelCase | Reagent deep-camelCased nested keys; Hicasso does not |
-| W3 | a literal keyword, or a quoted symbol, at a prop value | its `name`, as a string | Reagent's `(name x)` arm — a namespaced keyword loses its namespace here, exactly as it already did |
-| W4 | a literal `(r/partial f a …)` at a prop value | a hygienic `let` capture, then Reagent's own wrapper | Reagent evaluated the callee and arguments **once**, at construction — the `let` keeps that |
-| W5 | `[(r/adapt-react-class X) …]` | `[:> X …]` | the same native-element path, spelled the way Hicasso accepts |
-| W6 | `[:> "tag" …]` with a plain tag string | `[:tag …]` | Reagent's input wrapper becomes the [controlled door](04-controlled-inputs.md) |
+The codemod uses a lossless parser and preserves formatting, comments, and line
+endings, including CRLF. A completed run exits 0 even when the report contains
+human decisions; the tool is a migration assistant, not a permanent build
+lint.
 
-Two rules govern every rewrite. A rewrite fires only where both sides' behaviour
-is computable from the source text and differs. No rewrite introduces a function
-whose return differs from what Reagent's conversion produced. A prop's
-*spelling* can only make the tool do less — an event-spelled name is a reason to
-skip or to refuse, never a reason to wrap — and that keeps the tool from
-blanking a render prop. The tool refuses everything else into the report:
-silent behaviour change is the failure mode to avoid. A refused site still
-works, and the report line turns the refusal into an instruction.
+It applies six rewrite families:
 
-Every output is outside its own rewrite's input language, so a second run
-changes nothing — byte for byte, in both line-ending conventions. Then re-run
-shadow comparison on the screens the diff touched.
+| Rewrite | Input | Output | Behaviour preserved |
+| --- | --- | --- | --- |
+| W1 | `^{:key k}` metadata on a vector | `:key k` in the props map | Reagent read metadata; Hicasso reads props |
+| W2 | Literal nested prop maps | The same map with literal keys camel-cased | Reagent deep-camel-cased nested keys; Hicasso passes them by identity |
+| W3 | Literal keyword or quoted-symbol prop value | Its `name` as a string | Reagent named these values; namespaced keywords lost their namespace there too |
+| W4 | Literal `(r/partial f a ...)` prop | Hygienic `let` capture plus function wrapper | Reagent evaluated the callee and captured args once at construction |
+| W5 | `[(r/adapt-react-class X) ...]` | `[:> X ...]` | Same native React element path in Hicasso syntax |
+| W6 | `[:> "tag" ...]` for a plain HTML tag | `[:tag ...]` | Moves the native element onto Hicasso's normal, controlled-element path |
 
-## What stays manual, and why
+A transformation runs only when both old and new behaviour can be determined
+from the literal source. Event-like prop spelling never authorises a callback
+rewrite; it can only make the tool more conservative. Everything else remains
+in the report.
 
-- **Every [`h/defhost`](glossary.md#defhost) declaration and every `:callbacks`
-  contract.** A contract states what a prop *means*, and the meaning is in the
-  library's documentation, not your source text. The suggestions block drafts
-  the declaration; you approve it.
-- **The blockers.** An [intent](glossary.md#intent) vector at a `[:>]` prop
-  (`:intent-needs-a-declaration`) needs a decision about what it was for.
-  `dangerouslySetInnerHTML` (`:dangerous-html`) needs an explicit yes: Reagent
-  deleted it unless wrapped, Hicasso passes it through, so the migration turns a
-  dead prop into a live one. Port `[:r> …]` and `[:f> …]` sites by hand —
-  Hicasso reads those as tag keywords and quietly renders an unknown element.
-  Restructure `r/as-element` inside a callback (`:as-element-island`) by hand:
-  that closure runs outside the owner's render window, so its
-  [lowering](glossary.md#lowering) is not a text substitution.
-- **Local state and lifecycle** (`:reagent-api-residue`): `r/atom`, cursors,
-  form-2/form-3 shapes. Where a piece of state lives is a design decision —
-  [Ephemeral state](11-ephemeral-state.md) covers the homes — and no tool makes
-  that decision for you.
-- **Everything computed.** Props built by `merge`, values reached through a
-  symbol, keys computed at runtime: the source text does not say what crosses,
-  so the tool reports instead of guessing.
+The output of each rewrite is outside that rewrite's input language, so a
+second run should be byte-for-byte unchanged. Re-run shadow comparison on the
+screens touched by the diff.
+
+## What remains manual
+
+### Host declarations and callback contracts
+
+Only the component library defines whether a prop is an event, plain handler,
+render callback, or ReactNode slot. The codemod cannot infer that semantic
+contract safely. Review and approve every `h/defhost` declaration.
+
+### Runtime blockers
+
+Examples:
+
+- `:intent-needs-a-declaration`: decide what the undeclared event-shaped prop
+  means;
+- `:dangerous-html`: Reagent may have discarded the prop while Hicasso will
+  pass it through, turning dead behaviour live;
+- `:r>-site` and `:f>-site`: Hicasso can interpret these as unknown tag
+  keywords, so port them explicitly;
+- `:as-element-island`: a callback runs outside the original render window,
+  so replacing `r/as-element` is not a text substitution.
+
+### Local state and lifecycle
+
+`r/atom`, cursors, Form-2, and Form-3 structures require a state-ownership
+decision. Use the homes in [Ephemeral state](11-ephemeral-state.md). No codemod
+should decide whether a fact belongs in app-db, a forms address, or native
+widget state.
+
+### Computed values
+
+A map produced by `merge`, a prop value reached through a symbol, or a key
+computed at runtime does not reveal the actual crossing shape to a source-only
+tool. The reporter records the site rather than guessing.
 
 ## Troubleshooting
 
 | Symptom | Cause | Fix |
-|---|---|---|
-| A `[:>]` site renders but behaves differently than under Reagent | Props dialect drift — Reagent converted on the way across; Hicasso does not | Run the reporter; let the codemod repair the decidable sites |
-| A page raises at render at a `[:>]` site that "worked" before | `:rf.error/hicasso-host-undeclared-callback` — an [intent](glossary.md#intent) vector at an escape prop; under Reagent it crossed as an inert array and never fired | Declare the host and name the prop in `:callbacks`, or hand a plain function — and decide what the dead handler was for |
-| A handler runs, then `:rf.error/no-frame-context` | A Reagent-style `#(rf/dispatch …)` closure — it carries no frame | Make it an event vector, or [`h/event`](glossary.md#hevent) |
-| A keyed list remounts once right after migration | The `:key` slot is reported, never rewritten: `:foo` and `"foo"` keys collided under Reagent and are distinct now, so the key value changes once | Accept the one-time remount; keys are stable after |
-| The codemod refused a whole nested map | `:normalized-key-collision` — sibling keys like `:foo-bar`/`:fooBar` collapsed onto one JS property under Reagent, with an iteration-order winner | Delete the key you did not mean; re-run |
-| A W2 diff camelCased keys in what is clearly a *data* map | Behaviour preserved: Reagent already sent the library camelCase | Do **not** revert the keys — a revert changes what the library receives. If the map was data, notice it now |
-| Shadow run red on a region the port renders client-only | A declared Client-only crossing, classified as a policy difference, not drift | Choose the [server policy](glossary.md#server-policy) (`{:server :render}` or a fallback) or accept the classification |
-| Shadow green, but focus/IME behaves differently in a real browser | Shadow comparison covers canonical DOM and intents; browser laws are out of its scope | Run the browser tier ([Testing](14-testing.md)) |
-| Second codemod run produced a diff | It cannot — outputs are outside the input language. If files changed, something else edited them between runs | Diff against the report's coordinates; re-run the reporter |
+| --- | --- | --- |
+| A `[:>]` site renders but behaves differently | Reagent converted the prop dialect and Hicasso passes values by identity | Run the reporter and apply the safe codemod rewrites |
+| Render raises `:rf.error/hicasso-host-undeclared-callback` at a former Reagent crossing | An intent vector reached an undeclared prop; under Reagent it crossed as inert data | Declare the host and callback contract, or supply the actual plain function the library expects |
+| Callback runs and raises `:rf.error/no-frame-context` | A hand-written dispatch closure did not capture a frame | Replace it with an intent vector or `h/event` |
+| A keyed list remounts once immediately after migration | A key collision that Reagent normalised now becomes two distinct values | Accept the one-time transition when the new stable key is correct |
+| Codemod refuses a nested map with `:normalized-key-collision` | Keys such as `:foo-bar` and `:fooBar` collapsed onto one Reagent output property | Remove the unintended duplicate and rerun |
+| W2 camel-cases keys in what looks like application data | Reagent already sent that library a camel-cased object | Do not revert unless you intentionally want different library input |
+| Shadow comparison is red only in a Client-only region | The difference follows a declared server/client policy | Choose `{:server :render}`, provide a fallback, or accept the classified difference |
+| Shadow is green but focus or IME differs | Shadow comparison does not test browser-only behaviour | Run L4 browser tests |
+| A second codemod run changes files | The input changed between runs or another tool edited the output; the codemod itself is idempotent | Compare against the report coordinates and rerun the reporter |
 
-## When not to migrate this way
+## When not to use the full process
 
-- **A small app.** Below a handful of screens, the reporter plus a hand port is
-  the whole job; shadow scripts cost more than reading the diff. Keep the
-  reporter — it costs nothing — and skip the harness.
-- **A React-first screen.** Do not convert a screen that is mostly vendor
-  components and hooks to Hiccup on principle: port it to a named native island,
-  or keep it UIx, under the same root and frame
-  ([Native tier](10-native-tier.md)).
-- **A screen that you plan to redesign.** Shadow comparison proves behavioural
-  *identity*; when a planned redesign discards the behaviour, port the screen
-  loosely, and spend the proof budget on screens that must not change.
+- For a very small application, run the reporter and port by hand. A shadow
+  harness may cost more than reviewing a handful of screens.
+- Keep a React-first screen native or UIx instead of converting it to Hiccup on
+  principle ([The native tier](10-native-tier.md)).
+- When a screen is being redesigned, shadow comparison cannot prove intended
+  behavioural change. Spend identity-proof effort on screens that must remain
+  unchanged.
 
 ## Advanced
 
-### Reading a report entry
+### Report entry shape
 
 ```clojure
 {:file   "src/app/views.cljs"
@@ -240,44 +245,50 @@ shadow comparison on the screens the diff touched.
  :col    5
  :form   "[:> Btn {:variant :contained} \"Save\"]"
  :head   "Btn"
- :action :rewrote          ;; or :refused, :skipped
- :detail {:prop :variant :was :contained :now "contained"}
+ :action :rewrote
+ :detail {:prop :variant
+          :was  :contained
+          :now  "contained"}
  :note   "Reagent named every keyword prop value; Hicasso keeps the keyword
           except at HTML-attribute slots."}
 ```
 
-Coordinates address the *input* file for the scan and for the rewrite, so a line
-in the report is the line that you grep for in either mode.
+Coordinates always refer to the input file, in report and rewrite modes.
 
-### Why W4 writes a `let`
+### Why W4 captures with `let`
 
-The obvious rewrite of `(r/partial f @snapshot)` is a bare
-`(fn [& args] (apply f @snapshot args))`, and that rewrite is wrong. `r/partial`
-evaluated its callee and its arguments **once**, when the prop was built. The
-bare `fn` re-evaluates them on every call, so `@snapshot` stops being a
-snapshot, and `(next-id!)` allocates a fresh id on every click. The codemod
-writes a `let` that captures once:
+This rewrite is wrong:
+
+```clojure
+(fn [& args]
+  (apply f @snapshot args))
+```
+
+It re-evaluates `f` and `@snapshot` on each callback invocation. Reagent's
+`r/partial` evaluated the callee and arguments once when the prop was built.
+The codemod therefore emits a capture:
 
 ```clojure
 [:> Btn {:on-pick (r/partial handler @cart)}]
 ;; =>
-[:> Btn {:on-pick (let [f__rf2 handler a0__rf2 @cart]
-                    (fn [& args__rf2] (apply f__rf2 a0__rf2 args__rf2)))}]
+[:> Btn
+ {:on-pick
+  (let [f__rf2  handler
+        a0__rf2 @cart]
+    (fn [& args__rf2]
+      (apply f__rf2 a0__rf2 args__rf2)))}]
 ```
 
-The names are deterministic, not gensym'd, so what lands in your diff is
-readable. The tool checks the names against every symbol that the site spells,
-and a collision bumps the whole family (`f__rf2__1`, …) until the names are
-fresh.
+Names are deterministic and checked against symbols already present at the
+site. A collision increments the generated suffix for the complete family.
 
-### Divergences the tool leaves alone
+### Deliberate divergences left in place
 
-These divergences are named so you do not file them as gaps. Each is a place
-where Hicasso differs from the donor in a way that is better, or invisible:
+The migration tools do not try to remove every semantic difference:
 
-- Class collections in any spelling now coerce and compose (Reagent read only
-  the literal `:class` key).
-- Nested class collections flatten.
-- Hicasso drops `__proto__`/`prototype`/`constructor` instead of writing them.
-- A literal `nil` at the props slot counts as a child, and React renders nothing
-  for it.
+- class collections now coerce and compose under every accepted spelling;
+- nested class collections flatten;
+- unsafe object keys such as `__proto__`, `prototype`, and `constructor` are
+  dropped instead of written;
+- a literal `nil` in a child position remains a child value and React renders
+  nothing for it.

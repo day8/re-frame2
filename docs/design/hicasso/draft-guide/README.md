@@ -1,23 +1,45 @@
-# Hicasso — user guide
+# Hicasso user guide
 
-Hicasso is re-frame2's native view layer: you write Hiccup vectors and maps,
-call subscriptions where you need values, and put event vectors in attributes.
-The runtime turns that data into React elements. App-db, events, and the event
-pipeline stay ordinary re-frame2.
+Hicasso is re-frame2's native view layer. Views are Hiccup data, subscription
+reads are ordinary function calls, and event handlers can remain event vectors.
+The runtime turns that data into React elements; app-db, events, subscriptions,
+frames, and the event pipeline remain ordinary re-frame2.
 
-**Prerequisites.** Core re-frame2 — events, app-db, subscriptions, frames.
-Start with [what Hicasso is](01-getting-started.md), then
-[install a first screen](installation.md).
+This guide explains the Hicasso view model, controlled inputs, forms, routing,
+resources, React interop, native components, local UI state, overlays, SSR,
+testing, diagnostics, performance, migration, code splitting, and
+accessibility. The MkDocs sidebar supplies the chapter order and page
+navigation.
 
-**When not this corpus.** Pure business logic and HTTP without a Hicasso view
-belong in Core, async, or resources. A Reagent app still on re-frame v1 event
-shapes should finish that migration first, then use
-[Migration from Reagent](19-migration-from-reagent.md). If the product is
-React-first (hooks everywhere, a design system at the centre), prefer the UIx
-adapter and use Hicasso only where data-first views are worth it.
+## Prerequisites
 
-The MkDocs sidebar lists the pages.
+You should already understand the re-frame2 basics: events, app-db,
+subscriptions, effects, and frames. The Core guide owns those concepts. This
+corpus explains what changes at the view layer and how that layer behaves at
+its boundaries.
 
-> **End-state guide.** This describes Hicasso as the completed programme ships
-> it. Public names may still change at the one naming sitting; treat spellings
-> as recommended defaults until that sitting freezes them.
+## When Hicasso fits
+
+Use Hicasso when you want re-frame2's data-oriented model to continue through
+the view tree:
+
+- markup remains inspectable Hiccup data
+- a view reads subscriptions with `h/sub` where it needs them
+- common event handlers remain event vectors rather than opaque closures
+- a frame remains explicit across rendering, callbacks, testing, and tools
+
+## When to use another corpus or adapter
+
+Pure business logic and HTTP work with no Hicasso view belong in the Core,
+async, or resources guides.
+
+A Reagent application still using re-frame v1 event shapes should complete the
+core migration before applying the Hicasso migration. A React-first product —
+hooks throughout the screen and a React component system at the centre — will
+usually be clearer with the UIx adapter, using Hicasso only where its data-first
+view model is useful.
+
+> **Status.** This guide describes the intended completed Hicasso programme.
+> Public names may still change during the remaining naming review. Treat the
+> spellings here as the current recommended defaults until that review freezes
+> them.

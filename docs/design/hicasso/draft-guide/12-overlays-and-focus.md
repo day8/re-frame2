@@ -1,17 +1,21 @@
 # Overlays and focus
 
-You need a filter menu anchored to its button, or a delete confirmation that
-blocks the page behind it. Hand-rolled portals, z-index ladders, document
-click listeners, and focus traps leak and break in predictable ways.
+A filter menu needs to stay anchored to its button. A confirmation dialog
+needs to block the page behind it and restore focus when it closes. Building
+that from portals, document listeners, z-index rules, and a custom focus trap
+creates several independent failure modes.
 
-`re-frame.hicasso.overlay` gives two primitives — [popover](glossary.md#overlay)
-and modal — that mount on the browser's native top layer (`popover` /
-`<dialog>`). The browser handles stacking, light-dismiss, and focus. Your app
-stores one open flag and handles one dismiss event.
+`re-frame.hicasso.overlay` provides two primitives:
 
-## An anchored popover
+- `overlay/popover` for anchored, light-dismissable UI
+- `overlay/modal` for blocking dialogs
 
-The open flag is ordinary app-db state
+Both use the browser's native top layer. Your application still owns the open
+flag and the dismiss event.
+
+## Anchored popovers
+
+Store the open flag in app-db
 ([Ephemeral state](11-ephemeral-state.md)):
 
 ```clojure
@@ -21,7 +25,8 @@ The open flag is ordinary app-db state
             [re-frame.hicasso.overlay :as overlay]))
 
 (rf/reg-sub :filter-menu/open?
-  (fn [db [_ id]] (get-in db [:ui :filter-menu/open id] false)))
+  (fn [db [_ id]]
+    (get-in db [:ui :filter-menu/open id] false)))
 
 (rf/reg-event :filter-menu/toggled
   (fn [{:keys [db]} [_ id]]
@@ -32,53 +37,58 @@ The open flag is ordinary app-db state
     {:db (assoc-in db [:ui :filter-menu/open id] false)}))
 
 (h/defview filter-menu [{:keys [id]}]
-  (let [open? (h/sub [:filter-menu/open? id])]
+  (let [open? (h/sub [:filter-menu/open? id])
+        trigger-id (str "filter-" id "-trigger")]
     [:div.filter
-     [:button {:id (str "filter-" id "-trigger")
+     [:button {:id trigger-id
                :aria-haspopup "menu"
                :aria-expanded open?
                :on-click [:filter-menu/toggled id]}
       "Filter"]
-     [overlay/popover {:open?      open?
-                       :on-dismiss [:filter-menu/dismissed id]
-                       :anchor     (str "filter-" id "-trigger")
-                       :placement  :bottom-start}
+
+     [overlay/popover
+      {:open?      open?
+       :on-dismiss [:filter-menu/dismissed id]
+       :anchor     trigger-id
+       :placement  :bottom-start}
       [:ul {:role "menu"}
-       [:li [:button {:role "menuitem"
-                      :on-click [:filter/applied id :unread]}
-             "Unread"]]
-       [:li [:button {:role "menuitem"
-                      :on-click [:filter/applied id :flagged]}
-             "Flagged"]]]]]))
+       [:li
+        [:button {:role "menuitem"
+                  :on-click [:filter/applied id :unread]}
+         "Unread"]]
+       [:li
+        [:button {:role "menuitem"
+                  :on-click [:filter/applied id :flagged]}
+         "Flagged"]]]]]))
 ```
 
-What those options do:
+The options have direct responsibilities:
 
-- **`:open?`** — while false, the popover renders nothing: no DOM node, no
-  listener, and the body's subscriptions do not run. When true, the panel
-  mounts on the top layer, above every stacking context. Ancestor
-  `overflow: hidden` and `transform` do not clip it. There is no
-  [portal](glossary.md#portal) and no z-index.
-- **`:on-dismiss`** — outside click and Esc are the popover's native
-  light-dismiss. The browser closes the panel and the module dispatches your
-  event. Your handler must write the flag false. If the handler leaves the
-  flag true, the panel stays open — app-db is the owner.
-- **`:anchor`** — DOM id of the trigger, unique per instance. The module
-  places the panel before first paint. `:placement` uses compass words such
-  as `:bottom-start`, `:bottom-end`, `:top-start`, and `:right`. Where the
-  browser supports CSS anchor positioning, tracking is CSS; otherwise the
-  module re-places on open and resize.
-- **The body stays in the tree.** It renders under the same frame as its
-  anchor, so subscriptions resolve as they do in-flow.
+- **`:open?`** controls whether the panel exists. While false, there is no DOM
+  node, listener, or body subscription.
+- **`:on-dismiss`** is dispatched for native light-dismiss, including outside
+  click and Escape. The handler must write the open flag false. App-db remains
+  the source of truth.
+- **`:anchor`** is the unique DOM id of the trigger. The module positions the
+  panel before first paint.
+- **`:placement`** accepts positions such as `:bottom-start`, `:bottom-end`,
+  `:top-start`, and `:right`.
 
-## A modal
+The panel remains in the same React and re-frame2 tree as its trigger. It uses
+the same frame and subscriptions. The top layer changes paint order, so
+ancestor `overflow`, transforms, and stacking contexts do not clip it.
 
-A [modal](glossary.md#overlay) has the same shape with stronger focus behaviour.
-`overlay/modal` drives a native `<dialog>` through `showModal`:
+Where CSS anchor positioning is available, the browser tracks the anchor.
+Otherwise the module recalculates on open and resize.
+
+## Modals
+
+`overlay/modal` uses a native `<dialog>` and calls `showModal`:
 
 ```clojure
 (rf/reg-sub :invoice/confirm-delete?
-  (fn [db [_ id]] (get-in db [:ui :invoice/confirm-delete id] false)))
+  (fn [db [_ id]]
+    (get-in db [:ui :invoice/confirm-delete id] false)))
 
 (rf/reg-event :invoice/delete-cancelled
   (fn [{:keys [db]} [_ id]]
@@ -90,77 +100,88 @@ A [modal](glossary.md#overlay) has the same shape with stronger focus behaviour.
      :fx [[:dispatch [:invoice/delete id]]]}))
 
 (h/defview confirm-delete [{:keys [invoice-id]}]
-  [overlay/modal {:open?      (h/sub [:invoice/confirm-delete? invoice-id])
-                  :on-dismiss [:invoice/delete-cancelled invoice-id]
-                  :label      "Confirm deletion"}
+  [overlay/modal
+   {:open?      (h/sub [:invoice/confirm-delete? invoice-id])
+    :on-dismiss [:invoice/delete-cancelled invoice-id]
+    :label      "Confirm deletion"}
    [:h2 "Delete this invoice?"]
    [:p "This cannot be undone."]
    [:footer
-    [:button {:on-click [:invoice/delete-cancelled invoice-id]} "Keep it"]
-    [:button.danger {:auto-focus true
-                     :on-click [:invoice/delete-confirmed invoice-id]}
+    [:button {:on-click [:invoice/delete-cancelled invoice-id]}
+     "Keep it"]
+    [:button.danger
+     {:auto-focus true
+      :on-click [:invoice/delete-confirmed invoice-id]}
      "Delete"]]])
 ```
 
-- The background is inert: focus cannot Tab out, clicks do not land, and
-  assistive technology skips it. The browser owns the trap.
-- Esc dispatches `:on-dismiss`. Backdrop click does too only when you pass
-  `:light-dismiss? true`. The default is off so a destructive confirmation
-  does not close on a stray click.
-- **`:label`** is the dialog's accessible name.
-- Style the backdrop with `::backdrop` in CSS
-  ([Theming](13-theming-and-i18n.md)).
+A modal gives you the platform's modal behaviour:
 
-## Focus
+- the page behind it is inert;
+- focus cannot Tab outside it;
+- Escape dispatches `:on-dismiss`;
+- backdrop click dispatches `:on-dismiss` only with
+  `:light-dismiss? true`;
+- `:label` supplies the accessible name.
 
-Focus is browser state. Do not mirror "what has focus" into app-db
-([Ephemeral state](11-ephemeral-state.md)). Express intent once per open:
+Light-dismiss defaults to false for modals so a destructive confirmation does
+not close on a stray backdrop click. Style the native backdrop with
+`::backdrop` CSS ([Theming and internationalisation](13-theming-and-i18n.md)).
 
-- **Mount focus.** Put `:auto-focus true` on the element that should receive
-  focus when the overlay opens — the Delete button above, or a search field
-  in a command palette. The attribute fires when the overlay opens, not again
-  on re-render, and it is inert markup on the server. A modal with no
-  `:auto-focus` focuses the dialog itself. A popover leaves focus on the
-  trigger (menus and comboboxes usually operate with
-  `:aria-activedescendant`, not focus moves).
-- **Restore on close.** Both primitives return focus to the element that had
-  it at open — on dismiss, Esc, and programmatic close. You write nothing for
-  restore.
+## Focus behaviour
 
-## Nesting
+Focus belongs to the browser. Do not mirror the currently focused element in
+app-db.
 
-A popover can sit inside a modal, and a submenu inside a menu. The native top
-layer is a stack, so nesting is last-in-first-out. Esc closes only the
-innermost open overlay. An outside click on an inner popover light-dismisses
-that popover and leaves the modal under it alone.
+**Initial focus.** Put `:auto-focus true` on the control that should receive
+focus when the overlay opens. The attribute is applied once per open, not on
+every re-render. It is inert in server-rendered markup. A modal without an
+autofocus target focuses the dialog itself. A popover normally leaves focus on
+its trigger; menus and comboboxes can use `:aria-activedescendant` instead of
+moving DOM focus.
 
-Use one address and one `:on-dismiss` per overlay. If two overlays share one
-dismiss event, you rebuild the problem the stack solves.
+**Focus restoration.** When an overlay closes through Escape, light-dismiss,
+or an app-db change, focus returns to the element that had focus when it
+opened. You do not need a separate restore handler.
 
-## Cost while closed
+## Nested overlays
 
-A closed overlay costs nothing:
+The native top layer is ordered last-in, first-out. A popover can open inside a
+modal, and a submenu can open from another menu.
 
-- no DOM node (client or server output)
-- no listener (light-dismiss exists only while open)
-- no subscriptions (the body is not mounted)
-- clean teardown: unmount of a view whose overlay is open closes it, restores
-  focus, and leaves no residue
+- Escape closes only the innermost open overlay.
+- Light-dismiss of an inner popover leaves the modal underneath it open.
+- Each overlay should have its own app-db address and `:on-dismiss` event.
 
-A table of five hundred rows, each with a closed row-menu, is as heavy as the
-same table without menus. You pay only for the open one.
+Sharing one flag or one dismiss event across layers throws away the stack
+semantics the platform already provides.
 
-## Compose a dropdown from the popover
+## Closed overlays have no runtime body
 
-Dropdowns, comboboxes, and toggletips are not separate primitives. Each is a
-popover plus your own events and subs. Single-select with keyboard support:
+When an overlay is closed, it has:
+
+- no DOM node;
+- no light-dismiss listener;
+- no subscriptions from its body;
+- no server output.
+
+Unmounting a view while its overlay is open closes the layer, restores focus
+when possible, and cleans up its listeners. Five hundred closed row menus do
+not create five hundred active overlay bodies.
+
+## Build a dropdown from a popover
+
+A single-select dropdown is a popover plus application events and state. It
+does not require another overlay primitive.
 
 ```clojure
 (rf/reg-sub :combo/open?
-  (fn [db [_ id]] (get-in db [:ui :combo id :open?] false)))
+  (fn [db [_ id]]
+    (get-in db [:ui :combo id :open?] false)))
 
 (rf/reg-sub :combo/active
-  (fn [db [_ id]] (get-in db [:ui :combo id :active])))
+  (fn [db [_ id]]
+    (get-in db [:ui :combo id :active])))
 
 (rf/reg-event :combo/toggled
   (fn [{:keys [db]} [_ id]]
@@ -174,7 +195,10 @@ popover plus your own events and subs. Single-select with keyboard support:
   (fn [{:keys [db]} [_ id step values]]
     (let [at   (get-in db [:ui :combo id :active])
           i    (get (zipmap values (range)) at -1)
-          next (nth values (-> (+ i step) (max 0) (min (dec (count values)))))]
+          next (nth values
+                    (-> (+ i step)
+                        (max 0)
+                        (min (dec (count values)))))]
       {:db (-> db
                (assoc-in [:ui :combo id :open?] true)
                (assoc-in [:ui :combo id :active] next))})))
@@ -183,129 +207,143 @@ popover plus your own events and subs. Single-select with keyboard support:
   (fn [{:keys [db]} [_ id on-commit]]
     (let [{:keys [open? active]} (get-in db [:ui :combo id])]
       (cond-> {:db (assoc-in db [:ui :combo id :open?] false)}
-        (and open? active) (assoc :fx [[:dispatch (conj on-commit active)]])))))
+        (and open? active)
+        (assoc :fx [[:dispatch (conj on-commit active)]])))))
 
 (rf/reg-event :combo/selected
   (fn [{:keys [db]} [_ id on-commit value]]
     {:db (assoc-in db [:ui :combo id :open?] false)
      :fx [[:dispatch (conj on-commit value)]]}))
 
-(h/defview select-dropdown [{:keys [id items value on-commit placeholder]}]
-  (let [open?  (h/sub [:combo/open? id])
-        active (h/sub [:combo/active id])
-        values (mapv :value items)
-        label  (or (some #(when (= value (:value %)) (:label %)) items)
-                   placeholder)]
+(h/defview select-dropdown
+  [{:keys [id items value on-commit placeholder]}]
+  (let [open?      (h/sub [:combo/open? id])
+        active     (h/sub [:combo/active id])
+        values     (mapv :value items)
+        trigger-id (str "combo-" id "-trigger")
+        option-id  (fn [v] (str "combo-" id "-opt-" v))
+        label      (or (some #(when (= value (:value %))
+                               (:label %))
+                             items)
+                       placeholder)]
     [:div.combo
-     [:button {:id (str "combo-" id "-trigger")
-               :aria-haspopup "listbox"
-               :aria-expanded open?
-               :aria-activedescendant (when (and open? active)
-                                        (str "combo-" id "-opt-" active))
-               :on-click    [:combo/toggled id]
-               :on-key-down {"ArrowDown" [::h/prevent [:combo/moved id 1 values]]
-                             "ArrowUp"   [::h/prevent [:combo/moved id -1 values]]
-                             "Enter"     [:combo/committed id on-commit]}}
+     [:button
+      {:id trigger-id
+       :aria-haspopup "listbox"
+       :aria-expanded open?
+       :aria-activedescendant
+       (when (and open? active)
+         (option-id active))
+       :on-click [:combo/toggled id]
+       :on-key-down
+       {"ArrowDown" [::h/prevent [:combo/moved id 1 values]]
+        "ArrowUp"   [::h/prevent [:combo/moved id -1 values]]
+        "Enter"     [:combo/committed id on-commit]}}
       label]
-     [overlay/popover {:open?      open?
-                       :on-dismiss [:combo/dismissed id]
-                       :anchor     (str "combo-" id "-trigger")
-                       :placement  :bottom-start}
+
+     [overlay/popover
+      {:open?      open?
+       :on-dismiss [:combo/dismissed id]
+       :anchor     trigger-id
+       :placement  :bottom-start}
       [:ul {:role "listbox"}
        (for [{:keys [value label]} items]
-         [:li {:key value
-               :id (str "combo-" id "-opt-" value)
-               :role "option"
-               :aria-selected (= value active)
-               :on-click [:combo/selected id on-commit value]}
+         [:li
+          {:key value
+           :id (option-id value)
+           :role "option"
+           :aria-selected (= value active)
+           :on-click [:combo/selected id on-commit value]}
           label])]]]))
 ```
 
-What is not here:
+Escape is not listed in the key map because the native popover owns Escape and
+dispatches `:on-dismiss`. Focus stays on the trigger. There is no document
+listener or portal.
 
-- no Escape row — Esc is light-dismiss; the platform closes and `:on-dismiss`
-  fires
-- no focus moves — focus stays on the trigger
-- no document listener
-- no portal
-
-Open / move / commit / dismiss is events over an address. A test can drive
-the policy headlessly; Xray shows it. A toggletip is the same popover with a
-single dismiss event and no listbox.
+The same event-and-address model works for a toggletip, command menu, or other
+popover-shaped control.
 
 ## When not to use the module
 
-Prefer the platform first. Use the module when open state must be application
-data, or when you need anchored placement and focus behaviour.
+Use the browser directly when application state does not need to observe the
+open flag.
 
-- **Hover tooltip** — CSS `:hover` / `:focus-visible` plus a positioned
-  pseudo-element or sibling. No app-db state; routing hover through any state
-  system re-renders on pointer move.
-- **Disclosure** — `<details>`. The browser tracks open.
-- **Presentational hint** — bare popover markup:
-  `[:button {:popovertarget "help-tip"} "?"]` with
-  `[:div {:id "help-tip" :popover "auto"} …]`. The browser does everything.
-  When a test or another view needs the flag, move up to `overlay/popover`.
+- **Hover tooltip:** CSS `:hover` and `:focus-visible`.
+- **Disclosure:** `<details>`.
+- **Presentational hint:** native popover attributes:
 
-## Don't build the old way
+  ```clojure
+  [:button {:popovertarget "help-tip"} "?"]
+  [:div {:id "help-tip" :popover "auto"} "Helpful text"]
+  ```
+
+Move to `overlay/popover` when another view, a test, routing, or application
+logic needs to read or control the open state.
+
+## Avoid the old overlay stack
 
 ```clojure
-;; Don't — pre-top-layer overlay: every classic defect in ten lines
+;; Don't: an in-flow panel plus a document listener.
 (h/defview old-menu [{:keys [id]}]
   (let [open? (h/sub [:menu/open? id])]
     [:div {:style {:position "relative"}}
      [:button {:on-click [:menu/toggled id]} "Menu"]
      (when open?
-       [:div.menu {:style {:position "fixed" :z-index 1020
-                           :top "48px" :left "12px"}}
+       [:div.menu
+        {:style {:position "fixed"
+                 :z-index 1020
+                 :top "48px"
+                 :left "12px"}}
         …])]))
-;; …plus a js/document click listener added on open, removed on close.
 ```
 
-Failures that follow:
-
-- Unmount while open leaks the document listener.
-- One ancestor `transform` turns `position: fixed` into the wrong position.
-- Z-index values hold only until the next library brings a larger one.
-
-The module removes the class: no listener to leak, no stacking context to lose
-to, no z-index contest.
+This design can leak its document listener on unmount, position against the
+wrong containing block after an ancestor transform, and lose a z-index contest
+to the next library. The top-layer primitives remove those failure classes.
 
 ## Troubleshooting
 
 | Symptom | Cause | Fix |
 | --- | --- | --- |
-| Panel clipped by `overflow: hidden` or stuck under a sticky header | Panel is an in-flow positioned div, not on the top layer | Render through `overlay/popover` |
-| Outside click closes the popover but it re-opens | Light-dismiss fired and `:on-dismiss` ran, but the handler never cleared the flag | Make the `:on-dismiss` handler set open to false |
-| Esc closes the whole stack at once | Layers share one dismiss event or one address | One address and one `:on-dismiss` per overlay |
-| Focus lands on `<body>` after close | Opener unmounted while the overlay was open — often unstable list keys remounting the trigger | Stable `:key` on the trigger's row |
-| `:rf.error/hicasso-overlay-anchor-missing` at open | `:anchor` names an id not in the document, or two instances share one id | Per-instance ids: `(str "combo-" id "-trigger")` |
-| Dialog shows but the page behind still scrolls and clicks | Hand-written `[:dialog {:open true}]` — the `open` attribute is the non-modal path | Use `overlay/modal`, which calls `showModal` |
-| Popover flashes at the wrong position for one frame | Something positions after mount | Pass `:anchor` / `:placement`; the module places before first paint |
-| Every row's menu opens at once | One shared address | Key the address per instance ([Ephemeral state](11-ephemeral-state.md#choosing-the-address)) |
+| Panel is clipped by `overflow: hidden` or appears under a sticky header | It is an ordinary positioned element, not a top-layer overlay | Render it through `overlay/popover` |
+| Outside click closes the platform popover, then it opens again | `:on-dismiss` ran but the handler left the app-db flag true | Set the open flag false in the dismiss handler |
+| Escape closes several layers at once | Layers share one address or one dismiss event | Give each overlay its own address and `:on-dismiss` |
+| Focus returns to `<body>` | The opener unmounted while the overlay was open, often because of an unstable list key | Use a stable `:key` for the trigger's row |
+| Opening raises `:rf.error/hicasso-overlay-anchor-missing` | `:anchor` names no element, or multiple instances reuse one id | Generate a unique, stable trigger id from the instance id |
+| Dialog is visible but the background still scrolls and receives clicks | A hand-written `<dialog open>` uses the non-modal path | Use `overlay/modal`, which calls `showModal` |
+| Popover flashes in the wrong place for one frame | Positioning happens after mount | Supply `:anchor` and `:placement`; the module positions before paint |
+| Every row menu opens together | All rows share one app-db address | Include the row id in the address ([Ephemeral state](11-ephemeral-state.md#choose-a-stable-instance-address)) |
 
-??? info "If you're coming from Reagent or UIx"
-    The usual stack is a portal + z-index + floating-ui + a document listener.
-    Here the panel never leaves its place in the tree — the top layer changes
-    paint order, not tree order. Frame context, subscriptions, SSR, and
-    hydration need no special path, and light-dismiss arrives without a
-    listener to leak. You still own the open flag and the meaning of a
-    selection.
+??? info "Coming from Reagent or UIx"
+    A portal, floating-positioning library, z-index policy, and document
+    listener are not required here. The top layer changes paint order without
+    removing the panel from its React or frame context. You still own the open
+    flag and the meaning of a selection.
 
 ## Advanced
 
-**Entry animation is pure CSS.** The panel mounts on open, so
-`@starting-style` (or a keyframe on the class) animates entry with no state
-and no timers:
+### Entry animation
+
+Entry animation can be pure CSS because the panel mounts when it opens:
 
 ```css
-.menu[popover]:popover-open { opacity: 1; transition: opacity 150ms; }
-@starting-style { .menu[popover]:popover-open { opacity: 0; } }
+.menu[popover]:popover-open {
+  opacity: 1;
+  transition: opacity 150ms;
+}
+
+@starting-style {
+  .menu[popover]:popover-open {
+    opacity: 0;
+  }
+}
 ```
 
-**Exit animation needs a clock.** On dismiss the panel normally leaves with
-the flag. To let a fade finish, pass `:exit-ms`. The module keeps the node on
-the top layer for that time (inert, `aria-hidden`) and removes it when the
-clock ends even if the CSS did not run. A re-open before the deadline cancels
-the exit; an unmount cancels the timer. State is closed the whole time; only
-the paint remains.
+### Exit animation
+
+Exit needs a clock because app-db is already closed while the old pixels are
+still fading. Pass `:exit-ms` to retain the layer for that duration. During the
+exit the module makes it inert and `aria-hidden`. The node leaves when the
+clock ends even if CSS did not run. Reopening cancels the exit; unmounting
+cancels the timer.

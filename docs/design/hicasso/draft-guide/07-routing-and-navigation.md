@@ -1,17 +1,12 @@
 # Routing and navigation
 
-Views are Hiccup and events are vectors. Navigation should stay the same
-kind of data: the link you render, warm-up before a click, scroll and focus
-after a route change, and an unsaved-changes guard.
+The core routing artefact defines route registration, navigation events, and
+route subscriptions. This page covers the Hicasso view side: route links,
+prefetch, scroll and focus policy, and unsaved-change guards.
 
-The router itself is the core routing artefact (`re-frame.routing`), taught
-under `docs/routing/`. There a route is a registry entry, navigation is an
-event, and the active route is a subscription. This page assumes those three
-moves and covers the Hicasso view side.
+## Register routes and require the view integration
 
-## Setup
-
-Register routes once at boot:
+Register routes once during boot:
 
 ```clojure
 (ns app.routes
@@ -20,12 +15,16 @@ Register routes once at boot:
 
 (rf/reg-route :app/home     {} "/")
 (rf/reg-route :app/articles {} "/articles")
-(rf/reg-route :app/article  {:params [:map [:id :string]]}       "/articles/:id")
-(rf/reg-route :app/profile  {:params [:map [:username :string]]} "/profile/:username")
+(rf/reg-route :app/article
+  {:params [:map [:id :string]]}
+  "/articles/:id")
+(rf/reg-route :app/profile
+  {:params [:map [:username :string]]}
+  "/profile/:username")
 (rf/reg-route :app/inbox    {} "/inbox")
 ```
 
-Views require the integration module:
+Require the Hicasso routing module where links are rendered:
 
 ```clojure
 (ns app.views.articles
@@ -33,200 +32,202 @@ Views require the integration module:
             [re-frame.hicasso.routing :refer [route-link]]))
 ```
 
-## Route links
+## Render an application route link
 
-Spell an in-app link as `route-link`: name the route and its params, not a
-URL. It is a plain function — use it inline in the view that owns the region:
+Call `route-link` as a plain helper. Name a registered route and its params
+rather than constructing a URL:
 
 ```clojure
 (h/defview article-card [{:keys [id]}]
-  (let [{:keys [title author]} (h/sub [:article/summary id])]
+  (let [{:keys [title author]}
+        (h/sub [:article/summary id])]
     [:article.card
-     [:h2 (route-link {:to :app/article :params {:id id}} title)]
-     [:span.byline "by "
+     [:h2
+      (route-link {:to :app/article
+                   :params {:id id}}
+        title)]
+     [:span.byline
+      "by "
       (route-link {:to     :app/profile
                    :params {:username author}
                    :class  "author"}
         author)]]))
 ```
 
-The call returns a real `<a>`, so hover preview, copy-link, and middle-click
-work. The router builds the `:href`. The `:on-click` carries the click
-decision as data under a reserved head (alongside `::h/prevent` from
-[Events as data](03-events-as-data.md)):
+The result is a real anchor. The router builds `:href`, so hover preview,
+copy-link, middle-click, and browser link menus continue to work. The helper
+inlines into its caller; it does not create another Hicasso view or
+subscription.
+
+The generated Hiccup contains a reserved navigation head:
 
 ```clojure
 [:a {:href     "/profile/jane"
      :class    "author"
-     :on-click [::h/navigate {:frame   :rf/default
-                              :payload [:rf.route/url-requested
-                                        {:url    "/profile/jane"
-                                         :to     :app/profile
-                                         :params {:username "jane"}}]
-                              :native? false
-                              :veto    nil}]}
+     :on-click [::h/navigate
+                {:frame   :rf/default
+                 :payload [:rf.route/url-requested
+                           {:url    "/profile/jane"
+                            :to     :app/profile
+                            :params {:username "jane"}}]
+                 :native? false
+                 :veto    nil}]}
  "jane"]
 ```
 
-Two renders of one link are equal under `=`, so a structural test can read
-the click decision off the tree ([Testing](14-testing.md)). Because
-`route-link` is a plain function, not a separate re-rendering view, it
-inlines: no subscription, no extra view cost. A nav bar of thirty links
-costs what thirty anchors cost.
+This form remains comparable with `=` and visible to structural tests. Do not
+write `::h/navigate` yourself; `route-link` owns its shape.
 
-Click behaviour is the router's:
+Click conduct is browser-compatible:
 
-- A plain left-click: `preventDefault`, then the routing event dispatches to
-  the frame captured at render.
-- A modifier or auxiliary click belongs to the browser — new tab, no
-  dispatch.
-- A `:target` or `:download` anchor navigates natively.
+- a plain left-click prevents the browser default and dispatches the routing
+  event to the frame captured during rendering
+- modifier and auxiliary clicks remain browser operations, such as opening a
+  new tab
+- anchors with `:target` or `:download` navigate natively
 
-Do not write `[::h/navigate …]` by hand. `route-link` creates it. The map
-allows only `:frame`, `:payload`, `:native?`, and `:veto`. Any other key
-raises `:rf.error/hicasso-malformed-navigate` at render and names the
-position. A link rendered while the routing artefact is missing raises
-`:rf.error/routing-artefact-missing` naming the `:to` — never a dead anchor.
-Other props pass through to the `<a>`: classes, `:data-*`, ARIA.
+The generated map accepts only `:frame`, `:payload`, `:native?`, and `:veto`.
+Unexpected keys raise `:rf.error/hicasso-malformed-navigate` during rendering.
+If the core routing artefact was not loaded, rendering raises
+`:rf.error/routing-artefact-missing` and names the requested route instead of
+producing a dead anchor. Ordinary classes, data attributes, and ARIA props pass
+through.
 
-### The active link
+## Mark the active link
 
-`route-link` does not compute active state. Compare against a route
-subscription where the nav renders:
+`route-link` does not decide which link is active. Read the current route once
+where the navigation renders and pass the result into an inline helper:
 
 ```clojure
 (h/defview site-nav []
   (let [current (h/sub [:rf.route/id])
         nav     (fn [to label]
-                  (route-link {:to           to
-                               :class        (when (= to current) "is-active")
-                               :aria-current (when (= to current) "page")}
-                    label))]
+                  (route-link
+                   {:to           to
+                    :class        (when (= to current) "is-active")
+                    :aria-current (when (= to current) "page")}
+                   label))]
     [:nav
-     (nav :app/home     "Home")
+     (nav :app/home "Home")
      (nav :app/articles "Articles")]))
 ```
 
-One view, one read, and a local helper — links stay inline. Use
-`:aria-current "page"` for screen readers; style with the class.
+Use `:aria-current "page"` as the semantic state and a class for styling.
 
-### Cancel this link's navigation
+## Veto one link
 
-A link may need to cancel its own navigation — for example, confirm before
-discarding a scratch pane. Pass that as `:on-click` on `route-link`. Allowed
-values: `nil`, `[::h/prevent [:app/event]]`, an `h/event` form, or a plain
+A specific link may replace its navigation with another action, such as asking
+whether to discard a local scratch pane. Pass one of the supported veto forms
+as `:on-click`: `nil`, `[::h/prevent INTENT]`, an `h/event`, or a plain
 function.
 
 ```clojure
-(route-link {:to       :app/inbox
-             :on-click (when draft-open?
-                         [::h/prevent [:composer/confirm-discard]])}
-  "Inbox")
+(route-link
+ {:to       :app/inbox
+  :on-click (when draft-open?
+              [::h/prevent [:composer/confirm-discard]])}
+ "Inbox")
 ```
 
-`[::h/prevent …]` cancels the navigation and dispatches your event instead.
-A bare event vector is refused: the click already produces one routing
-event, and one user action must not yield two. Do not use this veto to guard
-unsaved work across a whole page — that is the dirty-leave guard below,
-which covers every exit, not only decorated links.
+The prevent wrapper cancels navigation and dispatches the inner event. A bare
+event vector is rejected because one click must not produce both an unrelated
+application event and the routing event.
 
-## Warm a destination on intent
+Use the route-level dirty-leave guard for unsaved work that must protect every
+exit. A link veto covers only that link.
 
-A link can start loading its destination data on hover, focus, and touch so
-the click lands on work already in flight:
+## Prefetch on user intent
+
+A route link can warm destination data on hover, focus, or touch:
 
 ```clojure
-(route-link {:to :app/article :params {:id "intro"} :prefetch :intent}
+(route-link {:to       :app/article
+             :params   {:id "intro"}
+             :prefetch :intent}
   "Read more")
 ```
 
-The only accepted value is `:intent`. Omit the key for a passive link. Any
-other value fails at render — a silent wrong mode would look like "warm on
-hover" and be hard to trust. Internally the handlers dispatch
-`[:rf.route/prefetch {:to … :params …}]`, which you can also dispatch from
-any event handler.
+`:intent` is the only accepted value. Omit `:prefetch` for a passive link. Any
+other value fails at render rather than silently choosing a different mode.
+The link dispatches `[:rf.route/prefetch {:to … :params …}]`; application code
+may also dispatch that event directly.
 
-Prefetch is not navigation. Data may start loading, but nothing blocks a
-transition, the URL does not change, and guards, scroll, and `:on-match` do
-not run. Details of resource ownership live in
-[Async resources](08-async-resources.md). Prefetch is a performance hint,
-not authorization. Click through and ordinary resource dedupe reuses the
-warmed work. Never click, and that work stays garbage-collectable. Warming a
-destination whose `:can-enter` would refuse is allowed and means nothing:
-activation still evaluates the guard on a real navigation.
+Prefetch does not navigate. It does not change the URL, run guards, apply
+scroll/focus policy, or block activation. A later click uses ordinary resource
+deduplication to reuse work already in flight. An unused prefetch remains
+eligible for resource garbage collection.
 
-## Scroll
+Prefetch is not authorization. It may warm a destination that `:can-enter`
+later refuses; the real navigation still evaluates its guards.
 
-Scroll policy is route data, not view code. Declare it per route (`:scroll`
-metadata) or per navigation (`:scroll` on the navigate request):
+## Scroll policy
 
-| Policy | Behaviour | Default for |
-|---|---|---|
-| `:top` | Scroll to the top on entry | Forward navigations |
-| `:restore` | Return to where the page was left | Back/Forward |
-| `:preserve` | Leave the viewport alone | Opt-in |
+Scroll behaviour belongs to route or navigation data:
 
-Defaults are right for most pages. Set two cases by hand:
+| Policy | Behaviour | Normal use |
+| --- | --- | --- |
+| `:top` | scroll to the top on entry | forward navigation |
+| `:restore` | restore the saved position | Back/Forward |
+| `:preserve` | leave the viewport unchanged | in-place query or filter changes |
 
-- An in-place query navigation on a list — pagination, a filter chip —
-  usually should hold the viewport:
-  `(rf/dispatch [:rf.route/navigate {:query-merge {:page 2} :scroll :preserve}])`.
-- Restoration needs full page height. Back/Forward onto a page whose list is
-  still loading restores against a short page and lands at the top. Declare
-  the page's data as blocking route `:resources`, or keep previous data on
-  screen, so content is present when restore runs.
+For example, pagination that should keep the current viewport can dispatch:
 
-## Focus after a route change
+```clojure
+(rf/dispatch
+ [:rf.route/navigate
+  {:query-merge {:page 2}
+   :scroll      :preserve}])
+```
 
-A route change repaints the page but moves focus nowhere. A screen-reader
-user who activated "Articles" is still on the link they clicked and hears no
-announcement. The recipe:
+Restoration requires the destination page to have its real height. If
+Back/Forward activates a long page while its list is still absent, restore may
+run against a short document and land at the top. Declare blocking route
+resources or retain previous data until the new page is ready.
 
-1. Key the main region by page identity.
-2. Make the region programmatically focusable.
-3. Focus the region on attach.
+## Move focus after a page change
+
+Changing the route does not automatically move keyboard or screen-reader
+focus. Key the main region by page identity, make it programmatically
+focusable, and focus it after commit:
 
 ```clojure
 (defn- focus-page [node]
-  (when node (.focus node #js {:preventScroll true})))
+  (when node
+    (.focus node #js {:preventScroll true})))
 
 (h/defview app-root []
   (let [route (h/sub [:rf.route/id])]
     [:div.app
      [site-nav]
-     [:main {:key       route        ;; remount when the page changes
-             :tab-index -1           ;; focusable, not in the tab order
-             :ref       focus-page}  ;; refs run after commit
+     [:main {:key       route
+             :tab-index -1
+             :ref       focus-page}
       (case route
         :app/home    [home-page]
         :app/article [article-page]
         [not-found-page])]]))
 ```
 
-`:key route` remounts `<main>` when the page identity changes, so the ref
-runs again and focus lands on the new page. Query-only and fragment-only
-changes keep the same route id — the region does not remount, and a filter
-click does not move focus. `preventScroll` stops the focus call from
-fighting scroll policy: routing owns scroll; this recipe owns focus. If "a
-new page" means more than the route id (article 7 → article 9), widen the
-key: `{:key (str route "|" article-id)}`.
+The key remounts `<main>` when page identity changes, causing the ref to run.
+`:tab-index -1` allows programmatic focus without adding the region to normal
+tab order. `preventScroll` lets the router's scroll policy remain authoritative.
 
-Focus for modals and popovers is a different job —
-[Overlays and focus](12-overlays-and-focus.md).
+Query-only or fragment-only changes keep the same route id and therefore do
+not move focus. If article 7 and article 9 count as separate pages, include the
+route params in the key.
 
-## Unsaved changes (dirty-leave guard)
+Modal and popover focus is owned by the overlays module, not this recipe.
 
-"You have unsaved changes" is ordinary state end to end. The guard is a
-subscription, the blocked attempt is a value, the dialog is a view, and the
-user's choice is an event. There is no blocker hook and no `window.confirm`.
+## Guard unsaved changes
 
-Declare when leaving is safe, and put the guard on the route:
+A dirty-leave guard is ordinary state. Register a subscription that returns a
+strict boolean and attach it to the route:
 
 ```clojure
 (rf/reg-sub :editor/can-leave?
   (fn [db _]
     (= (get-in db [:editor :draft])
-       (get-in db [:editor :saved]))))          ;; true = safe to leave
+       (get-in db [:editor :saved]))))
 
 (rf/reg-route :app/article-editor
   {:params    [:map [:id :string]]
@@ -234,98 +235,97 @@ Declare when leaving is safe, and put the guard on the route:
   "/articles/:id/edit")
 ```
 
-When the guard returns `false`, nothing commits: the URL and state do not
-change, and the attempt parks in `[:rf/pending-navigation]`. Render the
-prompt from that value:
+When the guard returns `false`, the route and URL remain unchanged. The
+attempt is stored in `[:rf/pending-navigation]`, which a view can render:
 
 ```clojure
 (h/defview leave-guard-dialog []
   (when-let [pending (h/sub [:rf/pending-navigation])]
-    [:div.modal {:role "alertdialog" :aria-modal true}
+    [:div.modal {:role "alertdialog"
+                 :aria-modal true}
      [:p "You have unsaved changes. Leave anyway?"]
-     [:button {:on-click [:rf.route/cancel   (:id pending)]} "Stay"]
-     [:button {:on-click [:rf.route/continue (:id pending)]} "Discard and leave"]]))
+     [:button
+      {:on-click [:rf.route/cancel (:id pending)]}
+      "Stay"]
+     [:button
+      {:on-click [:rf.route/continue (:id pending)]}
+      "Discard and leave"]]))
 ```
 
-Mount it once near the root; it renders nothing until an attempt parks.
-`:rf.route/continue` replays the navigation the user asked for —
-destination, `:replace?`, scroll policy. `:rf.route/cancel` drops it. Both
-take the pending id, so a stale click on an already-resolved dialog is a
-safe no-op. In a real app, render the box through the overlay module's modal
-so focus is trapped and restored ([Overlays and focus](12-overlays-and-focus.md)).
-The state shape here does not change.
+Mount the view once near the root. `:rf.route/continue` replays the original
+destination, replace flag, and scroll policy. `:rf.route/cancel` drops the
+attempt. Both include the pending id, so a stale click after resolution is a
+no-op.
 
-"Save and close" must leave without the prompt. Save, then navigate with the
-one-shot bypass:
+A real application should render this state through the modal overlay so focus
+is trapped and restored.
+
+After a successful save, navigate with a one-shot leave bypass:
 
 ```clojure
 (rf/reg-event :editor/save-and-close
   (fn [{:keys [db]} _]
-    {:db (assoc-in db [:editor :saved] (get-in db [:editor :draft]))
-     :fx [[:dispatch [:rf.route/navigate {:to            :app/article
-                                          :params        {:id (get-in db [:editor :id])}
-                                          :bypass-leave? true}]]]}))
+    {:db (assoc-in db
+                   [:editor :saved]
+                   (get-in db [:editor :draft]))
+     :fx [[:dispatch
+           [:rf.route/navigate
+            {:to            :app/article
+             :params        {:id (get-in db [:editor :id])}
+             :bypass-leave? true}]]]}))
 ```
 
-`:bypass-leave?` skips this route's `:can-leave` for this one navigation
-only. The destination's `:can-enter` still runs.
+`:bypass-leave?` skips this route's `:can-leave` once. The destination's
+`:can-enter` still runs.
 
-!!! warning "The browser's exits are not yours"
-    A pending value is a fact inside your app; it cannot stop a tab close, an
-    external link, or a reload. Pair the guard with a `beforeunload` listener
-    that reads the same `:editor/can-leave?` sub — one dirty flag, two exits.
-    The listener recipe is in the routing corpus. Routing does not wrap the
-    browser's own dialog.
+!!! warning "Application routing cannot block browser exits"
+    A route guard cannot stop closing the tab, reloading, or following an
+    external link. Install a `beforeunload` listener that reads the same
+    `:editor/can-leave?` fact. Keep one dirty calculation and expose it to the
+    two exit mechanisms; do not maintain separate flags.
 
-## Deep links, Back and Forward
+## Deep links, Back, and Forward
 
-There is no separate path for "arrived by URL" or "pressed Back". The URL is
-an input. A deep link is the first URL at boot; Back/Forward are history
-inputs. Both run the same match → validate → guard → activate pipeline as a
-link click.
+Initial URLs and browser history inputs use the same match, validation, guard,
+and activation pipeline as route links:
 
-- A deep link onto a route with `:query-defaults` arrives with defaults
-  filled. Views read `(h/sub [:rf.route/query])` and do not special-case
-  first load.
-- Guards run at every entry: navigate, link, address bar, Back/Forward,
-  initial load, SSR. The dirty-leave dialog parks a Back press the same way
-  it parks a link click.
-- Back/Forward restore scroll by default (`:restore`). The focus recipe
-  moves focus because the route id changed; `preventScroll` keeps the two
-  from fighting.
-- Navigation does not cancel in-flight async work. A save still pending when
-  the user leaves keeps an instance status readable from anywhere; cache
-  consequences land regardless of the current page
-  ([Async resources](08-async-resources.md)). The guard protects unsaved
-  local state; supersession protects the reply race.
-- On the server, the same pipeline runs for the request URL; the client
-  hydrates without re-running it ([SSR and hydration](17-ssr-and-hydration.md)).
+- Query defaults apply on a deep link before views read
+  `[:rf.route/query]`.
+- Entry and leave guards run for links, dispatched navigation, address-bar
+  input, Back/Forward, initial load, and SSR.
+- Back/Forward use `:restore` by default. The focus recipe may also run; its
+  `preventScroll` option prevents focus from overriding restoration.
+- Navigation does not automatically cancel unrelated async work. A pending
+  mutation remains readable and its cache effects may land after the user
+  leaves. Route guards protect local state; mutation supersession protects
+  reply races.
+- The server runs the same routing pipeline for the request URL. Hydration
+  adopts that result rather than navigating again.
 
-??? info "Coming from React Router?"
-    There is no `<Link>` component: `route-link` is a plain function that
-    returns an anchor with data on it. There is no `useBlocker` or
-    `usePrompt`: the blocked attempt is app state you render. There is no
-    `router.prefetch()` call: warming is an event. Everything you would
-    reach into router context for is a subscription.
+??? info "For readers coming from React Router"
+    `route-link` is a plain function returning an anchor, not a component with
+    private router context. A blocked transition is app state, not a blocker
+    hook. Prefetch is an event, and router facts are subscriptions.
 
 ## Troubleshooting
 
 | Symptom | Cause | Fix |
-|---|---|---|
-| Rendering a link throws `:rf.error/routing-artefact-missing` | Core routing artefact not loaded | `(:require [re-frame.routing])` at boot, before first render |
-| Link full-page reloads | Hand-written `[:a {:href …}]` bypasses interception | Use `route-link`, or the document-level click listener from the routing corpus |
-| `:rf.error/hicasso-malformed-navigate` at render | Hand-built or edited `::h/navigate` head | Do not write the head; `route-link` creates it |
-| `route-link` refuses your `:on-click` event vector | One click must not yield two semantic events | Wrap it: `[::h/prevent [:app/event]]` |
-| Link with `:prefetch` refuses at render | Only `:intent` is accepted | Remove the key, or spell `:prefetch :intent` |
-| Leaving always blocks; error names the guard | `:can-leave` sub returned a non-boolean | `:rf.error/can-leave-non-boolean`: return strict `true`/`false` |
-| Back lands at the top of a long page | Restore ran before the page had its height | Blocking route `:resources`, or keep previous data on screen |
-| Focus goes nowhere after navigating | Main region not keyed, or not focusable | `:key` by page identity, `:tab-index -1`, focus in the `:ref` |
+| --- | --- | --- |
+| Rendering a route link raises `:rf.error/routing-artefact-missing` | The core routing artefact was not required before rendering | Require `re-frame.routing` during boot |
+| An in-app link performs a full page load | A hand-written anchor bypassed route interception | Use `route-link` or the documented document-level routing listener |
+| Rendering raises `:rf.error/hicasso-malformed-navigate` | Application code created or altered the reserved navigation head | Do not author `::h/navigate`; let `route-link` create it |
+| `route-link` rejects a bare `:on-click` vector | The click would produce two semantic events | Use `[::h/prevent [:app/event]]`, `h/event`, or a plain function according to the intended veto |
+| `:prefetch` is rejected | The value is not `:intent` | Remove the key or use `:prefetch :intent` |
+| Every attempt to leave is rejected and the guard is named | `:rf.error/can-leave-non-boolean` | Return strict `true` or `false` from the guard subscription |
+| Back/Forward restores to the top | Scroll restoration ran before content restored page height | Block activation on required resources or keep previous content visible |
+| Focus stays on the old navigation link | Main region was not keyed/focusable or its ref did not run | Key by page identity, add `:tab-index -1`, and focus from the callback ref |
+| A tab close ignores the dirty guard | Browser exits are outside application routing | Add `beforeunload` using the same can-leave state |
 
-## When not to use this module
+## When not to use the routing integration
 
 | Situation | Prefer |
-|---|---|
-| Single-screen app, no shareable URLs | No routing artefact |
-| In-memory UI steps that should not touch the URL — wizard panes, non-linkable tabs | app-db state, or a machine |
-| External links | A plain `[:a {:href …}]` — `route-link` is for the route table |
-| Guarding one button, not a page's exits | The veto roster on that link, or ordinary app logic |
+| --- | --- |
+| A single-screen application with no shareable URL state | No routing artefact |
+| Wizard steps or temporary tabs that should not change the URL | app-db state or a state machine |
+| External destinations | A plain anchor |
+| Guarding one control rather than every page exit | A link veto or ordinary application event logic |

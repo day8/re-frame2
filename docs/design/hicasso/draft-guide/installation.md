@@ -1,30 +1,27 @@
 # Installation
 
-You have decided [Hicasso](glossary.md#hicasso) is the view adapter you want
-([Getting started](01-getting-started.md)). This page gets it on the classpath,
-into a browser build, and onto a DOM node. By the end you have a running
-counter and the three habits later pages assume: [`defview`](glossary.md#defview)
-as a Hiccup head, [`h/sub`](glossary.md#hsub) where you need a value, and
-handlers as data.
+This page adds Hicasso to a browser build and mounts a small counter. The
+example establishes the three forms used throughout the guide:
+[`h/defview`](glossary.md#defview) for a view, [`h/sub`](glossary.md#hsub) for a
+subscription read, and event vectors for ordinary handlers.
 
-## Install the artifact
+## Add the dependencies
 
-One Clojure dependency:
+Add the Hicasso artifact to `deps.edn`:
 
 ```clojure
 ;; deps.edn
 {:deps {io.github.day8/re-frame2-hicasso {:mvn/version "1.0.0"}}}
 ```
 
-This artifact brings `day8/re-frame2` with it — the core you already use.
-Install React from npm:
+The artifact brings `day8/re-frame2` with it. Install React from npm:
 
 ```bash
 npm install react react-dom
 ```
 
-Interpreted Hiccup needs no build configuration: no compiler hook, no macro
-allow-list, no build flag. Any ordinary shadow-cljs browser build works:
+Hicasso interprets Hiccup at runtime, so it needs no compiler hook, macro
+allow-list, or build flag. A normal shadow-cljs browser build is enough:
 
 ```clojure
 ;; shadow-cljs.edn
@@ -47,24 +44,22 @@ allow-list, no build flag. Any ordinary shadow-cljs browser build works:
 </html>
 ```
 
-You require one namespace: `[re-frame.hicasso :as h]`. The usual alias is `h`.
-Optional modules (forms, [overlays](glossary.md#overlay), motion, routing, the
-[native tier](glossary.md#native-tier), the [test kit](glossary.md#test-kit))
-are separate requires — a build that never requires them ships none of their
-code.
+The main namespace is `re-frame.hicasso`, conventionally required as `h`.
+Forms, overlays, motion, routing, the native tier, and the test kit use separate
+namespaces. A build that does not require an optional module does not include
+its code.
 
-## Your first screen
+## Mount a first screen
 
-A real app splits events, subscriptions, and views into their own namespaces.
-The boot namespace requires those namespaces for their registrations. One
-screen fits in one namespace:
+A production application normally separates registrations and views into
+several namespaces. This complete example keeps them together so the boot
+sequence is visible:
 
 ```clojure
 (ns counter.core
   (:require [re-frame.core :as rf]
             [re-frame.hicasso :as h]))
 
-;; Events write app-db.
 (rf/reg-event :counter/initialise
   (fn [_cofx _event]
     {:db {:count 0}}))
@@ -73,150 +68,140 @@ screen fits in one namespace:
   (fn [{:keys [db]} _event]
     {:db (update db :count inc)}))
 
-;; Subscriptions derive values.
 (rf/reg-sub :counter/count
-  (fn [db _query] (:count db)))
+  (fn [db _query]
+    (:count db)))
 
-;; The view: a props map in, Hiccup out.
 (h/defview counter [_]
   [:main
    [:h1 "Clicked " (h/sub [:counter/count]) " times"]
    [:button {:on-click [:counter/increment]} "Click me"]])
 
-;; The root.
 (defonce root
   (h/mount! (js/document.getElementById "app")
             {:frame          :rf/default
              :initial-events [[:counter/initialise]]}
             [counter]))
 
-;; Hot reload: re-render the redefined view into the surviving root.
 (defn ^:dev/after-load rerender! []
   (h/render! root [counter]))
 ```
 
+Start the build and open the page:
+
 ```bash
-npx shadow-cljs watch app    # then open http://localhost:8080
+npx shadow-cljs watch app
+# http://localhost:8080
 ```
 
-Click the button. The count changes. This screen shows three habits of a
-Hicasso view:
+The example uses three Hicasso rules:
 
-- `h/defview` creates a view used as a Hiccup head. You mount it as
-  `[counter]`, which is a vector. You never call it as a function. A direct
-  call throws and names the view (see
-  [Troubleshooting](#troubleshooting)). Markup that should inline into its
-  caller is a plain `defn` helper.
-- `h/sub` reads where you use the value. It is an ordinary call. It is legal
-  in a `let`, a `when`, a loop, a helper — anywhere in the view's synchronous
-  body.
-- The click handler is data — an [intent](glossary.md#intent): an event vector
-  in the attribute, not a closure. `{:on-click [:counter/increment]}` stays
-  assertable with `=`. The runtime creates the callback and dispatches that
-  vector to this root's frame.
+- `h/defview` creates a Hiccup head. Render it as `[counter]` or
+  `[counter {}]`; do not call it as `(counter {})`. Use a plain `defn` for
+  markup that should inline into its caller.
+- `h/sub` reads during the synchronous view body. It is legal inside a `let`,
+  conditional, loop, or ordinary helper called by that body.
+- `{:on-click [:counter/increment]}` is an
+  [intent](glossary.md#intent). The runtime creates the callback and dispatches
+  the event vector to this root's frame.
 
-[Views and reads](02-views-and-reads.md) and
-[Events as data](03-events-as-data.md) teach each habit in more depth.
+## What `h/mount!` creates
 
-## What `h/mount!` did
+[`h/mount!`](glossary.md#mount) receives a DOM node, a root configuration, and
+one view form. Its `:frame` identifies the re-frame2 frame used by that root.
+A frame has its own app-db, event queue, and subscription cache.
 
-[`h/mount!`](glossary.md#mount) takes the DOM node, a config map, and one view.
-`:frame` names the re-frame2 *frame* — an isolated world with its own app-db,
-event queue, and subscription cache. The root ensures that frame: creates it
-if missing, otherwise joins the one that already exists. Two roots with two
-frame ids are two isolated apps on one page. `:initial-events` runs ordinary
-events once, in order, and seeds app-db **before** the first paint. That is
-why the heading renders `0` and not an empty flash. Initial values arrive by
-event; that rule does not change because the view layer changed.
+Mounting **ensures** the named frame: it creates the frame if it does not exist,
+or joins the existing frame if another root already uses it.
+`:initial-events` run once, in order, when that mount creates the frame. They
+complete before the first paint, which prevents an empty initial render.
+Initial state still arrives through events; Hicasso does not add a separate
+`:db` seed option.
 
-`[counter]` and `[counter {}]` render the same output. The body receives an
-empty props map in both cases.
+`[counter]` and `[counter {}]` are equivalent. The body receives an empty props
+map in either case.
 
-The handle controls the rest of the root's life:
+Keep the returned handle for later renders and teardown:
 
 ```clojure
-(h/render! root [counter])   ;; render into the existing root
-(h/unmount! root)            ;; idempotent — a second call is a no-op
+(h/render! root [counter])
+(h/unmount! root)
 ```
 
-After [`h/unmount!`](glossary.md#mount), the root unmounts, subscriptions
-release when their ref-counts reach zero, and the DOM node is available again.
-Teardown paths run from `finally` blocks, fixtures, and reload hooks, and
-those paths do not coordinate. For that reason a second call is a no-op, not
-a crash.
+`h/unmount!` is idempotent. A second call is a no-op because teardown can be
+reached independently by fixtures, reload hooks, and `finally` blocks. The
+unmount releases the root's subscriptions as their reference counts reach
+zero and makes the DOM node available for another root.
 
 ## More than one root
 
-[`h/mount!`](glossary.md#mount) composes. A page can hold several roots, and
-`:frame` decides whether they are one app or two apps.
+A page can mount several Hicasso roots. The frame id determines whether those
+roots share an application.
 
-**Two roots, one frame — one app in two containers.** The root ensures its
-frame. The first mount creates the frame and runs `:initial-events`. A later
-mount that names the same frame joins the frame as it stands and replays
-nothing. Both roots read one app-db and dispatch into one queue. A widget
-mounted in the page's header therefore follows the same state as the main
-screen:
+### Two roots sharing one frame
+
+The first root creates and seeds the frame. A later root that names the same
+frame joins its current state and does not replay `:initial-events`:
 
 ```clojure
 (defonce app-root
   (h/mount! (js/document.getElementById "app")
             {:frame          :app/main
-             :initial-events [[:app/initialise]]}   ;; creates the frame — seeds
+             :initial-events [[:app/initialise]]}
             [main-screen]))
 
 (defonce status-root
   (h/mount! (js/document.getElementById "status")
-            {:frame :app/main}                      ;; joins — no re-seed
+            {:frame :app/main}
             [connection-badge]))
 ```
 
-Seed from the root that creates the frame. A joining root omits
-`:initial-events`.
+Both roots read the same app-db and dispatch into the same queue. Seed from the
+root that creates the frame; joining roots should omit `:initial-events`.
 
-**Two roots, two frames — two isolated apps.** Give each root its own
-`:frame` id, and each root has its own app-db, queue, and subscription cache.
-A view reads under the frame of the root that renders it. Subscriptions never
-cross frames: nothing mounted in `:app/main` can observe `:app/preview`. That
-isolation makes a live preview beside an editor — the same views, different
-state — an ordinary page. Use a second frame when two surfaces must not share
-state; share the frame when they must.
+Unmounting one root does not destroy state still used by another root. Teardown
+remains per root.
 
-Teardown stays per root in both cases. [`h/unmount!`](glossary.md#mount)
-releases that root's subscriptions and returns its DOM node. A frame that
-other roots still use keeps its state and continues to serve them.
+### Two roots using different frames
+
+Give each root a different frame id when they must be isolated. Each frame then
+has its own app-db, queue, and subscription cache. A view reads under the frame
+of the root that renders it, and subscriptions never cross frames.
+
+This is suitable for cases such as an editor and a live preview that use the
+same view code but must not share state.
 
 ## Hot reload
 
-Leave the watch running and edit the `:h1` text. On save, shadow-cljs reloads
-the namespace, and the `^:dev/after-load` hook calls
-[`h/render!`](glossary.md#mount) with the redefined view. The root, the frame,
-and app-db survive, so the count keeps its value. The changed body is the body
-that runs, and no subscriptions leak.
+The `^:dev/after-load` hook calls `h/render!` with the redefined view. The root,
+frame, app-db, and subscriptions survive, so changing the view does not reset
+the counter or leak registrations.
 
-One consequence: hot reload preserves state past your setup event. An edit to
-`:counter/initialise` does not re-seed a live app-db. Reload the page when you
-want the new seed.
+Hot reload also means a changed initialisation handler does not re-seed an
+already live frame. Reload the page, destroy the frame, or dispatch an explicit
+reset event when you need the new initial state.
 
-## Production
+## Production builds
+
+Build the release normally:
 
 ```bash
 npx shadow-cljs release app
 ```
 
-A release build runs advanced compilation, and the development surface erases
-with it. Dev-only warnings, their message strings, and every Xray
-instrumentation hook are absent from the bundle. Optional modules that you
-never required contribute zero code. Nothing else changes: interpreted Hiccup
-is the one semantics in development and in production, and no build flag
-alters what your views mean.
+Advanced compilation removes development-only warnings, warning strings, and
+Xray instrumentation hooks. Optional modules that were never required add no
+code. The Hiccup interpretation itself has the same meaning in development and
+production; there is no production-only view mode.
 
 ## Troubleshooting
 
 | Symptom | Cause | Fix |
-|---|---|---|
-| Calling a view throws — `(counter {})` | A `defview` is a Hiccup head; it is never invoked as a function | Write `[counter {}]`. Markup that should inline into its caller is a plain `defn` helper |
-| `h/sub` in a callback, timeout, or promise throws, naming the query | `:rf.error/hicasso-sub-outside-render` — the read ran outside the synchronous view body | Read during the body and close over the value; async work reads app-db through events and coeffects |
-| First paint is empty, then content flickers in | Seeding raced the first render | Seed through `:initial-events`, not a post-mount dispatch |
-| Second `h/mount!` on the same node | A live root already owns that DOM node | `defonce` the handle; `h/unmount!` it before mounting again |
-| A second root's `:initial-events` never ran | Its `:frame` already existed — ensure joins a live frame and replays nothing | Seed from the root that creates the frame; joining roots omit `:initial-events` |
-| View body runs twice on mount in development | React StrictMode double-invokes bodies | Expected — bodies are pure and re-runnable |
+| --- | --- | --- |
+| `(counter {})` throws and names the view | A `defview` is a Hiccup head, not a directly callable helper | Render `[counter {}]`. Use a plain `defn` for inline markup |
+| `h/sub` in a callback, timer, or promise throws | `:rf.error/hicasso-sub-outside-render`: the read happened outside a synchronous view body | Read during the body and close over the value. Async work should read state through events and coeffects |
+| The first paint is empty and then fills in | Initial state was dispatched after mounting | Put the seed events in `:initial-events` so they finish before the first paint |
+| A second `h/mount!` fails on the same DOM node | A live root already owns the node | Keep the handle with `defonce`; unmount that root before mounting another |
+| A joining root's `:initial-events` never run | The named frame already exists; joining does not replay setup | Seed only from the mount that creates the frame |
+| A changed initialisation handler has no effect after hot reload | The live frame kept its existing app-db | Reload, recreate the frame, or dispatch an explicit reset event |
+| A view body runs twice when first mounted in development | React StrictMode probes bodies twice | Expected. Keep view bodies pure and safe to re-run |

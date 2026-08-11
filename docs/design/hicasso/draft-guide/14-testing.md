@@ -1,39 +1,37 @@
 # Testing
 
-You have a feature to test. You need to decide which tests to write, and how
-much machinery each test needs.
+Choose the cheapest test that can prove the behaviour you care about.
 
-In a Hicasso app, most of the answer runs without a browser. Handlers and
-subscriptions are plain functions. Markup helpers return plain data. View
-bodies run under a [semantic harness](glossary.md#semantic-harness) with no
-DOM and no React. The browser is the top rung — keep it for facts only a
-browser knows.
+Most Hicasso application logic does not need a browser. Event handlers and
+subscriptions are plain functions. Markup helpers return data. A hook-free
+view body can run under an injected subscription resolver. Mount React only
+when the claim depends on React or the DOM, and use real browsers for facts
+that only a browser engine knows.
 
-Test at the lowest rung that can prove the claim, and know which equality that
-rung proves.
+The test kit is split across two namespaces:
 
-The [test kit](glossary.md#test-kit) is two namespaces. `re-frame.hicasso.test`
-(aliased `ht` below) holds every rung that runs without a browser.
-`re-frame.hicasso.test.mounted` (aliased `hm`) is the
-[mounted facade](glossary.md#mounted-facade).
+- `re-frame.hicasso.test`, usually aliased `ht`, for browser-free tests;
+- `re-frame.hicasso.test.mounted`, usually aliased `hm`, for real React and DOM
+  tests.
 
-## The ladder
+## The testing ladder
 
-| Rung | What it proves | Mechanism |
+| Level | What it proves | Mechanism |
 | --- | --- | --- |
-| **L0** | event handlers, subscriptions, state transitions | pure function calls |
-| **L1** | intents, prevent and navigate decisions, codecs, control and revision laws, native-form expansion | pure data, property, and macro-expansion tests |
-| **L2** | one hook-free view body, as a semantic tree | `ht/tree` under injected read fixtures |
-| **L3** | React lifecycle, hooks, context, refs, errors, hosts | mounted facade with Testing Library and user-event |
-| **L4** | IME, caret, focus, layout, hydration, performance | Chromium, Firefox, and WebKit |
+| **L0** | Handler behaviour, subscription output, state transitions | Pure function calls |
+| **L1** | Intent values, prevent/navigate decisions, codecs, merge laws, macro expansion | Plain data and property tests |
+| **L2** | The semantic output of one hook-free view body | `ht/tree` with injected subscription fixtures |
+| **L3** | React lifecycle, hooks, context, refs, hosts, error boundaries, real DOM | Mounted facade with Testing Library and user-event |
+| **L4** | IME, caret, focus traversal, layout, hydration, browser performance | Chromium, Firefox, and WebKit |
 
-Each rung proves a different equality. A green L2 test says nothing about
-React lifecycle. A semantic tree is never a proxy for hydration bytes. That
-honesty is what makes the cheap rungs trustworthy.
+These levels prove different kinds of equality. A passing semantic-tree test
+does not prove React lifecycle behaviour. A mounted DOM test does not prove
+cross-browser caret behaviour. Keep each claim at the level that can actually
+witness it.
 
-## The feature under test
+## Example feature
 
-One small feature serves the whole page: a todo row with a toggle.
+The examples use one todo row:
 
 ```clojure
 (ns todo.events
@@ -53,7 +51,8 @@ One small feature serves the whole page: a todo row with a toggle.
   (:require [re-frame.core :as rf]))
 
 (rf/reg-sub :todo/by-id
-  (fn [db [_ id]] (get-in db [:todos id])))
+  (fn [db [_ id]]
+    (get-in db [:todos id])))
 ```
 
 ```clojure
@@ -70,75 +69,84 @@ One small feature serves the whole page: a todo row with a toggle.
       title]]))
 ```
 
-## L0 — handlers and subscriptions are plain functions
+## L0: handlers and subscriptions
 
-Nothing here is Hicasso-specific. The logic layer tests the same under every
-view layer. Take the handler from the registrar, call it with literal values,
-check the map it returns:
+Event handlers are ordinary functions over coeffects and an event vector. Load
+the registration namespace, obtain the handler, call it with literal values,
+and assert on the returned effects:
 
 ```clojure
 (ns todo.events-test
   (:require [clojure.test :refer [deftest is]]
             [re-frame.core :as rf]
-            [todo.events]))   ;; loading the ns registers the handlers
+            [todo.events]))
 
 (deftest toggle-flips-done
-  (let [handler (:handler-fn (rf/handler-meta :event :todo/toggle))
-        result  (handler {:db {:todos {7 {:id 7 :title "Buy milk" :done? false}}}}
-                         [:todo/toggle 7])]
+  (let [handler (:handler-fn
+                 (rf/handler-meta :event :todo/toggle))
+        result  (handler
+                 {:db {:todos
+                       {7 {:id 7
+                           :title "Buy milk"
+                           :done? false}}}}
+                 [:todo/toggle 7])]
     (is (true? (get-in result [:db :todos 7 :done?])))))
 ```
 
-A subscription is a pure function over app-db values:
+A subscription can be tested against an app-db value:
 
 ```clojure
 (deftest by-id-reads-one-todo
   (is (= {:id 7 :title "Buy milk" :done? false}
-         (rf/compute-sub [:todo/by-id 7]
-                         {:todos {7 {:id 7 :title "Buy milk" :done? false}}}))))
+         (rf/compute-sub
+          [:todo/by-id 7]
+          {:todos
+           {7 {:id 7
+               :title "Buy milk"
+               :done? false}}}))))
 ```
 
-Both tests run on the JVM: no browser, no React. Most of your logic lives
-here, so most of your tests belong here.
+Both tests can run on the JVM. Most application behaviour belongs at this
+level, so most tests should too.
 
-## L1 — helpers and intents are plain data
+## L1: helpers, intents, and other data
 
-A helper that takes its data as arguments and reads nothing is an ordinary
-function. Call it; the whole assertion is `=`:
+A helper that takes values and returns Hiccup is a plain function:
 
 ```clojure
 (defn priority-badge [level]
-  [:span.badge {:data-level (name level)} (name level)])
+  [:span.badge
+   {:data-level (name level)}
+   (name level)])
 
 (deftest badge-is-the-data-it-claims
-  (is (= [:span.badge {:data-level "high"} "high"]
+  (is (= [:span.badge
+          {:data-level "high"}
+          "high"]
          (priority-badge :high))))
 ```
 
-The same method covers every data spelling in the product: an
-[intent](glossary.md#intent) vector, a [`::h/prevent`](glossary.md#hprevent)
-head, a [route link](glossary.md#route-link)'s navigate decision. You never
-mount and click to learn what a button means — the meaning is a value you
-compare.
+Use the same approach for:
 
-L1 is also the rung for property tests (codec round-trip, owned-wins attribute
-merge). When you own a [native island](glossary.md#native-island),
-[`n/$`](glossary.md#n-dollar) macro-expansion tests belong here
-([Native tier](10-native-tier.md)). The canonical-DOM comparator
-`ht/canonical-dom` lives at this rung too: a pure serializer applied to
-mounted nodes when a claim compares two pages (mechanics under Advanced).
+- an event intent;
+- `[::h/prevent INTENT]`;
+- a route link's navigation decision;
+- codecs and round trips;
+- the owned-wins attribute merge;
+- `n/$` macro expansion for native code
+  ([The native tier](10-native-tier.md)).
 
-## L2 — the semantic harness
+A test does not need to mount and click a button merely to learn which event
+vector the button contains.
 
-A [`defview`](glossary.md#defview) body is not directly callable. It needs a
-render context to read in; a direct call raises at the call and names the
-view. The harness supplies that context without React.
+`ht/canonical-dom` also belongs to this level as a pure comparator applied to
+live DOM nodes. It is described under [Advanced](#canonical-dom).
 
-`ht/tree` runs one hook-free body under a discardable read resolver — your
-fixtures — and returns a versioned semantic tree. Four helpers assert on the
-tree: `ht/find`, `ht/attrs`, `ht/text`, and `ht/intents`. `ht/find` takes a
-predicate over the tree's node maps — `(:tag %)` names an element,
-`(:view-id %)` a child view call.
+## L2: one view body as a semantic tree
+
+A `defview` cannot be called directly. `ht/tree` supplies a browser-free render
+context, resolves `h/sub` calls from a fixture map, and returns a versioned
+semantic tree.
 
 ```clojure
 (ns todo.views-test
@@ -147,65 +155,99 @@ predicate over the tree's node maps — `(:tag %)` names an element,
             [todo.views :as views]))
 
 (deftest row-renders-title-and-carries-the-toggle
-  (let [tree (ht/tree [views/todo-row {:id 7}]
-                      {:subs {[:todo/by-id 7]
-                              {:id 7 :title "Buy milk" :done? false}}})]
-    (is (= "Buy milk" (ht/text (ht/find tree #(= :label (:tag %))))))
+  (let [tree
+        (ht/tree
+         [views/todo-row {:id 7}]
+         {:subs
+          {[:todo/by-id 7]
+           {:id 7
+            :title "Buy milk"
+            :done? false}}})]
+    (is (= "Buy milk"
+           (ht/text
+            (ht/find tree #(= :label (:tag %))))))
+
     (is (= [:todo/toggle 7]
-           (:on-change (ht/attrs (ht/find tree #(= :input (:tag %)))))))
-    (is (= [[:todo/toggle 7]] (ht/intents tree)))))
+           (:on-change
+            (ht/attrs
+             (ht/find tree #(= :input (:tag %)))))))
+
+    (is (= [[:todo/toggle 7]]
+           (ht/intents tree)))))
 ```
 
-The head may be the `defview` itself, or the body function it was created
-from. Either runs the body as written: no React element, no hook, nothing
-mounted or painted.
+Useful tree helpers include:
 
-Fixtures replace the whole subscription layer. The body's
-[`h/sub`](glossary.md#hsub) calls resolve against the map. The harness never
-touches the real cache, and it discards the resolver afterwards. Fixture
-identity is `(query-id, args)` under value equality — `[:todo/by-id 7]` and
-`[:todo/by-id "7"]` are different fixtures.
+- `ht/find` — find a node using a predicate over node maps;
+- `ht/attrs` — return a node's attributes;
+- `ht/text` — collect its text;
+- `ht/intents` — collect event intents in the tree.
 
-**A child view does not expand.** A nested `[todo-row {:key id :id id}]` is
-recorded as the call it is — view id, props, children — and its body does not
-run. L2 is one body; a tree spanning two views cannot say which of them a
-failure belongs to. Assert a child's props where it is called; render the
-child's own form to assert its contents.
+A node's `:tag` identifies an element. `:view-id` identifies a child view call.
 
-**What the harness will not fake:**
+The head may be the `defview` or its underlying body function. No React
+element is created, and nothing mounts or paints.
 
-- A body that reaches a **hook**, a **raw React element**, an
-  [`n/$`](glossary.md#n-dollar) result, or a [`defhost`](glossary.md#defhost)
-  crossing raises with a structured, source-located complaint that points at
-  L3. React facts belong to React.
-- A read with **no fixture** raises and names the query. The harness never
-  substitutes `nil` or invents a value.
+### Subscription fixtures
 
-!!! warning "No fake hook dispatcher, ever"
+The fixture map replaces the subscription layer for this body. A fixture key
+uses `(query-id, args)` under value equality. These are different fixtures:
 
-    A stubbed React dispatcher passes tests that real React would fail —
-    abandoned renders, StrictMode double-invoke, effect ordering. The kit does
-    not supply one, and you must not build one. Split the view instead: keep
-    the semantic half as data you can compare with `=`, and mount-test the
-    mechanics once.
+```clojure
+[:todo/by-id 7]
+[:todo/by-id "7"]
+```
 
-## L3 — the mounted facade
+A read without a fixture raises and names the missing query. The harness does
+not silently substitute `nil` or call the live subscription cache.
 
-When the claim is about React or the DOM — lifecycle, hooks, a real error
-boundary, real nodes — mount the view. The facade gives every test an isolated
-frame (its own app-db, queue, and subscription cache), a real root, and a
-residue guarantee:
+### Child views stay as calls
 
-| Call | What it does |
+L2 runs one body. A nested child such as:
+
+```clojure
+[todo-row {:key id :id id}]
+```
+
+is represented by its view id, props, and children. Its body does not expand.
+Assert the child's props at the parent call site, then test the child's own
+form separately. Expanding multiple bodies into one semantic tree would make
+ownership of a failure unclear.
+
+### L2 refuses React-only behaviour
+
+The harness raises and points to L3 when a body reaches:
+
+- a React hook;
+- a raw React element;
+- an `n/$` result;
+- a `defhost` crossing.
+
+It also raises when a subscription fixture is missing.
+
+!!! warning "Do not build a fake hook dispatcher"
+    A fake dispatcher can pass tests that real React fails under abandoned
+    renders, StrictMode, or effect ordering. Split the semantic part from the
+    React mechanics. Test the data at L2 and mount the mechanics at L3.
+
+## L3: mounted React and DOM
+
+Use the mounted facade when the claim depends on React, hooks, context, refs,
+error boundaries, hosts, or real DOM nodes.
+
+Each mount receives its own frame, app-db, queue, subscription cache, React
+root, and residue baseline.
+
+| Call | Behaviour |
 | --- | --- |
-| `hm/mount!` | mounts a view under a fresh isolated frame; records the residue baseline first; returns a handle |
-| `hm/hydrate!` | mounts by adopting server bytes; answers a promise of the handle once adoption has committed ([SSR and hydration](17-ssr-and-hydration.md)) |
-| `hm/rerender!` | renders a new element into the same root — for props-change tests |
-| `hm/dispatch-and-settle!` | dispatches into the mount's frame and returns once Hicasso and React are quiescent |
-| `hm/settle!` | waits for quiescence after outside stimulation — a user-event pointer or keyboard sequence |
-| `hm/advance-clock!` | moves this mount's virtual clock forward by `ms` and runs due work; needs `{:clock true}` on the `mount!` or `hydrate!` that made the handle; throws without it |
-| `hm/unmount!` | tears the root down |
-| `hm/assert-clean!` | after unmount: compares post-quiescence residue with the pre-mount baseline, reports, then resets; answers a promise of the report |
+| `hm/mount!` | Mount a view under a fresh isolated frame and return a handle |
+| `hm/hydrate!` | Adopt supplied server bytes and return a promise of the handle after hydration commits |
+| `hm/rerender!` | Render a new element into the same root |
+| `hm/dispatch-and-settle!` | Dispatch into the mount's frame and wait until Hicasso and React are quiescent |
+| `hm/settle!` | Wait for quiescence after an external user-event or other stimulation |
+| `hm/advance-clock!` | Advance the mount's virtual clock and run due work; requires `{:clock true}` at mount or hydrate |
+| `hm/unmount!` | Tear down the root |
+| `hm/assert-clean!` | After unmount and quiescence, compare residue with the pre-mount baseline, report, and reset |
 
 ```clojure
 (ns todo.views-mounted-test
@@ -218,164 +260,196 @@ residue guarantee:
 
 (deftest toggle-reaches-the-real-dom
   (async done
-    (let [m (hm/mount! [views/todo-row {:id 7}]
-                       {:initial-events
-                        [[:todo/seed [{:id 7 :title "Buy milk" :done? false}]]]})]
+    (let [m
+          (hm/mount!
+           [views/todo-row {:id 7}]
+           {:initial-events
+            [[:todo/seed
+              [{:id 7
+                :title "Buy milk"
+                :done? false}]]]})]
       (is (some? (tl/getByText (:container m) "Buy milk")))
+
       (hm/dispatch-and-settle! m [:todo/toggle 7])
-      (is (true? (.-checked (tl/getByRole (:container m) "checkbox"))))
-      (-> (hm/unmount! m) (hm/assert-clean!) (.then done)))))
+
+      (is (true?
+           (.-checked
+            (tl/getByRole (:container m) "checkbox"))))
+
+      (-> (hm/unmount! m)
+          (hm/assert-clean!)
+          (.then done)))))
 ```
 
-Every door takes the handle first and returns it, so teardown threads in one
-expression. The test is `async` because `assert-clean!` waits for the
-runtime's own quiescence before it reads.
+The facade does not add a selector language. `(:container m)` is a real DOM
+node, so use Testing Library and user-event normally. After a user-event
+sequence, call `(hm/settle! m)` before asserting.
 
-The facade brings no selector language. `(:container m)` is a real DOM node,
-so Testing Library queries and user-event sequences work unchanged. After a
-user-event sequence, call `(hm/settle! m)` before you assert.
+Mounted operations take the handle first and return it where chaining is
+useful. `assert-clean!` is asynchronous because it waits for runtime
+quiescence before checking residue.
 
-!!! note "Settled, not `act`"
+!!! note "Settled DOM, not a generic `act` wrapper"
+    `dispatch-and-settle!` flushes work until the DOM reflects what a user
+    would see. React's `act` is useful for effect-ordering tests, but it runs
+    through a test scheduler that is not the browser scheduler. Use the
+    facade's settle operations for page assertions.
 
-    `dispatch-and-settle!` flushes; it does not divert through React's `act`.
-    `act` queues React's work on a scheduler that is not the browser's. That
-    is correct for an effect-ordering test, and wrong when the assertion reads
-    the page. After the call returns, the next line sees the DOM the user
-    would have seen.
+### Virtual clock behaviour
 
-!!! note "What the clock moves"
-
-    `Date.now` moves with `setTimeout` and `setInterval` because retention is
-    a deadline comparison, not a callback: a fake timer whose callback reads
-    an unmoved `Date.now` fires on schedule and then decides nothing has
-    expired.
-
-    It does not move `requestAnimationFrame` (a paint, not a duration). It
-    does not move microtasks or promises. It leaves `performance.now` alone
-    (React's scheduler reads it for frame budget). It does not touch the
-    `Date` constructor. It cannot reach a `setTimeout` captured before the
-    window opened — React's own scheduler keeps the reference it took at
-    module load so a flush is still a flush.
-
-    `advance-clock!` is `settle!` for work that had a delay on it.
-
-Use L3 when the claim needs it:
-
-- a real [error boundary](glossary.md#error-boundary) that catches a real
-  throw ([Errors](16-errors.md))
-- StrictMode double-invoke, and renders React abandoned
-- keyed insert, delete, and reorder against real nodes
-- a foreign component's hooks, context, or refs ([Interop](09-interop.md))
-- Activity hide and reveal, which releases and re-establishes subscriptions
-
-**Teardown residue is zero.** `assert-clean!` compares what remains after
-quiescence with what existed before the mount. A surviving subscription
-handle, listener, or scheduled task fails the test. That failure is a bug —
-often a foreign host retaining a callback — not a tolerance to raise.
-
-## L4 — real browsers
-
-Some facts exist only inside a browser engine: IME composition, caret and
-selection movement, focus traversal, layout and scroll geometry, hydration
-against real server bytes, and performance budgets. For those, the witness is
-Chromium, Firefox, and WebKit. No simulation stands in. Controlled-input
-behaviour under composition is the canonical case
-([Controlled inputs](04-controlled-inputs.md)). Budgets live in
-[Performance](18-performance.md).
-
-One more entry completes the kit: `ht/shadow!`, the migration harness. It is
-a dev-only dual mount that drives a ported view and its Reagent original with
-one script and diffs [canonical DOM](glossary.md#canonical-dom) and intent
-streams at every checkpoint.
-[Migrating from Reagent](19-migration-from-reagent.md) owns it.
-
-## The sabotage twin
-
-An assertion that quantifies over a collection can pass because the collection
-was empty by accident — `every?` over nothing is vacuously true. Two habits
-close that hole. First, pin the population with a count. Second, give an
-important test a **[sabotage twin](glossary.md#sabotage-control)**: break the
-input on purpose and confirm that the measurement moves. A moved measurement
-proves the instrument can fail.
+A virtual clock is opt-in:
 
 ```clojure
-;; in todo.views
+(hm/mount! [view] {:clock true})
+```
+
+`hm/advance-clock!` advances `Date.now`, `setTimeout`, and `setInterval`. This
+matters because retention often compares a deadline with `Date.now`; firing a
+timer without moving the clock would leave the deadline unexpired.
+
+The clock does **not** advance:
+
+- `requestAnimationFrame`;
+- promises or microtasks;
+- `performance.now`;
+- the `Date` constructor;
+- timer functions captured before the virtual-clock window opened, including
+  React scheduler references captured at module load.
+
+Calling `hm/advance-clock!` without a clock-enabled handle raises. Use it for
+work that has an actual duration; use `hm/settle!` for work that does not.
+
+### Use L3 for React claims
+
+Examples include:
+
+- a real error boundary catching a real throw ([Errors](16-errors.md));
+- StrictMode double invocation or an abandoned render;
+- keyed insertion, deletion, and reorder against real nodes;
+- a foreign component's hooks, context, and refs ([Interop](09-interop.md));
+- Activity hide and reveal, including subscription release and reacquisition;
+- hydration through `hm/hydrate!`
+  ([SSR and hydration](17-ssr-and-hydration.md)).
+
+`hm/assert-clean!` requires zero additional residue after unmount. A surviving
+subscription, listener, scheduled task, or retained callback is a bug. Do not
+raise a tolerance to make it green.
+
+## L4: real browser engines
+
+Use Chromium, Firefox, and WebKit for behaviour that depends on an actual
+browser engine:
+
+- IME composition;
+- caret and selection restoration;
+- focus traversal;
+- layout and scroll geometry;
+- hydration against real server bytes;
+- performance budgets.
+
+Controlled-input composition is a canonical L4 case
+([Controlled inputs](04-controlled-inputs.md)). Performance scripts and
+budgets belong to [Performance](18-performance.md).
+
+## Migration shadow tests
+
+`ht/shadow!` is a development-only migration harness. It drives a Hicasso view
+and its Reagent original with one script, then compares canonical DOM and
+intent streams at each checkpoint. Its full use belongs to
+[Migrating from Reagent](19-migration-from-reagent.md).
+
+## Prevent vacuous tests with a sabotage twin
+
+A collection assertion can pass because the collection was accidentally
+empty. `every?` over no items is true.
+
+Pin the population with an explicit count. For important instrumentation,
+also add a **sabotage twin**: deliberately change the input so the measurement
+moves. That proves the test can fail.
+
+```clojure
+;; todo.views
 (h/defview todo-list [_]
   [:ul
    (for [id (h/sub [:todo/visible-ids])]
      [todo-row {:key id :id id}])])
 
-;; in the test namespace
 (deftest every-visible-todo-gets-a-row
-  (let [tree (ht/tree [views/todo-list {}]
-                      {:subs {[:todo/visible-ids] [1 2 3]}})
+  (let [tree
+        (ht/tree
+         [views/todo-list {}]
+         {:subs {[:todo/visible-ids] [1 2 3]}})
         rows (:children tree)]
     (is (= 3 (count rows)))
-    (is (= [{:id 1} {:id 2} {:id 3}] (mapv ht/attrs rows)))))
+    (is (= [{:id 1} {:id 2} {:id 3}]
+           (mapv ht/attrs rows)))))
 
 (deftest every-visible-todo-gets-a-row--sabotage-twin
-  ;; Prove the gate can fail: empty the list and the population collapses.
-  (let [tree (ht/tree [views/todo-list {}]
-                      {:subs {[:todo/visible-ids] []}})]
+  (let [tree
+        (ht/tree
+         [views/todo-list {}]
+         {:subs {[:todo/visible-ids] []}})]
     (is (empty? (:children tree)))))
 ```
 
-The list view's claim is that it calls one row per visible id with the right
-props. What a row then renders is the row's claim, proved by rendering the
-row's own form.
+The list test proves that the parent calls one row per id with the expected
+props. The row's own test proves what a row renders.
 
 ## Troubleshooting
 
 | Symptom | Cause | Fix |
 | --- | --- | --- |
-| `ht/tree` raises, pointing at L3 | Body reaches a hook, raw React element, `n/$` result, or `defhost` crossing | Mount that view at L3; split the hook-free part if you want L2 coverage for the rest |
-| `ht/tree` raises, naming a query | A read the body made has no fixture | Add it. Fixture identity is `(query-id, args)` under value equality |
-| `ht/tree` raises a `defview` head, pointing at L3 | An `:advanced` build with `goog.DEBUG` false compiled away the body property on the head | Run view tests in a dev build, or pass the body function instead of the `defview` head |
-| `:rf.error/hicasso-sub-outside-render` in a plain test | A reading helper was called with no render context | L2 supplies the context; L0 targets handlers and subs, not bodies |
-| `:rf.error/hicasso-deferred-read-at-boundary` | A stored closure, lazy seq, or unforced `delay` carried a read past the render | Read during the body and close over the value ([Views and reads](02-views-and-reads.md)) |
-| `assert-clean!` fails after unmount | Something outlived the root — retained subscription, listener, or scheduled task | Fix the leak. A foreign host retaining a callback is the common culprit ([Interop](09-interop.md)) |
-| Data-level test passes, mounted test fails | Real React does things data does not — effect order, StrictMode double-invoke, commit timing | The mounted result is the truth for lifecycle |
-| Assertion fails on a `nil` in a tree | A `when` produced `nil` — it renders nothing but is still in the data | Assert the `nil`, or filter before comparing |
-| A list test stays green with an empty list | Quantified assertion over an empty population | Pin the count; add the sabotage twin |
+| `ht/tree` raises and points to L3 | The body reached a hook, raw React element, `n/$`, or a host | Mount the view at L3; split out a hook-free semantic part when useful |
+| `ht/tree` raises and names a query | The body read a subscription with no fixture | Add the exact query fixture; identity is `(query-id, args)` under value equality |
+| `ht/tree` cannot inspect a `defview` head in an advanced build | `goog.DEBUG` false removed the body property used by the development harness | Run view tests in a development build, or pass the body function instead of the head |
+| A plain test raises `:rf.error/hicasso-sub-outside-render` | A helper called `h/sub` without a render context | Use L2 for a view body; use L0 for handlers and subscriptions |
+| `:rf.error/hicasso-deferred-read-at-boundary` | A closure, lazy sequence, or unforced `delay` carried a read beyond render | Read during the body and close over the value ([Views and reads](02-views-and-reads.md)) |
+| `hm/assert-clean!` fails | A subscription, listener, task, or foreign callback survived unmount | Fix the leak; retained host callbacks are a common cause ([Interop](09-interop.md)) |
+| Data test passes but mounted test fails | React lifecycle, effect order, StrictMode, or commit timing changed the result | Treat the mounted result as authoritative for React behaviour |
+| Tree assertion sees `nil` | A `when` returned `nil`; it renders nothing but still appears in authored data | Assert that `nil`, or filter it before comparing |
+| A collection test remains green with an empty list | The assertion is vacuously true | Assert the count and add a sabotage twin |
 
-## When not to test through the view
+## When not to test through a view
 
-If the assertion is about *state*, test the handler. If the assertion is about
-*derived values*, test the subscription. A view test that dispatches an event
-and then asserts on app-db tests three things at once, and fails for reasons
-unrelated to the view.
+Test a handler when the claim is about state changes. Test a subscription when
+the claim is about a derived value. A view test that dispatches an event and
+then asserts on app-db mixes several contracts and can fail for unrelated
+reasons.
 
-Keep each rung's claim inside its rung. L2 never claims React lifecycle
-parity. A semantic tree never claims hydration-wire parity
-([SSR and hydration](17-ssr-and-hydration.md)). Timing claims are not tests
-until they follow the measurement discipline in
-[Performance](18-performance.md).
+Do not claim more than the level proves:
+
+- L2 does not prove React lifecycle;
+- a semantic tree does not prove server or hydration bytes;
+- a DOM test in one engine does not prove cross-browser IME or focus;
+- a timing assertion is not a performance test until it follows the method in
+  [Performance](18-performance.md).
 
 ## Advanced
 
-### Every witness names its equality
+### Name the equality being tested
 
-When a test's name or docstring states what the test proves, use these terms:
-
-| Equality | Rung | The claim |
+| Equality | Level | Claim |
 | --- | --- | --- |
-| Authored data | L1 | the function returned this value |
-| Semantic tree | L2 | the body, under these reads, means this |
-| Intent stream | L2/L3 | these events, in this order, were the interactions |
-| Canonical DOM | L3 | two mounts produced the same page |
-| React server bytes | server tests | the server emitted exactly these bytes |
-| Hydrated behaviour | L4 | the adopted page behaves in a real engine |
+| Authored data | L1 | This function returned this value |
+| Semantic tree | L2 | Under these reads, this body means this |
+| Intent stream | L2 or L3 | These interactions produced these events in this order |
+| Canonical DOM | L3 | Two mounted implementations produced the same page structure |
+| React server bytes | Server test | The server emitted these exact bytes |
+| Hydrated behaviour | L4 | A real engine adopted and ran the page correctly |
 
-No row substitutes for another. The most tempting substitution is the semantic
-tree in place of mounted truth. The harness's refusals exist to prevent that.
+One equality does not stand in for another.
 
 ### Canonical DOM
 
-`ht/canonical-dom` serializes a live node's subtree with every element's
-attribute names sorted. `innerHTML` preserves insertion order, and two front
-ends write props in different orders — a comparison of `innerHTML` compares
-the serializer, not the page. Use `ht/canonical-dom` when the claim is "these
-two mounts built the same page": before and after a refactor, a Hicasso view
-against its Reagent original during migration
-([Migration](19-migration-from-reagent.md)), or an island against its
-pre-extraction boundary ([Native tier](10-native-tier.md)).
+`ht/canonical-dom` serialises a live DOM subtree with element attribute names
+sorted. `innerHTML` preserves insertion order, so two equivalent pages can
+produce different strings solely because props were applied in a different
+order.
+
+Use canonical DOM when comparing:
+
+- before and after a refactor;
+- a Hicasso port with its Reagent original
+  ([Migrating from Reagent](19-migration-from-reagent.md));
+- a native island with the interpreted subtree it replaced
+  ([The native tier](10-native-tier.md)).

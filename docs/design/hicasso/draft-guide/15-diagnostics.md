@@ -1,261 +1,270 @@
 # Diagnostics
 
-A list re-rendered and you do not know why. A keystroke feels slow and you do
-not know where the time went. Xray is the development-time instrument for
-those questions. It loads with your dev build as a preload, mounts beside the
-app, and observes the same trace the runtime already emits. Nothing in your
-views changes to support it, and none of it ships to production.
+Use Xray when a view re-renders unexpectedly or an interaction feels slow and
+you need to find the cause.
 
-## How to diagnose
+Xray is development tooling. It loads beside the application, reads the trace
+the runtime already emits, and requires no instrumentation in your views. It
+is removed from production builds.
 
-1. **Load Xray** with your dev preload so it mounts beside the app.
-2. **Reproduce** the slow click or unexpected re-render.
-3. **Select the boundary** that ran — the independently re-rendering view
-   ([Views and reads](02-views-and-reads.md)).
-4. **Read its cause and fan-out.**
+## Diagnose an interaction
 
-That is the whole operational path. The rest of this page explains what those
-panels mean and what to do with the answer.
+1. Load Xray through the development preload.
+2. Reproduce the click, keystroke, or update.
+3. Select the view occurrence that ran.
+4. Read its cause, fan-out, and attribution.
 
-An *epoch* is one pipeline run: one dispatched event carried through to its
-commit. Xray organises evidence around epochs.
+An **epoch** is one event pipeline run, from dispatch through its state commit.
+Xray organises its evidence around epochs.
 
-## Read the cause
+## Why did this view run?
 
-Select a boundary occurrence and ask: *why did this view run?*
+A selected view occurrence usually has one of these causes:
 
-Typical answers:
-
-| Cause | Meaning | What you usually do |
+| Cause | Meaning | Typical response |
 | --- | --- | --- |
-| Own reads moved (queries named) | A subscription this view used changed | Check whether the read should live lower, or whether the sub is coarser than needed |
-| Props changed | Parent passed different props | Check keys, identity of props maps, and whether the parent re-rendered too high |
-| Context changed | A React context this view consumes changed | Trace the provider; vendor themes often land here |
-| Host forced it | A host boundary forced a child | Check the host's props and whether the force is required |
-| Retry / abandoned attempt | React retried or abandoned work | Not always a bug — StrictMode doubles in development |
+| Its own reads changed | A subscription read by this view produced a new value | Check whether the read belongs lower in the tree or whether the subscription is too coarse |
+| Props changed | The parent supplied unequal props | Inspect keys, prop identity, and whether the parent owns too much work |
+| Context changed | A React context consumed by the view changed | Trace the provider; vendor theme providers often appear here |
+| A host forced the update | A foreign host caused the child to run | Inspect the host's props and contract |
+| Retry or abandoned attempt | React retried or discarded work | This may be expected, especially under development StrictMode |
 
-When several boundaries ran for one event, **fan-out** tells you which case you
-have. One changed subscription that reaches many readers is a topology problem.
-Many independent causes are ordinary work.
+When several views run for one event, fan-out distinguishes a topology problem
+from independent useful work. One changed subscription reaching hundreds of
+readers deserves attention. Hundreds of unrelated reads changing together may
+be the intended update.
 
-**Render is not commit, and commit is not paint.** Bodies run speculatively.
-React owns commit. The browser owns paint. Xray tells you which claim each
-number makes. Timing proximity alone proves nothing: a body that ran near an
-event may have run for a different reason.
+Do not collapse render, commit, and paint into one number:
 
-The chain Xray follows:
+- a body can run speculatively;
+- React decides what commits;
+- the browser decides when it paints.
 
+Xray labels which stage each measurement belongs to. Timing proximity alone
+does not prove causation.
+
+The causal chain is:
+
+```text
+event
+  → subscriptions recomputed
+  → values changed
+  → views notified
+  → bodies run
+  → React commit
+  → browser paint
 ```
-event → subscriptions recomputed → values changed → boundaries notified
-     → bodies run → React commit → paint
-```
 
-Xray correlates links only when its instruments support the correlation. When
-they do not, it labels the link instead of guessing.
+Xray correlates links only where an instrument can support the relationship.
+When it cannot, it reports that limitation instead of guessing.
 
-## Read attribution
+## Read topology and fan-out
 
-The standing view is the map from subscriptions to the boundaries that currently
-read them. Four numbers do most of the diagnostic work:
+The standing view maps subscriptions to the currently committed views that
+read them. Four measurements usually identify the shape:
 
-| Number | What it tells you |
+| Measurement | What it reveals |
 | --- | --- |
-| Boundary count | how many independent re-render units are mounted |
-| Reads per boundary | fine, coarse, or accidentally enormous read sets |
-| Fan-out per subscription | how many boundaries one change will reach |
-| Read-set churn | how often a boundary's read set changes membership |
+| View count | Number of independently re-rendering units currently mounted |
+| Reads per view | Fine-grained, coarse, or accidentally enormous read sets |
+| Fan-out per subscription | Number of views one changed value can notify |
+| Read-set churn | How often a view changes which subscriptions it reads |
 
-Two shapes deserve attention:
+Two common failures:
 
-- One subscription that fans out to hundreds of boundaries usually means a
-  read that lives too high, or a shared value that needs a deliberate
-  topology choice.
-- A boundary whose read set churns every render pays a whole-set refresh each
-  time, because the edge set is a function of what the body did.
+- One subscription fans out to hundreds of views because a shared read lives
+  too high or the read model is too broad.
+- A view changes its read membership every render and pays to replace the
+  complete committed read set each time.
 
-Remedies — reads at the point of use, boundary placement, fine versus coarse
-versus chunked reads — live in [Views and reads](02-views-and-reads.md) and
-[Lists and collections](06-lists-and-collections.md). Xray makes the topology
-visible.
+Move reads, change view boundaries, or choose fine, coarse, chunked, or
+windowed collection reads as described in
+[Views and reads](02-views-and-reads.md) and
+[Lists and collections](06-lists-and-collections.md).
 
-## The hot-view advisor
+## Use attribution before choosing a fix
 
-The advisor ranks boundaries by time, frequency, read churn, and fan-out, then
-**classifies the pressure** before it names a remedy:
+The hot-view advisor ranks views by time, frequency, read churn, and fan-out.
+It first identifies where the time is going:
 
-| Pressure | Time is going to | Smallest credible remedy |
+| Pressure | Cost owner | Smallest credible fix |
 | --- | --- | --- |
-| Computation | your own code — the body's work or an expensive sub chain | fix the computation; derive it in the subscription layer |
-| Topology | too many boundaries invalidated, or churning read sets | move reads, split or merge boundaries, coarse / chunked / windowed reads ([Lists and collections](06-lists-and-collections.md)) |
-| Lowering | turning one hot boundary's Hiccup into React elements | a direct [`n/$`](glossary.md#n-dollar) return from that same boundary ([Native tier](10-native-tier.md)) |
-| React | reconciliation, hooks, vendor component internals | a named [native island](glossary.md#native-island) — [`n/defcomponent`](glossary.md#ndefcomponent) or UIx ([Native tier](10-native-tier.md)) |
-| Layout | the browser — style, layout, paint | shrink the DOM, virtualize, fix the CSS; browser tools own this ground |
+| Computation | View code or an expensive subscription chain | Move or reduce the computation; derive display values in subscriptions |
+| Topology | Too many invalidated views or unstable read sets | Move reads, split or combine views, or change collection read shape |
+| Hiccup lowering | Turning one hot view's Hiccup into React elements | Return `n/$` directly from that same view ([The native tier](10-native-tier.md)) |
+| React | Reconciliation, hooks, or vendor internals | Use a named native island or UIx component |
+| Layout and paint | Browser style, layout, and rendering | Reduce DOM, virtualise, or fix CSS; use browser tooling |
 
-The advisor recommends a native escape only when the measured owner is a class
-that native addresses. If lowering is four percent of a slow interaction,
-extraction cannot buy more than four percent. The advisor says so and points
-at the real owner. There is no automatic promotion — the advisor recommends,
-you decide. An escape you take must meet the thresholds in
-[Performance](18-performance.md), or it comes back out.
+The advisor recommends a native escape only when native code addresses the
+measured owner. If lowering is 4% of an interaction, a lowering escape cannot
+recover more than that 4%.
 
-## When evidence is incomplete
+Xray recommends; it does not rewrite or promote code automatically. Any native
+escape must pass the benefit thresholds in [Performance](18-performance.md).
 
-An interpreted runtime cannot know some facts. Xray reports that limit as an
-answer; it does not present an empty panel. Unknown is never encoded as an
-empty collection.
+## Incomplete evidence is reported explicitly
 
-| Label | Meaning | What you do |
+Xray uses named completeness states instead of pretending that missing
+evidence is an empty result:
+
+| Label | Meaning | Response |
 | --- | --- | --- |
-| `:unknown` | no instrument covers this link | ask a question the instruments answer; if the claim matters, make it a test |
-| `:opaque` / `:no-static-analysis` | an interpreted body's facts cannot be enumerated ahead of execution | run the interaction — current reads come from actual execution |
-| `:host-opaque` | raw React internals past a host or native crossing | Xray still names and times the crossing; React DevTools owns the inner tree |
-| `:cap` | the bounded retention window has dropped older history | reproduce and capture fresh |
-| `:uncorrelated` | the event-to-render relationship could not be established | treat as honest absence; reproduce with a scripted interaction so the links line up |
+| `:unknown` | No instrument covers the requested relationship | Ask a question the instruments can answer, or encode the claim in a test |
+| `:opaque` / `:no-static-analysis` | An interpreted body's facts cannot be enumerated before execution | Run the interaction; current reads come from the body that actually ran |
+| `:host-opaque` | The inner React tree is hidden behind a host or native crossing | Xray still names and times the crossing; inspect its internals with React DevTools |
+| `:cap` | The bounded history has dropped older evidence | Reproduce and capture a fresh epoch |
+| `:uncorrelated` | The event-to-render relationship could not be established | Treat it as an honest absence and reproduce with a scripted interaction |
 
-## The complaint catalogue
+## Complaint IDs
 
-Every refusal in this guide carries a stable id: `:rf.error/*` for errors,
-`:rf.warning/*` for recoverable misuse. When thrown, the id is in `ex-data`
-under `:rf.error/id`. On the trace it is a record with the id as category and
-the recovery the runtime took. In Xray it renders with jump-to-source for the
-registration site and the call site.
+Hicasso errors and warnings use stable identifiers:
 
-A sample of entries from earlier chapters:
+- `:rf.error/*` for errors;
+- `:rf.warning/*` for recoverable misuse.
 
-| Id | Complaint | Recovery |
+A thrown error places the id in `ex-data` under `:rf.error/id`. Trace records
+use the same id and include the recovery the runtime applied. Xray can link to
+the registration site and the call site when source data is available.
+
+Examples from the guide:
+
+| ID | Meaning | Recovery |
 | --- | --- | --- |
-| `:rf.error/hicasso-sub-outside-render` | a read escaped every render context | read during the body; in a handler, declare the fact as a coeffect ([Views and reads](02-views-and-reads.md)) |
-| `:rf.error/hicasso-deferred-read-at-boundary` | an unforced `delay` carrying a read tried to leave the view | force it in the body; close over the value ([Views and reads](02-views-and-reads.md)) |
-| `:rf.error/hicasso-bad-head` | a plain `defn` in head position | define it with [`h/defview`](glossary.md#defview), or call it inline ([Views and reads](02-views-and-reads.md)) |
-| `:rf.error/hicasso-intent-outside-boundary` | an [intent](glossary.md#intent) vector reached a position with no boundary frame | dispatch belongs inside a boundary; at a foreign edge, use [`h/event`](glossary.md#hevent) ([Events as data](03-events-as-data.md)) |
-| `:rf.error/hicasso-host-unclaimed-callback` | an [`h/event`](glossary.md#hevent) arrived at a host prop that no callback contract claims | declare the prop in `:callbacks`; at a ReactNode slot, write markup ([Interop](09-interop.md)) |
-| `:rf.error/hicasso-revision-not-controlled` | [`::h/revision`](glossary.md#hrevision) on a field that is not controlled | control the field, or drop the revision ([Controlled inputs](04-controlled-inputs.md)) |
-| `:rf.warning/hicasso-missing-key` | a seq of boundary children without `:key` | put `:key` in each child's props map ([Lists and collections](06-lists-and-collections.md)) |
-| `:rf.error/frame-destroyed` | an operation captured against a destroyed frame incarnation fired after its successor seated | drop the stale handle; capture from the live frame ([Events as data](03-events-as-data.md)) |
+| `:rf.error/hicasso-sub-outside-render` | A subscription read ran after every render context had ended | Read during the body and close over the value; handlers declare state as coeffects |
+| `:rf.error/hicasso-deferred-read-at-boundary` | An unforced `delay` carrying a read tried to leave a view | Force it in the body or pass the realised value |
+| `:rf.error/hicasso-bad-head` | A plain `defn` appeared in Hiccup head position | Call it inline or define a view with `h/defview` |
+| `:rf.error/hicasso-intent-outside-boundary` | An event intent reached a position with no frame | Keep it under a view boundary; use `h/event` at a foreign callback edge |
+| `:rf.error/hicasso-host-unclaimed-callback` | `h/event` was passed to a host prop with no callback contract | Declare the prop in `:callbacks` |
+| `:rf.error/hicasso-revision-not-controlled` | `::h/revision` appeared on a non-controlled field | Control the text field or remove the revision |
+| `:rf.warning/hicasso-missing-key` | A sequence child has no `:key` | Put a stable key in each member's props map |
+| `:rf.error/frame-destroyed` | An operation captured from a destroyed frame incarnation fired later | Drop the stale handle and capture from the current frame |
 
-When a complaint surprises you, follow its recovery before you change code.
-When you test a refusal, assert the id, never the message:
+Follow the named recovery before changing unrelated code.
+
+When testing a refusal, assert the stable id rather than the message:
 
 ```clojure
-;; ht is the test kit from 14-testing.md
-(defn badge [_props] [:span.badge "hi"])       ;; a plain defn — not a view
-(defn card  [_props] [:div.card [badge {}]])   ;; …and here it is, in a head
+(defn badge [_]
+  [:span.badge "hi"])
+
+(defn card [_]
+  [:div.card
+   [badge {}]])
 
 (defn refusal-id [f]
-  (try (f) ::did-not-throw
-       (catch :default e (:rf.error/id (ex-data e)))))
+  (try
+    (f)
+    ::did-not-throw
+    (catch :default e
+      (:rf.error/id (ex-data e)))))
 
 (deftest plain-defn-child-head-refuses
   (is (= :rf.error/hicasso-test-plain-fn-head
-         (refusal-id #(ht/tree [card {}] {:subs {}})))))
+         (refusal-id
+          #(ht/tree [card {}] {:subs {}})))))
 ```
 
-Message text improves between releases; ids are frozen.
+Error messages may improve between releases. IDs are part of the stable
+complaint contract.
 
-`ht/tree`'s root form is headed by the body function the kit is about to run,
-so `[badge {}]` written as the root form is accepted — it runs, and nothing
-raises. Only a plain `defn` reached *inside* the tree is a mistake. At L2 the
-kit answers with `:rf.error/hicasso-test-plain-fn-head`; the same child mounted
-at L3 raises the runtime's `:rf.error/hicasso-bad-head`.
+At L2, the test kit accepts a plain body function as the **root** because that
+is the function it is deliberately running. A plain function reached as a
+child head raises `:rf.error/hicasso-test-plain-fn-head`. The equivalent
+mounted mistake raises the runtime's `:rf.error/hicasso-bad-head`.
 
-## Production erasure
+## Verify production erasure
 
-Everything on this page is development tooling, and all of it erases from a
-release build: the evidence producer, the projections, the advisor, the
-dev-only checks, and their message strings. Production evidence queries return
-nil. A release bundle contains no evidence machinery, no schema sentinels, and
-no source-location tables. Performance collection is gated separately by its
-own compile-time flag and is off by default.
+Xray, its evidence producer, projections, advisor, development checks, source
+locations, and message strings are removed from a release build. Production
+evidence queries return `nil`. Performance instrumentation has a separate
+compile-time flag and is off by default.
 
-Do not accept erasure without a check. Pick a sentinel you can see in the dev
-bundle (`rf.xray` is a good default). Search both builds:
+Verify erasure with a positive control:
 
 ```bash
-npx shadow-cljs compile app            # dev build
-grep -c "rf.xray" public/js/main.js    # positive control: expect > 0
+npx shadow-cljs compile app
+grep -c "rf.xray" public/js/main.js    # expect more than 0
 
-npx shadow-cljs release app            # release build, same output path
+npx shadow-cljs release app
 grep -c "rf.xray" public/js/main.js    # expect 0
 ```
 
-The dev-build search is the positive control. Zero on the release bundle means
-"erased" only if the same search finds the sentinel in the dev bundle. Zero in
-both places means the search is broken, not the build. This is the
-sabotage-twin habit from [Testing](14-testing.md) applied to the bundle.
+The development search must find the sentinel. Zero in both files means the
+search is ineffective, not that production erasure has been demonstrated.
+This is the sabotage-control principle from [Testing](14-testing.md).
 
-Application logic must never depend on the surface: no feature may read
-evidence, count complaints, or branch on a panel's data.
+Application behaviour must never depend on diagnostics. Do not branch on
+whether evidence exists, count warnings as product data, or read panel state
+from application code.
 
 ## Troubleshooting
 
 | Symptom | Cause | Fix |
 | --- | --- | --- |
-| A view you know ran is absent from the epoch | Its boundary bailed out — a skipped body emits nothing | Absence measures work not done; if you expected it to run, explain-render the parent that did |
-| Explain-render answers `:uncorrelated` | Event-to-render link could not be established for that occurrence | Honest answer, not a failure; reproduce with a scripted interaction and read the fresh epoch |
-| A foreign subtree shows `:host-opaque` | Raw React internals are not enumerable past the crossing | Xray still names and times the crossing; open React DevTools for the inside |
-| History stops with `:cap` | Bounded retention window dropped older epochs | Reproduce and capture fresh |
-| Advisor will not recommend an island you want | Measured owner is not a class native addresses | Do the smaller remedy it named; re-measure ([Performance](18-performance.md)) |
-| Two runs of one interaction show different times | Xray timing is attribution, not a benchmark | Treat the classification, not the number, as the finding; benchmark under [Performance](18-performance.md) |
-| A complaint id you hit has no catalogue anchor | Id is not from this product's surface, or app and kit versions have drifted | Check the id's namespace and align versions |
-| Panels are empty in a release build | Production erasure, working as designed | Diagnose on a dev build |
+| A view you expected is absent from the epoch | Its props and reads allowed it to skip; a body that did not run emits no occurrence | Treat absence as work avoided. Inspect the parent occurrence when you expected different props |
+| Explain-render returns `:uncorrelated` | The event-to-render link could not be established | Reproduce with a scripted interaction and inspect a fresh epoch |
+| A foreign subtree shows `:host-opaque` | Raw React internals are not visible beyond the crossing | Use Xray for the crossing and React DevTools for its inner tree |
+| History ends with `:cap` | The bounded retention window discarded old epochs | Reproduce the issue and capture it again |
+| The advisor will not recommend a native island | The measured owner is not a cost native code fixes | Apply the smaller remedy it names and re-measure |
+| Repeated runs have different timings | Xray timing is diagnostic attribution, not a controlled benchmark | Use the cost classification; benchmark under [Performance](18-performance.md) |
+| A complaint id has no catalogue entry | The id belongs to another namespace, or application and test-kit versions differ | Check the namespace and align installed versions |
+| Panels are empty in a release build | Diagnostics were erased as designed | Diagnose with a development build |
 
-## When Xray is not the tool
+## When Xray is not the right tool
 
-**Xray timing is not a benchmark.** It attributes: which link of the chain owns
-the time, and which remedy class is credible. It does not settle "is this fast
-enough" — budgets live in [Performance](18-performance.md). Its render numbers
-are not commit evidence. React DevTools remains the authority for commits. The
-browser's performance tooling remains the authority for layout and paint. When
-an interaction is slow in a release build, profile the release build with
-browser tools; the dev build carries dev-only work by design.
+Xray identifies the cost owner and the likely class of remedy. It does not
+answer whether an interaction meets a production budget. Use the measurement
+method in [Performance](18-performance.md) for that.
 
-When the question is about *correctness* rather than cause — does this body
-mean what it should, does teardown leak — the answer is a test, not a panel
+Use React DevTools for commit-level React details and browser performance tools
+for layout and paint. Profile release builds for production slowness; a
+development build intentionally contains development work.
+
+When the question is correctness rather than cause, write a test
 ([Testing](14-testing.md)).
 
 ## Advanced
 
-### Explain-render envelope shape
+### Explain-render envelope
 
-The panel, tests, and the AI pair consume the same envelope. A complete example:
+The panel, tests, and AI pair use the same versioned evidence envelope. A
+representative occurrence:
 
 ```clojure
 {:view         todo.views/todo-row
  :frame        :app/main
  :cause        {:kind          :reads
                 :changed-reads [[:todo/by-id 7]]}
- :attempt      :committed          ;; not a retry, not abandoned
- :reads        [[:todo/by-id 7]]   ;; current read set, from execution
- :fan-out      1                   ;; boundaries this change reached
+ :attempt      :committed
+ :reads        [[:todo/by-id 7]]
+ :fan-out      1
  :completeness :complete
  :loss         nil}
 ```
 
-Every envelope also states its schema, producer, operation, scope, and basis so
-a consumer knows what it holds and which generation of the contract produced
-it. You do not need this map to use the panel — open Xray, select the boundary,
-read the cause. The shape matters when you script diagnosis or assert on it.
+The full envelope also identifies its schema, producer, operation, scope, and
+basis. Most developers do not need the raw map; it matters for scripted
+diagnosis and assertions.
 
-### The same projection feeds the AI pair
+### Privacy projection
 
-Xray and the AI pair consume one versioned, privacy-projected evidence schema:
-byte-equivalent projections, one contract. Query arguments pass through the
-privacy projector. Raw values and text are omitted by default. Nothing leaves
-the process unless an authorized consumer requests it.
+Xray and the AI pair consume the same privacy-projected evidence schema.
+Query arguments pass through the projector. Raw values and text are omitted by
+default. Data leaves the process only through an authorised consumer.
 
-### Optional modules bring their own evidence
+### Optional-module evidence
 
-Evidence follows installation. The forms module contributes draft ownership.
-Overlays contribute the active top-layer region. Motion contributes the current
-transition posture. Resources contribute the live demand. Each is a bounded
-projection that exists only while the module is installed and in use. An app
-that uses none of them pays for none of this.
+Installed modules can add bounded projections:
 
-### Retention is bounded on purpose
+- forms: draft ownership;
+- overlays: active top-layer regions;
+- motion: transition posture;
+- resources: live demand.
 
-Xray owns its history budget. The trace ring is the record; a named operation
-(mount/unmount correlation, for example) may keep bounded, commit-owned
-identity. No universal occurrence ledger accumulates in the background. The
-`:cap` label is the visible edge of that choice. The cost is bounded history;
-the alternative is a runtime that slows down in proportion to how long you have
-debugged it.
+An unused or uninstalled module contributes no projection.
+
+### Bounded retention
+
+Xray owns a fixed history budget. The trace ring is the record, and named
+operations may retain bounded, commit-owned identity for correlation. There is
+no unbounded occurrence ledger. `:cap` is the visible boundary of that choice.

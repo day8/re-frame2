@@ -1,129 +1,106 @@
 # The native tier
 
-Most apps never need this page. Ordinary Hicasso — hiccup, `h/sub` where you
-read, events as data — is the product. This page is for the thin slice that
-is not: market-tick rows, display-rate drag, vendor widgets that are hooks
-all the way down. You write React directly; frame, app-db, and root stay the
-same.
+Most Hicasso applications do not need native view code. Start with interpreted
+Hiccup, tracked `h/sub` reads, and event vectors. Move a measured region only
+when profiling identifies work that the normal topology cannot remove.
 
-`[...]` is always interpreted Hiccup. `n/$` is always native React. Neither
-form changes the other's meaning, and nothing compiles hiccup into native
-behind the scenes. Crossing is explicit in source, visible to tests, and
-named by Xray. An application that never requires the native namespace ships
-zero native-tier code.
+`[...]` always means interpreted Hiccup. `n/$` always creates React elements
+directly. The crossing is explicit in source, visible to diagnostics, and does
+not replace the root, frame, or app-db. Applications that never require the
+native namespace include none of its code.
 
-## The ladder
+## Escalation ladder
 
-Climb one rung at a time, with a measurement at every step.
+| Rung | Authoring form | What changes | Use it when |
+| --- | --- | --- | --- |
+| 1. Ordinary Hicasso | Hiccup, `h/sub`, event vectors | nothing | default for every screen |
+| 2. Tuned Hicasso | same language | view boundaries, keys, read shape, chunking, or virtualization | profiling identifies topology cost |
+| 3. Native return from `defview` | a Hicasso view returns `n/$` | skips Hiccup interpretation for that result; retains the view's frame, reads, memo, and lifecycle | Hiccup construction is the measured owner |
+| 4. Named native island | `n/defcomponent` or UIx with `n/use-sub` and `n/use-frame` | hooks and high-rate local mechanics run in a real native component | hooks, vendor behaviour, reconciliation, or per-frame local work dominate |
+| 5. Native screen | native namespace, UIx, or hosted JS/TS tree | that screen uses a React-first view language | the product surface is React-shaped by design |
 
-| Rung | You write | What changes | Climb when |
-|---|---|---|---|
-| 1. Ordinary Hicasso | Hiccup, `h/sub`, event vectors | Nothing — this is the product | Always start here |
-| 2. Tuned topology | The same language | View placement, keys, read shape (fine / coarse / chunked / windowed), virtualization | A named interaction misses its budget — [Lists and collections](06-lists-and-collections.md) |
-| 3. Direct native return | A `defview` whose body returns `n/$` | Hiccup interpretation skipped for that result; frame, reads, memo, and lifecycle stay | Attribution names hiccup construction as the cost owner |
-| 4. Named native island | `n/defcomponent` (or UIx) with `n/use-sub` / `n/use-frame` | Hooks, vendor widgets, and high-rate mechanics live in a real native component with an explicit crossing | Hooks, reconciliation, vendor behavior, or high-rate local work dominates |
-| 5. Native screen | A whole screen in the native namespace or UIx | The view language for that screen — same root, same frames, same app-db | The screen is React-shaped by design |
+Keep an escape only when the measured interaction improves materially: at
+least 20%, at least 2 ms at p95, or enough to move a user-visible budget from
+fail to pass. Otherwise remove it. A small explicit diff is easier to maintain
+than a permanent second authoring style with no demonstrated benefit.
 
-Rungs 1 and 2 are ordinary product —
-[Views and reads](02-views-and-reads.md) and
-[Lists and collections](06-lists-and-collections.md). This page owns rungs 3
-to 5.
+## Return native elements from a Hicasso view
 
-**Escape-benefit rule:** keep an escape only if it recovers at least 20% of
-the measured interaction, saves at least 2 ms at p95, or converts a failed
-user-visible budget into a pass. Otherwise take it out. Native code that
-cannot meet that rule is a permanent cost with no return. Reverting a rung-3
-escape is a small diff, so the rule has no exceptions.
-
-## Rung 3 — return native React from a view
-
-Here is a watchlist row after rung 2 is already done. The table is windowed
-to the ~40 visible rows, keys are stable, and each row makes one coarse
-display read. The subscription returns render-ready strings, so the body does
-almost no work of its own.
+Assume a windowed watchlist has stable keys and each visible row makes one
+render-ready subscription read:
 
 ```clojure
 (ns app.watchlist.row
   (:require [re-frame.hicasso :as h]))
 
 (h/defview quote-row [{:keys [sym]}]
-  (let [{:keys [px chg pct vol up?]} (h/sub [:quotes/display-row sym])]
+  (let [{:keys [px chg pct vol up?]}
+        (h/sub [:quotes/display-row sym])]
     [:tr {:class    (if up? "quote up" "quote down")
           :on-click [:watchlist/select sym]}
      [:td.sym sym]
-     [:td.px  px]
+     [:td.px px]
      [:td.chg chg]
      [:td.pct pct]
      [:td.vol vol]]))
 ```
 
-Market ticks update most visible rows several times a second. On this app's
-low-tier reference laptop, Xray's attribution for the tick event reads:
-bodies 3 ms, hiccup construction 9 ms, React reconcile-and-commit 6 ms, paint
-3 ms — 21 ms at p95. Every row did change, so there is no read-topology fix
-left. The owner is construction: forty rows of vectors turn into React
-elements, several times a second. That is the situation rung 3 exists for.
-
-A `defview` may return an existing React element instead of hiccup. Build it
-with `n/$`:
+If event attribution shows Hiccup construction, rather than subscriptions or
+React commit, as the remaining cost, the same `defview` may return an existing
+React element:
 
 ```clojure
 (ns app.watchlist.row
-  (:require [re-frame.hicasso        :as h]
+  (:require [re-frame.hicasso :as h]
             [re-frame.hicasso.native :as n]))
 
 (h/defview quote-row [{:keys [sym]}]
-  (let [{:keys [px chg pct vol up?]} (h/sub [:quotes/display-row sym])]
-    (n/$ :tr {:class    (if up? "quote up" "quote down")
-              :on-click (h/event [_] [:watchlist/select sym])}
+  (let [{:keys [px chg pct vol up?]}
+        (h/sub [:quotes/display-row sym])]
+    (n/$ :tr
+         {:class    (if up? "quote up" "quote down")
+          :on-click (h/event [_]
+                      [:watchlist/select sym])}
          (n/$ :td {:class "sym"} sym)
-         (n/$ :td {:class "px"}  px)
+         (n/$ :td {:class "px"} px)
          (n/$ :td {:class "chg"} chg)
          (n/$ :td {:class "pct"} pct)
          (n/$ :td {:class "vol"} vol))))
 ```
 
-The view did not change as a unit. The parent still renders
-`[quote-row {:key sym :sym sym}]`. The view keeps its React identity,
-value-equality memo, frame, `h/sub` reads, lifecycle, and name in Xray. What
-changed is the return value: an already-built React element, so hiccup
-interpretation is skipped for this result. Re-measured, the tick lands at
-13 ms p95 — 38% recovered, 8 ms saved. That passes the benefit rule on two
-conditions; the escape stays. Your numbers will differ. The point is that you
-have numbers.
+The parent still renders `[quote-row {:key sym :sym sym}]`. The Hicasso view
+keeps its identity, equality memo, frame, subscription reads, lifecycle, and
+Xray name. Only its returned subtree bypasses Hiccup interpretation.
 
-Read the diff:
+The guide's worked measurement moved a 21 ms p95 tick to 13 ms: 38% and 8 ms
+recovered. Those numbers justify that example but are not a promise for another
+application; remeasure the actual interaction before keeping the crossing.
 
-- **`[:td.sym …]` became `(n/$ :td {:class "sym"} …)`.** The native grammar
-  has no selector shorthand. Spell class and id as props.
-- **`:on-click [:watchlist/select sym]` became
-  `(h/event [_] [:watchlist/select sym])`.** Past this fence there is no
-  automatic event-vector → callback conversion. An event vector in a native
-  prop is an error, not a callback. `h/event` captures the frame while the
-  body runs and hands React an ordinary function. Plain `fn` values are fine
-  when you do not dispatch.
-- **Children are nested `n/$` forms, not vectors.** A hiccup vector as a
-  native child is refused. If a native subtree needs one Hicasso-rendered
-  child, convert explicitly: `(h/as-element [sparkline {:points pts}])`.
+Important syntax changes:
 
-What stays with the view, and what stops at the returned element:
+- Hiccup selector shorthand has no native equivalent. Write class and id in
+  props.
+- Native event props require functions. Use `h/event` in a rung-3 body to
+  create a frame-aware callback; an event vector is rejected.
+- Native children are ReactNode values. Nest `n/$` forms. Convert a Hicasso
+  subtree explicitly with `h/as-element`.
 
-| Stays with the view | Stops at the returned element |
-|---|---|
-| The frame — and `h/sub` anywhere in the body | Hiccup interpretation — a vector is not markup here |
-| The props ABI, value-equality memo, and the parent's `:key` | Event vectors in props — an event vector in a prop is an error |
-| Lifecycle, HMR conduct, and the view's name in Xray | Controlled repair — no `::h/value`, `::h/checked`, `::h/prevent`, `::h/revision` |
-| Server rendering — intrinsic-headed output produces the same deterministic bytes | Structural assertions and key diagnostics — the element is opaque to the pure test tiers ([Testing](14-testing.md)) |
+| Retained by the enclosing `defview` | Not provided inside the native result |
+| --- | --- |
+| current frame and `h/sub` reads | Hiccup interpretation |
+| props ABI, equality memo, and parent's key | event-vector-to-callback conversion |
+| lifecycle, HMR behaviour, and Xray name | controlled-input repair and reserved markers |
+| deterministic intrinsic server output | structural tree assertions and Hicasso key diagnostics inside the opaque element |
 
-Form fields stay interpreted. An `<input>` inside `n/$` is a raw React
-controlled input: you do all of React's manual work, and you get none of
-Hicasso's caret, IME, or same-turn guarantees
-([Controlled inputs](04-controlled-inputs.md)). Hooks still do not belong in
-the body. A `defview` body is dynamically composed — branches and loops are
-legal, which is where hook order breaks. The wish for a hook in a `defview`
-body is the signal you are at rung 4, not rung 3.
+Keep form controls interpreted. A raw React `<input>` created with `n/$` does
+not receive Hicasso's same-turn convergence, selection preservation, IME
+protection, or `::h/revision` handling.
 
-### The `n/$` grammar
+Hooks also remain illegal in a `defview` body. Hicasso bodies may branch and
+loop dynamically, which is incompatible with hook order. A needed hook is a
+signal to use a named native island.
+
+## `n/$` grammar
 
 ```clojure
 (n/$ head)
@@ -132,64 +109,51 @@ body is the signal you are at rung 4, not rung 3.
 (n/$ head (n/props dynamic-props) child*)
 ```
 
-- **Heads.** An unqualified keyword such as `:div` names an intrinsic React
-  element. A string names an intrinsic or custom element verbatim (SVG and
-  web components work). Any other head expression must evaluate to a native
-  React component.
-- **The props operand.** The macro treats exactly four forms as props: `nil`,
-  a literal ClojureScript map, a literal `#js` object, or the explicit
-  `(n/props expression)` marker. **Every other trailing form is a child.**
-- **Prop names.** ClojureScript-map keys use the canonical React slot-name
-  rule: kebab becomes camelCase (`:on-click` → `onClick`); `:class` and
-  `:for` become the React names; `data-*` / `aria-*` stay hyphenated;
-  camelCase keywords are fixpoints; string keys pass verbatim. A raw
-  JavaScript object is never renamed.
-- **Prop values pass by identity.** No event-vector conversion, no
-  class-collection merge, no style-map conversion, no keyword-value
-  conversion, no controlled-field repair, no deep conversion. Where a native
-  API expects a JavaScript object — React style objects included — hand it
-  one: `:style #js {:transform "translateX(4px)"}`.
-- **Children** are trailing ReactNode values. Nest with `n/$`; collections
-  must already be valid React children, normally a JavaScript array
-  (`(into-array (map row-el rows))`, each element carrying its `:key`). The
-  grammar refuses `:children` inside the props map — there is one child
-  channel.
-- **`:key` and `:ref`** use the ordinary React slots. Two source keys that
-  normalize to the same slot — for example `:class` and `"className"` in one
-  map — refuse rather than let map order pick a winner.
+Rules:
 
-!!! warning "Dynamic props must be marked"
-    The props rule is syntactic on purpose. A dynamic React element is itself
-    a JavaScript object, so the macro never inspects a runtime value to decide
-    "props or child".
+- An unqualified keyword names an intrinsic React element. A string names an
+  intrinsic or custom element verbatim. Any other head expression must evaluate
+  to a native React component.
+- Only `nil`, a literal ClojureScript map, a literal `#js` object, or
+  `(n/props expression)` is classified as the props operand. Every other
+  trailing form is a child.
+- Keys in a ClojureScript props map normalize to React slots: kebab-case to
+  camelCase, `:class` to `className`, `:for` to `htmlFor`, with `data-*` and
+  `aria-*` unchanged. String keys pass verbatim. A JS object is not renamed.
+- Prop values pass by identity. There is no event-vector conversion, class
+  collection join, style-map conversion, keyword value conversion,
+  controlled-field repair, or deep conversion. Supply JS values explicitly
+  where React or a library requires them.
+- Children must already be valid ReactNode values. Collections are normally
+  JavaScript arrays of keyed elements. `:children` in the props map is
+  rejected because trailing forms are the one child channel.
+- `:key` and `:ref` use ordinary React slots. Two source keys that normalize to
+  the same slot, such as `:class` and `"className"`, are rejected rather than
+  resolved by map order.
+
+!!! warning "Mark dynamic props with `n/props`"
+    The macro classifies props syntactically. A runtime map in second position
+    is otherwise a child:
 
     ```clojure
-    ;; Don't: a dynamic map in second position is a CHILD, not props.
+    ;; Don't
     (let [cell-props {:class "px" :dir "ltr"}]
-      (n/$ :td cell-props px))   ;; refuses — recovery names (n/props …)
+      (n/$ :td cell-props px))
 
-    ;; Do: mark the operand. n/props emits no wrapper — it only classifies.
+    ;; Do
     (let [cell-props {:class "px" :dir "ltr"}]
       (n/$ :td (n/props cell-props) px))
     ```
 
-    A dynamic ClojureScript map inside `n/props` converts shallowly under the
-    same slot-name rule; a JavaScript object passes by identity.
+    `n/props` adds no runtime wrapper. It only marks the operand. A CLJS map is
+    converted shallowly under the slot-name rule; a JS object passes through.
 
-## Rung 4 — a named native island
+## Named native islands
 
-When the cost owner is not hiccup construction but *behavior* — hooks, a
-retained vendor widget, React reconciliation itself, or work that runs per
-animation frame — the answer is a named, top-level native component. The
-self-contained route is `n/defcomponent`. UIx is an equally supported mature
-route. A JavaScript or TypeScript component enters through the host bridge
-([Interop](09-interop.md)). Every route stays inside the same React root, the
-same frame context, and the same state owner.
-
-Here is a column-resize handle. Pointer movement is high-rate mechanics —
-host-private, not an application fact. It stays in local React state; app-db
-receives exactly one write, on release
-([Ephemeral state](11-ephemeral-state.md)):
+Use a top-level native component when the remaining owner is hooks, retained
+vendor behaviour, React reconciliation, or high-rate mechanics. The example
+below keeps drag motion in local React state and commits one domain fact to
+app-db when the pointer is released:
 
 ```clojure
 (ns app.watchlist.resizer
@@ -197,183 +161,176 @@ receives exactly one write, on release
             [re-frame.hicasso.native :as n]))
 
 (n/defcomponent col-resizer
-  ;; No declaration map: the server policy defaults to Client-only.
   [^js props]
   (let [col                (.-col props)
         {:keys [dispatch]} (n/use-frame)
         committed          (n/use-sub [:watchlist/col-width col])
-        [live set-live]    (react/useState nil)]   ; px while dragging, else nil
+        [live set-live]     (react/useState nil)]
     (n/$ :div
          {:class            "col-resizer"
           :role             "separator"
           :aria-orientation "vertical"
-          :on-pointer-down  (fn [e]
-                              (.setPointerCapture (.-currentTarget e) (.-pointerId e))
-                              (set-live committed))
-          :on-pointer-move  (fn [e]
-                              (set-live (fn [w] (some-> w (+ (.-movementX e))))))
-          :on-pointer-up    (fn [_]
-                              (when live
-                                (dispatch [:watchlist/set-col-width col live]))
-                              (set-live nil))
-          :on-lost-pointer-capture (fn [_] (set-live nil))}
+          :on-pointer-down
+          (fn [e]
+            (.setPointerCapture (.-currentTarget e)
+                                (.-pointerId e))
+            (set-live committed))
+          :on-pointer-move
+          (fn [e]
+            (set-live
+             (fn [width]
+               (some-> width (+ (.-movementX e))))))
+          :on-pointer-up
+          (fn [_]
+            (when live
+              (dispatch [:watchlist/set-col-width col live]))
+            (set-live nil))
+          :on-lost-pointer-capture
+          (fn [_]
+            (set-live nil))}
          (when live
-           (n/$ :div {:class "col-resizer__guide"
-                      :style #js {:transform (str "translateX(" (- live committed) "px)")}})))))
+           (n/$ :div
+                {:class "col-resizer__guide"
+                 :style #js {:transform
+                             (str "translateX("
+                                  (- live committed)
+                                  "px)")}})))))
 ```
 
-Piece by piece:
+The component ABI is one raw JS props object; children are at `.-children`.
+An optional declaration map before the argument vector chooses
+`{:server :render}` or `{:server :client-only}`. Omission defaults to
+Client-only, which is appropriate for a pointer-only widget.
 
-- **The ABI is one raw JavaScript props object** — read it with `.-col`;
-  children arrive at `.-children`. There is no hidden map allocation.
-- **A declaration map before the argument vector carries the server
-  policy** — `{:server :render}` or `{:server :client-only}`. Omit it and
-  the policy is Client-only, which is right for a pointer-driven widget.
-- **Ordinary React hooks are used directly.** `react/useState`,
-  `react/useEffect`, refs — React's surface, React's rules.
-- **`n/use-sub` and `n/use-frame` join the frame you were already in.** The
-  first reads a subscription under the current frame and re-renders the
-  island when the value changes. The second is frame capture in hook
-  position. It returns the frame-locked ops map —
-  `{:frame :dispatch :dispatch-sync :subscribe}` — and the map is
-  reference-stable across re-renders of the same frame *incarnation*. A frame
-  keyword is an address, not an identity: destroying that frame and creating
-  another under the same id retargets the map. Within an incarnation it is
-  safe to pull `:dispatch` off it and close over it in callbacks; a bundle
-  held across a same-id reincarnation is silently inert.
-- **High-rate work never touches app-db.** The drag guide tracks the pointer
-  through local React state; the component dispatches the single committed
-  fact — the final width — once, on release.
+React hooks use their normal rules. `n/use-sub` is a hook and must be called
+unconditionally at the top level. `n/use-frame` returns
+`{:frame :dispatch :dispatch-sync :subscribe}` for the current frame and is
+reference-stable during one frame incarnation.
 
-The two read doors look similar but obey different laws:
+A frame keyword is only an address. Destroying a frame and recreating it under
+the same id creates a new incarnation. A bundle retained across that change is
+silently inert; obtain frame operations from the live island rather than a
+global stash.
 
-| Door | Lives in | Rules |
-|---|---|---|
-| `h/sub` | Hicasso bodies | Direct synchronous body only; branches, loops, and plain helpers are fine; not a hook |
-| `n/use-sub` | Native components | A real React hook; the rules of hooks apply — top level of the component, unconditional |
+High-rate pointer updates remain local to the island. Dispatch only the fact
+that the rest of the application needs — the final width.
 
-### Mounting the island
+| Read API | Legal context | Rule |
+| --- | --- | --- |
+| `h/sub` | synchronous Hicasso view body | ordinary function call; branches, loops, and helpers are legal |
+| `n/use-sub` | native React component | React hook; top-level and unconditional |
 
-From interpreted hiccup, mount an island behind a named host. Declare once,
-use as an ordinary head:
+## Mount an island
+
+Declare a native component as a host when interpreted Hiccup needs to render
+it:
 
 ```clojure
 (h/defhost resize-handle col-resizer)
 
-;; in the header view:
-[:th {:class "px"} "Price" [resize-handle {:col :px}]]
+[:th {:class "px"}
+ "Price"
+ [resize-handle {:col :px}]]
 ```
 
-From native code, a component is a head as-is: `(n/$ col-resizer {:col :px})`.
-Both directions cross under the same root and frame. The one-off raw element
-escape also exists ([Interop](09-interop.md)), but it is for migration and
-true one-off interop. Repeated or hot crossings deserve a name, a
-declaration, and tests — which is what `defhost` gives you.
-
-!!! note "Islands and the server"
-    An intrinsic `n/$` return renders on the server like the hiccup it
-    replaced. A component-headed island defaults to Client-only — leaving its
-    declared fallback in the server bytes or, bare, nothing at all — until
-    its declaration selects `{:server :render}` and proves matching hydration.
-    [SSR and hydration](17-ssr-and-hydration.md) owns the full contract.
-
-??? info "If your team already writes UIx"
-    Everything above has a UIx spelling. A `defview` at rung 3 may return a
-    `uix.core/$` element, and an island at rung 4 may be a `defui`. The native
-    hooks are substrate-neutral, so `n/use-sub` and `n/use-frame` work inside
-    a `defui` exactly as inside `n/defcomponent`. The Hicasso-native surface
-    is held to parity against both handwritten React and UIx, so the choice is
-    taste and scale, not speed. Two corrections: `n/*` is not UIx-lite and
-    never imports UIx — a Hicasso app without UIx islands ships zero UIx
-    bytes. When a native region grows into substantial React-first work, UIx
-    is the designed answer, not a defeat — the native namespace is deliberately
-    too small to be a component framework.
-
-## Keeping the marker: the ABI helpers
-
-`n/defcomponent` stamps its component with a display name and a tier marker
-carrying that name and the declared server policy. The marker lets Xray name
-the view, and it is how ABI helpers and embedding directions recognize a
-native head. It does not carry the component across a hot reload. Defining a
-component is allocation, never a lookup by name: a save re-evaluates the
-module, the component is allocated afresh, the element type at that position
-is a new object, and React replaces the subtree. **A clean remount across a
-save is designed conduct, not a fault** — a component's name is an address,
-not an identity, the same as `defview`. Raw React wrappers erase the marker:
+Native code renders it directly:
 
 ```clojure
-;; given (n/defcomponent quote-cell* …) — a pure display cell worth memoizing:
-
-;; Don't: works at runtime, but the marker is gone — Xray shows an anonymous
-;; view, and the embedding seams no longer recognize the head.
-(def quote-cell (react/memo quote-cell*))
-
-;; Do: same React.memo semantics, marker intact.
-(def quote-cell (n/memo quote-cell*))
+(n/$ col-resizer {:col :px})
 ```
 
-`n/memo` and `n/lazy` carry the one props/children ABI through memoization
-and code-split loading. Refs need no helper: `:ref` uses React's ordinary
-slot, and a function component receives it through props. The same
-preservation applies to both embedding directions: hiccup rendering an island
-(above), and a native parent rendering a Hicasso view through the outward bridge
-([Interop](09-interop.md)).
+Both stay under the existing root and frame. Repeated crossings should receive
+a named declaration for tooling and tests; the raw escape is for migration and
+one-off dynamic cases.
 
-## Rung 5 — a native screen
+An intrinsic-headed `n/$` result can render deterministically on the server.
+A component-headed island defaults to Client-only and emits its declared
+fallback, or nothing, until explicitly marked Render and verified for
+hydration.
 
-Some screens are React-shaped from the first commit — a canvas editor, a
-diagramming surface, a screen that is mostly one large vendor grid. Implement
-that screen's view tree natively — with the native namespace, with UIx, or in
-JavaScript behind hosts — under the same installed adapter, the same root,
-and the same frames. This is a local view-implementation choice, not a second
-adapter, and never a second state owner. An independent React root remains an
-isolation choice, not a speed choice.
+??? info "Using UIx"
+    A rung-3 `defview` may return a UIx element, and a rung-4 island may be a
+    `defui`. `n/use-sub` and `n/use-frame` work inside UIx components. The
+    native namespace does not import UIx and is intentionally not a full
+    component framework. Use UIx when a native region becomes substantial
+    React-first product code.
 
-## Every crossing runs the loop
+## Preserve the native marker
 
-The numbered working loop — reproduce, attribute with Xray, tune topology
-first, then compare an escape and keep it only if it passes the benefit
-rule — is [Performance](18-performance.md)'s method. Every rung on this page
-is entered through it: rung 3 when attribution names hiccup construction,
-rung 4 when it names hooks, vendor behavior, reconciliation, or high-rate
-local work. What this page adds is the follow-through a crossing owes.
-Re-run the contracts you can no longer see — DOM and event-vector parity,
-focus and selection, frame routing, SSR and hydration, cleanup, and the
-performance script — before you call the escape done.
+`n/defcomponent` records a display name, native-tier marker, and server policy.
+Xray and embedding helpers use that marker. Raw React wrappers remove it:
 
-Xray stays honest on both sides of the fence. It names and times the native
-view, shows reads made through `n/use-sub`, and labels the inner React tree
-*opaque* — a real answer, never a silently empty one. The advisor may
-recommend a view split and scaffold a comparison. It never rewrites your
-code, and nothing switches semantics at runtime.
+```clojure
+;; Don't — React behaviour works, but Hicasso loses the marker
+(def quote-cell
+  (react/memo quote-cell*))
+
+;; Do
+(def quote-cell
+  (n/memo quote-cell*))
+```
+
+Use `n/memo` and `n/lazy` so the props/children ABI and marker survive
+memoization or code-split loading. Refs need no helper; function components
+receive the React ref slot through props.
+
+Hot reload reallocates a native component. React sees a new element type and
+remounts that subtree. Local hook state resets on save by design. State that
+must survive code reload belongs in app-db and returns through `n/use-sub`.
+
+## Native screens
+
+A canvas editor, diagramming surface, or vendor-grid screen may be React-shaped
+from its first useful design. Implement that screen natively under the same
+adapter, root, and frames. This changes only the view implementation for that
+screen; it does not justify a second state owner or independent React root.
+
+An independent root is an isolation decision, not a performance optimisation.
+
+## Verify every crossing
+
+The performance chapter owns the working method: reproduce, attribute with
+Xray, tune topology first, compare an escape, and retain it only if it meets
+the benefit rule.
+
+After crossing, rerun the contracts that Hicasso can no longer inspect inside
+the native subtree:
+
+- DOM and interaction parity
+- focus and selection
+- frame routing
+- SSR and hydration
+- cleanup and StrictMode behaviour
+- the original performance script
+
+Xray can name and time the native boundary and show `n/use-sub` reads, while
+correctly labelling the inner React tree opaque. It does not silently pretend
+to inspect native descendants.
 
 ## When not to go native
 
-- **You have no named measurement.** "The app feels slow" is almost always a
-  rung-1 or rung-2 problem underneath. No profile, no escape.
-- **The owner is read placement.** On the worst mounts we have measured, most
-  of the deficit was read shape — too many fine per-row subscriptions — not
-  the hiccup walk. That fix is [Lists and collections](06-lists-and-collections.md),
-  and it keeps every convenience the fence would cost you.
-- **The problem is typing latency.** Keystroke echo is an event-volume and
-  controlled-field question ([Controlled inputs](04-controlled-inputs.md),
-  [Performance](18-performance.md)); native construction does not move it.
-- **A controlled field is involved.** The native tier has no controlled
-  repair — same-turn convergence, caret and IME preservation, and
-  `::h/revision` live on the hiccup side. Fields stay interpreted.
-- **You want rung 4 "for consistency".** One island is an escape; islands
-  everywhere is a rewrite of the product you chose.
+Do not cross without a reproducible interaction and measured owner. Read
+placement, unstable props, excessive event volume, and uncontrolled DOM size
+must be fixed at the Hicasso level first.
+
+Native construction does not solve controlled-input latency, and native inputs
+lose the Hicasso controlled-field contract. Keep those fields interpreted.
+
+Do not create islands merely for stylistic consistency. A few named escapes
+are a boundary; islands throughout the application are a change of view-layer
+strategy.
 
 ## Troubleshooting
 
 | Symptom | Cause | Fix |
-|---|---|---|
-| Refusal: a ClojureScript map appeared as a React child | A dynamic map in the props position is classified as a child — the grammar only recognizes `nil`, literal maps, `#js` literals, and `(n/props …)` as props | Mark it: `(n/$ :td (n/props m) …)` |
-| Refusal on a vector child inside `n/$` | Hiccup is not interpreted past the fence | Convert with `h/as-element`, or keep that subtree interpreted |
-| Refusal: event vector in a native prop (`:on-click [:x/select id]`) | No event-vector conversion past the fence — native callbacks are functions | `(h/event [_] [:x/select id])` in a rung-3 body; `:dispatch` from `n/use-frame` inside an island |
-| Refusal: `:children` in the props map | One child channel — trailing forms | Pass children after the props operand |
-| Refusal: two keys normalize to one slot (`:class` and `"className"`) | Canonical-slot collision | Keep one spelling per slot |
-| `:rf.error/no-frame-context` from `n/use-sub` or `n/use-frame` | Island rendered outside any frame provider — separate root, portal outside the app, or test without the harness | Mount under the app root, or use the test kit's provider ([Testing](14-testing.md)) |
-| Xray shows an anonymous view where a named island should be | Component marker erased by a raw wrapper (`react/memo`, `React.lazy`) | Use `n/memo` / `n/lazy` — same semantics, marker intact |
-| Local state inside an island resets whenever you save | Designed HMR conduct: reload allocates a fresh component, React remounts | Nothing to fix. State that must outlive a save belongs in `app-db`, read back through `n/use-sub` |
-| Went native, numbers did not move | Cost owner was never construction — usually reads or event volume | Back to loop step 2; expect the fix at rung 2, and take the unearned escape out |
+| --- | --- | --- |
+| A CLJS map is rejected as a React child | Dynamic map was not classified as props | Wrap the expression with `(n/props m)` |
+| A vector child is rejected inside `n/$` | Hiccup is not interpreted past the native fence | Convert with `h/as-element` or keep the subtree interpreted |
+| An event vector in a native prop is rejected | Native props require functions | Use `h/event` in a rung-3 body or dispatch from `n/use-frame` in an island |
+| `:children` in the props map is rejected | Native grammar has one trailing child channel | Move children after the props operand |
+| Two prop keys are rejected as a slot collision | Both normalize to one React slot | Keep one canonical spelling |
+| `n/use-sub` or `n/use-frame` raises `:rf.error/no-frame-context` | Component mounted outside a Hicasso frame provider | Mount under the application root or use the test kit's provider |
+| Xray shows an anonymous native view | Raw `react/memo` or `React.lazy` removed the marker | Use `n/memo` or `n/lazy` |
+| Local island state resets after each code save | Hot reload allocates a new component and React remounts it | Expected; move persistent state to app-db |
+| Native rewrite does not improve the measurement | Construction was not the actual cost owner | Remove the escape and return to topology/event attribution |
+| A controlled field loses caret or composition behaviour | It was moved behind the native fence | Keep the field interpreted or implement the full React contract yourself |
