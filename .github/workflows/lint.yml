@@ -236,22 +236,49 @@ jobs:
 
       # Install the official binary directly — the published GitHub
       # Actions for clj-kondo are either unmaintained (DeLaGuardo's runs
-      # on node12, deprecated by GitHub) or community-forked. The
-      # upstream `install-clj-kondo` script is the documented path and
-      # leaves the binary on $PATH.
+      # on node12, deprecated by GitHub) or community-forked.
       - name: Install clj-kondo
-        # `raw.githubusercontent.com` is CDN-fronted and HTTP-429s under
-        # rate limiting, which (with bare `curl -f`) dies in ~11s and reds
-        # unrelated PRs (rf2-cq0s2j; cost a fix-worker cycle on #5304).
+        # Fetch the pinned release archive ourselves rather than delegating
+        # to upstream's `install-clj-kondo` script (rf2-rkl9). The script is
+        # the documented path, but it fetches that archive with a bare
+        # `curl -o "$filename" -sL` — no `-f`, no retry — and THAT hop is
+        # where this gate actually dies. PR #7881's job logged one line,
+        # `Downloading …/clj-kondo-2026.04.15-linux-static-amd64.zip to
+        # /tmp`, then exit 35 (curl's SSL-connect error) 0.24s in, with no
+        # lint output anywhere. A transient install failure wearing the
+        # costume of a RED LINT GATE is the worst possible disguise: the
+        # natural response is to hunt the diff for an error that does not
+        # exist, and that is exactly what it cost.
+        #
+        # Retry-hardening the fetch of the SCRIPT (rf2-cq0s2j, below) was
+        # right in intent but one hop short of reach, and pre-fetching the
+        # archive in front of the script cannot close the gap either — the
+        # script `rm -rf`s the archive immediately before downloading it, so
+        # a warm copy is discarded unread. Fetching it directly is the only
+        # placement where the retry policy covers the download that fails,
+        # and it drops this step from two network hops to one.
+        #
         # `--retry 5 --retry-all-errors --retry-delay 3` retries transient
-        # failures — including the 429 that `-f` alone treats as fatal —
-        # with a 3s base backoff. GNU curl on ubuntu-24.04 runners supports
-        # `--retry-all-errors` (since 7.71).
+        # failures with a 3s base backoff — the SSL-connect drop above, and
+        # the CDN HTTP-429 that `-f` alone treats as fatal (rf2-cq0s2j; cost
+        # a fix-worker cycle on #5304). GNU curl on ubuntu-24.04 runners
+        # supports `--retry-all-errors` (since 7.71). `-f` additionally means
+        # an error page can never be mistaken for an archive.
+        #
+        # The platform triple is written out rather than probed: this job is
+        # `runs-on: ubuntu-latest`, i.e. linux/amd64, for which upstream
+        # publishes the `-static` build. Were the runner ever to change, the
+        # URL 404s and `-f` fails the step outright rather than installing
+        # something else. `/usr/local/bin` is on $PATH and is where the
+        # upstream script installs too, so the run step below is unchanged.
         run: |
-          curl -fsSL --retry 5 --retry-all-errors --retry-delay 3 -o install-clj-kondo \
-            https://raw.githubusercontent.com/clj-kondo/clj-kondo/master/script/install-clj-kondo
-          chmod +x install-clj-kondo
-          sudo ./install-clj-kondo --version 2026.04.15
+          version=2026.04.15
+          dir="$(mktemp -d)"
+          curl -fsSL --retry 5 --retry-all-errors --retry-delay 3 \
+            -o "$dir/clj-kondo.zip" \
+            "https://github.com/clj-kondo/clj-kondo/releases/download/v${version}/clj-kondo-${version}-linux-static-amd64.zip"
+          unzip -qq "$dir/clj-kondo.zip" clj-kondo -d "$dir"
+          sudo install -m 0755 "$dir/clj-kondo" /usr/local/bin/clj-kondo
           clj-kondo --version
 
       # Cache the kondo classpath / project-analysis under
