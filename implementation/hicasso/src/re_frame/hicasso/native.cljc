@@ -330,17 +330,18 @@
 
   ONE today, and the roster exists precisely because it is one: a
   declaration read for `:server` and silent about everything else
-  accepted `{:ssr :render}` — the `defhost` spelling, on the sibling
-  door — and `{:sever :render}`, and stamped Client-only in both cases
-  while the author read the source and saw a policy (rf2-u9lk)."
+  accepted `{:ssr :render}` — the spelling `defhost` carried until
+  rf2-mo4o — and `{:sever :render}`, and stamped Client-only in both
+  cases while the author read the source and saw a policy (rf2-u9lk)."
        #{:server})
 
      (def ^:private server-policies
-       "Every value `:server` may take. `defhost`'s `:ssr` admits a third
-  form, `{:fallback <hiccup>}`, and this door deliberately does not: a
-  fallback is markup rendered by a GATE component in the crossing's
-  place, and a native component has no gate — [[component]] mints the
-  author's own function as the element type and nothing wraps it."
+       "Every value `:server` may take. These are `defhost`'s two as well;
+  what that door has and this one deliberately does not is the sibling
+  `:fallback` option — a fallback is markup rendered by a GATE component
+  in the crossing's place, and a native component has no gate:
+  [[component]] mints the author's own function as the element type and
+  nothing wraps it."
        #{:client-only :render})
 
      (defn declared-server
@@ -381,11 +382,12 @@
                         're-frame.hicasso.native/defcomponent
                         (str "n/defcomponent " component-name " was declared with "
                              (pr-str k) ", which is not an option. A native "
-                             "declaration carries :server and nothing else — the "
-                             "`defhost` door's spelling is :ssr, and it is the "
-                             "one this key is most often borrowed from. Reading "
-                             "past an option it does not know is how a policy "
-                             "comes to be set and never applied.")
+                             "declaration carries :server and nothing else. The "
+                             "`defhost` door takes the same :server policy with "
+                             "a sibling :fallback, which is the key most often "
+                             "borrowed here. Reading past an option it does not "
+                             "know is how a policy comes to be set and never "
+                             "applied.")
                         :declare-the-server-policy
                         {:component component-name :option k
                          :options component-options})))
@@ -399,9 +401,10 @@
                              "default, meaning the component is not run on the "
                              "server — or :render, meaning it is safe to run "
                              "there and does. There is no third value, and "
-                             "`defhost`'s {:fallback …} is not one of them: a "
-                             "fallback needs a gate component to render it, and "
-                             "a native component is its own element type.")
+                             "`defhost`'s sibling :fallback option has no "
+                             "counterpart here: a fallback needs a gate "
+                             "component to render it, and a native component is "
+                             "its own element type.")
                         :declare-client-only-or-render
                         {:component component-name :server policy}))))
 

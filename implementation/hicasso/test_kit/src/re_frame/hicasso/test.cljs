@@ -328,19 +328,20 @@
     (unchecked-get v "displayName")))
 
 (defn host-policy
-  "The `:ssr` policy a `defhost` crossing was declared with —
-  `:client-only`, `{:fallback <hiccup>}` or `:render` — read back as
-  data. Refuses anything that is not a minted crossing rather than
-  answering nil, because a nil here would read as `:client-only`'s
-  neighbour."
+  "The `:server` policy a `defhost` crossing was declared with —
+  `:client-only` or `:render` — read back as data, the same two values
+  `n/marker` records on the sibling native door. Refuses anything that
+  is not a minted crossing rather than answering nil, because a nil here
+  would read as `:client-only`'s neighbour. A declared `:fallback` is
+  markup rather than policy and is not part of this answer."
   [v]
   (when-not (host? v)
     (refuse! :rf.error/hicasso-test-not-a-host
-             (str "host-policy reads the `:ssr` policy off a minted `h/defhost` "
+             (str "host-policy reads the `:server` policy off a minted `h/defhost` "
                   "crossing; it was given " (pr-str (type v)) ".")
              :pass-the-defhost-var
              {:value v}))
-  (codec/host-ssr v))
+  (codec/host-server v))
 
 ;; ---------------------------------------------------------------------------
 ;; L1 — the codec, projected

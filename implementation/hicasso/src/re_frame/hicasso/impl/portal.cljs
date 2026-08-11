@@ -37,11 +37,11 @@
      there on the server and on hydration's first client pass, and is
      gone once the client adopts the markup.
 
-  ## Why the declaration says `:ssr :render` when the SURFACE is
+  ## Why the declaration says `:server :render` when the SURFACE is
   ## Client-only
 
   These are statements about two different things and both are true.
-  `:ssr` describes [[portal-body]] — the component the head renders —
+  `:server` describes [[portal-body]] — the component the head renders —
   and that component *is* safe to run on the server: on the server it
   renders the caller's `:fallback`, or nothing, and never reaches for a
   container. The published matrix row (`Portal helper | Client-only`)
@@ -124,7 +124,7 @@
 ;; for exactly this write ([[re-frame.hicasso.impl.codec/mint-host-gate!]]):
 ;; the name has to survive `:advanced` property renaming, and a `set!` on an
 ;; untagged fn has no externs to protect it. `mint-host!` does not stamp it
-;; under `:ssr :render` — there the head's type is somebody else's component
+;; under `:server :render` — there the head's type is somebody else's component
 ;; and stamping would write on it — so this crossing names itself.
 (unchecked-set portal-body "displayName" "hicasso/portal")
 
@@ -140,5 +140,5 @@
   [[portal-target]]'s refusal naming the `undefined` it found rather
   than on a second roster here. Two options is not a roster."
   (codec/mint-host! "hicasso/portal" portal-body
-                    {:slots #{:fallback}
-                     :ssr   :render}))
+                    {:slots  #{:fallback}
+                     :server :render}))

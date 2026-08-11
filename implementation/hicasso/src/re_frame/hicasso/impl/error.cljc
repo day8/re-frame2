@@ -106,7 +106,7 @@
   make it the ambient origin. Called by the `defview` / `defhost`
   expansion, inside its own `debug-enabled?` gate, immediately before the
   mint — so a refusal the mint itself raises (`defhost`'s unknown option,
-  its bad `:ssr` policy, a boundary head in a declared fallback) carries
+  its bad `:server` policy, a boundary head in a declared fallback) carries
   the coordinate of the declaration that is wrong.
 
   Returns nil. `coord` may be nil, and a refusal raised under a nil one
