@@ -627,7 +627,7 @@
   `h/as-element`**, so the recovery this paragraph describes is one an
   author writes:
 
-      (h/fn [i]
+      (h/hfn [i]
         (h/as-element
           [:li {:on-click [:row/pick (nth ids i)]} (str (nth ids i))]))
 
