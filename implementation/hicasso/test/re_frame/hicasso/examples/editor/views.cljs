@@ -100,12 +100,15 @@
 (h/defview published-box
   "The owned `::h/checked` pair.
 
-  It carries NO `::h/revision`, and the omission is a claim rather than a
-  gap. A revision re-baselines a control that is showing something the
-  model never took, and a checkbox cannot be: there is no free draft
-  between the click and the dispatch, so `[::events/discard]` moving
-  `:published?` back always moves the value React compares. The discard
-  row in `editor.flow-dom-cljs-test` asserts it restores without one."
+  It carries NO `::h/revision`, and the omission is not a choice: a
+  revision on a value-less checkbox is REFUSED with
+  `:rf.error/hicasso-revision-not-controlled`, because the trigger
+  re-baselines a controlled `<input>`/`<textarea>` to a `:value` and a
+  checkbox written idiomatically has none. Nor does it want one — there
+  is no free draft between the click and the dispatch, so
+  `[::events/discard]` moving `:published?` back always moves the value
+  React compares. Both halves are measured: the refusal in
+  `editor.l2-cljs-test`, the restore in `editor.flow-dom-cljs-test`."
   [{:keys [label]}]
   [:p.field
    [:label {:for "published"} label]
