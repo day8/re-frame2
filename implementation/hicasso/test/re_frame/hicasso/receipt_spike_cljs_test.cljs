@@ -38,7 +38,11 @@
                       (receipt/detach!))}))
 
 (defn- seed! []
-  (rf/dispatch-sync frame-id [:rc/seed {:left 1 :right 2 :rows [:a :b :c]}]))
+  (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) false)
+  (rf/make-frame {:id frame-id})
+  (rf/with-frame frame-id
+    (rf/dispatch-sync [:rc/seed {:left 1 :right 2 :rows [:a :b :c]}]))
+  frame-id)
 
 ;; Two bodies with deliberately different mechanical profiles: `wide` makes
 ;; many nodes from few reads, `deep` makes few nodes from many reads —
@@ -80,6 +84,9 @@
     (let [rs (receipt/rows)
           w  (row-for rs "spike/wide")
           d  (row-for rs "spike/deep")]
+      ;; The spike's evidence goes on the transcript, because a verdict
+      ;; that only says "an assertion passed" is not a measurement.
+      (println "RECEIPT-SPIKE rows:" (pr-str rs))
       (testing "one row per boundary, keyed by the view's own name"
         (is (= #{"spike/wide" "spike/deep"} (set (map :view rs)))))
 
