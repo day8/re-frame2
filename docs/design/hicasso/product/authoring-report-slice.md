@@ -140,6 +140,8 @@ The slice's routes were `/` and `/article/:slug` — the two most natural paths 
 
 The fix is a `/slice` prefix on every path, and it is the right fix — a consumer's own registry holds only their routes and they never meet this. It is recorded because of what it says about *the evidence*: this is a class of failure that a per-artefact gate is structurally unable to see, and it took the whole-repo lane, on a diff whose every other gate was already green, to find it.
 
+Filed as **rf2-wqnl**, which made the prefix a written convention for the whole bundle and put a census gate behind it (`implementation/routing/test/re_frame/routing_path_census_test.clj`). Its ruling also corrects one detail above: for the *identical* `/article/:slug` pair the structural ranks are equal, not different, so the guard's condition was satisfiable — what silenced it is that `:rf.warning/route-shadowed-by-equal-score` goes to the instrumentation ring buffer, which nothing in the node lane reads. Ranks genuinely differ only in the general cross-app case (one app's literal under another's capture), where the guard is blind by construction.
+
 ### 9. Small things
 
 - **`reg-sub`'s two-fn form puts a one-argument fn beside a two-argument one.** The `input-fn` takes `query-v`; the computation fn takes `[inputs query-v]`. They sit adjacent in the same form and the mistake compiles. The `:<-` chain avoids it and is what the slice uses.
