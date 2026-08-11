@@ -33,23 +33,44 @@
   (:require [re-frame.routing :as routing]))
 
 (def feed
-  "The list page. `/`."
+  "The list page. `/slice`."
   ::feed)
 
 (def article
-  "One article, by slug. `/article/:slug`."
+  "One article, by slug. `/slice/article/:slug`."
   ::article)
 
 (defn register!
   "Register the slice's routes. Idempotent; see the namespace docstring
-  on why it is a function as well as a load-time effect."
+  on why it is a function as well as a load-time effect.
+
+  ## Why every path is under `/slice` (the report's finding 8)
+
+  The route ids are namespaced keywords and cannot collide. **The PATHS
+  are strings in a process-global registry**, and this application shares
+  that registry with every other example in the repository's node test
+  bundle. `/` and `/article/:slug` are the two most natural paths a
+  consumer would write, and they are exactly the two RealWorld already
+  holds — so registering them here made `match-url` answer this app's
+  route for RealWorld's URLs, and twelve of its assertions failed naming
+  `:re-frame.hicasso.examples.slice.routes/article` where they expected
+  `:realworld.article/show`.
+
+  Nothing warned. `reg-route` emits `:rf.warning/route-shadowed-by-equal-
+  score` for a co-matchable equal-rank pattern, and it did not fire — the
+  ranks differ, so the guard had nothing to say while the resolution was
+  wrong anyway.
+
+  A consumer's own application never meets this, because their registry
+  holds only their routes. A repository whose test bundle loads a dozen
+  applications into one process does, and the prefix is the whole fix."
   []
   (routing/reg-route feed
     {:doc "The article list."}
-    "/")
+    "/slice")
   (routing/reg-route article
     {:doc "One article, with its editor."}
-    "/article/:slug")
+    "/slice/article/:slug")
   nil)
 
 (register!)

@@ -124,7 +124,23 @@ A consequence of finding 6, and worth its own row because it is a trap with no d
 
 So the two supported waiting mechanisms are mutually exclusive, and an async mutation witness needs what both offer. The poll is the one that works, and it is the better instrument anyway: what such a test waits for is a reply, not a duration. The clock remains right for what its own docstring is about — a retention deadline, a debounce, a `:dispatch-later` — where the thing being waited on *is* a duration and no dispatch has to drain afterwards.
 
-### 8. Small things
+### 8. Route PATHS are global and route IDS are not, and only one of those is obvious
+
+**Found by the whole-repo node lane, and by nothing else that ran.** The browser lane was green, the artefact's own focused lane was green, and twelve assertions in `re_frame/realworld_cljs_test.cljs` were failing — naming this application's route:
+
+```
+expected: (= :realworld.article/show (rf/compute-sub [:rf.route/id] …))
+  actual: (not (= :realworld.article/show
+                  :re-frame.hicasso.examples.slice.routes/article))
+```
+
+The slice's routes were `/` and `/article/:slug` — the two most natural paths an author writes, and the two RealWorld already holds. Route **ids** are namespaced keywords and cannot collide; route **paths** are strings in a process-global registry, and this repository's node test bundle loads a dozen applications into one process. `match-url` began answering this app's route for RealWorld's URLs.
+
+**Nothing warned.** `reg-route` emits `:rf.warning/route-shadowed-by-equal-score` for a co-matchable *equal-rank* pattern, and it never fired: the ranks differ, so the guard had nothing to say while the resolution was wrong anyway. The whole collision was silent.
+
+The fix is a `/slice` prefix on every path, and it is the right fix — a consumer's own registry holds only their routes and they never meet this. It is recorded because of what it says about *the evidence*: this is a class of failure that a per-artefact gate is structurally unable to see, and it took the whole-repo lane, on a diff whose every other gate was already green, to find it.
+
+### 9. Small things
 
 - **`reg-sub`'s two-fn form puts a one-argument fn beside a two-argument one.** The `input-fn` takes `query-v`; the computation fn takes `[inputs query-v]`. They sit adjacent in the same form and the mistake compiles. The `:<-` chain avoids it and is what the slice uses.
 - **A `false` attribute is recorded; a `nil` one is dropped.** Per 004B. So an L2 row asserting "this button is not disabled" wants `(is (false? …))`, not `(is (nil? …))` — worth one line in the kit's `attrs` docstring.

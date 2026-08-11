@@ -195,7 +195,7 @@
         (is (= "Articles" (text m ".feed h2")))
         (is (= ["Hicasso, briefly" "Intents are data" "Controlled, synchronously"]
                (mapv #(.-textContent %) (nodes m ".article-link"))))
-        (is (= ["/article/hicasso" "/article/intents" "/article/controls"]
+        (is (= ["/slice/article/hicasso" "/slice/article/intents" "/slice/article/controls"]
                (mapv #(.getAttribute % "href") (nodes m ".article-link")))
             "the hrefs are the routing artefact's; `views` builds no URL")
         (is (= 1 (count (nodes m ".draft-badge")))
