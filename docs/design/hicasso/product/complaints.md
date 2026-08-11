@@ -104,7 +104,7 @@ rowed in the Hicasso section, and is the single live id without the
 | `:rf.error/hicasso-host-fallback-boundary-head` | put a `defview` or `defhost` head inside a declared fallback | ch09, ch17 |
 | `:rf.error/hicasso-host-no-component` | declared a `defhost` over `nil` | — |
 | `:rf.error/hicasso-host-structural-callback` | declared a callback contract on `key` or `ref` | — |
-| `:rf.error/hicasso-host-unclaimed-callback` | wrote the one callback form at a `defhost` slot nothing claims | ch09, ch15 |
+| `:rf.error/hicasso-host-unclaimed-callback` | wrote the one callback form at a `defhost` position no callback contract claims — one nothing claims at all, or one declared a ReactNode slot, where markup lowers and there is no contract to give a function | ch09, ch15 |
 | `:rf.error/hicasso-host-undeclared-callback` | sent an intent to a `defhost` prop the declaration does not name | ch09, ch19 |
 | `:rf.error/hicasso-host-unknown-option` | gave a `defhost` declaration an option outside its roster | ch09, ch17 |
 | `:rf.error/hicasso-intent-at-a-non-event-contract` | put an intent at a position declared `:handler` or `:render` | ch03, ch09 |
