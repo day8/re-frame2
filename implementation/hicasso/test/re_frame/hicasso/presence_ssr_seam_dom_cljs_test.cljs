@@ -137,8 +137,10 @@
   ONE sabotage covers all four rows, because all four read the same
   producer: give `server-bytes!` a window (the body of
   [[server-bytes-under-a-hand-held-window!]]) and the Render repair is
-  simulated end to end. Run by hand under `:browser-test`; the PR body
-  quotes the failures verbatim. §1, §2 and §3 all red — nine assertions
+  simulated end to end. Run by hand under `:browser-test` for **PR #7872**,
+  landed on main as commit `b5e03b138f` — named rather than left as \"the
+  PR body\", so the record can be reached from the tree (rf2-1mmn). §1, §2
+  and §3 all red — nine assertions
   across the three — and **§4 stays green**, which is the control doing
   its job.
 
@@ -320,7 +322,8 @@
 ;; body for real — hooks, context reads and all — so what it emits is what
 ;; `roots/adopting-here?` answered inside a genuine server render.
 ;;
-;; SABOTAGE (run by hand; the namespace header and the PR body record it):
+;; SABOTAGE (run by hand; the namespace header records it, and names the PR
+;; and the landed commit — PR #7872, commit `b5e03b138f`):
 ;; give `server-bytes!` a window — the body of
 ;; [[server-bytes-under-a-hand-held-window!]] — and this row reds three ways
 ;; at once: `"present"` in the bytes, `:present` off the machine, and the

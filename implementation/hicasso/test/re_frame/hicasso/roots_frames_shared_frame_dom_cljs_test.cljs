@@ -329,10 +329,19 @@
 ;; the windows are compared by IDENTITY, which a registry keyed by anything
 ;; these two roots share cannot satisfy however it is implemented.
 ;;
-;; MUTATION (PR body records the red): key the window off the frame in
+;; MUTATION, and where its record can be REACHED (rf2-1mmn): key the window
+;; off the frame in
 ;; `hydrate-root!` — mint into a `defonce` map on first use per frame and
 ;; hand both roots the same object — and this row reds on `identical?` and
-;; again on root B still adopting after root A's window is shut.
+;; again on root B still adopting after root A's window is shut. Run by hand
+;; for **PR #7800**, landed on main as commit `00fb33b57c`; "the PR body
+;; records it" named neither, and this repository rebase-merges, so a branch
+;; head is not the commit that landed. Both roots here name ONE frame, so
+;; `sup/with-page-global-adoption` — the executing form of the page-global
+;; mutation — would arm an observationally identical defect against this row
+;; if a second control for this axis is ever wanted. The kernel family's
+;; executing control is the sibling suite's
+;; `a-page-global-adoption-window-steals-an-ordinary-roots-enter-transition`.
 (deftest two-hydrating-roots-on-one-frame-hold-windows-of-their-own
   (async done
     (if-not (mount/browser?)

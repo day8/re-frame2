@@ -271,9 +271,21 @@
 ;; every later recoverable error on either root a "hydration mismatch";
 ;; H4 below is the row that separates those two.
 ;;
-;; SABOTAGE (run by hand, PR body records it): mint ONE window in
-;; `hydrate-root!` and hand it to both roots, and this row goes red on the
-;; count — one root's closer shuts the other's window again.
+;; SABOTAGE, and why it does not execute HERE (rf2-1mmn). The mutation is
+;; "mint ONE window in `hydrate-root!` and hand it to both roots": one root's
+;; closer then shuts the other's window and this row reds on the count. It is
+;; armable — `sup/with-page-global-adoption` IS that mutation, executing — but
+;; not against this row, and the reason is the one H4 below gives for driving
+;; the doors directly: whether the count collapses depends on the relative
+;; ordering of root A's closer and root B's recoverable-error callback, and
+;; React does not let a caller choose that ordering. An executing form of THIS
+;; row would go green or red on the scheduler, which is a worse control than
+;; none. The hand run against this row's count is PR #7756, landed on main as
+;; commit `fdbf5d6907` — a pointer that can be followed without the GitHub UI,
+;; which "the PR body records it" could not. The family's executing control is
+;; [[a-page-global-adoption-window-steals-an-ordinary-roots-enter-transition]]
+;; below, which arms the same mutation where the readings are taken by
+;; construction rather than on a schedule.
 (deftest two-overlapping-hydrating-roots-recover-and-complain-independently
   (async done
     (if-not (mount/browser?)
@@ -535,10 +547,14 @@
 ;; commits inside a `flushSync` so root B's first render is readable on the
 ;; line after it. No timer stands between the two.
 ;;
-;; SABOTAGE (run by hand, PR body records it): point `impl.presence-react`
-;; back at a page-wide window and the ordinary root's first phase becomes
-;; `:present` — this row reds on that assertion, which is the assertion the
-;; shipped code failed.
+;; SABOTAGE, EXECUTING (rf2-1mmn):
+;; [[a-page-global-adoption-window-steals-an-ordinary-roots-enter-transition]]
+;; below arms exactly this mutation — `sup/with-page-global-adoption` points
+;; the window `impl.presence-react` reads back at a page-wide one — runs this
+;; row's construction under it, and asserts the ordinary root's first phase is
+;; `:present`. That is the assertion the shipped code failed, going red on
+;; demand rather than being described. It was first run by hand for PR #7756,
+;; landed on main as commit `fdbf5d6907`.
 (deftest presence-adoption-belongs-to-a-subtree-not-to-the-page
   (async done
     (if-not (mount/browser?)
@@ -645,3 +661,120 @@
                                 (mount/release! ha)
                                 (mount/release! hb)
                                 (done)))))))))))))))
+
+;; ---------------------------------------------------------------------------
+;; H6 — THE EXECUTING SABOTAGE CONTROL for this risk family (rf2-1mmn)
+;; ---------------------------------------------------------------------------
+
+;; Kernel risk row 8 of `docs/design/hicasso/product/lanes/adversarial-risks.md`
+;; — *adoption and mismatch attribution are root-scoped; simultaneous roots
+;; cannot cross-contaminate* — is a correctness gate, and that register's gate
+;; construction rule asks every one of them for "a sabotage mutation that makes
+;; each correctness gate red". Until rf2-1mmn this family had none that ran.
+;; The mutations were prose, and a reviewer cannot re-run a comment.
+;;
+;; This row is the mutation, executing. `sup/with-page-global-adoption` restores
+;; the pre-rf2-6tmu page-global window — one ref for the whole page, read by
+;; every presence tray on it — and the row runs H5's construction under it and
+;; again without it, changing nothing else in between. Both halves are
+;; load-bearing and they red in opposite directions:
+;;
+;;   - the ARMED half reds if the sabotage stops sabotaging, which is what a
+;;     control that has quietly become a no-op looks like from the outside;
+;;   - the DISARMED half reds if the runtime regresses to a page-global window,
+;;     which is the defect H5 exists to catch.
+;;
+;; Together they say what neither says alone: the `:mounting` H5 asserts is a
+;; DISCRIMINATION rather than a ceiling, and there is a live, re-runnable
+;; mutation that turns it into `:present`.
+;;
+;; The disarmed half is strictly stronger than H5, and by one line: the armed
+;; half's page-wide window is asserted STILL OPEN while the shipped tray reads
+;; its phase. So what the tray answers is the scoping doing its work, not the
+;; absence of any window anywhere.
+;;
+;; Every reading is synchronous, and deliberately. `hydrate-root!` returns
+;; before its tree is adopted and `root!` commits inside a `flushSync`, so the
+;; ordinary root's first render is readable on the line after it mounts and is
+;; provably inside the hydrating root's window. No timer stands anywhere in the
+;; readings — a control that went green or red on the scheduler would be worse
+;; than none.
+(deftest a-page-global-adoption-window-steals-an-ordinary-roots-enter-transition
+  (async done
+    (if-not (mount/browser?)
+      (do (sup/skip! ":node-test has no DOM") (done))
+      (do
+        (fresh!)
+        (reset! !phases {})
+        (let [html (sup/server-html! frame-a [screen {:title "A"}])]
+          (collector/reset-runtime!)
+          (let [armed
+                (sup/with-page-global-adoption
+                  (fn [page-window]
+                    (is (false? (roots/adopting? page-window))
+                        "premise: the page-global window is SHUT before anything
+                         hydrates, so an open one below was opened by a ROOT and
+                         not handed over by the arming")
+                    (let [ha (mount/hydrate-root! (sup/server-dom! html) frame-a
+                                                  [screen {:title "A"}])]
+                      (is (true? (roots/adopting? page-window))
+                          "premise: root A's hydration opened it — and under this
+                           mutation it is the only window there is")
+                      {:ha          ha
+                       :page-window page-window
+                       :hb          (mount/root! (mount/fresh-container!) frame-b
+                                                 [tray-screen {:tag :under-page-global}])})))
+                disarmed
+                (let [ha (mount/hydrate-root! (sup/server-dom! html) frame-a
+                                              [screen {:title "A"}])]
+                  (is (not (identical? (:adoption ha) (:page-window armed)))
+                      "premise: the arming restored the per-root mint, so this
+                       root's window is its own — a half that inherited the
+                       page-global would be no control at all")
+                  (is (true? (roots/adopting? (:adoption ha)))
+                      "premise: root A is adopting in this half too, so the two
+                       halves differ only in the SCOPE of its window")
+                  (is (true? (roots/adopting? (:page-window armed)))
+                      "premise: and the armed half's PAGE-WIDE window is still
+                       open on this line — so what the tray below reads is the
+                       scoping, not the absence of a window")
+                  {:ha ha
+                   :hb (mount/root! (mount/fresh-container!) frame-b
+                                    [tray-screen {:tag :under-root-scoped}])})]
+
+            (testing "ARMED — the ordinary root's tray was told it was adopting,
+                      though it is adopting nothing. Its children are born
+                      `:present` and the enter transition its author wrote never
+                      runs: no error, no complaint, an animation that simply does
+                      not play, and only while some unrelated root happens to be
+                      hydrating"
+              (is (= :present (first (get @!phases :under-page-global)))
+                  (str "THE SABOTAGE DID NOT SABOTAGE — this control has become a
+                        no-op and H5's green means nothing; saw "
+                       (pr-str (get @!phases :under-page-global))))
+              (is (= "present" (text-in (:container (:hb armed)) ".probe"))
+                  "and it reached the DOM that way"))
+
+            (testing "DISARMED — the same construction with the shipped
+                      root-scoped window, and the ordinary root has its ENTER
+                      phase back. H5's assertion, taken here so the contrast is
+                      one row's pair of readings rather than two files'"
+              (is (= :mounting (first (get @!phases :under-root-scoped)))
+                  (str "the runtime read a window this root does not own; saw "
+                       (pr-str (get @!phases :under-root-scoped))))
+              (is (= "mounting" (text-in (:container (:hb disarmed)) ".probe"))))
+
+            (-> (js/Promise.all #js [(sup/adopted! (:ha armed))
+                                     (sup/adopted! (:ha disarmed))])
+                (.then
+                  (fn [oks]
+                    (try
+                      (is (= [true true] (vec oks))
+                          "both hydrating roots must reach their own closer, or
+                           this row left an open window behind")
+                      (finally
+                        (mount/release! (:hb armed))
+                        (mount/release! (:ha armed))
+                        (mount/release! (:hb disarmed))
+                        (mount/release! (:ha disarmed))
+                        (done))))))))))))
