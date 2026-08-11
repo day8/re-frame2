@@ -162,7 +162,7 @@ relying on CI"). A silent skip fails review.
 
 ### How a gate is run, not just which one
 
-Four rules about the mechanics. Each is here because it cost real hours, and
+Five rules about the mechanics. Each is here because it cost real hours, and
 none of them is obvious from the gate command itself.
 
 - **Foreground, to completion — within the harness's ten-minute ceiling.** A
@@ -201,6 +201,18 @@ none of them is obvious from the gate command itself.
   run, which is a different measurement and has disagreed: on 2026-08-11 a
   worker's gate was surfaced as *completed (exit code 0)* while the run's own
   captured status was 1.
+- **Verify a restore by hashing the bytes, never by reading `git diff`.** A brief
+  that proves a guard is *exact* rather than merely present tells the worker to
+  plant a fault, run the gate, then restore — and `git diff` misreads that restore
+  two ways. A rewrite that flips line endings reads clean having changed every
+  line; and **a patch that never applied reads clean too**, because "unchanged" and
+  "not attempted" are the same diff. The second is the dangerous one: a plant that
+  silently no-ops makes the sabotage run come back green, so the worker reports a
+  guard that fired when nothing was ever broken — a false proof of a real guard,
+  which is worse than no proof. Hash the file before the plant and compare after
+  the restore. On a checkout whose line endings are translated, **anchor a patch to
+  a single line**: one worker's first multi-line anchor matched nothing, with no
+  error and no edit, and only the hash caught it.
 - **Put *every* gate artefact where git ignores it** — the log and the exit-code
   file both. `*.log`, `*.exit` and `*-exit.txt` all are, so this leaves nothing
   behind:
@@ -215,6 +227,27 @@ none of them is obvious from the gate command itself.
   `git worktree remove` refuses the tree from then on. Nine worktrees
   accumulated exactly that way before anyone worked out why they would not reap.
   Cheapest fix is to not create the residue.
+
+### Briefing a correction — sweep every carrier
+
+When a bead corrects a stale factual claim, brief the worker to find **every
+carrier of that claim and dispose of all of them in one pass**. *"Bounded repair"
+bounds the change, not the search*: `git grep` the exact wording across tracked
+files, read every hit, settle each one in the same PR, and list in the PR body
+what was changed and what was left standing because it was already right.
+`rf2-2l17` corrected a single sentence four times across three PRs. Every repair
+was bounded and correct, and every one was found by the *next* merged-PR audit
+rather than by the repair before it — three round-trips of mayor, worker and CI
+for what one `git grep` closes.
+
+Two cautions have to travel with the rule, or the sweep does damage. **The phrase
+is usually right somewhere**: that grep also hit an invariants page whose
+timer-callback row said "one macrotask later" and meant it, plus a source file, a
+shared test suite and two benchmarks. Reading every hit is the work; the grep is
+only the index. Which is why **the brief must name the discriminator** — there it
+was *who schedules the deferral*, our own collector (repaired to a microtask)
+against React or a timer (still a macrotask). Without it a worker cannot separate
+the stale hits from the correct ones, and will change all of them or none.
 
 ## Choosing solo vs cluster
 
