@@ -705,7 +705,7 @@
           (fn [_ _]
             ;; The event handler returns the canonical `:db` / `:fx` shape
             ;; (re-frame2 rejects arbitrary top-level keys per
-            ;; `events.cljc/police-effect-map-shape!`).
+            ;; `events.cljc/effect-map-defect`).
             {:db {:n 99}
              :fx [[:deref-fx true]]}))
         (let [events (collect-trace

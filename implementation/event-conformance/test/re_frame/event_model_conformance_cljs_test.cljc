@@ -454,7 +454,7 @@
 ;; Closed effect-map contract.
 
 (deftest reg-event-foreign-top-level-key-is-effect-map-shape
-  (testing "a foreign top-level effect key is reported and skipped"
+  (testing "a foreign top-level effect key is reported and refuses the event"
     (let [traces (atom [])
           fired? (atom false)]
       (rf/register-listener! :trace :evt-conf/shape-recorder (fn [ev] (swap! traces conj ev)))
@@ -474,7 +474,9 @@
         (is (seq shape-traces)
             "a foreign / legacy top-level effect key emits :rf.error/effect-map-shape")
         (is (= :dispatch (get-in (first shape-traces) [:tags :offending-key]))
-            "the diagnostic names the offending legacy top-level key")))))
+            "the diagnostic names the offending legacy top-level key")
+        (is (= :fix-effect (:recovery (first shape-traces)))
+            "the envelope violation REFUSES the event pre-commit (rf2-04tx)")))))
 
 (deftest reg-event-bare-app-db-shaped-return-is-effect-map-shape-not-committed
   (testing "a bare app-db map is not mistaken for the explicit :db effect"
@@ -497,8 +499,8 @@
                                  @traces)]
         (is (seq shape-traces)
             "the bare app-db-shaped return's foreign app key emits :rf.error/effect-map-shape naming :count")
-        (is (= :logged-and-skipped (:recovery (first shape-traces)))
-            "the bare-db-return shape diagnostic carries :recovery :logged-and-skipped")))))
+        (is (= :fix-effect (:recovery (first shape-traces)))
+            "the bare-db-return shape diagnostic REFUSES the event (rf2-04tx)")))))
 
 (deftest reg-event-app-handler-runtime-effect-keeps-the-diagnostic-unless-framework-authority
   (testing "runtime-db writes warn for app handlers but not framework-authorised handlers"
@@ -590,8 +592,8 @@
       (is (empty? (filter #(= :rf.warning/db-nil-coerced (:operation %)) @traces))
           "a deliberate `{:db {}}` clear emits NO :rf.warning/db-nil-coerced diagnostic"))))
 
-(deftest reg-event-malformed-fx-value-is-logged-and-skipped-without-aborting-siblings
-  (testing "a malformed :fx value is skipped without aborting valid sibling effects"
+(deftest reg-event-malformed-fx-value-refuses-the-event-without-throwing
+  (testing "a malformed :fx value refuses the event in-band, never a raw host throw"
     (let [traces    (atom [])
           sentinel? (atom false)]
       (rf/reg-sub :evt-conf/fx-shape-db (fn [db _] (:committed db :absent)))
@@ -607,26 +609,27 @@
       (rf/register-listener! :trace :evt-conf/fx-shape-recorder (fn [ev] (swap! traces conj ev)))
       (rf/dispatch-sync [:evt-conf/malformed-fx])
       (rf/unregister-listener! :trace :evt-conf/fx-shape-recorder)
-      (is (= :yes @(rf/subscribe [:evt-conf/fx-shape-db]))
-          "the sibling `:db` write committed — a malformed `:fx` does NOT abort the cascade")
+      (is (= :absent @(rf/subscribe [:evt-conf/fx-shape-db]))
+          "the sibling `:db` write did NOT commit — a malformed `:fx` refuses the whole event (rf2-04tx: no partial commit)")
       (is (false? @sentinel?)
-          "the non-sequential `:fx` value was DROPPED — it was not walked as a pair (sentinel never dispatched)")
+          "the non-sequential `:fx` value was never walked as a pair (sentinel never dispatched)")
       (let [shape-traces (filter #(and (= :rf.error/effect-map-shape (:operation %))
                                        (= :fx (get-in % [:tags :offending-key])))
                                  @traces)]
         (is (seq shape-traces)
             "a non-sequential `:fx` value emits :rf.error/effect-map-shape naming :fx")
-        (is (= :logged-and-skipped (:recovery (first shape-traces)))
-            "the malformed-:fx diagnostic carries :recovery :logged-and-skipped")))))
+        (is (= :fix-effect (:recovery (first shape-traces)))
+            "the malformed-:fx diagnostic carries :recovery :fix-effect")))))
 
-(deftest reg-event-final-effects-boundary-polices-after-interceptor-effects
-  (testing "the final effects boundary polices keys injected by an after interceptor"
+(deftest reg-event-final-effects-boundary-refuses-after-interceptor-foreign-key
+  (testing "the final effects boundary refuses a foreign key injected by an after interceptor"
     (let [traces (atom [])]
       (rf/reg-sub :evt-conf/boundary-db (fn [db _] (:committed db :absent)))
       (rf/reg-interceptor :evt-conf/inject-foreign
         {:after (fn [ctx]
                   ;; Inject a FOREIGN top-level effect key into the final
-                  ;; effects map AFTER the handler-return policing already ran.
+                  ;; effects map AFTER the handler already returned — the
+                  ;; SECOND route into the one boundary that decides.
                   (assoc-in ctx [:effects :evt-conf/foreign] :should-be-dropped))})
       (rf/reg-event :evt-conf/handler-with-after
         {:interceptors [:evt-conf/inject-foreign]}
@@ -634,15 +637,15 @@
       (rf/register-listener! :trace :evt-conf/boundary-recorder (fn [ev] (swap! traces conj ev)))
       (rf/dispatch-sync [:evt-conf/handler-with-after])
       (rf/unregister-listener! :trace :evt-conf/boundary-recorder)
-      (is (= :yes @(rf/subscribe [:evt-conf/boundary-db]))
-          "the handler's well-formed `:db` write committed")
+      (is (= :absent @(rf/subscribe [:evt-conf/boundary-db]))
+          "the handler's well-formed `:db` write did NOT commit — an :after-injected foreign key gets the SAME verdict as a handler-returned one")
       (let [shape-traces (filter #(and (= :rf.error/effect-map-shape (:operation %))
                                        (= :evt-conf/foreign (get-in % [:tags :offending-key])))
                                  @traces)]
         (is (seq shape-traces)
-            "an :after-interceptor-injected foreign key is policed at the FINAL boundary")
-        (is (= :logged-and-skipped (:recovery (first shape-traces)))
-            "the final-boundary diagnostic carries :recovery :logged-and-skipped")))))
+            "an :after-interceptor-injected foreign key is refused at the FINAL boundary")
+        (is (= :fix-effect (:recovery (first shape-traces)))
+            "the final-boundary diagnostic carries :recovery :fix-effect")))))
 
 ;; Registration shape.
 
