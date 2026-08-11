@@ -79,6 +79,25 @@
 // not vary by `:target`. So one module is not a compromise here; it is the
 // whole of what a compile gate can claim, taken once.
 //
+// ## IT WAS NOT GREEN ON ARRIVAL, which is the best thing about it
+//
+// The first run of this gate over the finished roster exited 1 with five
+// `:infer-warning`s, all of them in `b9_nc.cljs` — a rostered arm, not a
+// neighbour. `nc-current?` and `nc-commit!` are deliberate copies of two
+// PRIVATE functions in `re-frame.freehand.cell`, and the original reads
+// `(.-generation cand)` and its siblings INSIDE the namespace that `deftype`s
+// `RenderCandidate`, where the analyser knows those fields. Lifted out of that
+// namespace the same lines are un-inferrable property accesses, and the copy
+// had carried them un-typed since it was written. Nothing had ever compiled it
+// to say so. Both signatures now name the type, which is what makes the copy
+// compile the way the original does.
+//
+// A gate nobody has seen fail is not a gate. This one failed before it was
+// scheduled, on the exact drift-by-construction class the roster exists for,
+// so the deliberate sabotage that also proved it (an undeclared var appended
+// to `b7_app.cljs`, red and named, restored, green) is the second witness
+// rather than the only one.
+//
 // ## NO EDIT TO shadow-cljs.edn, deliberately
 //
 // The gate rides `:freehand-release` — the id every B-spine driver already
