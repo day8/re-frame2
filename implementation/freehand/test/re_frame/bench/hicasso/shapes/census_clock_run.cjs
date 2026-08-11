@@ -1603,6 +1603,19 @@ function datasetFor(rows, meta) {
           )
         )
       ),
+      // THE CLOCK'S OWN GRAIN, in the run it governs — the sorted distinct
+      // non-zero per-sample `TaskDuration` deltas this row observed, the
+      // smallest of which is the finest interval the published clock
+      // resolved here. `report` prints that smallest value; until now it
+      // printed it and nothing kept it.
+      //
+      // rf2-dzus, and the same species as `blocksDecomp` above: collected in
+      // `runRow`, dropped at write time. A file of durations with no record
+      // of its own resolution cannot answer "was this measurable?" from
+      // itself — the answer has to come from a constant somebody remembers,
+      // which is exactly what `rf2-d2tzk` stopped the in-page clock doing.
+      // It backfills nothing; the grain travels with the NEXT canonical run.
+      granularity: r.granularity,
       tally: r.tally,
       runtime: r.runtime,
       quiet: r.quiet,
