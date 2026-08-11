@@ -175,4 +175,4 @@ The application and its four suites live under `implementation/hicasso/test/`, w
 | surface, L0, L2 | `-cljs-test` | `:node-test` (`npm run test:cljs`) and `:node-test-hicasso` |
 | flow | `-dom-cljs-test` | `:browser-test` (`npm run test:browser`), plus a stated skip on the node lane |
 
-Both lanes arm on `implementation/hicasso/**` — `cljs_node_test` and `cljs_browser` — so every suite runs on a diff that touches this tree. `require_graph.clj` is JVM-only and matches no test `ns-regexp`; it is compiled as its one consumer's macro dependency and run nowhere.
+Both lanes arm on `implementation/hicasso/**` — `cljs_node_test` and `cljs_browser` — so every suite runs on a diff that touches this tree. `examples/require_graph.clj` is JVM-only and matches no test `ns-regexp`; it is compiled as its two consumers' macro dependency and run nowhere.
