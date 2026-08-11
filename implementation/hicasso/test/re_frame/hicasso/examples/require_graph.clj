@@ -46,7 +46,7 @@
   Macro-expansion only, and JVM-only by construction (a `.clj`). It
   matches no test `ns-regexp` — `:node-test` selects `cljs-test$`,
   `:browser-test` selects `-dom-cljs-test$` — so it is compiled as a
-  dependency of its one consumer and run nowhere."
+  dependency of its two consumers and run nowhere."
   (:require [cljs.analyzer.api :as ana-api]
             [cljs.env :as env]))
 
@@ -67,7 +67,10 @@
   Closure Library root every analysed ClojureScript namespace carries
   whether or not a line of its source mentions it. Nothing else is
   filtered; in particular no `re-frame.*` edge is, which is the half a
-  filter could quietly hollow out."
+  filter could quietly hollow out.
+
+  A plain function rather than macro-only code so it is readable, and so
+  its filtering is one expression a reader can check."
   [state ns-sym]
   (let [info (ana-api/find-ns state ns-sym)]
     (into (sorted-set)
