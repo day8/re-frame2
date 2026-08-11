@@ -41,7 +41,7 @@
 // honoured the same way every driver honours it: clear the shared entry
 // first.
 //
-// ## Auto-covering by construction
+// ## Auto-covering by construction — for the arms that live HERE
 //
 // The entry list is DERIVED by walking this directory, never listed here — a
 // roster in this file would be the staleness class the gate exists to catch,
@@ -50,6 +50,42 @@
 // already have lanes of their own: a filename-shaped exclusion is one more
 // thing that can silently drop the file you cared about, and re-compiling a
 // handful of test namespaces is cheaper than that risk.
+//
+// ## …and an EXPLICIT roster for the arms that do not (rf2-bl0j)
+//
+// A walk of one directory covers exactly that directory, and the lane does not
+// fit in one. `:hicasso-bench` is the lane — the id every arm rides — but four
+// of its riders live beside the artefact they measure rather than beside their
+// siblings, because that is where the local copies they mirror live:
+//
+//     core/test/re_frame/bench/p0_app.cljs               re-frame.bench.p0-app
+//     core/test/re_frame/bench/p0_pageerror_probe.cljs   …p0-pageerror-probe
+//     adapters/reagent/test/re_frame/bench/hicasso_narrow.cljs      …hicasso-narrow
+//     adapters/reagent/test/re_frame/bench/hicasso_narrow_app.cljs  …hicasso-narrow-app
+//
+// Until rf2-bl0j they were compiled by NOTHING: not by this walk, which never
+// leaves `hicasso/`; not by `:node-test`, since none is named `*-cljs-test`
+// and nothing test-shaped requires them; not by `:browser-test`, for the same
+// reason. Their own drivers (`p0_run.cjs`, `hicasso_narrow_run.cjs`) compile
+// them, and those drivers are hand-run. That is the identical fail-open this
+// gate was built for — one directory over, and hidden by the very derivation
+// that closed it here, because a walk announces nothing when a file moves out
+// from under it.
+//
+// THE ROSTER IS DELIBERATELY DUMB. The tempting repair is a cleverer rule —
+// walk more trees, or scrape `--config-merge` init-fns out of the sibling
+// drivers — and it is the wrong one: a coverage rule that INFERS its members
+// fails the same way again the first time a member stops matching the
+// inference, silently and with the gate still green. So membership is stated,
+// once, right here. What the roster cannot do is notice an arm that was never
+// added to it; what it can do, and does below, is refuse to run when a listed
+// file has been moved, renamed or deleted — the failure mode a derived list
+// hides and a stated one cannot.
+//
+// EVERY member is listed, including the two reachable through a require
+// (`p0-pageerror-probe` requires `p0-app`; `hicasso-narrow-app` requires
+// `hicasso-narrow`). Coverage that arrives through somebody else's `:require`
+// is exactly what evaporated here once already.
 //
 // ## `:advanced` — MEASURED, and why there is no nightly release gate
 //
@@ -134,7 +170,38 @@ const TAG = 'hicasso-compile';
 // handful has broken, and a gate that compiles three namespaces while
 // reporting success is the fail-open it replaced. The floor is deliberately
 // far below the real count — it catches collapse, not growth.
+//
+// It guards the WALK only. The roster below needs no floor: every one of its
+// rows is checked individually and by name, which is strictly stronger.
 const MIN_NAMESPACES = 40;
+
+/**
+ * The lane's members that live outside this directory — see the roster section
+ * of the header. `file` is relative to `implementation/`, and both halves are
+ * verified: the file must exist AND declare that exact namespace.
+ */
+const OUTSIDE_LANE_ENTRIES = [
+  {
+    ns: 're-frame.bench.p0-app',
+    file: 'core/test/re_frame/bench/p0_app.cljs',
+    why: "P0's :advanced browser entry; driven by p0_run.cjs on :hicasso-bench",
+  },
+  {
+    ns: 're-frame.bench.p0-pageerror-probe',
+    file: 'core/test/re_frame/bench/p0_pageerror_probe.cljs',
+    why: "the real P0 app plus one detached throw — p0_run.cjs's pageerror refusal, watched firing",
+  },
+  {
+    ns: 're-frame.bench.hicasso-narrow',
+    file: 'adapters/reagent/test/re_frame/bench/hicasso_narrow.cljs',
+    why: 'the P0 ratom-spine narrow-write leg (write + flush summed)',
+  },
+  {
+    ns: 're-frame.bench.hicasso-narrow-app',
+    file: 'adapters/reagent/test/re_frame/bench/hicasso_narrow_app.cljs',
+    why: "that leg's :advanced entry; driven by hicasso_narrow_run.cjs on :hicasso-bench",
+  },
+];
 
 /** Every `.cljs` / `.cljc` under the lane, recursively, sorted. */
 function laneSourceFiles(dir = LANE_DIR) {
@@ -175,9 +242,47 @@ function laneNamespaces() {
   return { namespaces: [...new Set(namespaces)].sort(), unreadable };
 }
 
+/**
+ * The roster, verified. A row whose file has moved, been renamed or been
+ * deleted — or whose file no longer declares the namespace claimed for it — is
+ * a FAILURE, not a skip, for the reason the header gives: a stated list can
+ * only be honest if saying something untrue stops the gate.
+ */
+function outsideLaneEntries() {
+  const namespaces = [];
+  const broken = [];
+  for (const row of OUTSIDE_LANE_ENTRIES) {
+    const full = path.join(IMPL, row.file);
+    if (!fs.existsSync(full)) {
+      broken.push(`${row.file} — no such file (roster claims ${row.ns})`);
+      continue;
+    }
+    const declared = namespaceOf(full);
+    if (declared !== row.ns) {
+      broken.push(
+        `${row.file} — declares ${declared ?? '(no readable ns form)'}, roster claims ${row.ns}`,
+      );
+      continue;
+    }
+    namespaces.push(row.ns);
+  }
+  return { namespaces, broken };
+}
+
 if (require.main === module) {
   const listOnly = process.argv.slice(2).includes('--list');
-  const { namespaces, unreadable } = laneNamespaces();
+  const { namespaces: walked, unreadable } = laneNamespaces();
+  const { namespaces: outside, broken } = outsideLaneEntries();
+
+  if (broken.length > 0) {
+    console.error(
+      `[${TAG}] ${broken.length} roster row(s) in ${path.relative(IMPL, __filename)} no ` +
+        `longer name a real namespace — refusing to compile a set they have silently ` +
+        `dropped out of (rf2-bl0j):`,
+    );
+    for (const b of broken) console.error(`  ${b}`);
+    process.exit(1);
+  }
 
   if (unreadable.length > 0) {
     console.error(
@@ -188,14 +293,16 @@ if (require.main === module) {
     process.exit(1);
   }
 
-  if (namespaces.length < MIN_NAMESPACES) {
+  if (walked.length < MIN_NAMESPACES) {
     console.error(
-      `[${TAG}] only ${namespaces.length} namespace(s) derived from ${LANE_DIR} ` +
+      `[${TAG}] only ${walked.length} namespace(s) derived from ${LANE_DIR} ` +
         `(floor ${MIN_NAMESPACES}) — the derivation has collapsed; refusing to ` +
         `pass a vacuous gate.`,
     );
     process.exit(1);
   }
+
+  const namespaces = [...new Set([...walked, ...outside])].sort();
 
   if (listOnly) {
     for (const ns of namespaces) console.log(ns);
@@ -209,7 +316,9 @@ if (require.main === module) {
   }
 
   console.error(
-    `[${TAG}] compiling all ${namespaces.length} lane namespaces -> ${OUT_DIR}`,
+    `[${TAG}] compiling all ${namespaces.length} lane namespaces ` +
+      `(${walked.length} walked from ${LANE_DIR}, ${outside.length} rostered ` +
+      `from outside it) -> ${OUT_DIR}`,
   );
 
   // ONE LINE, deliberately: shadow-cljs's CLI re-splits `--config-merge` on
@@ -226,4 +335,11 @@ if (require.main === module) {
   );
 }
 
-module.exports = { laneSourceFiles, namespaceOf, laneNamespaces, MIN_NAMESPACES };
+module.exports = {
+  laneSourceFiles,
+  namespaceOf,
+  laneNamespaces,
+  outsideLaneEntries,
+  MIN_NAMESPACES,
+  OUTSIDE_LANE_ENTRIES,
+};
