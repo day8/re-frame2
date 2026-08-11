@@ -242,9 +242,14 @@
      {:style {:background (h/sub [::subs/token :surface])
               :color      (h/sub [::subs/token :ink])}}
      [chrome {}]
+     ;; The fallback is markup written HERE, in a body that rendered fine,
+     ;; so its string is read the way every other string is. A hardcoded
+     ;; English sentence would be the one place in the application a
+     ;; French reader falls out of their own language, and it would do so
+     ;; at the worst possible moment.
      [h/boundary {:reset-key route
                   :fallback  [:p.pane-error {:role "alert"}
-                              "This page could not be displayed."]}
+                              (h/sub [::subs/t :app/pane-error])]}
       (cond
         (= route routes/article) [article-page {}]
         (= route routes/feed)    [feed-page {}]
