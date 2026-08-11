@@ -87,12 +87,18 @@
   `{:status :idle|:saving|:failed|:saved :problem <keyword or nil>}` —
   and the projection is what keeps the VIEW free of the stale-reply rule:
   a save belonging to another article reads as `:idle` here, so the
-  editor's markup asks one question instead of two."}
+  editor's markup asks one question instead of two.
+
+  BOTH keys are always present. `select-keys` was the first spelling and
+  it answered `{:status :saving}` in flight and `{:status :failed
+  :problem …}` on refusal — two shapes for one read, so a caller
+  comparing whole values has to know which branch it is in. A closed
+  shape costs one nil."}
   :<- [::save]
   (fn [save [_ slug]]
     (if (= slug (:slug save))
-      (select-keys save [:status :problem])
-      {:status :idle})))
+      {:status (:status save) :problem (:problem save)}
+      {:status :idle :problem nil})))
 
 ;; ---------------------------------------------------------------------------
 ;; Per-instance widget state — the sugar, used once
