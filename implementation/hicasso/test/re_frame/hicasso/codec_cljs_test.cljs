@@ -912,8 +912,9 @@
             silently"
     (let [e (codec/as-element [a-host {:class "a" :x/class ["b" :c]}])]
       (is (= "a b c" (prop e "className"))))
-    ;; the guide's own example, asserted verbatim so the page cannot drift
-    ;; from the door (draft-guide/05-interop.md §Defaults)
+    ;; the crossing rule as a worked case — the guide states it as a rule
+    ;; (draft-guide/09-interop.md §Crossing rules) and no longer carries
+    ;; the example this once quoted verbatim
     (is (= "btn on wide"
            (prop (codec/as-element [a-host {:class ["btn" nil :on] :className "wide"}])
                  "className"))))
