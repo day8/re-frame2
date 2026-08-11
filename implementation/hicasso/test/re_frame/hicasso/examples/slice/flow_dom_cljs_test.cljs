@@ -459,6 +459,13 @@
             "frames are isolated contexts: the second mount minted its own
              frame, and neither view was handed the other's — there is no
              frame argument anywhere in this application to hand")
-        (-> (hm/unmount! a)
-            (hm/assert-clean!)
-            (.then (fn [_] (finish b done))))))))
+        ;; BOTH roots come down before EITHER is asserted clean. A residue
+        ;; census is page-wide — a standing peer's cells are inside the
+        ;; reading — so unmounting `a` and asserting it while `b` is still
+        ;; up reports `b`'s live subscriptions as `a`'s leak. The facade
+        ;; says so in the failure it raises, which is how this was found.
+        (hm/unmount! a)
+        (hm/unmount! b)
+        (-> (hm/assert-clean! a)
+            (.then (fn [_] (hm/assert-clean! b)))
+            (.then done))))))
