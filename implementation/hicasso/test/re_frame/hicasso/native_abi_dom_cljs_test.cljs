@@ -18,7 +18,7 @@
   | [[the-views-memo-wrapper-survives-the-bridge]] | a fresh-but-equal props map still bails the boundary out | a bridge handing the raw object through — every re-render re-runs the body, and the screen is right throughout |
   | [[a-hicasso-body-hosts-a-native-component-through-the-doors-that-exist]] | the inward door, both spellings, with the native ABI intact at the crossing | a door that allocated a props MAP for the island — the second ABI clause 5 forbids |
   | [[n-memo-bails-out-and-still-carries-its-marker-on-the-second-render]] | the helper across a re-render, which is where a stamp gets lost | copying the marker into a per-render wrapper |
-  | [[a-fresh-mint-replaces-the-subtree-and-that-is-the-hmr-contract]] | allocation, never a lookup by name | a helper caching by display name to "survive" a reload |
+  | [[a-fresh-mint-replaces-the-subtree-and-that-is-the-hmr-contract]] | allocation, never a lookup by name | a helper caching by display name so a component outlives a reload |
   | [[strict-modes-double-mount-crosses-the-bridge-exactly-once]] | acquire is commit-owned on both sides of the crossing | a bridge acquiring during render |
   | [[a-ref-reaches-a-real-dom-node-through-the-memo-helper]] | why there is no third helper | a `forward-ref` helper — the row is green with and without it, and the point is that it is green WITHOUT |
   | [[a-lazy-head-suspends-and-then-names-its-own-component]] | the marker is filled by arrival, in the object minted at declaration | a second marker minted on resolve |
