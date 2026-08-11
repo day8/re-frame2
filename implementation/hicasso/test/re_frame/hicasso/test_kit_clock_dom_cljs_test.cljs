@@ -645,3 +645,102 @@
                 (.then (fn [report]
                          (is (true? (:clean? report)))
                          (done))))))))))
+
+;; ---------------------------------------------------------------------------
+;; W8 — a THROWING tick does not disarm the handed-back interval (rf2-w2e6)
+;; ---------------------------------------------------------------------------
+;;
+;; The handover arms the cadence from INSIDE the first tick's one-shot, so the
+;; order of two statements decides whether a repeating timer survives its own
+;; callback throwing. Written sequentially it does not: control leaves the
+;; one-shot with the exception, the `setInterval` under it is never reached,
+;; and the interval is gone for the rest of the page's life with nothing on
+;; screen to say so.
+;;
+;; The platform does the opposite. HTML's timer initialisation steps report
+;; the handler's exception (step 9.7) and then reinitialise the still-live
+;; repeating timer (step 9.11), so a real `setInterval` keeps its cadence
+;; across a throwing tick. A test kit that diverges from the platform on the
+;; EXCEPTION path teaches a false model of the platform, which is the worst
+;; thing a test kit can do.
+;;
+;; W7 above drives the same handover with a callback that returns, which is
+;; exactly why it cannot see this. This row throws on the first bridged tick
+;; and reads both halves of the platform's rule — the exception escapes, AND
+;; the cadence is armed anyway — because keeping the timer alive by eating the
+;; throw would only move the divergence.
+
+(deftest a-throwing-tick-does-not-disarm-the-handed-back-interval
+  (if-not (mount/browser?)
+    (sup/skip! ":node-test has no React DOM, so no root and no clock")
+    (async done
+      (let [platform                      (platform-surface)
+            {:keys [log surface cancel!]} (recorder platform)
+            !ticks                        (atom [])
+            intervals                     (fn [es] (filterv #(= :interval (:kind %)) es))]
+        (install-surface! surface)
+        (let [m (two-toasts)]
+          ;; The FIRST tick throws and every tick after it returns, so one row
+          ;; can read the exception and the cadence that outlived it.
+          (js/setInterval (fn [& args]
+                            (swap! !ticks conj (vec args))
+                            (when (= 1 (count @!ticks))
+                              (throw (js/Error. "the first bridged tick throws, deliberately"))))
+                          retention-ms "tick" 7)
+          (hm/advance-clock! m (dec retention-ms))
+          (is (empty? @!ticks) "premise: one virtual millisecond short of the first tick")
+
+          (let [mark (count @log)
+                _    (hm/unmount! m)
+                over (vec (drop mark @log))]
+            (install-surface! platform)
+
+            (let [firsts (filterv #(and (= :timeout (:kind %)) (= 1 (:delay %))) over)]
+              (testing "premise: the handover armed what was left of the tick the
+                        interval was already waiting for"
+                (is (seq firsts)))
+
+              ;; Cancel the real arming and fire it here, so the readings below
+              ;; are this row's rather than the wall clock's.
+              (doseq [e firsts] (cancel! e))
+              (let [mark2  (count @log)
+                    thrown (atom [])]
+                (doseq [e firsts]
+                  (try ((:f e))
+                       (catch :default err (swap! thrown conj (ex-message err)))))
+
+                (testing "the exception is REPORTED rather than swallowed. A
+                          bridge that kept the timer alive by eating the throw
+                          would trade one divergence from the platform for
+                          another, and this row would pass on the wrong half"
+                  (is (= ["the first bridged tick throws, deliberately"] @thrown)))
+
+                (testing "premise: the tick that threw did run, once, with the
+                          arguments it was armed with"
+                  (is (= [["tick" 7]] @!ticks)))
+
+                (let [after   (vec (drop mark2 @log))
+                      cadence (filterv (fn [e] (and (= :interval (:kind e))
+                                                    (= retention-ms (:delay e))
+                                                    (= ["tick" 7] (:args e))))
+                                       after)]
+                  (testing "AND THE CADENCE IS ARMED ANYWAY — this is the row.
+                            Written sequentially the throw left the one-shot
+                            before the `setInterval` under it, and the captured
+                            scheduler was never asked for this at all"
+                    (is (= 1 (count cadence))))
+
+                  ;; Whatever that found, nothing this row armed is left
+                  ;; repeating on the real scheduler.
+                  (doseq [e (intervals after)] (cancel! e))
+
+                  (testing "…and what it armed is the interval's OWN callback at
+                            its own period, so the tick after the throwing one
+                            lands the way every later tick will"
+                    (doseq [e cadence] (apply (:f e) (:args e)))
+                    (is (= [["tick" 7] ["tick" 7]] @!ticks))))))
+
+            (-> (hm/assert-clean! m)
+                (.then (fn [report]
+                         (is (true? (:clean? report)))
+                         (done))))))))))

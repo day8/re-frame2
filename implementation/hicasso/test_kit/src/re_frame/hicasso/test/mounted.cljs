@@ -317,7 +317,10 @@
   and that one-shot arms the platform's own repeat at the original
   period. A `setInterval` for the full period here would hand a timer
   with 1 ms to run a whole fresh 1000 and shift its phase for the rest of
-  the page's life (rf2-w2e6).
+  the page's life (rf2-w2e6). The cadence is armed whether or not that
+  first tick THROWS, which is what a real repeating timer does — the
+  exception is reported and the timer reinitialised — and the exception
+  still escapes to be reported (rf2-w2e6).
 
   What that does not preserve is the ids: from here on they are the
   platform's, so a `clearTimeout` held across the boundary no longer
@@ -340,9 +343,21 @@
           (if-some [p (:period e)]
             (.call (:set-timeout real) g
                    (fn []
-                     (.apply (:f e) g (to-array (:args e)))
-                     (.apply (:set-interval real) g
-                             (to-array (list* (:f e) p (:args e)))))
+                     ;; `finally`, because a REPEATING timer outlives a
+                     ;; throwing tick on the platform: HTML's timer
+                     ;; initialisation steps report the exception (9.7) and
+                     ;; then reinitialise the still-live timer (9.11). Arming
+                     ;; the cadence after the call instead lets one throw
+                     ;; retire the interval for the rest of the page's life.
+                     ;; And the throw still ESCAPES, or the divergence has only
+                     ;; moved: a swallowed exception is a tick the page never
+                     ;; hears about. Which of the two happens first is not
+                     ;; observable — no script runs between them.
+                     (try
+                       (.apply (:f e) g (to-array (:args e)))
+                       (finally
+                         (.apply (:set-interval real) g
+                                 (to-array (list* (:f e) p (:args e)))))))
                    left)
             (.apply (:set-timeout real) g
                     (to-array (list* (:f e) left (:args e)))))))))
