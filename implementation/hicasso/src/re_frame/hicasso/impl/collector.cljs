@@ -404,6 +404,7 @@
             [re-frame.hicasso.impl.frames :as frames]
             [re-frame.hicasso.impl.generation :as generation]
             [re-frame.hicasso.impl.intent :as intent]
+            [re-frame.hicasso.impl.receipt :as receipt]
             [re-frame.frame :as frame]
             [re-frame.interop :as interop]
             [re-frame.live-frame :as live-frame]
@@ -1593,8 +1594,25 @@
   (when ^boolean js/goog.DEBUG
     (codec/set-lowering-owner! (unchecked-get body-fn "displayName")))
   (try
-    (intent/with-frame frame-kw (frame-dispatch frame-kw)
-      (fn [] (codec/as-element (body-fn props))))
+    (let [el (intent/with-frame frame-kw (frame-dispatch frame-kw)
+               (fn [] (codec/as-element (body-fn props))))]
+      ;; SPIKE rf2-hic-081 — THE CAPABILITY-RECEIPT TAP, and the only one.
+      ;; One deref and one nil test per ATTEMPT, with the deref as the
+      ;; outermost form, so nothing a receipt would be handed gets built
+      ;; when nothing is receipting. Everything the receipt reports is
+      ;; derived HERE from the attempt's own leavings — the scratch, the
+      ;; cell table, the element — so no counter exists inside `read-key!`
+      ;; or the codec walk. Taken after the element is in hand, which is
+      ;; what keeps the node walk out of any duration.
+      (when-some [rc @receipt/!sink]
+        (receipt/record-attempt!
+          rc
+          (unchecked-get body-fn "displayName")
+          scratch
+          (fn warm? [sub-key]
+            (some? (some-> ^js (get @!cells sub-key) (.-reaction))))
+          el))
+      el)
     (finally
       (set! (.-frame rstate) nil)
       (when ^boolean js/goog.DEBUG (codec/set-lowering-owner! nil)))))
