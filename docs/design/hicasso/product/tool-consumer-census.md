@@ -72,6 +72,10 @@ case-sensitive, and it is run from the repository root:
 git grep -l -E "freehand|re[-_]frame[./]ui" -- tools
 ```
 
+**The pattern matches artefact names as well as donor namespaces.** `freehand-views` — the staged
+deck's own shadow-cljs build id and namespace prefix — is matched by `freehand` and names no donor;
+row X7 is a file that enters the result that way and no other.
+
 At commit `e1b4cae5d0` (merged `main`, 2026-08-11) it returns **43 files**. It returned 43 at
 `964d71d9f2` as well, so the figure survived a rebase across the intervening commits — which is
 worth one line, given what happened last time.
@@ -104,6 +108,14 @@ lowercase, and the string reads "renders Freehand views" with a capital F, so
 `play/runner_events.cljc` enters the 43 solely through two lowercase docstring hits while its one
 load-bearing mention returns nothing. Every hit is therefore classified from the consumer code,
 never from the grep.
+
+**A third species has no direction at all: an over-count by NAME COLLISION** (`rf2-lkps`). The
+wiki-link over-count and the runtime-string under-count both turn on what the text *does*; this one
+turns on what it is *about*. `tools/xray/testbeds/freehand_views/index.html` enters the 43 on two
+hits — its `<title>` and one comment — and both name the deck's own `freehand-views` prefix, not
+`re-frame.freehand`. The prose is real and load-bearing, and simply is not about the donor. It is
+still row X7, because the deck's host page is load-bearing for the cluster; but it is a row on the
+`#app` mount target and the button ids, not on a donor name it does not carry.
 
 So each hit was read. A consumer row is a file that names a donor **in a load-bearing position** — a
 `:require`, a classpath coordinate, a runtime string or keyword the code actually uses, or a build /
@@ -151,7 +163,7 @@ target too — but wholly, with nothing left behind on the donor.)
 | X4 | `tools/xray/test/day8/re_frame2_xray/mounted_views_cljs_test.cljs` | seven `re-frame.freehand.*` requires (`.cell`, `.evidence`, `.occurrences`, `.test`, `.tool`, `.release-app`, and the door) — the suite of X2 | STILL-LIVE |
 | X5 | `tools/xray/test/day8/re_frame2_xray/panels/reactive_panel_view_cljs_test.cljs` | no require; asserts on the literal schema values `:re-frame.freehand.evidence/v9` (L451, the mismatch banner) and `/v1` (L466, the supported case) — the banner contract of the live panel | STILL-LIVE |
 | X6 | `tools/xray/testbeds/freehand_views/core.cljs` | `:require` of `re-frame.freehand` (L97) — the one staged deck whose views are Freehand views | STILL-LIVE |
-| X7 | `tools/xray/testbeds/freehand_views/index.html` | the deck's host page, wired from `freehand-views.core/run` | STILL-LIVE |
+| X7 | `tools/xray/testbeds/freehand_views/index.html` | **names no donor** — its two hits (`<title>` L5, a comment L29) name the deck's own `freehand-views` prefix. It is a row as the deck's host page: `#app` (L26) is the mount target X6's `run` takes, and `fh-mount` / `fh-unmount` (L33-34) are the ids X8's scenario drives. `freehand-views.core/run` is bound by `:init-fn` in top-level `implementation/shadow-cljs.edn` L2042, not here | STILL-LIVE |
 | X8 | `tools/xray/testbeds/feature_matrix/scenarios.cjs` | the `freehand-views populated Views roster` scenario (L3819) plus its `build` / `bundleDir` / `html` / `servedPath` wiring (L184-187) — a gated browser scenario | STILL-LIVE |
 | X9 | `tools/xray/src/day8/re_frame2_xray/panels/hicasso_reads.cljs` | `:require [re-frame.hicasso.tool :as tool]` (L41) — the live read seam behind the Hicasso tab | MIGRATED |
 | X10 | `tools/xray/src/day8/re_frame2_xray/panels/hicasso_helpers.cljc` | pins `:re-frame.hicasso.evidence/v2` (L66) as the consumer-owned schema literal | MIGRATED |
