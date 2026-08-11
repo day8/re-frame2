@@ -830,7 +830,7 @@ async function waitForArm(page, predicate, arg, whatFailed) {
   }
 }
 
-async function armedEdgesAreWired(page, w) {
+async function armedEdgesAreWired(page, w, ctx) {
   const before = await page.evaluate(() => ({
     label: window.__TB__.el('armed').textContent,
     revision: window.__TB__.model().revision,
@@ -873,8 +873,24 @@ async function armedEdgesAreWired(page, w) {
   // audit rightly refused, and the readout is rendered from the same
   // number, so a stuck default reads wrong here before anything is
   // waited on.
+  //
+  // The re-navigation carries the RUNNER's navigation ceiling rather than a
+  // literal of its own: it is the same navigation, to the same server, as the
+  // one the runner already made, and a second number here would be a second
+  // budget for one operation, free to drift from it. Passing no number is the
+  // defect `_navigation-ceiling-policy.test.cjs` exists to remove — Playwright
+  // would apply an anonymous 30s default that no lane budget can reach — so a
+  // missing ceiling REFUSES here rather than defaulting, which is the same
+  // choice `examples/scripts/spec-helpers.cjs` makes for spec-side callers.
   const base = page.url().split('?')[0];
-  await page.goto(`${base}?arm-ms=${ARM_MS}`, { waitUntil: 'commit' });
+  if (typeof ctx.navTimeoutMs !== 'number') {
+    throw new Error(
+      'the runner must pass `navTimeoutMs` — a navigation with no ceiling ' +
+      'inherits Playwright\'s 30s default, which is invisible in the source ' +
+      'and unreachable from the runner\'s own knob');
+  }
+  await page.goto(`${base}?arm-ms=${ARM_MS}`,
+    { waitUntil: ctx.navWaitUntil, timeout: ctx.navTimeoutMs });
   await page.waitForSelector('[data-testid="hicasso-controlled-testbed"]');
 
   const seed = await page.evaluate(() => window.__TB__.model().revision);
@@ -933,7 +949,9 @@ module.exports = {
     const w = new Witness(ctx.engine);
     for (const [name, section] of SECTIONS) {
       const before = w.checks;
-      await section(page, w);
+      // `ctx` reaches every section so one that navigates is bounded by the
+      // runner's own ceiling rather than a literal of its own.
+      await section(page, w, ctx);
       w.sections[name] = w.checks - before;
     }
     return { checks: w.checks, recorded: w.recorded, sections: w.sections };
