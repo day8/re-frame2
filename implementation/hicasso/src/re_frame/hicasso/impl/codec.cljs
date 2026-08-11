@@ -2759,7 +2759,7 @@
   callable, so nothing throws.
 
   **The trap is the `:event` contract's convenience.**
-  `[my-host {:on-pick (h/fn [x] [:row/pick x])}]`, with `:on-pick` absent
+  `[my-host {:on-pick (h/hfn [x] [:row/pick x])}]`, with `:on-pick` absent
   from `:callbacks`, crosses; the library calls it; it returns an intent
   vector; the library discards the return; nothing dispatches. The user's
   click does nothing, in production, with no diagnostic anywhere — the

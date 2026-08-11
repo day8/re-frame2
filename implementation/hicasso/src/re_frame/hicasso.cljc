@@ -455,7 +455,7 @@
 
       [virtual-list
        {:item-count (count ids)
-        :render-row (h/fn [i]
+        :render-row (h/hfn [i]
                       (h/as-element
                         [:li.row {:on-click [:feed/open (nth ids i)]}
                          (str (nth ids i))]))}]
