@@ -1498,6 +1498,14 @@
 ;; nothing threw. That is the SAME silent-declaration failure `:slots`
 ;; exists to delete, so it is refused at the declaration beside the other
 ;; five, on the same id.
+;;
+;; **The trap has a second door, and `:slots` is not it.** A declaration
+;; carries TWO rosters, and `host-entry`'s reserved skip sits above both
+;; of them, so `{:callbacks {:constructor :event}}` was the identical
+;; silent mint — the audit of the fix above found it still standing.
+;; [[refuse-callback-position!]] is the callback half, asked of the same
+;; canonical name by the same predicate, and it rides the id that arm
+;; already had. Two rosters, two arms, one question.
 
 (defn- slot-key-name
   "The prop name a `:slots` entry spells, or nil when the entry cannot
@@ -1590,6 +1598,31 @@
         slots))
     #{}))
 
+(defn- refuse-callback-position!
+  "The one `:callbacks` refusal for a contract declared where no contract
+  can ever be applied. `why` completes the sentence *\"defhost NAME
+  declares a callback contract on K, and …\"*.
+
+  TWO conditions, one id and one recovery, because they are one fault —
+  *this is not an ordinary prop, so the contract is a policy that can
+  never run*. `key` and `ref` are React's own, an identity contract and
+  HD-016's node handle, and neither is a callback position. `__proto__`,
+  `prototype` and `constructor` are the names [[host-entry]] skips
+  BEFORE it reads any declaration, because the props object handed to
+  React has a prototype even though the caches no longer do — so a
+  contract declared at one of them would mint, read correct, and never
+  once be applied. That is the same silent declaration `:slots` refuses
+  at [[declared-slots]] (rf2-hic-035), one roster over, and the recovery
+  the id already carried — *declare contracts on ordinary props only* —
+  is the sentence both conditions were always waiting for."
+  [host-name k why data]
+  (fail! :rf.error/hicasso-host-structural-callback
+         're-frame.hicasso.impl.codec/mint-host!
+         (str "defhost " host-name " declares a callback contract on "
+              (pr-str k) ", and " why)
+         :declare-contracts-on-ordinary-props-only
+         (assoc data :host host-name :position k)))
+
 (defn mint-host!
   "THE ONE-LINE DECLARATION (HD-011). Give the crossing to `component` a
   name, a policy, and a place: returns the host HEAD — a marked carrier
@@ -1610,13 +1643,15 @@
   are both normalized to their canonical slot at MINT time, so the
   lookup the crossing performs per prop is one `get` and one
   `contains?`; a contract outside the roster, a declaration on a
-  structural slot (`key`/`ref` are React's, not positions), a slot at a
-  name the crossing can never emit ([[reserved-name?]]), two
-  spellings landing on one slot, a malformed `:slots` set, a position
-  declared both a callback and a slot, an `:ssr` value outside the
-  three, a `defview` or `defhost` head written into a fallback, and an
-  option key outside `#{:callbacks :slots :ssr}` are all refused at the
-  declaration, where the author's stack is the declaration site.
+  structural slot (`key`/`ref` are React's, not positions), a CONTRACT
+  or a SLOT at a name the crossing can never emit ([[reserved-name?]] —
+  both rosters, because the crossing skips the name whichever one
+  declared it), two spellings landing on one slot, a malformed `:slots`
+  set, a position declared both a callback and a slot, an `:ssr` value
+  outside the three, a `defview` or `defhost` head written into a
+  fallback, and an option key outside `#{:callbacks :slots :ssr}` are
+  all refused at the declaration, where the author's stack is the
+  declaration site.
 
   ## What the `gate` slot holds, and why it is not always a gate
 
@@ -1665,14 +1700,25 @@
                         :declare-event-handler-or-render
                         {:host host-name :position k :contract contract}))
                (when (structural-slot? k)
-                 (fail! :rf.error/hicasso-host-structural-callback
-                        're-frame.hicasso.impl.codec/mint-host!
-                        (str "defhost " host-name " declares a callback contract on "
-                             (pr-str k) ", whose canonical slot is structural. `key` "
-                             "is React's identity contract and `ref` is HD-016's "
-                             "node handle; neither is a callback position.")
-                        :declare-contracts-on-ordinary-props-only
-                        {:host host-name :position k}))
+                 (refuse-callback-position! host-name k
+                   (str "its canonical slot is structural. `key` is React's "
+                        "identity contract and `ref` is HD-016's node handle; "
+                        "neither is a callback position.")
+                   {}))
+               ;; Asked of the CANONICAL slot, exactly as [[declared-slots]]
+               ;; asks it and exactly as [[host-entry]] asks it of the
+               ;; emitted name — so all nine spellings of the three land on
+               ;; the one answer, and the declaration is refused where the
+               ;; crossing would silently have skipped it.
+               (when (reserved-name? slot)
+                 (refuse-callback-position! host-name k
+                   (str "it lands on " (pr-str slot) ", which the crossing "
+                        "never writes: the props object handed to React has a "
+                        "prototype, so that name is skipped before any "
+                        "declaration is read and the contract could never be "
+                        "applied. A contract that mints and can never fire is "
+                        "the silent declaration :callbacks exists to delete.")
+                   {:slot slot}))
                (when (contains? m slot)
                  (fail! :rf.error/hicasso-host-callback-slot-collision
                         're-frame.hicasso.impl.codec/mint-host!
@@ -2665,9 +2711,19 @@
   The `reserved?` skip sits ABOVE both declaration arms and stays there
   — the props object has a prototype, and no declaration may talk the
   codec into poisoning it. What that costs is paid at the DECLARATION
-  instead: [[declared-slots]] refuses a slot at a reserved emitted name,
-  so the only shape this arm can be unreachable for is one that never
-  minted (rf2-hic-035).
+  instead, and it is paid on BOTH rosters: [[declared-slots]] refuses a
+  slot at a reserved emitted name and [[refuse-callback-position!]]
+  refuses a contract at one, so the only shape either arm can be
+  unreachable for is one that never minted (rf2-hic-035).
+
+  **That sentence is exact, and it was not always true.** It was written
+  when only the slot half of the guard existed, and it claimed the whole
+  correspondence on the strength of it — so for one release the code
+  documented a guarantee it did not provide, and
+  `{:callbacks {:constructor :event}}` minted, read correct, and could
+  never reach the component. A claim about what CANNOT happen has to name
+  every declaration that could make it happen; if a third roster is ever
+  added, this paragraph is the one that has to grow with it.
 
   An UNDECLARED prop is untouched by all of this, which is the property
   the whole mechanism exists to preserve. Nothing asks whether a vector
