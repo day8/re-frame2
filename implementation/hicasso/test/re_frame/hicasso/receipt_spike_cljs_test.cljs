@@ -69,6 +69,32 @@
 (defn- row-for [rs view]
   (first (filter #(= view (:view %)) rs)))
 
+(defn- projection
+  "THE RECEIPT'S ENVELOPE, and it lives HERE rather than in
+  `impl/receipt` for a reason the release gate measured: requiring
+  `re-frame.hicasso.evidence` from a namespace the collector taps makes
+  the schema pin reachable from the public door, and
+  `check_production_erasure.cjs` fails the bundle for exactly that. A
+  graduated receipt puts this in `re-frame.hicasso.tool`, which is
+  dev-only by the same reachability rule.
+
+  Detached, the roster is UNKNOWN and not empty: a receipt nobody was
+  taking is the shape `unknown looks like none` was written to refuse."
+  []
+  (if-some [rs (receipt/rows)]
+    (evidence/projection
+      {:scope     {:receipts :per-boundary}
+       :basis     :observation
+       :complete? true
+       :loss      nil
+       :receipts  rs})
+    (evidence/projection
+      {:scope     {:receipts :per-boundary}
+       :basis     :opaque
+       :complete? false
+       :loss      {:reason :opaque :dropped evidence/unknown}
+       :receipts  evidence/unknown})))
+
 ;; ---------------------------------------------------------------------------
 ;; 1. The receipt reports
 ;; ---------------------------------------------------------------------------
@@ -155,7 +181,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest detached-the-projection-says-unknown-and-never-an-empty-roster
-  (let [p (receipt/projection)]
+  (let [p (projection)]
     (is (= evidence/unknown (:receipts p))
         "a receipt nobody took is unknown, not `[]`")
     (is (false? (:complete? p)))
@@ -166,7 +192,7 @@
   (seed!)
   (receipt/attach!)
   (render! (named wide-body "spike/wide"))
-  (let [p (receipt/projection)]
+  (let [p (projection)]
     (is (= :observation (:basis p)))
     (is (true? (:complete? p)))
     (is (nil? (:loss p)))

@@ -48,9 +48,30 @@
 
   The node walk happens AFTER the attempt's element is in hand, which is
   what keeps a count from entering a duration: were self time ever
-  measured, `t1` would be taken before this call."
-  (:require [clojure.string :as str]
-            [re-frame.hicasso.evidence :as evidence]))
+  measured, `t1` would be taken before this call.
+
+  ## THIS NAMESPACE REQUIRES NO SCHEMA, AND THE GATE IS WHY
+
+  The first cut of this file required `re-frame.hicasso.evidence` so it
+  could hand back a versioned envelope. `npm run build:hicasso-release`
+  then FAILED, and correctly:
+
+      hicasso production erasure: FAIL
+        DEV SURFACE LEAKED: evidence projection — the versioned envelope
+          sentinel: \"re-frame.hicasso.evidence\"
+
+  `re-frame.hicasso.evidence` is dev-only BY REACHABILITY — nothing under
+  `src/` requires it, so a consumer who never asks for the projection
+  never ships it. A tap in the collector is reachable from the public
+  door by construction, so anything the tap's namespace requires becomes
+  reachable too, and the schema pin landed in the `:advanced` bundle.
+
+  So the receipt splits across that existing boundary rather than
+  breaking it: RAW COUNTERS here, where the tap is; the PROJECTION in a
+  dev-only consumer that is not reachable from the door. A graduated
+  version puts it in `re-frame.hicasso.tool`; the spike puts it in the
+  witness, which is not in any bundle at all."
+  (:require [clojure.string :as str]))
 
 ;; The attached receipt table, or nil. Read at the tap point as the
 ;; outermost form of the guard — the same discipline, and for the same
@@ -135,25 +156,7 @@
                     :cache-hits   (unchecked-get r "cacheHits")
                     :codec-nodes  (unchecked-get r "codecNodes")}))))))
 
-(defn projection
-  "The receipt in the versioned evidence envelope — the same door
-  `rf2-hic-023` made every other projection go through, so the spike
-  cannot invent a second schema.
+;; NO `projection` HERE. See the ns docstring: the envelope needs
+;; `re-frame.hicasso.evidence`, and requiring it from a namespace the
+;; collector taps makes the schema reachable from the public door.
 
-  Detached, the roster is UNKNOWN and not empty: a receipt nobody was
-  taking is exactly the shape `unknown looks like none` was written to
-  refuse."
-  []
-  (if-some [rs (rows)]
-    (evidence/projection
-      {:scope     {:receipts :per-boundary}
-       :basis     :observation
-       :complete? true
-       :loss      nil
-       :receipts  rs})
-    (evidence/projection
-      {:scope     {:receipts :per-boundary}
-       :basis     :opaque
-       :complete? false
-       :loss      {:reason :opaque :dropped evidence/unknown}
-       :receipts  evidence/unknown})))
