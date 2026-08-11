@@ -96,6 +96,12 @@ reports itself as a rehearsal and its verdicts say nothing about any engine.
 Useful flags: `--engines=firefox,webkit`, `--key-delay=<ms>` (default 80), `--port=<n>` (default 8066),
 `--keep-open`.
 
+Every check prints a **`READBACK`** line under its verdict: the field value, the trace cell, the arrival count, the
+caret, and the composition-event counts, exactly as they came out of the DOM. It is there because a verdict that
+short-circuits on an unmet premise says nothing about whether the reads returned anything at all — a rehearsal in
+which every selector silently resolved to `null` would print the same eight `INCONCLUSIVE`s as one in which they all
+worked. **The `READBACK` line is what separates them**, and it is the line that found the defect in §7.
+
 ## 6. The IME is requested, then verified — never assumed
 
 `IMEON` posts `WM_INPUTLANGCHANGEREQUEST` to the browser window and sends the IMM32 conversion-mode messages. The
@@ -136,6 +142,21 @@ The verdict functions are pure and carry **35 mutation teeth** (`--self-test`), 
 cannot be shown to fail is decoration. The teeth cover each check's tick shape, its defect shape and its
 premise-not-met shape, plus the recording rule that a crossed or incomplete run can never be written into
 `dispositions.md` as verified.
+
+### What building this found, before it typed anything
+
+Checks 7 and 8 reach their mid-exchange edge through the testbed's **armed** buttons, and the first rehearsal reported
+`fired=false` for both. They had **never fired**. `:tb/arm` returned a v1-shaped top-level `:dispatch-later` beside
+`:db`, and re-frame2's effect-map is a closed shape — `#{:db :rf.db/runtime :fx}` (migration M-8 / EP-0001) — so
+nothing carried it. Measured: 15s after the click the readout still read `armed`, while a plain `setTimeout(5000)` in
+the same page returned in 5006ms, so it was the effect and not the clock.
+
+The two arms are the operator instruments added in PR #7815 and sharpened in #7846 *specifically* so a session could
+reach a live composition, and the `armed-edges-are-wired` gate section was green in three engines the whole time: it
+reads the label and asserts "nothing has happened yet", which is true of a correctly deferred arm and equally true of
+one that never armed. Both are repaired here, and that section now **waits for the fire** — at a `?arm-ms=300`
+override so it costs under a second per engine rather than the thirty the #7815 audit rightly refused. Reverting the
+handler reds it with the diagnosis in the message.
 
 ## 8. Check 5, and the observation it exists to resolve
 
