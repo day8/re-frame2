@@ -184,8 +184,14 @@
   {:tag       :div
    :show!     (fn [node] (when-not (.matches node ":popover-open") (.showPopover node)))
    :hide!     (fn [node] (when (.matches node ":popover-open") (.hidePopover node)))
-   :event     :on-toggle
-   ;; `toggle` fires for a light dismiss AND for the module's own
+   ;; `beforetoggle` and NOT `toggle`, measured rather than chosen: the
+   ;; platform QUEUES a task for `toggle` and fires `beforetoggle`
+   ;; synchronously, so routing on `toggle` puts app-db a macrotask behind
+   ;; the screen. An application that reads its own open flag on the line
+   ;; after a dismissal — every test does — reads the value the dismissal
+   ;; has not written yet.
+   :event     :on-before-toggle
+   ;; It fires for a light dismiss AND for the module's own
    ;; `hidePopover()`, so this one is guarded.
    :guard?    true})
 
