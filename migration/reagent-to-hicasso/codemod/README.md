@@ -58,15 +58,23 @@ buckets — including `:mechanical 0`, which is a measurement rather than an
 omission: every mechanical rewrite this tool family knows is a W-rule, and every
 W-rule sits at a crossing.
 
-**What the census cannot resolve, it reports.** `#?(:cljs [reagent.core :as r])`
-is the only legal way to require Reagent from a `.cljc` file and the reader
-binds nothing for it, so before the census such a file was silently a file with
-no Reagent in it — W4 and W5 dead, every API in it unnamed, and the report
-non-empty enough (`:>` needs no alias) that nothing looked wrong. It is now
+**A reader-conditional require binds.** `#?(:cljs [reagent.core :as r])` is the
+only legal way to require Reagent from a `.cljc` file, and the tool reads it —
+both the plain shape and the splicing `#?@`, and a conditional around the whole
+`(:require …)` clause too. It did not always: `ns-context` used to read the `ns`
+form through one `sexpr`, which throws on a reader-conditional node, so the whole
+form went unreadable and every alias came back empty. Such a file was silently a
+file with no Reagent in it — W4 and W5 dead, every API in it unnamed, and the
+report non-empty enough (`:>` needs no alias) that nothing looked wrong. Three
+files under `examples/capabilities/ssr/` are real instances (rf2-m4hm).
+
+**What the census still cannot resolve, it reports.** A namespace that SPELLS a
+Reagent name without being Reagent's — a project vendoring it under an inlined
+name, such as `day8.re-frame-10x.inlined-deps.reagent.v1v2v0.reagent.core` — is
 `:unresolved-reagent-require` at the `ns` form, with every qualified
-roster-named call in the file reported as `:unresolved-alias`. Three files under
-`examples/capabilities/ssr/` are real instances; so is every namespace of a
-project that vendors Reagent under an inlined name.
+roster-named call in the file reported as `:unresolved-alias`. The tool does not
+guess that such a copy is `reagent.core`: a wrong binding rewrites working code,
+which is worse than naming what it cannot resolve.
 
 **What it cannot name, it does not count.** A Form-2 component is a `defn`
 returning a `fn` and nothing else marks it; a structural test for that would
