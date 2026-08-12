@@ -160,14 +160,30 @@
   event vocabulary to the browser as markup."
   [_]
   [:form.intents {:on-submit [::h/prevent [:hicasso.core-ssr/edit]]}
-   [:input.text {:type         "text"
-                 :defaultValue (h/sub [:hicasso.core-ssr/draft])
-                 :on-input     [:hicasso.core-ssr/edit ::h/value]
-                 ::h/revision  7}]
+   ;; CONTROLLED, and it has to be: `::h/revision` re-baselines a
+   ;; controlled field to its model, so `impl.controlled/install!`
+   ;; refuses it on a field with no `:value` to re-baseline TO. Measured
+   ;; here first as an uncaught refusal, and
+   ;; [[a-revision-on-an-uncontrolled-field-is-refused-at-source]] is
+   ;; that refusal kept as a row rather than merely designed around.
+   [:input.text {:type        "text"
+                 :value       (h/sub [:hicasso.core-ssr/draft])
+                 :on-change   [:hicasso.core-ssr/edit ::h/value]
+                 ::h/revision 7}]
    [:input.check {:type "checkbox" :defaultChecked true
                   :on-change [:hicasso.core-ssr/edit ::h/checked]}]
    [:a.link {:href "#x" :on-click [::h/prevent [:hicasso.core-ssr/finish]]} "veto"]
    [:button.go {:on-click [:hicasso.core-ssr/finish]} "go"]])
+
+(h/defview bad-revision
+  "`::h/revision` on an UNCONTROLLED field — `:defaultValue`, so there is
+  no model to re-baseline to. The refusal this shape draws is HS-07's
+  own, and it fires during the SERVER render, which is the half worth
+  pinning: a reserved key whose validation ran on the client only would
+  ship this page and fail at adoption."
+  [_]
+  [:div.bad
+   [:input {:type "text" :defaultValue "x" ::h/revision 7}]])
 
 (h/defview controls
   "HS-08 as a class. Section 2.3 dispositions each control type for the
@@ -351,7 +367,11 @@
             parsing"
     (fresh!)
     (let [html (server-html [chrome {}])]
-      (is (re-find #"<svg class=\"mark\" viewBox=\"0 0 10 10\"" html)
+      ;; Attribute ORDER is the serializer's, not the author's — the
+      ;; `.mark` shorthand folds onto the emitted object and lands last —
+      ;; so each attribute is asserted on its own. Byte-exact per
+      ;; attribute, order-free between them.
+      (is (re-find #"<svg viewBox=\"0 0 10 10\"" html)
           (str "SVG keeps React's camelCase `viewBox` — HTML would have
                 lowercased it, and a lowercased one is a different
                 attribute that SVG ignores: " html))
@@ -395,8 +415,11 @@
                 the length and none on the unitless weight: " html))
       (is (re-find #"data-extra=\"yes\"" html)
           (str "a key only the remainder carries reaches the bytes: " html))
-      (is (re-find #"<input id=\"field\"[^>]*class=\"from-remainder\"" html)
-          (str "and one the remainder alone names takes its value: " html)))))
+      (is (re-find #"<input class=\"from-remainder\"" html)
+          (str "and the input, which writes no literal class, takes the
+                one the remainder alone names: " html))
+      (is (re-find #"id=\"field\"" html)
+          (str "beside the literal keys, untouched by the merge: " html)))))
 
 (deftest the-literal-key-beats-the-remainder
   (testing "HD-023's merge law, on the server side of it. The remainder
@@ -444,6 +467,31 @@
                 untouched — the control that keeps every assertion above
                 from passing on an empty string: " html)))))
 
+(deftest a-revision-on-an-uncontrolled-field-is-refused-at-source
+  (testing "HS-07's refusal arm, and it was found rather than designed:
+            the first draft of [[intents]] put `::h/revision` on a
+            `:defaultValue` field and this refusal is what came back. It
+            is kept as a row because the reserved vocabulary's validation
+            has to run on the SERVER too — one that ran on the client
+            alone would let this page be baked and would fail only at
+            adoption, which is the most expensive place to find it"
+    (fresh!)
+    (let [e (try (server-html [bad-revision {}]) nil
+                 (catch :default e e))
+          d (ex-data e)]
+      (is (some? e) "the render refused rather than emitting the field")
+      (is (= :rf.error/hicasso-revision-not-controlled (:rf.error/id d))
+          (str "with the id that names the mistake: " (pr-str d)))
+      (is (= :put-the-revision-on-a-controlled-input-or-textarea
+             (:recovery d))
+          "carrying the recovery, which is what makes it a refusal rather
+           than a crash")
+      (is (= 're-frame.hicasso.core-view-ssr-dom-cljs-test/bad-revision
+             (symbol (:view d)))
+          (str "attributed to the AUTHOR'S boundary — not to the codec
+                that noticed — which is the whole of `at source`: "
+               (pr-str (:view d)))))))
+
 (deftest the-controlled-fields-carry-their-values
   (testing "HS-08's server half. A control's value is in the response, so
             the page paints filled rather than empty-then-filled.
@@ -461,9 +509,13 @@
           (str "the textarea's value as its CHILD, which is where HTML
                 puts it and where React's server renderer puts it: "
                html))
-      (is (re-find #"<option selected=\"\" value=\"b\">B</option>" html)
+      (is (re-find #"<option value=\"b\" selected=\"\">B</option>" html)
           (str "and the select's value as `selected` on the chosen
-                option, not as an attribute on the select: " html)))))
+                option, not as an attribute on the select: " html))
+      (is (not (re-find #"<select[^>]*value=" html))
+          (str "the select itself carries no `value` attribute, which is
+                the half a serializer gets wrong by writing the React
+                prop straight out: " html)))))
 
 ;; ---------------------------------------------------------------------------
 ;; 1b — the error boundary's two server arms (no DOM)
