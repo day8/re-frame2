@@ -141,7 +141,7 @@
       (react-dom/flushSync
         (fn []
           (rdc/render root [rf/frame-provider {:frame frame-id}
-                            [(rf/view ::app/app)]])))
+                            [app/app]])))
       {:container container :root root})))
 
 (defn- teardown!
