@@ -60,7 +60,6 @@
             [re-frame.hicasso :as h]
             [re-frame.hicasso.examples.slice.events :as events]
             [re-frame.hicasso.examples.slice.routes :as routes]
-            [re-frame.hicasso.examples.slice.subs :as subs]
             [re-frame.hicasso.examples.slice.views :as views]
             [re-frame.hicasso.impl.codec :as codec]
             [re-frame.hicasso.impl.collector :as collector]
