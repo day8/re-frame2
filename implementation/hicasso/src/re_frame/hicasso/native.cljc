@@ -587,16 +587,17 @@
 
   ## A rejection is TERMINAL, and `:reset-key` does not undo it
 
-  A rejection throws into the render and the nearest `h/boundary` catches
-  it — but changing that boundary's `:reset-key` retries the BOUNDARY and
-  not the chunk. React 19's `lazyInitializer` calls `load` only while its
-  payload is uninitialised; a rejection settles that payload as rejected,
-  and every read afterwards re-throws the cached error without going near
-  the loader. The payload belongs to `react/lazy`, and neither this tier
-  nor React's public API can reset it. **This docstring claimed the
-  opposite until rf2-hic-041 measured it**, and the paint is the reason
-  it survived: a fallback that stays put looks the same whether React
-  re-threw a cached rejection or fetched again and failed again.
+  A rejection throws into the render and the nearest `h/error-boundary`
+  catches it — but changing that boundary's `:reset-key` retries the
+  BOUNDARY and not the chunk. React 19's `lazyInitializer` calls `load`
+  only while its payload is uninitialised; a rejection settles that
+  payload as rejected, and every read afterwards re-throws the cached
+  error without going near the loader. The payload belongs to
+  `react/lazy`, and neither this tier nor React's public API can reset
+  it. **This docstring claimed the opposite until rf2-hic-041 measured
+  it**, and the paint is the reason it survived: a fallback that stays
+  put looks the same whether React re-threw a cached rejection or
+  fetched again and failed again.
 
   So the retry a failed chunk needs is a NEW HEAD — the same allocation a
   hot reload performs, which is why the retry fact and the HMR fact have

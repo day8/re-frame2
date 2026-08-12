@@ -281,10 +281,10 @@
     (is (= {:background "rgb(18, 21, 26)" :color "rgb(232, 234, 237)"}
            (:style (ht/attrs (tagged tree :main)))))
 
-    (testing "the routed pane sits under h/boundary"
+    (testing "the routed pane sits under h/error-boundary"
       (is (some? boundary)
-          "recorded as the CALL it is — h/boundary is a legal hiccup head
-           and its own body does not run here")
+          "recorded as the CALL it is — h/error-boundary is a legal hiccup
+           head and its own body does not run here")
       (is (= routes/article (:reset-key (ht/attrs boundary)))
           "the reset key is the ROUTE, so navigating away from a pane that
            threw clears the caught failure — the retry is the

@@ -1,5 +1,5 @@
 (ns re-frame.hicasso.impl.boundary
-  "`h/boundary` — THE RUNTIME'S OWN ERROR BOUNDARY (HD-020(c),
+  "`h/error-boundary` — THE RUNTIME'S OWN ERROR BOUNDARY (HD-020(c),
   rf2-2rtt6.41).
 
   HD-020(c) rules that \"the runtime ships one internal class-based
@@ -7,7 +7,12 @@
   it is the P1 witness's *real error boundary*\". validation.md's
   `:foreign/host-and-error-boundary` row names it by that description.
   This is it, and it is deliberately the smallest thing that satisfies
-  the three keys.
+  the three keys. The decision's words are quoted as it wrote them; the
+  export it names has since been spelled `h/error-boundary`, which is
+  what the naming ledger ruled (row 12, rf2-g8rb). The var HERE keeps the
+  short name — it is `impl.boundary`'s own, an implementation detail no
+  consumer types, and it is what the `:rf.error/hicasso-boundary-*` ids
+  and their Spec 009 rows are named after.
 
       [boundary {:fallback  [:p.oops \"that did not work\"]
                  :reset-key attempt
@@ -209,8 +214,8 @@
     (when-not (contains? prop-roster k)
       (fail! :rf.error/hicasso-boundary-unknown-prop
              're-frame.hicasso.impl.boundary/boundary
-             (str "h/boundary was given " (pr-str k) ", which is not one of "
-                  "its props. A boundary carries :fallback, :reset-key and "
+             (str "h/error-boundary was given " (pr-str k) ", which is not "
+                  "one of its props. It carries :fallback, :reset-key and "
                   ":on-error, and its :children are the trailing forms rather "
                   "than a key you write. A misspelling here is not an ignored "
                   "option: it is an error boundary that reports nothing, "
@@ -221,7 +226,7 @@
     (when-not (or (nil? on-error) (vector? on-error) (fn? on-error))
       (fail! :rf.error/hicasso-boundary-bad-on-error
              're-frame.hicasso.impl.boundary/boundary
-             (str "h/boundary's :on-error was " (pr-str on-error)
+             (str "h/error-boundary's :on-error was " (pr-str on-error)
                   ", which nothing can fire. It takes an INTENT VECTOR, "
                   "dispatched with the error appended into the frame the "
                   "boundary is mounted under, or a FUNCTION called with the "
@@ -260,9 +265,9 @@
   nil)
 
 (def boundary
-  "`h/boundary` — a legal hiccup head, marked the way a `defview` product
-  is, and a React **class** so React will hand it a render-phase throw
-  from anything below.
+  "`h/error-boundary` — a legal hiccup head, marked the way a `defview`
+  product is, and a React **class** so React will hand it a render-phase
+  throw from anything below.
 
   It is not a Hicasso *reactive* boundary: it reads no subscription,
   holds no cell and spends no hook."

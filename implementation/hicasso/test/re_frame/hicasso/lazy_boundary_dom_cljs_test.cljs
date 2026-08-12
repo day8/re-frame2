@@ -563,7 +563,8 @@
 
 (defn- reject-tree
   [attempt host]
-  (tree [h/boundary {:fallback [:p {:id "fb"} "caught"] :reset-key attempt}
+  (tree [h/error-boundary {:fallback  [:p {:id "fb"} "caught"]
+                           :reset-key attempt}
          [:div
           [attempt-marker {}]
           [suspense-host {:fallback [:p {:id "skel3"} "loading"]}

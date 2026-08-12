@@ -9,7 +9,7 @@
 
   | seam | the call | what it carries across the gap |
   |---|---|---|
-  | `h/boundary`'s `:on-error` report | `collector/dispatch!`, in `impl.boundary/report!` | the frame keyword, read from React context AT CATCH TIME |
+  | `h/error-boundary`'s `:on-error` report | `collector/dispatch!`, in `impl.boundary/report!` | the frame keyword, read from React context AT CATCH TIME |
   | the internal mount witness door | `collector/dispatch!`, in `impl.mount/dispatch!` | `(:frame handle)` — a keyword, retained for the root's whole life |
   | `::h/navigate` | routing's `:routing/activate-link!`, in `impl.intent/navigate-handler` | the frame keyword, closed over at RENDER and resolved at CLICK |
 
@@ -217,7 +217,7 @@
       (is (= :fresh (marked))))))
 
 ;; ---------------------------------------------------------------------------
-;; 2. SEAM 1 — `h/boundary`'s `:on-error` report (`impl.boundary/report!`)
+;; 2. SEAM 1 — `h/error-boundary`'s `:on-error` report (`impl.boundary/report!`)
 ;; ---------------------------------------------------------------------------
 
 ;; `report!` is reached from `componentDidCatch` and from nowhere else
