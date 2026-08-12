@@ -297,6 +297,9 @@
   (try (.remove container) (catch :default _ nil))
   (doseq [n extra-nodes] (try (.remove n) (catch :default _ nil)))
   (restore-runner-url!)
+  ;; The page is shared with every other namespace in the bundle, and a row
+  ;; that ends 900px down leaves the next one reading an offset it never set.
+  (try (.scrollTo js/window 0 0) (catch :default _ nil))
   (try (rf/destroy-frame! frame-id) (catch :default _ nil))
   nil)
 
@@ -417,15 +420,21 @@
                     "including its path parameter")))
             (.then (fn [_]
                      (substrate/flush-render!)
-                     (testing "the decoy is what a document-wide lookup finds"
-                       (is (identical? decoy (.querySelector js/document heading-selector))
-                           "the decoy heading precedes the application in
-                            document order, so `document.querySelector` over
-                            the shared marker answers IT. A recipe scoped to
-                            the document would focus this element, and the
-                            row below would still find `activeElement` on a
-                            marked heading — which is why the assertion is
-                            written against the application's OWN node"))
+                     (testing "a document-wide lookup does NOT answer this
+                               application's heading — the near-miss is live"
+                       (is (some? (app-heading m))
+                           "precondition: the pane rendered a marked heading of
+                            its own")
+                       (is (not (identical? (app-heading m)
+                                            (.querySelector js/document heading-selector)))
+                           "the decoy precedes the application in document order,
+                            so `document.querySelector` over the shared marker
+                            answers something that is not this application's
+                            heading. A recipe scoped to the DOCUMENT would focus
+                            that instead — and would still leave `activeElement`
+                            on a marked heading, which is why the row below is
+                            written against the application's OWN node rather
+                            than against the marker")))
                      (focused-heading m "the deep link's landing focus")))
             (.then (fn [h]
                      (is (identical? h (active))
