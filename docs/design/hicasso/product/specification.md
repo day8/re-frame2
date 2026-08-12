@@ -440,6 +440,8 @@ Exit when every row in section 7 points to running evidence, an installable opti
 
 ### Phase 5 — decide differentiators and add high-value optional products
 
+> **Amended 2026-08-12 by operator ruling (Mike, in session, 17:36 AUSEST; `rf2-xpq9`): every item in this phase is a V0 DELIVERABLE, not an optional product held for a later release. V0 is not done until they are completed.** Completion has two shapes. **Feature-shaped** items — 3, 4, 5, 6 and 7 below — are built, witnessed and shipped in v0; item 2's buffered-draft helper was ruled into v0 the same day by `rf2-sh56` and `re-frame.hicasso.forms` has shipped. **Decision-shaped** items — 1 and 8 — are complete when the spike runs and its pre-registered verdict is made, and **a ruled STOP completes the item: completion is the verdict, never forced adoption.** Two clauses in the ladder move and one does not. Item 7's *"when a named caller activates it"* condition is **REMOVED** — the bounded service is built in v0 to the spec item 7 already states (`rf2-hic-056`, whose `[DORMANT]` marker is lifted). Item 6's *"and only then"* sequencing is **RETAINED**, now running inside v0 rather than after it. The two floors closing this section stand unchanged, so *optional* now describes only how a namespace is packaged and reached — never whether it ships.
+
 In priority order:
 
 1. decide the committed-read resource-demand spike from the typeahead witness;
