@@ -582,6 +582,73 @@ else
   fail_count=$((fail_count + 5))
 fi
 
+# ---------------------------------------------------------------------------
+# THE PINNED clj-kondo LANE (rf2-x1mz).  `PLAN-KONDO` is its machine-readable
+# arming, and it is a FOURTH surface rather than a view of the three above: the
+# lane's roots come from lint.yml's own `--lint` list, which reaches trees no
+# runtime tier owns (`examples/`, `testbeds/`, `tools/*`) and misses trees the
+# runtime tiers do own.  Both directions are pinned, because the bead is a gate
+# that could not fire on the edit it policed — and a lane armed by everything
+# would be the same defect wearing the opposite coat.
+#
+# `PLAN` deliberately keeps three fields; a fourth would rewrite fourteen
+# assertions above to say nothing they do not already say.
+# ---------------------------------------------------------------------------
+plan_kondo() {
+  bash "$spine" --plan --repo-root "$1" 2>/dev/null | grep '^PLAN-KONDO' \
+    || printf 'PLAN-KONDO <none>\n'
+}
+
+# AF — the exact file the bead was found on: source under a `--lint` root that
+# no local lane read before this one existed.
+r="$tmp_root/kondo-src"; mkrepo "$r"
+mkdir -p "$r/implementation/hicasso/src/re_frame/hicasso/impl"
+printf 'x\n' > "$r/implementation/hicasso/src/re_frame/hicasso/impl/overlay.cljs"
+git -C "$r" add -A; git -C "$r" commit -q -m src
+assert "AF hicasso source → the pinned kondo lane is armed" \
+  "PLAN-KONDO run" "$(plan_kondo "$r")"
+
+# AF1 — a root NO runtime tier owns.  `examples/` arms neither implementation_jvm
+# nor cljs_node_test, so before this lane a broken example reached CI unlinted.
+r="$tmp_root/kondo-examples"; mkrepo "$r"
+mkdir -p "$r/examples/capabilities/resources/linearlite"
+printf 'x\n' > "$r/examples/capabilities/resources/linearlite/core.cljs"
+git -C "$r" add -A; git -C "$r" commit -q -m example
+assert "AF1 examples/ → armed, though no runtime tier owns it" \
+  "PLAN-KONDO run" "$(plan_kondo "$r")"
+
+# AF2 — the shared config decides every finding's level without being linted.
+r="$tmp_root/kondo-config"; mkrepo "$r"
+mkdir -p "$r/.clj-kondo"; printf '{}\n' > "$r/.clj-kondo/config.edn"
+git -C "$r" add -A; git -C "$r" commit -q -m kondocfg
+assert "AF2 .clj-kondo/ config → armed" \
+  "PLAN-KONDO run" "$(plan_kondo "$r")"
+
+# AF3 — the workflow carries the pin AND the target list, so editing it changes
+# the verdict without touching one line of Clojure.
+r="$tmp_root/kondo-workflow"; mkrepo "$r"
+mkdir -p "$r/.github/workflows"; printf 'name: lint\n' > "$r/.github/workflows/lint.yml"
+git -C "$r" add -A; git -C "$r" commit -q -m workflow
+assert "AF3 lint.yml itself → armed" \
+  "PLAN-KONDO run" "$(plan_kondo "$r")"
+
+# AF4 — the counterweight.  A docs-only diff must not pay ~70s of linting; a
+# lane that runs on everything is as useless as one that runs on nothing.
+r="$tmp_root/kondo-docs"; mkrepo "$r"
+mkdir -p "$r/docs/design/hicasso/product"
+printf '# b\n' > "$r/docs/design/hicasso/product/budgets.md"
+git -C "$r" add -A; git -C "$r" commit -q -m docs
+assert "AF4 a docs-only diff does NOT arm the kondo lane" \
+  "PLAN-KONDO skip" "$(plan_kondo "$r")"
+
+# AF5 — an unresolvable base is an indeterminate change set, not an empty one.
+r="$tmp_root/kondo-nobase"; mkdir -p "$r"
+git -C "$r" init -q -b main 2>/dev/null
+git -C "$r" config user.email "self-test@local"; git -C "$r" config user.name "self-test"
+printf 'x\n' > "$r/thing.cljs"
+assert "AF5 no origin/main base → armed conservatively" \
+  "PLAN-KONDO run" "$(plan_kondo "$r")"
+
 # ---- Summary ----
 total=$((pass_count + fail_count))
 printf '\n%s/%s self-test cases passed.\n' "$pass_count" "$total"
