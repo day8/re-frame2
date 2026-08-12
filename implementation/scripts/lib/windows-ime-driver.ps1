@@ -51,10 +51,11 @@
     LAYOUTS                       -> {layouts:[hkl...], langids:[hex...]}
     FIND <b64 title-substring>    -> {hwnd, title, matches}
     IMESTATE <hwnd>               -> {hkl, langid, japanese, open, conversion,
-                                      foreground, isForeground}
+                                      native, foreground, isForeground}
     RESOLVE <tokens>              -> {tokens, vks}
     FOREGROUND <hwnd>             -> {isForeground}                    [armed]
     IMEON <hwnd>                  -> {requested, hkl, langid, ...}     [armed]
+    IMECONV <hwnd>                -> {conversion, native, ...}         [armed]
     KEYS <hwnd> <tokens> <delay>  -> {sent, tokens}                    [armed]
     QUIT                          -> OK
 
@@ -69,6 +70,25 @@
   through a compatibility layer that a given browser build may not honour.
   That is why `IMESTATE` exists as a separate verb — the caller ASKS, then
   VERIFIES, and stops for the operator when the answer is no.
+
+  ## The warning above came true, and what answers it
+
+  On 2026-08-12 the first armed run got the whole way in — foreground
+  seized on all three engines, romaji and ESC both delivered — and still
+  decided nothing: `IMESTATE` read `langid 0x0411`, `japanese: true` and
+  **`open: 0`** on Chromium, Firefox and WebKit alike. The TSF IME had
+  simply ignored `IMC_SETOPENSTATUS`, exactly as this header said it might,
+  so seven romaji letters landed as plain ASCII and all 24 checks returned
+  INCONCLUSIVE.
+
+  The door that was open all along is the one the keystrokes came through.
+  `SendInput` reached that IME when IMM32 did not, so the caller opens it by
+  sending the IME'S OWN TOGGLE — `kanji` (半角/全角, VK 0x19), already in the
+  vocabulary below — through `KEYS`, and then re-reads `IMESTATE`. `IMECONV`
+  is the same shape one level along: the toggle says nothing about which
+  reading mode the IME came back in, so Hiragana is re-asserted and the
+  `native` flag re-read. Neither verb is trusted either. The caller ASKS,
+  VERIFIES, and refuses the engine when the answer is still no.
 #>
 
 [CmdletBinding()]
@@ -136,9 +156,13 @@ public static class Rf2Ime
   private const int IMC_SETCONVERSIONMODE = 0x0002;
   private const int IMC_GETOPENSTATUS = 0x0005;
   private const int IMC_SETOPENSTATUS = 0x0006;
+  // The bit that says the IME is in a JAPANESE READING mode at all. Without
+  // it romaji is typed straight through as ASCII and no composition starts,
+  // whatever the open status says.
+  private const int IME_CMODE_NATIVE = 0x0001;
   // Hiragana: native reading, full-width. What a person selects when they
   // pick "ひらがな" in the language bar.
-  private const int IME_CMODE_HIRAGANA = 0x0009;
+  private const int IME_CMODE_HIRAGANA = 0x0009;   // NATIVE | FULLSHAPE
 
   /// Every visible top-level window whose title contains `needle`. Returned
   /// with the match COUNT rather than only the first hit: two windows
@@ -218,8 +242,34 @@ public static class Rf2Ime
     return hkl.ToInt64();
   }
 
+  /// Re-assert Hiragana on an IME that is already open. Split out of
+  /// `RequestJapanese` because the two requests answer different questions:
+  /// that one asks for the input locale AND the open state AND the mode in
+  /// one shot, while this one is what the caller sends AFTER opening the IME
+  /// by its own toggle key — a toggle says nothing about which reading mode
+  /// the IME came back in, and an alphanumeric one turns the romaji that
+  /// follows back into ASCII. Returns -1 when there is no IME window to ask.
+  public static long RequestHiragana(IntPtr hwnd)
+  {
+    IntPtr ime = ImmGetDefaultIMEWnd(hwnd);
+    if (ime == IntPtr.Zero) return -1;
+    return SendMessageW(ime, WM_IME_CONTROL,
+                        new IntPtr(IMC_SETCONVERSIONMODE),
+                        new IntPtr(IME_CMODE_HIRAGANA)).ToInt64();
+  }
+
   public static int ImeOpenStatus(IntPtr hwnd) { return (int)ImeQuery(hwnd, IMC_GETOPENSTATUS); }
   public static int ImeConversion(IntPtr hwnd) { return (int)ImeQuery(hwnd, IMC_GETCONVERSIONMODE); }
+
+  /// Does a conversion mode carry the NATIVE bit? A PREDICATE over the value
+  /// rather than a second query, so the flag reported alongside `conversion`
+  /// is derived from the very reading printed next to it. The sign is tested
+  /// first because `ImeQuery` answers -1 when there is no IME window, and
+  /// `-1 & 1` is 1: an UNANSWERABLE query must not read as a satisfied one.
+  public static bool IsNativeMode(long conversion)
+  {
+    return conversion >= 0 && (conversion & IME_CMODE_NATIVE) == IME_CMODE_NATIVE;
+  }
 
   /// One key down+up through the OS input stack. The virtual key carries a
   /// real scan code (`MapVirtualKey`) because an IME reads both, and a
@@ -247,8 +297,10 @@ $VK = @{
   'tab' = 0x09; 'left' = 0x25; 'up' = 0x26; 'right' = 0x27; 'down' = 0x28;
   'home' = 0x24; 'end' = 0x23; 'delete' = 0x2E;
   # The IME's own keys: 半角/全角 toggles the IME, 変換 opens conversion,
-  # F7 forces katakana. Present so a key plan can name them; unused by the
-  # default plans.
+  # F7 forces katakana. `kanji` is no longer decorative — it is what the
+  # caller's engage preflight sends, through `KEYS`, when `IMEON`'s IMM32
+  # request leaves a TSF IME closed. The other three are here so a key plan
+  # can name them, and no default plan does.
   'kanji' = 0x19; 'convert' = 0x1C; 'nonconvert' = 0x1D; 'f7' = 0x76
 }
 
@@ -287,13 +339,17 @@ function Get-ImeState([IntPtr]$hwnd) {
   $hkl = [Rf2Ime]::LayoutOf($hwnd)
   $langid = $hkl -band 0xFFFF
   $fg = [Rf2Ime]::GetForegroundWindow()
+  # Read once, report twice: `native` is a predicate over the very number
+  # printed beside it, so the flag and the reading can never disagree.
+  $conv = [Rf2Ime]::ImeConversion($hwnd)
   [ordered]@{
     hwnd         = $hwnd.ToInt64()
     hkl          = ('0x{0:X8}' -f $hkl)
     langid       = ('0x{0:X4}' -f $langid)
     japanese     = ($langid -eq 0x0411)
     open         = [Rf2Ime]::ImeOpenStatus($hwnd)
-    conversion   = [Rf2Ime]::ImeConversion($hwnd)
+    conversion   = $conv
+    native       = [Rf2Ime]::IsNativeMode($conv)
     foreground   = $fg.ToInt64()
     isForeground = ($fg -eq $hwnd)
   }
@@ -363,6 +419,18 @@ while ($null -ne ($line = [Console]::In.ReadLine())) {
           $state = Get-ImeState $h
           $state['requestedHkl'] = ('0x{0:X8}' -f $requested)
           Reply $id 'OK' $state
+        }
+      }
+      'IMECONV' {
+        # The follow-up to opening the IME by its toggle key. Armed like every
+        # other verb that reaches into another window, and — like `IMEON` — a
+        # REQUEST: the reply carries the state read AFTER it, so the caller
+        # checks `native` rather than believing the send.
+        if (Assert-Armed $id 'IMECONV') {
+          $h = [IntPtr][int64]$parts[2]
+          [void][Rf2Ime]::RequestHiragana($h)
+          Start-Sleep -Milliseconds 250
+          Reply $id 'OK' (Get-ImeState $h)
         }
       }
       'KEYS' {
