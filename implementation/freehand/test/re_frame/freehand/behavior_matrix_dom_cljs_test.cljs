@@ -78,13 +78,13 @@
                        (is (= 1 (behaviors/connection-count)) "exactly one connection")
                        (is (= #{:probe/one} (behaviors/target-ids))
                            "claiming the id the use site declared")
-                       (is (= [:connect] (bv/ops)) "and connected exactly once")
-                       (ms/destroy-root! container root)
-                       (done)))
+                       (is (= [:connect] (bv/ops)) "and connected exactly once")))
               (.catch (fn [e]
                         (is false (str "the behavior mount rejected: " e))
-                        (ms/destroy-root! container root)
-                        (done)))))))))
+                        nil))
+              (.then (fn [_]
+                       (ms/destroy-root! container root)
+                       (done)))))))))
 
 ;; ===========================================================================
 ;; Row 2 — a command reaches its target and runs host work; bounded refusals
@@ -116,13 +116,13 @@
                            (is (= :rf.error/behavior-command-refused (:rf.error/id d))
                                (str why " is refused with the bounded diagnostic"))))
                        (is (= "hit" (node-attr container "data-mark"))
-                           "and no refusal touched the node the accepted command marked")
-                       (ms/destroy-root! container root)
-                       (done)))
+                           "and no refusal touched the node the accepted command marked")))
               (.catch (fn [e]
                         (is false (str "the behavior mount rejected: " e))
-                        (ms/destroy-root! container root)
-                        (done)))))))))
+                        nil))
+              (.then (fn [_]
+                       (ms/destroy-root! container root)
+                       (done)))))))))
 
 ;; ===========================================================================
 ;; Row 3 — :update observes committed-config movement, not re-renders
@@ -151,13 +151,13 @@
                            "a moved config reconciles the host, exactly once")
                        (let [{:keys [config prev-config]} (last @bv/transcript)]
                          (is (= {:label "moved"} config) "with the new config")
-                         (is (= {:label "a"} prev-config) "and the previous one alongside it"))
-                       (ms/destroy-root! container root)
-                       (done)))
+                         (is (= {:label "a"} prev-config) "and the previous one alongside it"))))
               (.catch (fn [e]
                         (is false (str "the behavior mount rejected: " e))
-                        (ms/destroy-root! container root)
-                        (done)))))))))
+                        nil))
+              (.then (fn [_]
+                       (ms/destroy-root! container root)
+                       (done)))))))))
 
 ;; ===========================================================================
 ;; Row 4 — teardown releases everything, the exact integer zero (acceptance 3)
@@ -191,14 +191,17 @@
                        (is (= 0 (behaviors/connection-count))
                            "teardown released the connection to EXACTLY zero")
                        (is (= #{} (behaviors/target-ids)) "and dropped the target claim")
-                       (is (= [:connect :disconnect] (bv/ops)) "disconnecting exactly once")
-                       (ms/destroy-root! cc rc)
-                       (done)))
+                       (is (= [:connect :disconnect] (bv/ops)) "disconnecting exactly once")))
+              ;; The behaviour root's teardown is the ACT under test above, so the
+              ;; failure arm keeps its own — the two arms are destroying it for
+              ;; different reasons. Only the control root is shared teardown.
               (.catch (fn [e]
                         (is false (str "a behavior mount rejected: " e))
                         (ms/destroy-root! container root)
-                        (ms/destroy-root! cc rc)
-                        (done)))))))))
+                        nil))
+              (.then (fn [_]
+                       (ms/destroy-root! cc rc)
+                       (done)))))))))
 
 ;; ===========================================================================
 ;; Row 5 — the compiled tier ATTACHES the behavior boundary (the mode cell)
@@ -232,9 +235,11 @@
                        (is (= [:connect] (bv/ops)) "and connected exactly once")
                        (ms/destroy-root! container root)
                        (is (= 0 (behaviors/connection-count))
-                           "and released on teardown to exact zero")
-                       (done)))
+                           "and released on teardown to exact zero")))
+              ;; Teardown is the act under test on the success arm, so it is NOT
+              ;; hoisted — the failure arm tears down for its own reason.
               (.catch (fn [e]
                         (is false (str "the compiled behavior mount rejected: " e))
                         (ms/destroy-root! container root)
-                        (done)))))))))
+                        nil))
+              (.then (fn [_] (done)))))))))
