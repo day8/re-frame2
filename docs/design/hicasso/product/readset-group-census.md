@@ -75,4 +75,96 @@ A sub-key is `[frame-kw query-v]` — the frame's public keyword, not its incarn
 
 ## Result
 
-*Written after the criteria above were committed. See [the verdict](#the-verdict).*
+Measured 2026-08-12 20:29 AUSEST on a tree based at `8f1234311551e70b9825071e5317441922e56489`, by `re-frame.hicasso.readset-group-census-dom-cljs-test` on the browser lane: seven witness applications, each mounted on a real React root, each censused while mounted. React decides how many boundaries exist; the census only counts them.
+
+`rf2-hic-083` names *the slice + editor/grid apps*. All seven were censused instead, because a verdict three applications support and four contradict is a verdict nobody should take, and the other four cost four mounts.
+
+### Per application
+
+| application | entries | memberships `M` | grouped `M′` | saved | entries with `B ≥ 2` | shareable | max `B` | max `R` | shape `{[B R] n}` |
+|---|---|---|---|---|---|---|---|---|---|
+| slice | 6 | 19 | 25 | −6 | 0 | 0 | 1 | 7 | `{[1 7] 1, [1 4] 1, [1 2] 4}` |
+| editor | 7 | 12 | 19 | −7 | 0 | 0 | 1 | 4 | `{[1 4] 1, [1 2] 3, [1 1] 2, [1 0] 1}` |
+| grid | 111 | 121 | 232 | −111 | 1 | 11 | 11 | 1 | `{[1 1] 110, [11 1] 1}` |
+| todo | 7 | 10 | 17 | −7 | 0 | 0 | 1 | 3 | `{[1 3] 1, [1 2] 1, [1 1] 5}` |
+| forms | 7 | 12 | 20 | −8 | 1 | 0 | 2 | 3 | `{[1 3] 2, [1 2] 2, [1 1] 2, [2 0] 1}` |
+| typeahead | 2 | 5 | 7 | −2 | 0 | 0 | 1 | 3 | `{[1 3] 1, [1 2] 1}` |
+| navigation | 3 | 3 | 6 | −3 | 0 | 0 | 1 | 1 | `{[1 1] 3}` |
+
+### Pooled
+
+| quantity | value |
+|---|---|
+| read-set entries | 143, all claimed |
+| memberships today `M = Σ B·R` | **182** |
+| memberships grouped `M′ = Σ (R + B)` | **326** |
+| saved | **−144** |
+| `coalesced = (M − M′)/M` | **−79.1%** |
+| entries more than one boundary holds | **2 of 143** |
+| shareable memberships | **11 of 182 = 6.0%** |
+| entries that would SAVE a membership | **0** |
+| entries that would even BREAK EVEN | **0** |
+| landmark divergence, summed over seven applications | **0** |
+
+### The census's own proofs
+
+- **NON-EMPTY** — every one of the seven answered a positive membership count, asserted per application. The pooled 182 is not a zero that a broken reporter and a clean corpus would produce identically.
+- **CALIBRATION** — the entry-side walk (`refs × |set|` over the entry cache) reproduced the cell-side landmark (`readers.length` over the cell table, which is `impl.inventory/stats`'s `:cell-refs`) exactly, in all seven, for a pooled divergence of zero. The two walks discriminate: on a five-boundary shared population the entry side is one entry at `5 × 4` and the cell side four cells at five readers; on a five-boundary distinct-query population it is five entries at `1 × 4` and twenty cells at one reader. Both answer 20 by different routes.
+- **POSITIVE control** — on a constructed population of five boundaries reading one identical four-key set, the census reports `saved 11` and `coalesced 55%`. It can see coalescence.
+- **OVER-REPORT control** — on a legal distinct-query population of the same twenty memberships it reports zero shareable memberships and `saved −5`, with a sign rather than a zero a reader could mistake for neutrality.
+- **The landmark can disagree.** Lifting the cell table out from under three live registrations makes the two walks differ by the whole population, and the census reports `divergence 6` and `calibrated? false` with every row still in the answer. Restored, and the restoration verified by re-reading the report.
+- **The `|set|` choice is measured, not preferred.** Pricing the key ARRAY instead of the key SET reds five assertions, and the landmark catches it independently — `entry-side 3, cell-side 2`.
+
+### What it REPORTED rather than skipped
+
+On the real corpus: `unclaimed 0`, `duplicate-read-entries 0`, `read-free-entries 2`, `divergence 0`. Those buckets are non-zero on constructed populations — an uncommitted render, a body reading one key twice, four read-free shells — so a clean corpus reads as clean rather than as a reporter that never fires.
+
+The two read-free entries are `examples.editor/editor` and `examples.forms/screen`, and they matter to the arithmetic: at `R = 0` a group costs `B` notify slots against today's nothing. `examples.forms` holds the only multi-boundary read-free entry in the corpus (`[2 0]` — `screen` and `details-form`, both of which read nothing so that a keystroke stops at its own field's row).
+
+## The verdict
+
+**DO NOT ADOPT. The census decides it, and no spike is owed.**
+
+C1 fails on both denominators and is not close on either. `coalesced` is **−79.1%** — grouping does not fail to save memberships on this corpus, it nearly doubles them, from 182 to 326. The generous reading, `shareable`, is **6.0%**, below the row's own roughly-10% trigger. There is no denominator under which this population supports proceeding.
+
+C2 and C3 are not reached, and would not be reachable: **not one of 143 read-set entries would save a membership, and not one would break even.**
+
+### Why, and why it is structural rather than a property of these seven applications
+
+`(B−1)(R−1) − 1` needs both factors, and **`B` and `R` are anti-correlated by construction**. Two boundaries share an identical `(frame, ordered-read-set)` only when neither read carries a per-instance parameter; a boundary with no per-instance parameter is a shell over a page-wide fact; and a shell reads few keys. The two entries in this corpus that more than one boundary holds say it exactly:
+
+- **`examples.grid`** — the largest `B` the corpus offers, and it is `R = 1`. Eleven boundaries share one entry: the `grid` and its ten `grid-row`s, all reading `[::subs/dimensions]` and nothing else. `11 · 1 = 11` memberships today, `1 + 11 = 12` grouped. The single biggest fan-out in seven applications coalesces to a **net loss of one**.
+- **`examples.forms`** — two boundaries share one entry at `R = 0`. Grouping would add two notify slots for nothing.
+
+Meanwhile the boundaries with the largest read sets are all singletons. `examples.slice`'s `chrome` is the corpus maximum at `R = 7` — a locale, a theme and five translated strings — and `examples.editor`'s `readout` is `R = 4`, the four committed fields. Each is one of a kind, because a page has one chrome and one readout.
+
+The remaining 141 entries are the shape a real application is mostly made of: `[1 1]` and `[1 2]` — one boundary, its own parameterised key. `examples.grid`'s hundred cells and ten row totals are 110 of them, each reading `[::subs/cell r c]` or `[::subs/row-total r]`. Those are precisely the boundaries a fan-out scheme would want to be about, and their read sets are distinct **because** they are per-row — the parameter that makes a row independent is the same parameter that makes its read set unshareable.
+
+This is not a finding about seven applications. It is what *fine row reads for sparse independent updates* — [specification §Rung 2](specification.md#rung-2--tune-hicasso-topology)'s first recommended topology — costs and buys. An application that produced material identical-set fan-out would be one whose rows all read the same page-wide keys, which is the coarse topology Rung 2 recommends *against* for independent updates.
+
+### The fences, checked rather than assumed
+
+None was reached, because nothing was built. Recorded because a later reader proposing the scheme needs the answers:
+
+- **No third hook is needed, and that is not what stops this.** The scheme fits the frozen two-hook shell: `subscribe` would push the fiber's `onStoreChange` onto the group's notify list and acquire cells only when the group is empty; the cleanup would remove that slot and release the cells when it empties. `useSyncExternalStore` calls `subscribe` once per fiber and holds the cleanup, so no per-instance storage is added and I9 stands. The scheme is refused on its measured value, not on the budget.
+- **No new public export**, no boundary-shell change, no optional namespace, no hot-zone file, no npm dependency. The census reads `impl.collector`'s existing public tables and `impl.inventory`'s existing readers, from the test tree.
+
+### Frame reincarnation
+
+The pre-registered obligation, answered for the record even though the scheme is not adopted, because it is the sharpest hazard the scheme carries and a later proposal must not rediscover it.
+
+A sub-key is `[frame-kw query-v]` — the frame's public keyword, not its incarnation token — so a read-set entry survives a same-id reincarnation while the cells beneath it do not. Today every `subscribe` calls `acquire-cell!`, and a disposed cell is simply rebuilt by the next acquisition, so a boundary mounting after a reincarnation is correct by construction.
+
+Under grouping it would not be. A group holds the cell references on behalf of members that never acquired them, so a boundary joining an existing group *skips acquisition entirely* — and a group whose cells were disposed at `invalidate-cell!`'s microtask checkpoint (the frame did not come back before the rebuild window) is a group a later boundary can join and receive no notification from. The value on screen would be right at mount and frozen thereafter, attributable to nothing: the silent-missing-edge failure the collector's own docstring says it is built to make unreachable.
+
+Closing it needs either a per-join validation of the group's cells — which is the acquisition the scheme exists to avoid, restored on the join path — or keying groups by frame incarnation, which multiplies the group table by the thing the entry cache deliberately does not key on. Both are C3 costs, and both are paid on the common case to buy a saving this census measures at less than zero.
+
+### What did not hold at source
+
+Nothing in the proposal was found to be wrong. Its own arithmetic — `B × R` toward `R + B` — is exactly right, and it is what decides against it: the identity `(B−1)(R−1) − 1` is negative wherever either factor is one, and this corpus has no entry where both exceed one.
+
+One premise of the *brief* did not hold, and is recorded because it changed the shape of the work. The read-set entry — the `subscribe`/`getSnapshot` pair — is **already shared** by every boundary reading an identical ordered read set, and has been since the entry cache existed. What is per-boundary is the registration minted inside `make-subscribe`, one per fiber. So the sharing half of the idea is not unbuilt; only the membership half is, and the membership half is the half the arithmetic refuses.
+
+### Standing
+
+The verdict is recorded, not enforced by prose: `the-pooled-population-decides-c1` pins the pooled figure and both trigger inequalities. A witness application that introduced material identical-set fan-out reds it, and the question is re-opened on the new population rather than on this one.
