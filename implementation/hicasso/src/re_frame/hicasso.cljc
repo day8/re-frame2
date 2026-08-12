@@ -546,7 +546,23 @@
 
      (def ^{:doc "Associate a DOM container, a frame keyword and a hiccup
   tree; returns the handle [[render!]] and [[unmount!]] take. HD-021(b)'s
-  whole execution contract. [[re-frame.hicasso.impl.mount/root!]]."}
+  whole execution contract.
+
+  A fourth argument is optional and carries ONE key,
+  `:identifier-prefix` — React's own `identifierPrefix`, handed to
+  `createRoot` untouched (rf2-hic-046):
+
+      (h/root! node ::frame [app {}] {:identifier-prefix \"a-\"})
+
+  It exists because `useId` numbers every root from the same start, so a
+  page mounting two roots gives them distinct prefixes or watches their
+  generated ids collide. A page with one root names none. There is no
+  default, no coercion and no validation: React owns the option and this
+  is a pass-through to it. The hydrating twin takes the same key, and a
+  hydrating root must be handed the SAME string its server render used —
+  `react-dom/server`'s own `identifierPrefix`, which is where the other
+  half of the pair is spelled.
+  [[re-frame.hicasso.impl.mount/root!]]."}
        root! impl-mount/root!)
 
      (def ^{:doc "Re-render a mounted root in place, synchronously, and

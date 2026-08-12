@@ -142,14 +142,70 @@
   (react-dom/flushSync (fn [] (.render (:root handle) (tree handle hiccup))))
   handle)
 
+;; ---------------------------------------------------------------------------
+;; The one root option a CALLER may name (rf2-hic-046)
+;; ---------------------------------------------------------------------------
+;;
+;; `identifierPrefix` is React's own, and `:identifier-prefix` is a
+;; PASS-THROUGH to it: no default, no coercion, no schema, no second
+;; spelling. Two facts make it necessary and React owns both of them.
+;; `useId` numbers each root from the same start, so two roots on one page
+;; mint the same ids unless their prefixes differ; and a HYDRATING root
+;; must be given the prefix its server render used, or every `useId` in
+;; the tree resolves to a different string on the client and React
+;; recovers by throwing the server's nodes away. Neither is a fact about
+;; this arm. The only thing missing was a way to say the word through
+;; these doors, and until rf2-hic-046 there was none.
+;;
+;; **The server half is React's too, and it needs no door here.** A
+;; consumer server-renders through `react-dom/server` itself —
+;; `renderToString(element, #js {"identifierPrefix" "a-"})` — which per
+;; rf2-ggnp's census, re-run, is the only server path this package has.
+;; So the two sides already meet in React's own vocabulary and what
+;; matters is that the caller hands BOTH of them the same string.
+;; Agreement is the contract; presence on one side proves nothing.
+
+(defn- root-options
+  "React's `react-dom/client` root options object, or nil when there is
+  nothing to say.
+
+  Nil rather than an empty object, because both root doors branch on it
+  to call React's BARE arity — the arrangement [[hydrate-root!]] has
+  always had for production, where the reporter compiles away and the
+  shipped call is the two-argument one it was before any option existed.
+
+  String keys through `unchecked-set`, for the reason the `displayName`
+  stamps in this file use it: the string key is what keeps the property
+  off Closure's renamer under `:advanced`, and an `identifierPrefix`
+  renamed is a prefix React never sees."
+  [identifier-prefix on-recoverable-error]
+  (when (or (some? identifier-prefix) (some? on-recoverable-error))
+    (let [o #js {}]
+      (when (some? identifier-prefix)
+        (unchecked-set o "identifierPrefix" identifier-prefix))
+      (when (some? on-recoverable-error)
+        (unchecked-set o "onRecoverableError" on-recoverable-error))
+      o)))
+
 (defn root!
-  "Associate `container`, `frame-kw` and `hiccup`. Returns the handle."
-  [container frame-kw hiccup]
-  (let [handle {:root      (react-dom-client/createRoot container)
-                :frame     frame-kw
-                :container container}]
-    (render! handle hiccup)
-    handle))
+  "Associate `container`, `frame-kw` and `hiccup`. Returns the handle.
+
+  `opts` is optional and carries ONE key, `:identifier-prefix`, handed
+  straight to `createRoot` as React's `identifierPrefix` (rf2-hic-046).
+  A page mounting two roots gives them distinct prefixes so their `useId`
+  values cannot collide; a page with one root names none, and passing no
+  `opts` is how it says so — the call React receives is then the bare one
+  it always was."
+  ([container frame-kw hiccup] (root! container frame-kw hiccup nil))
+  ([container frame-kw hiccup opts]
+   (let [ropts  (root-options (:identifier-prefix opts) nil)
+         handle {:root      (if ropts
+                              (react-dom-client/createRoot container ropts)
+                              (react-dom-client/createRoot container))
+                 :frame     frame-kw
+                 :container container}]
+     (render! handle hiccup)
+     handle)))
 
 (defn adoption-window-closer
   "The component that CLOSES **its own root's** adoption window, on that
@@ -277,19 +333,26 @@
     (report-recoverable-default! error)))
 
 (defn- hydrate-root-options
-  "The `react-dom/client` root options for the root owning `window`, or
-  nil.
+  "The `react-dom/client` root options for the root owning `window` and
+  named by `opts`, or nil.
 
-  Nil in production, where the emit DCEs behind `interop/debug-enabled?`
-  and the only thing left to install would be a replica of the default
-  React would have run anyway — so the caller passes no options at all
-  and the shipped path is exactly what it was. The spine gates the same
-  way, one clause wider: it also installs for a host-authored
+  The reporter is debug-only: in production the emit DCEs behind
+  `interop/debug-enabled?` and the only thing left to install would be a
+  replica of the default React would have run anyway. The spine gates the
+  same way, one clause wider: it also installs for a host-authored
   `:on-recoverable-error`, and this arm has no host-authored callback to
-  compose with."
-  [window]
-  (when interop/debug-enabled?
-    #js {:onRecoverableError (hydration-reporter window)}))
+  compose with.
+
+  **`:identifier-prefix` is NOT gated, and that asymmetry is the point**
+  (rf2-hic-046). The reporter is a diagnostic and a release build is
+  entitled to lose it; the prefix is BEHAVIOUR — it decides what `useId`
+  answers, and a release build that dropped it would hydrate every server
+  `useId` into a mismatch. So a caller who names one gets it in every
+  build, and a caller who names none still gets nil here in production
+  and React's bare two-argument call downstream."
+  [window opts]
+  (root-options (:identifier-prefix opts)
+                (when interop/debug-enabled? (hydration-reporter window))))
 
 (defn hydrate-root!
   "Associate `container`'s **existing server-rendered DOM** with
@@ -324,16 +387,29 @@
   subscription and needs no frame, and a nil-rendering component with no
   frame dependency is the smallest thing that can carry the effect.
 
-  ## It DOES carry root options, and only these (rf2-2rtt6.97)
+  ## It carries two root options — one the arm's, one the CALLER's
 
   [[hydration-reporter]] rides as the root's `onRecoverableError`, so a
   divergence React recovers from surfaces as Spec 011's
   `:rf.ssr/hydration-mismatch` instead of only as an uncaught window
-  error. It is the SPINE's arrangement, and it does not soften
-  `rf2-mwx08`: the reporter always reports, so the uncaught error is
-  still uncaught and the diagnostic is added beside it. In production
-  [[hydrate-root-options]] answers nil and this call is the bare
-  two-argument one it always was.
+  error (rf2-2rtt6.97). It is the SPINE's arrangement, and it does not
+  soften `rf2-mwx08`: the reporter always reports, so the uncaught error
+  is still uncaught and the diagnostic is added beside it.
+
+  `opts` is the caller's half and carries ONE key,
+  `:identifier-prefix` — React's `identifierPrefix`, passed through
+  untouched (rf2-hic-046). **Hand it the same string the server render
+  used.** `useId` is numbered per root and prefixed by this option, so a
+  hydrating root given a different prefix (or none, where the server had
+  one) resolves every id in the tree differently from the bytes it is
+  adopting; React sees the divergence as a mismatch and recovers by
+  replacing the subtree, which is a correct repair of a page that should
+  never have shipped. The server side of the pair is React's own
+  `react-dom/server` option and needs nothing from this arm — see the
+  [[root-options]] section comment.
+
+  Name neither and [[hydrate-root-options]] answers nil in production, so
+  this call is the bare two-argument one it always was.
 
   ## The handle carries `:adoption` — this root's OWN window (rf2-6tmu)
 
@@ -355,14 +431,15 @@
   adopted child `:present` rather than `:mounting`, which is behaviour a
   release build must keep. So the window and its provider ride in
   production and only the reporter is debug-gated."
-  [container frame-kw hiccup]
-  (let [window  (roots/open-adoption-window!)
-        handle  {:frame frame-kw :container container :adoption window}
-        element (tree handle hiccup)
-        opts    (hydrate-root-options window)]
-    (assoc handle :root (if opts
-                          (react-dom-client/hydrateRoot container element opts)
-                          (react-dom-client/hydrateRoot container element)))))
+  ([container frame-kw hiccup] (hydrate-root! container frame-kw hiccup nil))
+  ([container frame-kw hiccup opts]
+   (let [window  (roots/open-adoption-window!)
+         handle  {:frame frame-kw :container container :adoption window}
+         element (tree handle hiccup)
+         ropts   (hydrate-root-options window opts)]
+     (assoc handle :root (if ropts
+                           (react-dom-client/hydrateRoot container element ropts)
+                           (react-dom-client/hydrateRoot container element))))))
 
 (defn unmount!
   "Take THIS root down, and touch nothing else. `re-frame.hicasso`'s
