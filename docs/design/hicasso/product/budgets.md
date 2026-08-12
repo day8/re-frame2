@@ -14,7 +14,7 @@ another bead's to decide:
 | Question | Owner |
 |---|---|
 | The R=0 shell's breach of its paper-fail line — remediate, or disposition it | `rf2-hic-018` |
-| The per-read K3 record and its three non-substitutable scoreboards | `rf2-hic-070` |
+| The per-read K3 record and its three non-substitutable scoreboards | `rf2-hic-070` — decided in [`k3-disposition.md`](k3-disposition.md) |
 | Turning any row below into a blocking gate | `rf2-hic-089`, `rf2-hic-071` |
 
 ---
@@ -180,8 +180,8 @@ and the allocation row has no publishable claim to re-pin.
 |---|---|---|---|---|
 | S1 | R=0 boundary shell, Reagent segment | `1,100 B` [1,091–1,107] | P0 ladder, **package** candidate arm | **package figure** — over the frozen `1,024 B` line in every round |
 | S2 | R=0 boundary shell, UIx segment | `1,095 B` [1,087–1,101] | as S1 | **package figure** — over `1,024 B` in every round |
-| S3 | Per-read retained, Hicasso vs Reagent | `1,417` vs `948 B/read` | as S1 | **package figure**; K3 scoreboard (a) — owned by `rf2-hic-070` |
-| S4 | Per-read retained, Hicasso vs UIx | `2,115` vs `2,980 B/read` | as S1 | **package figure**; K3 scoreboard (b) — owned by `rf2-hic-070` |
+| S3 | Per-read retained, Hicasso vs Reagent | `1,417` vs `948 B/read` | as S1 | **package figure**; K3 scoreboard (a) — dispositioned by [`rf2-hic-070`](k3-disposition.md#3-scoreboard-a--governed-viability-against-the-best-shipped-path) |
+| S4 | Per-read retained, Hicasso vs UIx | `2,115` vs `2,980 B/read` | as S1 | **package figure**; K3 scoreboard (b) — dispositioned by [`rf2-hic-070`](k3-disposition.md#4-scoreboard-b--architecture-progress-against-the-uix-parent) |
 | S5 | Teardown, retained **bytes** | indistinguishable from zero — all ten candidate rungs' bands straddle 0 | as S1 | **package figure** |
 | S6 | Cold mount vs direct UIx-on-subs | `1.1718x` [1.1263–1.2190] n=8; `1.1976x` [1.1504–1.2468] n=6 | final K1 estimator | **bench-tree figure** — registered `1.10x` gate missed; `1.25x` is a *proposal* only |
 | S7 | Warm allocation | no publishable claim | allocation instrument | **bench-tree** — no fitted series clears the quality floor |
@@ -468,7 +468,7 @@ and no figure may be scaled from one onto the other.
 | Deterministic rows D1–D9 | ordinary blocking PR gates; framework in `rf2-hic-089`, full gates in `rf2-hic-071` |
 | Distributional rows S1–S7, U1–U4 | pinned interleaved evidence runs on P-DEV-1; never converted into flaky PR thresholds |
 | Shell breach disposition | `rf2-hic-018` |
-| K3 per-read record | `rf2-hic-070` |
+| K3 per-read record | `rf2-hic-070` — [`k3-disposition.md`](k3-disposition.md), whose §8 makes the 10% same-witness per-read rule executable for `rf2-hic-071` |
 
 ---
 
