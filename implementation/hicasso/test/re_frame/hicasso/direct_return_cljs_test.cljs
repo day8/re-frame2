@@ -130,7 +130,7 @@
   nothing here licenses a claim about how much faster a direct return
   is. What is established is the shape the clock would price — one
   page, two arms, byte-equal DOM — and which surfaces the second arm
-  does not enter. The clock row is `rf2-hic-078`.
+  does not enter. The clock row is `rf2-5yn9`.
 
   Runtime: `-cljs-test`, no DOM. `react-dom/server` runs bodies for real
   — the shell's hooks, the ambient reads, the codec's emission — through

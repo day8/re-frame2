@@ -145,6 +145,10 @@ it exists to make assertable.
 | D7 | Bodies run, first keystroke of an editor session | **2** | `editor/flow_dom_cljs_test` | D8 — the second keystroke reads 1 |
 | D8 | Bodies run, every keystroke after the first | **1** | `editor/flow_dom_cljs_test` | D7 — the session's first reads 2 |
 | D9 | Teardown residue in counters and frame ids | **zero** | `hm/assert-clean!`, every DOM witness | its own pre-mount baseline delta |
+| D10 | Hiccup-walk entries a direct return drops (`codec/vec->element`) | **3** | `direct_return_cljs_test` | write the same body as hiccup — reads 4 against a floor of 1 |
+| D11 | Prop-pipeline entries a direct return drops (`codec/convert-props`) | **3** | as D10 | as D10 — reads 3 against a floor of 0 |
+| D12 | Event-lowering entries a direct return drops (`intent/lower-prop`) | **2** | as D10 | as D10 — reads 2 against a floor of 0 |
+| D13 | Controlled-repair entries a direct return drops (`controlled/install!`) | **3** | as D10 | as D10 — reads 3 against a floor of 0 |
 
 **These figures are cited, not re-derived.** D1–D8 were established by the two
 witness apps that landed on `main` ahead of this page; re-deriving them here
@@ -158,6 +162,40 @@ than all mounted rows*, measured rather than asserted. D3/D4 are the positive
 control that gives the row its meaning: the same app in a coarse shape scales
 26 → 101 with the grid, so the instrument demonstrably *can* see amplification
 and D1/D2's flatness is a property of the topology, not of a blind instrument.
+
+**On D10–D13 — the direct-return delta, deterministic half (`rf2-hic-033`).**
+Specification §5's Rung 3 lets a `defview` body answer an already-constructed
+React element and skip hiccup lowering for that result. D10–D13 price what that
+skips, on one page written twice — same props, same two ambient reads, same
+data, and DOM that is **byte-equal** under React's own server renderer — by
+counting entries into the four shipping functions React would otherwise have
+reached. Every count is read against the crossing's own **floor**, not against
+zero: a boundary is reached through a hiccup vector whatever its body answers,
+so the crossing is still walked and only the body's own lowering is gone.
+
+Two departures from this section's stated method, both deliberate:
+
+- **These rows reach through `impl/`.** There is no test-kit facade for *how
+  many times did the codec walk*, and inventing one would be a public export
+  bought to make a measurement quotable. The counts are taken by wrapping the
+  shipping var and restoring in a `finally`, which is the convention
+  `walk_profile_baseline_cljs_test` already established for exactly this
+  question.
+- **They are counts, not clocks**, so they are deterministic and carry no
+  hardware profile. That is what lets them sit in this section rather than §4,
+  and it is also their limit: **they say what work is skipped, never how long
+  that work took.**
+
+**The clock half of the direct-return delta is an OPEN obligation, not a
+figure.** Specification §6 lists it in the bounded experiment set, and the bead
+asks for a pinned interleaved run on both named reference profiles published
+with witness, instrument and confidence. No such run has been taken: the
+instrument would be the P0 lane driver riding `:hicasso-bench`, and the machine
+available to `rf2-hic-033` was carrying three concurrent compiles, which is not
+a window a duration can be attributed in. Nothing in D10–D13 licenses a claim
+about how much faster a direct return is, and a reader wanting the remedy's
+price must wait for that row rather than read one off these. It is tracked as
+`rf2-5yn9`.
 
 **On D9.** This is teardown residue in **counters and objects**, which is a
 deterministic reading the package can make. It is *not* S5, the teardown row
