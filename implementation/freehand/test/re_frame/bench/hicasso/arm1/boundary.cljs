@@ -1,5 +1,5 @@
 (ns re-frame.bench.hicasso.arm1.boundary
-  "`h/boundary` — THE RUNTIME'S OWN ERROR BOUNDARY (HD-020(c),
+  "`h/error-boundary` — THE RUNTIME'S OWN ERROR BOUNDARY (HD-020(c),
   rf2-2rtt6.41).
 
   HD-020(c) rules that \"the runtime ships one internal class-based
@@ -7,7 +7,11 @@
   it is the P1 witness's *real error boundary*\". validation.md's
   `:foreign/host-and-error-boundary` row names it by that description.
   This is it, and it is deliberately the smallest thing that satisfies
-  the three keys.
+  the three keys. The decision's words are quoted as it wrote them; the
+  export it names has since been spelled `h/error-boundary`, which is
+  what the naming ledger ruled (row 12, rf2-g8rb). The var HERE keeps the
+  short name — it is this arm's own, mirroring `impl.boundary`, and it is
+  what the `:rf.error/hicasso-boundary-*` ids are named after.
 
       [boundary {:fallback  [:p.oops \"that did not work\"]
                  :reset-key attempt
@@ -149,7 +153,7 @@
   nil)
 
 (def boundary
-  "`h/boundary` — a legal hiccup head, marked the way a `defview` product
+  "`h/error-boundary` — a legal hiccup head, marked the way a `defview` product
   is, and a React **class** so React will hand it a render-phase throw
   from anything below.
 
