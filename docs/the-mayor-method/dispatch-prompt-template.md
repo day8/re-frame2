@@ -176,19 +176,25 @@ relying on CI"). A silent skip fails review.
 Five rules about the mechanics. Each is here because it cost real hours, and
 none of them is obvious from the gate command itself.
 
-- **Foreground, to completion — within the harness's ten-minute ceiling.** A
-  worker that backgrounds a long gate and ends its turn waiting for the
-  completion notification can wait forever: the
-  notification does not always arrive, and a turn that has ended has nothing
-  left to wake. The worker then reports "standing by" through idle tick after
-  idle tick while its branch sits unmoved — four such incidents in a single day,
-  every one recovered intact the moment somebody asked it for a status. If you
-  background a gate anyway, **poll its log on a timer**; never end a turn
-  waiting to be woken. For the full spine that polling is the normal path and
-  not the exception: the harness hard-kills a foreground command at ten minutes
-  (exit 143) and `scripts/test-fast-pr.sh` needs roughly twenty-five, so "to
-  completion" is not on offer for it however the brief is worded. That ceiling
-  killed four spine runs in one night before it was written down here.
+- **Detaching a long gate is CORRECT; ending the turn afterwards is the defect.**
+  The harness hard-kills a foreground command at ten minutes (exit 143) and
+  `scripts/test-fast-pr.sh` needs roughly twenty-five, so for the full spine
+  "foreground, to completion" is not on offer however the brief is worded — that
+  ceiling killed four spine runs in one night before it was written down here.
+  Foreground a gate that fits inside the ten minutes; **detach one that does not,
+  then poll both its log and its `.exit` file in a bounded loop, within the same
+  turn.** Poll both, because they answer different questions: the log shows
+  progress, while the `.exit` file is what carries the verdict and appears only
+  once the run is actually over. What strands a worker is ending the turn
+  instead, waiting for a completion notification — it does not always arrive, and
+  a turn that has ended has nothing left to wake. The worker then reports
+  "standing by" through idle tick after idle tick while its branch sits unmoved:
+  four such incidents in a single day, then three more inside one hour on
+  2026-08-13, every one recovered intact the moment somebody asked it for a
+  status. Two of that last three apologised for *detaching*, which is why this
+  bullet no longer grudges it — a worker who believes it has already erred reads
+  for how to atone rather than for what to do next, and reads straight past the
+  instruction that would have saved it.
 - **Invoke a backgrounded gate by its ABSOLUTE path.** The gate scripts derive
   their repo root from `${BASH_SOURCE[0]}`, which is relative when the
   invocation is — and a `cd <worktree> && sh scripts/…` does not reliably keep
