@@ -504,7 +504,15 @@
   It answers the DOM's shape and nothing about React: two canonically
   equal pages may still differ in lifecycle, identity and hydration —
   distinct claims, each owed its own witness (004B, and the specification
-  §9 on naming the equality a witness proves)."
+  §9 on naming the equality a witness proves).
+
+  **Nor in a form control's live state**, and that is a fact about markup
+  rather than a gap here. A control's attributes carry its DEFAULTS —
+  `value` is `defaultValue`, `checked` is `defaultChecked`, an option's
+  `selected` is `defaultSelected` — while the live values are properties
+  no serialiser can reach, so two byte-identical pages can be showing
+  different selections to a user. `re-frame.hicasso.test.mounted/shadow!`
+  compares those slots beside this equality for exactly that reason."
   [node]
   (when-not (and (some? node) (number? (.-nodeType node)))
     (refuse! :rf.error/hicasso-test-not-a-dom-node
