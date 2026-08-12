@@ -478,7 +478,10 @@
                         (mapcat #(filter reg-route-call? (load-time-forms (get defns %))) reached))
         defs    (into {} (keep (fn [f]
                                  (let [n (definition-name f)]
-                                   (when (and n (>= (count f) 3) (keyword? (last f)))
+                                   (when (and n
+                                              (contains? evaluated-def-heads (head-of f))
+                                              (>= (count f) 3)
+                                              (keyword? (last f)))
                                      [n (last f)]))))
                       (:load-time by-kind))
         results (map #(claim-of % label defs) (sort-by #(:line (meta %)) calls))
@@ -490,7 +493,7 @@
                    :why  (str "this `reg-route` sits inside a `(" (head-of f) " …)` form, and "
                               "the census does not know whether that body runs at namespace "
                               "load. Classify the head in `deferred-body-heads` if it does not.")})]
-    {:claims     (vec (filter :id results))
+    {:claims     (filterv :id results)
      :unresolved (vec (sort-by :line (concat (remove :id results) opaque)))}))
 
 (defn- bundle-census []
