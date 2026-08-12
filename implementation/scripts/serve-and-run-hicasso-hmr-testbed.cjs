@@ -100,6 +100,15 @@
  * pins the witnesses by name and `REQUIRED_RECORDS` pins the keys each
  * measured row carries.
  *
+ * A divergence needs two engines to be visible at all, so a run narrowed by
+ * `HICASSO_HMR_ENGINES` has no comparison available to it. That narrowing
+ * stays — it is a real developer convenience and a narrowed run still exits
+ * 0 — but it does NOT get to close with the words a compared run closes
+ * with. The two verdicts are separate strings, `HICASSO HMR PASS` and
+ * `HICASSO HMR PARTIAL PASS`, neither a substring of the other, so no skim
+ * of a log and no grep for the full-matrix verdict can mistake one for the
+ * other (rf2-l92i).
+ *
  * The verdict logic and the hot-line rewriter both carry mutation teeth
  * that run before any browser launches. The rewriter needs them as much as
  * the comparator does: a gate whose "save" silently stopped editing the
@@ -215,6 +224,22 @@ const ONLY = (process.env.HICASSO_HMR_ENGINES || '').trim();
 const ENGINES = ONLY
   ? ALL_ENGINES.filter((e) => ONLY.split(',').map((s) => s.trim()).includes(e))
   : ALL_ENGINES;
+
+// The two closing verdicts, kept as separate strings on purpose.
+//
+// `divergenceReport` needs two engines before there is any disagreement to
+// find, and below that it correctly returns nothing. What would NOT be
+// correct is for the run to then close with the line a compared run prints:
+// a PASS meaning "three engines ran and agreed" and a PASS meaning "one
+// engine ran and the comparator never ran" must not be the same words
+// (rf2-l92i). Neither token is a substring of the other, so a grep for the
+// full-matrix verdict cannot be answered by a narrowed run.
+//
+// The CI job passes no narrowing at all and a classifier regression in
+// `_changed-surfaces.test.cjs` pins that, so this pair is about the LOCAL
+// run and about any future job that might acquire the variable.
+const FULL_VERDICT = 'HICASSO HMR PASS';
+const NARROWED_VERDICT = 'HICASSO HMR PARTIAL PASS';
 
 // ---------------------------------------------------------------------------
 // The coverage floor — names, not a total
@@ -478,6 +503,35 @@ function divergenceReport(perEngine, narrowings = NARROWINGS) {
   return problems;
 }
 
+/**
+ * Whether this engine set can be compared at all.
+ *
+ * The same two-engine floor `divergenceReport` applies, named once so the
+ * comparator's silence and the verdict's admission cannot drift apart.
+ */
+function comparedAcrossEngines(engines) {
+  return engines.length >= 2;
+}
+
+/**
+ * The line the run closes with.
+ *
+ * A narrowed run passed everything it ran, so it still exits 0 and still
+ * says PASS — what it must not do is say it the same way. Below two engines
+ * the verdict token changes, the sentence states that the cross-engine
+ * comparison was NOT performed, and it names the variable that caused it so
+ * the reader knows which knob to unset.
+ */
+function verdictLine(engines, reloads) {
+  const tail = `${reloads} real shadow reloads`;
+  if (comparedAcrossEngines(engines)) {
+    return `${FULL_VERDICT} (${engines.join(' + ')}) — ${tail}`;
+  }
+  return `${NARROWED_VERDICT} (${engines.join(' + ') || 'no engine'} only; `
+    + `HICASSO_HMR_ENGINES narrowed this run, so the cross-engine comparison `
+    + `was NOT performed) — ${tail}`;
+}
+
 function coverageReport(result, required = REQUIRED_SECTIONS) {
   const problems = [];
   const sections = (result && result.sections) || {};
@@ -690,6 +744,59 @@ function runMutationTeeth() {
     divergenceReport({
       chromium: { row: { a: 1 } }, firefox: { row: { a: 2 } },
     }, [{ row: 'row', engines: ['webkit'], why: 'tooth' }]).length === 1);
+
+  // --- the verdict a narrowed run is allowed to print -------------------
+  //
+  // The comparator going quiet below two engines is correct. A closing line
+  // that does not say so is not, and these teeth are what stop the two
+  // verdicts collapsing back into one string (rf2-l92i). The last of them
+  // is the load-bearing one: it holds the comparator's silence and the
+  // verdict's admission against each other, so neither can be changed
+  // alone.
+
+  bite('a compared run prints the full verdict and names its engines', () => {
+    const line = verdictLine(ALL_ENGINES, 36);
+    return line.startsWith(FULL_VERDICT)
+      && line.includes('chromium + firefox + webkit')
+      && line.includes('36 real shadow reloads')
+      && !/NOT performed/.test(line);
+  });
+
+  bite('a one-engine run does NOT print the full verdict', () =>
+    !verdictLine(['chromium'], 36).includes(FULL_VERDICT));
+
+  bite('a one-engine run says the comparison was skipped and names the knob', () => {
+    const line = verdictLine(['webkit'], 12);
+    return line.startsWith(NARROWED_VERDICT)
+      && /cross-engine comparison was NOT performed/.test(line)
+      && /HICASSO_HMR_ENGINES/.test(line)
+      && line.includes('webkit')
+      && line.includes('12 real shadow reloads');
+  });
+
+  bite('neither verdict token can be grepped for the other', () =>
+    !NARROWED_VERDICT.includes(FULL_VERDICT)
+    && !FULL_VERDICT.includes(NARROWED_VERDICT));
+
+  bite('two engines are enough, so the floor is the comparator\'s and not a guess', () =>
+    comparedAcrossEngines(ALL_ENGINES)
+    && comparedAcrossEngines(['chromium', 'firefox'])
+    && !comparedAcrossEngines(['chromium'])
+    && !comparedAcrossEngines([]));
+
+  bite('the comparator\'s silence and the verdict\'s admission move together', () => {
+    const one = { chromium: { row: { a: 1 } } };
+    const two = { chromium: { row: { a: 1 } }, firefox: { row: { a: 2 } } };
+    // Silent below two engines — not a defect, there is nothing to
+    // disagree with — but the run that got that silence must not close as
+    // though it had been compared.
+    return divergenceReport(one, []).length === 0
+      && verdictLine(Object.keys(one), 1).startsWith(NARROWED_VERDICT)
+      // ...and two engines ARE compared, which is what makes the silence
+      // above a fact about the engine count and nothing else.
+      && divergenceReport(two, []).length === 1
+      && verdictLine(Object.keys(two), 1).startsWith(FULL_VERDICT);
+  });
 
   // --- the floors -------------------------------------------------------
   const fullSections = () => ({ ...REQUIRED_SECTIONS });
@@ -1151,6 +1258,19 @@ async function main() {
     return 1;
   }
 
+  // Said UP FRONT as well as at the end, for the same reason the delay
+  // instrument announces itself: this run is about to spend half an hour,
+  // and the reader should not discover only in the last line that it was
+  // never going to compare anything.
+  if (ONLY) {
+    console.log(`> HICASSO_HMR_ENGINES=${ONLY} — narrowed to `
+      + `${ENGINES.join(' + ')} of ${ALL_ENGINES.join(' + ')}.`);
+    if (!comparedAcrossEngines(ENGINES)) {
+      console.log('> a divergence needs two engines to be visible, so the '
+        + 'cross-engine comparison will NOT be performed on this run.');
+    }
+  }
+
   // FAIL CLOSED on a dirty tree. The gate edits a tracked file, so a
   // previous run killed between its edit and its restore would otherwise
   // hand this run a source whose "canonical" state is already a fixture —
@@ -1190,6 +1310,15 @@ async function main() {
     for (const engine of ENGINES) {
       console.log(`  [${engine}] ${JSON.stringify(recorded[engine])}`);
     }
+    if (!comparedAcrossEngines(ENGINES)) {
+      // The rows above were measured and not compared. Saying so HERE, next
+      // to them, is the half the closing line cannot do: this is the point
+      // at which a reader is looking at the numbers and would otherwise
+      // assume something had checked them.
+      console.log(`  cross-engine comparison NOT PERFORMED — ${ENGINES.length} `
+        + `engine ran, and a divergence needs two to be visible. Unset `
+        + `HICASSO_HMR_ENGINES for the full ${ALL_ENGINES.join(' + ')} matrix.`);
+    }
     const problems = divergenceReport(recorded);
     if (problems.length > 0) {
       console.error('\nCROSS-ENGINE DIVERGENCE:');
@@ -1199,8 +1328,7 @@ async function main() {
     for (const n of NARROWINGS) {
       console.log(`  narrowing: ${n.row} on ${n.engines.join('+')} — ${n.why}`);
     }
-    console.log(`\nHICASSO HMR PASS (${ENGINES.join(' + ')}) — ` +
-      `${labelCounter} real shadow reloads`);
+    console.log(`\n${verdictLine(ENGINES, labelCounter)}`);
     return 0;
   } finally {
     restoreHotFile();
@@ -1210,6 +1338,10 @@ async function main() {
 
 module.exports = {
   divergenceReport,
+  comparedAcrossEngines,
+  verdictLine,
+  FULL_VERDICT,
+  NARROWED_VERDICT,
   runMutationTeeth,
   coverageReport,
   recordSchemaReport,
