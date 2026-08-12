@@ -44,9 +44,8 @@
  * rehearsal, and the run reports itself as a rehearsal rather than a result.
  *
  * `--inject` is the witness proper. It additionally brings each browser
- * window to the foreground, puts its IME into a state the checks can
- * actually measure — Japanese locale, OPEN, native reading mode — VERIFIES
- * each of those three, and then types.
+ * window to the foreground, asks its IME to come up in Japanese, PROVES the
+ * IME is composing by making it compose, and then types.
  *
  * ========================= WHY THE IME IS VERIFIED ========================
  *
@@ -58,21 +57,51 @@
  * stops and asks the operator to switch with Win+Space rather than typing
  * seven ASCII letters into a text box and calling it a composition.
  *
- * That is not hypothetical, and on 2026-08-12 it happened one notch along
- * from where it was expected. The first armed run seized the foreground on
- * all three engines and delivered both the romaji and the ESC — and still
- * decided nothing: `langid 0x0411`, `japanese: true`, and `open: 0`
- * everywhere. The locale had switched; the IME had ignored
- * `IMC_SETOPENSTATUS` and stayed shut, so the romaji went in as ASCII and
- * all 24 checks returned INCONCLUSIVE about the rig.
+ * ================== AND WHY IT IS VERIFIED BY CONDUCT =====================
  *
- * `engageIme` below is the answer, and it uses the door the keystrokes
- * already came through: `SendInput` reached that IME when IMM32 did not, so
- * a closed IME is opened by sending its OWN toggle key (`kanji`, 半角/全角)
- * through `KEYS`. Nothing about that is trusted either — `IMESTATE` is
- * re-read, `open: 1` is REQUIRED before a single plan is driven, the
- * reading mode's NATIVE bit is required with it, and an engine that will
- * not go there is refused rather than measured.
+ * Two armed runs on 2026-08-12, and the second is why the gate below reads
+ * the PAGE rather than the input stack.
+ *
+ * The first seized the foreground on all three engines and delivered both
+ * the romaji and the ESC — and decided nothing: `langid 0x0411`,
+ * `japanese: true`, `open: 0` everywhere. The IME had ignored
+ * `IMC_SETOPENSTATUS`. The repair was to open it by its own toggle key
+ * (`kanji`, 半角/全角) through `KEYS` — the door the keystrokes were
+ * demonstrably arriving by — and to REQUIRE `open: 1` back from `IMESTATE`
+ * before driving a plan.
+ *
+ * The second run returned `open: 1`, `conversion: 9`, `native: true` on
+ * Chromium — engaged, by that gate — with `compositionstart` at ZERO on
+ * every check and the romaji in the box as literal ASCII. And `conversion: 9`
+ * is `IME_CMODE_HIRAGANA`, the exact constant this rig had just written.
+ * THE IMM32 SHIM'S STATE IS WRITE-THROUGH: the gate read back the bit it had
+ * itself set, so it proved a value had been written and nothing else. It
+ * could not have failed — a fail-open sitting inside the guard against one.
+ *
+ * So that reading is now a LOG LINE, and engagement is decided by CONDUCT.
+ * `probeComposition` types ONE romaji letter into the plain field and
+ * requires `compositionstart > 0` off the page's own observer. It is the
+ * gate precisely because that event cannot be produced by the thing under
+ * test: the browser emits it in response to real composed input, and no
+ * value this rig writes into an input context makes one appear. An engine
+ * that will not compose is recorded NOT ENGAGED and nothing is typed to it.
+ *
+ * ================= A REFUSAL IS PER-ENGINE, NOT PER-BATCH =================
+ *
+ * On that same run Firefox read `open: 0` after `IMEON` and two toggles and
+ * aborted with nothing typed. That was correct conduct — the abort is the
+ * deliverable — but it was a THROW out of the engine loop, so WebKit never
+ * launched at all: one engine's rig failure cost the run an engine it exists
+ * to measure. Engagement failure is now caught at the engine boundary and
+ * recorded as NOT ENGAGED for that engine — no check driven, no cell
+ * fillable, exit non-zero — and the batch continues to the next engine.
+ *
+ * Between the ladder and that refusal sits a bounded OPERATOR-ASSIST WAIT:
+ * up to ninety seconds in which the run prints what to press and polls by
+ * re-running the conduct probe. NO KEYSTROKES ARE IN FLIGHT while it waits,
+ * and the foreground is re-verified before every poll, so the operator
+ * touching the browser window during that pause is what the rig asked for
+ * rather than the interference the per-key interlock exists to catch.
  *
  * ====================== AND WHY DELIVERY IS VERIFIED ======================
  *
@@ -125,9 +154,24 @@ const ALL_ENGINES = ['chromium', 'firefox', 'webkit'];
 // that demonstrably delivered keystrokes to the very IME that ignored
 // `IMC_SETOPENSTATUS`.
 const IME_TOGGLE_KEY = 'kanji';
-// A toggle is handled by the IME's UI thread; the IMM32 query answers from
-// the same place. Read too soon and the answer is the state before the key.
+// A toggle is handled by the IME's UI thread. Read too soon and any reading
+// taken after it — including the page's — is of the state before the key.
 const IME_SETTLE_MS = 500;
+// THE CONDUCT PROBE. One romaji letter into the `plain` field, and a
+// `compositionstart` off the page's own observer or the IME is not engaged.
+// `n` is the first letter of `nihongo`, so a composing IME opens its exchange
+// on it; an alphanumeric one puts an `n` in the box and fires nothing.
+const CONDUCT_KEY = 'n';
+const CONDUCT_FIELD = 'plain';
+// A composition is opened by the IME's own UI thread and reaches the page as
+// an event. Longer than the IMM32 settle above, because this one waits for a
+// round trip through the browser rather than for a message queue.
+const CONDUCT_SETTLE_MS = 600;
+// The bounded operator-assist wait, and its poll interval. Ninety seconds is
+// long enough to click into a window and press one key, and short enough that
+// an unattended run cannot sit on the keyboard indefinitely.
+const ASSIST_TIMEOUT_MS = 90000;
+const ASSIST_POLL_MS = 6000;
 // The delivery probe's key. Escape, for two reasons: the 2026-08-12 run
 // PROVED it reaches the page, and with no field focused it mutates nothing —
 // no text, no caret, no focus. Its keydown is read off the observer and then
@@ -827,60 +871,188 @@ function worst(verdicts) {
 // and a check whose keys are not arriving is not driven.
 // ---------------------------------------------------------------------------
 
+/** The IMM32 reading, for the log. Never a premise — see the header. */
+const fmtIme = (s) => `open=${s.open} conversion=${s.conversion} ` +
+  `native=${s.native} langid=${s.langid} isForeground=${s.isForeground}`;
+
 /**
- * Require the window's IME to be OPEN and in a native reading mode, opening
- * it by its own toggle key when `IMEON`'s IMM32 request left it shut.
+ * THE CONDUCT PROBE. Is this window's IME COMPOSING? Decided by making it
+ * compose: one romaji letter into the `plain` field, and `compositionstart`
+ * read back off the page's own observer.
  *
- * The toggle is sent at most twice, and the second only after a re-read still
- * says closed — it TOGGLES, so a blind pair would close whatever the first
- * one opened. `state` is the reading `IMEON` already produced; every reading
- * after that is taken fresh, because the whole point is that this IME does
- * not do what it is told.
+ * It is the gate because it is the one thing in this rig the thing under test
+ * cannot fake. `IMC_GETOPENSTATUS` answers from an input context this process
+ * writes to, and on 2026-08-12 it handed back the very bit that had just been
+ * written while nothing composed. `compositionstart` is emitted by the BROWSER
+ * in response to input a real IME actually consumed; no message this driver
+ * can send produces one.
  *
- * Throws with the state in the message when the IME will not engage. That
- * abort is the deliverable: the alternative is typing romaji into a closed
- * IME and reporting eight INCONCLUSIVEs that look like an engine result.
+ * Leaves the page as it found it: the letter is aborted with ESC and the
+ * reload restores every field to its seed, so a probe run four times over is
+ * four times the same probe rather than a field filling up with `nnnn`.
  */
-async function engageIme({ driver, hwnd, engine, keyDelayMs, state }) {
-  let ime = state;
-  for (let attempt = 1; ime.open !== 1 && attempt <= 2; attempt += 1) {
-    console.log(`> IME reports open=${ime.open}; sending ${IME_TOGGLE_KEY} ` +
-      `(半角/全角) through SendInput — attempt ${attempt} of 2`);
-    await driver.require('KEYS', hwnd, IME_TOGGLE_KEY, keyDelayMs);
-    await sleep(IME_SETTLE_MS);
-    ime = await driver.require('IMESTATE', hwnd);
-    console.log(`> IME after toggle: ${JSON.stringify(ime)}`);
+async function probeComposition({ page, driver, hwnd, keyDelayMs, reload }) {
+  const observing = await W.resetEvents(page);
+  if (!observing) {
+    // The same distinction `probeDelivery` insists on: nothing to read the
+    // answer WITH is not the same as an answer of no.
+    throw new Error('the page observer is not installed, so composition ' +
+      'cannot be read; no engagement claim is possible for this engine');
   }
-  if (ime.open !== 1) {
-    throw new Error(
-      `the ${engine} window's IME WILL NOT OPEN. Its input locale is ` +
-      `${ime.langid} (japanese=${ime.japanese}) and it holds the foreground ` +
-      `(isForeground=${ime.isForeground}), but IMC_GETOPENSTATUS still reads ` +
-      `open=${ime.open} after IMEON and two ${IME_TOGGLE_KEY} (半角/全角) ` +
-      'keystrokes. A closed IME turns the romaji below into seven plain ' +
-      'ASCII letters and every check into an INCONCLUSIVE about this rig, ' +
-      'which is what the run of 2026-08-12 produced. Nothing was typed for ' +
-      'this engine. Open the IME for that window by hand — click into the ' +
-      'page and press 半角/全角, or pick ひらがな in the language bar — and ' +
-      're-run.');
+  await page.focus(`[data-testid="${CONDUCT_FIELD}"]`);
+  const sent = await driver.send('KEYS', hwnd, CONDUCT_KEY, keyDelayMs);
+  if (sent.status !== 'OK') {
+    return {
+      composed: false,
+      detail: `the driver would not send the probe key: ${sent.status} ` +
+        `${JSON.stringify(sent.payload)}`,
+    };
   }
-  if (!ime.native) {
-    console.log(`> IME is open but conversion=${ime.conversion} carries no ` +
-      'NATIVE bit; re-asserting Hiragana');
-    ime = await driver.require('IMECONV', hwnd);
-    console.log(`> IME after conversion re-assert: ${JSON.stringify(ime)}`);
+  await sleep(CONDUCT_SETTLE_MS);
+  const ev = W.compositionEvidence(await W.readEvents(page), CONDUCT_FIELD);
+  const field = await W.readField(page, CONDUCT_FIELD);
+  await driver.send('KEYS', hwnd, W.KEY_PLANS.abort.join(','), keyDelayMs);
+  await sleep(PROBE_SETTLE_MS);
+  await reload();
+  return {
+    composed: ev.compositionstart > 0,
+    detail: `one ${CONDUCT_KEY} into ${CONDUCT_FIELD} (scans ${sent.payload.scans}): ` +
+      `cs=${ev.compositionstart} cu=${ev.compositionupdate} ` +
+      `composingIn=${ev.composingInputs} settledIn=${ev.settledInputs} ` +
+      `process=${ev.processKeydowns} field=${JSON.stringify(field ? field.value : null)}`,
+  };
+}
+
+/**
+ * The bounded operator-assist wait: the rig has run out of things it can do
+ * about a closed IME, so it asks, and waits, and keeps asking the same
+ * question it would have asked itself.
+ *
+ * THE OPERATOR TOUCHING THE BROWSER WINDOW HERE IS EXPECTED, NOT
+ * CONTAMINATION. Nothing is in flight during the pause — the run sends no
+ * keystroke except the probe's own letter, and it re-reads the foreground
+ * immediately before each of those, so a poll that arrives while the operator
+ * is somewhere else sends nothing at all rather than typing into wherever
+ * they went. That is the opposite case to the per-key interlock in the
+ * driver, which exists for focus stolen from an UNATTENDED batch.
+ *
+ * Returns the engaged reading, or `null` on the deadline.
+ */
+async function awaitOperatorEngagement({ driver, hwnd, engine, probe, timeoutMs }) {
+  console.log(
+    `\n!!! ${engine.toUpperCase()}: THE IME IS NOT COMPOSING, and this rig has run out\n` +
+    '!!! of things it can do about it.\n' +
+    '!!!\n' +
+    '!!! PRESS 半角/全角 — or PICK ひらがな — IN THE BROWSER WINDOW NOW.\n' +
+    '!!! Click into the page first if it needs the focus.\n' +
+    '!!!\n' +
+    `!!! This is a designed pause of up to ${Math.round(timeoutMs / 1000)}s and NOTHING IS IN FLIGHT\n` +
+    '!!! during it: touching that window now is what the run is asking for.\n' +
+    '!!! It polls by typing one letter and reading the page for a\n' +
+    '!!! compositionstart, and it re-checks that the browser still holds the\n' +
+    '!!! foreground before each poll.\n');
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const left = Math.max(0, Math.round((deadline - Date.now()) / 1000));
+    const ime = await driver.require('IMESTATE', hwnd);
+    if (!ime.isForeground) {
+      console.log(`> [${left}s left] the ${engine} window does not hold the ` +
+        'foreground, so nothing was sent. Click into it.');
+    } else {
+      const conduct = await probe();
+      console.log(`> [${left}s left] conduct probe: ${conduct.detail}`);
+      if (conduct.composed) {
+        const after = await driver.require('IMESTATE', hwnd);
+        console.log(`> ${engine} IME ENGAGED BY THE OPERATOR — it COMPOSED. ` +
+          `(IMM32 alongside, for the record only: ${fmtIme(after)})`);
+        return { ime: after, conduct };
+      }
+    }
+    await sleep(ASSIST_POLL_MS);
   }
-  if (!ime.native) {
-    throw new Error(
-      `the ${engine} window's IME is OPEN but NOT IN A NATIVE READING MODE: ` +
-      `IMC_GETCONVERSIONMODE reads ${ime.conversion}, which carries no ` +
-      'IME_CMODE_NATIVE bit, and an explicit Hiragana re-assert did not ' +
-      'change that. In alphanumeric mode the romaji below is typed straight ' +
-      'through and no composition starts, so the checks would measure ASCII. ' +
-      '(Firefox read conversion=0 on 2026-08-12.) Nothing was typed for this ' +
-      'engine. Set that window\'s IME to ひらがな by hand and re-run.');
+  return null;
+}
+
+/**
+ * Get this window's IME COMPOSING, or refuse the engine.
+ *
+ * A ladder of attempts, each one followed by the same conduct probe, because
+ * none of them can be trusted to have worked and the IMM32 reading that used
+ * to answer that question turned out to be reading this process's own
+ * writes (see the header). `state` is the reading `IMEON` already produced,
+ * and it is PRINTED rather than tested.
+ *
+ * The toggle is sent twice at most and the second is deliberate: it TOGGLES,
+ * so if the first one closed an IME that was already open, the second puts it
+ * back — and the probe between them is what tells those two apart.
+ *
+ * Throws with what it MEASURED in the message when the IME will not compose.
+ * That abort is the deliverable; the caller records the engine as not engaged
+ * and moves on. The alternative is typing romaji into a closed IME and
+ * reporting eight INCONCLUSIVEs that look like an engine result.
+ */
+async function engageIme({
+  driver, hwnd, engine, keyDelayMs, state, page, reload,
+  assistMs = ASSIST_TIMEOUT_MS,
+}) {
+  const probe = () => probeComposition({ page, driver, hwnd, keyDelayMs, reload });
+  console.log(`> IMM32 reports ${fmtIme(state)} — A LOG LINE, NOT A GATE: on ` +
+    '2026-08-12 it read back the values this rig had written while nothing ' +
+    'composed.');
+
+  const ladder = [
+    { what: 'as IMEON left it', act: async () => {} },
+    {
+      what: 'after IMECONV (ひらがな re-asserted)',
+      act: async () => { await driver.require('IMECONV', hwnd); },
+    },
+    {
+      what: `after ${IME_TOGGLE_KEY} (半角/全角) through SendInput`,
+      act: async () => {
+        await driver.require('KEYS', hwnd, IME_TOGGLE_KEY, keyDelayMs);
+        await sleep(IME_SETTLE_MS);
+      },
+    },
+    {
+      what: `after a second ${IME_TOGGLE_KEY} (undoing the first, if it closed one)`,
+      act: async () => {
+        await driver.require('KEYS', hwnd, IME_TOGGLE_KEY, keyDelayMs);
+        await sleep(IME_SETTLE_MS);
+      },
+    },
+  ];
+
+  let conduct = null;
+  for (const rung of ladder) {
+    await rung.act();
+    conduct = await probe();
+    console.log(`> conduct probe ${rung.what}: ${conduct.detail}`);
+    if (conduct.composed) {
+      const ime = await driver.require('IMESTATE', hwnd);
+      console.log(`> ${engine} IME ENGAGED — it COMPOSED. (IMM32 alongside, ` +
+        `for the record only: ${fmtIme(ime)})`);
+      return { ime, conduct };
+    }
   }
-  return ime;
+
+  const assisted = await awaitOperatorEngagement({
+    driver, hwnd, engine, probe, timeoutMs: assistMs,
+  });
+  if (assisted) return assisted;
+
+  const ime = await driver.require('IMESTATE', hwnd);
+  throw new Error(
+    `the ${engine} window's IME IS NOT COMPOSING. Its input locale is ` +
+    `${ime.langid} (japanese=${ime.japanese}) and it holds the foreground ` +
+    `(isForeground=${ime.isForeground}), but a single ${CONDUCT_KEY} typed ` +
+    `into the ${CONDUCT_FIELD} field produced NO compositionstart after ` +
+    `IMEON, an IMECONV, two ${IME_TOGGLE_KEY} (半角/全角) keystrokes and a ` +
+    `${Math.round(assistMs / 1000)}s wait for you to open it by hand. Last ` +
+    `reading: ${conduct.detail}. IMM32 says ${fmtIme(ime)}, and that is worth ` +
+    'nothing here: on 2026-08-12 it said open=1 conversion=9 native=true on ' +
+    'Chromium — the exact values this rig had written — while compositionstart ' +
+    'stayed 0 and the romaji landed as ASCII. Nothing was typed for this ' +
+    'engine and no check was driven.');
 }
 
 /**
@@ -955,54 +1127,6 @@ async function driveEngine(engine, baseUrl, driver, args) {
     await page.waitForSelector('[data-testid="hicasso-controlled-testbed"]',
       { timeout: MOUNT_TIMEOUT_MS });
 
-    // A nonce in the document title is how the OS side finds THIS window.
-    // Matching on "Hicasso" would match this terminal, an editor with the
-    // file open, or a second engine still on screen.
-    const nonce = `RF2-IME-${engine}-${Date.now().toString(36)}`;
-    await page.evaluate((t) => { document.title = t; }, nonce);
-    await sleep(400);
-    const found = await driver.send('FIND', b64(nonce));
-    if (found.status !== 'OK') {
-      throw new Error(
-        `could not find the ${engine} window by title nonce "${nonce}": ` +
-        `${JSON.stringify(found.payload)}. Nothing was typed.`);
-    }
-    hwnd = found.payload.hwnd;
-    console.log(`> window: hwnd=${hwnd} matches=${found.payload.matches} ` +
-      `title=${JSON.stringify(found.payload.title)}`);
-    if (found.payload.matches > 1) {
-      throw new Error(
-        `${found.payload.matches} windows answer to the nonce; refusing to ` +
-        'type into a window this run did not uniquely identify.');
-    }
-
-    if (inject) {
-      await driver.require('FOREGROUND', hwnd);
-      await driver.require('IMEON', hwnd);
-      imeState = await driver.require('IMESTATE', hwnd);
-      console.log(`> IME: ${JSON.stringify(imeState)}`);
-      if (!imeState.japanese) {
-        throw new Error(
-          `the ${engine} window's input locale is ${imeState.langid}, not 0x0411. ` +
-          'The Japanese IME did not engage, so every keystroke below would be ' +
-          'plain ASCII and every check would be measuring nothing. Switch the ' +
-          'input method for that window by hand (Win+Space) and re-run, or ' +
-          'install the Japanese IME first — Settings > Time & Language > ' +
-          'Language & region > Add a language > 日本語.');
-      }
-      // The locale switching is not the same thing as the IME opening, and
-      // 2026-08-12 is the run that proved it: 0x0411 on all three engines,
-      // shut on all three.
-      imeState = await engageIme({
-        driver, hwnd, engine, keyDelayMs: args.keyDelayMs, state: imeState,
-      });
-      console.log(`> IME ENGAGED: open=${imeState.open} ` +
-        `conversion=${imeState.conversion} native=${imeState.native}`);
-    } else {
-      imeState = await driver.require('IMESTATE', hwnd);
-      console.log(`> IME (read-only, rehearsal): ${JSON.stringify(imeState)}`);
-    }
-
     const reload = async () => {
       await page.reload({ waitUntil: 'commit', timeout: NAV_TIMEOUT_MS });
       await page.waitForSelector('[data-testid="hicasso-controlled-testbed"]',
@@ -1015,6 +1139,84 @@ async function driveEngine(engine, baseUrl, driver, args) {
       }
       return r;
     };
+
+    // THE PREPARE PHASE — find the window, engage its IME, or refuse THIS
+    // ENGINE. Every failure below is a statement about this window and this
+    // IME and nothing else, so it is caught HERE rather than thrown at the
+    // batch: on 2026-08-12 Firefox's honest abort took WebKit down with it,
+    // and the engine that never launched was one of the two this bead exists
+    // to record.
+    let refusal = null;
+    try {
+      // A nonce in the document title is how the OS side finds THIS window.
+      // Matching on "Hicasso" would match this terminal, an editor with the
+      // file open, or a second engine still on screen.
+      const nonce = `RF2-IME-${engine}-${Date.now().toString(36)}`;
+      await page.evaluate((t) => { document.title = t; }, nonce);
+      await sleep(400);
+      const found = await driver.send('FIND', b64(nonce));
+      if (found.status !== 'OK') {
+        throw new Error(
+          `could not find the ${engine} window by title nonce "${nonce}": ` +
+          `${JSON.stringify(found.payload)}. Nothing was typed.`);
+      }
+      hwnd = found.payload.hwnd;
+      console.log(`> window: hwnd=${hwnd} matches=${found.payload.matches} ` +
+        `title=${JSON.stringify(found.payload.title)}`);
+      if (found.payload.matches > 1) {
+        throw new Error(
+          `${found.payload.matches} windows answer to the nonce; refusing to ` +
+          'type into a window this run did not uniquely identify.');
+      }
+
+      // What the toggle would actually carry, resolved under THIS window's
+      // layout and read out before anything is sent. A `0x00` here is the
+      // defect of 2026-08-12 — `MapVirtualKey` answering for the driver's own
+      // English layout, where 半角/全角 is not a key — and it is the one part
+      // of the engage ladder the REHEARSAL can measure without typing.
+      const toggle = await driver.send('RESOLVE', IME_TOGGLE_KEY, hwnd);
+      if (toggle.status === 'OK') {
+        console.log(`> ${IME_TOGGLE_KEY} (半角/全角) resolves to vk ` +
+          `${toggle.payload.vks} scan ${toggle.payload.scans} under this ` +
+          "window's layout");
+      }
+
+      if (inject) {
+        await driver.require('FOREGROUND', hwnd);
+        await driver.require('IMEON', hwnd);
+        imeState = await driver.require('IMESTATE', hwnd);
+        if (!imeState.japanese) {
+          throw new Error(
+            `the ${engine} window's input locale is ${imeState.langid}, not 0x0411. ` +
+            'The Japanese IME did not engage, so every keystroke below would be ' +
+            'plain ASCII and every check would be measuring nothing. Switch the ' +
+            'input method for that window by hand (Win+Space) and re-run, or ' +
+            'install the Japanese IME first — Settings > Time & Language > ' +
+            'Language & region > Add a language > 日本語.');
+        }
+        // The locale is the one thing IMM32 answers honestly here — it is read
+        // off the window's own thread rather than out of an input context this
+        // process writes to. Everything past it is decided by conduct.
+        const engaged = await engageIme({
+          driver, hwnd, engine, keyDelayMs: args.keyDelayMs, state: imeState,
+          page, reload,
+        });
+        imeState = engaged.ime;
+      } else {
+        imeState = await driver.require('IMESTATE', hwnd);
+        console.log(`> IME (read-only, rehearsal): ${JSON.stringify(imeState)}`);
+      }
+    } catch (err) {
+      refusal = err.message;
+    }
+    if (refusal) {
+      console.log(`\n[ ] ${engine.toUpperCase()} NOT ENGAGED — no check was ` +
+        `driven and nothing was typed:\n      ${refusal}\n` +
+        '      Continuing to the next engine. This says nothing about any ' +
+        'other engine,\n      and nothing about this one either: it is a rig ' +
+        'result, not a runtime result.');
+      return { engine, build, hwnd, imeState, results: [], refusal, pageErrors };
+    }
 
     for (const check of W.CHECKS) {
       await reload();
@@ -1058,7 +1260,7 @@ async function driveEngine(engine, baseUrl, driver, args) {
     console.log(`> the page emitted ${pageErrors.length} uncaught error(s); ` +
       `first: ${pageErrors[0]}`);
   }
-  return { engine, build, hwnd, imeState, results, pageErrors };
+  return { engine, build, hwnd, imeState, results, refusal: null, pageErrors };
 }
 
 // ---------------------------------------------------------------------------
@@ -1101,6 +1303,12 @@ async function preflight(driver, args) {
 function reportEngine(run, date) {
   const summary = W.summarise(run.results);
   console.log(`\n--- ${run.engine} (${run.build}) ---`);
+  if (run.refusal) {
+    // Said here as well as where it happened, because the summary is the part
+    // that gets pasted into a bead, and "0 ticks" alone reads like an engine
+    // result rather than the rig refusing to produce one.
+    console.log(`  NOT ENGAGED, so no check ran: ${run.refusal}`);
+  }
   console.log(`  ticks: ${summary.ticks}  crosses: ${summary.crosses.length}  ` +
     `inconclusive: ${summary.inconclusive.length}  complete: ${summary.complete}`);
   console.log(`  dispositions.md §2.3 cell: ${W.dispositionCell(summary,
@@ -1219,11 +1427,17 @@ async function main() {
   }
 }
 
-// `engageIme` and `probeDelivery` are exported for the same reason `worst`
-// and `RUNNERS` are: they take their driver and their page as arguments, so
-// their REFUSALS can be forced and read back without an interactive desktop —
-// which is the only place the armed run they guard can ever happen.
-module.exports = { runMutationTeeth, parseArgs, worst, RUNNERS, engageIme, probeDelivery };
+// `engageIme`, `probeComposition` and `probeDelivery` are exported for the
+// same reason `worst` and `RUNNERS` are: they take their driver and their page
+// as arguments, so their REFUSALS can be forced and read back without an
+// interactive desktop — which is the only place the armed run they guard can
+// ever happen. `probeComposition` is the one that matters most: it is the gate
+// the whole engagement now rests on, and a gate whose refusal nobody has ever
+// seen fire is the gate that read `open: 1` on 2026-08-12.
+module.exports = {
+  runMutationTeeth, parseArgs, worst, RUNNERS, engageIme, probeComposition,
+  probeDelivery,
+};
 
 if (require.main === module) {
   main().then((code) => process.exit(code)).catch((error) => {
