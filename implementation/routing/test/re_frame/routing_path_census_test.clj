@@ -1,5 +1,7 @@
 (ns re-frame.routing-path-census-test
-  "The in-bundle route-path census (rf2-wqnl).
+  "The in-bundle route-path census (rf2-wqnl; widened to reach the app trees
+  under `implementation/` and the routes they register from a FUNCTION by
+  rf2-p5og).
 
   Route IDS are namespaced keywords, so two applications can never collide on
   one. Route PATHS are plain strings in the process-global registrar, and the
@@ -32,19 +34,61 @@
   allowlist instruction names. A census blind to half the bundle, including
   the collision the ruling wrote down, would repeat this bead's own
   phantom-warning failure mode, so the census reads the SOURCE instead: every
-  COLUMN-1 (namespace-load-time) `reg-route` form under the app trees, with
-  its path canonicalised by the framework's own `canonical-route-pattern`.
+  NAMESPACE-LOAD-TIME `reg-route` form under the app trees, with its path
+  canonicalised by the framework's own `canonical-route-pattern`.
 
   Source reading buys three properties the runtime walk cannot have: it is
   complete, it is independent of load and run order, and it perturbs nothing
   (adding requires to a test namespace to widen a runtime walk would reorder
   registrations, and registration order is what decides which duplicate wins).
 
-  Column 1 is the whole filter, and it is exactly the right one: only
-  namespace-load-time registrations are process-global. The `reg-route` calls
-  inside `deftest` bodies are indented, fixture-scoped, and rolled back — they
-  never co-reside with another app's, so they are not censused and cannot
-  false-flag.
+  ## Why it reads FORMS and not lines (rf2-p5og)
+
+  The first cut of this census anchored on a column-1 regex, and that filter
+  was described here as \"exactly the right one\". It was the right QUESTION —
+  only namespace-load-time registrations are process-global — asked by an
+  instrument that could not answer it. Three applications register their
+  routes through a `register!` FUNCTION called at column 1, because
+  `re-frame.test-support`'s reset fixture rolls back a registration made
+  before the fixture snapshot was taken; their `reg-route` forms are indented
+  inside a `defn` and the regex could not see one. Those three are the slice,
+  the Todo witness and the navigation witness — the applications whose
+  collision motivated rf2-wqnl in the first place. Nor could the regex have
+  been widened into place: the same three write the route id as a `def`'d
+  symbol (`(routing/reg-route feed …)`), and the old reader dropped any claim
+  whose id was not a keyword literal without a word. Measured before this
+  bead: adding `implementation/hicasso/test` to `app-roots` moved the files
+  scanned from 101 to 231 and the claims found from 39 to 39.
+
+  So the reader is now `clojure.tools.reader` at `:features #{:cljs}` over the
+  whole file — the same instrument `re-frame.freehand.compiler.harvest` reads
+  ClojureScript source with, and on the classpath for the same reason (it
+  ships with `org.clojure/clojurescript`, a hard dep of core). Reading forms
+  rather than lines answers the load-time question STRUCTURALLY:
+
+    - The walk descends the whole file but never into a function body — `fn`,
+      and the `fn*` that `#(…)` reads as. Code inside one runs when something
+      calls it, not when the namespace loads.
+    - A `defn` is followed only when a load-time expression, or the body of an
+      already-followed `defn`, mentions its name — to a fixpoint, so one
+      indirection cannot hide a registration.
+    - A `def`'d symbol id is resolved against the file's own `def`s, and an
+      `::auto-resolved` keyword against the file's own `ns`.
+
+  The `reg-route` calls inside `deftest` bodies, and inside the `defn`s only a
+  test calls, are therefore still not censused and still cannot false-flag —
+  by construction rather than by indentation.
+
+  ## Nothing is dropped quietly
+
+  Under-reporting is the failure mode a source-reading census has, and it is
+  worse than having no census: a green light over a path nobody checked. Two
+  rules keep it out. A `reg-route` this walk REACHES whose id or path is not a
+  literal it can resolve is REPORTED as unresolved rather than skipped. And a
+  `reg-route` sitting inside a top-level `def…` form this census does not
+  know the evaluation semantics of is reported the same way, asking for the
+  form to be classified — the known deferred-body heads (`defn`, `deftest`,
+  `defmethod`, …) are enumerated below and stay silent.
 
   ## What this census is NOT
 
@@ -55,16 +99,19 @@
   ring buffer that nothing in the node lane reads. It is not a registration
   refusal either — `reg-route` still accepts a duplicate path, because a
   duplicate path is not always a bug (an emission-only registration that only
-  ever synthesises hrefs by id is coherent and harmless). This is a repo-side
-  gate on the one composition where the class bites: many apps, one process.
-  Consumer apps are unaffected; there is zero framework and zero spec surface
-  here. Per the rf2-wqnl ruling — option (a), narrowly scoped."
-  (:require [clojure.edn :as edn]
-            [clojure.java.io :as io]
+  ever synthesises hrefs by id is coherent and harmless). It is not a check on
+  duplicate route IDS: one id registered from two files is an id replacement,
+  the registrar is keyed by id so only one entry ever exists, and nothing is
+  shadowed. This is a repo-side gate on the one composition where the path
+  class bites: many apps, one process. Consumer apps are unaffected; there is
+  zero framework and zero spec surface here. Per the rf2-wqnl ruling —
+  option (a), narrowly scoped."
+  (:require [clojure.java.io :as io]
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
-            [re-frame.routing.match :as match])
-  (:import [java.io PushbackReader StringReader]))
+            [clojure.tools.reader :as rdr]
+            [clojure.tools.reader.reader-types :as rt]
+            [re-frame.routing.match :as match]))
 
 ;; ---- the allowlist ---------------------------------------------------------
 
@@ -93,6 +140,8 @@
   suites, not a guarantee — which is why a new claimant must come here and be
   argued for rather than land silently. A witness app added to the bundle
   should prefix its paths (`/slice`, `/hicasso-todo`) and never appear here.
+  Widening the census's reach to the Hicasso witness applications (rf2-p5og)
+  added no entry and was never going to: all three were already prefixed.
 
   `/articles` is the weaker entry and the honest label for it is INHERITED,
   not blessed: the resources capability demo and the routing capability
@@ -157,22 +206,48 @@
                                     (str "    " (:id c) "\n"
                                          "      " (:file c) ":" (:line c)))))))))
 
+(defn unresolved-failure-message
+  "Render the registrations the census REACHED but could not read as claims.
+  Never a skip: a census that drops what it cannot resolve is a green light
+  over an unchecked path, which is the exact defect rf2-p5og found in its
+  predecessor."
+  [unresolved]
+  (str "Route registration the census could not READ (rf2-p5og).\n\n"
+       "These `reg-route` calls run at namespace load — so their paths are\n"
+       "process-global and the census must account for them — but the id or the\n"
+       "path is not a literal it can resolve, and dropping one silently is how a\n"
+       "source-reading census turns into a green light over an unchecked path.\n\n"
+       "Write the id as a keyword literal or as a file-local `(def name ::kw)`,\n"
+       "and the path as a string literal. If the registration is genuinely\n"
+       "computed, take it out of namespace-load time: a route registered inside a\n"
+       "function nothing calls at load is fixture-scoped and is not censused.\n\n"
+       (str/join "\n"
+                 (for [u (sort-by (juxt :file :line) unresolved)]
+                   (str "  " (:file u) ":" (:line u) "\n"
+                        "    " (:why u))))))
+
 ;; ---- reading the claims out of the app trees -------------------------------
 
-(def ^:private app-roots
+(def app-roots
   "Repo-relative trees holding applications that load into the shared node
   test bundle. Directory-level, not app-level, so a NEW app is censused the
   moment it exists — there is no per-app roster to forget to update.
 
+  `implementation/hicasso/test` is here (rf2-p5og) because `hicasso/test` is a
+  `:source-paths` entry of the top-level shadow build, so the witness
+  applications under `re_frame/hicasso/examples/` compile into the SAME node
+  bundle as everything under `examples/` and their paths are exactly as
+  process-global. The tree also holds ordinary `*_cljs_test` namespaces, and
+  they are safe to walk: a `reg-route` a test registers sits inside a
+  `deftest`, or inside a `defn` only a test calls, and neither is reached at
+  namespace-load time.
+
   Framework and tool testbeds are deliberately outside this list: they compile
   into their own bundles (`:node-test-freehand`, the per-tool testbed builds),
   so a path they share with an example is not a collision."
-  ["examples" "testbeds"])
-
-(def ^:private top-level-reg-route
-  ;; A reg-route call in COLUMN 1 — i.e. at namespace-load time — under
-  ;; whatever alias the file requires re-frame.core as.
-  #"(?m)^\((?:[^\s()\[\]{};]+/)?reg-route\s")
+  ["examples"
+   "testbeds"
+   "implementation/hicasso/test"])
 
 (defn- repo-root
   "Walk up from the test's working directory to the checkout root (the
@@ -189,56 +264,245 @@
 (defn- source-files [root]
   (->> app-roots
        (map #(io/file root %))
-       (filter #(.isDirectory ^java.io.File %))
        (mapcat file-seq)
        (filter #(and (.isFile ^java.io.File %)
                      (re-find #"\.clj[sc]$" (.getName ^java.io.File %))))
        (sort-by #(.getPath ^java.io.File %))))
 
-(defn- line-of [text idx]
-  (inc (count (filter #(= \newline %) (subs text 0 idx)))))
+;; ---- reading one file ------------------------------------------------------
 
-(defn- read-form-at
-  "Read exactly one form starting at `idx`. `edn/read` is the balanced-form
-  scanner here — it handles strings, chars and `;` comments correctly, and
-  never evaluates anything."
-  [text idx label]
-  (try
-    (edn/read {:default (fn [_tag v] v)}
-              (PushbackReader. (StringReader. (subs text idx))))
-    (catch Exception e
-      (throw (ex-info (str "route-path census: could not read the reg-route form at " label)
-                      {:at label} e)))))
+(def ^:private unresolvable-alias-ns
+  "Namespace prefix stamped on an `::alias/kw` whose alias the file's `ns` form
+  did not declare in a shape this census parses. Reading must not THROW on one
+  — an exotic libspec would then red the census over a file with no route in
+  it — but it must not be quietly believed either, so the marker rides along
+  on the keyword and any claim id wearing one is reported as unresolved."
+  "route-census.unresolvable-alias")
+
+(def ^:private reading-scratch-ns
+  "The namespace `*ns*` is bound to for the first read of a file, before its
+  own `ns` form has been seen. Only `::auto-resolved` keywords are affected,
+  and that pass keeps none of them."
+  'route-census.reading-scratch)
+
+(defn- read-all
+  "Every top-level form in `text`, in order, with `:line` / `:column`
+  metadata, read by `clojure.tools.reader` at `:features #{:cljs}`.
+
+  `*ns*` is bound to `ns-sym` so an `::auto-resolved` keyword carries the
+  FILE'S namespace — two files' `::feed` must be two ids, or a genuine
+  collision between them would read as one id registered twice. `create-ns`
+  interns an empty namespace to bind; that is inert (nothing is interned into
+  it, and `require` consults `*loaded-libs*` rather than `find-ns`).
+
+  `*read-eval*` is off, so `#=(…)` is refused rather than evaluated."
+  [text label ns-sym aliases]
+  (let [eof (Object.)
+        rdr (rt/indexing-push-back-reader text)]
+    (binding [*ns*                         (create-ns ns-sym)
+              rdr/*alias-map*              (fn [sym]
+                                             (or (get aliases sym)
+                                                 (symbol (str unresolvable-alias-ns "." sym))))
+              rdr/*default-data-reader-fn* (fn [_tag v] v)
+              rdr/*read-eval*              false]
+      (try
+        (loop [acc []]
+          (let [form (rdr/read {:eof eof :read-cond :allow :features #{:cljs}} rdr)]
+            (if (identical? form eof)
+              acc
+              (recur (conj acc form)))))
+        (catch Exception e
+          (throw (ex-info (str "route-path census: could not read " label)
+                          {:file label} e)))))))
+
+(defn- ns-form-of
+  "The file's `ns` form, or nil."
+  [forms]
+  (first (filter #(and (seq? %) (= 'ns (first %))) forms)))
+
+(defn- ns-alias-map
+  "alias symbol → namespace symbol, over every `:require` / `:require-macros`
+  libspec of an `ns` form. Flat libspecs only (`[a.b :as x]`, `:as-alias`);
+  anything else falls through to the `unresolvable-alias-ns` marker, which is
+  reported rather than believed."
+  [ns-form]
+  (into {}
+        (for [clause (rest ns-form)
+              :when  (and (seq? clause)
+                          (#{:require :require-macros} (first clause)))
+              spec   (rest clause)
+              :when  (vector? spec)
+              :let   [opts (->> (rest spec)
+                                (partition-all 2)
+                                (filter #(= 2 (count %)))
+                                (map vec)
+                                (into {}))]
+              k      [:as :as-alias]
+              :let   [a (get opts k)]
+              :when  (and (symbol? a) (symbol? (first spec)))]
+          [a (first spec)])))
+
+;; ---- deciding what runs at namespace-load time -----------------------------
+
+(defn- reg-route-call? [form]
+  (and (seq? form)
+       (symbol? (first form))
+       (= "reg-route" (name (first form)))))
+
+(defn- fn-literal? [form]
+  (and (seq? form) (contains? '#{fn fn*} (first form))))
+
+(defn- load-time-forms
+  "`form` and every subform of it that is evaluated when `form` is — the whole
+  tree MINUS the bodies of function literals (`fn`, and the `fn*` that `#(…)`
+  reads as), which run when something calls them."
+  [form]
+  (tree-seq #(and (coll? %) (not (fn-literal? %))) seq form))
+
+(def ^:private inert-heads
+  "Top-level heads that neither run nor define anything this census follows."
+  '#{ns comment declare})
+
+(def ^:private defn-heads
+  "Top-level heads whose body is deferred but whose NAME this census follows:
+  call one at load time and its `reg-route`s are load-time registrations."
+  '#{defn defn-})
+
+(def ^:private evaluated-def-heads
+  "`def`-family heads whose value expression IS evaluated at namespace load."
+  '#{def defonce})
+
+(def ^:private deferred-body-heads
+  "`def`-family heads whose body is a function body — it runs when the thing is
+  called, never at namespace load — so a `reg-route` inside one is
+  fixture-scoped by construction and is deliberately not censused, silently.
+  Any OTHER `def…` head holding a `reg-route` is reported instead of assumed:
+  see `unresolved-failure-message`."
+  '#{defn defn- defmacro defmethod defmulti deftest deftest- defprotocol
+     defrecord deftype definterface})
+
+(defn- head-of [form]
+  (when (and (seq? form) (symbol? (first form)))
+    (first form)))
+
+(defn- definition-name [form]
+  (first (filter symbol? (rest form))))
+
+(defn- classify
+  "What kind of top-level form this is, for the load-time walk."
+  [form]
+  (let [h (head-of form)]
+    (cond
+      (nil? h)                             :load-time
+      (contains? inert-heads h)            :inert
+      (contains? defn-heads h)             :defn
+      (contains? evaluated-def-heads h)    :load-time
+      (str/starts-with? (name h) "def")    :deferred
+      :else                                :load-time)))
+
+(defn- mentioned-symbols [form]
+  (into #{} (filter symbol?) (load-time-forms form)))
+
+(defn- reachable-defns
+  "The names of the file-local `defn`s reached from `seed-forms`, to a
+  fixpoint: a `defn` is reached when a load-time expression, or the body of an
+  already-reached `defn`, mentions its name. Fixpoint rather than one hop so a
+  single indirection cannot hide a registration."
+  [defns seed-forms]
+  (loop [reached #{}
+         pending (into #{} (mapcat mentioned-symbols) seed-forms)]
+    (let [fresh (into #{} (filter #(and (contains? defns %) (not (contains? reached %)))) pending)]
+      (if (empty? fresh)
+        reached
+        (recur (into reached fresh)
+               (into #{} (mapcat #(mentioned-symbols (get defns %))) fresh))))))
+
+;; ---- turning a reached reg-route form into a claim -------------------------
+
+(defn- unresolvable-alias? [kw]
+  (and (keyword? kw)
+       (some-> (namespace kw) (str/starts-with? unresolvable-alias-ns))))
+
+(defn- claim-of
+  "One reached `reg-route` form as either a claim or an unresolved report.
+  `defs` maps the file's own `def`'d symbols to their keyword values."
+  [form label defs]
+  (let [line (:line (meta form))
+        bad  (fn [why] {:file label :line line :why why})]
+    (if (not= 4 (count form))
+      (bad (str "`reg-route` takes exactly three arguments — id, metadata, path — "
+                "and this call has " (dec (count form)) "."))
+      (let [[_ id _metadata path] form
+            id' (cond
+                  (keyword? id)                            id
+                  (and (symbol? id) (nil? (namespace id)))  (get defs id)
+                  :else                                     nil)]
+        (cond
+          (nil? id')
+          (bad (str "the route id " (pr-str id) " is neither a keyword literal nor a "
+                    "symbol this file `def`s to one."))
+
+          (unresolvable-alias? id')
+          (bad (str "the route id " (pr-str id) " uses a namespace alias this census "
+                    "could not resolve from the `ns` form."))
+
+          (not (string? path))
+          (bad (str "the route path " (pr-str path) " is not a string literal."))
+
+          :else
+          {:id   id'
+           :path (match/canonical-route-pattern path)
+           :file label
+           :line line})))))
 
 (defn claims-in
-  "Every top-level route claim in `text`, paths canonicalised the way
+  "Every NAMESPACE-LOAD-TIME route claim in `text`, paths canonicalised the way
   `reg-route` canonicalises them. `label` is the display path used in failure
-  messages and in the read-error report."
-  [text label]
-  (let [m (re-matcher top-level-reg-route text)]
-    (loop [acc []]
-      (if-not (.find m)
-        acc
-        (let [start (.start m)
-              line  (line-of text start)
-              form  (read-form-at text start (str label ":" line))
-              id    (second form)
-              path  (last form)]
-          (recur (if (and (keyword? id) (string? path))
-                   (conj acc {:id   id
-                              :path (match/canonical-route-pattern path)
-                              :file label
-                              :line line})
-                   acc)))))))
+  messages.
 
-(defn- bundle-claims []
+  Returns `{:claims [{:id :path :file :line} …] :unresolved [{:file :line :why}
+  …]}`, both ordered by line. A registration the walk reaches but cannot read
+  lands in `:unresolved`; it is never dropped."
+  [text label]
+  (let [pass1   (read-all text label reading-scratch-ns {})
+        ns-form (ns-form-of pass1)
+        ns-sym  (or (some->> ns-form rest (filter symbol?) first) reading-scratch-ns)
+        forms   (if ns-form
+                  (read-all text label ns-sym (ns-alias-map ns-form))
+                  pass1)
+        by-kind (group-by classify forms)
+        defns   (into {} (keep (fn [f] (when-let [n (definition-name f)] [n f]))) (:defn by-kind))
+        entries (:load-time by-kind)
+        reached (reachable-defns defns entries)
+        calls   (concat (mapcat #(filter reg-route-call? (load-time-forms %)) entries)
+                        (mapcat #(filter reg-route-call? (load-time-forms (get defns %))) reached))
+        defs    (into {} (keep (fn [f]
+                                 (let [n (definition-name f)]
+                                   (when (and n (>= (count f) 3) (keyword? (last f)))
+                                     [n (last f)]))))
+                      (:load-time by-kind))
+        results (map #(claim-of % label defs) (sort-by #(:line (meta %)) calls))
+        opaque  (for [f    (:deferred by-kind)
+                      :when (not (contains? deferred-body-heads (head-of f)))
+                      call (filter reg-route-call? (tree-seq coll? seq f))]
+                  {:file label
+                   :line (:line (meta call))
+                   :why  (str "this `reg-route` sits inside a `(" (head-of f) " …)` form, and "
+                              "the census does not know whether that body runs at namespace "
+                              "load. Classify the head in `deferred-body-heads` if it does not.")})]
+    {:claims     (vec (filter :id results))
+     :unresolved (vec (sort-by :line (concat (remove :id results) opaque)))}))
+
+(defn- bundle-census []
   (let [root (repo-root)
         base (str (.getPath root) java.io.File/separator)]
-    (mapcat (fn [^java.io.File f]
-              (claims-in (slurp f)
-                         (-> (.getPath f)
-                             (str/replace base "")
-                             (str/replace "\\" "/"))))
+    (reduce (fn [acc ^java.io.File f]
+              (merge-with into acc
+                          (claims-in (slurp f)
+                                     (-> (.getPath f)
+                                         (str/replace base "")
+                                         (str/replace "\\" "/")))))
+            {:claims [] :unresolved []}
             (source-files root))))
 
 ;; ---- 1. the census core goes red on demand (self-test) ---------------------
@@ -283,22 +547,115 @@
       (is (seq (duplicate-path-groups allowlisted {"/other" #{:app-a/home :app-b/home}}))
           "an allowlist entry is pinned to its path"))))
 
-(deftest claims-in-reads-top-level-registrations-only
-  (testing "column-1 forms are claims; indented (fixture-scoped) ones are not"
-    (let [text (str "(ns example.core)\n"
+;; ---- 2. the reader sees load-time registrations, and only those ------------
+
+(deftest claims-in-sees-every-load-time-registration
+  (testing "a top-level call, in either grammar the app trees use"
+    (let [text (str "(ns example.core (:require [re-frame.core :as rf]))\n"
                     "(rf/reg-route :app/home {:doc \"Home.\"} \"/\")\n"
-                    "(reg-route :app/thing {} \"/thing/:id\")\n"
-                    "(deftest t\n"
-                    "  (rf/reg-route :fixture/local {} \"/\"))\n")]
+                    "(reg-route :app/thing {} \"/thing/:id\")\n")]
       (is (= [{:id :app/home  :path "/"          :file "f.cljs" :line 2}
               {:id :app/thing :path "/thing/:id" :file "f.cljs" :line 3}]
-             (claims-in text "f.cljs"))))))
+             (:claims (claims-in text "f.cljs"))))))
 
-;; ---- 2. the census ---------------------------------------------------------
+  (testing "a reg-route inside a defn CALLED at the top level is load-time —
+            the shape rf2-p5og's three witness applications are written in,
+            and the shape the column-1 regex could not see"
+    (let [text (str "(ns example.routes (:require [re-frame.routing :as routing]))\n"
+                    "(def feed \"The list page.\" ::feed)\n"
+                    "(defn register! []\n"
+                    "  (routing/reg-route feed\n"
+                    "    {:doc \"The article list.\"}\n"
+                    "    \"/slice\"))\n"
+                    "(register!)\n")]
+      (is (= [{:id :example.routes/feed :path "/slice" :file "routes.cljs" :line 4}]
+             (:claims (claims-in text "routes.cljs")))
+          "the `def`'d symbol id resolves, and `::feed` carries the FILE's namespace")))
+
+  (testing "one indirection does not hide a registration"
+    (let [text (str "(ns example.routes (:require [re-frame.routing :as routing]))\n"
+                    "(defn- inner [] (routing/reg-route :app/deep {} \"/deep\"))\n"
+                    "(defn register! [] (inner))\n"
+                    "(register!)\n")]
+      (is (= [:app/deep] (mapv :id (:claims (claims-in text "routes.cljs")))))))
+
+  (testing "fixture-scoped registrations are NOT claims"
+    (let [text (str "(ns example.core-test (:require [re-frame.routing :as routing]))\n"
+                    "(deftest t\n"
+                    "  (routing/reg-route :fixture/local {} \"/\"))\n"
+                    "(defn- fresh! []\n"
+                    "  (routing/reg-route :helper/only-a-test-calls-me {} \"/\"))\n"
+                    "(defn- unreached [] (fresh!))\n")
+          out  (claims-in text "core_test.cljs")]
+      (is (= [] (:claims out))
+          "a deftest body, and a defn nothing calls at load, register nothing global")
+      (is (= [] (:unresolved out)) "and neither is a complaint")))
+
+  (testing "a function literal's body is not load-time either"
+    (let [text (str "(ns example.core (:require [re-frame.routing :as routing]))\n"
+                    "(def make-fixture (fn [] (routing/reg-route :fx/one {} \"/\")))\n"
+                    "(def make-other #(routing/reg-route :fx/two {} \"/\"))\n")]
+      (is (= [] (:claims (claims-in text "core.cljs"))))))
+
+  (testing "two files' ::feed are two ids, or a real collision would read as one"
+    (let [a (str "(ns app.a (:require [re-frame.routing :as routing]))\n"
+                 "(def feed ::feed)\n"
+                 "(defn r! [] (routing/reg-route feed {} \"/x\"))\n(r!)\n")
+          b (str "(ns app.b (:require [re-frame.routing :as routing]))\n"
+                 "(def feed ::feed)\n"
+                 "(defn r! [] (routing/reg-route feed {} \"/x\"))\n(r!)\n")
+          claims (concat (:claims (claims-in a "a.cljs")) (:claims (claims-in b "b.cljs")))]
+      (is (= [:app.a/feed :app.b/feed] (mapv :id claims)))
+      (is (= 1 (count (duplicate-path-groups claims {})))
+          "and the census sees the collision between them"))))
+
+(deftest claims-in-never-drops-what-it-cannot-read
+  (testing "a computed path is reported, not skipped"
+    (let [text (str "(ns example.core (:require [re-frame.routing :as routing]))\n"
+                    "(def base \"/app\")\n"
+                    "(routing/reg-route :app/home {} (str base \"/home\"))\n")
+          out  (claims-in text "core.cljs")]
+      (is (= [] (:claims out)))
+      (is (= 1 (count (:unresolved out))))
+      (is (= 3 (:line (first (:unresolved out)))))
+      (is (str/includes? (unresolved-failure-message (:unresolved out)) "core.cljs:3"))))
+
+  (testing "an id that is neither a literal nor a file-local def is reported"
+    (let [text (str "(ns example.core (:require [re-frame.routing :as routing]))\n"
+                    "(routing/reg-route (route-id) {} \"/home\")\n")]
+      (is (= 1 (count (:unresolved (claims-in text "core.cljs")))))))
+
+  (testing "a wrong arity is reported rather than mis-read"
+    (let [text (str "(ns example.core (:require [re-frame.routing :as routing]))\n"
+                    "(routing/reg-route :app/home \"/home\")\n")
+          out  (claims-in text "core.cljs")]
+      (is (= [] (:claims out)))
+      (is (str/includes? (:why (first (:unresolved out))) "exactly three arguments"))))
+
+  (testing "a reg-route inside an unclassified def… form asks to be classified"
+    (let [text (str "(ns example.core (:require [re-frame.routing :as routing]))\n"
+                    "(defsomething thing\n"
+                    "  (routing/reg-route :app/home {} \"/home\"))\n")
+          out  (claims-in text "core.cljs")]
+      (is (= [] (:claims out)))
+      (is (str/includes? (:why (first (:unresolved out))) "defsomething"))))
+
+  (testing "the enumerated deferred-body heads stay silent"
+    (let [text (str "(ns example.core (:require [re-frame.routing :as routing]))\n"
+                    "(defmethod render :x [_] (routing/reg-route :app/home {} \"/home\"))\n")]
+      (is (= {:claims [] :unresolved []} (claims-in text "core.cljs"))))))
+
+;; ---- 3. the census ---------------------------------------------------------
 
 (deftest app-tree-route-path-census
-  (testing "no two applications in the shared node test bundle claim one URL path"
-    (let [claims (bundle-claims)
-          groups (duplicate-path-groups claims allowed-duplicate-paths)]
+  (let [root (repo-root)]
+    (testing "every app root exists — a tree that has MOVED must go red, not quiet"
+      (is (= [] (remove #(.isDirectory ^java.io.File (io/file root %)) app-roots)))))
+
+  (let [{:keys [claims unresolved]} (bundle-census)
+        groups                      (duplicate-path-groups claims allowed-duplicate-paths)]
+    (testing "every load-time registration in the app trees was READ"
+      (is (empty? unresolved) (unresolved-failure-message unresolved)))
+    (testing "no two applications in the shared node test bundle claim one URL path"
       (is (seq claims) "the census must not pass vacuously — it found no routes at all")
       (is (empty? groups) (census-failure-message groups)))))
