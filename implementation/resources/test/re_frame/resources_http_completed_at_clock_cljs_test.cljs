@@ -125,11 +125,14 @@
                   (is (= (+ loaded-at stale-after-ms) stale-at)
                       ":stale-at is :loaded-at + :stale-after-ms")
                   (is (> stale-at now-epoch)
-                      ":stale-at is in the future against js/Date.now (window not elapsed)"))
-                (set! (.-fetch js/globalThis) orig)
-                (done)))
+                      ":stale-at is in the future against js/Date.now (window not elapsed)"))))
+            ;; Reports and releases; it never finishes (rf2-fyba). The fetch
+            ;; restore both arms duplicated rides the single trailing step.
             (.catch
               (fn [err]
-                (set! (.-fetch js/globalThis) orig)
                 (is false (str "rf2-2elcw3 — unexpected: " err))
+                nil))
+            (.then
+              (fn [_]
+                (set! (.-fetch js/globalThis) orig)
                 (done))))))))

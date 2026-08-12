@@ -111,9 +111,12 @@
                    (is (= :all (mode-of :rf/xray))
                        ":rf/xray :mode flips to :all via the envelope opts")
                    (is (nil? (mode-of :rf/default))
-                       ":rf/default is NOT polluted by the dispatch")
-                   (done)))
-          (.catch (fn [e] (is false (str "promise rejected: " (.-message e))) (done)))))))
+                       ":rf/default is NOT polluted by the dispatch")))
+          ;; Reports and releases; it never finishes (rf2-fyba) — `done` runs the
+          ;; whole remainder of the run synchronously, so a `.catch` downstream of
+          ;; it would claim a later namespace's throw and fire `done` twice.
+          (.catch (fn [e] (is false (str "promise rejected: " (.-message e))) nil))
+          (.then (fn [_] (done)))))))
 
 ;; ---- 2. with-frame lexical wrapper --------------------------------------
 
@@ -138,9 +141,9 @@
                    (is (= :all (mode-of :rf/xray))
                        ":rf/xray :mode flips to :all via the lexical with-frame wrapper")
                    (is (nil? (mode-of :rf/default))
-                       ":rf/default is NOT polluted by the dispatch")
-                   (done)))
-          (.catch (fn [e] (is false (str "promise rejected: " (.-message e))) (done)))))))
+                       ":rf/default is NOT polluted by the dispatch")))
+          (.catch (fn [e] (is false (str "promise rejected: " (.-message e))) nil))
+          (.then (fn [_] (done)))))))
 
 ;; ---- 3. (:dispatch (rf/capture-frame)) capture-at-call-time ----------------------------
 
@@ -163,9 +166,9 @@
                      (is (= :all (mode-of :rf/xray))
                          ":rf/xray :mode flips via the captured dispatcher")
                      (is (nil? (mode-of :rf/default))
-                         ":rf/default is NOT polluted")
-                     (done)))
-            (.catch (fn [e] (is false (str "promise rejected: " (.-message e))) (done))))))))
+                         ":rf/default is NOT polluted")))
+            (.catch (fn [e] (is false (str "promise rejected: " (.-message e))) nil))
+            (.then (fn [_] (done))))))))
 
 ;; ---- 4. re-frame.frame/bind-fn — the internal HoF framework helper ------
 ;;
@@ -195,9 +198,9 @@
                      (is (= :all (mode-of :rf/xray))
                          ":rf/xray :mode flips via the bind-fn wrap")
                      (is (nil? (mode-of :rf/default))
-                         ":rf/default is NOT polluted")
-                     (done)))
-            (.catch (fn [e] (is false (str "promise rejected: " (.-message e))) (done))))))))
+                         ":rf/default is NOT polluted")))
+            (.catch (fn [e] (is false (str "promise rejected: " (.-message e))) nil))
+            (.then (fn [_] (done))))))))
 
 (deftest bind-fn-captured-under-with-frame-routes-to-captured-frame
   (testing "rf2-tvu99 / rf2-kkut0 — `(frame/bind-fn frame-id f)` built inside
@@ -217,9 +220,9 @@
                      (is (= :all (mode-of :rf/xray))
                          ":rf/xray :mode flips via the bind-fn-captured callback")
                      (is (nil? (mode-of :rf/default))
-                         ":rf/default is NOT polluted")
-                     (done)))
-            (.catch (fn [e] (is false (str "promise rejected: " (.-message e))) (done))))))))
+                         ":rf/default is NOT polluted")))
+            (.catch (fn [e] (is false (str "promise rejected: " (.-message e))) nil))
+            (.then (fn [_] (done))))))))
 
 ;; ---- regression: dispatch-sync from inside the wrap routes too ---------
 

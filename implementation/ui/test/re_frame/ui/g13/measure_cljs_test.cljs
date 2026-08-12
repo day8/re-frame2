@@ -59,9 +59,9 @@
                (is (= 0 pre-hot) "the opening witness is read before the work")
                (is (= queued-writes (- post-hot pre-hot))
                    "and the closing witness after it, so the delta is the work
-                    the measured interval contained")
-               (done)))
-            (.catch (fn [e] (is false (str "seam rejected: " e)) (done))))))))
+                    the measured interval contained")))
+            (.catch (fn [e] (is false (str "seam rejected: " e)) nil))
+            (.then (fn [_] (done))))))))
 
 (deftest work-hoisted-out-of-the-thunk-collapses-the-delta
   (testing "a caller that does the work BEFORE calling the seam reds the gate"
@@ -88,9 +88,9 @@
                    "the hoisted work advanced app-db before the seam's own
                     opening witness read")
                (is (= 0 (- post-hot pre-hot))
-                   "so the delta is 0 and the runtime containment witness reds")
-               (done)))
-            (.catch (fn [e] (is false (str "seam rejected: " e)) (done))))))))
+                   "so the delta is 0 and the runtime containment witness reds")))
+            (.catch (fn [e] (is false (str "seam rejected: " e)) nil))
+            (.then (fn [_] (done))))))))
 
 (deftest work-deferred-past-the-commit-collapses-the-delta
   (testing "a caller that does the work AFTER the resolved Promise reds the gate"
@@ -107,6 +107,6 @@
             (.then
              (fn [{:keys [pre-hot post-hot]}]
                (is (= 0 (- post-hot pre-hot))
-                   "work deferred past the end timestamp is not in the delta")
-               (done)))
-            (.catch (fn [e] (is false (str "seam rejected: " e)) (done))))))))
+                   "work deferred past the end timestamp is not in the delta")))
+            (.catch (fn [e] (is false (str "seam rejected: " e)) nil))
+            (.then (fn [_] (done))))))))
