@@ -40,6 +40,21 @@ hard-wired `ssr/render-to-string` line §2 quotes. No figure, band or argument
 moved; the page still draws no conclusion of its own, and the ruling is recorded
 here rather than re-argued.
 
+**A third status fact, added 2026-08-13 (`rf2-2rtt6.144`): there is no sitting,
+and this page's tense is the only thing that changes.** The P2 fork was ruled by
+the operator directly in chat on 2026-08-13 — *Hicasso graduates, as a success*
+— which pre-empts the 2026-08-25 packet freeze and the 2026-08-27 sitting; the
+record is [`decisions.md` HD-029](decisions.md#hd-029--the-p2-fork-hicasso-graduates-as-a-success)
+and [validation.md's graduation section](validation.md#the-kill-table-at-graduation--the-p2-ruling-of-2026-08-13).
+So **read every "at the sitting" and "a sitting will want" below as the forum
+this page was written for rather than one still ahead** — including the header
+above, which named the sitting as where the decider would rule. Nothing else is
+affected: the arm choice was already ruled on 2026-08-08 by `rf2-2rtt6.88` and
+is untouched by the fork ruling, the JVM-root correction above stands as
+written, and no figure, band, table or argument on this page moves. The pricing
+still prices unbuilt work, and the five start gates `rf2-2rtt6.88` named still
+govern when Arm B implementation begins — graduation did not start it.
+
 ## What this document deliberately does not contain, and the tension that produced it
 
 `rf2-2rtt6.88`'s description asks for "both branches priced in beads/weeks,
