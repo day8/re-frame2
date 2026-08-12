@@ -30,7 +30,8 @@
   | an intent inside an overlay lowers in the overlay's frame | [[an-intent-on-an-overlay-child-dispatches-in-the-frame-above-it]] |
   | the anchor is claimed while open and put back after | [[the-anchor-is-claimed-while-open-and-handed-back-on-teardown]] |
   | two hooks here, and still two in the shell | [[an-overlay-costs-two-hooks-and-the-shell-still-costs-two]] |
-  | the focus one-shot, and which spelling reaches the platform | [[the-focus-one-shot-is-the-attribute-and-not-reacts-prop]] |
+  | a close request arrives as an intent | [[a-close-request-on-a-modal-arrives-as-an-intent]] |
+  | the focus one-shot, and which spelling reaches the platform | [[the-focus-one-shot-is-the-platforms-focus-delegate-and-not-reacts-autofocus]] |
 
   ## What decides these rows, and what cannot
 
@@ -60,30 +61,47 @@
     and stacking rows; dropping `close()` from the ref cleanup reds the
     focus row; a `document` listener added while open reds the census row.
   - WIDEN the guard — deleting the `newState` filter in
-    `dismissal-handler`, which leaves a handler with the correct SHAPE
-    (it is the platform's own dismissal event, on the right element, with
-    the author's own intent) and one wrong direction: `beforetoggle` also
-    fires on the way IN, so an overlay dispatches `:on-dismiss` when it
-    OPENS. That reds the dispatch-count rows with `(not (= 1 2))`.
-    Widening `:open?` to default true reds the closed-cost row.
+    `dismissal-handler` leaves a handler with the correct SHAPE (the
+    platform's own dismissal event, on the right element, carrying the
+    author's own intent) and one wrong direction: `beforetoggle` fires on
+    the way IN as well, so an overlay dispatches `:on-dismiss` when it
+    OPENS. Reds the dispatch-count rows with `(not (= 1 2))`. Rendering
+    the element ALWAYS and merely not showing it while closed — the
+    ordinary design a dozen overlay libraries ship, which paints
+    correctly, dismisses correctly and restores focus correctly — reds
+    the closed-cost row with a live `HTMLDialogElement` where nil was
+    required.
 
-  A third sabotage is recorded here because it did NOT redden, and the
-  module changed as a result. The popover's teardown fires the same
-  `beforetoggle` a light dismiss fires, so the first draft carried a
-  per-node closing mark to tell them apart; deleting the mark left every
-  row green. React does not deliver an event from a fiber it is deleting,
-  so the mark was unreachable code. It is gone, and
-  [[the-platform-dismissal-arrives-as-an-intent-and-the-teardown-does-not]]
-  is what holds the property in its place.
+  **Two sabotages did NOT redden, and both changed something.** They are
+  recorded because a sabotage that stays green is the only kind that
+  tells you something you did not already believe.
+
+  - Marking the node before the module's own `hidePopover()`, so a
+    teardown could not be read as a dismissal, was UNREACHABLE: React
+    does not deliver an event from a fiber it is deleting. The mark is
+    gone from the module and
+    [[the-platform-dismissal-arrives-as-an-intent-and-the-teardown-does-not]]
+    holds the property in its place.
+  - A `document.addEventListener` left in the module's ref callback
+    reddened nothing, because the CENSUS was broken rather than the
+    module. See [[census-sees-a-global!]]. With the instrument repaired
+    the same sabotage reds with `a global listener appeared: [keydown]`.
 
   ## What is measured against what
 
   A census row that counts something the module never touches passes
-  vacuously, so each census asserts its own premise first: the listener
-  census asserts that the instrument DID see React's element-scoped
-  `cancel`/`toggle` listeners before it asserts that it saw nothing on
-  `document`; the hook roster asserts the probe was installed before it
-  reads a count."
+  vacuously, so each census asserts its own premise first, and one of
+  those premises had to be added after the fact.
+  [[census-sees-a-global!]] puts a real listener on `document` and
+  requires the census to file it under `:global`, because the first draft
+  of the instrument could not file anything there at all — its patched
+  `addEventListener` was a variadic ClojureScript fn, so `this` was never
+  the EventTarget. A deliberate `document.addEventListener` left in the
+  module's own ref callback reddened nothing, which is how the instrument
+  was caught rather than the module. The listener census also asserts it
+  saw React's element-scoped `cancel`/`toggle` before asserting it saw
+  nothing global, and the hook roster asserts the probe installed before
+  it reads a count."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as uix-adapter]
             [re-frame.core :as rf]
@@ -545,22 +563,26 @@
 
 ;; --- the census ------------------------------------------------------------
 
-(def ^:private global-target?
-  (fn [t]
-    (or (identical? t js/window)
-        (identical? t js/document)
-        (identical? t (.-documentElement js/document))
-        (identical? t (.-body js/document)))))
+(defn- global-targets
+  "The four targets a listener may NOT appear on: `window`, `document`,
+  `<html>` and `<body>`. An overlay's own element is not among them —
+  React attaches `cancel` / `toggle` there, which is expected and leaves
+  with the node."
+  []
+  [js/window js/document (.-documentElement js/document) (.-body js/document)])
 
 (defn- install-census!
   "Instrument every way an overlay could acquire idle cost, and answer
-  `{:log :restore!}`.
+  `{:log :clear! :restore!}`.
 
-  Listeners are split by TARGET rather than counted: React attaches
-  `cancel` / `toggle` directly to the overlay element, which is both
-  expected and self-cleaning, while a listener on `document` or `window`
-  is the one that outlives its overlay. A census that counted both would
-  have to be read against a baseline nobody can state."
+  Listeners are split by TARGET rather than counted, and the split is made
+  by WHICH WRAPPER RAN rather than by inspecting `this`. Each global target
+  gets an own-property wrapper that closes over the target it belongs to;
+  the prototype wrapper underneath it therefore only ever sees the
+  elements. That is not a stylistic preference — the first draft read
+  `this` inside the prototype wrapper, `this` was not the EventTarget, and
+  `:global` could not become non-empty however hard the module tried to
+  make it. [[census-sees-a-global!]] is the premise that keeps it honest."
   []
   (let [proto      (.-prototype js/EventTarget)
         orig-add   (.-addEventListener proto)
@@ -569,19 +591,30 @@
         orig-int   (.-setInterval js/globalThis)
         observers  ["ResizeObserver" "MutationObserver" "IntersectionObserver"]
         originals  (into {} (map (fn [n] [n (unchecked-get js/globalThis n)])) observers)
+        targets    (global-targets)
         !log       (atom {:global [] :element [] :removed [] :rafs 0
                           :intervals 0 :observers 0})]
+    ;; The elements, underneath.
     (set! (.-addEventListener proto)
-          (fn [& args]
+          (fn [type listener opts]
             (this-as this
-              (swap! !log update (if (global-target? this) :global :element)
-                     conj (first args))
-              (.apply orig-add this (to-array args)))))
+              (swap! !log update :element conj type)
+              (.call orig-add this type listener opts))))
     (set! (.-removeEventListener proto)
-          (fn [& args]
+          (fn [type listener opts]
             (this-as this
-              (swap! !log update :removed conj (first args))
-              (.apply orig-rm this (to-array args)))))
+              (swap! !log update :removed conj type)
+              (.call orig-rm this type listener opts))))
+    ;; The four globals, shadowing it with an own property each.
+    (doseq [t targets]
+      (unchecked-set t "addEventListener"
+                     (fn [type listener opts]
+                       (swap! !log update :global conj type)
+                       (.call orig-add t type listener opts)))
+      (unchecked-set t "removeEventListener"
+                     (fn [type listener opts]
+                       (swap! !log update :removed conj type)
+                       (.call orig-rm t type listener opts))))
     (when orig-raf
       (set! (.-requestAnimationFrame js/globalThis)
             (fn [& args]
@@ -599,15 +632,41 @@
                          (swap! !log update :observers inc)
                          (js/Reflect.construct orig (to-array args))))))
     {:log      !log
+     :clear!   (fn [] (swap! !log assoc :global [] :element [] :removed []) nil)
      :restore! (fn []
                  (set! (.-addEventListener proto) orig-add)
                  (set! (.-removeEventListener proto) orig-rm)
+                 (doseq [t targets]
+                   (js-delete t "addEventListener")
+                   (js-delete t "removeEventListener"))
                  (when orig-raf (set! (.-requestAnimationFrame js/globalThis) orig-raf))
                  (when orig-int (set! (.-setInterval js/globalThis) orig-int))
                  (doseq [n observers]
                    (when-some [orig (get originals n)]
                      (unchecked-set js/globalThis n orig)))
                  nil)}))
+
+(defn- census-sees-a-global!
+  "THE INSTRUMENT'S OWN PREMISE. Add a listener to `document` and require
+  the census to file it under `:global`, then take it off again and clear
+  the log.
+
+  Every `:global` assertion below is an emptiness claim, and an emptiness
+  claim is worth exactly what the instrument's ability to be non-empty is
+  worth. The first draft of this census could not be non-empty — its
+  patched `addEventListener` was a variadic ClojureScript fn, so `this`
+  was not the EventTarget, every target classified as an element, and a
+  deliberate `document.addEventListener` in the module's own ref callback
+  left the whole suite green."
+  [{:keys [log clear!]}]
+  (let [probe (fn [_] nil)]
+    (.addEventListener js/document "rf-census-probe" probe)
+    (is (= ["rf-census-probe"] (:global @log))
+        (str "the census must record a document listener as GLOBAL, or its "
+             "zeros are zeros about nothing. Saw global=" (pr-str (:global @log))
+             " element=" (pr-str (:element @log))))
+    (.removeEventListener js/document "rf-census-probe" probe)
+    (clear!)))
 
 (deftest an-open-overlay-adds-nothing-to-window-document-or-body
   (if-not (mount/browser?)
@@ -619,8 +678,9 @@
           (mount/settle!)
           ;; Instrumented AFTER the root exists, so React's own root-level
           ;; wiring is outside the window and the delta is the overlay's.
-          (let [{:keys [log restore!]} (install-census!)]
+          (let [{:keys [log restore!] :as census} (install-census!)]
             (try
+              (census-sees-a-global! census)
               (go! [::opened :pa])
               (.scrollTo js/window 0 40)
               (.dispatchEvent js/window (js/Event. "resize"))
@@ -688,8 +748,9 @@
           ;; and a census that had to whitelist it would be a census with an
           ;; opinion about React's internals. What is measured here is the
           ;; DELTA a closed overlay costs on top of a page that already exists.
-          (let [{:keys [log restore!]} (install-census!)]
+          (let [{:keys [log restore!] :as census} (install-census!)]
             (try
+              (census-sees-a-global! census)
               (go! [::closed :m])
               (go! [::closed :p])
               (testing "ZERO COST WHEN CLOSED: `:open?` false renders nil, so
