@@ -223,13 +223,13 @@
                        (react-dom/flushSync (fn [] nil))
                        (is (= "7" (text container))
                            "one yielded microtask plus an empty forced drain
-                            later, the page is current")
-                       (teardown! mounted container)
-                       (done)))
+                            later, the page is current")))
               (.catch (fn [e]
                         (is false (str "microtask arm rejected: " e))
-                        (teardown! mounted container)
-                        (done)))))))))
+                        nil))
+              (.then (fn [_]
+                       (teardown! mounted container)
+                       (done)))))))))
 
 (deftest a-write-then-a-task-repaints
   (testing "Case 3: nothing forces anything. The write is made and one
@@ -249,13 +249,13 @@
               (.then (fn [_]
                        (is (= "11" (text container))
                            "a yielded task is enough on its own — the automatic
-                            repaint channel, unforced")
-                       (teardown! mounted container)
-                       (done)))
+                            repaint channel, unforced")))
               (.catch (fn [e]
                         (is false (str "task arm rejected: " e))
-                        (teardown! mounted container)
-                        (done)))))))))
+                        nil))
+              (.then (fn [_]
+                       (teardown! mounted container)
+                       (done)))))))))
 
 (deftest a-write-then-an-animation-frame-repaints
   (testing "Case 4: the same claim taken at the paint boundary. The
@@ -275,13 +275,13 @@
               (.then (fn [_]
                        (is (= "23" (text container))
                            "current before the frame the browser was about to
-                            paint")
-                       (teardown! mounted container)
-                       (done)))
+                            paint")))
               (.catch (fn [e]
                         (is false (str "animation-frame arm rejected: " e))
-                        (teardown! mounted container)
-                        (done)))))))))
+                        nil))
+              (.then (fn [_]
+                       (teardown! mounted container)
+                       (done)))))))))
 
 ;; ===========================================================================
 ;; The adversarial row — batching is UNCHANGED
@@ -335,13 +335,13 @@
                              "and nothing rendered afterwards either — the
                               host-visible closer adds no second pass over the
                               application's own tree")
-                         (is (= "3" (text container)))
-                         (teardown! mounted container)
-                         (done)))
+                         (is (= "3" (text container)))))
                 (.catch (fn [e]
                           (is false (str "batching arm rejected: " e))
-                          (teardown! mounted container)
-                          (done))))))))))
+                          nil))
+                (.then (fn [_]
+                         (teardown! mounted container)
+                         (done))))))))))
 
 ;; ===========================================================================
 ;; The other doors the bead named

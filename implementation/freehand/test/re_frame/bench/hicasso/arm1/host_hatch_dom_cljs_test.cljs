@@ -445,9 +445,9 @@
                           (is (some? n))
                           (is (.contains (.-classList n) "widget"))))
                       (finally (vreset! census (teardown-census! handle))))
-                    (is (= released @census))
-                    (done))))
-              (.catch (fn [e] (is false (str e)) (done)))))))))
+                    (is (= released @census)))))
+              (.catch (fn [e] (is false (str e)) nil))
+              (.then (fn [_] (done)))))))))
 
 (deftest two-namespaced-keywords-reach-two-providers-as-two-distinct-values
   (async done
@@ -481,9 +481,9 @@
                                 two subtrees differ there"
                         (is (not= (attr handle ".theme-a .widget" "data-theme")
                                   (attr handle ".theme-b .widget" "data-theme")))))
-                    (finally (mount/release! handle)))
-                  (done)))
-              (.catch (fn [e] (is false (str e)) (done)))))))))
+                    (finally (mount/release! handle)))))
+              (.catch (fn [e] (is false (str e)) nil))
+              (.then (fn [_] (done)))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 2 — callbacks out, and React-owned state surviving Hicasso re-renders
@@ -1204,8 +1204,9 @@
                              props, so the crossing was never re-run")
                         (is (= 1 (:mounts @!instr))
                             "nor was it remounted"))
-                      (finally (mount/release! handle) (done)))))
-                (.catch (fn [e] (is false (str e)) (done))))))))))
+                      (finally (mount/release! handle)))))
+                (.catch (fn [e] (is false (str e)) nil))
+                (.then (fn [_] (done))))))))))
 
 (deftest a-memoised-hosted-component-and-the-doors-honest-cost
   (async done
@@ -1255,5 +1256,6 @@
                         (mount/dispatch! @handle [:hatch/set :label "moved-again"])
                         (is (= "moved-again" (.-textContent (q @handle ".mlabel"))))
                         (is (= (inc before) (:renders @!instr)))))
-                    (finally (mount/release! @handle) (done)))))
-              (.catch (fn [e] (is false (str e)) (done)))))))))
+                    (finally (mount/release! @handle)))))
+              (.catch (fn [e] (is false (str e)) nil))
+              (.then (fn [_] (done)))))))))
