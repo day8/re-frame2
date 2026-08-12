@@ -10,16 +10,20 @@
         (:require [re-frame.hicasso.native :as n]))
 
       (n/defcomponent hot-row
-        {:server :render}                 ; recorded; read in Phase 3
+        {:server :render}                 ; runs on the server too
         [^js props]
         (n/$ :button {:class \"hot-row\" :on-click (.-onOpen props)}
              (.-label props)))
 
   The declaration map carries `:server` and nothing else, its key and
   its value are both refused off their rosters at the declaration, and
-  the policy it records is **consulted by no runtime path yet** — see
-  [[defcomponent]] and [[declared-server]], which say so where the
-  author is standing rather than only here.
+  the policy **decides what the component contributes to a server
+  render** (rf2-hic-046): `:render` mints the author's own function as
+  the element type and it runs everywhere, `:client-only` — the default
+  — mints a gate that contributes nothing to the server response and
+  renders the component once the client has adopted it. See
+  [[component]] for the mechanism and [[declared-server]] for the
+  roster.
 
   ## The two-languages fence, which is the whole architecture
 
@@ -143,6 +147,7 @@
   #?(:clj (:require [re-frame.source-coords :as source-coords]))
   #?(:cljs (:require ["react" :as react]
                      [re-frame.adapter.context :as adapter-context]
+                     [re-frame.hicasso.impl.codec :as codec]
                      [re-frame.hicasso.impl.collector :as collector]
                      [re-frame.interop :as interop]))
   #?(:cljs (:require-macros [re-frame.hicasso.native :refer [$ props defcomponent]])))
@@ -338,10 +343,13 @@
      (def ^:private server-policies
        "Every value `:server` may take. These are `defhost`'s two as well;
   what that door has and this one deliberately does not is the sibling
-  `:fallback` option — a fallback is markup rendered by a GATE component
-  in the crossing's place, and a native component has no gate:
-  [[component]] mints the author's own function as the element type and
-  nothing wraps it."
+  `:fallback` option. Both doors gate the Client-only arm the same way
+  ([[mint-server-gate]]), so the difference is not mechanism but
+  AUTHORING SITE: a `defhost` crossing stands where the author is
+  writing React and has no hiccup to hand, while a native island is
+  reached from a `defview` body or an `n/$` parent, where markup in the
+  region is ordinary source written where it renders. A second
+  declaration grammar for it would buy nothing."
        #{:client-only :render})
 
      (defn declared-server
@@ -363,18 +371,15 @@
   at all, so a compile-time refusal would be witnessed by nothing this
   repo runs.
 
-  ## What the policy does NOT yet do (Phase 3)
+  ## And it is now READ (rf2-hic-046)
 
-  The value is recorded on the tier marker and **consulted by no runtime
-  path**. There is no server walk in this tier and no SSR branch that
-  reads it: `docs/design/hicasso/product/lanes/adversarial-risks.md`
-  defers native-surface risks to Phase 3, and the server half of this
-  declaration is deferred with them. Validating it now is still worth
-  doing — a policy recorded WRONG is worse than one recorded and not yet
-  read, because the day it is read the mistake is years old — but a
-  reader must not take `{:server :render}` for a live instruction. See
-  [[defcomponent]]'s docstring, which says the same thing where the
-  author is standing."
+  The value is stamped on the tier marker, where a tool reads it, and
+  [[component]] branches on it: `:render` answers the author's own
+  function and `:client-only` answers a gate. Until rf2-hic-046 it was
+  recorded and consulted by nothing, so an undeclared island — nominally
+  Client-only — rendered into the server response exactly as a declared
+  `:render` one did, which is the silent matrix enlargement the default
+  exists to prevent (merged-PR audit #7839)."
        [component-name decl]
        (doseq [k (keys decl)]
          (when-not (contains? component-options k)
@@ -399,18 +404,81 @@
                         (str "n/defcomponent " component-name " declares :server "
                              (pr-str policy) ". The policy is :client-only — the "
                              "default, meaning the component is not run on the "
-                             "server — or :render, meaning it is safe to run "
-                             "there and does. There is no third value, and "
-                             "`defhost`'s sibling :fallback option has no "
-                             "counterpart here: a fallback needs a gate "
-                             "component to render it, and a native component is "
-                             "its own element type.")
+                             "server and contributes nothing to the response — "
+                             "or :render, meaning it is safe to run there and "
+                             "does. There is no third value, and `defhost`'s "
+                             "sibling :fallback option has no counterpart "
+                             "here: a native island is reached from hiccup, so "
+                             "markup for the region is written where it "
+                             "renders rather than declared.")
                         :declare-client-only-or-render
                         {:component component-name :server policy}))))
 
+     (defn- mint-server-gate
+       "The one component a `:client-only` declaration mints — the
+  author's function behind its server policy, and the whole of the
+  Client-only mechanism.
+
+  `defhost`'s gate exactly ([[re-frame.hicasso.impl.codec/mint-host-gate!]]),
+  down to the hook: [[re-frame.hicasso.impl.codec/adopted?]] is READ
+  here rather than reimplemented, because one policy concept with two
+  implementations is the shape a second copy gets subtly wrong — the
+  `useSyncExternalStore` triple is compared by identity and a fresh
+  closure per render re-subscribes every island on every render. Audit
+  #7839 asked for the two-value matrix and no second policy mechanism;
+  this is the first half taken by not building the second.
+
+  So the hook answers `false` while React is producing server bytes AND
+  again on hydration's first client pass, and `true` afterwards and on
+  the very first pass of a fresh `createRoot` mount. Three consequences,
+  none of which needs a server walk that knows about the policy:
+
+  1. the server response carries nothing where the island sits;
+  2. hydration's first pass renders the same nothing, so there is no
+     mismatch for React to reconcile — the two agree BY CONSTRUCTION;
+  3. a fresh client mount never consults a server snapshot, so the
+     island renders on its very first pass and nothing flashes.
+
+  **No `:fallback`, deliberately** — the sibling door has one and this
+  one does not ([[server-policies]]). The gate renders `nil`, and an
+  author who wants markup in the region writes it in the enclosing
+  hiccup, where it is ordinary Hicasso and not a second declaration
+  grammar.
+
+  The gate hands its own props straight through, `ref` included, so the
+  ABI a `:client-only` island sees is the one a `:render` island sees:
+  one raw JavaScript props object, children at `.-children`."
+       [component-name f]
+       (let [gate (fn [props]
+                    (when (codec/adopted?)
+                      (react/createElement f props)))]
+         (set! (.-displayName gate) component-name)
+         gate))
+
      (defn component
-       "Mint what [[defcomponent]] `def`s: the author's function, stamped
-  with its `displayName` and the tier marker, and answered by identity.
+       "Mint what [[defcomponent]] `def`s: the element type for this
+  island, stamped with its `displayName` and the tier marker.
+
+  **`server` decides which element type that is** (rf2-hic-046). Under
+  `:render` it is the author's own function — HD-011's zero-wrapper,
+  zero-fiber, zero-hook shape, one tree on the server, on hydration and
+  on a fresh mount, so no snapshot pair, no adoption event and NO
+  REMOUNT. Under `:client-only` it is [[mint-server-gate]], which costs
+  one fiber and one hook and contributes nothing to a server response.
+  The price is the ruled default's, and an island that is safe on the
+  server says so and pays neither — which is why the ABI's own headline
+  example writes `{:server :render}`.
+
+  The tier marker goes on whichever type is answered, so [[marker]],
+  the ABI helpers and every seam that recognises a native head read the
+  same object React reconciles on. The author's function carries the
+  display name too, so a gated island shows its own name at both fibers
+  rather than an anonymous one below its gate.
+
+  I9's two-hook ceiling is untouched: it is a statement about Hicasso's
+  BOUNDARY shells, and a gate is not a boundary — it holds no
+  subscription and reads no frame. `defhost` priced the identical fiber
+  the identical way (rf2-2rtt6.85).
 
   **Allocation, never a lookup by name**, and that is the HMR contract
   (rf2-hic-015) rather than an implementation detail. A reload
@@ -422,8 +490,12 @@
   across a reload and quietly contradict the recorded contract."
        [component-name server f]
        (set! (.-displayName f) component-name)
-       (unchecked-set f tier-sentinel #js {:name component-name :server (name server)})
-       f)
+       (let [head (if (keyword-identical? :render server)
+                    f
+                    (mint-server-gate component-name f))]
+         (unchecked-set head tier-sentinel
+                        #js {:name component-name :server (name server)})
+         head))
 
      (defn marker
        "The tier marker [[component]] stamped, or nil. The seam every ABI
@@ -836,15 +908,16 @@
   declaration, where the author's stack still points at it
   ([[declared-server]]).
 
-  **The policy is RECORDED and not yet consulted** (rf2-u9lk). It is
-  stamped on the tier marker, where a tool can read it, and no runtime
-  path in this tier branches on it: there is no server walk here and no
-  SSR arm, because `adversarial-risks.md` defers native-surface risks to
-  Phase 3 and the server half of this declaration goes with them. So
-  `{:server :render}` is a declaration of intent that Phase 3 will read,
-  not an instruction anything follows today — the one thing about this
-  door a reader must not assume, since every neighbouring sentence
-  describes machinery that does run.
+  **The policy decides what a server render contains** (rf2-hic-046).
+  `:render` is the author asserting *this component is safe to run on
+  the server*, and under it the island IS the element type: it renders
+  into the server response, hydrates against those bytes and never
+  remounts. `:client-only` — the default — contributes NOTHING to the
+  response and appears once the client has adopted the page, which is
+  what makes an island reaching for `window` safe to write without
+  saying anything. One mechanism serves both arms ([[component]]), and
+  neither needs a server entry of Hicasso's own: the consumer calls
+  `react-dom/server` and the policy is honoured by rendering.
 
   Like `defview` this is not a compiler: it reads no body, expands to a
   `def`, and captures the name and the source coordinate (rf2-hic-007)
