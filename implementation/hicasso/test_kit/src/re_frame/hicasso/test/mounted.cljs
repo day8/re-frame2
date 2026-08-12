@@ -38,6 +38,17 @@
       (hm/census)        → what the runtime RETAINS, right now
       (hm/bodies-run f)  → how many boundary bodies ran while `f` did
 
+  ## And one door that mounts TWO of them
+
+      (hm/shadow! opts)  → {:status :green :checkpoints 4}
+
+  [[shadow!]] is the migration comparator: the Reagent original and the
+  Hicasso port, mounted against isolated copies of the same seeded frame
+  and driven by one script, with canonical DOM and the intent stream
+  compared at every checkpoint. It takes no handle either — it makes two,
+  and a caller who held one could reach across the isolation the door
+  exists to keep.
+
   Neither takes a handle, because neither reads a mount: both are
   page-wide readings of the runtime. They are opposite numbers and a
   witness usually wants a particular one of them — [[census]] is residue,
@@ -148,6 +159,17 @@
   register: residue is settled as a reported test failure, so the
   spelling is retired and will never be raised.)
 
+  [[shadow!]] does not weaken that. Its OPTIONS are its own surface and
+  nothing else refuses them, so it does refuse a malformed one — but it
+  reuses the kit's existing `:rf.error/hicasso-test-bad-option`, whose
+  meaning is *the kit was given options outside their closed contract*
+  and whose two recoveries are already the two arms this door needs. An
+  id names the refusal rather than the door (complaints.md, *Rulings this
+  catalogue owns*), so no id is minted here and the register is unmoved.
+  Everything shadow! learns about the CODE, in contrast, is returned as a
+  verdict rather than thrown — see that door on why a script step that
+  cannot run is a red and not a raise.
+
   ## Scope
 
   Dev/test only, and a browser tier: every DRIVING door needs a real
@@ -158,6 +180,7 @@
   (`hicasso/test_kit/src`), outside the artefact's published `:paths`, so
   nothing in a production bundle can reach it."
   (:require [clojure.string :as str]
+            [clojure.walk :as walk]
             [cljs.test :as t]
             [re-frame.core :as rf]
             [re-frame.hicasso.impl.collector :as collector]
@@ -1221,3 +1244,641 @@
              (swap! !facade-frames disj (:frame handle))
              (rf/destroy-frame! (:frame handle)))
            report)))
+
+;; ---------------------------------------------------------------------------
+;; Shadow comparison — the dual-render DOM / intent diff (rf2-kyum)
+;; ---------------------------------------------------------------------------
+;;
+;; Every other door in this file is about ONE mount. This one is about the
+;; relation between two, and the whole of its difficulty is in making that
+;; relation decidable: two mounts that must be isolated from each other, and
+;; a comparison that must be fair between them.
+;;
+;; ISOLATION IS NOT NEGOTIABLE. Subscriptions may not reach across frames, so
+;; the two implementations cannot share one — `mount!` mints a frame per call
+;; and there is no `:frame` option to defeat that (see the namespace
+;; docstring). Each side is seeded from the SAME `:initial-events` vector, so
+;; the pair is one application in two isolated copies of one seeded world.
+;;
+;; AND ISOLATION IS EXACTLY WHAT MAKES THE COMPARISON UNFAIR, at one slot.
+;; `capsule-replay-verdict.md` states the general result and names this door
+;; while doing it: *the tree a Hicasso body returns is not pure data with
+;; respect to the frame it ran in*. A `h/route-link` captures the rendering
+;; frame at render time and bakes its keyword into the anchor's navigate
+;; intent as ordinary data, so two isolated mounts of the SAME view emit two
+;; different intents — a red that is guaranteed, universal, and about nothing
+;; the programmer wrote. The census behind that verdict counts 106 route-links
+;; across 85 idiomatic files, so this is the common shape and not a corner.
+;;
+;; So the comparison is taken MODULO EACH MOUNT'S OWN ADDRESS: each side's own
+;; frame keyword normalises to [[this-frame]] before anything is compared, in
+;; both streams. That is a weaker claim than raw equality and the verdict asks
+;; for it to be registered as such rather than slipped in, which is what this
+;; comment and [[shadow!]]'s docstring are. It is narrow in the way that
+;; matters: only a mount's OWN keyword normalises, so a genuine cross-frame
+;; address — one side reaching a frame the other does not — still reddens.
+
+(def this-frame
+  "The stand-in each mount's OWN frame keyword is compared as.
+
+  A shadow run compares two mounts that are isolated BY CONSTRUCTION, so
+  their frame keywords differ by construction too; an intent or an
+  attribute carrying one carries an address rather than a fact about the
+  application. Both sides' addresses normalise to this one keyword, so a
+  difference reported by [[shadow!]] is never merely the two mounts being
+  two mounts. It appears in a red report wherever a normalised slot did."
+  ::this-frame)
+
+(def ^:private shadow-options
+  "[[shadow!]]'s closed option roster. Closed for `tree`'s reason: an
+  option quietly ignored is a setting its author believes is in force,
+  and `:seed` — this surface's own earlier spelling for `:initial-events`
+  — would otherwise mount two UNSEEDED views and compare them happily."
+  #{:reference :candidate :initial-events :script})
+
+(def ^:private step-verbs
+  "The script's closed verb roster. A step is one of these keys and
+  nothing else. A misspelled verb would drive neither side, both would
+  stay exactly where they were, and the checkpoint would go green for a
+  step that never happened — the vacuous green this whole door exists to
+  be able to fail."
+  #{:click :type})
+
+(defn- bad-option!
+  "Refuse a malformed shadow option, reusing the kit's own
+  `:rf.error/hicasso-test-bad-option`. See the namespace docstring §Refusals
+  on why this door refuses at all and why it mints no id to do it."
+  [reason recovery extra]
+  (throw (ex-info (str reason " [:rf.error/hicasso-test-bad-option]")
+                  (merge extra
+                         {:rf.error/id :rf.error/hicasso-test-bad-option
+                          :where       're-frame.hicasso.test.mounted
+                          :reason      reason
+                          :recovery    recovery}))))
+
+;; ---------------------------------------------------------------------------
+;; The intent stream
+;; ---------------------------------------------------------------------------
+
+(defonce ^:private !shadow-seq (atom 0))
+
+(defn- open-log!
+  "Register ONE `:events` listener over every frame, and answer
+  `{:key … :drain …}` where `drain` empties the buffer and answers what
+  was in it as `[frame-kw event-v]` pairs.
+
+  Spec 009's `:events` observation port, which is the same port
+  `re-frame.hicasso.test/capture-intents` takes its reading at — this
+  variant exists only because it must be armed BEFORE either frame
+  exists. `capture-intents` filters to a frame keyword the caller already
+  has; a shadow run does not have one until `mount!` has minted it, and
+  the intents a seeding step and a first render dispatch are inside the
+  window that mint opens. So the listener spans every frame and the
+  buckets are taken afterwards, which reads the same records through the
+  same door."
+  []
+  (let [!log (atom [])
+        k    (keyword "re-frame.hicasso.test.mounted"
+                      (str "shadow-" (swap! !shadow-seq inc)))]
+    (rf/register-listener! :events k
+                           (fn [record]
+                             (swap! !log conj [(:frame record) (:event record)])))
+    {:key   k
+     :drain (fn [] (let [entries @!log] (reset! !log []) entries))}))
+
+(defn- close-log! [log] (rf/unregister-listener! :events (:key log)))
+
+(defn- for-frame
+  "The events one frame dispatched, in order, out of a drained buffer."
+  [entries frame-kw]
+  (into [] (comp (filter #(= frame-kw (nth % 0))) (map #(nth % 1))) entries))
+
+;; ---------------------------------------------------------------------------
+;; The address normalisation
+;; ---------------------------------------------------------------------------
+
+(defn- de-address
+  "One mount's own frame keyword replaced by [[this-frame]], anywhere
+  inside an intent vector. `postwalk` because the keyword is ordinary
+  data at an arbitrary depth — `h/route-link` puts it in a map inside the
+  vector — and there is no slot to look in."
+  [frame-kw x]
+  (walk/postwalk #(if (= % frame-kw) this-frame %) x))
+
+(defn- de-address-text
+  "The same substitution over TEXT — a DOM attribute value, a text node.
+  Both printed spellings of the keyword, qualified and bare-with-colon,
+  because an application writes one or the other; the unqualified `name`
+  is deliberately NOT replaced, since `mount-3` alone is a string an
+  application could legitimately hold."
+  [frame-kw s]
+  (-> s
+      (str/replace (str frame-kw) (str this-frame))
+      (str/replace (subs (str frame-kw) 1) (subs (str this-frame) 1))))
+
+;; ---------------------------------------------------------------------------
+;; The DOM difference — the FIRST node at which the two pages disagree
+;; ---------------------------------------------------------------------------
+;;
+;; `re-frame.hicasso.test/canonical-dom` answers WHETHER two pages differ; a
+;; red owes the programmer WHERE. This walk is that second question, and it is
+;; deliberately the same equality: comments are dropped and adjacent text runs
+;; join, exactly as they do when `canonical-dom` flattens a subtree to one
+;; string, so the two instruments cannot disagree about a page.
+
+(def ^:private absent
+  "What a difference reports where one side has no value at all — a
+  missing attribute. Distinct from `nil`, which no attribute has."
+  ::absent)
+
+(defn- node-tag [el] (str/lower-case (.-tagName el)))
+
+(defn- attrs-of
+  [el frame-kw]
+  (persistent!
+    (reduce (fn [m a] (assoc! m (.-name a) (de-address-text frame-kw (.-value a))))
+            (transient {})
+            (array-seq (.-attributes el)))))
+
+(defn- element-outline
+  "How a red NAMES an element: its opening tag with attribute names
+  sorted, which is `canonical-dom`'s own fairness rule applied to one
+  node."
+  [el frame-kw]
+  (str "<" (node-tag el)
+       (str/join (map (fn [[k v]] (str " " k "=\"" v "\""))
+                      (sort-by first (attrs-of el frame-kw))))
+       ">"))
+
+(defn- comparable-children
+  "A node's children as `[kind value]` pairs, canonicalised the way
+  `canonical-dom` canonicalises them: comments dropped, adjacent text
+  merged into one run, and an empty run dropped after the merge. Without
+  the last two a page that splits one string across two text nodes — which
+  is React's ordinary conduct for `[:span a b]` — would differ from a page
+  that does not, and `canonical-dom` would call the same pair equal."
+  [n]
+  (into []
+        (remove (fn [[kind v]] (and (= :text kind) (= "" v))))
+        (reduce (fn [out c]
+                  (case (.-nodeType c)
+                    8 out
+                    3 (let [i (dec (count out))]
+                        (if (and (nat-int? i) (= :text (nth (nth out i) 0)))
+                          (update-in out [i 1] str (.-nodeValue c))
+                          (conj out [:text (.-nodeValue c)])))
+                    1 (conj out [:element c])
+                    (conj out [:other c])))
+                []
+                (array-seq (.-childNodes n)))))
+
+(defn- child-segment
+  [[kind v] i]
+  (case kind
+    :text    (str "#text[" i "]")
+    :element (str (node-tag v) "[" i "]")
+    (str "#" (.-nodeType v) "[" i "]")))
+
+(defn- child-outline
+  [[kind v] frame-kw]
+  (case kind
+    :text    (pr-str (de-address-text frame-kw v))
+    :element (element-outline v frame-kw)
+    (str "#" (.-nodeType v))))
+
+(defn- at [path] (if (seq path) (str/join " > " path) "(the mounted root)"))
+
+(declare element-difference)
+
+(defn- attribute-difference
+  [ref-el can-el ref-frame can-frame path]
+  (let [a (attrs-of ref-el ref-frame)
+        b (attrs-of can-el can-frame)]
+    (some (fn [k]
+            (when (not= (get a k absent) (get b k absent))
+              {:kind      :dom
+               :reason    :attribute
+               :attribute k
+               :at        (at path)
+               :path      path
+               :reference (get a k absent)
+               :candidate (get b k absent)}))
+          (sort (distinct (concat (keys a) (keys b)))))))
+
+(defn- children-difference
+  [ref-n can-n ref-frame can-frame path]
+  (let [a (comparable-children ref-n)
+        b (comparable-children can-n)]
+    (loop [i 0]
+      (when (< i (max (count a) (count b)))
+        (let [x    (get a i)
+              y    (get b i)
+              seg  (child-segment (or x y) i)
+              path (conj path seg)
+              diff (cond
+                     (nil? x) {:kind :dom :reason :only-in-candidate
+                               :at (at path) :path path
+                               :reference absent
+                               :candidate (child-outline y can-frame)}
+
+                     (nil? y) {:kind :dom :reason :only-in-reference
+                               :at (at path) :path path
+                               :reference (child-outline x ref-frame)
+                               :candidate absent}
+
+                     (not= (nth x 0) (nth y 0))
+                     {:kind :dom :reason :node-kind
+                      :at (at path) :path path
+                      :reference (child-outline x ref-frame)
+                      :candidate (child-outline y can-frame)}
+
+                     (= :text (nth x 0))
+                     (let [rs (de-address-text ref-frame (nth x 1))
+                           cs (de-address-text can-frame (nth y 1))]
+                       (when (not= rs cs)
+                         {:kind :dom :reason :text
+                          :at (at path) :path path
+                          :reference rs :candidate cs}))
+
+                     (= :element (nth x 0))
+                     (element-difference (nth x 1) (nth y 1) ref-frame can-frame path)
+
+                     :else nil)]
+          (or diff (recur (inc i))))))))
+
+(defn- element-difference
+  [ref-el can-el ref-frame can-frame path]
+  (let [rt (node-tag ref-el)
+        ct (node-tag can-el)]
+    (if (not= rt ct)
+      {:kind :dom :reason :tag :at (at path) :path path
+       :reference rt :candidate ct}
+      (or (attribute-difference ref-el can-el ref-frame can-frame path)
+          (children-difference ref-el can-el ref-frame can-frame path)))))
+
+(defn- dom-difference
+  "The first node at which the two mounted pages disagree, as data — or
+  nil when they agree."
+  [ref-m can-m]
+  (children-difference (:container ref-m) (:container can-m)
+                       (:frame ref-m) (:frame can-m) []))
+
+;; ---------------------------------------------------------------------------
+;; The intent difference
+;; ---------------------------------------------------------------------------
+
+(defn- intent-difference
+  "The first position at which the two intent streams disagree, as data —
+  or nil. Compared before the DOM at every checkpoint, because an intent
+  is a CAUSE and the DOM beside it is that cause's effect: the two
+  isolated frames then diverge independently, and reporting the effect
+  first would send a reader to the wrong end of it."
+  [ref-intents can-intents]
+  (loop [i 0]
+    (when (< i (max (count ref-intents) (count can-intents)))
+      (let [x (get ref-intents i absent)
+            y (get can-intents i absent)]
+        (or (when (not= x y)
+              {:kind      :intent
+               :reason    (cond (= x absent) :only-in-candidate
+                                (= y absent) :only-in-reference
+                                :else        :differs)
+               :index     i
+               :reference x
+               :candidate y})
+            (recur (inc i)))))))
+
+;; ---------------------------------------------------------------------------
+;; The script
+;; ---------------------------------------------------------------------------
+
+(defn- check-step!
+  "Refuse a step outside the closed grammar, BEFORE anything is mounted —
+  so a typo costs a refusal rather than a green."
+  [step]
+  (when-not (and (map? step) (= 1 (count step)) (contains? step-verbs (ffirst step)))
+    (bad-option! (str "a script step is a one-key map — " (pr-str (vec (sort-by str step-verbs)))
+                      " and nothing else. It was " (pr-str step)
+                      ". A step nothing recognises would drive neither side, and the "
+                      "checkpoint after it would go green for a step that never happened.")
+                 :remove-the-unknown-option
+                 {:step step :unknown (vec (sort-by str (remove step-verbs (keys (if (map? step) step {})))))}))
+  (let [[verb arg] (first step)]
+    (case verb
+      :click (when-not (string? arg)
+               (bad-option! (str ":click takes ONE selector string; it was given "
+                                 (pr-str arg) ".")
+                            :pass-a-map-of-options
+                            {:step step}))
+      :type  (when-not (and (vector? arg) (= 2 (count arg))
+                            (string? (nth arg 0)) (string? (nth arg 1)))
+               (bad-option! (str ":type takes [selector text]; it was given "
+                                 (pr-str arg) ".")
+                            :pass-a-map-of-options
+                            {:step step}))))
+  step)
+
+(defn- value-setter
+  "The PROTOTYPE's `value` setter for a text field. React patches the
+  instance setter to keep its own change tracker, so a plain `set!`
+  updates the tracker too and the `input` event that follows reaches no
+  handler — the field would change on screen and mean nothing."
+  [el]
+  (let [proto (if (= "TEXTAREA" (.-tagName el))
+                js/HTMLTextAreaElement.prototype
+                js/HTMLInputElement.prototype)]
+    (.-set (js/Object.getOwnPropertyDescriptor proto "value"))))
+
+(defn- run-step!
+  "Apply one step to one mount and settle it. Answers true when the
+  step's selector matched, false when it matched nothing — which is the
+  fact a checkpoint turns into a red rather than into silence."
+  [handle step]
+  (let [[verb arg] (first step)
+        selector   (if (= :click verb) arg (nth arg 0))
+        target     (.querySelector (:container handle) selector)]
+    (if (nil? target)
+      false
+      (do (case verb
+            :click (.click target)
+            :type  (do (.call (value-setter target) target (nth arg 1))
+                       (.dispatchEvent target (js/InputEvent. "input" #js {:bubbles true}))))
+          (settle! handle)
+          true))))
+
+(defn- script-difference
+  "A step that could not run as written, as data — or nil. A selector
+  that matches on one side and not the other IS the difference and says
+  so; one that matches on neither is the SCRIPT being wrong, and it is
+  still a red because a checkpoint reached by a step that did not happen
+  proves nothing, and green here means proved."
+  [step ran-reference? ran-candidate?]
+  (let [selector (let [[verb arg] (first step)]
+                   (if (= :click verb) arg (nth arg 0)))]
+    (cond
+      (and ran-reference? ran-candidate?) nil
+
+      (or ran-reference? ran-candidate?)
+      {:kind     :script
+       :reason   :selector-matched-one-side
+       :selector selector
+       :matched  (if ran-reference? :reference :candidate)}
+
+      :else
+      {:kind     :script
+       :reason   :selector-matched-nothing
+       :selector selector
+       :matched  :neither})))
+
+;; ---------------------------------------------------------------------------
+;; The run
+;; ---------------------------------------------------------------------------
+
+(defn- retire!
+  "Complete a mount's lifecycle with NO residue reading — `assert-clean!`'s
+  bookkeeping half, for a door that makes a different claim.
+
+  It does not reset the runtime, and that asymmetry is the point:
+  `assert-clean!` resets AFTER a reading, and a reset performed by
+  something that never read would make somebody else's pending reading
+  vacuous. The unread counter still comes down, so a shadow run cannot
+  suppress a later `assert-clean!`'s reset for the rest of the process."
+  [handle]
+  (when (= :unmounted @(get handle state-key))
+    (vreset! (get handle state-key) :read)
+    (swap! !open dec)
+    (swap! !facade-frames disj (:frame handle))
+    (rf/destroy-frame! (:frame handle)))
+  nil)
+
+(defn- take-down!
+  [ref-m can-m log]
+  (when ref-m (retire! (unmount! ref-m)))
+  (when can-m (retire! (unmount! can-m)))
+  (close-log! log)
+  nil)
+
+(defn- checkpoint
+  "One checkpoint's verdict: the intent difference if there is one, else
+  the DOM difference, else nil."
+  [ref-m can-m entries]
+  (or (intent-difference (mapv #(de-address (:frame ref-m) %)
+                               (for-frame entries (:frame ref-m)))
+                         (mapv #(de-address (:frame can-m) %)
+                               (for-frame entries (:frame can-m))))
+      (dom-difference ref-m can-m)))
+
+(defn- red
+  [n step difference]
+  (cond-> {:status      :red
+           :checkpoints (inc n)
+           :checkpoint  n
+           :difference  difference}
+    (some? step) (assoc :step step)))
+
+(defn shadow!
+  "**Shadow comparison — the dual-render DOM / intent diff.** Mounts a
+  reference implementation and a candidate against isolated copies of the
+  same seeded frame, drives both with one script, and compares canonical
+  DOM and the intent stream at every checkpoint.
+
+      (hm/shadow!
+       {:reference      [:> (r/reactify-component old/article-row) {:article-id 7}]
+        :candidate      [new/article-row {:article-id 7}]
+        :initial-events [[:demo/install-fixture]]
+        :script         [{:click \"button.edit\"}
+                         {:type  [\"input.title\" \"Better title\"]}
+                         {:click \"button.save\"}]})
+      ;; => {:status :green :checkpoints 4}
+
+  Green means the two implementations were indistinguishable **for the
+  flows in the script**. It does not prove untested paths, so script the
+  screen's real behaviour rather than one happy click.
+
+  ## Ten-minute setup
+
+  1. Port one screen by hand. A screen is the unit that gives this door
+     something to prove; a single component usually is not.
+  2. Write a namespace beside the port with one `deftest`.
+  3. `:reference` is the original and `:candidate` is the port, each an
+     ordinary hiccup form — the same `[view props]` a call site writes.
+  4. `:initial-events` is the seed, in core's own frame vocabulary:
+     `[[:rf/set-db {…}]]` for a literal app-db, or the application's own
+     setup events. BOTH mounts get it, each into a frame of its own.
+  5. `:script` is the flow, as `{:click selector}` and
+     `{:type [selector text]}` steps in order.
+  6. Assert the verdict — `(is (= :green (:status (hm/shadow! …))))` — and
+     then SABOTAGE it: change one prop in the candidate and confirm the
+     run goes red at the checkpoint you expect. A comparator that has
+     never been seen to fail is not yet evidence of anything.
+
+  ## What is mounted, and how an original that is not Hicasso gets here
+
+  Both sides are handed to the Hicasso runtime by [[mount!]], so a form
+  the substrate refuses is refused with the substrate's own id. A Reagent,
+  UIx or plain-React original therefore arrives the way every foreign
+  component arrives — through the runtime's own crossing, `[:> C props]`
+  or a declared `h/defhost` — which is the same door the migration page's
+  own translation table already sends it through. Nothing here `:require`s
+  a second view library, and the door works for all of them for that
+  reason.
+
+  A crossing is also how a foreign original reaches the frame at all. A
+  declared callback contract lowers an intent vector into a real function
+  closed over the mount's frame, so `props.onSave()` inside the original
+  dispatches into the original's OWN frame. There is deliberately no
+  option here that hands a component a frame id: frames are isolated
+  contexts, and a helper that passed one down a view would defeat the
+  isolation this door is built on.
+
+  ## Two frames, and one deliberate blind slot
+
+  Each side mounts under a frame [[mount!]] minted for it, so a write on
+  one side cannot reach the other and a divergence propagates
+  independently — which is what makes the FIRST red the original cause
+  rather than an echo of it.
+
+  The price is that the two frames have two different keywords, and a
+  rendered intent can carry one as ordinary data: `h/route-link` captures
+  the rendering frame and bakes it into the anchor's navigate vector. So
+  every comparison here is taken **modulo each mount's own address** —
+  each side's own frame keyword normalises to [[this-frame]] first, in
+  the intent stream and in DOM text and attribute values alike. That is a
+  narrower claim than raw equality and it is stated rather than assumed;
+  `docs/design/hicasso/product/capsule-replay-verdict.md` is where the
+  general result was found, and it names this door while stating it. Only
+  a mount's OWN keyword normalises, so a genuine cross-frame address still
+  reddens.
+
+  ## What a red says
+
+      {:status :red :checkpoints 3 :checkpoint 2
+       :step   {:click \"button.save\"}
+       :difference {:kind :dom :reason :attribute :attribute \"class\"
+                    :at \"div[0] > ul[1] > li[0]\"
+                    :reference \"row done\" :candidate \"row\"}}
+
+  `:checkpoint` is which one — 0 is the mount, and each script step adds
+  one. `:checkpoints` is how many were taken, so a green over three steps
+  took four and a red at the third took three. `:difference` names the
+  exact node or intent:
+
+  - `:kind :intent` — `:index` into the checkpoint's stream, with the
+    `:reference` and `:candidate` vectors. Reported BEFORE any DOM
+    difference at the same checkpoint, because it is the cause.
+  - `:kind :dom` — `:at`, a readable path from the mounted root, plus
+    `:reason` (`:tag`, `:attribute`, `:text`, `:node-kind`,
+    `:only-in-reference`, `:only-in-candidate`) and both sides' values.
+  - `:kind :script` — the step could not run as written. A selector that
+    matched one side only IS a difference; one that matched neither is a
+    broken script, and it is still red, because a checkpoint reached by a
+    step that did not happen has proved nothing.
+
+  ## Scriptless: omit `:script` and both mounts stay live
+
+      (let [s (hm/shadow! {:reference … :candidate …})]
+        …                       ;; drive the page by hand
+        ((:checkpoint! s))      ;; → {:status :green :checkpoints 1}
+        ((:stop! s)))
+
+  Answers `{:status :live :reference handle :candidate handle
+  :checkpoint! f :stop! f}`. Each `checkpoint!` call takes a reading and
+  numbers it; `stop!` takes both mounts down.
+
+  **A checkpoint per committed render is NOT built, and neither is
+  mirroring your clicks from one mount to the other.** Both need a seam
+  the runtime does not publish — there is no commit callback, and an
+  event mirrored by node path would go wrong exactly when the two trees
+  differ, which is when it matters. A reading you ask for is honest; one
+  taken automatically at a moment nothing defines would be a green
+  arriving mid-flight.
+
+  ## What it does not claim
+
+  Canonical DOM and intents. Not focus, caret, IME, layout or paint —
+  those are L4 and the browser levels own them. Not residue either: no
+  reading is taken, so no reset is performed, and `assert-clean!` remains
+  the door for that claim.
+
+  Synchronous. A step's effects are settled through `flushSync` before
+  the checkpoint after it, so anything landing in a later turn — a
+  `:dispatch-later`, a resolved promise, a router drain — is outside the
+  checkpoint that would have seen it.
+
+  The mounts come down on every path out, including a throw."
+  [opts]
+  (when-not (map? opts)
+    (bad-option! (str "shadow!'s options are a map; they were " (pr-str opts) ".")
+                 :pass-a-map-of-options
+                 {:value opts}))
+  (when-let [unknown (seq (remove shadow-options (keys opts)))]
+    (bad-option! (str "shadow! accepts "
+                      (pr-str (vec (sort-by str shadow-options)))
+                      " and nothing else; it was given "
+                      (pr-str (vec (sort-by str unknown)))
+                      ". An option that is quietly ignored is a setting its "
+                      "author believes is in force — `:seed` was this surface's "
+                      "own earlier spelling for `:initial-events`, and accepting "
+                      "it in silence would compare two UNSEEDED views.")
+                 :remove-the-unknown-option
+                 {:unknown (vec (sort-by str unknown))}))
+  (let [{:keys [reference candidate initial-events script]} opts
+        scripted? (contains? opts :script)
+        _         (when scripted?
+                    (when-not (sequential? script)
+                      (bad-option! (str ":script is a sequence of steps; it was "
+                                        (pr-str script) ".")
+                                   :pass-a-map-of-options
+                                   {:value script}))
+                    (run! check-step! script))
+        log       (open-log!)
+        mount-opts (cond-> {} (seq initial-events)
+                     (assoc :initial-events (vec initial-events)))
+        !ref      (volatile! nil)
+        !can      (volatile! nil)]
+    (try
+      (vreset! !ref (mount! reference mount-opts))
+      (vreset! !can (mount! candidate mount-opts))
+      (let [ref-m @!ref
+            can-m @!can]
+        (if scripted?
+          (let [verdict
+                (if-some [d (checkpoint ref-m can-m ((:drain log)))]
+                  (red 0 nil d)
+                  (loop [i 0]
+                    (if (>= i (count script))
+                      {:status :green :checkpoints (inc (count script))}
+                      (let [step  (nth script i)
+                            ran-r (run-step! ref-m step)
+                            ran-c (run-step! can-m step)]
+                        (if-some [d (or (script-difference step ran-r ran-c)
+                                        (checkpoint ref-m can-m ((:drain log))))]
+                          (red (inc i) step d)
+                          (recur (inc i)))))))]
+            (take-down! ref-m can-m log)
+            verdict)
+          ;; Scriptless: both mounts stay live and the caller decides when a
+          ;; reading is a checkpoint. Nothing is drained here, so the first
+          ;; `checkpoint!` is checkpoint 0 — the mount — and it sees the
+          ;; intents the seeding and the first render dispatched.
+          (let [!n   (atom 0)
+                !up? (atom true)]
+            {:status      :live
+             :reference   ref-m
+             :candidate   can-m
+             :checkpoint! (fn []
+                            (settle! ref-m)
+                            (settle! can-m)
+                            (let [n (first (swap-vals! !n inc))
+                                  d (checkpoint ref-m can-m ((:drain log)))]
+                              (if d
+                                (red n nil d)
+                                {:status :green :checkpoints (inc n)})))
+             :stop!       (fn []
+                            (when @!up?
+                              (reset! !up? false)
+                              (take-down! ref-m can-m log))
+                            nil)})))
+      (catch :default e
+        (take-down! @!ref @!can log)
+        (throw e)))))
