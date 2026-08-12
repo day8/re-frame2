@@ -19,7 +19,8 @@
   | [[a-lazy-boundary-paints-the-fallback-then-the-component-with-the-props-it-was-written-with]] | load, fallback and arrival, with the props and the one child intact across a crossing that was deferred | a bridge that re-ran the loader on arrival; a `:children` slot that lost the single child |
   | [[a-lazy-suspension-retains-the-committed-subscription-and-the-arrival-leaves-exact-ownership]] | the post-commit suspension result, re-measured across a LAZY boundary specifically | a lazy retry that quietly re-subscribed — the screen is right under it |
   | [[a-rejected-lazy-head-re-throws-its-cached-error-and-only-a-fresh-head-reloads]] | rejection is TERMINAL at the payload; `:reset-key` clears the boundary and reloads nothing | the claim, made in this repo until this bead, that changing `:reset-key` retries the chunk |
-  | [[a-client-only-lazy-region-writes-nothing-and-a-declared-fallback-writes-the-skeleton]] | which declaration actually emits server bytes | a region documented as sending a skeleton whose declaration sends nothing |
+  | [[a-client-only-lazy-region-writes-nothing-and-a-declared-fallback-writes-the-skeleton]] | which DECLARATION actually emits server bytes, at the `defhost` crossing | a region documented as sending a skeleton whose declaration sends nothing |
+  | [[a-bare-lazy-head-under-native-suspense-writes-nothing-and-never-calls-its-loader]] | `n/lazy`'s OWN Client-only policy, with nothing in front of it and a raw `react/lazy` control beside it | a policy that lives on the marker while the head stays an ungated lazy record — and a witness whose zero is really two `defhost` gates |
   | [[the-declared-population-was-actually-exercised]] | the roster, asserted rather than described | a row that started returning early |
 
   ## The instrument is the LOADER CALL COUNT, not the paint
@@ -50,10 +51,22 @@
   ## Lanes
 
   `-dom-cljs-test`, so `:browser-test` runs the whole file against a real
-  React DOM. Two rows need no DOM and run under `:node-test` as well: the
-  module gate is pure re-frame, and the server render is
+  React DOM. THREE rows need no DOM and run under `:node-test` as well:
+  the module gate is pure re-frame, and both server rows are
   `renderToString`. Every other row degrades on the node lane to a STATED
-  skip rather than to a green for a render that never happened."
+  skip rather than to a green for a render that never happened.
+
+  ## Two server rows, and why one could not have been both
+
+  They ask different questions and the second is not a widening of the
+  first. Row 5 is about a DECLARATION — which `defhost` key puts bytes in
+  a server response — and it renders through two Client-only hosts
+  because that is the shape it is describing. Row 7 is about `n/lazy`
+  ITSELF, so it must have nothing in front of it: under row 5's shape the
+  loader would stay uncalled even if the lazy head were server-active,
+  which is exactly what merged-PR audit #7969 found when row 5 was the
+  only server row here. A witness dominated by unrelated gates measures
+  the gates."
   (:require [clojure.set :as set]
             [cljs.test :refer-macros [async deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as uix-adapter]
@@ -125,7 +138,8 @@
     :lazy/post-commit-suspension
     :lazy/rejection-is-terminal
     :lazy/fresh-head-reloads
-    :lazy/server-render})
+    :lazy/server-render
+    :lazy/unshadowed-server-gate})
 
 (defonce ^:private !exercised (atom #{}))
 
@@ -229,6 +243,38 @@
 (def ^:private ssr-loader (deferred-loader))
 (def ^:private ssr-head (n/lazy (:load ssr-loader)))
 (h/defhost ssr-host ssr-head)
+
+;; --- scenario 7: the UNSHADOWED server render ------------------------------
+;;
+;; Scenario 6's row is dominated by two `defhost` declarations, each of
+;; them independently Client-only, so it cannot distinguish `n/lazy`'s own
+;; policy from two unrelated gates in front of it (audit #7969). These two
+;; heads sit under NOTHING but React's own Suspense.
+
+(def ^:private bare-loader (deferred-loader))
+(def ^:private bare-head (n/lazy (:load bare-loader)))
+
+;; THE CONTROL, and the row is worthless without it. `renderToString` is
+;; allowed to be inert — a renderer that never reached the region would
+;; leave the count at zero for a reason that has nothing to do with the
+;; gate. This head is `react/lazy` with no gate at all, in the same shape
+;; and through the same `n/$`, and its count says what an ungated head
+;; does here.
+(def ^:private raw-loader (deferred-loader))
+(def ^:private raw-head (react/lazy (fn [] (.then ((:load raw-loader))
+                                                  (fn [c] #js {:default c})))))
+
+(defn- suspense-tree
+  "The shipped shape from the audit's control, written in `n/$`: a
+  Suspense host with a fallback SLOT and one lazy head under it. No
+  `defhost`, no provider, no root element — nothing between
+  `renderToString` and the head but React."
+  [head]
+  (n/$ :div
+       (n/$ :h1 {:id "title"} "metrics")
+       (n/$ (.-Suspense react)
+            {:fallback (n/$ :div {:id "react-fallback"} "loading")}
+            (n/$ head {:points #js [1 2 3]}))))
 
 ;; ---------------------------------------------------------------------------
 ;; Views
@@ -704,14 +750,60 @@
   (exercised! :lazy/server-render))
 
 ;; ---------------------------------------------------------------------------
+;; 7. The UNSHADOWED server render — `n/lazy`'s own policy, alone
+;; ---------------------------------------------------------------------------
+
+(deftest a-bare-lazy-head-under-native-suspense-writes-nothing-and-never-calls-its-loader
+  (testing "THE CONTROL, first, because the row above it is a zero and a
+            zero is what an inert renderer also produces. A raw
+            `react/lazy` head — no gate, no `defhost`, the identical
+            shape — has its loader called ONCE while `renderToString`
+            runs, and React abandons the boundary to the client. That is
+            what `n/lazy` looked like before this bead: React 19's
+            `lazyInitializer` runs during a server render like any other
+            render, so a chunk the server can do nothing with is fetched
+            anyway and the response carries a switched-to-client template
+            instead of the region"
+    (let [html (react-dom-server/renderToString (suspense-tree raw-head))]
+      (is (= 1 @(:calls raw-loader))
+          (str "an ungated lazy head IS reached by the server renderer: " html))
+      (is (re-find #"react-fallback" html)
+          (str "and React wrote the Suspense fallback into the response: " html))
+      (is (re-find #"Switched to client rendering" html)
+          (str "having abandoned the boundary: " html))))
+
+  (testing "and `n/lazy`'s head, in that same shape, with NOTHING in front
+            of it — no `defhost`, no provider, no root element, one
+            Suspense host and the head. The loader is never called: the
+            server does not reach for a chunk it cannot use, and that is
+            the whole of the `:server client-only` the marker advertises.
+            Narrowing caught: the policy living on the marker while the
+            head stayed an ungated `react/lazy` record (audit #7969) —
+            metadata that no renderer reads"
+    (let [html (react-dom-server/renderToString (suspense-tree bare-head))]
+      (is (re-find #"metrics" html)
+          (str "the premise: the render happened and reached the region's
+                sibling, so a zero below is a gate and not an inert
+                renderer — " html))
+      (is (zero? @(:calls bare-loader))
+          (str "THE ROW: the loader was not called — " html))
+      (is (not (re-find #"react-fallback" html))
+          (str "the region is absent entirely, React's fallback slot with
+                it: a gate that renders nil never reaches the prop — " html))
+      (is (not (re-find #"Switched to client rendering" html))
+          (str "and nothing was abandoned to the client, because nothing
+                suspended — " html))))
+  (exercised! :lazy/unshadowed-server-gate))
+
+;; ---------------------------------------------------------------------------
 ;; The roster, asserted rather than described
 ;; ---------------------------------------------------------------------------
 
 (deftest the-declared-population-was-actually-exercised
   (if-not (mount/browser?)
-    (is (set/subset? #{:gate/dedupe-and-retry :lazy/server-render} @!exercised)
+    (is (set/subset? #{:gate/dedupe-and-retry :lazy/server-render :lazy/unshadowed-server-gate} @!exercised)
         (str "the two lane-independent rows must run everywhere; missing "
-             (pr-str (set/difference #{:gate/dedupe-and-retry :lazy/server-render} @!exercised))))
+             (pr-str (set/difference #{:gate/dedupe-and-retry :lazy/server-render :lazy/unshadowed-server-gate} @!exercised))))
     (is (= declared-population @!exercised)
         (str "every declared mechanism must actually have been reached; missing "
              (pr-str (set/difference declared-population @!exercised))))))

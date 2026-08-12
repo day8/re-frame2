@@ -21,7 +21,7 @@
   | [[the-children-a-body-reads-are-the-same-through-either-crossing]] | ONE body, rendered from a hiccup parent and from a React parent at 0, 1 and N children, reads the same `:children` — the falsifiable form of the ABI-preserving claim | copying React's `props.children` through unchanged, which is a vector at two children and the element itself at one (audit #7874) |
   | [[n-memo-keeps-the-marker-where-a-raw-react-memo-loses-it]] | the helper's entire reason to exist, with its own control beside it | a `memo` that forwarded the call and stamped nothing |
   | [[n-lazy-is-a-native-head-from-the-moment-it-is-declared]] | a code-split head is recognisable during the whole window it is waiting | a marker minted inside the loader — nil until the chunk lands |
-  | [[a-lazy-region-is-client-only-whatever-its-component-declared]] | the server never sent the chunk, so no declaration can make bytes exist | copying `:server` off the loaded component |
+  | [[a-lazy-region-is-client-only-whatever-its-component-declared]] | the declared policy, and that it is the GATE's and not the loaded component's | copying `:server` off the loaded component; a marker that describes a gate the head does not wear |
   | [[refs-need-no-helper-because-ref-is-an-ordinary-slot]] | why the helper surface is two and not three | a `forward-ref` helper preserving what nothing took away |
 
   ## The DOM half
@@ -405,10 +405,19 @@
 
 (deftest n-lazy-is-a-native-head-from-the-moment-it-is-declared
   (let [head (n/lazy (fn [] (js/Promise.resolve quote-cell*)))]
-    (testing "React's own lazy record, so Suspense and the error boundary
-              treat it exactly as they treat any other"
-      (is (= (unchecked-get (react/lazy (fn [] (js/Promise.resolve #js {}))) "$$typeof")
-             (unchecked-get head "$$typeof"))))
+    (testing "the head is the Client-only GATE — an ordinary element type,
+              with React's lazy record one fiber below it. It is not the
+              raw `react/lazy` record and must not be: React calls a
+              pending loader during `renderToString`, so a head that WAS
+              that record fetched the chunk on the server while its
+              marker said Client-only (audit #7969). Suspense and the
+              error boundary see the suspension from the record below and
+              treat the region exactly as they treat any other, which is
+              a claim about a render and is measured in
+              `re-frame.hicasso.lazy-boundary-dom-cljs-test`"
+      (is (fn? head))
+      (is (not= (unchecked-get (react/lazy (fn [] (js/Promise.resolve #js {}))) "$$typeof")
+                (unchecked-get head "$$typeof"))))
 
     (testing "declared, and already a native head. Narrowing caught:
               stamping the marker on resolve — every seam reading the
@@ -427,10 +436,17 @@
             from one that was never asked for"
     (is (= "render" (unchecked-get (n/marker server-cell*) "server"))))
 
-  (testing "and the lazy head around it is Client-only. The server never
-            sent the chunk, so no declaration inside it can make bytes
-            exist; copying the component's policy up would have the
-            runtime claiming hydration for markup it never emitted"
+  (testing "and the lazy head around it is Client-only. Copying the
+            component's policy up would have the runtime claiming
+            hydration for markup it never emitted.
+
+            This is the DECLARATION and not the mechanism: the marker
+            describes the gate the head wears, and a marker on an ungated
+            head is the exact defect audit #7969 found. What the server
+            actually does — the loader call that does not happen, with a
+            raw `react/lazy` control beside it that does — is
+            `a-bare-lazy-head-under-native-suspense-writes-nothing-and-never-calls-its-loader`
+            in `re-frame.hicasso.lazy-boundary-dom-cljs-test`"
     (let [head (n/lazy (fn [] (js/Promise.resolve server-cell*)))]
       (is (= "client-only" (unchecked-get (n/marker head) "server"))))))
 
