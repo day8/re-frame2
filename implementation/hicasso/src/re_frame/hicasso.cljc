@@ -543,6 +543,25 @@
      ;; may hold as many roots as it likes and no call here reaches a root
      ;; the caller did not name. That is the property rf2-31xm restored and
      ;; the reason `release!` is no longer among them.
+     ;;
+     ;; **The HYDRATING door is not here, and the absence is held rather
+     ;; than overlooked** (rf2-k1mp). `impl.mount/hydrate-root!` is built,
+     ;; witnessed, and takes `:identifier-prefix` exactly as `root!` does
+     ;; (rf2-hic-046). What is missing is the OTHER half of the pair: a
+     ;; hydrating door adopts bytes something produced, and this package
+     ;; publishes no server-render door to produce them — `server/render`
+     ;; is taught in the draft guide and rostered in naming-ledger row 22,
+     ;; and `re-frame.hicasso.server` does not exist. `dispositions.md`
+     ;; HS-11 measures what an improvised counterpart does: the adoption
+     ;; closer rides as a SIBLING of the app subtree (`impl.mount/tree`,
+     ;; rf2-6tmu) and React derives a `useId` from tree POSITION as well
+     ;; as from the prefix, so bytes a consumer can bake today hydrate
+     ;; into a text mismatch. Both candidate repairs — a matching
+     ;; server-render entry, or making the closer a wrapper — change
+     ;; behaviour, and neither is ruled. The spelling is open too:
+     ;; naming-ledger row 13 holds `hydrate-root!`→`hydrate!` for the
+     ;; operator's sitting, so an export now would freeze a name the
+     ;; ledger is deliberately keeping open.
 
      (def ^{:doc "Associate a DOM container, a frame keyword and a hiccup
   tree; returns the handle [[render!]] and [[unmount!]] take. HD-021(b)'s
@@ -558,10 +577,12 @@
   page mounting two roots gives them distinct prefixes or watches their
   generated ids collide. A page with one root names none. There is no
   default, no coercion and no validation: React owns the option and this
-  is a pass-through to it. The hydrating twin takes the same key, and a
-  hydrating root must be handed the SAME string its server render used —
-  `react-dom/server`'s own `identifierPrefix`, which is where the other
-  half of the pair is spelled.
+  is a pass-through to it. The hydrating twin takes the same key — but it
+  is `impl.mount/hydrate-root!` and is NOT on this facade, for the reasons
+  the section comment above sets out — and a hydrating root must be handed
+  the SAME string its server render used, `react-dom/server`'s own
+  `identifierPrefix`, which is where the other half of the pair is
+  spelled.
   [[re-frame.hicasso.impl.mount/root!]]."}
        root! impl-mount/root!)
 
