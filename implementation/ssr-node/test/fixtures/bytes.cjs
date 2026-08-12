@@ -37,6 +37,5 @@ module.exports = {
   BODY,
   render(_call, emit) {
     emit(BODY);
-    return {};
   },
 };

@@ -25,18 +25,18 @@
 
 const test = require('node:test');
 const assert = require('node:assert');
-const { withService, collect } = require('./_support.cjs');
+const { withService, collect, observed } = require('./_support.cjs');
 
 const req = (state, extra = {}) => ({ protocol: 1, entry: 'app/root', state, ...extra });
 
 test('the snapshot the module is handed is FROZEN, and a write to it throws', async () => {
   await withService('reference', { isolates: 1 }, async (service) => {
-    const { complete } = await collect(service, req({ ':todos': '[1 2 3]' }));
-    assert.strictEqual(complete.meta.frozen, true, 'the snapshot must be frozen');
-    assert.strictEqual(complete.meta.mutationThrew, true, 'a strict-mode write must throw');
+    const obs = observed(await collect(service, req({ ':todos': '[1 2 3]' })));
+    assert.strictEqual(obs.frozen, true, 'the snapshot must be frozen');
+    assert.strictEqual(obs.mutationThrew, true, 'a strict-mode write must throw');
     // …and the value it read is the one it was sent, so the freeze did not
     // simply hand it an empty object.
-    assert.strictEqual(complete.meta.readTodos, '[1 2 3]');
+    assert.strictEqual(obs.readTodos, '[1 2 3]');
   });
 });
 
@@ -44,11 +44,11 @@ test("a sloppy module's write fails silently — and still reaches nothing", asy
   // The control for the row above. If the suite only ever tested strict
   // modules it would be claiming a TypeError the contract cannot promise.
   await withService('sloppy', { isolates: 1 }, async (service) => {
-    const { complete } = await collect(service, req({ ':todos': 'original' }));
-    assert.strictEqual(complete.meta.frozen, true);
-    assert.strictEqual(complete.meta.threw, false, 'sloppy mode swallows the write');
+    const obs = observed(await collect(service, req({ ':todos': 'original' })));
+    assert.strictEqual(obs.frozen, true);
+    assert.strictEqual(obs.threw, false, 'sloppy mode swallows the write');
     assert.strictEqual(
-      complete.meta.afterWrite,
+      obs.afterWrite,
       'original',
       'the write must have reached nothing even though nothing threw',
     );
@@ -59,15 +59,15 @@ test('each request gets its OWN snapshot object — never one seen before', asyn
   await withService('reference', { isolates: 1 }, async (service) => {
     const first = await collect(service, req({ ':todos': '[1]' }));
     const second = await collect(service, req({ ':todos': '[2]' }));
-    assert.strictEqual(first.complete.meta.seenBefore, false);
+    assert.strictEqual(observed(first).seenBefore, false);
     assert.strictEqual(
-      second.complete.meta.seenBefore,
+      observed(second).seenBefore,
       false,
       'a second request handed the same object would mean the snapshot is shared',
     );
     // One isolate served both, so `seenBefore` is a reading of something:
     // the WeakSet that answers it survived between the two renders.
-    assert.strictEqual(first.complete.meta.threadId, second.complete.meta.threadId);
+    assert.strictEqual(observed(first).threadId, observed(second).threadId);
   });
 });
 
@@ -90,15 +90,16 @@ test('two concurrent requests do not leak into one another, in either direction'
       collect(service, req({ ':todos': '"AAA"', ':route': '{:name :a}', ':delay': '30' })),
       collect(service, req({ ':todos': '"BBB"', ':route': '{:name :b}', ':delay': '30' })),
     ]);
-    assert.strictEqual(a.complete.meta.readTodos, '"AAA"');
-    assert.strictEqual(a.complete.meta.readRoute, '{:name :a}');
-    assert.strictEqual(b.complete.meta.readTodos, '"BBB"');
-    assert.strictEqual(b.complete.meta.readRoute, '{:name :b}');
+    const [obsA, obsB] = [observed(a), observed(b)];
+    assert.strictEqual(obsA.readTodos, '"AAA"');
+    assert.strictEqual(obsA.readRoute, '{:name :a}');
+    assert.strictEqual(obsB.readTodos, '"BBB"');
+    assert.strictEqual(obsB.readRoute, '{:name :b}');
     assert.strictEqual(a.chunks[0].html.includes('AAA'), true);
     assert.strictEqual(b.chunks[0].html.includes('BBB'), true);
     assert.notStrictEqual(
-      a.complete.meta.threadId,
-      b.complete.meta.threadId,
+      obsA.threadId,
+      obsB.threadId,
       'the two renders must have run in different isolates for this row to mean anything',
     );
   });
@@ -111,9 +112,9 @@ test('a key omitted from a request is absent, not inherited from the last one', 
   // manufacture a value by leaving the previous request's behind.
   await withService('reference', { isolates: 1 }, async (service) => {
     const first = await collect(service, req({ ':todos': '"kept"', ':route': '{:name :x}' }));
-    assert.strictEqual(first.complete.meta.readRoute, '{:name :x}');
+    assert.strictEqual(observed(first).readRoute, '{:name :x}');
     const second = await collect(service, req({ ':todos': '"kept"' }));
-    assert.strictEqual(second.complete.meta.readRoute, null, 'the previous route must not persist');
+    assert.strictEqual(observed(second).readRoute, null, 'the previous route must not persist');
   });
 });
 
@@ -124,10 +125,10 @@ test('the module boots once per isolate, not once per request', async () => {
   await withService('reference', { isolates: 1 }, async (service) => {
     const a = await collect(service, req({ ':todos': '[]' }));
     const b = await collect(service, req({ ':todos': '[]' }));
-    assert.strictEqual(a.complete.meta.threadId, b.complete.meta.threadId);
+    assert.strictEqual(observed(a).threadId, observed(b).threadId);
     // `overlapMax` is module-level state; its survival across the two
     // renders is what shows the module was not re-required.
-    assert.strictEqual(a.complete.meta.overlapMax, 1);
-    assert.strictEqual(b.complete.meta.overlapMax, 1);
+    assert.strictEqual(observed(a).overlapMax, 1);
+    assert.strictEqual(observed(b).overlapMax, 1);
   });
 });

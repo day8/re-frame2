@@ -12,7 +12,7 @@ module.exports = {
   },
 
   render({ entry }, emit) {
-    if (entry === 'app/silent') return {}; // emits nothing at all
+    if (entry === 'app/silent') return; // emits nothing at all
     if (entry === 'app/after') {
       emit('<p>first</p>');
       throw new Error('fell over halfway');
