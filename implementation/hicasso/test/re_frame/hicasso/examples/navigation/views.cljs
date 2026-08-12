@@ -18,6 +18,16 @@
   asked for would be a regression to every keyboard user in exchange for
   the same recipe.
 
+  ## Why the shell carries an id
+
+  Because the focus recipe is scoped to it. `events/root-selector` names
+  this element, and the effect resolves `:data-route-heading` INSIDE it
+  rather than over the document — so a marked heading belonging to a
+  shell header, a banner or a second application cannot take the landing
+  focus. Without an id on the root there is nothing for the recipe to
+  scope to, and the document-wide version is green on every page that
+  hosts one application and wrong on the first page that hosts two.
+
   ## Why the shell is four thousand pixels tall
 
   Because scroll restoration is not observable on a page that cannot
@@ -110,10 +120,16 @@
 
 (h/defview app
   "The whole application: whichever pane the route selects, plus the
-  blocked-leave region. See the namespace docstring on the height."
+  blocked-leave region. See the namespace docstring on the height and on
+  the root id.
+
+  The id is `events/root-id` rather than a second literal, because the
+  element the shell names and the element the focus recipe looks for are
+  the two halves of one fact — see `events/root-selector`."
   [_]
   (let [route (h/sub [:rf.route/id])]
-    [:main.navigation {:style {:min-height "4000px"}}
+    [:main.navigation {:id    events/root-id
+                       :style {:min-height "4000px"}}
      [leave-prompt {}]
      (if (= route routes/article)
        [article-page {}]

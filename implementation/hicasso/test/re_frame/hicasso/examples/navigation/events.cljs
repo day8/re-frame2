@@ -37,15 +37,34 @@
     completeness audit's explicit refusals). A view could not run this
     even if it wanted to.
 
-  ## Why the effect waits a frame, which is the only subtle line in it
+  ## Why the effect names a root, which is the line most recipes omit
+
+  An application shares its document. A shell header above the mount, a
+  banner an embedder injected, a second application beside it: any of
+  them may carry the same marker this recipe selects on, and
+  `document.querySelector` answers the FIRST match in document order
+  whoever it belongs to. A page that mounts exactly one application is
+  the one page where that never shows — so the defect is legal, silent,
+  and green under every single-root witness ever written for it.
+
+  So [[pane-shown]] names this application's own root ([[root-selector]],
+  the `<main>` the shell view renders) and [[focus-heading]] resolves the
+  heading INSIDE it. The scope is the correction the merged-PR audits of
+  #7970 and #8031 asked for, and it is load-bearing rather than
+  decorative: the browser witness mounts a marked DECOY heading ahead of
+  the application and asserts both halves — that a document-wide lookup
+  answers the decoy, and that focus lands on this application's own
+  heading anyway.
+
+  ## Why the effect waits a frame, which is the other subtle line in it
 
   `:on-match` dispatches DURING the navigation cascade. The route slice
   has moved, but React has not re-rendered yet, so at the instant the
-  effect runs the heading it wants to focus **does not exist** — and
-  `document.querySelector` would answer nil, and the recipe would be a
-  silent no-op that looked exactly like a working one. One
-  `requestAnimationFrame` is after the commit and after paint, which is
-  the first moment the new pane is on the page.
+  effect runs the heading it wants to focus **does not exist** — the
+  lookup would answer nil, and the recipe would be a silent no-op that
+  looked exactly like a working one. One `requestAnimationFrame` is
+  after the commit and after paint, which is the first moment the new
+  pane is on the page.
 
   It is worth being plain that this ordering is not a Hicasso property:
   it is React's, and any substrate that commits asynchronously has it.
@@ -102,8 +121,30 @@
 ;; The focus-on-route recipe
 ;; ---------------------------------------------------------------------------
 
+(def root-id
+  "The id of this application's own root element — the `<main>` the shell
+  view renders — and the SCOPE the focus recipe resolves its heading
+  inside.
+
+  The application declares its own root rather than borrowing whatever
+  node it happened to be mounted into, because the recipe has to work
+  wherever the application is embedded: a host page's shell, a portal, a
+  second root beside it. See the namespace docstring §Why the effect
+  names a root."
+  "navigation-root")
+
+(def root-selector
+  "[[root-id]] as the selector the effect takes.
+
+  Derived rather than written out a second time. A root the view names
+  and a root the recipe looks for are the two halves of one fact, and two
+  string literals that must agree is the same class of silent near-miss
+  one level up from the one this scope exists to close."
+  (str "#" root-id))
+
 (def heading-selector
-  "The one element per pane that a completed navigation focuses.
+  "The one element per pane that a completed navigation focuses, resolved
+  WITHIN [[root-selector]] and never against the document.
 
   A data attribute rather than an id: the marker says *this is the
   heading the route arrived at*, which is a claim about the pane's role
@@ -111,25 +152,58 @@
   Each pane carries exactly one, and the views put `:tab-index -1` beside
   it so the engine will accept focus on a heading — a heading is not
   natively focusable, and without the tabindex `.focus()` is a no-op that
-  leaves `<body>` holding focus and nothing on screen to say so."
+  leaves `<body>` holding focus and nothing on screen to say so.
+
+  Being a marker rather than an id is also exactly why the root scope is
+  needed: a marker is a vocabulary, so anything else on the page is free
+  to use it, and one that only ever means *this* application's heading is
+  a convention nothing enforces."
   "[data-route-heading]")
+
+(defn pane-shown
+  "The routes' `:on-match` handler, written as a plain fn so a structural
+  witness can read what it returns without a browser.
+
+  It names `:root` beside `:selector`, and that one key is the whole of
+  the scoping: [[focus-heading]] resolves the heading inside this
+  application's own root, so a marked heading belonging to anything else
+  on the page cannot take the landing focus."
+  [_ _]
+  ;; `:fx`, not a top-level effect key: re-frame2's effect map is CLOSED at
+  ;; `{:db … :fx …}`, so a classic `{::focus-heading …}` return is not an
+  ;; effect at all.
+  {:fx [[::focus-heading {:root     root-selector
+                          :selector heading-selector}]]})
 
 (rf/reg-event ::pane-shown
   {:doc "The routes' `:on-match`. A navigation committed, so ask for focus
   to move to whichever pane is now on screen."}
-  ;; `:fx`, not a top-level effect key: re-frame2's effect map is CLOSED at
-  ;; `{:db … :fx …}`, so a classic `{::focus-heading …}` return is not an
-  ;; effect at all.
-  (fn [_ _]
-    {:fx [[::focus-heading {:selector heading-selector}]]}))
+  pane-shown)
 
 (rf/reg-fx ::focus-heading
-  {:doc       "Move focus to the element `:selector` names, on the first
-  frame after the commit that put it there, WITHOUT scrolling. A selector
-  that matches nothing is a no-op — a route whose pane has no heading is
-  an application's choice, not a failure this effect can act on."
+  {:doc       "Move focus to the element `:selector` names WITHIN the element
+  `:root` names, on the first frame after the commit that put it there, and
+  WITHOUT scrolling. Either selector matching nothing is a no-op — a route
+  whose pane has no heading is an application's choice, not a failure this
+  effect can act on.
+
+  Two lines carry the whole recipe.
+
+  `:root` is the scope. Resolving `:selector` against the DOCUMENT takes
+  the first match in document order, which is whichever marked heading the
+  page renders first — a shell heading, a banner, another application's
+  root. That version passes every witness that mounts one application and
+  sends the user somewhere else the moment a second root exists.
+
+  `:preventScroll` is what lets this recipe and scroll restoration COMPOSE.
+  Focusing an element scrolls it into view, and this effect runs one frame
+  AFTER `:rf.nav/scroll` has already restored the offset a Back button
+  asked for — so a plain `.focus()` here silently undoes scroll
+  restoration, on exactly the navigation restoration exists for, and both
+  features look installed the whole time. The two recipes have to be
+  written to compose; this is where they do."
    :platforms #{:client}}
-  (fn [_ {:keys [selector]}]
+  (fn [_ {:keys [root selector]}]
     ;; See the namespace docstring §Why the effect waits a frame. The
     ;; lookup happens INSIDE the callback, not outside it: resolving the
     ;; element now would resolve the OLD pane's heading, which is the
@@ -137,13 +211,6 @@
     ;; the harder one to see.
     (js/requestAnimationFrame
       (fn []
-        ;; `:preventScroll` is not a nicety, and leaving it out is the
-        ;; sharpest bug in this file. Focusing an element scrolls it into
-        ;; view, and this effect runs one frame AFTER `:rf.nav/scroll`
-        ;; has already restored the offset a Back button asked for — so a
-        ;; plain `.focus()` here silently undoes scroll restoration, on
-        ;; exactly the navigation restoration exists for, and both
-        ;; features look installed the whole time. The two recipes have
-        ;; to be written to compose; this is where they do.
-        (some-> (.querySelector js/document selector)
+        (some-> (.querySelector js/document root)
+                (.querySelector selector)
                 (.focus #js {:preventScroll true}))))))
