@@ -229,7 +229,7 @@ is STAYS and the row names the witness — a second copy doubles the maintenance
 ## PORT — 13 suites, 5,108 lines
 
 Every one covers a **public door surface with no package witness at all**: `h/frame`, `h/reg-state`,
-`h/route-link`, `hfn`, the codec, the controlled converge, and intents lowered inside `h/boundary`
+`h/route-link`, `hfn`, the codec, the controlled converge, and intents lowered inside `h/error-boundary`
 and presence.
 
 | suite | lines | package surface it would newly cover |
@@ -246,7 +246,7 @@ and presence.
 | `arm1/keywarn_dom_cljs_test.cljs` | 189 | the minted-key warning end to end — owner threading from the shell, which the codec cannot name. |
 | `arm1/callback_form_dom_cljs_test.cljs` | 156 | the one callback form, driven by a real browser event rather than a stand-in. |
 | `arm1/presence_intent_dom_cljs_test.cljs` | 460 | an intent on a presence child — `impl.presence-react` × `impl.intent`, a defect shape neither namespace's own witness can see. |
-| `arm1/boundary_intent_dom_cljs_test.cljs` | 453 | an intent lowered inside `h/boundary`'s class component, on `:fallback` and on `:children`. |
+| `arm1/boundary_intent_dom_cljs_test.cljs` | 453 | an intent lowered inside `h/error-boundary`'s class component, on `:fallback` and on `:children`. |
 
 **Sequencing.** The six `front/*` rows are rename-only and independent of each other and of
 everything else; they are the first wave. The seven `arm1/*` rows each need `arm1.runtime` call
