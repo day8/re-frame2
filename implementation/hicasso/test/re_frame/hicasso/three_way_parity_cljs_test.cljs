@@ -114,7 +114,18 @@
 
 (n/defcomponent native-cell
   "The native route. The ABI is one raw JavaScript props object and the
-  body reads it by name."
+  body reads it by name.
+
+  `{:server :render}` for the reason [[uix-host]] states about its own
+  crossing, one tier down: since rf2-hic-046 the native tier READS its
+  `:server` declaration, and the default is Client-only — a gate that
+  contributes nothing to a server render and is not the author's own
+  function. Both halves of this file need the declared arm: the markup
+  rows below server-render this cell, and the identity rows assert that
+  the element type IS the author's function, which is true of `:render`
+  and false of the gate. Declaring it is what makes the three routes
+  comparable, exactly as declaring the UIx crossing is."
+  {:server :render}
   [^js props]
   (n/$ :span {:class "cell"} (.-label props)))
 
@@ -448,7 +459,11 @@
 ;; ---------------------------------------------------------------------------
 
 (n/defcomponent island
-  "The native route's read: `n/use-sub`, a real React hook."
+  "The native route's read: `n/use-sub`, a real React hook.
+  `{:server :render}` for [[native-cell]]'s reason — the page below is
+  server-rendered and a Client-only island would leave the premise row
+  reading two arms and calling it three."
+  {:server :render}
   [_props]
   (n/$ :b {:class "island"} (str (n/use-sub [::price]))))
 
