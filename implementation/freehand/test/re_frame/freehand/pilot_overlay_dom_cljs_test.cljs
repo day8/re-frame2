@@ -378,9 +378,22 @@
                              "and already at the anchor's left edge — no wrong-position paint")
                          (is (< (js/Math.abs (- (.-top panel) (+ (.-bottom anchor) 4))) 1.5)
                              "below it by exactly the declared gap"))
-                       (teardown! container root)
-                       (done)))
-              (.catch (fn [e] (is false (str "browser run failed: " e)) (done)))))))))
+                       (teardown! container root)))
+              ;; Reports and releases; it never finishes (rf2-fyba). `cljs.test`
+              ;; hands `done` a continuation that runs the WHOLE REMAINDER of the
+              ;; run synchronously, so a `.catch` downstream of it claims whatever
+              ;; a later namespace throws as this row's failure, prints it against
+              ;; this row's label, and fires `done` a SECOND time — re-forcing
+              ;; `run-block`'s unrealized delay and re-running that namespace.
+              ;;
+              ;; `teardown!` stays on the SUCCESS arm throughout this file rather
+              ;; than riding the trailing step: the failure arm has never torn a
+              ;; root down, and a `teardown!` in the trailing step would run
+              ;; against a root whose own commit had just thrown — where an
+              ;; `.unmount` that threw in turn would strand `done` and hang the
+              ;; lane. Inside the `.then` it is covered by the handler below.
+              (.catch (fn [e] (is false (str "browser run failed: " e)) nil))
+              (.then (fn [_] (done)))))))))
 
 (deftest r-b2-the-panel-escapes-a-clipping-transformed-ancestor
   (testing "R-B2 (mounted). The toolbar's ancestor carries `overflow:
@@ -447,9 +460,10 @@
                              (str "and it is really there: the point paints the panel, not "
                                   "whatever the clip would have left behind (hit "
                                   (some-> hit .-id) ")")))
-                       (teardown! container root)
-                       (done)))
-              (.catch (fn [e] (is false (str "browser run failed: " e)) (done)))))))))
+                       (teardown! container root)))
+              ;; Reports and releases; it never finishes (rf2-fyba).
+              (.catch (fn [e] (is false (str "browser run failed: " e)) nil))
+              (.then (fn [_] (done)))))))))
 
 ;; ===========================================================================
 ;; R-B4 — the focus contract, both overlay classes
@@ -490,9 +504,10 @@
                        (is (false? (modal? dialog)) "close() ran at the commit")
                        (is (= (by-id opener) js/document.activeElement)
                            "and focus RETURNED to the control that opened it")
-                       (teardown! container root)
-                       (done)))
-              (.catch (fn [e] (is false (str "browser run failed: " e)) (done)))))))))
+                       (teardown! container root)))
+              ;; Reports and releases; it never finishes (rf2-fyba).
+              (.catch (fn [e] (is false (str "browser run failed: " e)) nil))
+              (.then (fn [_] (done)))))))))
 
 (deftest r-b4-the-anchored-panel-leaves-focus-on-the-anchor
   (testing "R-B4 (mounted), the anchored half. An `:auto` popover takes no
@@ -516,9 +531,10 @@
                            "and the anchor still has focus")
                        (is (= "true" (.getAttribute (by-id (anchor-id)) "aria-expanded"))
                            "with the expanded state announced")
-                       (teardown! container root)
-                       (done)))
-              (.catch (fn [e] (is false (str "browser run failed: " e)) (done)))))))))
+                       (teardown! container root)))
+              ;; Reports and releases; it never finishes (rf2-fyba).
+              (.catch (fn [e] (is false (str "browser run failed: " e)) nil))
+              (.then (fn [_] (done)))))))))
 
 ;; ===========================================================================
 ;; R-B3 — the browser dismisses, and the pilot reconciles from newState
@@ -567,9 +583,10 @@
               (.then (fn [_]
                        (is (false? (open? (panel-id)))
                            "and the next render does NOT re-open it")
-                       (teardown! container root)
-                       (done)))
-              (.catch (fn [e] (is false (str "browser run failed: " e)) (done)))))))))
+                       (teardown! container root)))
+              ;; Reports and releases; it never finishes (rf2-fyba).
+              (.catch (fn [e] (is false (str "browser run failed: " e)) nil))
+              (.then (fn [_] (done)))))))))
 
 ;; ===========================================================================
 ;; R-B9 — nesting: stacked, and dismissed innermost-first
@@ -637,9 +654,10 @@
                               (get (frame/frame-app-db-value fid) ui/records-root))
                            "and both records are still open — the control did not close
                             itself on its own opening reports")
-                       (teardown! container root)
-                       (done)))
-              (.catch (fn [e] (is false (str "browser run failed: " e)) (done)))))))))
+                       (teardown! container root)))
+              ;; Reports and releases; it never finishes (rf2-fyba).
+              (.catch (fn [e] (is false (str "browser run failed: " e)) nil))
+              (.then (fn [_] (done)))))))))
 
 (deftest the-minimal-nested-pair-stacks-when-both-open-in-one-commit
   (testing "The CONTROL for the two nesting rows: two bare popovers, one
@@ -661,9 +679,10 @@
               (.then (fn [_]
                        (is (true? (open? "bare-outer")) "the bare outer popover is open")
                        (is (true? (open? "bare-inner")) "and the bare nested one with it")
-                       (teardown! container root)
-                       (done)))
-              (.catch (fn [e] (is false (str "browser run failed: " e)) (done)))))))))
+                       (teardown! container root)))
+              ;; Reports and releases; it never finishes (rf2-fyba).
+              (.catch (fn [e] (is false (str "browser run failed: " e)) nil))
+              (.then (fn [_] (done)))))))))
 
 (deftest the-attribution-ladder-for-nesting
   (testing "Two more rungs between the minimal pair and the pilot's
@@ -728,9 +747,12 @@
                            (str "THE MECHANISM: two nested popovers opening produce MORE than "
                                 "two toggle reports — "
                                 (pr-str (get (frame/frame-app-db-value fid) ::toggles))))
-                       (teardown! c3 r3)
-                       (done)))
-              (.catch (fn [e] (is false (str "browser run failed: " e)) (done)))))))))
+                       (teardown! c3 r3)))
+              ;; Reports and releases; it never finishes (rf2-fyba). The three
+              ;; rungs' teardowns stay where they are: each retires its OWN mount
+              ;; at the moment that rung ends, and only the last is on this step.
+              (.catch (fn [e] (is false (str "browser run failed: " e)) nil))
+              (.then (fn [_] (done)))))))))
 
 (deftest a-nested-panel-opened-in-a-LATER-commit-also-stays-nested
   (testing "R-B9, and a FINDING now RESOLVED. The one-commit row proves a
@@ -782,9 +804,10 @@
                               (get-in (frame/frame-app-db-value fid) [ui/records-root outer-k]))
                            "the outer record is still open — no opening report was read
                             as a dismissal")
-                       (teardown! container root)
-                       (done)))
-              (.catch (fn [e] (is false (str "browser run failed: " e)) (done)))))))))
+                       (teardown! container root)))
+              ;; Reports and releases; it never finishes (rf2-fyba).
+              (.catch (fn [e] (is false (str "browser run failed: " e)) nil))
+              (.then (fn [_] (done)))))))))
 
 ;; ===========================================================================
 ;; R-B6 / R-B12 — the retained count, as exact integers
@@ -887,9 +910,17 @@
                          (is (zero? (behaviors/connection-count))
                              "and every behavior connection released")
                          (is (zero? (top-layer/pending-count))
-                             "with the top-layer commit batch drained"))
-                       (done)))
-              (.catch (fn [e] (restore!) (is false (str "browser run failed: " e)) (done)))))))))
+                             "with the top-layer commit batch drained"))))
+              ;; Reports and releases; it never finishes (rf2-fyba). `restore!`
+              ;; is ASYMMETRIC and stays put: the success arm un-patches the
+              ;; globals in the same breath as the snapshot it took them for,
+              ;; above, so this is the failure arm's own safety net for a
+              ;; rejection that arrived while they were still patched. Leaving
+              ;; `document.addEventListener` wrapped would corrupt the whole
+              ;; remainder of the run, so it may not ride a step that a throw
+              ;; could skip.
+              (.catch (fn [e] (restore!) (is false (str "browser run failed: " e)) nil))
+              (.then (fn [_] (done)))))))))
 
 ;; ===========================================================================
 ;; THE COMBINATION — one element, both mechanisms, and both refs run
@@ -951,9 +982,10 @@
                              (str "non-vacuous: the element was NOT open before it was "
                                   "asked to be — the OPEN reading is a response, not a "
                                   "constant")))
-                       (teardown! container root)
-                       (done)))
-              (.catch (fn [e] (is false (str "browser run failed: " e)) (done)))))))))
+                       (teardown! container root)))
+              ;; Reports and releases; it never finishes (rf2-fyba).
+              (.catch (fn [e] (is false (str "browser run failed: " e)) nil))
+              (.then (fn [_] (done)))))))))
 
 ;; ===========================================================================
 ;; PROMOTION PARITY, MOUNTED — the compiled twin reaches the top layer
@@ -1070,11 +1102,14 @@
                              (str "the COMPILED anchor's event site dispatched a live "
                                   "browser click into app-db — " (pr-str (:clicked c))))
                          (is (= (:clicked i) (:clicked c))
-                             "exactly as the interpreted twin's site does"))
-                       (done)))
+                             "exactly as the interpreted twin's site does"))))
+              ;; Reports and releases; it never finishes (rf2-fyba). Each arm
+              ;; retires its own mount inside `overlay-arm!`, so there is no
+              ;; teardown here to place either way.
               (.catch (fn [e]
                         (is false (str "the promotion pass threw " e))
-                        (done)))))))))
+                        nil))
+              (.then (fn [_] (done)))))))))
 
 (def ^:private fx-005 (conf/fixture :FH-TOPLAYER-005))
 
@@ -1145,8 +1180,10 @@
                          (is (= [] c)
                              "AND NEITHER IS THE COMPILED ONE — the `:on-toggle` it
                               declares reached the judgement that promotion could
-                              have hidden"))
-                       (done)))
+                              have hidden"))))
+              ;; Reports and releases; it never finishes (rf2-fyba). Each `once`
+              ;; retires its own mount, so there is no teardown here to place.
               (.catch (fn [e]
                         (is false (str "the advisory pass threw " e))
-                        (done)))))))))
+                        nil))
+              (.then (fn [_] (done)))))))))
