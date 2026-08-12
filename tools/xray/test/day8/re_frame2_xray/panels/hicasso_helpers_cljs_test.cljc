@@ -130,16 +130,26 @@
     (is (= (set (map :id hh/sub-modes)) (set (keys hh/empty-copy)))))
 
   (testing "no two views share a sentence or a testid suffix"
+    ;; Counted against the LIVE view list rather than a literal, so a
+    ;; sixth view cannot be added with a fifth view's sentence and still
+    ;; pass. rf2-hic-037 added Advisor and Causal, and the property this
+    ;; row is actually about — pairwise distinctness — is unchanged.
     (let [says     (map :says (vals hh/empty-copy))
-          suffixes (map :testid-suffix (vals hh/empty-copy))]
-      (is (= 4 (count says) (count (set says))))
-      (is (= 4 (count suffixes) (count (set suffixes))))))
+          suffixes (map :testid-suffix (vals hh/empty-copy))
+          n        (count hh/sub-modes)]
+      (is (= n (count says) (count (set says))))
+      (is (= n (count suffixes) (count (set suffixes))))))
 
   (testing "each names ITS OWN scope's fact and remedy"
     (is (string/includes? (:says (:mounted hh/empty-copy)) "read edge"))
     (is (string/includes? (:says (:attribution hh/empty-copy)) "reads nothing"))
     (is (string/includes? (:says (:intents hh/empty-copy)) "CAP"))
-    (is (string/includes? (:says (:explain hh/empty-copy)) "no mounted boundary")))
+    (is (string/includes? (:says (:explain hh/empty-copy)) "no mounted boundary"))
+    (is (string/includes? (:says (:advisor hh/empty-copy)) "not a verdict that nothing is hot")
+        (str "an empty ranking is a consequence of an empty census, and must "
+             "not read as `nothing here is expensive` — which it cannot know, "
+             "having never measured lowering, React or layout"))
+    (is (string/includes? (:says (:causal hh/empty-copy)) "no boundary to trace")))
 
   (testing "the CAPPED window never claims nothing was dispatched"
     (let [says (:says (:intents hh/empty-copy))]
@@ -581,11 +591,20 @@
   (testing "no envelope, no summary — the panel renders a presence note instead"
     (is (nil? (hh/read-summary nil)))))
 
-(deftest the-four-views-are-the-four-questions
-  (is (= [:mounted :attribution :intents :explain] (mapv :id hh/sub-modes)))
+(deftest the-views-are-the-four-questions-plus-the-two-derivations
+  ;; The first four are Spec SN §10's questions, one sub-view each. The
+  ;; last two are rf2-hic-037's derivations over the SAME one-turn read —
+  ;; a tab of their own would take a second turn, and a mount landing
+  ;; between the two would rank a census the slice no longer agrees with.
+  (is (= [:mounted :attribution :intents :explain :advisor :causal]
+         (mapv :id hh/sub-modes)))
   (is (= :mounted hh/default-sub-mode))
   (is (= :mounted (hh/normalise-sub-mode :nonsense))
       "a stale or hand-dispatched id must land on a view that exists")
   (is (= :explain (hh/normalise-sub-mode :explain)))
+  (is (= :advisor (hh/normalise-sub-mode :advisor)))
   (testing "every view says what it asks, so a tooltip is not invented at render"
-    (is (every? (comp seq :asks) hh/sub-modes))))
+    (is (every? (comp seq :asks) hh/sub-modes)))
+  (testing "and no two views share a mnemonic"
+    (let [mnems (map :mnem hh/sub-modes)]
+      (is (= (count mnems) (count (set mnems)))))))
