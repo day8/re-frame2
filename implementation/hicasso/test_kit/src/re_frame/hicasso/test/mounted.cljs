@@ -1381,10 +1381,17 @@
 ;; ---------------------------------------------------------------------------
 ;;
 ;; `re-frame.hicasso.test/canonical-dom` answers WHETHER two pages differ; a
-;; red owes the programmer WHERE. This walk is that second question, and it is
-;; deliberately the same equality: comments are dropped and adjacent text runs
-;; join, exactly as they do when `canonical-dom` flattens a subtree to one
-;; string, so the two instruments cannot disagree about a page.
+;; red owes the programmer WHERE. This walk is that second question, and over
+;; MARKUP it is deliberately the same equality: comments are dropped and
+;; adjacent text runs join, exactly as they do when `canonical-dom` flattens a
+;; subtree to one string, so the two instruments cannot disagree about the
+;; bytes of a page.
+;;
+;; It then compares one thing more, which a serialiser structurally cannot:
+;; the LIVE CONTROL STATE below. So the two instruments can disagree after
+;; all, in exactly one direction — this walk reddens pairs `canonical-dom`
+;; calls equal, never the reverse — and that direction is the repair rather
+;; than a drift.
 
 (def ^:private absent
   "What a difference reports where one side has no value at all — a
@@ -1399,6 +1406,70 @@
     (reduce (fn [m a] (assoc! m (.-name a) (de-address-text frame-kw (.-value a))))
             (transient {})
             (array-seq (.-attributes el)))))
+
+;; ---------------------------------------------------------------------------
+;; The live control state — the half of a form control that is not in the page
+;; ---------------------------------------------------------------------------
+;;
+;; A form control has TWO values and only one of them is in the page's bytes.
+;; The content attribute is the DEFAULT — `value` is `defaultValue`, `checked`
+;; is `defaultChecked`, an option's `selected` is `defaultSelected` — and the
+;; live one is a property no serialiser can reach. React writes the live one
+;; directly, so `HTMLSelectElement.value` moves `option.selected` while
+;; `outerHTML` stays byte-identical.
+;;
+;; Which made this door green for a pair a user could tell apart at a glance:
+;; a reference `<select>` showing "Two" beside a candidate showing "One", the
+;; same three `<option>`s under each, `{:status :green :checkpoints 1}`. PR
+;; #8007's merged-PR audit found it and it is the reason this walk reads
+;; properties as well as attributes — a port can select the wrong option with
+;; every byte of markup and every intent agreeing.
+
+(def ^:private live-properties
+  "The live control state each element kind carries in a PROPERTY, by tag.
+
+  One entry per slot the content attribute does not track:
+
+  - `input` — `value` and `checked` go DIRTY the moment a user touches
+    the field, and the attribute stays at whatever the element mounted
+    with; `indeterminate` is never an attribute at all, and it is the
+    third thing a checkbox can look like on screen.
+  - `textarea` — `value`; the markup carries only the text child it was
+    born with.
+  - `select` — `value`, which is the selected option's, and which is
+    written by moving `option.selected` rather than any attribute.
+  - `option` — `selected`, because a MULTIPLE select's `value` is only
+    its FIRST selected option, and two different selections can share
+    one.
+
+  Nothing else is here, and the two exclusions are settled rather than
+  pending. A property the content attribute REFLECTS — `<progress value>`,
+  `<details open>` — is already compared as an attribute, and reading it
+  again would only report it twice. And media playback state
+  (`currentTime`, `paused`) moves on the wall clock, so comparing it would
+  make a verdict depend on when it was taken.
+
+  Everything the door already declined stays declined: focus, caret, IME,
+  layout and paint are not here and are not properties of this kind — see
+  [[shadow!]] §What it does not claim."
+  {"input"    ["value" "checked" "indeterminate"]
+   "textarea" ["value"]
+   "select"   ["value"]
+   "option"   ["selected"]})
+
+(defn- props-of
+  "One element's live control state as `{property value}` — empty for
+  everything that is not a control.
+
+  A string value is de-addressed exactly as an attribute's is: a field
+  holds whatever the application put in it, a frame keyword included."
+  [el frame-kw]
+  (persistent!
+    (reduce (fn [m p]
+              (let [v (unchecked-get el p)]
+                (assoc! m p (if (string? v) (de-address-text frame-kw v) v))))
+            (transient {})
+            (get live-properties (node-tag el)))))
 
 (defn- element-outline
   "How a red NAMES an element: its opening tag with attribute names
@@ -1465,6 +1536,31 @@
                :candidate (get b k absent)}))
           (sort (distinct (concat (keys a) (keys b)))))))
 
+(defn- property-difference
+  "The first live-control property at which two elements of the same tag
+  disagree, as data — or nil.
+
+  Taken AFTER the attributes and BEFORE the children, and both halves of
+  that placement earn their keep. A difference visible in the markup is
+  the one a reader can go and look at, so where an element differs both
+  ways the attribute is what the red names. And a `<select>` whose value
+  moved is named at the SELECT rather than at whichever `<option>`
+  changed selectedness underneath it, which is the sentence a programmer
+  can act on."
+  [ref-el can-el ref-frame can-frame path]
+  (let [a (props-of ref-el ref-frame)
+        b (props-of can-el can-frame)]
+    (some (fn [k]
+            (when (not= (get a k absent) (get b k absent))
+              {:kind      :dom
+               :reason    :property
+               :property  k
+               :at        (at path)
+               :path      path
+               :reference (get a k absent)
+               :candidate (get b k absent)}))
+          (sort (distinct (concat (keys a) (keys b)))))))
+
 (defn- children-difference
   [ref-n can-n ref-frame can-frame path]
   (let [a (comparable-children ref-n)
@@ -1514,6 +1610,7 @@
       {:kind :dom :reason :tag :at (at path) :path path
        :reference rt :candidate ct}
       (or (attribute-difference ref-el can-el ref-frame can-frame path)
+          (property-difference ref-el can-el ref-frame can-frame path)
           (children-difference ref-el can-el ref-frame can-frame path)))))
 
 (defn- dom-difference
@@ -1769,8 +1866,15 @@
     `:reference` and `:candidate` vectors. Reported BEFORE any DOM
     difference at the same checkpoint, because it is the cause.
   - `:kind :dom` — `:at`, a readable path from the mounted root, plus
-    `:reason` (`:tag`, `:attribute`, `:text`, `:node-kind`,
+    `:reason` (`:tag`, `:attribute`, `:property`, `:text`, `:node-kind`,
     `:only-in-reference`, `:only-in-candidate`) and both sides' values.
+    `:property` names a **live control** slot and carries `:property`
+    beside the values — a `<select>` at a different option, a dirty
+    `value` or `checked`, an `indeterminate` checkbox. Those are the
+    user-visible state a form control keeps OUT of its markup, so this
+    is the one `:reason` a serialiser could never have reached; see
+    [[live-properties]] for the closed roster and for what is
+    deliberately not in it.
   - `:kind :script` — the step could not run as written. A selector that
     matched one side only IS a difference; one that matched neither is a
     broken script, and it is still red, because a checkpoint reached by a
@@ -1797,10 +1901,18 @@
 
   ## What it does not claim
 
-  Canonical DOM and intents. Not focus, caret, IME, layout or paint —
-  those are L4 and the browser levels own them. Not residue either: no
-  reading is taken, so no reset is performed, and `assert-clean!` remains
-  the door for that claim.
+  Canonical DOM, the live control state named in [[live-properties]],
+  and intents. Not focus, caret, IME, layout or paint — those are L4 and
+  the browser levels own them. Not residue either: no reading is taken,
+  so no reset is performed, and `assert-clean!` remains the door for that
+  claim.
+
+  The control state is inside the claim rather than beside it because
+  markup cannot carry it and a user can see it: an `<option>`'s
+  selectedness, a dirty `value` or `checked`, an `indeterminate`
+  checkbox. Comparing attributes alone made this door green for a
+  candidate visibly showing the wrong option (PR #8007's merged-PR
+  audit), which is the one thing it exists not to do.
 
   Synchronous. A step's effects are settled through `flushSync` before
   the checkpoint after it, so anything landing in a later turn — a

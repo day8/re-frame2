@@ -24,10 +24,26 @@
   | — | one attribute that drifted | the checkpoint and the exact node |
   | — | a step that matched nothing | the selector, and RED rather than green |
   | one mount driven, the other not | — | `:only-in-reference` |
+  | two selects on the same option | a select showing another option | `:property \"value\"`, at the select |
+  | — | a dirty `checked`, `value`, `indeterminate` | `:property`, at the exact input |
+  | — | a multiple select's other selection | `:property \"selected\"`, at the option |
 
   The three drifted views differ from [[candidate-row]] by **one form
   each**, so a red proves the comparator saw that form and not the shape
   of the view around it.
+
+  ## The last three rows are a REGRESSION, and they were once green
+
+  PR #8007's merged-PR audit reproduced this exactly: a reference select
+  at `\"two\"` beside a candidate at `\"one\"`, identical option markup,
+  `{:status :green :checkpoints 1}`. A form control keeps two values and
+  only the DEFAULT is in the bytes — `value` is `defaultValue`, `checked`
+  is `defaultChecked`, an option's `selected` is `defaultSelected` —
+  while the live one is a property no serialiser can reach. So each of
+  those rows proves the SAME two things before it reads a verdict: that
+  the two live pages genuinely differ, and that `ht/canonical-dom` still
+  calls them byte-identical. Without the second half the row would not
+  be about the defect at all.
 
   ## Two frames, and the one slot the comparison is blind at
 
@@ -52,6 +68,7 @@
             [re-frame.core :as rf]
             [re-frame.hicasso :as h]
             [re-frame.hicasso.impl.collector :as collector]
+            [re-frame.hicasso.test :as ht]
             [re-frame.hicasso.test.mounted :as hm]
             [re-frame.test-support :as test-support]))
 
@@ -88,6 +105,12 @@
 ;; stream moves and the page does not.
 (rf/reg-event :hicasso.shadow/noted
               (fn [{:keys [db]} [_ x]] {:db (update db :notes (fnil conj []) x)}))
+
+;; [[select-row]]'s handler. Nothing in this namespace fires it — the live
+;; rows below move a control's state directly, precisely so that the intent
+;; streams stay equal and a red can only be the DOM comparison's.
+(rf/reg-event :hicasso.shadow/pick
+              (fn [{:keys [db]} [_ v]] {:db (assoc db :picked v)}))
 
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture
@@ -176,6 +199,37 @@
       [:button.save {:on-click [:hicasso.shadow/save]} "Save"]]
      [:button.edit {:on-click [:hicasso.shadow/edit]} "Edit"])
    [:p.saved (str "saved: " (or (h/sub [:hicasso.shadow/saved]) "—"))]])
+
+;; ---------------------------------------------------------------------------
+;; The live-control pair — one prop apart, and not one byte apart
+;; ---------------------------------------------------------------------------
+
+(h/defview select-row
+  "A native `<select>` bound to a value. Two mounts of it differ by that
+  ONE prop and by nothing in the markup: React writes a selection by
+  moving `option.selected`, and no content attribute tracks it."
+  [{:keys [value]}]
+  [:div.pick
+   [:select.pick {:value     value
+                  :on-change [:hicasso.shadow/pick ::h/value]}
+    [:option {:value "one"} "One"]
+    [:option {:value "two"} "Two"]
+    [:option {:value "three"} "Three"]]])
+
+(h/defview uncontrolled-fields
+  "Three UNCONTROLLED controls — no bound value, no handler, nothing
+  read. Each can be made dirty by hand without dispatching an intent,
+  which is what makes a red here unambiguously the DOM comparison's:
+  bind them and the intent stream would redden first and prove nothing
+  about the page."
+  [_]
+  [:div.fields
+   [:input.flag {:type "checkbox"}]
+   [:input.text {:type "text"}]
+   [:select.multi {:multiple true}
+    [:option {:value "a"} "A"]
+    [:option {:value "b"} "B"]
+    [:option {:value "c"} "C"]]])
 
 ;; ---------------------------------------------------------------------------
 ;; The lane
@@ -271,6 +325,146 @@
               :selector "button.no-such-control"
               :matched  :neither}
              difference)))))
+
+;; ---------------------------------------------------------------------------
+;; The live control state — the false green PR #8007's audit found
+;; ---------------------------------------------------------------------------
+
+(defn- markup-of [handle] (ht/canonical-dom (:container handle)))
+
+(deftest a-select-showing-a-different-option-is-not-a-green
+  (if-not (browser?)
+    (skip! "a selection lives in a real element's properties")
+    (let [s (hm/shadow! {:reference [select-row {:value "two"}]
+                         :candidate [select-row {:value "one"}]})]
+      (try
+        (testing "the two pages genuinely show a user different options"
+          (is (= ["two" "one"]
+                 [(.-value (.querySelector (:container (:reference s)) "select.pick"))
+                  (.-value (.querySelector (:container (:candidate s)) "select.pick"))])))
+        (testing "and their markup is byte-identical, which is why this was green"
+          (is (= (markup-of (:reference s)) (markup-of (:candidate s)))
+              (str "a selection is written by moving option.selected and no "
+                   "attribute tracks it, so the serialiser sees one page twice")))
+        (testing "the comparator now names the select, the slot and both values"
+          (let [{:keys [status checkpoints difference]} ((:checkpoint! s))]
+            (is (= :red status)
+                (str "this answered {:status :green :checkpoints 1} before "
+                     "rf2-kyum's reopening: a port could select the wrong "
+                     "option with every byte of markup and every intent agreeing"))
+            (is (= 1 checkpoints))
+            (is (= :dom (:kind difference)))
+            (is (= :property (:reason difference)))
+            (is (= "value" (:property difference)))
+            (is (= "two" (:reference difference)))
+            (is (= "one" (:candidate difference)))
+            (is (re-find #"select" (:at difference))
+                (str "named at the select rather than at whichever option "
+                     "changed underneath it: " (:at difference)))))
+        (finally ((:stop! s)))))))
+
+(deftest two-selects-showing-the-same-option-stay-green
+  (if-not (browser?)
+    (skip! "a selection lives in a real element's properties")
+    (let [s (hm/shadow! {:reference [select-row {:value "two"}]
+                         :candidate [select-row {:value "two"}]})]
+      (try
+        (is (= {:status :green :checkpoints 1} ((:checkpoint! s)))
+            (str "the live-control comparison reports a difference the two "
+                 "pages have; an instrument that reddened a matched pair "
+                 "would be the opposite defect and just as useless"))
+        (finally ((:stop! s)))))))
+
+;; ---------------------------------------------------------------------------
+;; The adjacent slots — so the repair is not a `select` special case
+;; ---------------------------------------------------------------------------
+;;
+;; `value` and `checked` go DIRTY under a real user and the attribute stays at
+;; the default the element mounted with; `indeterminate` is never an attribute
+;; at all. Each of these drives the pair apart at exactly one such slot,
+;; touching no attribute and dispatching no intent, and each checks that the
+;; markup is STILL identical afterwards — without which the row would be
+;; asserting something the old comparator already caught.
+
+(defn- live-difference
+  "Mount an identical pair, prove the comparator starts green, move one
+  or both sides' live control state with `mutate!`, and answer the next
+  verdict — with `::started-green?` and `::same-markup?` beside it."
+  [form mutate!]
+  (let [s (hm/shadow! {:reference form :candidate form})]
+    (try
+      (let [green? (= :green (:status ((:checkpoint! s))))]
+        (mutate! (:container (:reference s)) (:container (:candidate s)))
+        (assoc ((:checkpoint! s))
+               ::started-green? green?
+               ::same-markup?   (= (markup-of (:reference s))
+                                   (markup-of (:candidate s)))))
+      (finally ((:stop! s))))))
+
+(defn- is-live-only
+  "Every live-slot row's shared preamble: the pair began indistinguishable
+  and its markup never moved, so the verdict below is about the property
+  and about nothing else."
+  [v]
+  (is (true? (::started-green? v)) "the pair began indistinguishable")
+  (is (true? (::same-markup? v))
+      "and no byte of markup moved — the attributes cannot see this")
+  (is (= :red (:status v)))
+  (is (= :dom (:kind (:difference v))))
+  (is (= :property (:reason (:difference v))))
+  (:difference v))
+
+(defn- pick-options!
+  [container indexes]
+  (let [opts (.-options (.querySelector container "select.multi"))]
+    (doseq [i indexes] (set! (.-selected (.item opts i)) true))))
+
+(deftest the-adjacent-live-slots-redden-too
+  (if-not (browser?)
+    (skip! "a dirty control is one a real browser has been driven through")
+    (do
+      (testing "a checkbox one side ticked"
+        (let [d (is-live-only
+                  (live-difference [uncontrolled-fields {}]
+                                   (fn [r _] (.click (.querySelector r "input.flag")))))]
+          (is (= "checked" (:property d)))
+          (is (= [true false] [(:reference d) (:candidate d)]))
+          (is (re-find #"input\[0\]" (:at d)) (:at d))))
+
+      (testing "a text field one side typed into"
+        (let [d (is-live-only
+                  (live-difference [uncontrolled-fields {}]
+                                   (fn [r _]
+                                     (set! (.-value (.querySelector r "input.text"))
+                                           "typed"))))]
+          (is (= "value" (:property d)))
+          (is (= ["typed" ""] [(:reference d) (:candidate d)]))
+          (is (re-find #"input\[1\]" (:at d)) (:at d))))
+
+      (testing "a checkbox one side left in the third state"
+        (let [d (is-live-only
+                  (live-difference [uncontrolled-fields {}]
+                                   (fn [r _]
+                                     (set! (.-indeterminate
+                                             (.querySelector r "input.flag"))
+                                           true))))]
+          (is (= "indeterminate" (:property d))
+              (str "never an attribute in any markup, and the third thing a "
+                   "checkbox can look like on screen"))
+          (is (= [true false] [(:reference d) (:candidate d)]))))
+
+      (testing "a MULTIPLE select whose value alone cannot tell the two apart"
+        (let [d (is-live-only
+                  (live-difference [uncontrolled-fields {}]
+                                   (fn [r c]
+                                     (pick-options! r [0 2])
+                                     (pick-options! c [0 1]))))]
+          (is (= "selected" (:property d))
+              (str "a multiple select's `value` is only its FIRST selected "
+                   "option, so {a c} and {a b} share one — the option's own "
+                   "selectedness is what separates them"))
+          (is (= [false true] [(:reference d) (:candidate d)]))
+          (is (re-find #"option\[1\]" (:at d)) (:at d)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Isolation, and the one slot the comparison is blind at
