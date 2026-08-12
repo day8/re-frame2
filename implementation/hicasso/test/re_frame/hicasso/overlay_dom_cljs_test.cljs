@@ -70,7 +70,10 @@
     ordinary design a dozen overlay libraries ship, which paints
     correctly, dismisses correctly and restores focus correctly — reds
     the closed-cost row with a live `HTMLDialogElement` where nil was
-    required.
+    required. Restoring a trigger's `anchor-name` UNCONDITIONALLY —
+    right on every single-overlay page, and the obvious way to write it —
+    reds the out-of-order row with a live panel jumping to the UA default
+    position, `trigger.left=0 panel.left=615.21875`.
 
   **Two sabotages did NOT redden, and both changed something.** They are
   recorded because a sabotage that stays green is the only kind that
@@ -818,6 +821,18 @@
                      :placement  :bottom-start
                      :id         "pop-a"}
     [:p "menu"]]
+   ;; A SECOND panel on the SAME trigger — a menu and a tooltip on one
+   ;; button. Each claim is its own ident, and each teardown must leave the
+   ;; other's alone.
+   ;; No `:on-dismiss`, so `popover="manual"` — a tooltip has nowhere to
+   ;; route a dismissal. That is also what lets it be open at the same time
+   ;; as the auto panel above: an auto popover joining the stack does not
+   ;; disturb a manual one.
+   [overlay/popover {:open?     (h/sub [::open? :pt])
+                     :anchor    "anchor-a"
+                     :placement :top-start
+                     :id        "pop-t"}
+    [:p "tip"]]
    [overlay/popover {:open?      (h/sub [::open? :px])
                      :on-dismiss [::dismissed :px]
                      :anchor     "no-such-element"
@@ -877,7 +892,45 @@
             (testing "HANDED BACK: teardown restores what the author wrote,
                       rather than clearing the property"
               (go! [::closed :pa])
-              (is (= "--mine" (.. trigger -style -anchorName)))))
+              (is (= "--mine" (.. trigger -style -anchorName))))
+
+            (testing "TWO PANELS, ONE TRIGGER, LIFO: a menu and a tooltip may
+                      share a button. Each claim saves what it found, so the
+                      claims nest and the author's own name comes back when the
+                      last one leaves"
+              (go! [::opened :pt])
+              (let [tip (.. trigger -style -anchorName)]
+                (is (not= "--mine" tip) "premise: the tooltip claimed it")
+                (go! [::opened :pa])
+                (is (not= tip (.. trigger -style -anchorName))
+                    "premise: the menu claimed it after")
+                (go! [::closed :pa])
+                (is (= tip (.. trigger -style -anchorName))
+                    "the menu's teardown gave the tooltip's claim back"))
+              (go! [::closed :pt])
+              (is (= "--mine" (.. trigger -style -anchorName))
+                  "and the last one out returns the author's own name"))
+
+            (testing "OUT OF ORDER: the panel that leaves is NOT the one that
+                      claimed last. An unconditional restore is right on every
+                      single-overlay page and here writes the trigger back to a
+                      name the OTHER, still-open panel is not anchored to —
+                      silently unanchoring a live overlay"
+              (go! [::opened :pt])
+              (go! [::opened :pa])
+              (let [menu (.. trigger -style -anchorName)]
+                (go! [::closed :pt])
+                (is (= menu (.. trigger -style -anchorName))
+                    "the still-open menu keeps the trigger")
+                (is (.matches ($ "#pop-a") ":popover-open")
+                    "premise: it really is still open")
+                (let [t (.getBoundingClientRect trigger)
+                      p (.getBoundingClientRect ($ "#pop-a"))]
+                  (is (< (js/Math.abs (- (.-left p) (.-left t))) 2)
+                      (str "and still positioned against it rather than at the "
+                           "UA default. trigger.left=" (.-left t)
+                           " panel.left=" (.-left p)))))
+              (go! [::closed :pa])))
 
           (testing "an `:anchor` naming no element is a no-op in this bead —
                     the panel opens in the top layer, visibly unanchored, and

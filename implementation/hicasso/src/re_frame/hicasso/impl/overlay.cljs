@@ -141,33 +141,47 @@
   []
   (str "--rf-overlay-" (swap! !anchor-seq inc)))
 
-(def ^:private saved-anchor-slot
-  "Where a trigger's previous `anchor-name` is parked, so teardown puts
-  back what the author wrote rather than clearing it."
-  "rfOverlaySavedAnchorName")
-
 (defn- claim-anchor!
   "Give the element named by DOM id `anchor-id` the CSS anchor name
-  `ident`, remembering whatever it had, and answer that element.
+  `ident`, and answer `#js [element previous-name]` so the caller can put
+  the previous name back.
+
+  **The previous name goes to the CALLER, not onto the element.** Two
+  overlays may legitimately share one trigger — a menu and a tooltip on
+  the same button — and a single parking slot on the element is one slot
+  for two claims: the second claim overwrites the first's memory, and the
+  first release then restores an empty string instead of the author's own
+  name. That was a real red before it was a comment.
 
   A no-op when the id names nothing. The refusal the guide promises there
   is deferred rather than declined — see the door."
   [anchor-id ident]
   (when-some [el (and anchor-id (.getElementById js/document anchor-id))]
-    (unchecked-set el saved-anchor-slot (.. el -style -anchorName))
-    (set! (.. el -style -anchorName) ident)
-    el))
+    (let [previous (.. el -style -anchorName)]
+      (set! (.. el -style -anchorName) ident)
+      #js [el previous])))
 
 (defn- release-anchor!
-  "Put back what [[claim-anchor!]] found, on the element it found it on."
-  [el]
-  (when el
-    (set! (.. el -style -anchorName) (or (unchecked-get el saved-anchor-slot) ""))
-    (unchecked-set el saved-anchor-slot js/undefined))
+  "Put `previous` back on the element `claim-anchor!` answered — but ONLY
+  while `ident` is still the name on it.
+
+  That condition is what makes the per-instance ident mean anything. When
+  the overlay that leaves is not the one that claimed last, an
+  unconditional restore writes the trigger back to a name the OTHER, still
+  open panel is not anchored to, and silently unanchors a live overlay.
+  The residual is stated rather than chased: an out-of-order teardown can
+  leave the LAST claimant's generated ident on the trigger instead of the
+  author's own name. It is a dashed-ident nothing references, so it is
+  inert, and tracking a stack per trigger to erase it would be a second
+  ownership graph for a cosmetic difference."
+  [claimed ident]
+  (when-some [el (aget claimed 0)]
+    (when (= ident (.. el -style -anchorName))
+      (set! (.. el -style -anchorName) (or (aget claimed 1) ""))))
   nil)
 
 ;; ---------------------------------------------------------------------------
-;; The two platform doors, and the mark that tells them apart from a user
+;; The two platform doors
 ;; ---------------------------------------------------------------------------
 
 (def ^:private modal-ops
@@ -219,7 +233,8 @@
           (show! node)
           (fn []
             (hide! node)
-            (release-anchor! (unchecked-get cell "claimed"))
+            (when-some [claimed (unchecked-get cell "claimed")]
+              (release-anchor! claimed (unchecked-get cell "ident")))
             (unchecked-set cell "claimed" nil)
             nil))))
     cell))
