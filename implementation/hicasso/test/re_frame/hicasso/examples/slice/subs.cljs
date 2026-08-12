@@ -34,6 +34,17 @@
 (rf/reg-sub ::locale (fn [db _] (:locale db)))
 (rf/reg-sub ::theme  (fn [db _] (:theme db)))
 (rf/reg-sub ::save   (fn [db _] (:save db)))
+(rf/reg-sub ::digest (fn [db _] (:digest db)))
+
+(rf/reg-sub ::listed
+  {:doc "Every article, in publication order, projected to the fields one
+  feed row reads. Layer 1 over `app-db` and the input both halves of
+  pagination chain from — the page's rows and the page COUNT are two
+  questions about the same list, and reading it twice would make them two
+  answers that can drift."}
+  (fn [db _]
+    (mapv (fn [a] (select-keys a [:slug :title :published? :tags]))
+          (db/listed db))))
 
 ;; ---------------------------------------------------------------------------
 ;; Layer 2 — i18n and theming, as ordinary derived reads
@@ -53,12 +64,60 @@
 ;; Layer 2 — the feed and the article
 ;; ---------------------------------------------------------------------------
 
+;; ---------------------------------------------------------------------------
+;; Layer 2 — pagination, whose only input from outside `app-db` is the URL
+;; (rf2-hic-074)
+;; ---------------------------------------------------------------------------
+
+(rf/reg-sub ::page
+  {:doc "The page the URL asks for, RAW — `nil` on any route that declares
+  no `?page=`, and whatever number a user typed on the one that does. It
+  is separated from [[::current-page]] so the difference between *what was
+  asked for* and *what exists* stays visible: the pager highlights the
+  page it is showing, and only the clamp decides which that is."}
+  :<- [:rf.route/query]
+  (fn [query _] (:page query)))
+
+(rf/reg-sub ::page-count
+  {:doc "How many pages the feed has."}
+  :<- [::listed]
+  (fn [rows _] (db/page-count rows)))
+
+(rf/reg-sub ::current-page
+  {:doc "The page actually on screen — the URL's number brought inside the
+  range the data has. `/slice?page=900` shows the last page rather than an
+  empty one, because a URL is user input."}
+  :<- [::listed]
+  :<- [::page]
+  (fn [[rows page] _] (db/clamp-page rows page)))
+
 (rf/reg-sub ::feed
-  {:doc "The list rows, in publication order. Each row is the minimum the
-  row view reads, so a body edit does not re-render the feed."}
-  (fn [db _]
-    (mapv (fn [a] (select-keys a [:slug :title :published? :tags]))
-          (db/listed db))))
+  {:doc "The rows THIS PAGE shows, in publication order. Each row is the
+  minimum the row view reads, so a body edit does not re-render the feed.
+
+  The name did not change when pagination arrived, and neither did the
+  question the feed page asks: *what rows do I render?* Which is why the
+  page number never reaches a view — the pager reads it to draw itself,
+  and the list reads rows."}
+  :<- [::listed]
+  :<- [::current-page]
+  (fn [[rows page] _] (db/page-rows rows page)))
+
+;; ---------------------------------------------------------------------------
+;; Layer 2 — the digest, the runtime-selected content region
+;; ---------------------------------------------------------------------------
+
+(rf/reg-sub ::digest-blocks
+  {:doc "The digest's blocks, as they arrived. The region renders them by
+  kind and the shape of the region follows the data."}
+  :<- [::digest]
+  (fn [digest _] (:blocks digest)))
+
+(rf/reg-sub ::digest-loading?
+  {:doc "Is a reload of the digest in flight? The retry control reads it,
+  so a second click cannot queue a second request."}
+  :<- [::digest]
+  (fn [digest _] (= :loading (:status digest))))
 
 (rf/reg-sub ::article
   {:doc "One article by slug, or nil for a slug the URL invented."}
