@@ -82,7 +82,10 @@
                                " { color: rgb(9, 105, 218); }"))
               container  (container! nil)
               root       (rdc/createRoot container)
-              cleanup    (fn [] (.remove style) (.remove container) (done))]
+              ;; Cleans up; it does NOT finish. A closure that CLOSES OVER
+              ;; `done` finishes the row exactly as a literal `(done)` does
+              ;; (rf2-o0n1); the single `done` sits at the tail below.
+              cleanup    (fn [] (.remove style) (.remove container) nil)]
           (-> (act #(.render root (fr/element [chip-lib/chip {:label "Ready"}])))
               (.then (fn [_]
                        (let [label (.querySelector container "[data-part=\"label\"]")]
@@ -90,8 +93,14 @@
                          (is (= (norm "rgb(9, 105, 218)") (norm (computed label "color")))
                              "the part-targeted rule reaches the label's computed style"))
                        (act #(.unmount root))))
-              (.then (fn [_] (cleanup)))
-              (.catch (fn [e] (is false (str "mount rejected: " e)) (cleanup)))))))))
+              ;; Reports and RELEASES; it never finishes. `done` runs the whole
+              ;; remainder of the run synchronously, so a `.catch` downstream of
+              ;; a step that finished the row would claim a later namespace's
+              ;; throw as this row's and fire `done` a second time.
+              (.catch (fn [e] (is false (str "mount rejected: " e)) nil))
+              ;; Both arms cleaned up identically, so it rides the single
+              ;; trailing step: written once, run once per path.
+              (.then (fn [_] (cleanup) (done)))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; The token plane — an inline custom property resolves through var()
@@ -107,7 +116,10 @@
                           "[data-part=\"dot\"] { background-color: var(--acme-chip-accent); }")
               container  (container! nil)
               root       (rdc/createRoot container)
-              cleanup    (fn [] (.remove style) (.remove container) (done))]
+              ;; Cleans up; it does NOT finish. A closure that CLOSES OVER
+              ;; `done` finishes the row exactly as a literal `(done)` does
+              ;; (rf2-o0n1); the single `done` sits at the tail below.
+              cleanup    (fn [] (.remove style) (.remove container) nil)]
           (-> (act #(.render root (fr/element [chip-lib/chip {:label "Ready"
                                                               :accent "rgb(1, 2, 3)"}])))
               (.then (fn [_]
@@ -116,8 +128,14 @@
                          (is (= (norm "rgb(1, 2, 3)") (norm (computed dot "background-color")))
                              "the inline token resolves on the dot's computed style"))
                        (act #(.unmount root))))
-              (.then (fn [_] (cleanup)))
-              (.catch (fn [e] (is false (str "mount rejected: " e)) (cleanup)))))))))
+              ;; Reports and RELEASES; it never finishes. `done` runs the whole
+              ;; remainder of the run synchronously, so a `.catch` downstream of
+              ;; a step that finished the row would claim a later namespace's
+              ;; throw as this row's and fire `done` a second time.
+              (.catch (fn [e] (is false (str "mount rejected: " e)) nil))
+              ;; Both arms cleaned up identically, so it rides the single
+              ;; trailing step: written once, run once per path.
+              (.then (fn [_] (cleanup) (done)))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; The cascade — a theme switch recolours without a re-render
@@ -136,7 +154,10 @@
                                " [data-theme=\"dark\"]  { --acme-chip-bg: rgb(20, 20, 20); }"))
               container  (container! "light")
               root       (rdc/createRoot container)
-              cleanup    (fn [] (.remove style) (.remove container) (done))]
+              ;; Cleans up; it does NOT finish. A closure that CLOSES OVER
+              ;; `done` finishes the row exactly as a literal `(done)` does
+              ;; (rf2-o0n1); the single `done` sits at the tail below.
+              cleanup    (fn [] (.remove style) (.remove container) nil)]
           (-> (act #(.render root (fr/element [chip-lib/chip {:label "Ready"}])))
               (.then (fn [_]
                        (let [before (.querySelector container "[data-component=\"acme/chip\"]")]
@@ -150,5 +171,11 @@
                            (is (identical? before after)
                                "the same DOM node — the switch re-rendered nothing")))
                        (act #(.unmount root))))
-              (.then (fn [_] (cleanup)))
-              (.catch (fn [e] (is false (str "mount rejected: " e)) (cleanup)))))))))
+              ;; Reports and RELEASES; it never finishes. `done` runs the whole
+              ;; remainder of the run synchronously, so a `.catch` downstream of
+              ;; a step that finished the row would claim a later namespace's
+              ;; throw as this row's and fire `done` a second time.
+              (.catch (fn [e] (is false (str "mount rejected: " e)) nil))
+              ;; Both arms cleaned up identically, so it rides the single
+              ;; trailing step: written once, run once per path.
+              (.then (fn [_] (cleanup) (done)))))))))
