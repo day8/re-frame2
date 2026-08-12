@@ -16,10 +16,21 @@
 
   **One effect with empty deps owns the instance's whole lifetime; every
   other effect only ever TELLS it something.** [[spark-island]] is that
-  sentence as code, and the two sabotage directions recorded on the PR are
-  what say the sentence is load-bearing rather than decorative — the
-  acquire effect's `#js []` is not a micro-optimisation, it is the
-  idempotence.
+  sentence as code, and both halves were sabotaged to prove the sentence
+  is load-bearing rather than decorative.
+
+  Taking the release out of the cleanup reds seven of the eight rows below
+  — including [[after-teardown-the-outside-world-reaches-nothing]], where a
+  torn-down page's chart keeps receiving real `window` events and writing
+  real intents into app-db. Widening the acquire effect's deps to `#js
+  [data]` reds exactly ONE, and that asymmetry is the point: the widened
+  version leaks nothing, balances perfectly, and paints correctly
+  throughout, so every count-based row walks straight past it. Only
+  [[one-mount-is-one-acquisition-and-every-update-is-told-not-rebuilt]] —
+  which reads the instance's IDENTITY — can see it. The `#js []` is not a
+  micro-optimisation; it is the idempotence, and that row is the only
+  thing standing between an author and an editor that silently loses its
+  selection on every keystroke.
 
   ## The doors, and the one thing that is a stand-in
 
@@ -591,7 +602,12 @@
                             that move nothing at all. Every one of them mints
                             a fresh `h/hfn` at `:on-pick`, which is the
                             standing rule and the exact input that would
-                            defeat a dependency-bearing acquire effect"
+                            defeat a dependency-bearing acquire effect.
+                            (React coalesces the four concurrent renders into
+                            fewer commits, so this is not four data
+                            transitions — it does not need to be. One is
+                            enough to rebuild an instance that must not be
+                            rebuilt.)"
                     (rerender! handle [screen {:data "v1"}])
                     (rerender! handle [screen {:data "v1"}])
                     (rerender! handle [screen {:data "v2"}])
@@ -600,9 +616,11 @@
                         "the last update reached the instance")))
               (.then
                 (fn [_]
-                  (testing "the instance is the one mount built. Narrowing
-                            caught: `#js [data]` on the acquire effect —
-                            balanced, leak-free, and it answers 3 here"
+                  (testing "the instance is the one mount built, by IDENTITY
+                            and not merely by count. Narrowing caught: `#js
+                            [data]` on the acquire effect, which is balanced,
+                            leak-free, correct on screen, and reads 2 acquired
+                            / 1 released / a DIFFERENT id here — measured"
                     (is (= 1 @!acquired))
                     (is (= 0 @!released))
                     (is (= #{@!id-at-mount} (ids))))
@@ -949,7 +967,9 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest the-declared-population-was-actually-exercised
-  (testing "every mechanism this file claims to drive was driven"
-    (is (= declared-population (set/intersection declared-population @!exercised))
-        (str "not exercised: "
-             (pr-str (set/difference declared-population @!exercised))))))
+  (if-not (mount/browser?)
+    (skip! ":node-test reaches none of the mechanisms")
+    (testing "every mechanism this file claims to drive was driven"
+      (is (= declared-population (set/intersection declared-population @!exercised))
+          (str "not exercised: "
+               (pr-str (set/difference declared-population @!exercised)))))))
