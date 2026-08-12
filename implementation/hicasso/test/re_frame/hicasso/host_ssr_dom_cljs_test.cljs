@@ -657,8 +657,20 @@
   reported — plus the HTML it hydrated FROM, because a row that only
   reads the settled DOM cannot tell a policy that worked from a policy
   that was never applied on either side. Shared by the two policies
-  because the difference between them is the markup, not the procedure."
-  [hiccup after]
+  because the difference between them is the markup, not the procedure.
+
+  THE ROW OWNS `done`, and `after` is assertion-only — merged-PR audit
+  #7966 named this exact shape in the native tier's suite, and THIS file
+  had it too. `cljs.test/run-block` continues the remainder of the run
+  SYNCHRONOUSLY from the `done` call, so while `after` called `done`
+  itself, the `finally` below ran only once that whole continuation
+  returned: this suite's `console.error` interception and its React root
+  stayed live under every namespace that followed. Measured rather than
+  reasoned — `native-ssr-dom-cljs-test`'s `the-next-row-sees-no-residue`
+  read a wrapped `console.error` still standing four namespaces later,
+  and that control is what found this. Assert, then restore/unmount/
+  remove/reset, then `done` as the last act with nothing after it."
+  [hiccup done after]
   (fresh!)
   (reset! !renders 0)
   (let [html      (server-html hiccup)
@@ -676,7 +688,8 @@
               (restore)
               (.unmount root)
               (when-some [p (.-parentNode container)] (.removeChild p container))
-              (collector/reset-runtime!))))
+              (collector/reset-runtime!)
+              (done))))
         150))))
 
 (deftest client-only-hydrates-with-nothing-there-and-mounts-after-adoption
@@ -685,6 +698,7 @@
       (do (skip! ":node-test has no DOM") (done))
       (hydration-row
         [client-only-page {}]
+        done
         (fn [container seen html]
           (is (not (re-find #"class=\"chart\"" html))
               (str "the markup hydrated FROM has no host region in it — the "
@@ -703,8 +717,7 @@
               "with the server's own markup still in place around it —
                adoption, not a re-render of the page")
           (is (pos? @!renders)
-              "the component ran on the client, and only on the client")
-          (done))))))
+              "the component ran on the client, and only on the client"))))))
 
 (deftest a-fallback-hydrates-as-the-placeholder-and-is-swapped-after-adoption
   (async done
@@ -712,6 +725,7 @@
       (do (skip! ":node-test has no DOM") (done))
       (hydration-row
         [fallback-page {}]
+        done
         (fn [container seen html]
           (is (re-find #"chart-skeleton" html)
               (str "the markup hydrated FROM carries the declared fallback: "
@@ -723,8 +737,7 @@
           (is (nil? (q container ".chart-skeleton"))
               "and the placeholder is GONE after adoption")
           (is (some? (q container ".chart"))
-              "replaced by the foreign component")
-          (done))))))
+              "replaced by the foreign component"))))))
 
 (deftest a-render-crossing-hydrates-once-and-never-remounts
   (async done
@@ -734,6 +747,7 @@
         (reset! !child-mounts 0)
         (hydration-row
           [counted-provider-page {}]
+          done
           (fn [container seen html]
             (is (re-find #"THE ENTIRE APPLICATION" html)
                 (str "the markup hydrated FROM carries the provider's whole
@@ -763,5 +777,4 @@
                       other than the component swaps the position's element
                       TYPE at adoption, and React reconciles a position by
                       type — so it would read 2 here. Read "
-                     @!child-mounts))
-            (done)))))))
+                     @!child-mounts))))))))
