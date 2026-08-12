@@ -132,9 +132,9 @@
                      (is (false? (boolean (:palette-open? (rf/app-db-value :rf/xray))))
                          ":rf/xray's :palette-open? flips to false")
                      (is (nil? (:palette-open? (rf/app-db-value :rf/default)))
-                         ":rf/default's db is NOT polluted by the dispatch")
-                     (done)))
-            (.catch (fn [e] (is false (.-message e)) (done))))))))
+                         ":rf/default's db is NOT polluted by the dispatch")))
+            (.catch (fn [e] (is false (.-message e)) nil))
+            (.then (fn [_] (done))))))))
 
 (deftest esc-keydown-closes-palette-from-default-frame-context
   (testing "rf2-w8lxg — Esc keydown on the palette input from OUTSIDE
@@ -152,9 +152,9 @@
                      (is (false? (boolean (:palette-open? (rf/app-db-value :rf/xray))))
                          ":rf/xray's :palette-open? flips to false")
                      (is (nil? (:palette-open? (rf/app-db-value :rf/default)))
-                         ":rf/default's db is NOT polluted by Esc dispatch")
-                     (done)))
-            (.catch (fn [e] (is false (.-message e)) (done))))))))
+                         ":rf/default's db is NOT polluted by Esc dispatch")))
+            (.catch (fn [e] (is false (.-message e)) nil))
+            (.then (fn [_] (done))))))))
 
 (deftest arrow-down-keydown-moves-cursor-from-default-frame-context
   (testing "rf2-w8lxg — ArrowDown keydown on the palette input from
@@ -176,9 +176,9 @@
                      (is (pos? (or (:palette-cursor (rf/app-db-value :rf/xray)) 0))
                          ":rf/xray's :palette-cursor advances after ArrowDown")
                      (is (nil? (:palette-cursor (rf/app-db-value :rf/default)))
-                         ":rf/default's db is NOT polluted by the cursor dispatch")
-                     (done)))
-            (.catch (fn [e] (is false (.-message e)) (done))))))))
+                         ":rf/default's db is NOT polluted by the cursor dispatch")))
+            (.catch (fn [e] (is false (.-message e)) nil))
+            (.then (fn [_] (done))))))))
 
 (deftest arrow-up-keydown-routes-to-xray-frame
   (testing "rf2-w8lxg — ArrowUp keydown also routes through the
@@ -199,9 +199,9 @@
                      (is (< (or (:palette-cursor (rf/app-db-value :rf/xray)) 0) 2)
                          ":rf/xray's :palette-cursor decrements after ArrowUp")
                      (is (nil? (:palette-cursor (rf/app-db-value :rf/default)))
-                         ":rf/default's db is NOT polluted by ArrowUp")
-                     (done)))
-            (.catch (fn [e] (is false (.-message e)) (done))))))))
+                         ":rf/default's db is NOT polluted by ArrowUp")))
+            (.catch (fn [e] (is false (.-message e)) nil))
+            (.then (fn [_] (done))))))))
 
 (deftest input-on-change-updates-query-from-default-frame-context
   (testing "rf2-w8lxg — typing into the palette input from OUTSIDE the
@@ -221,6 +221,6 @@
                      (is (= "search" (:palette-query (rf/app-db-value :rf/xray)))
                          ":rf/xray's :palette-query reflects the typed text")
                      (is (nil? (:palette-query (rf/app-db-value :rf/default)))
-                         ":rf/default's db is NOT polluted by typing")
-                     (done)))
-            (.catch (fn [e] (is false (.-message e)) (done))))))))
+                         ":rf/default's db is NOT polluted by typing")))
+            (.catch (fn [e] (is false (.-message e)) nil))
+            (.then (fn [_] (done))))))))

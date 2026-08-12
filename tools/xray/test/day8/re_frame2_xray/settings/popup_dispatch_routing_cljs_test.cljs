@@ -117,9 +117,9 @@
                      (is (false? (boolean (:settings-open? (rf/app-db-value :rf/xray))))
                          ":rf/xray's :settings-open? flips to false")
                      (is (nil? (:settings-open? (rf/app-db-value :rf/default)))
-                         ":rf/default's db is NOT polluted by the dispatch")
-                     (done)))
-            (.catch (fn [e] (is false (.-message e)) (done))))))))
+                         ":rf/default's db is NOT polluted by the dispatch")))
+            (.catch (fn [e] (is false (.-message e)) nil))
+            (.then (fn [_] (done))))))))
 
 (deftest backdrop-click-closes-modal-from-default-frame-context
   (testing "rf2-smvvz — clicking the backdrop from OUTSIDE the
@@ -135,9 +135,9 @@
                             "settings-open? flips false after backdrop click")
             (.then (fn [_]
                      (is (false? (boolean (:settings-open? (rf/app-db-value :rf/xray))))
-                         ":rf/xray's :settings-open? flips to false")
-                     (done)))
-            (.catch (fn [e] (is false (.-message e)) (done))))))))
+                         ":rf/xray's :settings-open? flips to false")))
+            (.catch (fn [e] (is false (.-message e)) nil))
+            (.then (fn [_] (done))))))))
 
 (deftest esc-keydown-closes-modal-from-default-frame-context
   (testing "rf2-smvvz — Esc keydown from OUTSIDE the :rf/xray frame-
@@ -152,9 +152,9 @@
                             "settings-open? flips false after Esc")
             (.then (fn [_]
                      (is (false? (boolean (:settings-open? (rf/app-db-value :rf/xray))))
-                         ":rf/xray's :settings-open? flips to false")
-                     (done)))
-            (.catch (fn [e] (is false (.-message e)) (done))))))))
+                         ":rf/xray's :settings-open? flips to false")))
+            (.catch (fn [e] (is false (.-message e)) nil))
+            (.then (fn [_] (done))))))))
 
 (deftest tab-click-switches-section-from-default-frame-context
   (testing "rf2-smvvz — clicking a tab button from OUTSIDE the
@@ -179,6 +179,6 @@
                      (is (= :buffer (:settings-active-tab (rf/app-db-value :rf/xray)))
                          "tab click flips :settings-active-tab to :buffer")
                      (is (nil? (:settings-active-tab (rf/app-db-value :rf/default)))
-                         ":rf/default's db is NOT polluted by the tab dispatch")
-                     (done)))
-            (.catch (fn [e] (is false (.-message e)) (done))))))))
+                         ":rf/default's db is NOT polluted by the tab dispatch")))
+            (.catch (fn [e] (is false (.-message e)) nil))
+            (.then (fn [_] (done))))))))

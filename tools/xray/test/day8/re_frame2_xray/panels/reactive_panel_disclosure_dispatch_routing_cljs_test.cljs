@@ -144,9 +144,9 @@
                            "the dim memo-hit row list now renders")
                        (is (seq (th/find-by-testid-prefix
                                   tree2 "rf-xray-reactive-unchanged-row-__user_name_"))
-                           "a memo-hit row renders after expand (readable slug stem, injective suffix)"))
-                     (done)))
-            (.catch (fn [e] (is false (.-message e)) (done))))))))
+                           "a memo-hit row renders after expand (readable slug stem, injective suffix)"))))
+            (.catch (fn [e] (is false (.-message e)) nil))
+            (.then (fn [_] (done))))))))
 
 ;; ---- Settings pin expands (the configured axis, alone) -----------------
 
@@ -191,6 +191,6 @@
                      (is (true? (boolean (:reactive/show-unchanged? (rf/app-db-value :rf/xray))))
                          "instance A's disclosure expanded")
                      (is (false? (boolean (:reactive/show-unchanged? (rf/app-db-value :xray-cell-2))))
-                         "instance B is untouched — driving A did not move B")
-                     (done)))
-            (.catch (fn [e] (is false (.-message e)) (done))))))))
+                         "instance B is untouched — driving A did not move B")))
+            (.catch (fn [e] (is false (.-message e)) nil))
+            (.then (fn [_] (done))))))))
