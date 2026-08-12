@@ -17,14 +17,28 @@
   re-commits. The recipes' experiment would test green here while proving
   nothing.
 
-  What is left is the case the module cannot repair on its own:
+  What is left is the case nothing else on the page can repair:
   [[a-foreign-write-with-no-session-open-is-repaired-by-the-revision-and-by-nothing-else]].
   A password manager, an extension or an autofill writes into an
   untouched box; no draft exists, no `app-db` value moves, so nothing the
-  field reads changes and nothing re-renders. A revision bump is the only
-  thing left that can re-assert the model — which is exactly what the
-  prop is for, and the row builds the arrangement where it is the only
-  candidate rather than one of several.
+  field reads changes and nothing re-renders.
+
+  That row carries a CONTROL ARM rather than a comment, because the first
+  draft of it did not and was green for the wrong reason. It asserted
+  that deleting `::h/revision` from the element the module emits would
+  red it; the deletion was run, and the row stayed green — the caller's
+  revision is also a PROP of the boundary, so a bump re-renders the field
+  whether or not the prop is forwarded on to the `<input>`. The scope of
+  what the module can decide here is therefore narrower than it looked,
+  and [[constant-field]] is what makes it decidable: two fields, one page,
+  one prop of difference, and the reset visible on exactly one of them.
+
+  The other half — that forwarding the trigger to the element guarantees
+  a commit through a `React.memo` wall — is the ELEMENT's law (HD-019),
+  and `revision_dom_cljs_test` owns it, states its limit in terms (*the
+  revision guarantees a commit through the wall; it is not the only
+  source of one*) and proves it against a real wall. Nothing here
+  restates it.
 
   ## Browser lane
 
@@ -99,14 +113,37 @@
     :class       "title"
     :placeholder "What needs doing?"}])
 
+(h/defview constant-field
+  "THE CONTROL ARM, and the whole reason the revision row below can fail.
+
+  The chapter blesses a constant revision for a field that will never be
+  externally reset — *that choice means an active draft is never replaced
+  merely because `:value` changed*. This call site takes it: a literal
+  `0`, and no read of `::title-revision` anywhere in its body.
+
+  It sits beside [[title-field]] on the same page, over the same module,
+  reading the same committed value, differing in exactly one prop. So
+  when the revision moves and one box re-baselines while the other keeps
+  its drift, the difference between them is the revision and cannot be
+  anything else."
+  [{:keys [id]}]
+  [forms/buffered-field
+   {:control     [:todo id :constant]
+    :value       (h/sub [::title id])
+    ::h/revision 0
+    :on-commit   [::title-committed id]
+    :id          "todo-constant"
+    :class       "constant"}])
+
 (h/defview screen
-  "The field, and a switch that takes it off the page — its own boundary,
-  so toggling the switch does not re-render the field's parent for a
-  reason unrelated to the field."
+  "Both fields, and a switch that takes the first off the page. The switch
+  is read HERE and nowhere else, so toggling it re-renders this body
+  alone."
   [_]
   [:main.screen
    (when (h/sub [::showing?])
-     [title-field {:id todo}])])
+     [title-field {:id todo}])
+   [constant-field {:id todo}]])
 
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture
@@ -131,6 +168,7 @@
   (is true (str "a mounted buffered field needs a real React DOM — " why)))
 
 (defn- field [m] (.querySelector (:container m) "#todo-title"))
+(defn- constant [m] (.querySelector (:container m) "#todo-constant"))
 
 (defn- value-setter []
   (.-set (js/Object.getOwnPropertyDescriptor js/HTMLInputElement.prototype "value")))
@@ -273,38 +311,59 @@
         (finish m done)))))
 
 (deftest a-foreign-write-with-no-session-open-is-repaired-by-the-revision-and-by-nothing-else
-  ;; THE EXPERIMENT. It is written so it can fail.
+  ;; THE EXPERIMENT, and it carries its own control arm so it can fail
+  ;; without anybody editing the module.
   ;;
-  ;; Everywhere else in this module the record's own subscription does the
-  ;; work: ending a session moves a value the field reads, so the boundary
+  ;; Everywhere else here the record's own subscription does the work:
+  ;; ending a session moves a value the field reads, so the boundary
   ;; re-renders and the commit re-asserts the model for free. This is the
-  ;; one arrangement where that is not true — no session ever opened, and
-  ;; the caller moves NOTHING except the revision. If the box repaired
-  ;; itself here without the prop, `buffered-field` would be forwarding
-  ;; `::h/revision` for nothing and the honest deliverable would be to say
-  ;; so.
+  ;; one arrangement where nothing does — no session ever opened, and the
+  ;; caller moves NOTHING except the revision.
+  ;;
+  ;; Two fields, side by side over the same module, differing in one prop:
+  ;; `title-field` reads the revision, `constant-field` passes a literal
+  ;; `0`. Both are drifted; the revision then moves. If the reset were
+  ;; coming from anywhere else on the page, both boxes would repair and
+  ;; this row would red on the control.
+  ;;
+  ;; THE SCOPE IS THE CALLER'S PROP, and it is worth naming exactly.
+  ;; Forwarding `::h/revision` on to the `<input>` is the ELEMENT's law
+  ;; (HD-019), it guarantees a commit through a `React.memo` wall, and it
+  ;; is owned and proved by `revision_dom_cljs_test` — which also states
+  ;; the limit this row respects: *the revision guarantees a commit
+  ;; through the wall; it is not the only source of one*. Inside a
+  ;; boundary tree there is no wall between these two views, so what this
+  ;; row decides is the half that belongs to the module — whether the
+  ;; caller's revision reaching a `buffered-field` resets it.
   (async done
     (if-not (browser?)
       (do (skip! "a foreign write React never saw") (done))
       (let [m (mount!)
-            n (field m)]
+            n (field m)
+            c (constant m)]
+        (is (= committed (.-value n)))
+        (is (= committed (.-value c)) "both boxes start on the model")
         (drift! n "autofilled@example.com")
-        (is (= "autofilled@example.com" (.-value n))
-            "the box now disagrees with the model, and React does not know")
-        (is (nil? (record-of m)) "no session — nothing here is a draft")
+        (drift! c "autofilled@example.com")
+        (is (nil? (record-of m)) "no session — neither box holds a draft")
         (hm/settle! m)
         (is (= "autofilled@example.com" (.-value n))
-            "and settling alone does not repair it: no subscription moved,
-             so no boundary re-rendered")
+            "settling alone repairs nothing: no subscription moved, so no
+             boundary re-rendered")
+        (is (= "autofilled@example.com" (.-value c)))
         (send! m [::bump-revision todo])
         (hm/settle! m)
         (is (= committed (.-value n))
             "the revision is the only thing that changed, and it is what
-             put the model back over the box. Delete `::h/revision` from
-             the field's props and this row reds holding the autofilled
-             text")
+             put the model back over the box")
+        (is (= "autofilled@example.com" (.-value c))
+            "THE CONTROL. Same page, same module, same committed value,
+             same turn — and its revision did not move, so nothing reset
+             it. Take the difference away and the row above is green for a
+             reason that has nothing to do with the prop")
         (is (= committed (title-of m)) "with the model itself untouched")
-        (is (identical? n (field m)) "and no remount")
+        (is (identical? n (field m)) "and no remount, on either box")
+        (is (identical? c (constant m)))
         (finish m done)))))
 
 (deftest a-draft-survives-the-field-leaving-the-page-and-coming-back
