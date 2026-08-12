@@ -35,6 +35,16 @@
   also drives them apart on purpose, so the gate is known to be able to
   fail.
 
+  **It is MARKUP equality under `renderToStaticMarkup`, not mounted-DOM
+  equality**, and the two must not be read as one. A server render
+  settles the element tree the two arms build and the attributes React
+  writes from it; it says nothing about a mounted node's properties,
+  its caret, or what a commit does — the axes on which a controlled
+  field and a native input genuinely differ, and on which this pair is
+  NOT claimed equal. The browser lane decides a mounted-DOM claim and
+  this file makes none; the clock arm takes that equality through
+  `lane/canonical` when it takes the clock (`rf2-5yn9`).
+
   ## The deterministic delta — what a direct return does NOT do
 
   The four surfaces the spec says native semantics begin inside of, each
