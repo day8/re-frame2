@@ -683,13 +683,13 @@ points here, and here is what each is waiting on.
   `rf2-hic-071` names them as the beads it extends over, which is the same
   statement from the other side.
 - **`C5` and `C6` are rules whose readings have been dispositioned, and the
-  rules have not.** `C5` is the shell rule; its evidence is `S1` and `S2`, and
-  §5.2 above carries that reading red. `C6` is the per-read rule; its evidence
-  is `S3` and `S4`, and §6 above leaves the `S3` move open to `rf2-hic-070`.
-  Neither section adjudicates the *rule*, only the readings under it, so the
-  two rows point here rather than borrowing a disposition that was not made
-  about them. `C5` is settled the day a shell arm lands under `1,024 B` on the
-  package; `C6` the day the K3 record is taken.
+  rules have not.** `C5` is the shell rule; its evidence is `S1` and `S2`,
+  carried red by the substrate decision's §5.2. `C6` is the per-read rule; its
+  evidence is `S3` and `S4`, and that page's §6 leaves the `S3` move open to
+  `rf2-hic-070`. Neither section adjudicates the *rule*, only the readings
+  under it, so the two rows point here rather than borrowing a disposition
+  that was not made about them. `C5` is settled the day a shell arm lands
+  under `1,024 B` on the package; `C6` the day the K3 record is taken.
 
 ### 9.3 Where this ledger stops and rf2-hic-071 begins
 
