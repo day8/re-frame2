@@ -27,8 +27,12 @@
 
   Nothing here is an SSR claim. A native component's server policy is
   `n/defcomponent`'s declaration (`{:server :render}` / Client-only) and
-  its enforcement is rf2-hic-046's; this file uses the server renderer as
-  an instrument, exactly as the fence suite does."
+  its enforcement is `re-frame.hicasso.native-ssr-dom-cljs-test`'s; this
+  file uses the server renderer as an instrument, exactly as the fence
+  suite does. The islands below therefore DECLARE `{:server :render}`,
+  because since rf2-hic-046 the policy decides whether a body runs on
+  the server at all — an undeclared island is Client-only, so this
+  instrument would read every row below as an empty string."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as uix-adapter]
             [re-frame.core :as rf]
@@ -65,12 +69,20 @@
   (atom nil))
 
 (n/defcomponent reader
-  "Reads one subscription, and nothing else."
+  "Reads one subscription, and nothing else.
+
+  `{:server :render}` because the harness below is the server renderer
+  and the policy is now READ (rf2-hic-046): a Client-only island's body
+  does not run there, so the instrument needs the declaration. That is
+  the policy working rather than a concession to the test."
+  {:server :render}
   [^js props]
   (n/$ :span nil (str (n/use-sub [::price (.-sym props)]))))
 
 (n/defcomponent framed
-  "Takes the frame-locked ops and reports the frame it was locked to."
+  "Takes the frame-locked ops and reports the frame it was locked to.
+  `{:server :render}` for [[reader]]'s reason."
+  {:server :render}
   [^js _props]
   (let [ops (n/use-frame)]
     (reset! !observed-ops ops)
