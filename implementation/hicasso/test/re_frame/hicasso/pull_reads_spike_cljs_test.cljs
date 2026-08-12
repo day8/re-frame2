@@ -9,9 +9,10 @@
   correlated and independent churn.*
 
   **The criteria were pre-registered before anything was measured**, in
-  `docs/design/hicasso/product/pull-shaped-reads-verdict.md`, committed
-  on this branch at `dd41c7ad6c` with its verdict section deliberately
-  empty. This file is the measurement; that page is the record. A
+  `docs/design/hicasso/product/pull-shaped-reads-verdict.md` — the FIRST
+  commit on this branch, touching that page alone and leaving its verdict
+  section empty. This file arrives in the second commit and its readings
+  in the third. That page is the record; this file is the measurement. A
   comparator whose criteria are chosen after the numbers is a
   rationalisation rather than a spike, so the ordering is a fact in the
   history rather than a claim in a docstring.
