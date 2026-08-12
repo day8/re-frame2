@@ -30,6 +30,7 @@
 
 const { chromium } = require('playwright');
 const {
+  classifyTrustedInputRequest,
   createDiagnosticBuffer,
   findFixtureAbort,
   formatCompactSummary,
@@ -353,6 +354,99 @@ async function serviceEvidenceGcRequest(page, diagnostics) {
   }, { key: EVIDENCE_GC_REQUEST, token: request.token, supported, error });
 }
 
+// ---------------------------------------------------------------------------
+// rf2-il7b — TRUSTED KEYBOARD INPUT: the one thing a page cannot do to itself
+// ---------------------------------------------------------------------------
+//
+// WHAT WAS MISSING, precisely. `:on-key-down` is a React handler, and React
+// delivers a synthetic keydown to it exactly as it delivers a trusted one —
+// which is why `combobox-keyboard-dom-cljs-test` drives arrows and Enter for
+// real from inside the page. What a page cannot synthesise is the ENGINE'S
+// OWN DEFAULT ACTION: `new KeyboardEvent('keydown', {key: 'Tab'})` is
+// delivered, is cancelable, returns `true` from `dispatchEvent` — and moves
+// focus nowhere, because `isTrusted` is false and default actions are the
+// half of an event the page is not allowed to forge. Same for Escape against
+// a modal `<dialog>`: the listener fires, `cancel` does not, and the dialog
+// stays open. Measured in this repo's own Chromium, both arms, and the two
+// suites below now carry the measurement rather than a sentence about it.
+//
+// SAME SHAPE AS THE GC BRIDGE ABOVE, deliberately. The page publishes a
+// request on a well-known key and awaits an acknowledgement; the runner reads
+// it with `page.evaluate`, performs the one Playwright control the page has
+// no reach to, and writes the outcome back. It is likewise NOT a general page
+// RPC channel: the only thing it will do is press keys.
+//
+// ORDERING IS FREE, and worth naming because it is the reason the page needs
+// no settle of its own after a press. `page.keyboard.press` dispatches through
+// CDP into the renderer, and the acknowledging `page.evaluate` is queued into
+// that SAME renderer afterwards — so by the time the row resumes, the engine
+// has already run the key's default action. A bridge that acked through an
+// in-page timer would not have that guarantee.
+const TRUSTED_INPUT_REQUEST = '__RF2_TOOL_TRUSTED_INPUT_REQUEST__';
+// Published before any page script, so a suite can tell "no bridge here" from
+// "the bridge is slow". A row that cannot press a real key must SAY so rather
+// than pass quietly — the three suites this bead exists for spent their whole
+// lives stating that gap honestly, and an unwitnessed green would be a worse
+// outcome than the gap was.
+const TRUSTED_INPUT_BRIDGE = '__RF2_TOOL_TRUSTED_INPUT_BRIDGE__';
+
+// The in-page half of the read: report the published value's SHAPE, because
+// `ack` is a function and cannot cross the boundary. What the shape MEANS is
+// `classifyTrustedInputRequest`'s, which is pure and unit-tested in Node.
+const TRUSTED_INPUT_PROBE = (key) => {
+  const value = globalThis[key];
+  if (value == null) return { present: false };
+  return {
+    present: true,
+    token: typeof value.token === 'string' ? value.token : null,
+    tokenType: typeof value.token,
+    keys: Array.isArray(value.keys) ? value.keys.map((k) => String(k)) : null,
+    keysType: Array.isArray(value.keys) ? 'array' : typeof value.keys,
+    ackType: typeof value.ack,
+  };
+};
+
+// Serve one pending trusted-input request, if there is one. Returns the
+// classification so the poll loop can stop on the terminal case.
+async function serviceTrustedInputRequest(page, diagnostics, state) {
+  const descriptor = await page.evaluate(TRUSTED_INPUT_PROBE, TRUSTED_INPUT_REQUEST);
+  const request = classifyTrustedInputRequest(descriptor);
+  if (request.kind === 'idle') return request;
+  if (request.kind === 'malformed') {
+    state.faults.push(request.reason);
+    return request;
+  }
+
+  let pressed = 0;
+  let error = null;
+  try {
+    for (const key of request.keys) {
+      await page.keyboard.press(key);
+      pressed += 1;
+    }
+  } catch (err) {
+    error = err && err.message ? err.message : String(err);
+  }
+  state.served += 1;
+  state.presses += pressed;
+  diagnostics.add(
+    `[browser:input] trusted token=${request.token} ` +
+      `pressed=${pressed}/${request.keys.length} [${request.keys.join(' ')}]` +
+      `${error ? ` error=${error}` : ''}`,
+  );
+
+  // A press that THREW is acknowledged with its error rather than withheld:
+  // the row resumes and reds on the spot, naming the engine's complaint. Only
+  // a request that cannot be acknowledged at all is terminal.
+  await page.evaluate(({ key, token, pressed: n, error: message }) => {
+    const value = globalThis[key];
+    if (!value || value.token !== token) return;
+    delete globalThis[key];
+    if (typeof value.ack === 'function') value.ack({ pressed: n, error: message });
+  }, { key: TRUSTED_INPUT_REQUEST, token: request.token, pressed, error });
+  return request;
+}
+
 // rf2-mwx08: capture the `ran` + `failErr` lines as an ATOMIC pair from
 // a single source. summaryPartsFromText now only ever yields a non-null
 // `failErr` together with the `Ran ...` line it directly follows, so the
@@ -415,6 +509,12 @@ async function main() {
     await page.addInitScript((key) => {
       globalThis[key] = true;
     }, EVIDENCE_GC_CANONICAL);
+    // rf2-il7b: declare the trusted-input bridge before any page script, so a
+    // suite that needs a real key press can tell this runner from one that
+    // would leave it waiting forever.
+    await page.addInitScript((key) => {
+      globalThis[key] = true;
+    }, TRUSTED_INPUT_BRIDGE);
 
     // Capture every console line so we can scan for the cljs.test summary.
     // Flush the buffer only on failure or RF2_VERBOSE_TESTS=1.
@@ -436,6 +536,13 @@ async function main() {
     // the poll loop rather than after it: there is no summary coming, so
     // waiting for one only converts a diagnosable failure into a timeout.
     const fixtureAborts = [];
+    // rf2-il7b: the trusted-input bridge's own ledger. `faults` is the second
+    // TERMINAL class this loop knows — a published request the runner cannot
+    // acknowledge leaves the row that published it awaiting an answer that
+    // will never come, so waiting for a summary only converts a diagnosable
+    // failure into a timeout. Same reasoning as `fixtureAborts`, different
+    // cause. `served` / `presses` are diagnostics, not a verdict.
+    const trustedInput = { served: 0, presses: 0, faults: [] };
     diagnostics.add(`URL: ${URL}`);
     page.on('console', (msg) => {
       const text = msg.text();
@@ -511,6 +618,13 @@ async function main() {
       // this acknowledgement arrives.
       await serviceEvidenceGcRequest(page, diagnostics);
 
+      // rf2-il7b: likewise serve a pending TRUSTED key press before looking
+      // for the summary — the row that asked for it is suspended until the
+      // acknowledgement lands, so a loop that looked first and pressed later
+      // would be waiting on a run that is waiting on it.
+      await serviceTrustedInputRequest(page, diagnostics, trustedInput);
+      if (trustedInput.faults.length > 0) break;
+
       // 1. window flag
       const winPayload = await page.evaluate(() => {
         return (typeof window !== 'undefined' && window.shadow$cljs_test_done) || null;
@@ -567,6 +681,28 @@ async function main() {
             `fixtures remain fine in a namespace with no async rows.`,
         );
         for (const line of fixtureAborts) console.error(`  ${line}`);
+      } else if (trustedInput.faults.length > 0) {
+        // rf2-il7b, and the same shape as the arm above for the same reason:
+        // this run did not time out, it stopped. A row published a request on
+        // the trusted-input bridge that this runner cannot acknowledge, so the
+        // row is suspended forever and every namespace after it — plus the
+        // closing summary — is unreachable. Left unnamed it presents as a
+        // six-minute hang, which sends the reader to the timeout knob.
+        console.error(
+          `THE BROWSER RUN STALLED ON THE TRUSTED-INPUT BRIDGE — it did not ` +
+            `time out waiting for tests, it stopped waiting for a key press ` +
+            `that could never be answered (rf2-il7b).\n` +
+            `  A cljs.test row published a request on \`${TRUSTED_INPUT_REQUEST}\` ` +
+            `and suspended itself until the runner acknowledges it. The request ` +
+            `cannot be acknowledged, so the row will never resume.\n` +
+            `  ${where}\n` +
+            `  FIX: the two halves of this bridge have drifted. The page side is ` +
+            `\`re-frame.hicasso.trusted-input-support\`; the runner side is ` +
+            `\`serviceTrustedInputRequest\` in this file. Make the published ` +
+            `request \`{token: <non-empty string>, keys: <array>, ack: <fn>}\` ` +
+            `again — those three are the whole protocol.`,
+        );
+        for (const line of trustedInput.faults) console.error(`  ${line}`);
       } else if (pageErrors.length > 0) {
         // Same shape, unknown cause: the page threw and no summary followed.
         // This arm is what keeps the guard correct if the abort literal above
@@ -692,6 +828,10 @@ async function main() {
       return 1;
     }
 
+    diagnostics.add(
+      `[browser:input] trusted-input bridge served ${trustedInput.served} ` +
+        `request(s), ${trustedInput.presses} key press(es) (rf2-il7b)`,
+    );
     console.log(formatCompactSummary({
       ran: summary.ran,
       failErr: summary.failErr,

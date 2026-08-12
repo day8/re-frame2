@@ -36,6 +36,10 @@
 //   testingNamespaces(lines)    → the namespaces cljs-test-display announced,
 //                                  in order — the trail's own answer to "how
 //                                  far did the run get?" (rf2-u0j8).
+//   classifyTrustedInputRequest(descriptor)
+//                               → what the page published on the trusted-input
+//                                  bridge: nothing, a servable request, or one
+//                                  the runner cannot answer (rf2-il7b).
 // isVerboseTests(env) is the RF2_VERBOSE_TESTS=1 escape hatch shared
 // with lib/gate-report.cjs.
 
@@ -191,6 +195,55 @@ function testingNamespaces(lines) {
   return out;
 }
 
+// rf2-il7b — the trusted-input bridge's one classification, kept PURE and
+// out of the runner for the reason `findFixtureAbort` is: the runner's own
+// half needs a live Chromium, this half does not, and the case that matters
+// is the one a healthy tree never reaches.
+//
+// The page publishes `{token, keys, ack}` on a well-known global and then
+// AWAITS `ack`. So a request the runner cannot answer is not a nuisance —
+// it is TERMINAL. There is no ack to send (no token to match it against, or
+// no function to send it to), the row never resumes, the lane never reaches
+// its summary, and the whole BROWSER_TEST_TIMEOUT_MS budget burns down to
+// "Timed out ... waiting for cljs.test summary" — which names the wait
+// rather than the cause, exactly the fail-slow shape rf2-u0j8 fixed for the
+// cljs.test abort.
+//
+// `descriptor` is what the in-page probe reports about the published value:
+// deliberately a flat, serialisable summary rather than the value itself,
+// because `ack` is a function and cannot cross the boundary. The runner
+// reads the shape; this function decides what the shape MEANS.
+//
+//   { present: false }                    → 'idle'      (nothing published)
+//   { present: true, token, keys, ack }   → 'ready'     (servable)
+//   anything else                         → 'malformed' (terminal, with a reason)
+function classifyTrustedInputRequest(descriptor) {
+  if (descriptor == null || descriptor.present !== true) return { kind: 'idle' };
+
+  const bad = (reason) => ({ kind: 'malformed', reason });
+
+  if (typeof descriptor.token !== 'string' || descriptor.token === '') {
+    return bad(
+      `its \`token\` is ${descriptor.tokenType || typeof descriptor.token}, not a ` +
+        'non-empty string. The token is what pairs an acknowledgement with the ' +
+        'request that is waiting for it, so there is no way to answer this one.',
+    );
+  }
+  if (!Array.isArray(descriptor.keys)) {
+    return bad(
+      `its \`keys\` is ${descriptor.keysType || typeof descriptor.keys}, not an ` +
+        'array. The runner presses the keys in that array and has nothing to press.',
+    );
+  }
+  if (descriptor.ackType !== 'function') {
+    return bad(
+      `its \`ack\` is ${descriptor.ackType}, not a function. The request can be ` +
+        'served but its answer has nowhere to go, so the row awaiting it never resumes.',
+    );
+  }
+  return { kind: 'ready', token: descriptor.token, keys: descriptor.keys.map(String) };
+}
+
 function formatCompactSummary({ label = 'Browser tests', ran, failErr, source }) {
   const sourceSuffix = source ? ` (source: ${source})` : '';
   return `${label}: ${ran} ${failErr}${sourceSuffix}`;
@@ -226,6 +279,7 @@ module.exports = {
   FIXTURE_ABORT_RE,
   findFixtureAbort,
   testingNamespaces,
+  classifyTrustedInputRequest,
   isVerboseTests,
   summaryPartsFromText,
   parseFailureCounts,
