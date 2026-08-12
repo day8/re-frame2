@@ -39,8 +39,15 @@ THE TWO THINGS IT EXISTS TO PREVENT, stated plainly:
   row names an owner and a disposition record, and that record has to
   exist and name the row.
 
-THE SIX RULES
--------------
+THE RULES
+---------
+  L0  THE LEDGER IS READABLE AT ALL.
+                     The marker comments that delimit the table are
+                     present and every row has its eight cells. Deleting
+                     a marker is the loudest way to empty the table, and
+                     an empty table satisfies five of the six rules
+                     below vacuously — so this one is reported in the
+                     gate's own voice rather than as a traceback.
   L1  THE VOCABULARY IS CLOSED, AND ONE VALUE IS A PASS.
                      Status is `MET`, `BREACH`, `UNRESOLVED` or
                      `UNPINNED`. Only `MET` passes; this gate's own
@@ -732,4 +739,11 @@ def main(argv=None):
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    # A malformed ledger — markers deleted, a row short of a cell — is a
+    # ledger failure, not a crash, and it must arrive in the gate's own voice
+    # rather than as a traceback.  Deleting the markers is the loudest way to
+    # empty the table, so it is the shape most worth reporting well.
+    try:
+        sys.exit(main())
+    except ValueError as malformed:
+        sys.exit(report(["L0 %s" % malformed]))
