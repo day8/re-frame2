@@ -98,6 +98,15 @@
          function, called here and not copied."}
   (fn [{:keys [db]} _] (dissoc (events/dismiss-fx db) :fx)))
 
+(rf/reg-event ::typed-without-release
+  {:doc "`::events/typed` WITHOUT its release — the O2 region deleted and
+         nothing else. The keystroke's own effect map, with the one
+         `::service/abandon` entry filtered out, so the debounce it also
+         emits is untouched and the mutation is exactly the release."}
+  (fn [{:keys [db]} [_ typed]]
+    (update (events/typed-fx db typed) :fx
+            (fn [fx] (filterv #(not= ::service/abandon (first %)) fx)))))
+
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture
     {:adapter       uix-adapter/adapter
@@ -364,6 +373,27 @@
         (is (= #{} (service/outstanding))
             "the request for the term the user typed past is abandoned at
              the keystroke")))))
+
+(deftest without-the-release-the-superseded-request-runs-on
+  ;; THE CONTROL, and C2's *orphaned in-flight request after a parameter
+  ;; change*. The O2 region deleted, nothing else: the term moves, the old
+  ;; request keeps running, and the page ends up paying for two round
+  ;; trips where one read exists.
+  (with-app
+    (fn [frame]
+      (rf/with-frame frame
+        (typed! "ca")
+        (tick! 1)
+        (is (= #{1} (service/outstanding)))
+        (rf/dispatch-sync [::typed-without-release "cat"])
+        (is (= #{1} (service/outstanding))
+            "the request for `ca` is still running, and nothing on screen
+             will ever read its answer")
+        (tick! 2)
+        (is (= ["ca" "cat"] (searches)))
+        (is (= #{1 2} (service/outstanding))
+            "two requests in flight for one read — the waste this class
+             names, produced by deleting one line")))))
 
 (deftest clearing-releases-the-request-and-rebaselines-the-field
   (with-app
