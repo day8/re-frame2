@@ -572,10 +572,11 @@ async function main() {
         // This arm is what keeps the guard correct if the abort literal above
         // is ever reworded upstream — it is matcher-free.
         console.error(
-          `NO cljs.test SUMMARY, and the page emitted ${pageErrors.length} ` +
-            `uncaught error(s) — the suite did not finish (rf2-u0j8). This is an ` +
-            `ABORT, not a slow run: raising ${BROWSER_TEST_TIMEOUT_ENV_VAR} ` +
-            `(${TIMEOUT_MS}ms) will not help.\n` +
+          `THE BROWSER RUN ABORTED — no cljs.test summary, and the page emitted ` +
+            `${pageErrors.length} uncaught error(s) (rf2-u0j8). The suite STOPPED; ` +
+            `no summary was still on its way, so the wait above expired against a ` +
+            `run that had already ended. Read the error(s) below as the cause, not ` +
+            `the wait.\n` +
             `  ${where}`,
         );
         for (const line of pageErrors) console.error(`  ${line}`);

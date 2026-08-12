@@ -423,7 +423,7 @@ test('run-browser-tests: an aborted run is named as an abort, not waited out as 
   // without pinning it to a string that lives in another repository.
   assert.match(
     src,
-    /else if\s*\(\s*pageErrors\.length\s*>\s*0\s*\)\s*\{[\s\S]{0,600}?NO cljs\.test SUMMARY/,
+    /else if\s*\(\s*pageErrors\.length\s*>\s*0\s*\)\s*\{[\s\S]{0,600}?THE BROWSER RUN ABORTED/,
     'a summary-less run with page errors must be reported as an abort even when '
       + 'the abort literal did not match',
   );
