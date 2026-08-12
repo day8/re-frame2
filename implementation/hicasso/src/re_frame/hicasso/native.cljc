@@ -576,10 +576,35 @@
   the module wrapper would be a shape the author invents for React and
   then never reads. This puts it on once, where it is React's business.
 
-  Suspend and error conduct are React's whole: while the promise is
-  pending the nearest Suspense host shows its fallback, and a rejection
-  throws into the render for the nearest `h/error-boundary` to catch and
-  a `:reset-key` to retry.
+  Suspend conduct is React's whole: while the promise is pending the
+  nearest Suspense host shows its fallback, and the arrival commits the
+  component with the props the parent wrote before it existed. A
+  suspension here hides a committed sibling rather than releasing it —
+  the `useSyncExternalStore` subscription survives the fallback and the
+  arrival's registration is the same object, measured in
+  [[re-frame.hicasso.lazy-boundary-dom-cljs-test]] and established for
+  suspension generally in `activity_suspense_dom_cljs_test`.
+
+  ## A rejection is TERMINAL, and `:reset-key` does not undo it
+
+  A rejection throws into the render and the nearest `h/boundary` catches
+  it — but changing that boundary's `:reset-key` retries the BOUNDARY and
+  not the chunk. React 19's `lazyInitializer` calls `load` only while its
+  payload is uninitialised; a rejection settles that payload as rejected,
+  and every read afterwards re-throws the cached error without going near
+  the loader. The payload belongs to `react/lazy`, and neither this tier
+  nor React's public API can reset it. **This docstring claimed the
+  opposite until rf2-hic-041 measured it**, and the paint is the reason
+  it survived: a fallback that stays put looks the same whether React
+  re-threw a cached rejection or fetched again and failed again.
+
+  So the retry a failed chunk needs is a NEW HEAD — the same allocation a
+  hot reload performs, which is why the retry fact and the HMR fact have
+  one witness between them. The retryable path is the MODULE GATE:
+  `shadow.lazy/load` is an ordinary function, calling it again really
+  does fetch again, and the arrival state belongs in app-db where an
+  ordinary retry intent can reach it. Gate that event on `:loading` AND
+  `:loaded`, or warming the module from a hover will fetch it twice.
 
   ## The marker, and the one field that cannot be known yet
 
@@ -593,7 +618,14 @@
   **`:server` is `client-only` and is not the inner component's to
   override.** The server never sent the chunk, so no policy the component
   declares can make bytes exist: the region is Client-only whatever
-  `n/defcomponent` said, and the server carries the fallback.
+  `n/defcomponent` said.
+
+  **Nothing stands in for it on the server unless a DECLARATION says so.**
+  The `defhost` that crosses to this head emits server bytes only where
+  it was given a `:fallback`, and React's own Suspense fallback is not
+  that fallback — it is a prop at a ReactNode slot, and a Client-only
+  region renders nothing at all, slot included. A page that wants a
+  skeleton in its server response declares one.
 
   Declared at top level, never in a render — `React.lazy`'s own law.
   Minting inside a body allocates a fresh identity per pass, so the
