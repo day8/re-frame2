@@ -72,7 +72,8 @@
             [re-frame.hicasso.examples.ledger.vendor :as vendor]
             [re-frame.hicasso.examples.ledger.views :as views]
             [re-frame.hicasso.test.mounted :as hm]
-            [re-frame.test-support :as test-support]))
+            [re-frame.test-support :as test-support]
+            ["react-dom" :as react-dom]))
 
 ;; ---------------------------------------------------------------------------
 ;; The controls — the recipe with one rule removed each
@@ -137,8 +138,13 @@
 ;; sits below the three views above.
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture
+    ;; The MAP shape, because [[the-screen-leaves-nothing-behind]] is
+    ;; `async` and `cljs.test` aborts the WHOLE RUN — every namespace
+    ;; after this one included — on an async row under a positional
+    ;; fixture. Observed: one line of `Testing aborted.` and no summary.
     {:adapter       uix-adapter/adapter
-     :ambient-frame nil}))
+     :ambient-frame nil
+     :async?        true}))
 
 ;; ---------------------------------------------------------------------------
 ;; The instruments
@@ -177,21 +183,65 @@
 
 (defn- active [] (.-activeElement js/document))
 
-(defn- scroll-to!
-  "Scroll the viewport to model row `i` and let React commit.
+(defn- window-at
+  "The window `views/ledger`'s geometry puts on screen at model row `i`,
+  derived rather than typed — see `ledger.l0-cljs-test`, which is where
+  the arithmetic itself is held."
+  [i total]
+  (vendor/window-from (* i views/row-height)
+                      {:row-height      views/row-height
+                       :viewport-height views/viewport-height
+                       :overscan        views/overscan
+                       :total           total}))
 
-  Sets `scrollTop` and dispatches a real `scroll` event, then asserts the
-  offset STUCK — a `scrollTop` assignment to an element the engine does
-  not consider scrollable is silently ignored, and every count below
-  would then be measuring a page that never moved."
+(defn- window-size [i total]
+  (let [[from to] (window-at i total)] (inc (- to from))))
+
+(defn- scroll-to!
+  "Scroll the viewport to model row `i` and let React commit — all of it.
+
+  Three steps, and the second and third are here because the first alone
+  measures a page that has not moved yet.
+
+  1. Set `scrollTop` and assert it STUCK. A `scrollTop` assignment to an
+     element the engine does not consider scrollable is silently ignored,
+     and every count below would then be about a screen that never
+     scrolled.
+
+  2. Dispatch the `scroll` event INSIDE `flushSync`. A scroll is a
+     CONTINUOUS-priority event, so the vendor's `setState` lands in a
+     lane that `hm/settle!`'s empty `flushSync` does not flush — and the
+     first run of this file failed exactly there, reading `aria-rowindex`
+     of `1` four hundred and ninety-seven rows into the model with the
+     `scrollTop` assertion above passing. `flushSync` upgrades the
+     update to the sync lane, which is what makes the next line's DOM
+     read honest.
+
+  3. Settle twice. The window report is a PASSIVE effect: React runs it
+     after the commit that scheduled it, so the first settle is what
+     lets `on-window` dispatch and the second is what commits the status
+     line the dispatch notified. A single settle leaves the status
+     line's body run outside the measurement it belongs to."
   [m i]
   (let [^js vp (viewport-in m)
         want   (* i views/row-height)]
     (set! (.-scrollTop vp) want)
     (is (= want (.-scrollTop vp))
         "the viewport did not scroll — the instrument, not the screen")
-    (.dispatchEvent vp (js/Event. "scroll" #js {:bubbles true}))
+    (react-dom/flushSync
+      (fn [] (.dispatchEvent vp (js/Event. "scroll" #js {:bubbles true}))))
     (hm/settle! m)
+    (hm/settle! m)
+    ;; 4. And assert the WINDOW moved, not merely the offset. Steps 1 and
+    ;;    2 can both succeed while the window stands still — that is
+    ;;    exactly what the first two runs of this file did — and the
+    ;;    resulting failures land three assertions away from the cause,
+    ;;    in whichever row happened to read the DOM first.
+    (let [total    (js/parseInt (.getAttribute (grid-in m) "aria-rowcount") 10)
+          [from _] (window-at i total)]
+      (is (some? (note-node m from))
+          (str "the viewport scrolled but the window did not follow it to row "
+               from " — the instrument, not the screen")))
     m))
 
 (defn- set-native-value! [n v]
@@ -208,20 +258,6 @@
   (.focus n)
   (hm/settle! m)
   nil)
-
-(defn- window-at
-  "The window `views/ledger`'s geometry puts on screen at model row `i`,
-  derived rather than typed — see `ledger.l0-cljs-test`, which is where
-  the arithmetic itself is held."
-  [i total]
-  (vendor/window-from (* i views/row-height)
-                      {:row-height      views/row-height
-                       :viewport-height views/viewport-height
-                       :overscan        views/overscan
-                       :total           total}))
-
-(defn- window-size [i total]
-  (let [[from to] (window-at i total)] (inc (- to from))))
 
 ;; ---------------------------------------------------------------------------
 ;; The premise — every instrument below can answer, and answers non-trivially
