@@ -15,7 +15,10 @@ module.exports = {
   render({ entry }, emit) {
     if (entry === 'app/quick') {
       emit('<p>quick</p>');
-      return {};
+      // The thread id is what proves a REPLACEMENT rather than a revival:
+      // a terminated isolate is never reused, so the isolate that serves
+      // the request after a timeout must be a different thread.
+      return { meta: { threadId: require('node:worker_threads').threadId } };
     }
     // eslint-disable-next-line no-constant-condition
     while (true) {

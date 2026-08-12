@@ -34,6 +34,21 @@ class Pool {
     this.idle = [];
     this.all = new Set();
     this.waiters = [];
+    /**
+     * Replacements currently booting. `close()` waits on these before it
+     * believes it has closed anything.
+     *
+     * WITHOUT THIS THE PROCESS NEVER EXITS. A replacement is spawned
+     * asynchronously so the caller that just timed out does not wait on a
+     * worker boot — which means a `close()` racing that boot snapshots
+     * `all` before the fresh isolate joins it, closes everything it can
+     * see, and leaves a live worker thread behind holding the event loop
+     * open. The symptom is a suite that passes every assertion and then
+     * hangs forever, which reads as a broken test rather than a leaked
+     * thread. Measured, not theorised: the timeout witness hit exactly
+     * this the first time it ran.
+     */
+    this.spawning = new Set();
     this.closed = false;
     this.buildId = null;
     this.entries = null;
@@ -84,6 +99,31 @@ class Pool {
     return isolate;
   }
 
+  /**
+   * `_spawn`, tracked, and self-cancelling if the service closed while it
+   * was booting. Resolves to `null` in that case — there is a fresh
+   * isolate, and it is closed rather than offered.
+   */
+  _spawnTracked() {
+    const tracked = this._spawn().then(
+      (isolate) => {
+        this.spawning.delete(tracked);
+        if (this.closed) {
+          this.all.delete(isolate);
+          isolate.close().catch(() => {});
+          return null;
+        }
+        return isolate;
+      },
+      (err) => {
+        this.spawning.delete(tracked);
+        throw err;
+      },
+    );
+    this.spawning.add(tracked);
+    return tracked;
+  }
+
   /** An idle isolate, or a `Refusal`. Never a queue with no bottom. */
   acquire() {
     if (this.closed) {
@@ -120,8 +160,10 @@ class Pool {
       this.all.delete(isolate);
       this.replacements += 1;
       if (this.closed) return;
-      this._spawn().then(
-        (fresh) => this._offer(fresh),
+      this._spawnTracked().then(
+        (fresh) => {
+          if (fresh) this._offer(fresh);
+        },
         // A pool that cannot replace an isolate is a pool that shrinks.
         // Every waiter is refused rather than left holding a promise that
         // will only ever be settled by its own admission timer.
@@ -167,6 +209,10 @@ class Pool {
       clearTimeout(w.timer);
       w.reject(new Refusal(CODE.SERVICE_CLOSED, 'the service is closing', {}));
     }
+    // Replacements still booting close themselves (see `_spawnTracked`),
+    // but only once they finish booting — so wait for them before
+    // believing the pool is empty.
+    await Promise.allSettled([...this.spawning]);
     const all = [...this.all];
     this.all.clear();
     this.idle.length = 0;
