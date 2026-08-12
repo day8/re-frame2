@@ -165,12 +165,13 @@
   "Wait two animation frames.
 
   This is what the NEGATIVE focus rows wait on, and the wait is the row.
-  The recipe defers its focus by exactly one frame, so a row asserting
-  *focus did not move* that read `document.activeElement` on the next
-  line would be green because nothing had happened YET — the failure mode
-  the whole file is arranged against. Two frames is one more than any
-  correct implementation needs and one more than the incorrect one would
-  have taken."
+  A correct implementation moves focus on no frame at all here, and the
+  incorrect one — the recipe hung off a render, or off an attempted
+  navigation — would move it on the FIRST, because that is the deferral
+  the effect performs. So a row asserting *focus did not move* that read
+  `document.activeElement` on the next line would be green because
+  nothing had happened yet, which is the failure mode this whole file is
+  arranged against. Two frames is one more than the wrong answer needs."
   []
   (.then (next-frame) (fn [_] (next-frame))))
 
