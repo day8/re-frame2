@@ -199,13 +199,17 @@
                        (is (= "42" (text container ".count"))
                            "and the page repainted on its own — the notification
                             chain the adapter installs, end to end")
-                       (v/unmount! @mounted)
-                       (.remove container)
-                       (done)))
-              (.catch (fn [e]
-                        (is false (str "automatic-repaint arm rejected: " e))
-                        (.remove container)
-                        (done)))))))))
+                       ;; ASYMMETRIC, so it stays put: `@mounted` is only set once
+                       ;; the mount resolved, and the rejection arm never had a
+                       ;; root to unmount. The container detach both arms DID
+                       ;; share rides the single trailing step below.
+                       (v/unmount! @mounted)))
+              ;; Reports and RELEASES; it never finishes (rf2-fyba). `done` runs
+              ;; the whole remainder of the run synchronously, so a `.catch`
+              ;; downstream of it would claim a later namespace's throw as this
+              ;; row's and fire `done` a second time.
+              (.catch (fn [e] (is false (str "automatic-repaint arm rejected: " e)) nil))
+              (.then (fn [_] (.remove container) (done)))))))))
 
 (deftest a-real-click-through-a-committed-site-repaints-the-page
   (testing "The same chain driven by a real DOM click rather than a test
@@ -230,13 +234,10 @@
                        (is (= 1 (db-count)) "the click reached the frame")
                        (is (= "1" (text container ".count"))
                            "and the page shows what app-db now holds")
-                       (v/unmount! @mounted)
-                       (.remove container)
-                       (done)))
-              (.catch (fn [e]
-                        (is false (str "click arm rejected: " e))
-                        (.remove container)
-                        (done)))))))))
+                       ;; Success-only, as above.
+                       (v/unmount! @mounted)))
+              (.catch (fn [e] (is false (str "click arm rejected: " e)) nil))
+              (.then (fn [_] (.remove container) (done)))))))))
 
 ;; ===========================================================================
 ;; flush-render! returns with the page SETTLED
@@ -268,13 +269,10 @@
                        (is (= 0 (cell/pending-count))
                            "and the pending window is quiescent, not merely
                             drained-then-refilled")
-                       (v/unmount! @mounted)
-                       (.remove container)
-                       (done)))
-              (.catch (fn [e]
-                        (is false (str "flush-render! arm rejected: " e))
-                        (.remove container)
-                        (done)))))))))
+                       ;; Success-only, as above.
+                       (v/unmount! @mounted)))
+              (.catch (fn [e] (is false (str "flush-render! arm rejected: " e)) nil))
+              (.then (fn [_] (.remove container) (done)))))))))
 
 ;; ===========================================================================
 ;; Disposal — the roots first, then the spine
@@ -313,15 +311,9 @@
                            "and so was the right")
                        (is (nil? (rf/current-adapter))
                            "and the spine was disposed after the drain, not
-                            before it")
-                       (.remove left)
-                       (.remove right)
-                       (done)))
-              (.catch (fn [e]
-                        (is false (str "disposal arm rejected: " e))
-                        (.remove left)
-                        (.remove right)
-                        (done)))))))))
+                            before it")))
+              (.catch (fn [e] (is false (str "disposal arm rejected: " e)) nil))
+              (.then (fn [_] (.remove left) (.remove right) (done)))))))))
 
 (deftest unmounting-a-root-destroys-the-frame-it-owned
   (testing "The ORDERLY path, and the one that destroys a frame. A root given a
@@ -359,13 +351,9 @@
                            "and its ledger row went with it")
                        (is (= #{} (root/live-root-ids)))
                        (is (nil? (text container ".count"))
-                           "the container was emptied by a real unmount")
-                       (.remove container)
-                       (done)))
-              (.catch (fn [e]
-                        (is false (str "orderly-unmount arm rejected: " e))
-                        (.remove container)
-                        (done)))))))))
+                           "the container was emptied by a real unmount")))
+              (.catch (fn [e] (is false (str "orderly-unmount arm rejected: " e)) nil))
+              (.then (fn [_] (.remove container) (done)))))))))
 
 (deftest destroying-the-adapter-drains-a-forgotten-root-without-running-a-destroy-recipe
   (testing "The SAFETY NET, and its honest boundary. Core claims the installed
@@ -401,13 +389,9 @@
                        (is (nil? (get (root/frame-ledger-snapshot) owned))
                            "its frame reference was released and the row went")
                        (is (nil? (rf/current-adapter))
-                           "and the spine was disposed after the drain, not before")
-                       (.remove container)
-                       (done)))
-              (.catch (fn [e]
-                        (is false (str "forgotten-root drain rejected: " e))
-                        (.remove container)
-                        (done)))))))))
+                           "and the spine was disposed after the drain, not before")))
+              (.catch (fn [e] (is false (str "forgotten-root drain rejected: " e)) nil))
+              (.then (fn [_] (.remove container) (done)))))))))
 
 ;; ===========================================================================
 ;; Dispose, then re-init — a clean generation
@@ -458,17 +442,24 @@
                                                    (is (= "101" (text second-container ".count"))
                                                        "and it repaints — the new
                                                         generation's watch is live")
-                                                   (v/unmount! m)
-                                                   (.remove second-container)
-                                                   (done))))))
-                             (.catch (fn [e]
-                                       (is false (str "re-init mount rejected: " e))
-                                       (.remove second-container)
-                                       (done)))))))
+                                                   ;; Success-only: `m` is what the
+                                                   ;; mount resolved with.
+                                                   (v/unmount! m))))))
+                             (.catch (fn [e] (is false (str "re-init mount rejected: " e)) nil))
+                             ;; The inner chain finishes NOTHING. It is returned into
+                             ;; the outer one, whose trailing step owns the single
+                             ;; `done` — so a rejection in here cannot be claimed by
+                             ;; a handler sitting downstream of a `done` that ran.
+                             (.then (fn [_] (.remove second-container) nil))))))
               (.catch (fn [e]
                         (is false (str "re-init arm rejected: " e))
+                        ;; DEFENSIVE, and therefore failure-only: the success path
+                        ;; detaches this container at its own point in the sequence,
+                        ;; before the second generation mounts, so this arm is the
+                        ;; only one that can be left holding it.
                         (.remove first-container)
-                        (done)))))))))
+                        nil))
+              (.then (fn [_] (done)))))))))
 
 ;; ===========================================================================
 ;; Non-vacuity
