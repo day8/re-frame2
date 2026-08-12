@@ -3600,6 +3600,113 @@
             (finally
               (try (.unmount root) (catch :default _ nil))))))))))
 
+;; ---- the ambient hook under react-dom/server (rf2-5rqn) --------------------
+;;
+;; THE COVERAGE GAP THIS CLOSES. Every `use-subscribe` witness that exercises
+;; the AMBIENT (1-arg) form ran on the BROWSER lane — `assert-use-subscribe-
+;; frame-provider-resolution` above is wrapped in `with-browser-act`, and the
+;; only node-lane SSR row (`assert-use-subscribe-ssr-render-without-commit-
+;; nets-zero-at-the-horizon`) drives the EXPLICIT 2-arg probe. So the ambient
+;; form's server behaviour had never been executed anywhere, and an
+;; application server-rendering a UIx tree meets it on its first page.
+;;
+;; THIS ROW PINS A KNOWN DEFECT, NOT A DESIRED BEHAVIOUR. rf2-5rqn is open and
+;; names three candidate dispositions (repair / document / refuse) without
+;; picking one; picking one changes the SSR contract and is an operator
+;; ruling, so this row records what the runtime DOES today and the mechanism
+;; behind it. Whoever lands the repair should expect part 1 to go red BY
+;; DESIGN and should rewrite it to assert resolution — part 2 is the evidence
+;; that the repair is available and cheap.
+
+(defn assert-use-subscribe-ambient-under-ssr
+  "rf2-5rqn: the AMBIENT (1-arg) `use-subscribe` cannot resolve a frame under
+  `react-dom/server`, even beneath the adapter's own `frame-provider`.
+
+  Three parts, measured on the node lane under React 19.2:
+
+    1. THE SYMPTOM — an ambient `use-subscribe` inside a `frame-provider`
+       REFUSES a server render with `:rf.error/no-frame-context`, an error
+       whose own recovery ladder tells the author to establish a scope with a
+       `frame-provider` they have already established.
+
+    2. THE MECHANISM — during that same server render the shared
+       frame-context's PRIVATE `_currentValue` slot holds the no-provider
+       SENTINEL while the SECONDARY `_currentValue2` slot holds the real
+       frame, and the PUBLIC `useContext` return answers with the real frame.
+       `function-component-current-frame` (the `:adapter/current-frame`
+       reader the whole ambient chain funnels through) reads `_currentValue`,
+       classifies the sentinel as 'no scope', and the refusal follows. This is
+       the same renderer split rf2-2rzx0 already repaired for the compiled
+       ViewCell by sourcing the frame from the `useContext` RETURN — and the
+       spine's 1-arg arm ALREADY calls that hook (for the repaint
+       subscription) and discards its value.
+
+    3. THE SUPPORTED ROUTE — the EXPLICIT 2-arg form renders the subscribed
+       value under the same server renderer, so the refusal is specific to the
+       ambient tier rather than to SSR, and Spec 002's ladder item (3) 'pass
+       an explicit {:frame <id>}' is a real way out.
+
+  Node-safe: no DOM, no `act()`, no root — `renderToString` only.
+
+  cfg keys: `:frame-provider-mount-element`, `:probe-frame-provider-element`,
+  `:probe-frame-provider-observed`, `:frame-provider-query`,
+  `:probe-ssr-slots-element`, `:ssr-slot-observed`, `:probe-element`,
+  `:refcount-target`, `:us-query`, and `:ssr-ambient-frame` (its own frame)."
+  [{:keys [name frame-provider-mount-element probe-frame-provider-element
+           probe-frame-provider-observed ssr-ambient-frame frame-provider-query
+           probe-element refcount-target us-query
+           probe-ssr-slots-element ssr-slot-observed]}]
+  (testing (str name " — ambient use-subscribe under react-dom/server (rf2-5rqn)")
+    ;; Clear the fixture's ambient `:rf/default` dynamic scope: the 1-arg form
+    ;; resolves tier 1 (dynamic var) FIRST, so a bound `*current-frame*` would
+    ;; answer before the React-context tier and mask the very resolution this
+    ;; row measures — the same masking note `assert-use-subscribe-frame-
+    ;; provider-resolution` carries.
+    (binding [frame/*current-frame* nil]
+      (reset! probe-frame-provider-observed [])
+      (reset! ssr-slot-observed nil)
+      (rf/make-frame {:id ssr-ambient-frame :doc "rf2-5rqn SSR ambient probe frame"})
+      (rf/reg-event ::ssr-ambient-seed (fn [_ _] {:db {:k :wrapped :n 7}}))
+      (rf/dispatch-sync [::ssr-ambient-seed] {:frame ssr-ambient-frame})
+      (rf/reg-sub frame-provider-query (fn [db _] (:k db)))
+      (rf/reg-sub us-query (fn [db _] (:n db)))
+      (testing "1. the ambient form REFUSES a server render (the defect)"
+        (let [thrown (try (.renderToString react-dom-server
+                            (frame-provider-mount-element
+                              ssr-ambient-frame (probe-frame-provider-element)))
+                          nil
+                          (catch :default e e))]
+          (is (some? thrown)
+              "the server render of an ambient use-subscribe threw")
+          (is (= :rf.error/no-frame-context (:rf.error/id (ex-data thrown)))
+              "and threw the ABSENCE category — under a frame-provider that
+               did establish a scope (rf2-5rqn)")
+          (is (empty? @probe-frame-provider-observed)
+              "the hook never returned a value, so no markup could be produced")))
+      (testing "2. the MECHANISM — the server renderer populates the SECONDARY slot"
+        (.renderToString react-dom-server
+          (frame-provider-mount-element
+            ssr-ambient-frame (probe-ssr-slots-element)))
+        (let [{:keys [current-value current-value2 use-context]} @ssr-slot-observed]
+          (is (= adapter-context/no-provider-sentinel current-value)
+              "`_currentValue` — the slot the :adapter/current-frame reader
+               consults — holds the NO-PROVIDER SENTINEL on the server, which
+               classifies to nil ('no scope') and produces the refusal above")
+          (is (= ssr-ambient-frame current-value2)
+              "while React's SECONDARY slot `_currentValue2` holds the frame
+               the provider established — the value was never absent, only
+               unreachable from the slot the reader reads")
+          (is (= ssr-ambient-frame use-context)
+              "and the PUBLIC useContext return — renderer-agnostic, and the
+               hook the spine's 1-arg arm ALREADY calls and discards —
+               resolves the frame correctly under react-dom/server")))
+      (testing "3. the EXPLICIT 2-arg form is the supported route under SSR"
+        (reset! refcount-target ssr-ambient-frame)
+        (let [html (.renderToString react-dom-server (probe-element))]
+          (is (re-find #"n=7" html)
+              "an explicitly-framed use-subscribe server-renders its value —
+               the refusal is specific to the AMBIENT tier, not to SSR"))))))
+
 ;; ---- use-frame — capture-frame in hook position (rf2-y6dz8t) ---------------
 
 (defn assert-use-frame-capture-frame-in-hook-position
