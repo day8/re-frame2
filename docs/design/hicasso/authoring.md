@@ -285,8 +285,16 @@ value-less checkbox, though a checkbox carrying a form-submission `value` is
 accepted and the revision is simply inert there.
 
 This is the single prop and nothing more: no commit/cancel intents, no
-acknowledgement that the reset landed, no caret-policy knobs. The post-v0
+acknowledgement that the reset landed, no caret-policy knobs. The
 buffered-controls ladder **consumes** this trigger; it never extends it.
+
+*Amended 2026-08-12: that ladder is **no longer post-v0**. The operator ruled
+`re-frame.hicasso.forms` into V0 scope on 2026-08-12 (`rf2-sh56`; the same day's
+Phase 5 ruling `rf2-xpq9` put the rest of that phase in v0 too), and
+`forms/buffered-field` has shipped, reading `::h/revision` as an input exactly as
+the sentence above says. **The prop itself does not move**: the scope fence holds,
+the element still offers no commit/cancel intents and no reset acknowledgement,
+and the ladder still consumes the trigger rather than extending it.*
 
 ## The interop door (HD-011)
 
