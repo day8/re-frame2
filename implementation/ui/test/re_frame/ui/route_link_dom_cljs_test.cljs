@@ -16,11 +16,17 @@
   routing cascade and navigate the Playwright page (destroying the execution
   context), so the DOM fixture deliberately stops at the render contract.
 
-  The `:prefetch :intent` arm IS driven with real DOM events, and belongs here
-  rather than beside the click: a prefetch does not navigate, so hovering the
-  mounted anchor is safe in this page, and hover-to-dispatch is exactly the
-  behaviour a synthetic-event test cannot vouch for — whether the handler
-  reached the real element at all.
+  The `:prefetch :intent` arms ARE driven with real DOM events, and belong here
+  rather than beside the click: a prefetch does not navigate, so hovering,
+  focusing and touching the mounted anchor are all safe in this page, and
+  intent-to-dispatch is exactly the behaviour a synthetic-event test cannot
+  vouch for — whether the handler reached the real element at all, under the
+  real event name. EVERY position of the closed intent class
+  (`re-frame.routing.link/prefetch-intent-keys`) gets a real-DOM arm here, not
+  just the pointer one: `ui/route-link` is the one link surface still writing
+  the three positions out LITERALLY instead of mapping over that class
+  (rf2-drpa3.57), so a per-position gesture is what would catch the copy
+  drifting from the law.
 
   routing rides the TEST classpath (deps.edn :test alias) so its late-bind hooks
   publish; production `re-frame.ui` never requires it."
@@ -33,7 +39,10 @@
             [re-frame.ui.test :as uit]
             ;; publishes :routing/link-model + :routing/activate-link!
             ;; + :routing/prefetch-payload + :routing/prefetch-on-intent!
-            [re-frame.routing]))
+            [re-frame.routing]
+            ;; the closed intent class itself — read so the roster of arms below
+            ;; can be checked against the law rather than restated from memory
+            [re-frame.routing.link :as routing-link]))
 
 (defn- browser? []
   (and (exists? js/document) (some? (.-createElement js/document))))
@@ -102,6 +111,26 @@
                            :source     (:source ev)}))))
     [log #(trace-tooling/unregister-listener! k)]))
 
+(def ^:private arms-driven
+  "The intent positions THIS fixture drives with real DOM events: pointer in
+  `…-warms-on-real-dom-intent`, keyboard-focus and touch in
+  `…-warms-on-real-focus-and-touch`. Checked against the published class
+  below — a position added to the law with no gesture here would otherwise
+  arrive unwitnessed on this surface, which is the exact failure the literal
+  copy in `ui/route-link` invites."
+  #{:on-mouse-enter :on-focus :on-touch-start})
+
+(defn- touch-start-event
+  "A real `touchstart` DOM event to dispatch at the anchor. Chromium exposes
+  the `TouchEvent` constructor only on touch-capable builds, so fall back to
+  the base `Event` under the SAME name: what is under test is React's
+  delegated `touchstart` listener finding the compiled view's handler, and
+  that listener keys off the event name, not the interface."
+  []
+  (if (exists? js/TouchEvent)
+    (js/TouchEvent. "touchstart" #js {:bubbles true})
+    (js/Event. "touchstart" #js {:bubbles true})))
+
 (deftest ui-route-link-prefetch-intent-warms-on-real-dom-intent
   (when (browser?)
     (rf/reg-route :route/article {} "/articles/:slug")
@@ -151,6 +180,87 @@
                      (rf/destroy-frame! f)
                      (is false (str "prefetch DOM fixture rejected: " e))
                      (done))))))))
+
+(deftest ui-route-link-prefetch-intent-warms-on-real-focus-and-touch
+  ;; The hover arm above proves the pointer position. These are the other two
+  ;; members of the closed class — the keyboard user who Tabs onto the link and
+  ;; the touch user whose finger lands on it — driven the same way: a REAL
+  ;; gesture at the REAL element, not a call through the attrs map. `ui.cljc`
+  ;; writes all three positions out literally, so each needs its own witness;
+  ;; a copy that dropped one would sail through a fixture that only hovers.
+  (when (browser?)
+    (rf/reg-route :route/article {} "/articles/:slug")
+    (let [f              (rf/make-frame {:id :route-link/host4 :initial-events [[:rf/set-db {}]]})
+          [log unregister!] (prefetch-log)
+          callers        (atom {})
+          caller         (fn [position]
+                           (fn [_]
+                             (swap! callers update position (fnil inc 0))
+                             (swap! log conj [:caller position])))
+          gestures       [{:position :on-focus
+                           :gesture  "a real .focus() — the Tab-to-a-link gesture"
+                           :fire!    (fn [a]
+                                       (.focus a)
+                                       (is (identical? a (.-activeElement js/document))
+                                           (str ":on-focus — .focus() moved the document's active "
+                                                "element, so the gesture itself landed (without "
+                                                "this, a silent no-op would read as a clean pass "
+                                                "on the cold-link control)")))}
+                          {:position :on-touch-start
+                           :gesture  "a real touchstart at the anchor"
+                           :fire!    (fn [a] (.dispatchEvent a (touch-start-event)))}]
+          warmed         {:dispatched [:rf.route/prefetch
+                                       {:to :route/article :params {:slug "the-intro"}}]
+                          :frame      :route-link/host4
+                          :source     :router}]
+      (async done
+        (-> (uit/with-root
+              [root [ui/frame-provider {:frame f}
+                     [:nav
+                      [ui/route-link {:to :route/article
+                                      :params {:slug "the-intro"}
+                                      :prefetch :intent
+                                      :on-focus (caller :on-focus)
+                                      :on-touch-start (caller :on-touch-start)
+                                      :data-testid "warm"} "Read"]
+                      [ui/route-link {:to :route/article
+                                      :params {:slug "cold"}
+                                      :data-testid "cold"} "Cold"]]]]
+              (let [warm (.querySelector root "a[data-testid='warm']")
+                    cold (.querySelector root "a[data-testid='cold']")]
+                (testing "a passive render warms nothing — intent is a user act"
+                  (is (= [] @log)))
+                (doseq [{:keys [position gesture fire!]} gestures]
+                  (testing (str position " — " gesture
+                                " dispatches ONE prefetch for the link's own address, after the caller")
+                    (reset! log [])
+                    (fire! warm)
+                    (is (= 1 (get @callers position))
+                        (str position " — the caller's own handler at this position still runs"))
+                    (is (= [[:caller position] warmed] @log)
+                        (str position " — composed, not replaced: caller first, then ONE warm-up "
+                             "for this link's own address on the rendering frame, stamped "
+                             ":source :router. A literal position missing from ui/route-link "
+                             "shows up here as an empty log")))
+                  (testing (str position " — a link that did not opt in warms nothing on the same gesture")
+                    (reset! log [])
+                    (fire! cold)
+                    (is (= [] @log))))))
+            (.then (fn [] (unregister!) (rf/destroy-frame! f) (done))
+                   (fn [e]
+                     (unregister!)
+                     (rf/destroy-frame! f)
+                     (is false (str "focus/touch prefetch DOM fixture rejected: " e))
+                     (done))))))))
+
+(deftest ui-route-link-prefetch-real-dom-arms-cover-the-whole-intent-class
+  (testing "the three arms above are the WHOLE published class, not a sample of
+            it — `re-frame.routing.link/prefetch-intent-keys` is routing's law
+            and `ui/route-link` still copies it out literally, so a position
+            added to the law lands on this surface only if someone edits the
+            view. This assertion is the alarm: it reds the moment the class
+            grows, naming the gesture this fixture owes it."
+    (is (= arms-driven (set routing-link/prefetch-intent-keys)))))
 
 (deftest ui-route-link-native-anchor-renders-its-native-attribute
   (when (browser?)
