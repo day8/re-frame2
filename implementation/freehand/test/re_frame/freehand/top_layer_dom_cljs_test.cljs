@@ -201,9 +201,9 @@
                        (is (false? (modal? dialog-id)) "close() ran at the commit")
                        (is (= (by-id opener-id) js/document.activeElement)
                            "the platform returned focus to the invoking control")
-                       (teardown! container root)
-                       (done)))
-              (.catch (fn [e] (is false (str "browser run failed: " e)) (done)))))))))
+                       (teardown! container root)))
+              (.catch (fn [e] (is false (str "browser run failed: " e)) nil))
+              (.then (fn [_] (done)))))))))
 
 (deftest fh-toplayer-003-nested-popovers-stack-and-close-together
   (testing "Per FH-TOPLAYER-003 (browser): a NESTED pair opened in ONE
@@ -262,9 +262,9 @@
                        (is (false? (open? nested-id)) "and the descendant closed with it")
                        (is (= 1 (- (top-layer/operation-count) @ops))
                            "ONE hide closed both — LIFO is the platform's, not ours")
-                       (teardown! container root)
-                       (done)))
-              (.catch (fn [e] (is false (str "browser run failed: " e)) (done)))))))))
+                       (teardown! container root)))
+              (.catch (fn [e] (is false (str "browser run failed: " e)) nil))
+              (.then (fn [_] (done)))))))))
 
 (deftest fh-toplayer-003-browser-dismissal-reaches-the-author-and-nothing-else
   (testing "Per FH-TOPLAYER-003 (browser): when the browser dismisses a
@@ -318,9 +318,9 @@
               (.then (fn [_]
                        (is (false? (open? menu-id))
                            "the author reconciled, and the node follows")
-                       (teardown! container root)
-                       (done)))
-              (.catch (fn [e] (is false (str "browser run failed: " e)) (done)))))))))
+                       (teardown! container root)))
+              (.catch (fn [e] (is false (str "browser run failed: " e)) nil))
+              (.then (fn [_] (done)))))))))
 
 ;; ===========================================================================
 ;; FH-TOPLAYER-004 — the commit law, the tracking frequency, the counts
@@ -614,9 +614,9 @@
                            (str (:renders fx-004) " re-commits of an unchanged desired state "
                                 "performed zero host operations"))
                        (is (true? (open? menu-id)) "and the popover is still open")
-                       (teardown! container root)
-                       (done)))
-              (.catch (fn [e] (is false (str "browser run failed: " e)) (done)))))))))
+                       (teardown! container root)))
+              (.catch (fn [e] (is false (str "browser run failed: " e)) nil))
+              (.then (fn [_] (done)))))))))
 
 (deftest fh-toplayer-004-a-full-cycle-retains-exactly-nothing
   (testing "Per FH-TOPLAYER-004: mount, open, close and unmount arms
@@ -703,9 +703,12 @@
                              "zero resize / intersection / mutation observers")
                          (is (= 0 (:iv measured)) "zero intervals")
                          (is (zero? (top-layer/pending-count))
-                             "and the commit batch is drained"))
-                       (done)))
-              (.catch (fn [e] (restore!) (is false (str "browser run failed: " e)) (done)))))))))
+                             "and the commit batch is drained"))))
+              ;; `restore!` stays on BOTH arms: on the success arm it has to run
+              ;; BEFORE the assertions read the counters, so it is not the tail
+              ;; teardown the trailing step could own.
+              (.catch (fn [e] (restore!) (is false (str "browser run failed: " e)) nil))
+              (.then (fn [_] (done)))))))))
 
 ;; ===========================================================================
 ;; FH-TOPLAYER-005 — the advisories: published at a commit, and typed
