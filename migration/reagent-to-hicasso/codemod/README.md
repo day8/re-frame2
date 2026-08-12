@@ -1,4 +1,4 @@
-# The Reagent `[:>]` → Hicasso migration codemod (the fixer)
+# The Reagent → Hicasso migration reporter, and the `[:>]` fixer
 
 A source-text tool that reads a consumer's Reagent `.cljs` namespaces and repairs
 the props dialect at every foreign crossing, so that a codebase whose `[:> …]`
@@ -28,6 +28,51 @@ clojure -M:run --report out.edn src/           # choose where the report goes
 The exit code is `0` for any run that completed and `1` only when a file could
 not be read or written. **A migration tool that fails a build because a
 consumer's code needs a human decision is a tool that gets run once.**
+
+## The report has two halves, and they answer different questions
+
+Everything below this section is about the **fixer**, whose population is the
+`[:>]`-family crossing. That population is not a Reagent codebase, and the
+difference is not small. Run over this repository's own 81-file example corpus
+the fixer reports **zero entries** — the corpus crosses into React nowhere — and
+a migrator reading that report sees eighty-one files that are not mentioned.
+
+So the same run also produces a **census**, under `:census` in the report, whose
+population is the **Reagent API call site**: `r/atom`, `r/with-let`,
+`r/create-class`, `r/as-element`, `r/cursor`, `r/reactify-component`, root
+mounting, and the rest of the roster in
+`src/re_frame/migration/hicasso/census.clj`. On that same corpus it reports
+**62 sites across 28 files**, one of them the `with-let` whose teardown no
+mechanical edit can carry.
+
+| Half | Population | Addressed at | Verdicts |
+|---|---|---|---|
+| fixer (`:entries`) | `[:>]`-family crossing sites | the site | rewrote / refused, in the classes below |
+| census (`:census`) | Reagent API call sites | the call | `:mechanical`, `:human-decision`, `:runtime-blocker` |
+
+*(4 columns; 2 body rows.)*
+
+**They are different estimands and neither is a denominator for the other.** The
+report names both, and the census summary always emits all three verdict
+buckets — including `:mechanical 0`, which is a measurement rather than an
+omission: every mechanical rewrite this tool family knows is a W-rule, and every
+W-rule sits at a crossing.
+
+**What the census cannot resolve, it reports.** `#?(:cljs [reagent.core :as r])`
+is the only legal way to require Reagent from a `.cljc` file and the reader
+binds nothing for it, so before the census such a file was silently a file with
+no Reagent in it — W4 and W5 dead, every API in it unnamed, and the report
+non-empty enough (`:>` needs no alias) that nothing looked wrong. It is now
+`:unresolved-reagent-require` at the `ns` form, with every qualified
+roster-named call in the file reported as `:unresolved-alias`. Three files under
+`examples/capabilities/ssr/` are real instances; so is every namespace of a
+project that vendors Reagent under an inlined name.
+
+**What it cannot name, it does not count.** A Form-2 component is a `defn`
+returning a `fn` and nothing else marks it; a structural test for that would
+report every higher-order function in the corpus. The `r/atom` such a component
+closes over is on the roster, and the shape itself is left uncounted and said
+so. A confident wrong number is worse than a stated silence.
 
 ## The two laws
 
@@ -184,6 +229,18 @@ plain `let`/`fn`/`apply`, with no Reagent left in it — and asserts the capture
 semantics directly, running the design's stated shape alongside to show the
 amendment is load-bearing. `shared_rule_test.clj` asserts that the slot rule
 this tool asks is the shared one and not a copy.
+
+`census_test.clj` gates the census on **both** ways a census fails — answering
+nothing, and answering too much. The second control is not decoration: it caught
+two live over-reports while the namespace was being written. An `ns` DOCSTRING
+discussing `reagent.ratom/run!` in prose made five clean example files read as
+five migration blockers, and `clojure.core`'s `(atom nil)`, one line above the
+`rdc/render` that is the genuine finding in the SSR examples, read as a second
+finding. A third defect surfaced from the other direction, by cross-checking the
+census against the text it is supposed to outperform: `^:cljstyle/ignore (ns …)`
+was not being read as an `ns` form at all, so **the whole file's aliases went
+unbound** — W4 and W5 dead in it, every Reagent API in it unnamed, and nothing
+looking wrong.
 
 ## One dependency, deliberately
 
