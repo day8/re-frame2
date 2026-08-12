@@ -4,13 +4,22 @@
   `specification.md` §7's *Imperative SDKs* row promises *declared host
   ownership* answered by an *acquire/release recipe*, proved against
   *StrictMode, remount, throw, cleanup*. The requirements mine states the
-  same job as five failure modes — P13 an acquired thing whose owner does
-  not cover every exit path, R-B12 unmount-while-active leaving listeners,
-  StrictMode double-invoke doubling acquisition, cleanup skipped on a
-  thrown render — and every one of them is a fact about a thing REACT
-  CANNOT SEE. That is what makes the job different from every other host
-  row: React reconciles elements, and a chart instance holding a `window`
-  listener is not one.
+  same job as five failure modes, and FOUR of them are lifetime claims
+  this file takes: P13 an acquired thing whose owner does not cover every
+  exit path, R-B12 unmount-while-active leaving listeners, StrictMode
+  double-invoke doubling acquisition, and cleanup skipped on a thrown
+  render. Every one is a fact about a thing REACT CANNOT SEE, which is
+  what makes the job different from every other host row: React
+  reconciles elements, and a chart instance holding a `window` listener
+  is not one.
+
+  **The fifth is P8 — focus and measurement without a declared phase —
+  and it is deliberately NOT taken here.** That is a question about
+  `useLayoutEffect` versus `useEffect`, which is to say about WHEN a
+  measurement is legal relative to paint; every claim below is about
+  whether an acquisition has a matching release, and the two are
+  independent. Naming it is the point: an enumeration that quietly
+  dropped it would read as coverage.
 
   ## The recipe, in one sentence
 
@@ -321,8 +330,8 @@
 ;; data from a prop and the SDK owns everything else, so no body ever
 ;; called `h/sub`. Every `(is (= support/released (teardown-census! …)))`
 ;; then compared `{:cell-refs 0 :boundaries 0 :edges 0}` against a runtime
-;; that had never owned anything — five assertions that could not fail,
-;; and which a reader would have taken for teardown evidence. The premise
+;; that had never owned anything — six assertions that could not fail, and
+;; which a reader would have taken for teardown evidence. The premise
 ;; row caught it on the first run, at `(pos? (:boundaries before))`, which
 ;; is exactly what a positive control is for. A screen showing a count
 ;; beside its chart is also the more realistic screen.
