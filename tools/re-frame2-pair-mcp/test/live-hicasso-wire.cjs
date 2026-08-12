@@ -88,15 +88,19 @@
 // called against the plain host build and must answer
 // `:evidence-tier-unavailable` with its hint. The row runs FIRST, because
 // it is the only assertion here whose population is destroyed by the rest
-// of the script.
+// of the script — `(require 're-frame.hicasso.tool)` below pushes the door
+// into the runtime this script is about to interrogate.
 //
-// **That makes the run order load-bearing, and it makes the witness a
-// once-per-watch instrument.** `(require 're-frame.hicasso.tool)` below
-// compiles the door into this build for the life of the `shadow-cljs
-// watch` — a second run against the same watch finds the door already
-// there. Rather than skip the row (a skip here is indistinguishable from
-// a pass, which is the failure shape this bead is about), the script
-// checks the precondition and FAILS with the remedy: restart the watch.
+// The population comes back on its own. A REPL `require` reaches the
+// RUNTIME, not the build's module graph, and every run of this script
+// opens a fresh Playwright page — so the next run's page starts without
+// the door again and the script is re-runnable against one long-lived
+// `shadow-cljs watch`. What is NOT safe is a page that already carries
+// the door: `RF2_HICASSO_WIRE_URL` accepts any host, and a page hosting
+// Xray has pulled the door in. Rather than skip the row on such a host —
+// a skip and a pass being indistinguishable, which is precisely the
+// failure shape this bead is about — the script probes for the door and
+// FAILS, naming the host as the reason.
 //
 // ## Running it
 //
@@ -104,9 +108,8 @@
 // it SOFT-SKIPS (exit 0 with a `SKIP` banner) when the infrastructure is
 // absent, so it is safe to invoke anywhere.
 //
-//   # 1. a FRESH browser build carrying the pair preload, on the
-//   #    implementation classpath (which is where the slice and the door
-//   #    both live). Fresh matters: see the door-absent section above.
+//   # 1. a browser build carrying the pair preload, on the implementation
+//   #    classpath (which is where the slice and the door both live):
 //   cd implementation
 //   npx shadow-cljs watch hicasso/hmr-testbed \
 //     --config-merge '{:devtools {:preloads [re-frame2-pair.runtime]}}'
@@ -401,10 +404,10 @@ async function main() {
     assert(!doorLoaded.isError, 'the door-presence probe returned isError: ' + doorLoaded.text);
     assert(
       /:value false\b/.test(doorLoaded.text),
-      `${DOOR_NS} is ALREADY loaded in this build, so the door-absent rung cannot ` +
-        'be witnessed. This script loads the door itself further down, for the ' +
-        'life of the watch — restart `shadow-cljs watch hicasso/hmr-testbed` and ' +
-        're-run. Probe answered: ' + doorLoaded.text,
+      `${DOOR_NS} is ALREADY loaded in this runtime, so the door-absent rung ` +
+        `cannot be witnessed here. Point RF2_HICASSO_WIRE_URL at a page that ` +
+        'has not pulled the door in — a page hosting Xray has — or reload the ' +
+        'one you have. Probe answered: ' + doorLoaded.text,
     );
     for (const read of DOOR_READS) {
       const r = await callTool(client, read, { build, 'max-tokens': 0 });
@@ -451,8 +454,9 @@ async function main() {
     // Nothing in `re-frame.hicasso` requires the door — that is how a
     // production build never loads it — so a Hicasso app has it only once
     // something pulls it in. Xray does; here this line does. It is also the
-    // line that ends the door-absent population above, for the life of the
-    // watch rather than of this process.
+    // line that ends the door-absent population above — for the life of this
+    // PAGE, which is why the row runs first and why the next run's fresh page
+    // gets its population back.
     await evalCljs(client, `(require '${DOOR_NS})`, 'load the evidence door');
     console.log('OK   slice booted by its own -main; evidence door loaded');
 
