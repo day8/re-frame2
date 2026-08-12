@@ -275,10 +275,9 @@
   (settled #(and (viewport-el) (= first (window-first)))
            (str "the window moves to " first)))
 
-(defn- finish!
-  "The terminal step of every row here: tear the mount down through the
-  shared lifecycle, assert that NOTHING it created survived, and end the
-  async test.
+(defn- teardown-clean!
+  "The SUCCESS arm's last act: tear the mount down through the shared
+  lifecycle, and assert that NOTHING it created survived.
 
   Three books beyond the facade's own. The substrate's CONNECTED-OCCURRENCE
   index is the one that matters: every row that scrolled into the window
@@ -291,9 +290,12 @@
   the engine's positioned `row-shell` and the listbox's `option` inside it.
   A read covering only one of them would be blind to a leak in the other.
 
-  All three are read AFTER teardown, which is the whole point. It OWNS the
-  `done` call, so a row that ends here must NOT call `done` itself."
-  [container root done where]
+  All three are read AFTER teardown, which is the whole point. It does NOT
+  end the row: the single `done` sits at the TAIL of the chain with nothing
+  after it, and this is one of the two steps that tail waits on.
+  [[report-failure!]] is the other, and says why they cannot be the same
+  step."
+  [container root where]
   (ms/destroy-root! container root)
   (ms/residue-clean! (str "FH-CTRL-021 — " where)
                      [["the connected-occurrence index" #(occurrences/rows)]
@@ -301,18 +303,36 @@
                        #(.-length (.querySelectorAll js/document "[data-part='row']"))]
                       ["every row shell in the document"
                        #(.-length (.querySelectorAll js/document
-                                                     "[data-part='row-shell']"))]])
-  (done))
+                                                     "[data-part='row-shell']"))]]))
 
-(defn- fail-and-finish!
-  "The rejection path. It tears down — a rejected row must not leak its
-  root either — but reads no residue: a second failure attributed to the
-  leak rule would bury the one that actually happened."
-  [container root done]
+(defn- report-failure!
+  "The REJECTION arm: record the rejection against this row, tear the mount
+  down — a rejected row must not leak its root either — and deliberately do
+  NOT end the row. The chain's single trailing `done` does that.
+
+  It reads no residue, and that asymmetry against [[teardown-clean!]] is
+  load-bearing: a second failure attributed to the leak rule would bury the
+  one that actually happened — which in this file would be three of them,
+  since the residue read here carries three books beyond the facade's own.
+  It is also why the teardown stays written in both arms instead of riding
+  the shared trailing step: the two arms do different amounts of work, so
+  there is nothing here to hoist.
+
+  **A rejection handler may not sit downstream of the step that calls
+  `done`.** [[re-frame.freehand.mount-support/each-mode]] carries the
+  long-form account (rf2-qpns): `run-block` hands `done` a continuation
+  that runs the whole remainder of the run synchronously, so a `.catch` out
+  past it claims a LATER namespace's throw as this row's failure and fires
+  `done` a second time.
+
+  One of these per row, on the OUTERMOST chain. Every nested chain here is
+  returned into its parent, so a rejection anywhere inside reaches this
+  handler without a handler of its own (rf2-29ua)."
+  [container root]
   (fn [e]
     (is false (str "the browser step rejected: " e))
     (ms/destroy-root! container root)
-    (done)))
+    nil))
 
 ;; ===========================================================================
 ;; FH-CTRL-021 — a real scroll moves the window, and app-db is where it lands
@@ -358,9 +378,9 @@
                                   "and the document holds exactly that many rows")
                               (is (< w-count item-count)
                                   "non-vacuous: out of ten thousand")
-                              (finish! container root done "after one scroll"))))
-                        (.catch (fail-and-finish! container root done))))))
-              (.catch (fail-and-finish! container root done))))))))
+                              (teardown-clean! container root "after one scroll"))))))))
+              (.catch (report-failure! container root))
+              (.then (fn [_] (done)))))))))
 
 ;; ===========================================================================
 ;; FH-CTRL-021 — a row that stays in the window is the SAME element
@@ -436,8 +456,9 @@
                         "on the engine's positioned shell as well as on the
                          listbox's option inside it, so neither layer is
                          quietly rebuilding the window")
-                    (finish! container root done "after a one-row scroll"))))
-              (.catch (fail-and-finish! container root done))))))))
+                    (teardown-clean! container root "after a one-row scroll"))))
+              (.catch (report-failure! container root))
+              (.then (fn [_] (done)))))))))
 
 (deftest fh-ctrl-021-a-reorder-carries-a-row-element-with-its-item
   (testing "Per FH-CTRL-021: keyed identity where it costs the most. The
@@ -519,8 +540,9 @@
                         "while a row whose place did not change kept its id,
                          so the rename above is the reorder and not a
                          wholesale re-addressing")
-                    (finish! container root done "after a reorder"))))
-              (.catch (fail-and-finish! container root done))))))))
+                    (teardown-clean! container root "after a reorder"))))
+              (.catch (report-failure! container root))
+              (.then (fn [_] (done)))))))))
 
 ;; ===========================================================================
 ;; FH-CTRL-021 — focus is the viewport's, so a windowed row cannot take it
@@ -596,9 +618,9 @@
                               "with focus never having moved at all")
                           (is (= "true" (.getAttribute (named) "aria-selected"))
                               "still marked as the one the user is on")
-                          (finish! container root done "after the active row round trip")))
-                      (.catch (fail-and-finish! container root done)))))
-              (.catch (fail-and-finish! container root done))))))))
+                          (teardown-clean! container root "after the active row round trip"))))))
+              (.catch (report-failure! container root))
+              (.then (fn [_] (done)))))))))
 
 ;; ===========================================================================
 ;; FH-CTRL-021 — a keyboard move reveals a row that was not rendered
@@ -659,9 +681,9 @@
                           (is (= key-to-dom-id
                                  (.getAttribute (viewport-el) "aria-activedescendant"))
                               "named by the viewport that still holds focus")
-                          (finish! container root done "after the keyboard move")))
-                      (.catch (fail-and-finish! container root done)))))
-              (.catch (fail-and-finish! container root done))))))))
+                          (teardown-clean! container root "after the keyboard move"))))))
+              (.catch (report-failure! container root))
+              (.then (fn [_] (done)))))))))
 
 ;; ===========================================================================
 ;; FH-CTRL-021 — the offset is CONTROLLED, so the viewport follows the state
@@ -712,8 +734,9 @@
                        showing blank above the rows")
                   (is (pos? restore-offset)
                       "non-vacuous: the restored offset is not the default")
-                  (finish! container root done "after a restore onto a fresh mount")))
-              (.catch (fail-and-finish! container root done))))))))
+                  (teardown-clean! container root "after a restore onto a fresh mount")))
+              (.catch (report-failure! container root))
+              (.then (fn [_] (done)))))))))
 
 (deftest fh-ctrl-021-a-state-only-offset-move-drags-a-mounted-viewport
   (testing "Per FH-CTRL-021: the TIME-TRAVEL half, and the one that
@@ -757,8 +780,9 @@
                   (is (= time-travel-offset (offset-in-db))
                       "with app-db still holding it — the reconciliation
                        writes the host, never the frame")
-                  (finish! container root done "after a state-only offset move")))
-              (.catch (fail-and-finish! container root done))))))))
+                  (teardown-clean! container root "after a state-only offset move")))
+              (.catch (report-failure! container root))
+              (.then (fn [_] (done)))))))))
 
 ;; ===========================================================================
 ;; FH-CTRL-021 — repeated scroll cycles leave NOTHING behind
@@ -834,7 +858,8 @@
                   (is (pos? (count (occurrences/rows)))
                       "and the index is still non-empty with the mount live —
                        the rows the LAST window opened")
-                  (finish! container root done
-                           (str "after " cycles " scroll cycles and "
-                                rendered " row renders"))))
-              (.catch (fail-and-finish! container root done))))))))
+                  (teardown-clean! container root
+                                   (str "after " cycles " scroll cycles and "
+                                        rendered " row renders"))))
+              (.catch (report-failure! container root))
+              (.then (fn [_] (done)))))))))
