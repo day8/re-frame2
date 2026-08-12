@@ -105,6 +105,59 @@
   [x]
   (= unknown x))
 
+;; ---------------------------------------------------------------------------
+;; The `:rf.sub` operation vocabulary — ONE predicate, two derivations
+;; ---------------------------------------------------------------------------
+
+(def sub-recompute-operations
+  "The `:op-type :rf.sub` operations that mean a subscription body RAN.
+
+  Spec 009 §`:op-type` vocabulary puts four operations through the trace
+  projection's `:subs` slot — `:rf.sub/run`, `:rf.sub/create`,
+  `:rf.sub/skip` and `:rf.sub/dispose` — and only the first two are work.
+  `:rf.sub/skip` is a MEMO HIT: the input was `=` to last-seen, so the
+  body was suppressed. `:rf.sub/dispose` is an eviction. Reading the slot
+  without filtering the operation counts all four as recomputes.
+
+  A literal set for the same reason [[consumed-evidence-schema]] is a
+  literal: this namespace parses a wire shape, and a producer that grows
+  a fifth operation has to be a decision here rather than a silent
+  reclassification.
+
+  **It lives in the shared algebra because two derivations consult it and
+  they must not disagree.** They did: `hicasso-advisor` counted a skip as
+  a memo hit and derived *searched?* from recompute runs alone, while
+  `hicasso-causal` collected every tagged item in the same `:subs` slot
+  without filtering operation. One tagged skip therefore made the advisor
+  report `:basis :cap` — *no search happened, raise the retention knob* —
+  about a window that had retained exactly that evidence, while the causal
+  slice reported the same event as an evidenced *subscription recomputed*
+  (rf2-hic-037, merged-PR audit #8027). Two definitions of *did work
+  happen* is what produced the disagreement, and a third would be worse."
+  #{:rf.sub/run :rf.sub/create})
+
+(defn sub-recompute?
+  "True when trace event `ev` is a subscription RECOMPUTE — its
+  `:operation` is in [[sub-recompute-operations]].
+
+  The one predicate both the advisor's timing fold and the causal slice's
+  link-2 roster ask, so a window's recompute count and its recompute
+  roster cannot describe two different sets of events."
+  [ev]
+  (contains? sub-recompute-operations (:operation ev)))
+
+(defn sub-skip?
+  "True when trace event `ev` is a MEMO HIT — the cell answered without
+  running its body.
+
+  Counted, never summed: a skip carries no duration because nothing ran.
+  It is also not nothing — a skip is emitted only when the cell was
+  CONSIDERED (Spec 009 §`:rf.sub/skip`: distinct from the case where no
+  upstream change reached the sub's input at all), so a retained skip is
+  positive evidence that the window observed this read and the memo held."
+  [ev]
+  (= :rf.sub/skip (:operation ev)))
+
 (def loss-kinds
   "The five states a Hicasso evidence read can be in about a fact, and
   the ONE sentence each gets.
