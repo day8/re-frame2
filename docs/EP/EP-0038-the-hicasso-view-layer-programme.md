@@ -3,7 +3,7 @@
 Status: accepted
 Type: standards-track
 Created: 2026-07-30
-Resolution: accepted 2026-07-30 (HD-001–HD-021 resolved under delegated authority; operator-overturnable)
+Resolution: accepted 2026-07-30 (HD-001–HD-021 resolved under delegated authority; operator-overturnable); HD-022–HD-028 resolved under that same authority; P2 fork ruled by the operator directly 2026-08-13 (HD-029 — Hicasso graduates, as a success)
 
 ## Abstract
 
@@ -19,7 +19,7 @@ graduates exactly one arm — or stops, with "adapters + sugar" recorded as a
 deleted (no absorption programme); on a loss, the adapters stand. The durable
 design record is `docs/design/hicasso/` (excluded from the published site, read
 in the source tree — the EP-0036 precedent); every design decision is resolved
-in `docs/design/hicasso/decisions.md` (HD-001–HD-021).
+in `docs/design/hicasso/decisions.md` (HD-001–HD-029).
 
 ## Motivation
 
@@ -148,7 +148,7 @@ below). On a stop, the repo's shipped surface is exactly what it was.
 
 ## Resolved Decisions
 
-All twenty-one design decisions are resolved in
+The twenty-one design decisions resolved at acceptance are in
 `docs/design/hicasso/decisions.md`; dispositions in brief: HD-001 name/alias ·
 HD-002 sub-read tiers (grouped default / collector challenger / scalar
 comparator; both-fail→null) · HD-003 hooks placement rule (taught, not policed)
@@ -160,6 +160,17 @@ HD-013 deciders (operator at P2; delegated advisory at the donor gate) · HD-014
 the clock · HD-015 start now · HD-016 invocation + component ABI · HD-017 code
 residence + bench-lane carve-out · HD-018 delete-on-win · HD-019 the
 synchronous door · HD-020 v0 host mechanics · HD-021 root/HMR/headless.
+
+**The series has since grown to HD-029, and the last entry does not share the
+others' provenance.** HD-022–HD-028 were resolved under the same delegated
+authority as the twenty-one above — HD-022 `:ref`'s reserved vector value-space ·
+HD-023 the `:&` attribute merge · HD-024 one callback form · HD-025
+presence-as-data · HD-026 the `::h/prevent` head · HD-027 `route-link`'s
+`::h/navigate` head · HD-028 value equality as the boundary default. **HD-029,
+the P2 fork, was given by the operator directly on 2026-08-13** — the decider
+HD-013 reserves that ruling to — and is therefore not a delegated resolution.
+Each entry carries its own rationale and reopen condition in `decisions.md`.
+
 **Future operator rulings made under this EP — the donor-gate ruling and the P2
 fork ruling — are recorded here when made** (per EP-0009 rule 2), with their
 evidence on the standard bead.
