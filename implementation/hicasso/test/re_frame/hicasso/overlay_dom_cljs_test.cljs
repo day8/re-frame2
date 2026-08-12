@@ -36,6 +36,7 @@
   | the anchor is claimed while open and put back after | [[the-anchor-is-claimed-while-open-and-handed-back-on-teardown]] |
   | two hooks here, and still two in the shell | [[an-overlay-costs-two-hooks-and-the-shell-still-costs-two]] |
   | a close request arrives as an intent | [[a-close-request-on-a-modal-arrives-as-an-intent]] |
+  | a REAL Escape takes that same door, and a synthetic one takes none | [[a-real-escape-dismisses-the-modal-and-a-synthetic-one-does-nothing]] |
   | the focus one-shot, and which spelling reaches the platform | [[the-focus-one-shot-is-the-platforms-focus-delegate-and-not-reacts-autofocus]] |
 
   ## What decides these rows, and what cannot
@@ -45,15 +46,20 @@
   lane at all, so every row below states a skip there rather than a false
   green — as every DOM claim in this package does.
 
-  **Trusted input decides one thing these rows do not.** A real Escape
-  keypress and a real outside click cannot be synthesised from inside the
-  page: Chromium refuses an untrusted `KeyboardEvent` for a close request
-  by design. Every dismissal witnessed here is therefore driven through
-  the platform's own programmatic path — opening a second `popover=auto`,
-  which makes the engine light-dismiss the first exactly as an outside
-  click would, through the same code and the same event. Keyboard conduct
-  under a real key press is `rf2-hic-049`'s, which this bead unblocks, and
-  is named here so the gap is a stated one.
+  **Trusted input is now driven rather than stated (rf2-il7b).** A page
+  cannot forge a trusted event, and the half of an event a page cannot
+  forge is the DEFAULT ACTION: a synthetic `keydown` reaches every
+  listener and then the engine does nothing with it. This file used to
+  say so and drive `HTMLDialogElement.requestClose` instead. It still
+  does — that row is about the platform's `cancel` path and wants no
+  keyboard in it — but
+  [[a-real-escape-dismisses-the-modal-and-a-synthetic-one-does-nothing]]
+  now presses a REAL Escape through the browser gate's trusted-input
+  bridge (`re-frame.hicasso.trusted-input-support`, whose other half is
+  `scripts/run-browser-tests.cjs`), and carries the synthetic arm beside
+  it so the difference is measured rather than asserted. A real outside
+  click is still not driven; light dismiss is witnessed through the auto
+  stack, which is the same engine path and the same event.
 
   ## Both directions, per assertion class
 
@@ -110,7 +116,7 @@
   saw React's element-scoped `cancel`/`toggle` before asserting it saw
   nothing global, and the hook roster asserts the probe installed before
   it reads a count."
-  (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
+  (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as uix-adapter]
             [re-frame.core :as rf]
             [re-frame.hicasso :as h]
@@ -120,6 +126,7 @@
             [re-frame.hicasso.impl.overlay :as impl-overlay]
             [re-frame.hicasso.overlay :as overlay]
             [re-frame.hicasso.test :as ht]
+            [re-frame.hicasso.trusted-input-support :as trusted]
             [re-frame.test-support :as test-support]))
 
 (def ^:private frame-id ::overlay)
@@ -143,10 +150,18 @@
 (rf/reg-event ::clicked (fn [{:keys [db]} [_ k]] {:db (assoc-in db [:clicked k] true)}))
 (rf/reg-sub ::body-read (fn [db _] (:body-read db)))
 
+;; MAP fixtures (`:async? true`), and not a preference: this file now
+;; carries an `(async done …)` row — the trusted-input bridge presses a
+;; key in another process, so a row that waits for one must yield — and
+;; cljs.test refuses an async row under a POSITIONAL fixture by throwing
+;; a bare string that unwinds the entire lane, closing summary included
+;; (rf2-u0j8). `make-reset-runtime-fixture` returns the positional shape
+;; by DEFAULT, which is what this file used to take.
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture
     {:adapter       uix-adapter/adapter
      :ambient-frame nil
+     :async?        true
      :init-fn       (fn [] (collector/reset-runtime!))}))
 
 ;; ---------------------------------------------------------------------------
@@ -447,8 +462,8 @@
           (let [dialog ($ "dialog")]
             (if-not (fn? (.-requestClose dialog))
               (skip! (str "this engine has no HTMLDialogElement.requestClose, "
-                          "which is the only close request reachable without "
-                          "trusted input — a real Escape key is rf2-hic-049's"))
+                          "which is the close request reachable without any "
+                          "keyboard at all — a real Escape is the next row's"))
               (testing "THE ROUND TRIP: a close request takes the platform's
                         `cancel` path — the same one Escape and a `closedby`
                         backdrop click take — and arrives in app-db as the
@@ -475,6 +490,79 @@
               (is (= before (get-in (db) [:dismissed :m] 0))
                   "the count did not move")))
           (finally (mount/release! handle)))))))
+
+(deftest a-real-escape-dismisses-the-modal-and-a-synthetic-one-does-nothing
+  ;; BOTH ARMS, ON ONE MOUNT, IN ONE ROW — which is the only arrangement
+  ;; that proves anything. The trusted arm alone would be a claim that
+  ;; Escape closes a dialog, which nobody doubts; the synthetic arm alone
+  ;; would be a claim that this suite's dispatcher is broken. Together
+  ;; they say what the bridge is FOR: the listener half of an event is
+  ;; forgeable and the DEFAULT-ACTION half is not, so a `pressed Escape`
+  ;; row built from `new KeyboardEvent` measures its own dispatcher and
+  ;; nothing else.
+  ;;
+  ;; Async because the press happens in another process. See
+  ;; `re-frame.hicasso.trusted-input-support`, and the fixture note above
+  ;; for why this file's fixtures are maps.
+  (if-not (mount/browser?)
+    (skip! ":node-test has no dialog, and no engine to press a key at")
+    (if-not (trusted/bridge?)
+      (trusted/unwitnessed! "the modal's conduct under a real Escape")
+      (async done
+        (fresh!)
+        (let [handle (mount/root! (mount/fresh-container!) frame-id [trigger-page {}])
+              finish (fn [] (mount/release! handle) (done))]
+          (try
+            (mount/settle!)
+            (go! [::opened :m])
+            (is (some? ($ "dialog")) "premise: the modal is open")
+            (is (= 1 (.-length (.querySelectorAll js/document ":modal")))
+                "premise: and the engine agrees it is modal, which is what
+                 gives Escape a close request to make")
+            (is (zero? (get-in (db) [:dismissed :m] 0)) "premise: nothing dismissed")
+
+            (testing "SYNTHETIC: delivered, unprevented, and inert. The page's
+                      own `KeyboardEvent` reaches every listener on the way up
+                      — it is a real event, and `dispatchEvent` says so — and
+                      the engine performs no default action for it, because
+                      `isTrusted` is false"
+              (let [ev        (js/KeyboardEvent. "keydown"
+                                                 #js {:key "Escape" :bubbles true
+                                                      :cancelable true})
+                    target    (or (.-activeElement js/document) ($ "dialog"))
+                    delivered (.dispatchEvent target ev)]
+                (is (true? delivered)
+                    "the event was dispatched and nothing called preventDefault")
+                (is (false? (.-isTrusted ev)) "and it is untrusted, by construction")
+                (mount/settle!)
+                (is (some? ($ "dialog")) "the dialog is still in the document")
+                (is (= 1 (.-length (.querySelectorAll js/document ":modal")))
+                    "still modal, still in the top layer")
+                (is (zero? (get-in (db) [:dismissed :m] 0))
+                    "and no dismissal reached app-db: no `cancel`, because a
+                     close request is a DEFAULT ACTION and a page may not
+                     forge one")))
+
+            (trusted/press-once!
+              "Escape"
+              (fn []
+                (try
+                  (mount/settle!)
+                  (testing "TRUSTED: the same key, the same page, pressed by the
+                            engine. It takes the platform's `cancel` path — the
+                            one `[[a-close-request-on-a-modal-arrives-as-an-intent]]`
+                            drives programmatically — and arrives in app-db as
+                            the author's own intent"
+                    (is (= 1 (get-in (db) [:dismissed :m]))
+                        "the intent landed exactly once")
+                    (is (false? (get-in (db) [:open :m]))
+                        "and the author's handler is what wrote the open flag false")
+                    (is (nil? ($ "dialog"))
+                        "so the element left because app-db said so"))
+                  (finally (finish)))))
+            (catch :default e
+              (is false (str "the Escape row threw: " (.-message e)))
+              (finish))))))))
 
 ;; --- the stack -------------------------------------------------------------
 
