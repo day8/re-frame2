@@ -272,7 +272,7 @@ Completeness does not mean every feature belongs in core. It means every recurri
 | Use case | Default answer | Additional surface or escape | Required proof |
 |---|---|---|---|
 | Ordinary pages, conditional UI, dynamic lists | Hiccup, helpers, ambient reads, keyed boundaries | None | Todo and RealWorld-class flows |
-| Forms and controlled fields | Core controlled law and revision | Forms recipes; buffered-draft helper after a second caller | Four-field editor, 100-cell grid, Chromium/Firefox/WebKit IME |
+| Forms and controlled fields | Core controlled law and revision | Forms recipes; **optional `re-frame.hicasso.forms` module (`forms/buffered-field`), V0 by operator ruling** — Mike, 2026-08-12: the module is V0 scope and `draft-guide/05-forms.md` stands as its draft spec, which for this feature only overrides the second-caller extraction gate below. The gate stands everywhere else (rf2-sh56) | Four-field editor, 100-cell grid, Chromium/Firefox/WebKit IME |
 | Validation and async normalization | Derived subscriptions and event data | Validation-gating and settle-merge recipes | Late result cannot clobber newer edits |
 | Routing and navigation | Routing integration namespace | Dirty-leave, scroll restoration, focus-on-route recipes | Deep link, back/forward, pending mutation |
 | Async resources and mutations | re-frame2 resource/event model | Mutation status/settle-merge recipes; committed-read resource demand as the flagship experiment | Typeahead, cancellation, supersession, rollback |
