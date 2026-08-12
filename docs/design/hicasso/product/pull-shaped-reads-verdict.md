@@ -1,6 +1,8 @@
 # Pull-shaped reads — the three-arm comparator and its verdict
 
-**Status at the time of this commit: PRE-REGISTERED, NOT YET MEASURED.** Everything below the horizontal rule was written before a single number was taken, and this commit exists so that ordering is a fact in the history rather than a claim in the prose. The verdict section is deliberately empty; it is filled by a later commit on the same branch.
+**Verdict: DO NOT ADOPT. The recipe stands.** A pull is a coarse read wearing a declarative face: it lands on the coarse side of the fine/coarse trade by construction, and the only mechanism that would move it to the fine side is the per-leaf ledger the spike is forbidden to build.
+
+The pre-registration below was written and committed before a single number was taken — `dd41c7ad6c` on this branch, off `origin/main` at `3deaf2890a`, with this line reading *PRE-REGISTERED, NOT YET MEASURED* and the verdict section empty. That ordering is a fact in the history rather than a claim in the prose.
 
 Owned by `rf2-hic-058`. The rule this record discharges is [specification §11](specification.md#11-innovation-portfolio)'s portfolio row:
 
@@ -71,6 +73,79 @@ The bead states it as a hard stop: *any drift toward a per-leaf dependency ledge
 
 ---
 
-## The verdict
+## The measurement
 
-*To be filled by measurement. Empty at the time of pre-registration, deliberately.*
+The comparator is `implementation/hicasso/test/re_frame/hicasso/pull_reads_spike_cljs_test.cljs`, built for this question and for nothing else. It runs on the package's own Node lane — `shadow-cljs :node-test-hicasso`, and again under the always-on `:node-test` build, both of which already select `re-frame.hicasso.*-cljs-test`, so nothing was added to `shadow-cljs.edn` to make it run.
+
+A fourth reading appears beside the three arms and is not a fourth arm. **`pull-compiled`** is the same query lowered once at registration into a closure rather than interpreted per read. It is there so that a verdict against the pull arm cannot be answered with *you measured an interpreter*; it is excluded from every three-arm row and reported in its own column.
+
+### All three arms ran
+
+Asserted before any figure is read, and the precondition for all of them: each arm produced a value, the coarse and pull values are `=`, the fine arm's five consumers agree with both leaf for leaf, and each arm's own instrument moved — a positive layer‑1 recompute count, a positive lookup count and a positive consumer count, per arm. The parity row is then driven the other way in `the-parity-row-answers-both-ways`, where a query missing one field must *not* agree, so the row is a discriminator rather than a helper that only knows one verb.
+
+### The figures
+
+`R` is the row count. Every cell is a captured reading, not a prediction.
+
+| | fine | coarse | pull | pull-compiled |
+|---|---|---|---|---|
+| **G1** consumers re-run, correlated write | 1 | 1 | 1 | 1 |
+| **G2** leaves re-delivered, `R=4` | **2** | **10** | **10** | **10** |
+| **G2** leaves re-delivered, `R=16` | **2** | **34** | **34** | **34** |
+| **G3** consumers re-run, independent write | 0 | 0 | 0 | — |
+| **G4** layer‑1 recomputes per write, `R=4` / `R=16` | 10 / 34 | 1 / 1 | 1 / 1 | 1 / 1 |
+| **G5** `app-db` lookups per write, `R=4` / `R=16` | 28 / 100 | 12 / 36 | 12 / 36 | 12 / 36 |
+| **G5b** interpretation steps per write, `R=4` / `R=16` | 0 / 0 | 0 / 0 | **12 / 36** | **0 / 0** |
+| **G6** live sub-cache entries, `R=4` / `R=16` | 15 / 51 | 2 / 2 | 2 / 2 | 2 / 2 |
+| **G7** declared subscription ids | 6 | 2 | 2 | 2 |
+
+`(G5 + G5b) / G5(coarse)` is **2.00** for the pull arm at both row counts, and **1.00** for the compiled one.
+
+### Every figure's control
+
+The control is the row count, and the comparator reads every figure at `R = 4` and again at `R = 16` — the same quadrupling `D1`–`D4` used to give the narrow-update row its meaning. It moves what it must and leaves flat what it must, and both halves are asserted:
+
+- **Scales as predicted**: `G2` for coarse and pull (`10 → 34`), `G4` for fine (`10 → 34`), `G5` in every arm, `G5b` for pull (`12 → 36`), `G6` for fine (`15 → 51`).
+- **Flat as predicted**: `G2` for fine (`2 → 2`), `G4` for coarse and pull (`1 → 1`), `G6` for coarse, pull and pull-compiled (`2 → 2`), `G7` in every arm.
+
+The fine arm's `G6` is the positive control for the kill condition: a structure that holds something per leaf grows with `R`, and this one is shown growing, so the instrument that reports the pull arm flat is demonstrably able to report otherwise.
+
+The whole correlated-churn reading is then taken again under the **UIx adapter** rather than `plain-atom`, and every figure is identical. That is the bead's *adapter-portable* clause measured rather than asserted.
+
+### Reading against the pre-registered rule
+
+**The kill condition was not triggered.** `G6` for the pull arm is `2` at both populations, the resolver is a pure function that retains nothing between calls, and the compiled variant retains one closure per registered query — a constant, not a slot per leaf. Nothing in the spike drifted toward a per-leaf dependency ledger, and the spike therefore ran to its verdict rather than stopping at one.
+
+**(a) cost approaches the hand-coarse arm — FAILS as measured, and the failure is narrow.** `G4(P) = G4(C) = 1` and `G6(P) = G6(C) = 2`, so the two arms are the same recompute class and the same retention class. `G5(P) = G5(C)` exactly: a query naming the same leaves walks the same paths, which is the strongest thing this spike found in the idea's favour. But `(G5 + G5b)(P)` is `2.00 × G5(C)` at both populations, against the pre-registered `1.25×` ceiling. Compiling the query removes that overhead entirely and reaches `1.00`.
+
+One honesty note on the ratio, because the verdict must not rest on it: `2.00` treats an interpretation step and a lookup as one unit each, and nothing here prices them against each other — that is what a clock would do, and no clock was taken. Under the most generous possible assumption, that a step is free, the pull arm merely **ties** the hand-written answer; it never beats it. The verdict does not turn on the unit-equivalence assumption, because (c) fails independently and the discriminator below is untouched by it.
+
+**(b) no independent-churn regression — PASSES.** A write to `:noise` re-runs no consumer in any arm: `G3` is `0`, `0`, `0`. Every arm still pays to discover that — the fine arm re-runs ten layer‑1 handlers and walks 28 lookups to conclude nothing changed, where the other two run one handler and walk 12 — which is worth recording, because the cost of independent churn is not zero anywhere and the fine arm carries the most of it.
+
+**(c) ergonomics approach the fine arm — FAILS.** `G7(P)` is `2` and does not grow with `R`, which the fine arm's `6` does not match: a fine arm needs one registered id per distinct leaf kind and the other two need two apiece however many fields the screen carries. But the second clause asked for *strictly fewer source sites than either C or F* when one field is added to the screen, and the pull arm **ties** the hand-written one: adding `:locale` is one keyword in the query for P and one line in the view-model for C, against two forms for F. `pull-compiled` ties in exactly the same way, so compiling does not rescue this clause either.
+
+### The discriminator, which is the answer to the bead's actual question
+
+`G2(pull)` equals `G2(coarse)` exactly, at both populations — `10` and `34` — while `G2(fine)` is flat at `2`. One row's text changes, and the fine arm re-delivers that row; the pull arm re-delivers the whole screen. The compiled variant re-delivers the whole screen too, so this is a property of **one invalidation unit**, not of interpretation.
+
+That settles the bead's goal sentence. **A pull does not dissolve the fine/coarse trade; it relocates the trade into the ergonomics column.** And the reason is structural rather than incidental: a pull is one invalidation unit by definition, so its invalidation granularity *is* the coarse arm's, and the only mechanism that could give it the fine arm's granularity is a per-leaf dependency ledger — which is precisely the thing this spike is forbidden to build. The deciding rule and the kill condition are therefore in tension by construction, and no amount of implementation effort resolves it.
+
+## What this record does not claim
+
+- **No clock.** `G1`–`G7` say what work each arm does and never how long it takes. No wall-clock figure is taken, and none is owed: a duration is spent pricing something one intends to adopt, and nothing here is adopted.
+- **No retained bytes.** `G6` counts live subscription-cache entries. The `D9`/`S5` distinction governs: a count of zero residue and a reading of zero retained bytes are not interchangeable evidence, and only the count was taken.
+- **No commit half.** The package's lane is Node, where `react-dom/server` runs bodies and never commits, so no arm mounts a boundary and *how many React bodies re-ran* has no witness here — **for all three arms equally**. It is a declared exclusion. It does not weaken the comparison, because the invalidation unit a boundary re-runs on is the subscription consumer that `G1` and `G2` count, one level below React.
+
+## What would change the verdict
+
+One thing, and it is not a number this comparator could have taken. The pull arm's genuine advantage over the hand-written one is **locality** — the query sits beside the reader, where the view-model is a separate registration somewhere else — and locality is a quality rather than a quantity. The pre-registration deliberately chose a countable test for ergonomics, and on that test the two arms tie. A verdict for adoption would need an authoring result: a measured ergonomics witness on a real screen, showing that colocating the query changes what an author does rather than only how it reads. That is a different instrument and a different bead, and nothing here forecloses it.
+
+What would *not* change the verdict is more implementation. Compiling the query was measured, reaches the cost ceiling, and moves neither the ergonomics tie nor the discriminator.
+
+## Provenance
+
+Written 2026-08-12 for `rf2-hic-058`, under the operator ruling `rf2-xpq9` of the same day.
+
+**Figures, and their tree.** `G1`–`G7` are new readings taken by the comparator named above and pinned by it; they are **bench readings of this spike**, not package budget rows, and no row is added to [budgets.md](budgets.md). The `1.25×` ceiling in the pre-registration is borrowed from `budgets.md` §4's `S6` cold-mount *proposal*, which is a proposal there and is borrowed as one here — nothing in this record ratifies it.
+
+**Pre-registration.** Commit `dd41c7ad6c` on `worker/pull-hic058`, branched from `origin/main` at `3deaf2890a`.
