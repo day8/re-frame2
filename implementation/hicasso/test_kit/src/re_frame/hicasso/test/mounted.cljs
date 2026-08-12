@@ -1759,9 +1759,11 @@
                     :reference \"row done\" :candidate \"row\"}}
 
   `:checkpoint` is which one — 0 is the mount, and each script step adds
-  one. `:checkpoints` is how many were taken, so a green over three steps
-  took four and a red at the third took three. `:difference` names the
-  exact node or intent:
+  one. `:checkpoints` is how many were taken, which is always
+  `(inc :checkpoint)` on a red and `(inc (count :script))` on a green: a
+  three-step script that stays green takes four, and one that reddens at
+  its FIRST step reports `:checkpoint 1` and `:checkpoints 2`.
+  `:difference` names the exact node or intent:
 
   - `:kind :intent` — `:index` into the checkpoint's stream, with the
     `:reference` and `:candidate` vectors. Reported BEFORE any DOM
