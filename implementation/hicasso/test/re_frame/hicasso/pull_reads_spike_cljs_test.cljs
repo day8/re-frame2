@@ -103,8 +103,20 @@
   (swap! !n inc)
   nil)
 
-(def ^:private tally-keys
+(def ^:private comparator-arms
+  "The three arms the bead asks for. Every three-arm assertion iterates
+  this, so an arm cannot be quietly dropped from a row while the prose
+  goes on saying three."
   [:fine :coarse :pull])
+
+(def ^:private tally-keys
+  "The three arms, plus `:pullc` — a SENSITIVITY reading on the pull arm
+  rather than a fourth arm. It is the same query lowered once at
+  registration into a closure instead of interpreted per read, and it is
+  here so that a verdict against pull cannot be answered with *you
+  measured an interpreter*. It is excluded from every three-arm row by
+  construction and reported separately."
+  [:fine :coarse :pull :pullc])
 
 (defn- fresh-tallies
   "Every counter this file reads, minted fresh. A map rather than a pile
@@ -184,6 +196,37 @@
   [{:user [:name :email]}
    {:rows [:text :done?]}])
 
+(defn- compile-pull
+  "Lower `query` ONCE into a closure, so nothing is interpreted per read.
+
+  This is the strongest form of the idea and it is measured for exactly
+  that reason: `G5b` is zero here by construction, so if the interpreted
+  arm's overhead were the only thing standing between a pull and
+  graduation, this arm would show it. It retains one closure per
+  registered query — a constant, not a per-leaf structure — so it does
+  not touch the kill condition either."
+  [query]
+  (let [ops (mapv (fn [q]
+                    (cond
+                      (keyword? q)
+                      (fn [!lu node acc] (assoc acc q (lk !lu node q)))
+
+                      (map? q)
+                      (let [[k subquery] (first q)
+                            resolve-sub  (compile-pull subquery)]
+                        (fn [!lu node acc]
+                          (let [child (lk !lu node k)]
+                            (assoc acc k (if (sequential? child)
+                                           (mapv #(resolve-sub !lu %) child)
+                                           (resolve-sub !lu child))))))
+
+                      :else
+                      (throw (ex-info "unsupported pull node" {:node q}))))
+                  query)]
+    (fn [!lu node] (reduce (fn [acc op] (op !lu node acc)) {} ops))))
+
+(def ^:private compiled-pull (compile-pull pull-query))
+
 ;; ---------------------------------------------------------------------------
 ;; The witness — one form over a user record, one list of R rows
 ;; ---------------------------------------------------------------------------
@@ -242,6 +285,12 @@
 ;; Arm C — the hand-coarse view-model
 ;; ---------------------------------------------------------------------------
 
+;; Written the way a competent author writes one — `mapv` straight over
+;; the rows, with no index walk. The first draft of this arm indexed
+;; `(range (count rows))` and paid one extra lookup per row for it, which
+;; handicapped the arm the pull is being asked to approach; a comparison
+;; against a straw man is not a comparison. `G5` here is now the floor a
+;; hand-written answer actually pays.
 (rf/reg-sub :coarse/view-model
   (fn [db _]
     (swap! (!l1 :coarse) inc)
@@ -249,10 +298,8 @@
           user (lk !n db :user)
           rows (lk !n db :rows)]
       {:user {:name (lk !n user :name) :email (lk !n user :email)}
-       :rows (mapv (fn [i]
-                     (let [row (lk !n rows i)]
-                       {:text (lk !n row :text) :done? (lk !n row :done?)}))
-                   (range (count rows)))})))
+       :rows (mapv (fn [row] {:text (lk !n row :text) :done? (lk !n row :done?)})
+                   rows)})))
 
 (rf/reg-sub :coarse/screen
   :<- [:coarse/view-model]
@@ -270,6 +317,16 @@
 (rf/reg-sub :pull/screen
   :<- [:pull/view-model]
   (fn [vm _] (swap! (!out :pull) conj vm) vm))
+
+;; The sensitivity reading — the same query, lowered once.
+(rf/reg-sub :pullc/view-model
+  (fn [db _]
+    (swap! (!l1 :pullc) inc)
+    (compiled-pull (!lookups :pullc) db)))
+
+(rf/reg-sub :pullc/screen
+  :<- [:pullc/view-model]
+  (fn [vm _] (swap! (!out :pullc) conj vm) vm))
 
 ;; ---------------------------------------------------------------------------
 ;; Harness
@@ -300,7 +357,8 @@
     (let [refs {:fine   (into [(rf/subscribe [:fine/user-view])]
                               (map #(rf/subscribe [:fine/row-view %])) (range r))
                 :coarse [(rf/subscribe [:coarse/screen])]
-                :pull   [(rf/subscribe [:pull/screen])]}]
+                :pull   [(rf/subscribe [:pull/screen])]
+                :pullc  [(rf/subscribe [:pullc/screen])]}]
       (doseq [[_ rs] refs, r* rs] (deref r*))
       (->Screen frame-id r refs))))
 
@@ -336,7 +394,7 @@
   [^Screen screen]
   (let [snapshot (subs-tooling/sub-cache-snapshot (:frame-id screen))]
     (reduce-kv (fn [acc query-v _] (update acc (arm-of query-v) (fnil inc 0)))
-               {:fine 0 :coarse 0 :pull 0}
+               (zipmap tally-keys (repeat 0))
                (or snapshot {}))))
 
 (defn- declared
@@ -346,7 +404,7 @@
                (if-some [arm (some-> sub-id namespace keyword)]
                  (update acc arm (fnil inc 0))
                  acc))
-             {:fine 0 :coarse 0 :pull 0}
+             (zipmap tally-keys (repeat 0))
              (subs-tooling/sub-topology)))
 
 ;; ---------------------------------------------------------------------------
@@ -378,28 +436,31 @@
         (is (= (vec (rest fine)) (:rows coarse)))
         (is (= (vec (rest fine)) (:rows pulled))))
 
+      (testing "the sensitivity arm delivers the same value too, so the
+                compiled reading below is a reading of this screen"
+        (is (= coarse (first (:pullc read)))))
+
       (testing "each arm's instrument moved, so no arm is being read off a
                 counter that never ran"
-        (doseq [arm tally-keys]
+        (doseq [arm comparator-arms]
           (is (pos? (:g4 (get out arm))) (str "arm " arm " ran no layer-1 handler"))
           (is (pos? (:g5 (get out arm))) (str "arm " arm " performed no app-db lookup"))
           (is (pos? (:g1 (get out arm))) (str "arm " arm " notified no consumer")))))))
 
-(deftest the-instrument-answers-both-ways
-  (testing "the agreement assertion above is capable of failing — a pull
-            query that omits a field produces a value the coarse arm's
-            does not equal, so the parity row is a discriminator rather
-            than a helper that only knows one verb"
-    (let [screen (open-screen! ::both-ways 4)
-          _      (read-screen! screen)
-          db     (rf/with-frame (:frame-id screen) @(rf/subscribe [:coarse/view-model]))
-          short  (pull (atom 0) (atom 0)
-                       {:user {:name "ada" :email "ada@example.com"}
-                        :rows [{:text "row-0" :done? true}]}
-                       [{:user [:name]} {:rows [:text :done?]}])]
-      (is (some? db))
-      (is (not= (:user db) (:user short))
-          "a query missing a field must not agree with the coarse arm"))))
+(deftest the-parity-row-answers-both-ways
+  (testing "the agreement assertion above is capable of failing. The same
+            resolver, run over the same node with a query that omits one
+            field, must NOT agree with the coarse arm — otherwise the
+            parity row is a helper that only knows one verb, and an arm
+            could go missing underneath it."
+    (let [node  {:user {:name "ada" :email "ada@example.com" :locale "en"}
+                 :rows [{:id 0 :text "row-0" :done? true}]}
+          whole (pull (atom 0) (atom 0) node pull-query)
+          short (pull (atom 0) (atom 0) node [{:user [:name]} {:rows [:text :done?]}])]
+      (is (= {:name "ada" :email "ada@example.com"} (:user whole))
+          "the full query agrees")
+      (is (not= (:user whole) (:user short))
+          "and a query missing a field does not"))))
 
 ;; ---------------------------------------------------------------------------
 ;; G1–G5b — correlated churn
@@ -426,16 +487,29 @@
         (is (= 1 (:g4 (:coarse out))))
         (is (= 1 (:g4 (:pull out)))))
 
-      (testing "G5 — app-db path lookups, the same unit in all three arms"
+      (testing "G5 — app-db path lookups, the same unit in all three arms.
+                The pull arm reaches EXACTLY the hand-written arm's floor:
+                a query that names the same leaves walks the same paths."
         (is (= 28 (:g5 (:fine out))))
-        (is (= 14 (:g5 (:coarse out))))
-        (is (= 14 (:g5 (:pull out)))))
+        (is (= 12 (:g5 (:coarse out))))
+        (is (= 12 (:g5 (:pull out)))))
 
       (testing "G5b — query-interpretation steps: the pull arm's whole
-                overhead over the hand-written answer, isolated"
+                overhead over the hand-written answer, isolated. Twelve
+                steps against twelve lookups is a doubling of the work per
+                read, and it is the entire difference between the two arms."
         (is (= 0 (:g5b (:fine out))))
         (is (= 0 (:g5b (:coarse out))))
-        (is (= 10 (:g5b (:pull out))))))))
+        (is (= 12 (:g5b (:pull out)))))
+
+      (testing "the sensitivity arm — the same query lowered once — pays
+                the lookups and none of the steps, so the interpretation
+                overhead is removable and is shown to be"
+        (is (= 1 (:g1 (:pullc out))))
+        (is (= 10 (:g2 (:pullc out))))
+        (is (= 1 (:g4 (:pullc out))))
+        (is (= 12 (:g5 (:pullc out))))
+        (is (= 0 (:g5b (:pullc out))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; G3 — independent churn
@@ -457,9 +531,9 @@
         (is (= 1 (:g4 (:coarse out))))
         (is (= 1 (:g4 (:pull out))))
         (is (= 28 (:g5 (:fine out))))
-        (is (= 14 (:g5 (:coarse out))))
-        (is (= 14 (:g5 (:pull out))))
-        (is (= 10 (:g5b (:pull out))))))))
+        (is (= 12 (:g5 (:coarse out))))
+        (is (= 12 (:g5 (:pull out))))
+        (is (= 12 (:g5b (:pull out))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; The control that moves every figure — quadruple the rows
@@ -489,19 +563,30 @@
         (is (= 1 (:g4 (:pull small))))
         (is (= 1 (:g4 (:pull big)))))
 
-      (testing "G5 scales in every arm, and the pull:coarse ratio is what
-                the deciding rule reads"
+      (testing "G5 scales in every arm, and the pull arm sits exactly on
+                the hand-written arm's floor at both populations"
         (is (= 28 (:g5 (:fine small))))
         (is (= 100 (:g5 (:fine big))))
-        (is (= 14 (:g5 (:coarse small))))
-        (is (= 50 (:g5 (:coarse big))))
-        (is (= 14 (:g5 (:pull small))))
-        (is (= 50 (:g5 (:pull big)))))
+        (is (= 12 (:g5 (:coarse small))))
+        (is (= 36 (:g5 (:coarse big))))
+        (is (= 12 (:g5 (:pull small))))
+        (is (= 36 (:g5 (:pull big)))))
 
       (testing "G5b scales with the rows, because a query node is visited
-                per row"
-        (is (= 10 (:g5b (:pull small))))
-        (is (= 34 (:g5b (:pull big))))))))
+                per row — so the ratio the deciding rule reads is a
+                constant 2.00 rather than something that washes out"
+        (is (= 12 (:g5b (:pull small))))
+        (is (= 36 (:g5b (:pull big))))
+        (is (= 2 (/ (+ (:g5 (:pull small)) (:g5b (:pull small))) (:g5 (:coarse small)))))
+        (is (= 2 (/ (+ (:g5 (:pull big)) (:g5b (:pull big))) (:g5 (:coarse big))))))
+
+      (testing "and the compiled sensitivity arm sits at 1.00 — the
+                interpretation overhead is real, isolated, and removable"
+        (is (= 1 (/ (+ (:g5 (:pullc small)) (:g5b (:pullc small))) (:g5 (:coarse small)))))
+        (is (= 1 (/ (+ (:g5 (:pullc big)) (:g5b (:pullc big))) (:g5 (:coarse big)))))
+        (is (= 10 (:g2 (:pullc small))))
+        (is (= 34 (:g2 (:pullc big)))
+            "but it is still a coarse read — G2 is unmoved by compiling")))))
 
 ;; ---------------------------------------------------------------------------
 ;; G6 — retention, and the kill condition
@@ -529,11 +614,18 @@
         (is (= (:coarse rs) (:coarse rb)))
         (is (= 2 (:coarse rs))))
 
+      (testing "and so is the compiled sensitivity arm's: lowering the
+                query retains one closure, not one slot per leaf"
+        (is (= (:pullc rs) (:pullc rb)))
+        (is (= 2 (:pullc rs))))
+
       (testing "while the fine arm's grows with the rows, which is what a
                 per-leaf structure looks like when one is present — and is
-                the positive control that gives this row its meaning"
-        (is (= 11 (:fine rs)))
-        (is (= 35 (:fine rb)))
+                the positive control that gives this row its meaning. Three
+                entries per row (two leaves and a consumer) plus three for
+                the form."
+        (is (= 15 (:fine rs)))
+        (is (= 51 (:fine rb)))
         (is (< (:fine rs) (:fine rb)))))))
 
 ;; ---------------------------------------------------------------------------
@@ -548,7 +640,10 @@
     (let [d (declared)]
       (is (= 6 (:fine d)) "4 leaf kinds + 2 consumers")
       (is (= 2 (:coarse d)))
-      (is (= 2 (:pull d))))))
+      (is (= 2 (:pull d)))
+      (is (= 2 (:pullc d)))
+      (is (= (:coarse d) (:pull d))
+          "the pull arm TIES the hand-written arm here — it does not beat it"))))
 
 ;; ---------------------------------------------------------------------------
 ;; Adapter portability
@@ -565,6 +660,7 @@
       (is (= 1 (:g1 (:pull out))))
       (is (= 10 (:g2 (:pull out))))
       (is (= 1 (:g4 (:pull out))))
-      (is (= 14 (:g5 (:pull out))))
-      (is (= 10 (:g5b (:pull out))))
+      (is (= 12 (:g5 (:pull out))))
+      (is (= 12 (:g5b (:pull out))))
+      (is (= 12 (:g5 (:coarse out))) "and the coarse arm's floor is the same one")
       (is (= 2 (:g2 (:fine out))) "and the fine arm's separation survives the substrate change"))))
