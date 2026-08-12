@@ -167,7 +167,7 @@
             next     (h/sub [::subs/t :feed/next])]
         [:nav.pager {:aria-label (h/sub [::subs/t :feed/pagination])}
          (if (= 1 page)
-           [:span.pager-prev.pager-end {:aria-disabled "true"} previous]
+           [:span.pager-prev {:aria-disabled "true"} previous]
            (h/route-link {:to routes/feed :query {:page (dec page)} :class "pager-prev"}
                          previous))
          [:ol.pager-pages
@@ -182,7 +182,7 @@
                (h/route-link {:to routes/feed :query {:page n} :class "pager-link"}
                              (str n)))])]
          (if (= page pages)
-           [:span.pager-next.pager-end {:aria-disabled "true"} next]
+           [:span.pager-next {:aria-disabled "true"} next]
            (h/route-link {:to routes/feed :query {:page (inc page)} :class "pager-next"}
                          next))]))))
 

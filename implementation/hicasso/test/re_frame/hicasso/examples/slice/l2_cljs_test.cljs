@@ -169,12 +169,17 @@
         links (:children (classed tree "pager-pages"))]
     (is (= [1 2 3] (mapv :key links))
         "one item per page, keyed by the page number")
-    (is (= ["/slice?page=1" nil "/slice?page=3"]
+    (is (= ["/slice" nil "/slice?page=3"]
            (mapv #(:href (ht/attrs (first (:children %)))) links))
         "the hrefs are routing's own synthesis from `{:page n}` — `views`
-         names no URL and no `?` anywhere — and the CURRENT page has none,
-         because a link to the page you are already on is a link that does
-         nothing")
+         names no URL and no `?` anywhere. Two of the three answers are
+         worth reading twice. The CURRENT page has no href at all, because
+         a link to the page you are already on is a link that does
+         nothing. And page ONE is `/slice`, not `/slice?page=1`: the
+         route's `:query-defaults` make the key redundant, so
+         `route-url` leaves it out and every page has exactly one URL.
+         Two spellings of one page would be two history entries and two
+         things to bookmark")
     (is (= "page" (:aria-current (ht/attrs (classed tree "pager-current"))))
         "and that span is what tells a screen reader where it is")))
 
@@ -194,12 +199,15 @@
     (let [tree (pager-tree 3 3)]
       (is (= :a (:tag (classed tree "pager-prev"))))
       (is (= "/slice?page=2" (:href (ht/attrs (classed tree "pager-prev")))))
-      (is (= :span (:tag (classed tree "pager-next"))))))
+      (is (= :span (:tag (classed tree "pager-next"))))
+      (is (= "true" (:aria-disabled (ht/attrs (classed tree "pager-next")))))))
 
   (testing "in the middle, both are links"
     (let [tree (pager-tree 2 3)]
-      (is (= ["/slice?page=1" "/slice?page=3"]
-             (mapv #(:href (ht/attrs (classed tree %))) ["pager-prev" "pager-next"]))))))
+      (is (= ["/slice" "/slice?page=3"]
+             (mapv #(:href (ht/attrs (classed tree %))) ["pager-prev" "pager-next"]))
+          "and Previous from page two is the bare `/slice` — see above on
+           why page one has exactly one URL"))))
 
 ;; ---------------------------------------------------------------------------
 ;; The digest — runtime-selected content, and the nested error region
@@ -253,7 +261,9 @@
   (is (= ["Keys are domain ids" "Boundaries are components" "Revision is a counter"]
          (mapv ht/text (:children (block-tree (second db/digest) nil))))
       "the whole payload renders, keyed by the item itself")
-  (is (= [] (:children (block-tree {:block/id "e" :block/kind :block/list :block/items []} nil)))
+  (is (empty? (:children (block-tree {:block/id "e" :block/kind :block/list
+                                      :block/items []}
+                                     nil)))
       "an EMPTY list is a list with nothing in it, and renders as one")
   (is (thrown? js/Error (block-tree (second db/digest-truncated) nil))
       "a list block whose items key is ABSENT refuses. The distinction is
