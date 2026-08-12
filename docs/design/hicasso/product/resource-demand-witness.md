@@ -32,21 +32,21 @@ Fifteen regions. Nine OWNERSHIP, five POLICY, one DOMAIN.
 
 | id | class | role | site (as landed) | what it is |
 |---|---|---|---|---|
-| `O1` | OWNERSHIP | release | `events.cljs` 114-117 | the definition: abandon the request the model believes is out |
-| `O2` | OWNERSHIP | release | `events.cljs` 138-140 | the term moved, so the request out for the old one is work nobody reads |
-| `O3` | OWNERSHIP | release | `events.cljs` 163-165 | the parameter became unreadable, so nothing reads the resource |
-| `O4` | OWNERSHIP | acquire | `events.cljs` 186-190 | re-opening makes the read live again, so the resource has to be re-checked by hand |
-| `O5` | OWNERSHIP | release | `events.cljs` 213-215 | the panel closed, so the suggestion read is gone |
-| `O6` | OWNERSHIP | acquire | `events.cljs` 241-245 | issue only if a read is live and is not already answered |
-| `O7` | OWNERSHIP | release | `events.cljs` 308-310 | choosing closes the panel, so the suggestion read is gone |
-| `O8` | OWNERSHIP | release | `events.cljs` 311-314 | the detail pane's parameter moved, so the previous id's request is unread |
-| `O9` | OWNERSHIP | acquire | `events.cljs` 315-317 | the detail pane's read becomes live, unless the cache already answers it |
-| `P1` | POLICY | debounce | `events.cljs` 141-145 | one tick armed per keystroke; the guard at the tick decides which survives |
-| `P2` | POLICY | debounce | `events.cljs` 237-239 | a tick a newer keystroke superseded fires and does nothing |
-| `P3` | POLICY | stale-reply-suppression | `events.cljs` 266-270 | a reply for a request the model no longer awaits is dropped |
-| `P4` | POLICY | stale-reply-suppression | `events.cljs` 276-283 | a failure for a request the model no longer awaits is dropped |
+| `O1` | OWNERSHIP | release | `events.cljs` 122-125 | the definition: abandon the request the model believes is out |
+| `O2` | OWNERSHIP | release | `events.cljs` 146-148 | the term moved, so the request out for the old one is work nobody reads |
+| `O3` | OWNERSHIP | release | `events.cljs` 171-173 | the parameter became unreadable, so nothing reads the resource |
+| `O4` | OWNERSHIP | acquire | `events.cljs` 194-198 | re-opening makes the read live again, so the resource has to be re-checked by hand |
+| `O5` | OWNERSHIP | release | `events.cljs` 221-223 | the panel closed, so the suggestion read is gone |
+| `O6` | OWNERSHIP | acquire | `events.cljs` 249-253 | issue only if a read is live and is not already answered |
+| `O7` | OWNERSHIP | release | `events.cljs` 316-318 | choosing closes the panel, so the suggestion read is gone |
+| `O8` | OWNERSHIP | release | `events.cljs` 319-322 | the detail pane's parameter moved, so the previous id's request is unread |
+| `O9` | OWNERSHIP | acquire | `events.cljs` 323-325 | the detail pane's read becomes live, unless the cache already answers it |
+| `P1` | POLICY | debounce | `events.cljs` 149-153 | one tick armed per keystroke; the guard at the tick decides which survives |
+| `P2` | POLICY | debounce | `events.cljs` 245-247 | a tick a newer keystroke superseded fires and does nothing |
+| `P3` | POLICY | stale-reply-suppression | `events.cljs` 274-278 | a reply for a request the model no longer awaits is dropped |
+| `P4` | POLICY | stale-reply-suppression | `events.cljs` 284-291 | a failure for a request the model no longer awaits is dropped |
 | `P5` | POLICY | refresh-with-data | `views.cljs` 94-96 | keep painting the rows held while a request for a NEW term is out |
-| `X1` | DOMAIN | prefetch | `events.cljs` 334-339 | a demand no read expresses; it exists under any mechanism because no read set can imply it |
+| `X1` | DOMAIN | prefetch | `events.cljs` 342-347 | a demand no read expresses; it exists under any mechanism because no read set can imply it |
 
 **The OWNERSHIP split is six release and three acquire**, both halves non-empty. `O1` is the release factored into one function and `O2`, `O3`, `O5`, `O7` are its call sites; `O8` is the detail resource's own release, written separately because it is keyed by a different parameter. Factoring is the right engineering answer and it does not retire the ceremony: the author must still remember to CALL the release at every intent that can end a read, and nothing in the language, the linter or the handler's type can tell them they missed one.
 

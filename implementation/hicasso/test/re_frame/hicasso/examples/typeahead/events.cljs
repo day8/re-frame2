@@ -46,6 +46,14 @@
   request, which is the C2 class *orphaned in-flight request after a
   parameter change*.
 
+  ## Some handlers are named functions, and one reason is the witness
+
+  [[typed-fx]] and [[dismiss-fx]] are ordinary functions with a one-line
+  registration beside them. That is good structure anyway, and it is also
+  what lets `l0-cljs-test` demonstrate a defect class by registering the
+  SAME effect map with exactly one thing removed — no second copy of a
+  handler to drift, and no test-only switch inside the application.
+
   ## The release that could not be written
 
   There are three intents in this file that end a suggestion read, and

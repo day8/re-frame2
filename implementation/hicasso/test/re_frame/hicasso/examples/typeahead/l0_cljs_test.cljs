@@ -34,11 +34,18 @@
   hand-written answer actually exhibit the defect*, so that an
   accidentally unreachable class cannot pass. The mutations are registered
   HERE rather than made by editing the application, and each is built from
-  the application's own function with exactly one thing removed —
-  [[::unguarded-suggestions]] is `db/take-rows` with no correlation check,
-  [[::dismiss-without-release]] is `events/dismiss-fx` with its `:fx`
-  dropped. No model logic is copied, so neither arm can drift from the
-  other and the witness on disk stays the honest answer.
+  the application's own function with exactly one thing removed:
+
+  - [[::unguarded-suggestions]] is `db/take-rows` with no correlation
+    check — the P3 region gone;
+  - [[::dismiss-without-release]] is `events/dismiss-fx` with its `:fx`
+    dropped — the O5 region gone;
+  - [[::typed-without-release]] is `events/typed-fx` with its one abandon
+    entry filtered out — the O2 region gone, and the debounce it also
+    emits untouched.
+
+  No model logic is copied, so no arm can drift from another and the
+  witness on disk stays the honest answer.
 
   ## Cancellation is best-effort; suppression is what makes it correct
 
