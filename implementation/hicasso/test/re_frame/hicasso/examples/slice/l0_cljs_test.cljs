@@ -25,13 +25,20 @@
             [re-frame.hicasso.examples.slice.db :as db]
             [re-frame.hicasso.examples.slice.events :as events]
             [re-frame.hicasso.examples.slice.i18n :as i18n]
+            [re-frame.hicasso.examples.slice.routes :as routes]
             [re-frame.hicasso.examples.slice.subs :as subs]
+            [re-frame.routing :as routing]
             [re-frame.test-support :as test-support]))
 
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture
     {:adapter       uix-adapter/adapter
-     :ambient-frame nil}))
+     :ambient-frame nil
+     ;; The reset restores the registrar to a baseline captured when this
+     ;; form was EVALUATED, which is before `routes` finished loading — so
+     ;; the URL rows below would meet an empty route registry. See that
+     ;; namespace on why `register!` is exposed at all.
+     :init-fn       (fn [] (routes/register!))}))
 
 (defn- with-app
   "Run `f` against a fresh frame seeded with the slice's own starting
@@ -68,9 +75,82 @@
     (is (nil? (db/article db/seed "nonsense")))))
 
 (deftest the-feed-takes-its-order-from-order
-  (is (= ["hicasso" "intents" "controls"] (mapv :slug (db/listed db/seed))))
+  (is (= ["hicasso" "intents" "controls" "keys" "boundaries" "revision" "pages"]
+         (mapv :slug (db/listed db/seed))))
   (testing "an article missing from :articles is skipped rather than nil-padded"
     (is (= ["intents"] (mapv :slug (db/listed (assoc db/seed :order ["gone" "intents"])))))))
+
+;; ---------------------------------------------------------------------------
+;; Pagination — arithmetic, and a page number nobody may trust (rf2-hic-074)
+;; ---------------------------------------------------------------------------
+
+(def ^:private slugs (mapv :slug (db/listed db/seed)))
+
+(defn- page-slugs [n] (mapv :slug (db/page-rows (db/listed db/seed) n)))
+
+(deftest pages-are-cut-from-the-order-and-the-last-one-is-short
+  (is (= 7 (count slugs)) "the seed's roster, which the sizes below are read against")
+  (is (= 3 (db/page-count (db/listed db/seed)))
+      "seven articles at a page size of three")
+  (is (= ["hicasso" "intents" "controls"] (page-slugs 1)))
+  (is (= ["keys" "boundaries" "revision"] (page-slugs 2)))
+  (is (= ["pages"] (page-slugs 3))
+      "a short last page, which is the case a `subvec` past the end gets
+       wrong and the one worth pinning")
+  (is (= slugs (into [] cat (map page-slugs [1 2 3])))
+      "and the three pages are the list — no article is on two pages, and
+       none is on none"))
+
+(deftest an-empty-feed-is-one-empty-page-rather-than-zero-pages
+  (let [empty-db (assoc db/seed :order [])]
+    (is (= 1 (db/page-count (db/listed empty-db)))
+        "zero pages would make `page 1` a question with no answer, and the
+         pager would have no number to call the page the user is on")
+    (is (= [] (db/page-rows (db/listed empty-db) 1)))))
+
+(deftest a-page-number-off-the-url-is-clamped-rather-than-trusted
+  (let [rows (db/listed db/seed)]
+    (is (= 1 (db/clamp-page rows nil)) "no ?page= at all is the first page")
+    (is (= 1 (db/clamp-page rows 1)))
+    (is (= 3 (db/clamp-page rows 3)))
+    (testing "a number outside the range is a PAGE, not an error — a URL is
+              user input and `/slice?page=900` is something anybody can type"
+      (is (= 1 (db/clamp-page rows 0)))
+      (is (= 1 (db/clamp-page rows -3)))
+      (is (= 3 (db/clamp-page rows 900)))
+      (is (= ["pages"] (page-slugs 900))
+          "and the rows follow the clamp, so the page renders the nearest
+           thing that exists rather than nothing at all"))))
+
+;; ---------------------------------------------------------------------------
+;; The page rides the URL, so Back and Forward are routing's (rf2-hic-074)
+;; ---------------------------------------------------------------------------
+
+(deftest the-page-round-trips-through-the-url
+  ;; THE WHOLE OF BACK/FORWARD CONDUCT, at the tier that can state it. A
+  ;; browser's history entry is a URL and nothing else: Back hands the
+  ;; application the string it was on, and what the application does with
+  ;; it is `match-url`. So a page survives Back exactly when it survives
+  ;; this round trip — no history listener, no `popstate` handler and no
+  ;; navigation event of the application's own is involved, and there is
+  ;; none in this slice to involve.
+  (testing "the pager's own destination becomes a URL that carries the page"
+    (is (= "/slice?page=2" (routing/route-url {:to routes/feed :query {:page 2}}))))
+
+  (testing "and the URL comes back as the same page, as a NUMBER"
+    (let [match (routing/match-url "/slice?page=2")]
+      (is (= routes/feed (:route-id match)))
+      (is (= {:page 2} (:query match))
+          "`:int` coercion is what makes this a 2 rather than a \"2\" — the
+           subscription that reads it does arithmetic, and a string would
+           clamp and compare as one all the way to the page numbers")))
+
+  (testing "a bare /slice is page one, because :query-defaults says so
+            rather than because a view remembered to"
+    (is (= {:page 1} (:query (routing/match-url "/slice")))))
+
+  (testing "the article route is untouched by any of it"
+    (is (= routes/article (:route-id (routing/match-url "/slice/article/intents"))))))
 
 (deftest validation-answers-keywords-in-a-stable-order
   (is (= [] (db/problems {:title "t" :body "b"})))
@@ -231,6 +311,84 @@
       (is (= "rgb(255, 255, 255)" (read-sub frame [::subs/token :surface])))
       (rf/dispatch-sync [::events/set-theme {:theme :dark}] {:frame frame})
       (is (= "rgb(18, 21, 26)" (read-sub frame [::subs/token :surface]))))))
+
+;; ---------------------------------------------------------------------------
+;; Pagination and the digest, through the frame (rf2-hic-074)
+;; ---------------------------------------------------------------------------
+
+(defn- at-page
+  "Run `f` against a frame seeded and navigated to page `n` of the feed —
+  `nil` for a bare `/slice`, which is what a first visit is."
+  [n f]
+  (rf/with-new-frame
+    [frame (rf/make-frame
+             {:initial-events [[::events/seed]
+                               [:rf.route/navigate
+                                (cond-> {:to routes/feed}
+                                  (some? n) (assoc :query {:page n}))]]})]
+    (f frame)))
+
+(deftest the-list-shows-the-page-the-ROUTE-asks-for-and-holds-no-copy-of-it
+  (testing "a bare /slice"
+    (at-page nil
+      (fn [frame]
+        (is (= 1 (read-sub frame [::subs/current-page])))
+        (is (= 3 (read-sub frame [::subs/page-count])))
+        (is (= ["hicasso" "intents" "controls"]
+               (mapv :slug (read-sub frame [::subs/feed])))))))
+
+  (testing "?page=2 moves the list and nothing else"
+    (at-page 2
+      (fn [frame]
+        (is (= 2 (read-sub frame [::subs/current-page])))
+        (is (= ["keys" "boundaries" "revision"]
+               (mapv :slug (read-sub frame [::subs/feed]))))
+        (is (= 7 (count (read-sub frame [::subs/listed])))
+            "the whole list is still the whole list — pagination is a
+             projection over it, not a filter applied to `app-db`")
+        (is (nil? (:page (app-db-of frame)))
+            "AND THE PAGE IS NOT IN app-db's application partition. It is
+             routing state, read through `[:rf.route/query]`; a second copy
+             here is the thing that lets the address bar and the list
+             disagree after a Back"))))
+
+  (testing "?page=900 clamps, and the RAW ask stays visible beside it"
+    (at-page 900
+      (fn [frame]
+        (is (= 900 (read-sub frame [::subs/page])) "what the URL asked for")
+        (is (= 3 (read-sub frame [::subs/current-page])) "what exists")
+        (is (= ["pages"] (mapv :slug (read-sub frame [::subs/feed]))))))))
+
+(deftest the-digest-is-seeded-whole-and-a-partial-delivery-is-taken-as-it-came
+  (with-app
+    (fn [frame]
+      (is (= db/digest (read-sub frame [::subs/digest-blocks]))
+          "the application opens with content; the digest ships with the page")
+      (is (false? (read-sub frame [::subs/digest-loading?])))
+
+      (testing "a delivery that arrived cut short is stored UNINSPECTED —
+                the client validates no block, and the region's own error
+                boundary is why it does not have to"
+        (rf/dispatch-sync [::events/digest-arrived {:blocks db/digest-truncated}]
+                          {:frame frame})
+        (is (= db/digest-truncated (read-sub frame [::subs/digest-blocks])))
+        (is (nil? (:block/items (second (read-sub frame [::subs/digest-blocks]))))
+            "the list block lost its items, which is the shape a renderer
+             refuses")))))
+
+(deftest reloading-the-digest-goes-in-flight-and-keeps-what-is-on-screen
+  (with-app
+    (fn [frame]
+      (rf/dispatch-sync [::events/digest-arrived {:blocks db/digest-truncated}]
+                        {:frame frame})
+      (rf/dispatch-sync [::events/reload-digest] {:frame frame})
+      (is (true? (read-sub frame [::subs/digest-loading?])))
+      (is (= db/digest-truncated (read-sub frame [::subs/digest-blocks]))
+          "the blocks did not move. Emptying them would clear the region's
+           error boundary — its reset key is the CONTENT — so a failed
+           region would blink through an empty success on its way back, and
+           a reply that never came would leave the user looking at nothing
+           instead of at the failure and the button that retries it"))))
 
 ;; ---------------------------------------------------------------------------
 ;; The instance-key sugar — two rows do not share one flag

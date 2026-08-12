@@ -203,15 +203,32 @@ none of them is obvious from the gate command itself.
   that tree as its spine root, its diff root and its classifier input, then
   reported the resulting verdict as its own. A complete, internally consistent
   run about somebody else's work is far harder to catch than a broken one, so
-  every gate now prints `gate root: <path>` as its first line — **check that
-  line against your worktree before believing any colour.** That check, not any
-  naming rule, is what has actually caught this class of defect: both 2026-08-12
-  scratchpad collisions (the artefact bullet below) were caught by a worker
-  reading `gate root:` and finding a sibling's worktree name there, and neither
-  by the file-naming convention its brief had already given it. So treat it as a
-  mandatory step on every gate run rather than an aside — a positive
-  verification performed on evidence you received is a stronger shape than a
-  rule you are asked to remember.
+  the shell gates — every `scripts/test-*.sh` — print `gate root: <path>` as
+  their first line, and some node runners do as well. **Check that line against
+  your worktree before believing any colour.** That check, not any naming rule,
+  is what has actually caught this class of defect: both 2026-08-12 scratchpad
+  collisions (the artefact bullet below) were caught by a worker reading
+  `gate root:` and finding a sibling's worktree name there, and neither by the
+  file-naming convention its brief had already given it. **The Python gates
+  print no such line** — not one of `scripts/check_*.py` emits it,
+  `check_doc_slugs.py` included, and several of them print nothing whatever on
+  success. There the proof is the same shape drawn from a different source:
+  **the fault the gate names when you plant one.** Plant it at a line you are
+  already editing, run the gate red, and check that the path and line number in
+  the failure are the ones you planted. Do not expect that path to name your
+  worktree — `check_doc_slugs.py` reports repo-relative
+  (`docs\the-mayor-method\dispatch-prompt-template.md:214`), which cannot tell
+  two checkouts apart on its own. The discrimination is the red itself: the
+  fault exists only in your tree, so a run that had wandered into a sibling's
+  would have come back green, and a green sabotage run is a reason to stop, not
+  to proceed. This half is written down because the bullet used to claim
+  *every* gate printed the banner, which is an instruction a worker on a Python
+  gate cannot satisfy — two hit it in one day, and one of them arrived at the
+  negative control unprompted, because a worker facing an unsatisfiable rule
+  improvises rather than stops. So the check is mandatory on every gate run, by
+  whichever of the two routes that gate affords — a positive verification
+  performed on evidence you received is a stronger shape than a rule you are
+  asked to remember.
 - **Never pipe a gate through `tail`, `head` or `grep`.** A pipeline's exit
   status is its *last* command's, so a red runner reads green and the PR claims
   a pass it never got. Redirect to a log file, echo the runner's own exit code
@@ -222,9 +239,16 @@ none of them is obvious from the gate command itself.
   yields a plausible zero. That is this bullet's own defeat by a second route,
   so a paraphrase that drops the single line drops the rule. **The number you
   quote is the one you captured** — never one the harness reports about the same
-  run, which is a different measurement and has disagreed: on 2026-08-11 a
-  worker's gate was surfaced as *completed (exit code 0)* while the run's own
-  captured status was 1.
+  run, which is a different measurement and disagrees routinely rather than
+  rarely: at least seven times across five workers in three days. The first was
+  noted on 2026-08-11, a gate surfaced as *completed (exit code 0)* while the
+  run's own captured status was 1; 2026-08-13 alone accounts for six more,
+  across five workers — among them a compile failure from an unbalanced paren, a
+  genuine two-assertion failure, and a browser run standing over three real
+  ones. Every one of them surfaced as exit 0, and every one was caught because
+  the worker quoted the number it had captured. The rule is doing its job; it
+  was the frequency that was understated, and a worker deciding how hard to look
+  reads the frequency, not the rule.
 - **Verify a restore by hashing the bytes, never by reading `git diff`.** A brief
   that proves a guard is *exact* rather than merely present tells the worker to
   plant a fault, run the gate, then restore — and `git diff` misreads that restore

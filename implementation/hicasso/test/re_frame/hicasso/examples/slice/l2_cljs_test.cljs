@@ -26,6 +26,7 @@
   tier rather than a limitation worked around."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as uix-adapter]
+            [re-frame.hicasso.examples.slice.db :as db]
             [re-frame.hicasso.examples.slice.events :as events]
             [re-frame.hicasso.examples.slice.routes :as routes]
             [re-frame.hicasso.examples.slice.subs :as subs]
@@ -136,6 +137,205 @@
                                               :published? true :tags []}]
                               [::subs/t :feed/heading] "Articles"}}))
       "a read inside a branch not taken contributes no edge"))
+
+;; ---------------------------------------------------------------------------
+;; The pager — every control is a route-link, and the ends are not controls
+;; (rf2-hic-074)
+;; ---------------------------------------------------------------------------
+
+(defn- pager-tree
+  "The pager on page `page` of `pages`. The label fixtures are supplied
+  ONLY when the body should read them, which is what makes the
+  single-page row below an assertion rather than a rendering."
+  ([page pages] (pager-tree page pages true))
+  ([page pages labels?]
+   (ht/tree [views/pager {}]
+            {:subs (cond-> {[::subs/current-page] page
+                            [::subs/page-count]   pages}
+                     labels? (merge {[::subs/t :feed/pagination] "Pages"
+                                     [::subs/t :feed/previous]   "Previous"
+                                     [::subs/t :feed/next]       "Next"}))})))
+
+(deftest one-page-renders-no-pager-and-reads-no-string
+  ;; The fixture map is the assertion: no label entries at all, so a body
+  ;; that read one — hoisted above the `when`, say — would REFUSE rather
+  ;; than quietly render a pager nobody can use.
+  (let [tree (pager-tree 1 1 false)]
+    (is (nil? (tagged tree :nav)))
+    (is (nil? (classed tree "pager-pages")))))
+
+(deftest the-pager-links-every-page-through-routing-and-never-builds-a-url
+  (let [tree  (pager-tree 2 3)
+        links (:children (classed tree "pager-pages"))]
+    (is (= [1 2 3] (mapv :key links))
+        "one item per page, keyed by the page number")
+    (is (= ["/slice" nil "/slice?page=3"]
+           (mapv #(:href (ht/attrs (first (:children %)))) links))
+        "the hrefs are routing's own synthesis from `{:page n}` — `views`
+         names no URL and no `?` anywhere. Two of the three answers are
+         worth reading twice. The CURRENT page has no href at all, because
+         a link to the page you are already on is a link that does
+         nothing. And page ONE is `/slice`, not `/slice?page=1`: the
+         route's `:query-defaults` make the key redundant, so
+         `route-url` leaves it out and every page has exactly one URL.
+         Two spellings of one page would be two history entries and two
+         things to bookmark")
+    (is (= "page" (:aria-current (ht/attrs (classed tree "pager-current"))))
+        "and that span is what tells a screen reader where it is")))
+
+(deftest both-ends-stop-being-controls-at-the-end-they-guard
+  (testing "page 1: Previous is text, Next is a link"
+    (let [tree (pager-tree 1 3)]
+      (is (= :span (:tag (classed tree "pager-prev"))))
+      (is (= "true" (:aria-disabled (ht/attrs (classed tree "pager-prev"))))
+          "`aria-disabled` rather than an `<a>` with no href: `disabled` is
+           not an anchor attribute, and a hrefless anchor is a focusable
+           thing a screen-reader user is told to activate and nothing
+           happens when they do")
+      (is (= :a (:tag (classed tree "pager-next"))))
+      (is (= "/slice?page=2" (:href (ht/attrs (classed tree "pager-next")))))))
+
+  (testing "the last page: the other way round"
+    (let [tree (pager-tree 3 3)]
+      (is (= :a (:tag (classed tree "pager-prev"))))
+      (is (= "/slice?page=2" (:href (ht/attrs (classed tree "pager-prev")))))
+      (is (= :span (:tag (classed tree "pager-next"))))
+      (is (= "true" (:aria-disabled (ht/attrs (classed tree "pager-next")))))))
+
+  (testing "in the middle, both are links"
+    (let [tree (pager-tree 2 3)]
+      (is (= ["/slice" "/slice?page=3"]
+             (mapv #(:href (ht/attrs (classed tree %))) ["pager-prev" "pager-next"]))
+          "and Previous from page two is the bare `/slice` — see above on
+           why page one has exactly one URL"))))
+
+;; ---------------------------------------------------------------------------
+;; The digest — runtime-selected content, and the nested error region
+;; (rf2-hic-074)
+;; ---------------------------------------------------------------------------
+
+(defn- block-tree [block extra]
+  (ht/tree [(get views/block-views (:block/kind block) views/unsupported-block)
+            {:block block}]
+           {:subs (or extra {})}))
+
+(deftest a-blocks-KIND-chooses-the-body-that-renders-it
+  ;; §3.3: dynamic composition is a feature. The head here is
+  ;; `(get block-views kind …)` — a value out of a map, in head position,
+  ;; with no registry under it — and this row runs the selection the
+  ;; application itself runs.
+  (let [tree (ht/tree [views/digest-body {}]
+                      {:subs {[::subs/digest-blocks] db/digest}})
+        kids (:children tree)]
+    (is (= ["intro" "reading" "url" "care" "ticker"] (mapv :key kids))
+        "one child per block, keyed by the block's own id")
+    (is (= ["re-frame.hicasso.examples.slice.views/prose-block"
+            "re-frame.hicasso.examples.slice.views/list-block"
+            "re-frame.hicasso.examples.slice.views/callout-block"
+            "re-frame.hicasso.examples.slice.views/callout-block"
+            "re-frame.hicasso.examples.slice.views/unsupported-block"]
+           (mapv :view-id kids))
+        "each block reached the renderer its own kind names, and the kind
+         with no entry fell to `unsupported-block` — the DEFAULT ARGUMENT
+         is the whole of the policy")
+    (is (= (mapv :block/id db/digest) (mapv (comp :block/id :block :props) kids))
+        "and each call carries its own block; L2 records the call and does
+         not run the child's body")))
+
+(deftest a-kind-this-build-does-not-know-stays-DATA
+  ;; §7's errors row splits two failures that look alike from inside a
+  ;; body. This is the EXPECTED one: content outlives the build that
+  ;; renders it, so an unknown kind is an ordinary thing to be sent.
+  (let [tree (block-tree {:block/id "t" :block/kind :block/ticker}
+                         {[::subs/t :digest/unsupported] "This build cannot show a block of kind"})]
+    (is (some? (classed tree "block-unsupported")))
+    (is (= ":block/ticker" (ht/text (classed tree "block-kind")))
+        "the kind is NAMED rather than swallowed — a silent hole is a hole
+         nobody reports")))
+
+(deftest a-list-block-with-no-items-REFUSES
+  ;; And this is the unexpected one. An empty list renders as an empty
+  ;; list; a MISSING one is a delivery that was cut short, and rendering
+  ;; nothing for it would put a silent hole where an editor put three
+  ;; items. The region above it is what turns the throw into a page.
+  (is (= ["Keys are domain ids" "Boundaries are components" "Revision is a counter"]
+         (mapv ht/text (:children (block-tree (second db/digest) nil))))
+      "the whole payload renders, keyed by the item itself")
+  (is (empty? (:children (block-tree {:block/id "e" :block/kind :block/list
+                                      :block/items []}
+                                     nil)))
+      "an EMPTY list is a list with nothing in it, and renders as one")
+  (is (thrown? js/Error (block-tree (second db/digest-truncated) nil))
+      "a list block whose items key is ABSENT refuses. The distinction is
+       the whole of the row above: `[]` is content, and a missing key is a
+       delivery that was cut short"))
+
+(deftest a-callout-picks-its-emphasis-TAG-and-its-token-from-its-tone
+  (let [accent (block-tree {:block/id "a" :block/kind :block/callout
+                            :block/tone :accent :block/text "quiet"}
+                           {[::subs/token :accent] "rgb(11, 107, 203)"})
+        warn   (block-tree {:block/id "w" :block/kind :block/callout
+                            :block/tone :warning :block/text "loud"}
+                           {[::subs/token :danger] "rgb(176, 32, 32)"})]
+    (is (= :em (:tag (classed accent "block-emphasis")))
+        "a keyword in head position is a keyword in head position whether
+         it was typed or computed")
+    (is (= :strong (:tag (classed warn "block-emphasis"))))
+    (is (= "rgb(11, 107, 203)" (:color (:style (ht/attrs (tagged accent :aside))))))
+    (is (= "rgb(176, 32, 32)" (:color (:style (ht/attrs (tagged warn :aside))))))
+    ;; The fixture maps are the second assertion: neither tone reads the
+    ;; other's token, so the branch really is a branch.
+    (is (thrown? js/Error
+          (block-tree {:block/id "w" :block/kind :block/callout
+                       :block/tone :warning :block/text "loud"}
+                      {[::subs/token :accent] "rgb(11, 107, 203)"}))
+        "a warning callout handed only the accent token refuses — an
+         escaped read, which is how this tier proves a branch was taken")))
+
+(defn- digest-tree [blocks loading?]
+  (ht/tree [views/digest {}]
+           {:subs {[::subs/digest-blocks]   blocks
+                   [::subs/digest-loading?] loading?
+                   [::subs/t :digest/heading] "Editor's digest"
+                   [::subs/t :digest/problem] "This digest could not be displayed."
+                   [::subs/t (if loading? :digest/loading :digest/retry)]
+                   (if loading? "Reloading…" "Reload the digest")}}))
+
+(deftest the-digest-region-carries-its-own-boundary-and-resets-on-its-CONTENT
+  (let [tree     (digest-tree db/digest false)
+        boundary (ht/find tree #(contains? (:props %) :reset-key))]
+    (is (some? boundary) "the region has an error boundary of its own")
+    (is (= db/digest (:reset-key (ht/attrs boundary)))
+        "the reset key is the CONTENT, compared with `=`. A counter would
+         clear the caught failure whenever a retry happened — including
+         one that brought the same broken payload back, which would throw
+         again after a visible flicker. Reading the content itself, a
+         retry that changed nothing changes nothing on screen")
+    (is (= "re-frame.hicasso.examples.slice.views/digest-body"
+           (:view-id (first (:children boundary))))
+        "and the blocks are its children, so a throw from any of them is
+         caught HERE — inside the shell's boundary, not by it")
+
+    (testing "the fallback is inert markup, with the retry intent on it"
+      (let [fallback (:fallback (ht/attrs boundary))
+            button   (last fallback)]
+        (is (= "alert" (:role (second fallback))))
+        (is (= [::events/reload-digest] (:on-click (second button))))
+        (is (false? (:disabled (second button)))
+            "enabled while nothing is in flight")
+        (is (= "Reload the digest" (last button))
+            "and its sentence is READ THROUGH A SUB like every other — the
+             fixture above is what proves it, because a hardcoded string
+             would need no fixture and this row would refuse the one it
+             was given")))))
+
+(deftest a-reload-in-flight-renames-the-retry-and-disables-it
+  (let [boundary (ht/find (digest-tree db/digest-truncated true)
+                          #(contains? (:props %) :reset-key))
+        button   (last (:fallback (ht/attrs boundary)))]
+    (is (true? (:disabled (second button)))
+        "so a second click cannot queue a second request")
+    (is (= "Reloading…" (last button)))))
 
 ;; ---------------------------------------------------------------------------
 ;; The editor — controlled fields, the intent shapes, the error region

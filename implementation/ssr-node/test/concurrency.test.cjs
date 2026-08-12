@@ -16,7 +16,7 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const path = require('node:path');
-const { withService, collect, refusalOf } = require('./_support.cjs');
+const { withService, collect, observed, refusalOf } = require('./_support.cjs');
 const { CODE } = require('../src/protocol.cjs');
 const { Isolate } = require('../src/isolate.cjs');
 
@@ -28,11 +28,15 @@ test('CONTROL — the overlap counter can read more than 1', async () => {
   // This is what makes every `overlapMax === 1` below a measurement.
   const mod = require('./fixtures/reference.cjs');
   const call = { entry: 'app/root', state: Object.freeze({ ':delay': '40' }), args: undefined };
-  const [a, b] = await Promise.all([
-    mod.render(call, () => {}),
-    mod.render(call, () => {}),
+  // The module's observations ride the markup it emits — the only channel
+  // a render module has — so the control reads them the same way the
+  // service-driven rows below do.
+  const bodies = [];
+  await Promise.all([
+    mod.render(call, (h) => bodies.push(h)),
+    mod.render(call, (h) => bodies.push(h)),
   ]);
-  const seen = Math.max(a.meta.overlapMax, b.meta.overlapMax);
+  const seen = Math.max(...bodies.map((h) => observed(h).overlapMax));
   assert.strictEqual(seen, 2, 'the counter must be able to see an overlap, or it proves nothing');
 });
 
@@ -45,15 +49,15 @@ test('a pool of N under 2N concurrent requests never overlaps within an isolate'
     );
     for (const r of results) {
       assert.strictEqual(
-        r.complete.meta.overlapMax,
+        observed(r).overlapMax,
         1,
-        `an isolate ran ${r.complete.meta.overlapMax} renders at once`,
+        `an isolate ran ${observed(r).overlapMax} renders at once`,
       );
     }
     // The requests really did contend: three isolates served six requests,
     // so at least one isolate was reused, and the wall time exceeded a
     // single delay.
-    const threads = new Set(results.map((r) => r.complete.meta.threadId));
+    const threads = new Set(results.map((r) => observed(r).threadId));
     assert.strictEqual(threads.size, 3, 'all three isolates should have been used');
   });
 });
@@ -105,10 +109,10 @@ test('a waiter is served the moment an isolate frees, without its own timer firi
       collect(service, req({ state: { ':todos': '"A"', ':delay': '60' } })),
       collect(service, req({ state: { ':todos': '"B"', ':delay': '60' } })),
     ]);
-    assert.strictEqual(a.complete.meta.overlapMax, 1);
-    assert.strictEqual(b.complete.meta.overlapMax, 1);
+    assert.strictEqual(observed(a).overlapMax, 1);
+    assert.strictEqual(observed(b).overlapMax, 1);
     // Serialised through one isolate, so the pair takes both delays.
     assert.ok(Date.now() - started >= 110, 'the two renders should have been serialised');
-    assert.strictEqual(a.complete.meta.threadId, b.complete.meta.threadId);
+    assert.strictEqual(observed(a).threadId, observed(b).threadId);
   });
 });

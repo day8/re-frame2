@@ -3,11 +3,13 @@
 const assert = require('assert/strict');
 const {
   createDiagnosticBuffer,
+  findFixtureAbort,
   formatCompactSummary,
   isVerboseTests,
   parseFailureCounts,
   parseRanCounts,
   summaryPartsFromText,
+  testingNamespaces,
 } = require('./lib/browser-test-report.cjs');
 
 const tests = [];
@@ -240,6 +242,64 @@ test('diagnostic buffer entries() returns a defensive copy', () => {
   // Mutating the returned array must not leak back into the buffer.
   assert.equal(buffer.entries().length, 1);
   assert.deepEqual(buffer.entries(), [{ stream: 'stdout', text: 'a' }]);
+});
+
+// rf2-u0j8 — the fixture abort. The literal below is the one cljs.test 1.12.x
+// rethrows from `test-var-block*`'s `::async-disabled` branch, captured from a
+// real aborted `npm run test:browser` run.
+const REAL_ABORT_TEXT =
+  'Async tests require fixtures to be specified as maps.  Testing aborted.';
+
+test('the cljs.test fixture abort is recognised in the captured page errors (rf2-u0j8)', () => {
+  assert.equal(findFixtureAbort([REAL_ABORT_TEXT]), REAL_ABORT_TEXT);
+  // It is found wherever it sits in the list — the abort is rarely the only
+  // thing a busy page throws.
+  assert.equal(
+    findFixtureAbort(['TypeError: x is not a function', REAL_ABORT_TEXT]),
+    REAL_ABORT_TEXT,
+  );
+});
+
+test('an ordinary uncaught exception is NOT classified as the fixture abort (rf2-u0j8)', () => {
+  // This is the arm that must stay narrow: an ordinary mid-suite throw is not
+  // terminal, and treating it as one would truncate a run that was about to
+  // report its summary.
+  assert.equal(findFixtureAbort([]), null);
+  assert.equal(findFixtureAbort(null), null);
+  assert.equal(
+    findFixtureAbort(['Error: Cannot read properties of null (reading "foo")']),
+    null,
+  );
+  assert.equal(findFixtureAbort(['Async test called done more than one time']), null);
+});
+
+test('either half of the abort sentence is enough to match (rf2-u0j8)', () => {
+  // Two independent substrings, so an upstream reword has to take out BOTH
+  // before immediacy is lost — and even then the matcher-free
+  // no-summary-with-pageerror arm still reports the abort.
+  assert.ok(findFixtureAbort(['… Testing aborted.']));
+  assert.ok(findFixtureAbort(['Async tests require fixtures to be specified as maps.']));
+});
+
+test('the announced namespaces are recovered from the console trail, in order (rf2-u0j8)', () => {
+  // cljs-test-display prints `\nTesting <ns>` at every :begin-test-ns, so a
+  // single console message carries a leading blank line.
+  const lines = [
+    '\nTesting day8.re-frame2-xray.theme.a11y-dom-cljs-test',
+    'some app log',
+    '\nTesting re-frame.aaa-abort-probe-dom-cljs-test',
+  ];
+  assert.deepEqual(testingNamespaces(lines), [
+    'day8.re-frame2-xray.theme.a11y-dom-cljs-test',
+    're-frame.aaa-abort-probe-dom-cljs-test',
+  ]);
+});
+
+test('a "Testing" mention inside a log line is not mistaken for a namespace (rf2-u0j8)', () => {
+  assert.deepEqual(testingNamespaces(['When Testing this, wrap in act(...)']), []);
+  assert.deepEqual(testingNamespaces(['Testing']), []);
+  assert.deepEqual(testingNamespaces([]), []);
+  assert.deepEqual(testingNamespaces(null), []);
 });
 
 test('RF2_VERBOSE_TESTS=1 enables verbose mode', () => {

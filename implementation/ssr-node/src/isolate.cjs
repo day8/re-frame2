@@ -168,11 +168,15 @@ class Isolate {
       return;
     }
     if (msg.t === 'complete') {
+      // Named fields, never a spread of `msg`. The worker refuses to put
+      // application data on this message at all (see its header), and
+      // this end declines to carry a field it was not expecting even if
+      // one somehow arrived — two independent readings of the same
+      // property, which is what makes it a boundary rather than a habit.
       this._settle(msg.id, () =>
         p.resolve({
           chunks: msg.chunks,
           renderMs: msg.renderMs,
-          meta: msg.meta,
           buildId: this.buildId,
         }),
       );

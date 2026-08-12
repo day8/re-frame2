@@ -42,9 +42,27 @@
 // arriving here is a bug in the pool rather than a caller's mistake. It is
 // still refused rather than queued: a guard that trusts its one caller is
 // a guard that stops holding the day a second caller appears.
+//
+// ## `emit` IS THE MODULE'S ONLY WAY OUT, AND THIS FILE IS WHERE THAT IS TRUE
+//
+// Everything else in this package can only carry what this file posts, so
+// the topology — *Node returns the body markup, and nothing else* — is
+// enforceable in exactly one place and it is here. The `complete` message
+// below is built from counters and clocks this file owns; the render
+// module's return value contributes nothing to it and cannot.
+//
+// It is REFUSED rather than dropped, and that distinction is the whole
+// finding this file was reopened for. The service shipped with the return
+// value forwarded to the caller as `meta`; the HTTP transport happened not
+// to serialise it, so nothing was observably wrong, and "the current
+// transport drops it" was silently standing in for a guarantee — while the
+// in-process `renderFrames`/`renderToString` API, and any future socket or
+// pipe adapter, carried it in full. A channel that is quietly discarded is
+// a channel someone restores later because nothing appeared to be using
+// it. A channel that refuses is a channel that stays closed.
 
 const { parentPort, workerData } = require('node:worker_threads');
-const { CODE, validateModule } = require('./protocol.cjs');
+const { CODE, validateModule, MODULE_RETURN_REFUSAL } = require('./protocol.cjs');
 
 const post = (msg) => parentPort.postMessage(msg);
 
@@ -119,7 +137,11 @@ async function render(id, request) {
     // `await` even for a synchronous module: a module that returns a
     // promise is the streaming shape's, and the deadline governs both
     // identically because it is the PARENT's timer.
-    const out = (await mod.render(call, emit)) ?? {};
+    // Not defaulted. `undefined` is the contract's own answer here and
+    // coercing it to `{}` would erase the difference between a module
+    // that returned nothing and one that returned an empty object — which
+    // is precisely the difference the egress door below is checking.
+    const out = await mod.render(call, emit);
     const renderMs = Number(process.hrtime.bigint() - started) / 1e6;
 
     if (!emitted) {
@@ -132,12 +154,41 @@ async function render(id, request) {
       });
       return;
     }
+
+    // THE EGRESS DOOR. See the header.
+    //
+    // Discoverable only after the render, so a module that both emitted
+    // and returned produces a TORN response rather than a clean refusal —
+    // `afterChunks` says so and the transport is required to treat it as
+    // unpresentable. That is the honest outcome: the bytes really did
+    // leave, and the alternative is serving a page from a module whose
+    // contract this service does not hold.
+    //
+    // The refusal names the SHAPE and never the value. A diagnostic that
+    // echoed what the module tried to return would be the same egress
+    // wearing a different frame type.
+    if (out !== undefined && out !== null) {
+      post({
+        t: 'error',
+        id,
+        code: CODE.RENDER_THREW,
+        message: MODULE_RETURN_REFUSAL,
+        detail: {
+          entry: request.entry,
+          returned: Object.prototype.toString.call(out),
+        },
+        afterChunks: seq,
+      });
+      return;
+    }
+
+    // Counters and clocks this file owns, and nothing else. There is no
+    // field here for the module to fill in, which is the point.
     post({
       t: 'complete',
       id,
       chunks: seq,
       renderMs,
-      meta: out.meta ?? {},
     });
   } catch (err) {
     post({

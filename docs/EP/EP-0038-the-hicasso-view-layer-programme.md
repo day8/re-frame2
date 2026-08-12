@@ -406,6 +406,33 @@ that list states what is open *now*.
   to that sitting had already been ruled on 2026-08-08 (`rf2-2rtt6.88`) and is
   untouched by the fork ruling, its five start gates still governing when that
   arm's implementation begins.
+
+  > **Erratum — 2026-08-13 (`rf2-k6bv`, from the merged-PR audit of #8029).** The
+  > last clause above was already false when the PR carrying this addendum
+  > merged, and the original text is kept per rule 3. A **separate and earlier**
+  > ruling had started the service: `rf2-xpq9` (operator, in session, 2026-08-12
+  > 17:36 AUSEST) made every Phase-5 optional product v0 scope and removed
+  > `rf2-hic-056`'s *"when a named caller activates it"* condition; PR #8028 then
+  > landed the bounded Node/React service at `implementation/ssr-node/` **twelve
+  > seconds before** this addendum did — #8028 merged at 2026-08-12T21:29:24Z,
+  > #8029 at 21:29:36Z.
+  >
+  > **What is not corrected is the ruling.** The fork ruling recorded above still
+  > neither chose the production server arm nor started it: the choice was
+  > `rf2-2rtt6.88`'s on 2026-08-08, the start was `rf2-xpq9`'s on 2026-08-12, and
+  > neither is this ruling's act. What moves is only the clause's tense.
+  >
+  > **What the landed service does not discharge**, so that "the service exists"
+  > is not read as "the arm is done": start gate 3's per-application **state
+  > projector**, with its round-trip corpus and its negative fixture proving an
+  > omitted server read fails — the JVM produces that projection and the service
+  > can only refuse what arrives outside the allowlist; and start gate 5's
+  > end-to-end **`JVM → Node → JVM` topology witness**, which has no JVM leg to
+  > witness, because `ssr-ring`'s pipeline still hard-calls
+  > `ssr/render-to-string`, the render seam at `build-full-response*` is
+  > unwritten, and nothing deploys or supervises the process. Gates 1, 2 and 4
+  > are answered inside the package and witnessed by its own suite, which is not
+  > the same as witnessed across the crossing.
 - **What this EP's own status is not.** The Graduation section makes `final`
   conditional on v0 *and* the narrow contract graduation landing — the `spec/004`
   view-family re-homing and EP-0036's supersession — and neither has. This EP

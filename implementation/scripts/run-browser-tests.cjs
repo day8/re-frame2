@@ -31,11 +31,13 @@
 const { chromium } = require('playwright');
 const {
   createDiagnosticBuffer,
+  findFixtureAbort,
   formatCompactSummary,
   isVerboseTests,
   parseFailureCounts,
   parseRanCounts,
   summaryPartsFromText,
+  testingNamespaces,
 } = require('./lib/browser-test-report.cjs');
 // `sleep` is the shared poll primitive — verbatim the same
 // `setTimeout`-backed Promise this runner used to define inline
@@ -427,6 +429,13 @@ async function main() {
     // `pageErrors` is — a fatal signal must not be recoverable only by
     // re-scanning diagnostics that a green run never flushes.
     const fatalConsole = [];
+    // rf2-u0j8: the subset of `pageErrors` that is TERMINAL for the lane —
+    // cljs.test's refusal of an `async` row under a positional fixture, which
+    // unwinds every remaining namespace and the closing summary with it.
+    // Dedicated array for the same reason as the two above, and consulted in
+    // the poll loop rather than after it: there is no summary coming, so
+    // waiting for one only converts a diagnosable failure into a timeout.
+    const fixtureAborts = [];
     diagnostics.add(`URL: ${URL}`);
     page.on('console', (msg) => {
       const text = msg.text();
@@ -436,6 +445,12 @@ async function main() {
     });
     page.on('pageerror', (err) => {
       pageErrors.push(err.stack || err.message);
+      // rf2-u0j8: the cljs.test abort is thrown as a bare STRING, so the
+      // sentence lands in `err.message` and `err.stack` may not carry it.
+      // Classify on both.
+      if (findFixtureAbort([err.message, err.stack])) {
+        fixtureAborts.push(err.message || err.stack);
+      }
       diagnostics.add(`${capturedAt()} [browser:pageerror] ${err.message}`, 'stderr');
       if (err.stack) diagnostics.add(err.stack, 'stderr');
     });
@@ -484,6 +499,13 @@ async function main() {
     };
 
     while (Date.now() - start < TIMEOUT_MS) {
+      // rf2-u0j8: stop waiting for a summary that cannot arrive. This is the
+      // ONLY page error that short-circuits the loop — an ordinary uncaught
+      // exception mid-suite is not terminal (the run usually finishes and the
+      // rf2-mwx08 arm below fails it on the summary), and breaking on those
+      // would truncate a run that was about to report and mislabel it.
+      if (fixtureAborts.length > 0) break;
+
       // Serve a pending deterministic GC request before looking for the test
       // summary: the requesting cljs.test is async and cannot finish until
       // this acknowledgement arrives.
@@ -516,7 +538,51 @@ async function main() {
     }
 
     if (!summary.ran || !summary.failErr) {
-      console.error(`Timed out after ${TIMEOUT_MS}ms waiting for cljs.test summary.`);
+      // rf2-u0j8: a missing summary has THREE causes and they are not read
+      // the same way. Say which one this is, and — when the page threw — say
+      // where the lane stopped, because "no summary" alone sends the reader
+      // hunting a hang or a timeout budget.
+      const reached = testingNamespaces(consoleLines);
+      const stoppedAt = reached.length > 0 ? reached[reached.length - 1] : null;
+      const where =
+        `The run announced ${reached.length} namespace(s) before it stopped` +
+        (stoppedAt ? `, the last being \`${stoppedAt}\`` : '') +
+        `. Every namespace scheduled after that point never executed — ` +
+        `shadow.test runs the whole lane, and the closing summary, inside ONE ` +
+        `\`cljs.test/run-block\`, which has no try/catch.`;
+
+      if (fixtureAborts.length > 0) {
+        console.error(
+          `THE BROWSER RUN ABORTED — it did not time out, and it did not ` +
+            `fail an assertion (rf2-u0j8).\n` +
+            `  cljs.test refused an \`async\` row in a namespace whose fixtures ` +
+            `are POSITIONAL. \`(use-fixtures :once (fn [f] … (f)))\` selects the ` +
+            `\`:sync\` execution strategy, and the \`:sync\` strategy throws the ` +
+            `moment a test body returns an async object. The throw is a bare ` +
+            `string and nothing catches it.\n` +
+            `  ${where}\n` +
+            `  FIX: give that namespace MAP fixtures — ` +
+            `\`(use-fixtures :once {:before (fn [] …) :after (fn [] …)})\` — ` +
+            `which is the only form cljs.test runs async rows under. Positional ` +
+            `fixtures remain fine in a namespace with no async rows.`,
+        );
+        for (const line of fixtureAborts) console.error(`  ${line}`);
+      } else if (pageErrors.length > 0) {
+        // Same shape, unknown cause: the page threw and no summary followed.
+        // This arm is what keeps the guard correct if the abort literal above
+        // is ever reworded upstream — it is matcher-free.
+        console.error(
+          `THE BROWSER RUN ABORTED — no cljs.test summary, and the page emitted ` +
+            `${pageErrors.length} uncaught error(s) (rf2-u0j8). The suite STOPPED; ` +
+            `no summary was still on its way, so the wait above expired against a ` +
+            `run that had already ended. Read the error(s) below as the cause, not ` +
+            `the wait.\n` +
+            `  ${where}`,
+        );
+        for (const line of pageErrors) console.error(`  ${line}`);
+      } else {
+        console.error(`Timed out after ${TIMEOUT_MS}ms waiting for cljs.test summary.`);
+      }
       printSummaryDetails(summary);
       flushDiagnostics(diagnostics);
       return 1;

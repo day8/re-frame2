@@ -4,5 +4,5 @@ module.exports = {
   protocol: 1,
   buildId: 'bad-1',
   entries: { 'app/root': {} },
-  render(_c, emit) { emit('<p>never</p>'); return {}; },
+  render(_c, emit) { emit('<p>never</p>'); },
 };

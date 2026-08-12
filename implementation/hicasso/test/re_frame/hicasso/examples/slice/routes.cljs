@@ -33,7 +33,7 @@
   (:require [re-frame.routing :as routing]))
 
 (def feed
-  "The list page. `/slice`."
+  "The list page. `/slice`, optionally `/slice?page=N`."
   ::feed)
 
 (def article
@@ -63,10 +63,39 @@
 
   A consumer's own application never meets this, because their registry
   holds only their routes. A repository whose test bundle loads a dozen
-  applications into one process does, and the prefix is the whole fix."
+  applications into one process does, and the prefix is the whole fix.
+
+  ## Why the PAGE is a query parameter (rf2-hic-074)
+
+  `?page=N` is the whole of the feed's pagination state, and putting it
+  here rather than in `app-db` beside `:articles` is what buys three
+  things at once for no code:
+
+  - **Back and Forward work.** The browser replays URLs; the URL carries
+    the page; the list follows. There is no history listener in this
+    application, no `popstate` handler and no navigation event of its
+    own — `[:rf.route/navigate {:to feed :query {:page 2}}]` and a
+    `h/route-link` carrying the same map are the two doors, and they are
+    routing's.
+  - **A page is linkable.** `/slice?page=3` is a URL somebody can send.
+  - **The address bar and the list cannot disagree**, because there is
+    only one fact. A `:page` key in `app-db` would be a second copy, and
+    the failure mode of two copies is that the URL says one page while
+    the screen shows another after every Back.
+
+  `:int` coercion turns the URL's string `\"2\"` into a real `2`, so the
+  subscription that reads it does arithmetic rather than parsing;
+  `:query-defaults` supplies page 1 when the key is absent, so `/slice`
+  and `/slice?page=1` are the same page rather than two shapes the view
+  has to know about. A number OUTSIDE the range the data has —
+  `?page=900` — is not routing's problem to refuse:
+  [[re-frame.hicasso.examples.slice.db/clamp-page]] brings it inside,
+  because a URL is user input and a typo is a page rather than an error."
   []
   (routing/reg-route feed
-    {:doc "The article list."}
+    {:doc            "The article list, one page at a time."
+     :query          [:map [:page {:optional true} :int]]
+     :query-defaults {:page 1}}
     "/slice")
   (routing/reg-route article
     {:doc "One article, with its editor."}

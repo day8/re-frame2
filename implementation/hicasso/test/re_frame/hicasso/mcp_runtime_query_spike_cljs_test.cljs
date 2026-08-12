@@ -121,7 +121,14 @@
 (defn- mount-feed!
   "The feed route as the application composes it: the shell, the chrome,
   the list, and one row per seeded article — the row props coming from
-  the application's own `::subs/feed`, never from a literal here."
+  the application's own `::subs/feed`, never from a literal here.
+
+  rf2-hic-074 added two more boundaries to that route — the pager and the
+  digest region — and they are deliberately NOT mounted here. This spike
+  measures four envelopes over a known population, and every pin below is
+  about the reads the bodies above make; widening the population would
+  move each of them for a reason that has nothing to do with what the
+  spike is asking. The slice's own suites own those two bodies."
   []
   (let [releases (atom [(mount! views/app) (mount! views/chrome) (mount! views/feed-page)])]
     (doseq [row @(rf/with-frame fid (rf/subscribe [::subs/feed]))]
@@ -280,9 +287,19 @@
           ;; calls in a quiescent turn `pr-str` identically. A consumer that
           ;; reaches for `contains?` is asking about INDICES and gets a
           ;; quiet false; this suite made that mistake first.
-          (is (= [::subs/feed ::subs/locale ::subs/tags-open? ::subs/theme ::subs/token]
+          (is (= [::subs/listed ::subs/locale ::subs/tags-open? ::subs/theme ::subs/token]
                  (:sub-ids row))
-              "the run recomputed the whole feed route's read set, ordered")))
+              "the run recomputed the whole feed route's read set, ordered.
+
+               `::subs/listed` stands where `::subs/feed` did before
+               rf2-hic-074, and the swap is the substrate working rather
+               than the roster drifting: pagination made `::feed` a LAYER-2
+               read chaining from `::listed`, so a theme change moves
+               app-db, recomputes the layer-1 projection, finds its value
+               `=` to the last one and stops there. The rows the list
+               renders are not recomputed at all when the theme changes,
+               which is the whole point of putting a layer between the db
+               and the view")))
       (testing "no row carries an event VECTOR, on this application as on any other"
         (is (not-any? #(contains? % :event) (:intents e)))))
     (release)))

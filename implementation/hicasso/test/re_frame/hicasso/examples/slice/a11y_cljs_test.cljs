@@ -35,8 +35,11 @@
   ## The sweep, and why it is a sweep
 
   [[every-operable-control-in-the-application-has-a-name]] runs
-  `ht/unnamed-controls` over every one of the slice's six bodies, in
-  every state each of them has, in both locales. One assertion per tree,
+  `ht/unnamed-controls` over every one of the slice's bodies that carries
+  an operable control — the original six, and rf2-hic-074's pager, whose
+  three page positions each render a different set of links and
+  end-stops — in every state each of them has, in both locales. One
+  assertion per tree,
   and it is the acceptance criterion of the bead in the form the
   application can be held to as it grows: a seventh control added
   tomorrow without a name reds it, and no row has to be written for it."
@@ -106,6 +109,19 @@
   (ht/tree [views/feed-page {}]
            {:subs (merge {[::subs/feed] rows}
                          (t* locale [:feed/heading :feed/empty]))}))
+
+;; --- the pager (rf2-hic-074) -----------------------------------------------
+
+(defn- pager-tree
+  "The pager on page `page` of three. Its controls are the extension's
+  only new operable ones — the digest's retry lives on a `:fallback`,
+  which is inert markup this tier reads as data rather than a node the
+  sweep can walk."
+  [locale page]
+  (ht/tree [views/pager {}]
+           {:subs (merge {[::subs/current-page] page
+                          [::subs/page-count]   3}
+                         (t* locale [:feed/pagination :feed/previous :feed/next]))}))
 
 ;; --- the editor ------------------------------------------------------------
 
@@ -270,12 +286,15 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- states
-  "Every rendering this application has, in one locale: the six bodies,
-  and every branch of the four that have branches. Named, so a failure
-  says which screen it came from."
+  "Every rendering this application has, in one locale: each body, and
+  every branch of the ones that have branches. Named, so a failure says
+  which screen it came from."
   [locale]
   (concat
     [["chrome" (chrome-tree locale)]
+     ["the pager, on the first page" (pager-tree locale 1)]
+     ["the pager, in the middle" (pager-tree locale 2)]
+     ["the pager, on the last page" (pager-tree locale 3)]
      ["a feed row, closed" (row-tree locale false)]
      ["a feed row, open" (row-tree locale true)]
      ["a feed row, unpublished"

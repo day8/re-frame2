@@ -26,6 +26,17 @@
 // or a streaming module throwing halfway — is a TORN response, carries
 // `detail.afterChunks`, and the transport is required to treat it as
 // unpresentable rather than as a shorter page.
+//
+// ## THE PUBLIC FRAMES CARRY NO APPLICATION DATA
+//
+// `renderFrames` is the widest surface this package has: every transport
+// is an adapter over it and the in-process caller reads it raw, so
+// whatever it yields IS the egress. What it yields is body markup in
+// `chunk` frames and `COMPLETE_FIELDS` in the terminal one — nothing
+// else, and nothing the application's render module authored outside the
+// markup it emitted. `test/egress.test.cjs` is that property's witness,
+// and it checks the frames rather than the HTTP response, because HTTP
+// dropping a field is a fact about HTTP and not a guarantee about this.
 
 const { CODE, Refusal, validateRequest, completeFrame } = require('./protocol.cjs');
 const { Pool } = require('./pool.cjs');
@@ -117,7 +128,6 @@ class Service {
         renderMs: terminal.renderMs,
         buildId: terminal.buildId,
         requestId: req.requestId,
-        meta: terminal.meta,
       });
     } finally {
       // A consumer that abandons the iteration must not strand the

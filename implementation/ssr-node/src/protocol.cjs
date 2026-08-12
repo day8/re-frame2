@@ -60,6 +60,18 @@
 //     well-meaning implementer would actually reach for are named in
 //     `REFUSED_FIELDS` with the reason attached to the refusal, so the
 //     message teaches instead of merely declining.
+//
+// ## AND THE RESPONSE LEG IS ALLOWLISTED THE SAME WAY
+//
+// A fail-closed request door with an open response door is not a
+// fail-closed crossing; it is a fail-closed crossing in one direction and
+// a `meta` map in the other. `COMPLETE_FIELDS` is therefore the response
+// leg's field list, and it is the same kind of object as `REQUEST_FIELDS`
+// rather than a comment: every member is a fact the SERVICE owns about
+// the crossing it just performed, and there is no member — and no
+// mechanism — by which the application's render module contributes one.
+// The module's only output channel is `emit`, and `MODULE_RETURN_REFUSAL`
+// is the reason a module that reaches for a second one is told no.
 
 const PROTOCOL_VERSION = 1;
 
@@ -120,6 +132,49 @@ const REFUSED_FIELDS = Object.freeze({
     'stay on the JVM. Anything beyond body markup crossing this contract is the host fork ' +
     'arriving by increments.',
 });
+
+/**
+ * EVERY field a `complete` frame carries. The response leg's half of the
+ * contract, and the same kind of list as `REQUEST_FIELDS` — see the header.
+ *
+ * Read the members as a single claim: each one is a fact about the
+ * CROSSING, produced by this service, and none of them originates in the
+ * application's render module.
+ *
+ *   `type`      — the frame discriminator.
+ *   `chunks`    — how many body chunks preceded this frame. Counted here.
+ *   `renderMs`  — how long the module's render took. Timed here.
+ *   `buildId`   — which bundle answered. Read from the module's published
+ *                 table at boot, not from the render.
+ *   `requestId` — the CALLER's own correlation token, echoed back. It is
+ *                 the one field that did not originate on this side, and
+ *                 it originated with the caller rather than with the
+ *                 application bundle, so echoing it egresses nothing the
+ *                 caller does not already hold.
+ *
+ * Adding a member is a protocol change and should read like one. Adding a
+ * member the render module fills in is the topology change §11 of the
+ * server-arm pricing calls "the host fork arriving by increments", and
+ * `test/egress.test.cjs` is the row that will say so.
+ */
+const COMPLETE_FIELDS = Object.freeze(['type', 'chunks', 'renderMs', 'buildId', 'requestId']);
+
+/**
+ * Why a render module that returns a value is refused rather than having
+ * its value quietly dropped.
+ *
+ * The wording lives here, with the contract, because it IS the contract:
+ * the module has one output channel and dropping a second one silently is
+ * how a second one survives long enough to be depended on. This service
+ * shipped for one commit with the returned value forwarded to the caller
+ * as `meta`, HTTP happened not to serialise it, and "the current transport
+ * drops it" was doing the work a guarantee was supposed to do.
+ */
+const MODULE_RETURN_REFUSAL =
+  'the render module returned a value. `emit` is its only output channel: this contract ' +
+  'carries body markup and nothing else, so a second way out of the isolate is application ' +
+  'data crossing a boundary that has no policy for it — the host fork arriving by increments. ' +
+  'Render what the module has to say, and return nothing.';
 
 /**
  * A top-level app-db key, as its EDN text. Keywords in re-frame2 are what
@@ -377,14 +432,19 @@ function validateRequest(req, tables, limits = {}) {
 /** A body chunk. `seq` is monotonic per response and starts at 0. */
 const chunkFrame = (seq, html) => ({ type: 'chunk', seq, html });
 
-/** The terminal success frame. Everything that is not body markup. */
-const completeFrame = ({ chunks, renderMs, buildId, requestId, meta }) => ({
+/**
+ * The terminal success frame. Everything that is not body markup — and
+ * `COMPLETE_FIELDS` is the whole of it. There is deliberately no rest
+ * parameter and no spread of a caller-supplied object here: a constructor
+ * that copies whatever it is handed is a field list that grows without
+ * anyone editing the field list.
+ */
+const completeFrame = ({ chunks, renderMs, buildId, requestId }) => ({
   type: 'complete',
   chunks,
   renderMs,
   buildId,
   ...(requestId === undefined ? {} : { requestId }),
-  meta: meta ?? {},
 });
 
 module.exports = {
@@ -392,6 +452,8 @@ module.exports = {
   CODE,
   REQUEST_FIELDS,
   REFUSED_FIELDS,
+  COMPLETE_FIELDS,
+  MODULE_RETURN_REFUSAL,
   KEY_TEXT,
   Refusal,
   refuse,

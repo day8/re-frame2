@@ -368,6 +368,67 @@ test('run-browser-tests: navigation has its own explicit, named ceiling (rf2-dcz
   );
 });
 
+test('run-browser-tests: an aborted run is named as an abort, not waited out as a timeout (rf2-u0j8)', () => {
+  const src = read('run-browser-tests.cjs');
+  // cljs.test refuses an `async` row under a POSITIONAL fixture by throwing a
+  // bare string out of `test-var-block*`. Nothing catches it, shadow.test runs
+  // the whole lane inside ONE `run-block`, so every remaining namespace AND the
+  // closing summary are lost. The runner already held the decisive signal — a
+  // `pageerror` — and consulted it only after a summary it was never going to
+  // get, so the observed cost was a full BROWSER_TEST_TIMEOUT_MS burn ending in
+  // "Timed out ... waiting for cljs.test summary. (source: not found)".
+  //
+  // Dormant in a healthy tree, like the floor and the navigation ceiling: no
+  // green run reaches any of this, so it needs a static pin.
+  assert.match(
+    src,
+    /const\s+fixtureAborts\s*=\s*\[\]/,
+    'must track the terminal fixture abort in a dedicated array, not merely in diagnostics',
+  );
+  assert.match(
+    src,
+    /page\.on\(\s*['"]pageerror['"][\s\S]{0,400}?fixtureAborts\.push\(/,
+    'the pageerror handler must classify and record the terminal abort as it arrives',
+  );
+  // The break must be INSIDE the poll loop. After it, the abort has already
+  // cost the whole budget, which is the defect.
+  assert.match(
+    src,
+    /while\s*\([\s\S]{0,80}?TIMEOUT_MS\s*\)\s*\{[\s\S]{0,700}?if\s*\(\s*fixtureAborts\.length\s*>\s*0\s*\)\s*break\s*;/,
+    'the poll loop must stop the moment a terminal abort is seen',
+  );
+  // Narrowness is the point: only the terminal class short-circuits. An
+  // ordinary mid-suite `pageerror` is NOT terminal — the run usually finishes
+  // and the rf2-mwx08 arm fails it on the summary — so breaking on those would
+  // truncate a run that was about to report and mislabel it.
+  assert.doesNotMatch(
+    src,
+    /while\s*\([\s\S]{0,80}?TIMEOUT_MS\s*\)\s*\{[\s\S]{0,700}?if\s*\(\s*pageErrors\.length\s*>\s*0\s*\)\s*break\s*;/,
+    'an ordinary pageerror must NOT short-circuit the poll loop',
+  );
+  // The verdict path must SAY what happened, and name the fix.
+  assert.match(
+    src,
+    /THE BROWSER RUN ABORTED/,
+    'the abort must name itself rather than presenting as a summary timeout',
+  );
+  assert.match(
+    src,
+    /use-fixtures[\s\S]{0,400}?:before/,
+    'the message must name the map-fixture remedy, not merely report the abort',
+  );
+  // And the matcher-free backstop: if the cljs.test literal is ever reworded,
+  // a summary-less run that emitted page errors must STILL be reported as an
+  // abort rather than as a timeout. This is what keeps the guard correct
+  // without pinning it to a string that lives in another repository.
+  assert.match(
+    src,
+    /else if\s*\(\s*pageErrors\.length\s*>\s*0\s*\)\s*\{[\s\S]{0,600}?THE BROWSER RUN ABORTED/,
+    'a summary-less run with page errors must be reported as an abort even when '
+      + 'the abort literal did not match',
+  );
+});
+
 // ---- serve-and-run-xray-feature-gate.cjs ----
 
 test('xray-feature-gate: a scenario with a captured pageerror is not marked passed (rf2-mwx08)', () => {
