@@ -69,25 +69,23 @@ const SCANNED = ['implementation', 'examples', 'tools', 'scripts', '.github'];
 const REFERENCES = [/(?<![\w:-])ssr-node(?![\w-])/g, /(?<![\w-]):rf\.ssr-node\//g];
 
 /**
- * THE ONE PERMITTED REFERENCE, PINNED TO ITS EXACT TEXT.
+ * THERE IS NO ALLOWANCE LIST, AND THAT IS A DECISION RATHER THAN AN
+ * OVERSIGHT.
  *
- * `implementation/package.json` carries an npm script that runs this
- * package's own gate. That is a test entry point rather than anything a
- * client artefact can reach, so it does not weaken the claim — but "does
- * not weaken the claim" is exactly what every later exception would also
- * say, and an allowance list is how a scan like this stops meaning
- * anything.
+ * The reading below is an absolute zero: nothing outside this package
+ * mentions it, full stop. An earlier draft added a `test:ssr-node` script
+ * to `implementation/package.json` and carried a pinned one-string
+ * exception for it. The script was dropped for an unrelated and better
+ * reason — it arms eleven expensive CI lanes that the package's own files
+ * arm none of — and the exception went with it, because an allowance
+ * mechanism with nothing in it is the first entry of an allowance list.
  *
- * So the allowance is not "this file may mention us". It is: this exact
- * string is deleted from that file's text, and the remainder is scanned
- * like everything else. A second reference in the same file reds. An
- * edited script value reds, because the deletion no longer matches. The
- * exception cannot grow without someone editing this constant, which is
- * the property an allowance list normally lacks.
+ * If the npm script is wired up later, the answer is one PINNED EXACT
+ * STRING deleted from that file before the remainder is scanned — never a
+ * broadened pattern and never a skipped file. A pinned string reds on a
+ * second reference and reds again if the script value drifts; a widened
+ * pattern is how a scan like this stops meaning anything.
  */
-const ALLOWANCES = {
-  'implementation/package.json': '"test:ssr-node": "node ssr-node/test/run.cjs"',
-};
 
 const SKIP_EXT = new Set([
   '.png', '.jpg', '.jpeg', '.gif', '.ico', '.webp', '.woff', '.woff2', '.ttf',
@@ -107,11 +105,8 @@ function trackedFiles(cwd, roots) {
 /**
  * Files under `files` that mention any of `needles`, excluding anything
  * inside `excludePrefix`. Returns `[{file, needle, line}]`.
- *
- * `allowances` maps a path to one exact string that is deleted from that
- * file before it is scanned — see `ALLOWANCES`.
  */
-function scanForReferences(cwd, files, needles, excludePrefix, allowances = {}) {
+function scanForReferences(cwd, files, needles, excludePrefix) {
   const hits = [];
   for (const rel of files) {
     if (excludePrefix && rel.startsWith(excludePrefix)) continue;
@@ -124,16 +119,7 @@ function scanForReferences(cwd, files, needles, excludePrefix, allowances = {}) 
       continue; // a tracked file not present in this checkout
     }
     if (!stat.isFile() || stat.size > 2 * 1024 * 1024) continue;
-    let text = fs.readFileSync(abs, 'utf8');
-    const allowed = allowances[rel.split(path.sep).join('/')];
-    if (allowed) {
-      const at = text.indexOf(allowed);
-      if (at < 0) {
-        hits.push({ file: rel, needle: 'pinned allowance no longer matches', line: 0 });
-        continue;
-      }
-      text = text.slice(0, at) + text.slice(at + allowed.length);
-    }
+    const text = fs.readFileSync(abs, 'utf8');
     for (const needle of needles) {
       needle.lastIndex = 0;
       const m = needle.exec(text);
@@ -187,13 +173,7 @@ function scratch(files) {
 test('no client-building tree references this package', () => {
   const files = trackedFiles(REPO_ROOT, SCANNED);
   assert.ok(files.length > 500, `only ${files.length} tracked files scanned — the scope looks wrong`);
-  const hits = scanForReferences(
-    REPO_ROOT,
-    files,
-    REFERENCES,
-    'implementation/ssr-node/',
-    ALLOWANCES,
-  );
+  const hits = scanForReferences(REPO_ROOT, files, REFERENCES, 'implementation/ssr-node/');
   assert.deepStrictEqual(
     hits,
     [],
@@ -201,48 +181,6 @@ test('no client-building tree references this package', () => {
       .map((h) => `  ${h.file}:${h.line} (${h.needle})`)
       .join('\n')}`,
   );
-});
-
-test('the one allowance is exactly the npm script, and nothing more', () => {
-  // Without this row the allowance would be a hole nobody could see the
-  // shape of. Two claims: the pinned text is really in the file (so the
-  // deletion above is not silently a no-op), and removing it leaves the
-  // file with no other reference.
-  const rel = 'implementation/package.json';
-  const text = fs.readFileSync(path.join(REPO_ROOT, rel), 'utf8');
-  assert.ok(text.includes(ALLOWANCES[rel]), 'the pinned allowance must match the file verbatim');
-  const pkg = JSON.parse(text);
-  assert.strictEqual(pkg.scripts['test:ssr-node'], 'node ssr-node/test/run.cjs');
-  const stripped = text.replace(ALLOWANCES[rel], '');
-  for (const needle of REFERENCES) {
-    needle.lastIndex = 0;
-    assert.strictEqual(needle.test(stripped), false, `a second reference in ${rel}`);
-  }
-});
-
-test('CONTROL — an allowance does not cover a SECOND reference in the same file', () => {
-  const rel = 'implementation/package.json';
-  const dir = scratch({
-    [rel]: `{"scripts":{${ALLOWANCES[rel]},"sneaky":"node ssr-node/other.cjs"}}\n`,
-  });
-  try {
-    const hits = scanForReferences(dir, [rel], REFERENCES, null, ALLOWANCES);
-    assert.strictEqual(hits.length, 1, 'the second reference must still be found');
-  } finally {
-    fs.rmSync(dir, { recursive: true, force: true });
-  }
-});
-
-test('CONTROL — an allowance whose pinned text has drifted is itself a failure', () => {
-  const rel = 'implementation/package.json';
-  const dir = scratch({ [rel]: '{"scripts":{"test:ssr-node":"node ssr-node/test/OTHER.cjs"}}\n' });
-  try {
-    const hits = scanForReferences(dir, [rel], REFERENCES, null, ALLOWANCES);
-    assert.strictEqual(hits.length, 1);
-    assert.match(hits[0].needle, /pinned allowance/);
-  } finally {
-    fs.rmSync(dir, { recursive: true, force: true });
-  }
 });
 
 test('CONTROL — the reference scan finds a planted reference', () => {
