@@ -8,7 +8,7 @@
 > over-engineering, and no further rig work or IME-automation attempt is sanctioned. **Read [§11](#11-the-outcome-and-the-three-walls) first**: it
 > carries the three walls, their run evidence, and the amended close rule.
 >
-> **The rig is not deprecated and this document is not history.** It stays in the tree with its 39 teeth, because it is
+> **The rig is not deprecated and this document is not history.** It stays in the tree with its 43 teeth, because it is
 > what found all three walls — each of them honestly, and none of them guessed at. Sections 1–10 describe it as built,
 > in the present tense of its own design; read them as the record of a sanctioned attempt rather than as instructions
 > to run one.
@@ -117,6 +117,16 @@ blur, the reloads, every selector and every read. Because the driver is unarmed,
 `INCONCLUSIVE` against the named premise *"no composition ever started"*, which is the truth about a rehearsal. It
 reports itself as a rehearsal and its verdicts say nothing about any engine.
 
+That paragraph describes what a rehearsal does when it works, and for a while nothing checked that it had. Merged-PR
+audit **#7956** found the rehearsal able to **exit 0 having driven no check at all**: `driveEngine` catches a prepare
+failure into `results: []` — right conduct, so one engine's refusal cannot discard the other two — and `main` then
+returned 0 for every non-inject mode regardless, printing *"every page-side step of every check ran"* over a run in
+which none had. The same fail-open shape as [wall 2](#112-wall-2--the-open-status-gate-read-back-its-own-write), one
+layer out. It is now measured rather than asserted: every requested engine must have produced a run, none may have
+been refused in prepare, each must have driven the full roster, and **every check must carry its `READBACK`** — the
+clause that separates a rehearsal whose selectors all resolved from one whose selectors silently returned `null`.
+A rehearsal that fails any of those prints what is missing and **exits 1**.
+
 Useful flags: `--engines=firefox,webkit`, `--key-delay=<ms>` (default 80), `--port=<n>` (default 8066),
 `--keep-open`.
 
@@ -162,8 +172,8 @@ Three verdicts, and the third is the point:
 - **INCONCLUSIVE** — the check could not be decided because its **premise** was not met, most often that no composition
   ever started. An inconclusive check leaves the disposition cell unfillable; the run says so and exits non-zero.
 
-The verdict functions are pure and carry **39 mutation teeth** (`--self-test`, which prints
-`verdict logic teeth bit: 39`), because a witness whose verdict logic cannot be shown to fail is decoration. The teeth
+The verdict functions are pure and carry **43 mutation teeth** (`--self-test`, which prints
+`verdict logic teeth bit: 43`), because a witness whose verdict logic cannot be shown to fail is decoration. The teeth
 cover each check's tick shape, its defect shape and its premise-not-met shape, plus the recording rule that a crossed
 or incomplete run can never be written into `dispositions.md` as verified.
 
@@ -311,9 +321,18 @@ evidence to report one engine's failure. #7956 caught engagement failure at the 
 With conduct as the gate, the third run answered the only question left, and answered it against the avenue.
 
 **The modern Microsoft IME never composed for the Playwright browser windows.** Not from `IMEON`. Not from an injected
-半角/全角 carrying a correct scan code. And **not from the operator's physical toggle at the keyboard**: the IME badge
-stayed **"A"** — alphanumeric — for the focused browser window. The "previous version" compatibility engine, tried
-next, reported **"Japanese IME not ready"** pending a session restart.
+半角/全角. And **not from the operator's physical toggle at the keyboard**: the IME badge stayed **"A"** —
+alphanumeric — for the focused browser window. The "previous version" compatibility engine, tried next, reported
+**"Japanese IME not ready"** pending a session restart.
+
+> **One claim here was narrowed after the fact, and it costs this wall nothing.** This section used to say the
+> injected toggle *carried a correct scan code*. Merged-PR audit **#7956** established that it did not: `SendKey`
+> populates `wScan` but never sets `KEYEVENTF_SCANCODE`, and Microsoft's
+> [`KEYBDINPUT`](https://learn.microsoft.com/en-us/windows/win32/api/winuser/ns-winuser-keybdinput) contract is that
+> the flag is what makes `wScan` identify the key and `wVk` ignored. So the literal `0x29` was **calculated and
+> reported, never delivered as the key's identity**, and the injected toggle is evidence of nothing. The wall stands
+> on the clause after it — **the operator's physical toggle**, a real keystroke from real hardware with no rig
+> between it and the text service, which left the badge on "A" anyway.
 
 That last clause is what makes this wall decisive. It is not the rig failing to drive the IME. It is **the IME
 declining to engage for those windows at all, including under a human hand on the physical key.** There is no
@@ -331,9 +350,17 @@ work or IME-automation attempt is sanctioned.
 ### 11.5 Where acceptance goes
 
 **Back to the bounded manual session.** [`native-ime-manual-witness.md`](native-ime-manual-witness.md) — with its trace
-table, its armed buttons and its discriminating check 7 — **is** the witness. Manual hardware typing is not speculative
-here: the operator's partial session of 2026-08-11 composed real drafts in these same Playwright shells. Eight checks
-per engine, Firefox and WebKit, once.
+table, its armed buttons and its discriminating check 7 — **is** the witness. Eight checks per engine, Firefox and
+WebKit, once.
+
+What the 2026-08-11 partial session establishes about that path is narrower than this section once claimed, and the
+narrower reading is [§8](#8-check-5-and-the-observation-it-exists-to-resolve)'s own: typed **drafts reached the field**
+in these Playwright shells. Whether any of it was a **real composition** was never discriminated — the engine went
+unrecorded and the underline / candidate-window question unanswered — and §8 lists "the IME never engaged, so the
+romaji went in as ASCII" as one of the two readings that still fit. So the session is not yet proof that manual
+hardware typing composes in these shells, and given wall 3 the honest expectation is that **the first thing the manual
+session must record is whether the IME engages at all.** That is the finding either way: an engine in which the
+Playwright shell will not accept Windows IME input is a recorded cross and a bead, not a reason to re-run.
 
 The amended, final close rule:
 
@@ -347,7 +374,7 @@ resolved by the manual session's **check 5**, per that document.
 
 ### 11.6 What becomes of this rig
 
-**It stays in the tree, with its 39 teeth and its findings.** Nothing here is deprecated, withdrawn or apologised for.
+**It stays in the tree, with its 43 teeth and its findings.** Nothing here is deprecated, withdrawn or apologised for.
 It is **documentation of a refused avenue** — and the avenue is refused *on evidence* precisely because this rig
 produced the evidence. Read back through the three walls and the pattern is the same each time: the foreground
 interlock refused rather than sprayed; the readback fail-open was caught because the rig reported `compositionstart: 0`
