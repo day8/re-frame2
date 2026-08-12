@@ -209,6 +209,12 @@
                    " | residue " (pr-str (inventory/residue))))
     nil))
 
+;; Teardown is NOT hoisted onto those trailing steps in the `mount-live!`
+;; rows: the rejection arm never had the handle at all, because `mount-live!`
+;; resolves WITH it, so the two arms were never writing the same release.
+;; `a-lazy-head-suspends-and-then-names-its-own-component` is the one row
+;; that holds its handle before the wait, and it hoists — it says so there.
+
 ;; ---------------------------------------------------------------------------
 ;; 1. The outward bridge
 ;; ---------------------------------------------------------------------------
@@ -249,10 +255,7 @@
                 (support/teardown-census! handle)
                 nil))
             (.catch (report-failure! "outward bridge"))
-            ;; The single `done`, on the single trailing step, with nothing
-            ;; after it. Teardown is NOT hoisted onto it: the rejection arm
-            ;; never had the handle at all — `mount-live!` resolves WITH it —
-            ;; so the two arms were never writing the same release.
+            ;; The single `done`, with nothing after it.
             (.then (fn [_] (done))))))))
 
 (deftest two-frames-are-two-cells-across-the-bridge
@@ -294,10 +297,7 @@
                 (support/teardown-census! b)
                 nil))
             (.catch (report-failure! "two frames across the bridge"))
-            ;; The single `done`, on the single trailing step, with nothing
-            ;; after it. Teardown is NOT hoisted onto it: the rejection arm
-            ;; never had the handle at all — `mount-live!` resolves WITH it —
-            ;; so the two arms were never writing the same release.
+            ;; The single `done`, with nothing after it.
             (.then (fn [_] (done))))))))
 
 (deftest the-views-memo-wrapper-survives-the-bridge
@@ -341,10 +341,7 @@
                 (support/teardown-census! handle)
                 nil))
             (.catch (report-failure! "memo across the bridge"))
-            ;; The single `done`, on the single trailing step, with nothing
-            ;; after it. Teardown is NOT hoisted onto it: the rejection arm
-            ;; never had the handle at all — `mount-live!` resolves WITH it —
-            ;; so the two arms were never writing the same release.
+            ;; The single `done`, with nothing after it.
             (.then (fn [_] (done))))))))
 
 ;; ---------------------------------------------------------------------------
@@ -393,10 +390,7 @@
                 (support/teardown-census! handle)
                 nil))
             (.catch (report-failure! "inward door"))
-            ;; The single `done`, on the single trailing step, with nothing
-            ;; after it. Teardown is NOT hoisted onto it: the rejection arm
-            ;; never had the handle at all — `mount-live!` resolves WITH it —
-            ;; so the two arms were never writing the same release.
+            ;; The single `done`, with nothing after it.
             (.then (fn [_] (done))))))))
 
 ;; ---------------------------------------------------------------------------
@@ -440,10 +434,7 @@
                 (support/teardown-census! handle)
                 nil))
             (.catch (report-failure! "memo across a re-render"))
-            ;; The single `done`, on the single trailing step, with nothing
-            ;; after it. Teardown is NOT hoisted onto it: the rejection arm
-            ;; never had the handle at all — `mount-live!` resolves WITH it —
-            ;; so the two arms were never writing the same release.
+            ;; The single `done`, with nothing after it.
             (.then (fn [_] (done))))))))
 
 (deftest a-fresh-mint-replaces-the-subtree-and-that-is-the-hmr-contract
@@ -486,10 +477,7 @@
                 (support/teardown-census! handle)
                 nil))
             (.catch (report-failure! "fresh mint"))
-            ;; The single `done`, on the single trailing step, with nothing
-            ;; after it. Teardown is NOT hoisted onto it: the rejection arm
-            ;; never had the handle at all — `mount-live!` resolves WITH it —
-            ;; so the two arms were never writing the same release.
+            ;; The single `done`, with nothing after it.
             (.then (fn [_] (done))))))))
 
 (deftest strict-modes-double-mount-crosses-the-bridge-exactly-once
@@ -515,10 +503,7 @@
                 (support/teardown-census! handle)
                 nil))
             (.catch (report-failure! "strict mode"))
-            ;; The single `done`, on the single trailing step, with nothing
-            ;; after it. Teardown is NOT hoisted onto it: the rejection arm
-            ;; never had the handle at all — `mount-live!` resolves WITH it —
-            ;; so the two arms were never writing the same release.
+            ;; The single `done`, with nothing after it.
             (.then (fn [_] (done))))))))
 
 (deftest a-ref-reaches-a-real-dom-node-through-the-memo-helper
@@ -628,10 +613,7 @@
                 (exercised! :bridge/teardown)
                 nil))
             (.catch (report-failure! "teardown"))
-            ;; The single `done`, on the single trailing step, with nothing
-            ;; after it. Teardown is NOT hoisted onto it: the rejection arm
-            ;; never had the handle at all — `mount-live!` resolves WITH it —
-            ;; so the two arms were never writing the same release.
+            ;; The single `done`, with nothing after it.
             (.then (fn [_] (done))))))))
 
 (deftest the-declared-population-was-actually-exercised
