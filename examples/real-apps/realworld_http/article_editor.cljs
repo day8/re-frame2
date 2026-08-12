@@ -65,6 +65,36 @@
     :submit-attempted? false
     :submit-error      nil}))
 
+(defn seed-slice
+  "Fold a loaded article into the editor slice WITHOUT clobbering typing.
+
+   The obvious spelling — replace the whole slice with a fresh
+   `(editor-slice slug (draft-from-article article))` — loses every keystroke the
+   user made while the GET was still in flight, because entering the editor and
+   typing is faster than a round trip. `FH-CTRL-013` states that seed law for
+   `re-frame.freehand` forms; this app holds its own `:touched` set rather than a
+   freehand form, so it spells the same rule by hand.
+
+   The seed is LEAFWISE. A field the user has already touched keeps BOTH its
+   draft and its baseline, so their text stays on screen AND stays dirty — the
+   save that follows sends what they typed. Every untouched field takes the
+   loaded value in both, so the dirty-check compares against what the server
+   actually holds, and drops the validation error its old (blank) value earned.
+
+   With nothing touched — the ordinary load — every field is seeded and the
+   result is exactly the whole-slice replacement it replaces. Note that
+   `:editor/submit-success` deliberately does NOT go through here: a completed
+   save rebases the whole form to clean, touched fields included."
+  [slice slug loaded]
+  (let [touched (or (:touched slice) #{})
+        seeded  (remove touched (keys loaded))
+        seed-in #(reduce (fn [m k] (assoc m k (get loaded k))) % seeded)]
+    (-> slice
+        (assoc :slug slug)
+        (update :draft seed-in)
+        (update :baseline seed-in)
+        (update :errors #(apply dissoc % seeded)))))
+
 (defn validate-draft [{:keys [title description body]}]
   (cond-> {}
     (str/blank? title)       (assoc :title "Title is required.")
@@ -265,10 +295,14 @@
                           :on-failure [:editor/load-failed]})]]})))
 
 (rf/reg-event :editor/loaded
+  {:doc "The GET's `:on-success`. Seeds the editor from the loaded article — but
+         LEAFWISE (`seed-slice`), because the user can start typing before the
+         round trip returns, and a whole-slice replacement would discard those
+         keystrokes."}
   (fn [{:keys [db]} [_ {:keys [value]}]]
     (let [article (:article value)
           draft   (draft-from-article article)]
-      {:db (assoc db :editor (editor-slice (:slug article) draft))
+      {:db (update db :editor seed-slice (:slug article) draft)
        :fx [[:dispatch [:ui/article-editor [:fetch-succeeded]]]]})))
 
 (rf/reg-event :editor/load-failed
