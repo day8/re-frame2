@@ -57,12 +57,17 @@ repair/commit/push — let the mayor decide.
 Do NOT `git stash` — stashes are repo-global and surface in other workers'
 worktrees, cross-contaminating them. Commit to your branch instead.
 
-Concurrent workers SHARE one session scratchpad directory, so name every scratch
-file you write outside your worktree FOR that worktree — `pr-body-<worktree>.md`,
-never `pr-body.md`. A generic name is silently overwritten by a peer: nothing
-errors, and the loser can READ the survivor and take a PR body with plausible
-structure and the wrong subject for its own. Confirm a scratch file is your own
-before believing it.
+Concurrent workers SHARE one session scratchpad directory — its path carries the
+SESSION id, not your worktree — so name every scratch file you write outside your
+worktree FOR that worktree: `pr-body-<worktree>.md`, `gate-fastpr-<worktree>.log`,
+`gate-fastpr-<worktree>.exit`, never the bare names. A generic name is silently
+overwritten by a peer: nothing errors, and the loser can READ the survivor and
+take a PR body with plausible structure and the wrong subject for its own — or a
+gate exit code belonging to another worker's run, which reads as a clean pass and
+fails the merge decision open. Confirm a scratch file is your own before
+believing it, and check that a gate's printed `gate root:` line names YOUR
+worktree before believing its colour — that check, not this naming rule, is what
+has actually caught both observed collisions.
 
 If you create a `node_modules` symlink/junction in your worktree, remove the
 LINK (never its target) before you report done: a later `git worktree remove`
@@ -193,7 +198,14 @@ none of them is obvious from the gate command itself.
   reported the resulting verdict as its own. A complete, internally consistent
   run about somebody else's work is far harder to catch than a broken one, so
   every gate now prints `gate root: <path>` as its first line — **check that
-  line against your worktree before believing any colour.**
+  line against your worktree before believing any colour.** That check, not any
+  naming rule, is what has actually caught this class of defect: both 2026-08-12
+  scratchpad collisions (the artefact bullet below) were caught by a worker
+  reading `gate root:` and finding a sibling's worktree name there, and neither
+  by the file-naming convention its brief had already given it. So treat it as a
+  mandatory step on every gate run rather than an aside — a positive
+  verification performed on evidence you received is a stronger shape than a
+  rule you are asked to remember.
 - **Never pipe a gate through `tail`, `head` or `grep`.** A pipeline's exit
   status is its *last* command's, so a red runner reads green and the PR claims
   a pass it never got. Redirect to a log file, echo the runner's own exit code
@@ -219,13 +231,27 @@ none of them is obvious from the gate command itself.
   the restore. On a checkout whose line endings are translated, **anchor a patch to
   a single line**: one worker's first multi-line anchor matched nothing, with no
   error and no edit, and only the hash caught it.
-- **Put *every* gate artefact where git ignores it** — the log and the exit-code
-  file both. `*.log`, `*.exit` and `*-exit.txt` all are, so this leaves nothing
-  behind:
+- **Put *every* gate artefact where git ignores it, and name each one FOR your
+  worktree** — the log and the exit-code file both. `*.log`, `*.exit` and
+  `*-exit.txt` are all ignored, and the `-<worktree>` suffix is what stops a
+  sibling worker writing those same two files:
 
   ```bash
-  sh <WORKTREE_ROOT>/scripts/test-fast-pr.sh > gate-fastpr.log 2>&1; echo "$?" > gate-fastpr.exit
+  sh <ASSIGNED_WORKTREE>/scripts/test-fast-pr.sh > gate-fastpr-<worktree>.log 2>&1; echo "$?" > gate-fastpr-<worktree>.exit
   ```
+
+  **The suffix is not tidiness — a bare name fails the gate OPEN.** The
+  scratchpad path carries the SESSION id, not the worktree, so every worker in a
+  wave shares one directory. On 2026-08-12 two of six workers in a single wave
+  wrote `gate-fastpr.exit` there; one then read a `0` a peer's run had already
+  left while its own spine was still running (`ps -ef` showed its pid alive),
+  and found its log interleaved by two writers at independent offsets, one line
+  beginning mid-word. The exit code a PR body quotes is exactly the artefact
+  that collision corrupts, and it reads as a clean pass — so this is the merge
+  decision failing open, not a housekeeping slip. The boundary block above
+  states the rule for `pr-body-<worktree>.md`; it binds gate artefacts
+  identically, and an example here that dropped the suffix is what let two
+  workers obey the document and still collide.
 
   Saying only "put the log somewhere ignored" is the trap: a worker satisfies it
   and still strands the exit file, which for a while was itself untracked. One
@@ -410,7 +436,7 @@ reports everything.
 - Same-file races between concurrent workers → enumerate in-flight surfaces.
 - Edits leaking into the mayor checkout (esp. silent new-file leaks) → boundary block + post-write both-trees check.
 - Cross-worktree contamination via `git stash` → no-stash rule (stashes are repo-global).
-- A peer silently overwriting a worker's scratch file, or the loser reading the survivor as its own → worktree-named scratch files + confirm-before-believing (the shared-temp-directory rule, extended past gate logs).
+- A peer silently overwriting a worker's scratch file, or the loser reading the survivor as its own — including a gate exit code belonging to another worker's run, which merges on a green nobody earned → worktree-named scratch files AND gate artefacts, plus the `gate root:` check, which is the half of that pair observed to actually catch it.
 - Worktree cleanup deleting *through* a `node_modules` link into the shared tree it points at → the worker unlinks before reporting done, and the cleanup path disarms before removing.
 - "Green locally" merged into a red CI gate → gate the transitive surface; merge on CI, not the hand-off; a real failure gets a fix-worker, never `--admin`.
 - A passing synthetic test that routes around the real bug → reproduce the actual failing path.
