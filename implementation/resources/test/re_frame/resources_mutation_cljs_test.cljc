@@ -167,6 +167,23 @@
          (finally (trace-tooling/unregister-listener! k)))
     @seen))
 
+(defn- record-error-records!
+  "Run `body-fn` with an `:errors` listener installed; return the vector of
+  every always-on error record fanned during it (capture order).
+
+  The `:errors` stream — not stdout, not the dev trace — is where a framework
+  REFUSAL is legible: per Spec 009 §Observability channels the runtime ships no
+  default console sink, so a category that fans a record here is loud in dev
+  AND in a production build, while a category that fans nothing is invisible
+  everywhere. Sibling of `record-mutation-traces!` above (rf2-06lp)."
+  [body-fn]
+  (let [seen (atom [])
+        k    ::error-record-recorder]
+    (rf/register-listener! :errors k (fn [rec] (swap! seen conj rec)))
+    (try (body-fn)
+         (finally (rf/unregister-listener! :errors k)))
+    @seen))
+
 (defn- save-article-spec
   ([] (save-article-spec {}))
   ([overrides]
@@ -251,11 +268,89 @@
     (is (nil? (:invalidate-timing (rf/mutation-meta :m/default))))
     (rf/clear-mutation :m/default)))
 
-(deftest execute-unregistered-is-loud
-  (testing "EP-0003 §Mutations — :rf.mutation/execute on an unregistered
-            mutation never reaches the transport"
-    (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/nope :params {} :instance :i1}])
-    (is (nil? @last-managed-args))))
+(deftest execute-unregistered-refuses-and-names-the-id
+  ;; rf2-06lp. This test was previously named `execute-unregistered-is-loud`
+  ;; and asserted ONLY `(nil? @last-managed-args)` — a claim a SILENT NO-OP
+  ;; satisfies exactly as well as a refusal does. It therefore could not have
+  ;; caught the regression it was named for, and a reader who met the symptom
+  ;; in an app (no instance, no request, `:idle` afterwards — byte-identical to
+  ;; "nobody asked") had no gate telling them the runtime HAD refused. The
+  ;; refusal is real: `mreg/require-mutation-spec!` runs as the FIRST statement
+  ;; of `execute-handler`, so the id lookup fails before any instance row,
+  ;; work-ledger row, optimistic patch or transport lowering exists.
+  ;;
+  ;; The granularity line sits EARLIER than rf2-04tx's (a foreign top-level
+  ;; effect key is refused at the router's final-effects boundary, after the
+  ;; handler has run) and for the same reason rf2-04tx drew one at all: the
+  ;; hazard is partial success disguised as success. For a mutation that hazard
+  ;; is a DURABLE instance row — an instance minted and left at `:pending` with
+  ;; no request behind it would be a write that reports itself in flight
+  ;; forever. Refusing before the mint is what makes "nothing was minted" a
+  ;; truthful reading rather than a half-built one.
+  (testing "EP-0003 §Mutations — an unregistered mutation id REFUSES"
+    (let [recs (record-error-records!
+                 #(rf/dispatch-sync [:rf.mutation/execute
+                                     {:mutation :m/nope :params {} :instance :i1}]))
+          rec  (first (filterv #(= :rf.error/handler-exception (:error %)) recs))]
+      (testing "the event ABORTED — nothing minted, nothing sent"
+        (is (nil? @last-managed-args) "no write reached the transport")
+        (is (nil? (instance :i1)) "no instance row was minted")
+        (is (nil? (mutation-record :i1)) "no work-ledger row was written"))
+      (testing "and the refusal is READABLE — the runtime did not stay silent"
+        ;; Read off the always-on `:errors` axis, not stderr: per Spec 009
+        ;; §Observability channels the framework ships NO default console sink,
+        ;; so this listener is where a refusal is legible in dev AND prod.
+        (is (some? rec)
+            ":rf.mutation/execute fanned an always-on error record")
+        (is (= :rf.mutation/execute (:event-id rec)))
+        (let [data (ex-data (:exception rec))]
+          (is (= :rf.error/mutation-not-registered (:rf.error/id data))
+              "the canonical catalogued category, not a bare host throw")
+          (is (= :m/nope (:mutation-id data))
+              "the refusal NAMES the mutation id the caller typed")
+          (is (= :fix-registration (:recovery data))
+              "and carries the catalogued recovery disposition"))
+        (is (str/includes? (ex-message (:exception rec)) ":m/nope")
+            "the human message names the id too")))))
+
+(deftest execute-registered-under-another-kind-still-refuses
+  ;; rf2-06lp, the identity half of the guard. `require-mutation-spec!` keys on
+  ;; the `:mutation` REGISTRAR KIND, not on "is this keyword registered
+  ;; somewhere" — a resource id reads as a perfectly well-formed keyword and
+  ;; resolves in a sibling registrar, so a guard that widened to any known id
+  ;; would sail straight past here and lower a resource's fetch as a write.
+  (rf/reg-resource :r/article
+                   {:scope :rf.scope/global
+                    :params-schema [:map [:slug :string]]
+                    :tags (fn [{:keys [slug]} _] #{[:article slug]})}
+                   (fn [{:keys [slug]} _] {:request {:method :get :url (str "/a/" slug)}}))
+  (testing "a RESOURCE id passed as :mutation refuses like any unknown id"
+    (let [recs (record-error-records!
+                 #(rf/dispatch-sync [:rf.mutation/execute
+                                     {:mutation :r/article :params {:slug "w"}
+                                      :instance :i/wrong-kind}]))
+          rec  (first (filterv #(= :rf.error/handler-exception (:error %)) recs))]
+      (is (nil? @last-managed-args) "no write reached the transport")
+      (is (nil? (instance :i/wrong-kind)) "no instance row was minted")
+      (is (= :rf.error/mutation-not-registered
+             (:rf.error/id (ex-data (:exception rec))))
+          "the mutation registrar, not the resource one, decides")
+      (is (= :r/article (:mutation-id (ex-data (:exception rec))))))))
+
+(deftest execute-registered-mutation-is-not-refused
+  ;; rf2-06lp, the OTHER direction — the direction a guard is almost never
+  ;; tested for. A REGISTERED id must run exactly as before: instance minted,
+  ;; write lowered, and the always-on `:errors` axis SILENT. An over-eager
+  ;; guard shows up here as a spurious record on an otherwise-working write,
+  ;; which no other assertion in this suite would notice.
+  (rf/reg-mutation :m/save (save-article-spec) save-article-request)
+  (let [recs (record-error-records!
+               #(rf/dispatch-sync [:rf.mutation/execute
+                                   {:mutation :m/save :params {:slug "w"}
+                                    :instance :i/ok}]))]
+    (is (= [] recs) "a registered mutation raises NO error record")
+    (is (= :pending (:status (instance :i/ok))) "the instance row was minted")
+    (is (some? @last-managed-args) "and the write reached the transport")))
 
 ;; ===========================================================================
 ;; 2. execute mints an instance + lowers the write (runtime-owned addressing)
