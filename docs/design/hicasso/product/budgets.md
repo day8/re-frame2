@@ -273,9 +273,15 @@ published anchors. S3's candidate slope did not: `1,278 → 1,417 B/read`,
 `+139 B` and `+10.9%`, with the two bands disjoint. The governed contrast
 against Reagent therefore deepens from `1.3492×` to `1.4953×`, while S4's win
 against UIx is unchanged to the fourth decimal (`0.7099× → 0.7098×`).
-**Attribution is `rf2-hic-018`'s**, and it is deliberately not attempted here:
-the window's terms are a single invocation, and the ablations that would name a
-cause are exactly what a measurement window may not run.
+**Attribution was deliberately not attempted in that window** — its terms are a
+single invocation, and the ablations that would name a cause are exactly what a
+measurement window may not run. It was taken afterwards, by `rf2-l50z`, and the
+answer is **one line**: `interop/activate-derived-value!` in the collector's
+`wire-cell!`, a ratom-only correctness repair that landed between the two
+sessions. **The figure does not move** — S3 stays `1,417 B/read` — because the
+attribution names the cost rather than removing it. The bisection is
+[on the ladder](../studio/reads-per-boundary-heap-ladder.md#the-139-bread-attributed-to-one-line-and-the-premise-it-had-to-correct-first-rf2-l50z);
+the disposition is [substrate-decision §6](substrate-decision.md#6-what-this-page-does-not-decide).
 
 **S1 and S2 carry the substantive news for the shell.** The breach is not an
 artefact of the prototype — it survives the move to the package essentially
@@ -737,7 +743,9 @@ Three rows have a disposition record of their own and point at it: `S1` and
 `S2` at [the substrate decision's §5.2](substrate-decision.md#52-the-read-free-boundary-shell--the-disposition),
 where the shell breach was carried red on the evidence, and `S3` at
 [its §6](substrate-decision.md#6-what-this-page-does-not-decide), where the
-`+139 B/read` package move is left open. Every other row that is not `MET`
+`+139 B/read` package move is now attributed to one ratom-only correctness line
+(`rf2-l50z`) — an attribution, not a change to the figure, so `S3` is still
+`UNRESOLVED` against its own rule. Every other row that is not `MET`
 points here, and here is what each is waiting on.
 
 - **No package-resident clock instrument exists.** `U1`, `U2`, `U3` and `U4`

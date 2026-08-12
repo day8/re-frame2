@@ -423,30 +423,42 @@ verdict beside it.
 
 ## 6. What this page does not decide
 
-**[OPEN] The mechanism of the `+139 B/read` package move.** Nine of the ten
-quantities the package re-pin took reproduce the prototype; exactly one moved —
-the candidate's ratom-segment slope, `1,278 → 1,417 B/read`, bands disjoint by
-136 B — so the move is the candidate's and not the instrument's. **This
-adjudication does not need it**, because the move sits entirely inside the arm
-that is not selected: the spine segment reproduced to the byte (`2,115 →
-2,115`). It is left open rather than guessed at, and it is not nothing — S3 is a
-K3 scoreboard input and the figure the programme quotes as the design's bill
-against Reagent, so a 10.9% move in it is owed an attribution to `rf2-hic-070` or
-to a bead of its own.
+**[SETTLED 2026-08-13, `rf2-l50z`] The mechanism of the `+139 B/read` package
+move.** It is **one line**, and it is a correctness repair rather than a package
+regression: `interop/activate-derived-value!` in `wire-cell!`, landed by
+`9d01cd171e` (`rf2-2kshh`) on 2026-08-07. The A–B–A bisection this section
+called for was run on the ratom segment with the spine segment as the negative
+control, and the whole of the move came back on that line — `1,417 → 1,278 →
+1,417 B/read`, the two hook-armed readings agreeing to the byte around the
+hook-less one, while the spine read `2,115` in all three arms.
+[The bisection, its controls and its provenance](../studio/reads-per-boundary-heap-ladder.md#the-139-bread-attributed-to-one-line-and-the-premise-it-had-to-correct-first-rf2-l50z)
+are on the ladder. **No figure on this page changes** — S3 is still
+`1,417 B/read` and the premium is still `+698` — because the attribution names a
+cost rather than moving one.
 
-**The ablation that would settle it** is the one this corpus has already run once
-on this exact axis: the A–B–A bisection that attributed the disposal hook
-(`rf2-2rtt6.60`). Take the package tree and the prototype tree the 1,278 was
-measured on, bisect the per-cell path between them on the **ratom segment only**,
-and ride the spine segment as the negative control — it is a control by
-measurement here, having reproduced exactly. One suspect has a precedent worth
-naming *as a suspect and not as an answer*: that earlier bisection found a single
-added per-cell callback costing **+104 B on the ratom segment and +36 B on the
-spine**, because Reagent's `Reaction` keeps on-dispose callbacks on a JS array
-under V8's growth policy while the spine's container pre-allocates a vector. A
-package landing that adds or moves one per-cell retained item would produce
-exactly this shape. That is a hypothesis with a precedent; it is not an
-attribution, and the bisection is what would make it one.
+The mechanism is the ratom-only line [§2 above](#the-correctness-axis-which-is-one-sided-and-total)
+already identifies. Activation is `deref-capture`, so the `Reaction` afterwards
+holds a populated `watching` array and is enrolled in each captured source's
+watcher map; both are retained per cell, cells are B·R on this rung, and the
+whole price therefore lands in the marginal slope. On the React-hook spine the
+hook is published by nobody and the call allocates nothing, which is why the
+spine reproduced exactly.
+
+**The suspect this section named was not the answer, and the premise had to be
+corrected before the ablation could be aimed.** The two columns of the package
+run's comparison table are two runs eight days apart rather than two source
+trees, and the `wire-cell!` bodies of the package and the prototype are
+identical today — so what the table prices is the whole interval between the
+sessions, not the package/prototype difference its columns are named after. That
+is why the move showed in one segment and not both: nothing in the window added
+per-cell state to the spine.
+
+**What that costs the collector's own bill, stated rather than glossed.** The
+`139 B/read` is what a Reagent-hosted Hicasso boundary pays to answer writes at
+all; without it the arm paints once at mount and goes deaf. It is a real cost on
+a real axis and it is carried, not normalised — the same posture
+[the disposal hook](../studio/reads-per-boundary-heap-ladder.md#the-slope-went-stale-before-this-section-merged-and-the-landing-that-moved-it-rf2-2rtt660)
+was recorded under.
 
 **[OPEN] The clock and migration contrasts for the ratom family.** Neither
 exists, on any tree. Settling them needs a candidate-on-ratom segment added to
