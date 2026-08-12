@@ -109,6 +109,16 @@
  * of a log and no grep for the full-matrix verdict can mistake one for the
  * other (rf2-l92i).
  *
+ * The three timeout ceilings are knobs of the same kind (rf2-qzm8).
+ * `HICASSO_HMR_BUILD_TIMEOUT_MS`, `HICASSO_HMR_SAVE_TIMEOUT_MS` and
+ * `HICASSO_HMR_SPEC_TIMEOUT_MS` stay tunable — a slow box is real — but no
+ * override passes in silence: every non-default value is announced up
+ * front, and a RAISED ceiling closes with the partial token too, because a
+ * pass that may have needed a wider window than the contract's did not
+ * demonstrably pass the contract. A lowered ceiling is stricter than the
+ * contract, so it only announces itself. See `TIMEOUT_DEFAULTS` and
+ * `verdictLine`.
+ *
  * The verdict logic and the hot-line rewriter both carry mutation teeth
  * that run before any browser launches. The rewriter needs them as much as
  * the comparator does: a gate whose "save" silently stopped editing the
@@ -176,9 +186,48 @@ const CANONICAL_LABEL = 'GEN-A';
 // future re-indentation of the form survive the rewrite untouched.
 const HOT_LINE_RE = /"([A-Za-z0-9-]+)"\)(\s*);; rf2-vsgq:HOT-LINE/;
 
-const BUILD_TIMEOUT_MS = parseInt(process.env.HICASSO_HMR_BUILD_TIMEOUT_MS || '300000', 10);
-const SAVE_TIMEOUT_MS = parseInt(process.env.HICASSO_HMR_SAVE_TIMEOUT_MS || '90000', 10);
-const SPEC_TIMEOUT_MS = parseInt(process.env.HICASSO_HMR_SPEC_TIMEOUT_MS || '600000', 10);
+// The three ceilings a run may override from the environment, held in ONE
+// table so the values the run enforces and the disclosure it prints cannot
+// drift apart (rf2-qzm8). Raising one SOFTENS the gate — a wider window can
+// admit a pass the contract's window would have refused, which is the
+// flake-hiding move rf2-odh3's bead forbids in prose — and before this
+// table a raised ceiling left no trace in the log at all, so a run that
+// passed only because someone widened a threshold read identically to one
+// that passed on merit. Now every non-default value is announced up front
+// in `main`, in the same register as the HICASSO_HMR_ENGINES narrowing
+// banner, and a raised one costs the run its full verdict in `verdictLine`.
+const TIMEOUT_DEFAULTS = {
+  HICASSO_HMR_BUILD_TIMEOUT_MS: 300000,
+  HICASSO_HMR_SAVE_TIMEOUT_MS: 90000,
+  HICASSO_HMR_SPEC_TIMEOUT_MS: 600000,
+};
+
+/** The ceilings this run uses: the environment's word, else the default. */
+function resolveTimeouts(env = process.env, defaults = TIMEOUT_DEFAULTS) {
+  return Object.fromEntries(Object.entries(defaults).map(
+    ([name, dflt]) => [name, parseInt(env[name] || String(dflt), 10)]));
+}
+
+/**
+ * Every ceiling whose resolved value differs from its default, with the
+ * direction it moved. `raised` is the fail-open direction and the only one
+ * that costs the run its full verdict; a lowered ceiling is stricter than
+ * the contract, so it is disclosed and nothing more.
+ */
+function timeoutOverrides(timeouts, defaults = TIMEOUT_DEFAULTS) {
+  return Object.entries(defaults)
+    .filter(([name, dflt]) => timeouts[name] !== dflt)
+    .map(([name, dflt]) => ({
+      name, value: timeouts[name], dflt, raised: timeouts[name] > dflt,
+    }));
+}
+
+const TIMEOUTS = resolveTimeouts();
+const TIMEOUT_OVERRIDES = timeoutOverrides(TIMEOUTS);
+
+const BUILD_TIMEOUT_MS = TIMEOUTS.HICASSO_HMR_BUILD_TIMEOUT_MS;
+const SAVE_TIMEOUT_MS = TIMEOUTS.HICASSO_HMR_SAVE_TIMEOUT_MS;
+const SPEC_TIMEOUT_MS = TIMEOUTS.HICASSO_HMR_SPEC_TIMEOUT_MS;
 const NAV_TIMEOUT_MS = 60000;
 // The app's own mount, once shadow is already serving a compiled bundle.
 // Deliberately NOT the build ceiling: by this point the slow part is done,
@@ -234,6 +283,10 @@ const ENGINES = ONLY
 // engine ran and the comparator never ran" must not be the same words
 // (rf2-l92i). Neither token is a substring of the other, so a grep for the
 // full-matrix verdict cannot be answered by a narrowed run.
+//
+// A raised timeout ceiling (rf2-qzm8) closes with the same narrowed token:
+// both are runs that proved less than the contract, and the sentence after
+// the token names the knob either way, so the reader knows which to unset.
 //
 // The CI job passes no narrowing at all and a classifier regression in
 // `_changed-surfaces.test.cjs` pins that, so this pair is about the LOCAL
@@ -516,20 +569,33 @@ function comparedAcrossEngines(engines) {
 /**
  * The line the run closes with.
  *
- * A narrowed run passed everything it ran, so it still exits 0 and still
- * says PASS — what it must not do is say it the same way. Below two engines
- * the verdict token changes, the sentence states that the cross-engine
- * comparison was NOT performed, and it names the variable that caused it so
- * the reader knows which knob to unset.
+ * A weakened run passed everything it ran, so it still exits 0 and still
+ * says PASS — what it must not do is say it the same way. Two weakenings
+ * cost the full token: an engine set below two, whose sentence states that
+ * the cross-engine comparison was NOT performed, and a RAISED timeout
+ * ceiling (rf2-qzm8), whose sentence states that the pass may have needed
+ * a wider window than the contract allows. Either way the sentence names
+ * the variable that caused it, so the reader knows which knob to unset. A
+ * LOWERED ceiling is stricter than the contract and costs nothing here —
+ * the up-front banner in `main` is its only trace.
  */
-function verdictLine(engines, reloads) {
+function verdictLine(engines, reloads, overrides = TIMEOUT_OVERRIDES) {
   const tail = `${reloads} real shadow reloads`;
-  if (comparedAcrossEngines(engines)) {
+  const causes = [];
+  if (!comparedAcrossEngines(engines)) {
+    causes.push('HICASSO_HMR_ENGINES narrowed this run, so the cross-engine '
+      + 'comparison was NOT performed');
+  }
+  for (const o of overrides.filter((x) => x.raised)) {
+    causes.push(`${o.name}=${o.value} raised the ${o.dflt}ms ceiling, so `
+      + 'this pass may have needed a wider window than the contract allows');
+  }
+  if (causes.length === 0) {
     return `${FULL_VERDICT} (${engines.join(' + ')}) — ${tail}`;
   }
-  return `${NARROWED_VERDICT} (${engines.join(' + ') || 'no engine'} only; `
-    + `HICASSO_HMR_ENGINES narrowed this run, so the cross-engine comparison `
-    + `was NOT performed) — ${tail}`;
+  return `${NARROWED_VERDICT} (${engines.join(' + ') || 'no engine'}`
+    + `${comparedAcrossEngines(engines) ? '' : ' only'}; `
+    + `${causes.join('; ')}) — ${tail}`;
 }
 
 function coverageReport(result, required = REQUIRED_SECTIONS) {
@@ -755,7 +821,7 @@ function runMutationTeeth() {
   // alone.
 
   bite('a compared run prints the full verdict and names its engines', () => {
-    const line = verdictLine(ALL_ENGINES, 36);
+    const line = verdictLine(ALL_ENGINES, 36, []);
     return line.startsWith(FULL_VERDICT)
       && line.includes('chromium + firefox + webkit')
       && line.includes('36 real shadow reloads')
@@ -763,10 +829,10 @@ function runMutationTeeth() {
   });
 
   bite('a one-engine run does NOT print the full verdict', () =>
-    !verdictLine(['chromium'], 36).includes(FULL_VERDICT));
+    !verdictLine(['chromium'], 36, []).includes(FULL_VERDICT));
 
   bite('a one-engine run says the comparison was skipped and names the knob', () => {
-    const line = verdictLine(['webkit'], 12);
+    const line = verdictLine(['webkit'], 12, []);
     return line.startsWith(NARROWED_VERDICT)
       && /cross-engine comparison was NOT performed/.test(line)
       && /HICASSO_HMR_ENGINES/.test(line)
@@ -791,11 +857,64 @@ function runMutationTeeth() {
     // disagree with — but the run that got that silence must not close as
     // though it had been compared.
     return divergenceReport(one, []).length === 0
-      && verdictLine(Object.keys(one), 1).startsWith(NARROWED_VERDICT)
+      && verdictLine(Object.keys(one), 1, []).startsWith(NARROWED_VERDICT)
       // ...and two engines ARE compared, which is what makes the silence
       // above a fact about the engine count and nothing else.
       && divergenceReport(two, []).length === 1
-      && verdictLine(Object.keys(two), 1).startsWith(FULL_VERDICT);
+      && verdictLine(Object.keys(two), 1, []).startsWith(FULL_VERDICT);
+  });
+
+  // --- the ceilings, which may move but not in silence (rf2-qzm8) --------
+  //
+  // Same defect class as the narrowed engine set: a knob that softens the
+  // gate must leave a trace, or a pass bought with a wider window reads
+  // identically to one earned inside the contract's. The overrides list is
+  // derived from the same resolution the run enforces, so the disclosure
+  // cannot describe different values than the ceilings used.
+
+  bite('a default environment overrides no ceiling', () =>
+    timeoutOverrides(resolveTimeouts({})).length === 0);
+
+  bite('setting a knob TO its default is not an override', () =>
+    timeoutOverrides(resolveTimeouts(
+      { HICASSO_HMR_SAVE_TIMEOUT_MS: '90000' })).length === 0);
+
+  bite('a raised ceiling is an override in the fail-open direction', () => {
+    const o = timeoutOverrides(resolveTimeouts(
+      { HICASSO_HMR_SAVE_TIMEOUT_MS: '180000' }));
+    return o.length === 1
+      && o[0].name === 'HICASSO_HMR_SAVE_TIMEOUT_MS'
+      && o[0].value === 180000 && o[0].dflt === 90000 && o[0].raised === true;
+  });
+
+  bite('a lowered ceiling is an override but not a raised one', () => {
+    const o = timeoutOverrides(resolveTimeouts(
+      { HICASSO_HMR_BUILD_TIMEOUT_MS: '60000' }));
+    return o.length === 1 && o[0].raised === false;
+  });
+
+  bite('a raised ceiling costs the full verdict, and the line names the knob', () => {
+    const line = verdictLine(ALL_ENGINES, 36, timeoutOverrides(resolveTimeouts(
+      { HICASSO_HMR_SAVE_TIMEOUT_MS: '180000' })));
+    return line.startsWith(NARROWED_VERDICT)
+      && !line.includes(FULL_VERDICT)
+      && line.includes('HICASSO_HMR_SAVE_TIMEOUT_MS=180000')
+      && line.includes('90000ms ceiling')
+      && line.includes('chromium + firefox + webkit')
+      && line.includes('36 real shadow reloads');
+  });
+
+  bite('a lowered ceiling alone leaves the full verdict intact', () =>
+    verdictLine(ALL_ENGINES, 36, timeoutOverrides(resolveTimeouts(
+      { HICASSO_HMR_SPEC_TIMEOUT_MS: '60000' }))).startsWith(FULL_VERDICT));
+
+  bite('a narrowed run under a raised ceiling names both causes', () => {
+    const line = verdictLine(['chromium'], 12, timeoutOverrides(resolveTimeouts(
+      { HICASSO_HMR_BUILD_TIMEOUT_MS: '600000' })));
+    return line.startsWith(NARROWED_VERDICT)
+      && /cross-engine comparison was NOT performed/.test(line)
+      && line.includes('HICASSO_HMR_BUILD_TIMEOUT_MS=600000')
+      && line.includes('12 real shadow reloads');
   });
 
   // --- the floors -------------------------------------------------------
@@ -1271,6 +1390,21 @@ async function main() {
     }
   }
 
+  // The ceilings get the same up-front honesty (rf2-qzm8): a run about to
+  // spend half an hour says NOW that it is not running under the contract's
+  // windows, rather than leaving the reader to discover it — or worse, not
+  // — in the closing line. A raised ceiling also costs the full verdict;
+  // see `verdictLine`.
+  for (const o of TIMEOUT_OVERRIDES) {
+    console.log(`> ${o.name}=${o.value} — ${o.raised ? 'RAISED' : 'lowered'} `
+      + `from its default ${o.dflt}ms. `
+      + (o.raised
+        ? 'A wider ceiling can admit a pass the contract\'s window would '
+          + `have refused, so this run closes with at most "${NARROWED_VERDICT}".`
+        : 'A lower ceiling only makes this run stricter; the verdict is '
+          + 'unaffected.'));
+  }
+
   // FAIL CLOSED on a dirty tree. The gate edits a tracked file, so a
   // previous run killed between its edit and its restore would otherwise
   // hand this run a source whose "canonical" state is already a fixture —
@@ -1356,6 +1490,9 @@ module.exports = {
   NARROWINGS,
   REQUIRED_SECTIONS,
   REQUIRED_RECORDS,
+  TIMEOUT_DEFAULTS,
+  resolveTimeouts,
+  timeoutOverrides,
 };
 
 if (require.main === module) {
