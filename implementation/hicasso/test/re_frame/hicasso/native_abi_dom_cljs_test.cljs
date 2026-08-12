@@ -192,13 +192,22 @@
                                    {:residue (inventory/residue)})))
                  handle)))))
 
-(defn- fail-and-finish!
-  [done label handle]
+(defn- report-failure!
+  "Reports a rejection against `label`; it does NOT finish the row.
+
+  `done` hands `cljs.test/run-block` a continuation that runs the WHOLE
+  remainder of the run synchronously, so a `.catch` sitting downstream of the
+  step that finished the row claims whatever a LATER namespace throws, prints
+  it against this row's label, and calls `done` a SECOND time — re-forcing
+  `run-block`'s unrealized delay and re-running the offending namespace, which
+  `run-browser-tests.cjs` promotes to a fatal console match (rf2-e8kc). Every
+  chain below therefore reports here and finishes on a single trailing step,
+  with nothing after it."
+  [label]
   (fn [e]
     (is false (str label " — " (.-message e)
                    " | residue " (pr-str (inventory/residue))))
-    (when handle (mount/release! handle))
-    (done)))
+    nil))
 
 ;; ---------------------------------------------------------------------------
 ;; 1. The outward bridge
@@ -238,8 +247,13 @@
 
                 (exercised! :bridge/outward)
                 (support/teardown-census! handle)
-                (done)))
-            (.catch (fail-and-finish! done "outward bridge" nil)))))))
+                nil))
+            (.catch (report-failure! "outward bridge"))
+            ;; The single `done`, on the single trailing step, with nothing
+            ;; after it. Teardown is NOT hoisted onto it: the rejection arm
+            ;; never had the handle at all — `mount-live!` resolves WITH it —
+            ;; so the two arms were never writing the same release.
+            (.then (fn [_] (done))))))))
 
 (deftest two-frames-are-two-cells-across-the-bridge
   (async done
@@ -278,8 +292,13 @@
                 (exercised! :bridge/two-frames)
                 (support/teardown-census! a)
                 (support/teardown-census! b)
-                (done)))
-            (.catch (fail-and-finish! done "two frames across the bridge" nil)))))))
+                nil))
+            (.catch (report-failure! "two frames across the bridge"))
+            ;; The single `done`, on the single trailing step, with nothing
+            ;; after it. Teardown is NOT hoisted onto it: the rejection arm
+            ;; never had the handle at all — `mount-live!` resolves WITH it —
+            ;; so the two arms were never writing the same release.
+            (.then (fn [_] (done))))))))
 
 (deftest the-views-memo-wrapper-survives-the-bridge
   (async done
@@ -320,8 +339,13 @@
 
                 (exercised! :bridge/memo-bail-out)
                 (support/teardown-census! handle)
-                (done)))
-            (.catch (fail-and-finish! done "memo across the bridge" nil)))))))
+                nil))
+            (.catch (report-failure! "memo across the bridge"))
+            ;; The single `done`, on the single trailing step, with nothing
+            ;; after it. Teardown is NOT hoisted onto it: the rejection arm
+            ;; never had the handle at all — `mount-live!` resolves WITH it —
+            ;; so the two arms were never writing the same release.
+            (.then (fn [_] (done))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 2. The inward door
@@ -367,8 +391,13 @@
 
                 (exercised! :bridge/inward)
                 (support/teardown-census! handle)
-                (done)))
-            (.catch (fail-and-finish! done "inward door" nil)))))))
+                nil))
+            (.catch (report-failure! "inward door"))
+            ;; The single `done`, on the single trailing step, with nothing
+            ;; after it. Teardown is NOT hoisted onto it: the rejection arm
+            ;; never had the handle at all — `mount-live!` resolves WITH it —
+            ;; so the two arms were never writing the same release.
+            (.then (fn [_] (done))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 3. The helpers, across a second render and a remount
@@ -409,8 +438,13 @@
 
                 (exercised! :helper/memo-across-a-re-render)
                 (support/teardown-census! handle)
-                (done)))
-            (.catch (fail-and-finish! done "memo across a re-render" nil)))))))
+                nil))
+            (.catch (report-failure! "memo across a re-render"))
+            ;; The single `done`, on the single trailing step, with nothing
+            ;; after it. Teardown is NOT hoisted onto it: the rejection arm
+            ;; never had the handle at all — `mount-live!` resolves WITH it —
+            ;; so the two arms were never writing the same release.
+            (.then (fn [_] (done))))))))
 
 (deftest a-fresh-mint-replaces-the-subtree-and-that-is-the-hmr-contract
   (async done
@@ -450,8 +484,13 @@
 
                 (exercised! :helper/fresh-mint-remounts)
                 (support/teardown-census! handle)
-                (done)))
-            (.catch (fail-and-finish! done "fresh mint" nil)))))))
+                nil))
+            (.catch (report-failure! "fresh mint"))
+            ;; The single `done`, on the single trailing step, with nothing
+            ;; after it. Teardown is NOT hoisted onto it: the rejection arm
+            ;; never had the handle at all — `mount-live!` resolves WITH it —
+            ;; so the two arms were never writing the same release.
+            (.then (fn [_] (done))))))))
 
 (deftest strict-modes-double-mount-crosses-the-bridge-exactly-once
   (async done
@@ -474,8 +513,13 @@
 
                 (exercised! :bridge/strict-mode)
                 (support/teardown-census! handle)
-                (done)))
-            (.catch (fail-and-finish! done "strict mode" nil)))))))
+                nil))
+            (.catch (report-failure! "strict mode"))
+            ;; The single `done`, on the single trailing step, with nothing
+            ;; after it. Teardown is NOT hoisted onto it: the rejection arm
+            ;; never had the handle at all — `mount-live!` resolves WITH it —
+            ;; so the two arms were never writing the same release.
+            (.then (fn [_] (done))))))))
 
 (deftest a-ref-reaches-a-real-dom-node-through-the-memo-helper
   (async done
@@ -547,9 +591,14 @@
                     (is (= "client-only" (unchecked-get marker-0 "server"))))
 
                   (exercised! :helper/lazy-arrival)
-                  (mount/release! handle)
-                  (done)))
-              (.catch (fail-and-finish! done "lazy arrival" handle))))))))
+                  nil))
+              (.catch (report-failure! "lazy arrival"))
+              ;; Unlike the `mount-live!` rows, THIS row holds its handle in
+              ;; the enclosing `let` rather than receiving it from the promise,
+              ;; so both arms really did release the same one — and the release
+              ;; rides the single trailing step: written once, run once per
+              ;; path, with the single `done` behind it.
+              (.then (fn [_] (mount/release! handle) (done)))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 4. Teardown, and the roster
@@ -577,8 +626,13 @@
                     (is (= support/released census))))
 
                 (exercised! :bridge/teardown)
-                (done)))
-            (.catch (fail-and-finish! done "teardown" nil)))))))
+                nil))
+            (.catch (report-failure! "teardown"))
+            ;; The single `done`, on the single trailing step, with nothing
+            ;; after it. Teardown is NOT hoisted onto it: the rejection arm
+            ;; never had the handle at all — `mount-live!` resolves WITH it —
+            ;; so the two arms were never writing the same release.
+            (.then (fn [_] (done))))))))
 
 (deftest the-declared-population-was-actually-exercised
   (if-not (mount/browser?)
