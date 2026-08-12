@@ -3394,6 +3394,15 @@ test('the hicasso HMR job installs the PINNED three engines and narrows none (rf
   // would still print a PASS having checked nothing about divergence. The job
   // must pass no engine narrowing at all.
   //
+  // The runner now refuses the full verdict to ANY narrowing, not just one
+  // below the comparator's floor (rf2-l92i), so a job that set this would be
+  // caught in its own log too. That is a second line of defence and not a
+  // reason to relax this one: the runner's honesty is about the reader of a
+  // log, and this row is about the job never getting into that state. Note in
+  // particular that a TWO-engine narrowing does get compared — so "the
+  // comparator is inert" is no longer the whole reason to forbid the knob
+  // here; the whole reason is that this job's name promises three engines.
+  //
   // Read the job's EXECUTABLE text, not its prose. The first cut of this row
   // grepped the whole block and reddened on the YAML COMMENT that explains the
   // knob — an assertion that forbids naming the hazard is an assertion that
