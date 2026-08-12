@@ -139,9 +139,13 @@
                         ;; rf2-2rtt6.91 — the published column, taken where
                         ;; the fact lives now that the entry emits none.
                         :render-hash  (str (ssr-hash/render-tree-hash
-                                             (:hiccup (fixtures/row dogfood-row-id))))})
-              (done)))
-          (.catch (fn [e] (is false (str "X1(a) threw: " e)) (done)))))))
+                                             (:hiccup (fixtures/row dogfood-row-id))))})))
+          ;; Reports and RELEASES; it never finishes (rf2-o0n1). `done` runs the
+          ;; whole remainder of the run synchronously, so a `.catch` downstream
+          ;; of it would claim a later namespace's throw as this row's and fire
+          ;; `done` a second time.
+          (.catch (fn [e] (is false (str "X1(a) threw: " e)) nil))
+          (.then (fn [_] (done)))))))
 
 (deftest a-different-snapshot-renders-a-different-document
   (testing "**the mutation proof for X1(a).** Byte-identity is a claim two
@@ -158,9 +162,10 @@
         (-> (js/Promise.all #js [(sha256-hex eight) (sha256-hex nine)])
             (.then (fn [[h8 h9]]
                      (is (not= h8 h9))
-                     (report! "X1a-mutation" {:seed-8 h8 :seed-9 h9})
-                     (done)))
-            (.catch (fn [e] (is false (str "the mutation proof threw: " e)) (done))))))))
+                     (report! "X1a-mutation" {:seed-8 h8 :seed-9 h9})))
+            ;; Reports and RELEASES, as above.
+            (.catch (fn [e] (is false (str "the mutation proof threw: " e)) nil))
+            (.then (fn [_] (done))))))))
 
 (deftest the-byte-digest-separates-the-two-pages-render-hash-cannot
   (testing "**the non-vacuity control, taken against the hash this tier
@@ -196,6 +201,7 @@
                               {:render-hash-shared (str dog-h)
                                :render-hash-on-wire "absent"
                                :dogfood-sha256     hd
-                               :conduit-sha256     hc})
-                     (done)))
-            (.catch (fn [e] (is false (str "the control threw: " e)) (done))))))))
+                               :conduit-sha256     hc})))
+            ;; Reports and RELEASES, as above.
+            (.catch (fn [e] (is false (str "the control threw: " e)) nil))
+            (.then (fn [_] (done))))))))

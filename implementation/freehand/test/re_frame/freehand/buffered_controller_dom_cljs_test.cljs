@@ -242,17 +242,19 @@
                             (is (identical? before (node container))
                                 "and it came back on the SAME node — restored, not remounted")
                             (is (identical? before (.-activeElement js/document))
-                                "which still has focus")
-                            (teardown! container root)
-                            (done)))
-                        (.catch (fn [e]
-                                  (is false (str "the rejection rejected: " e))
-                                  (teardown! container root)
-                                  (done)))))))
-              (.catch (fn [e]
-                        (is false (str "mount rejected: " e))
-                        (teardown! container root)
-                        (done)))))))))
+                                "which still has focus")))
+                        ;; The inner chain keeps its OWN diagnostic but finishes
+                        ;; nothing; it is returned into the outer chain, whose
+                        ;; single trailing step below owns the one `done`.
+                        (.catch (fn [e] (is false (str "the rejection rejected: " e)) nil))))))
+              ;; Reports and RELEASES; it never finishes (rf2-o0n1). `done` runs
+              ;; the whole remainder of the run synchronously, so a `.catch`
+              ;; downstream of it would claim a later namespace's throw as this
+              ;; row's and fire `done` a second time.
+              (.catch (fn [e] (is false (str "mount rejected: " e)) nil))
+              ;; Every arm tore the mount down identically, so the teardown rides
+              ;; the single trailing step: written once, run once per path.
+              (.then (fn [_] (teardown! container root) (done)))))))))
 
 (deftest fh-ctrl-011-editing-resumes-at-the-new-generation
   (testing "Per FH-CTRL-011: after the rejection the user types again.
@@ -284,17 +286,14 @@
                                    (caret field))
                                 "and the caret followed the insert")
                             (is (= (:expected resume) (draft))
-                                "the new draft is live controller state again")
-                            (teardown! container root)
-                            (done)))
-                        (.catch (fn [e]
-                                  (is false (str "the rejection rejected: " e))
-                                  (teardown! container root)
-                                  (done)))))))
-              (.catch (fn [e]
-                        (is false (str "mount rejected: " e))
-                        (teardown! container root)
-                        (done)))))))))
+                                "the new draft is live controller state again")))
+                        ;; Inner chain: its own diagnostic, but it finishes
+                        ;; nothing and is returned into the outer chain.
+                        (.catch (fn [e] (is false (str "the rejection rejected: " e)) nil))))))
+              ;; Reports and RELEASES, as above.
+              (.catch (fn [e] (is false (str "mount rejected: " e)) nil))
+              ;; Shared teardown, hoisted onto the single trailing step.
+              (.then (fn [_] (teardown! container root) (done)))))))))
 
 ;; ===========================================================================
 ;; FH-CTRL-011 — IME composition through the draft
@@ -348,10 +347,8 @@
                     (is (= final (.-value field)) "the composition committed intact")
                     (is (= final (draft)) "and reached the draft")
                     (is (identical? before (node container))
-                        "on the same node it started on"))
-                  (teardown! container root)
-                  (done)))
-              (.catch (fn [e]
-                        (is false (str "mount rejected: " e))
-                        (teardown! container root)
-                        (done)))))))))
+                        "on the same node it started on"))))
+              ;; Reports and RELEASES, as above.
+              (.catch (fn [e] (is false (str "mount rejected: " e)) nil))
+              ;; Shared teardown, hoisted onto the single trailing step.
+              (.then (fn [_] (teardown! container root) (done)))))))))

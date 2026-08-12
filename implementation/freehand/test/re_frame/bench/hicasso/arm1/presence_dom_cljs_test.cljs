@@ -239,5 +239,10 @@
                               paint, which is why the guide teaches an
                               animation on insertion for enter and keeps the
                               override for exit")
-                         (finally (mount/release! handle) (done)))))
-              (.catch (fn [e] (is false (str e)) (done)))))))))
+                         (finally (mount/release! handle)))))
+              ;; Reports and RELEASES; it never finishes (rf2-o0n1). `done` runs
+              ;; the whole remainder of the run synchronously, so a `.catch`
+              ;; downstream of it would claim a later namespace's throw as this
+              ;; row's and fire `done` a second time.
+              (.catch (fn [e] (is false (str e)) nil))
+              (.then (fn [_] (done)))))))))

@@ -394,8 +394,15 @@
                               :warnings   (count warnings)
                               :panels     (panel-count container)
                               :open-after? (some? (open-panel-in container))})
-                    (finally (mount/release! handle) (done)))))
-              (.catch (fn [e] (is false (str "row 1 threw: " e)) (done)))))))))
+                    (finally (mount/release! handle)))))
+              ;; Reports and RELEASES; it never finishes (rf2-o0n1). `done` runs
+              ;; the whole remainder of the run synchronously, so a `.catch`
+              ;; downstream of it would claim a later namespace's throw as this
+              ;; row's and fire `done` a second time. The release stays in the
+              ;; `finally`: it is the success arm's, and only that arm was ever
+              ;; handed a handle.
+              (.catch (fn [e] (is false (str "row 1 threw: " e)) nil))
+              (.then (fn [_] (done)))))))))
 
 ;; ===========================================================================
 ;; ROW 2 — RED BY DESIGN. The obligation broken, and caught.
@@ -480,5 +487,7 @@
                               :where      (str (:where (tags-of (first mismatches))))
                               :panels     (panel-count container)
                               :open-after? (some? (open-panel-in container))})
-                    (finally (mount/release! handle) (done)))))
-              (.catch (fn [e] (is false (str "row 2 threw: " e)) (done)))))))))
+                    (finally (mount/release! handle)))))
+              ;; Reports and RELEASES, as above.
+              (.catch (fn [e] (is false (str "row 2 threw: " e)) nil))
+              (.then (fn [_] (done)))))))))

@@ -578,9 +578,13 @@
                                :intents        (count (:intents hydrated-run))
                                :intents-match? (= script/interaction-intents
                                                   (:intents hydrated-run))
-                               :dom-match?     (= (:dom cold-run) (:dom hydrated-run))})
-                (done)))
-            (.catch (fn [e] (is false (str "X4 threw: " e)) (done))))))))
+                               :dom-match?     (= (:dom cold-run) (:dom hydrated-run))})))
+            ;; Reports and RELEASES; it never finishes (rf2-o0n1). `done` runs
+            ;; the whole remainder of the run synchronously, so a `.catch`
+            ;; downstream of it would claim a later namespace's throw as this
+            ;; row's and fire `done` a second time.
+            (.catch (fn [e] (is false (str "X4 threw: " e)) nil))
+            (.then (fn [_] (done))))))))
 
 (deftest x4-typing-after-adoption-echoes-in-the-callers-turn
   (testing "**HD-019 on the hydrated path.** Hydration converged nothing —
@@ -680,16 +684,31 @@
                 (.then
                   (fn [[survivor doomed]]
                     (mount/unmount! (:handle doomed))
-                    (js/setTimeout
-                      (fn []
-                        (is (not= nothing-retained (rt/residue))
-                            "a live adopted screen is visible to the residue
-                             reading")
-                        (is (pos? (:cell-refs (rt/residue)))
-                            "and it is visible as held references, which is the
-                             quantity X5 asserts to be zero")
-                        (mount/release! (:handle survivor))
-                        (done))
-                      reaper-horizon-ms)))
-                (.catch (fn [e] (is false (str "the X5 mutation proof threw: " e))
-                          (done))))))))))
+                    ;; The reaper's horizon is a MACROTASK, and the row has to
+                    ;; AWAIT it rather than let a bare timer carry the
+                    ;; assertions off the end of the chain. Returned as a
+                    ;; promise they stay UPSTREAM of the rejection handler
+                    ;; below, so the single `done` sits at the tail with
+                    ;; nothing after it, and a throw in here reaches this row's
+                    ;; own diagnostic instead of hanging the lane.
+                    (js/Promise.
+                      (fn [resolve reject]
+                        (js/setTimeout
+                          (fn []
+                            (try
+                              (is (not= nothing-retained (rt/residue))
+                                  "a live adopted screen is visible to the residue
+                                   reading")
+                              (is (pos? (:cell-refs (rt/residue)))
+                                  "and it is visible as held references, which is
+                                   the quantity X5 asserts to be zero")
+                              (mount/release! (:handle survivor))
+                              (resolve nil)
+                              (catch :default e (reject e))))
+                          reaper-horizon-ms)))))
+                ;; Reports and RELEASES; it never finishes (rf2-o0n1). `done`
+                ;; runs the whole remainder of the run synchronously, so a
+                ;; `.catch` downstream of it would claim a later namespace's
+                ;; throw as this row's and fire `done` a second time.
+                (.catch (fn [e] (is false (str "the X5 mutation proof threw: " e)) nil))
+                (.then (fn [_] (done))))))))))

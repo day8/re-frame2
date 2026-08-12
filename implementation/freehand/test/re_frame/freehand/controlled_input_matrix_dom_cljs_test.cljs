@@ -300,15 +300,15 @@
                          (is (re-find #"data-component=\"acme/invoice-line\"" shared)
                              "non-vacuous: the shared outline really is the invoice line")
                          (is (re-find #"REF-1" shared)
-                             "and it carries the seeded buffered value"))
-                       (ms/destroy-root! ci ri)
-                       (ms/destroy-root! cc rc)
-                       (done)))
-              (.catch (fn [e]
-                        (is false (str "a controlled mount rejected: " e))
-                        (ms/destroy-root! ci ri)
-                        (ms/destroy-root! cc rc)
-                        (done)))))))))
+                             "and it carries the seeded buffered value"))))
+              ;; Reports and RELEASES; it never finishes (rf2-o0n1). `done` runs
+              ;; the whole remainder of the run synchronously, so a `.catch`
+              ;; downstream of it would claim a later namespace's throw as this
+              ;; row's and fire `done` a second time.
+              (.catch (fn [e] (is false (str "a controlled mount rejected: " e)) nil))
+              ;; Both arms tore both roots down, identically, so the teardown
+              ;; rides the single trailing step: written once, run once per path.
+              (.then (fn [_] (ms/destroy-root! ci ri) (ms/destroy-root! cc rc) (done)))))))))
 
 ;; ===========================================================================
 ;; Row 2 — a keystroke burst echoes character-for-character, both modes
@@ -653,15 +653,11 @@
                            (check ci "interpreted")
                            (check cc "compiled")
                            (ms/outlines-agree? (ms/q ci "input") (ms/q cc "input")
-                                               "v/spread-safe guarded caller")
-                           (ms/destroy-root! ci ri)
-                           (ms/destroy-root! cc rc)
-                           (done)))
-                  (.catch (fn [e]
-                            (is false (str "a spread-safe mount rejected: " e))
-                            (ms/destroy-root! ci ri)
-                            (ms/destroy-root! cc rc)
-                            (done)))))))))))
+                                               "v/spread-safe guarded caller")))
+                  ;; Reports and RELEASES, as above.
+                  (.catch (fn [e] (is false (str "a spread-safe mount rejected: " e)) nil))
+                  ;; Shared teardown, hoisted onto the single trailing step.
+                  (.then (fn [_] (ms/destroy-root! ci ri) (ms/destroy-root! cc rc) (done)))))))))))
 
 ;; ===========================================================================
 ;; Cell C — a routed :class one-map collision AGREES across modes (rf2-c9kus)
@@ -689,12 +685,8 @@
                              cclass (.getAttribute (ms/q cc "div") "class")]
                          (is (= ic cclass)
                              (str "interpreted and compiled agree on the rendered class "
-                                  "(interpreted=" (pr-str ic) " compiled=" (pr-str cclass) ")")))
-                       (ms/destroy-root! ci ri)
-                       (ms/destroy-root! cc rc)
-                       (done)))
-              (.catch (fn [e]
-                        (is false (str "a class-routing mount rejected: " e))
-                        (ms/destroy-root! ci ri)
-                        (ms/destroy-root! cc rc)
-                        (done)))))))))
+                                  "(interpreted=" (pr-str ic) " compiled=" (pr-str cclass) ")")))))
+              ;; Reports and RELEASES, as above.
+              (.catch (fn [e] (is false (str "a class-routing mount rejected: " e)) nil))
+              ;; Shared teardown, hoisted onto the single trailing step.
+              (.then (fn [_] (ms/destroy-root! ci ri) (ms/destroy-root! cc rc) (done)))))))))
