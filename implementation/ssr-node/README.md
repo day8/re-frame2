@@ -504,6 +504,21 @@ runs in its own process, because several of them deliberately kill worker
 threads and a shared process would let one file's leaked isolate turn the
 next file's clean failure into a hang.
 
+**There is deliberately no npm script and no CI job yet, and the reason is
+measurable rather than aesthetic.** Adding one line to
+`implementation/package.json` moves that file into the diff, and the
+changed-surface classifier CI shares with the local spine reads a
+`package.json` edit as reaching eleven expensive lanes — the browser
+suites, bundle isolation, the production-elision probes, the Hicasso HMR
+testbed. Every file in this package arms **none** of them. Paying eleven
+CI lanes for the convenience of `npm run` over `node` is the wrong trade
+in a PR whose entire point is that it touches nothing, so the wiring is
+left as a follow-up to be sequenced against that file's other traffic.
+
+That classification is also the empirical half of the absence claim below:
+the classifier, which is the repo's own answer to "what can this diff
+affect", answers *nothing* for this package's files.
+
 The suite drives the service against reference render modules under
 `test/fixtures/` — well-behaved, mutating, sloppy-mode, hanging, throwing,
 chunking and byte-hostile — because every guarantee here is a property of
@@ -530,17 +545,13 @@ byte-for-byte the client it would have been if this package did not exist.
 It is checked by `test/absence.test.cjs`, in three readings of increasing
 strength:
 
-- **Nothing references it, bar one pinned line.** A scan over every tracked
-  file in `implementation/`, `examples/`, `tools/`, `scripts/` and
-  `.github/` — tracked only, so generated output cannot pollute the reading
-  — finds exactly one reference outside the package: the `test:ssr-node`
-  npm script that runs this gate. That allowance is not "package.json may
-  mention us"; it is one **exact string**, deleted from the file before the
-  remainder is scanned like everything else. A second reference in the same
-  file reds, and so does an edited script value, because the deletion stops
-  matching. The exception cannot grow without someone editing the constant
-  that spells it out, which is the property an allowance list normally
-  lacks — and both of those failure modes have their own control row.
+- **Nothing references it.** A scan over every tracked file in
+  `implementation/`, `examples/`, `tools/`, `scripts/` and `.github/` —
+  tracked only, so generated output cannot pollute the reading — finds zero
+  references to this package's path or its refusal namespace, outside the
+  package itself. There is no allowance list, and the checker says why in
+  its own header: an allowance mechanism with nothing in it is the first
+  entry of an allowance list.
 - **It is on no build's source path.** `implementation/shadow-cljs.edn`
   names no build reaching it and the top-level `implementation/deps.edn`
   has no entry for it, so it is in no module graph and there is no bundle
