@@ -650,7 +650,12 @@
               errors  (atom [])
               restore (spy-console-errors! errors)
               picked  (fn [n] (mapv #(.-value %) (array-seq (.-selectedOptions n))))
-              finish  (fn [] (restore) (teardown! container root) (done))]
+              ;; Tears down; it does NOT finish. A closure that CLOSES OVER
+              ;; `done` finishes the row just as a literal `(done)` does — and
+              ;; is invisible to both campaign signatures, which look for a
+              ;; literal call or a helper that TAKES `done` as a parameter
+              ;; (rf2-o0n1). The single `done` sits at the tail below.
+              release (fn [] (restore) (teardown! container root) nil)]
           (-> (render-multi-select-page! root {:picked nil})
               (.then
                 (fn [_]
@@ -685,11 +690,15 @@
                                     (is (= [] (value-shape-complaints @errors))
                                         (str "and the mount's shape verdict still stands, "
                                              "unchanged by anything since: "
-                                             (pr-str @errors)))
-                                    (finish))))))))))
-              (.catch (fn [e]
-                        (is false (str "mount rejected: " e))
-                        (finish)))))))))
+                                             (pr-str @errors))))))))))))
+              ;; Reports and RELEASES; it never finishes (rf2-o0n1). `done` runs
+              ;; the whole remainder of the run synchronously, so a `.catch`
+              ;; downstream of a step that finished the row would claim a later
+              ;; namespace's throw as this row's and fire `done` a second time.
+              (.catch (fn [e] (is false (str "mount rejected: " e)) nil))
+              ;; Both arms released identically, so it rides the single trailing
+              ;; step: written once, run once per path.
+              (.then (fn [_] (release) (done)))))))))
 
 ;; ===========================================================================
 ;; THE CONTROL FOR THE CONSOLE ITSELF — declared LAST, and that is the point
@@ -750,7 +759,8 @@
               [container root] (mount!)
               errors  (atom [])
               restore (spy-console-errors! errors)
-              finish  (fn [] (restore) (teardown! container root) (done))]
+              ;; Tears down; it does NOT finish — as above.
+              release (fn [] (restore) (teardown! container root) nil)]
           (-> (render-slot-dropping-page! root {:text seed})
               (.then
                 (fn [_]
@@ -772,8 +782,8 @@
                                      "PAGE, so something above this row already spent it "
                                      "— which means every `React said nothing` row in "
                                      "this namespace was unable to fail. Captured: "
-                                     (pr-str @errors)))
-                            (finish)))))))
-              (.catch (fn [e]
-                        (is false (str "mount rejected: " e))
-                        (finish)))))))))
+                                     (pr-str @errors)))))))))
+              ;; Reports and RELEASES, as above.
+              (.catch (fn [e] (is false (str "mount rejected: " e)) nil))
+              ;; Shared release, hoisted onto the single trailing step.
+              (.then (fn [_] (release) (done)))))))))
