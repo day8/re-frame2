@@ -101,13 +101,21 @@
  * measured row carries.
  *
  * A divergence needs two engines to be visible at all, so a run narrowed by
- * `HICASSO_HMR_ENGINES` has no comparison available to it. That narrowing
- * stays — it is a real developer convenience and a narrowed run still exits
- * 0 — but it does NOT get to close with the words a compared run closes
- * with. The two verdicts are separate strings, `HICASSO HMR PASS` and
- * `HICASSO HMR PARTIAL PASS`, neither a substring of the other, so no skim
- * of a log and no grep for the full-matrix verdict can mistake one for the
- * other (rf2-l92i).
+ * `HICASSO_HMR_ENGINES` to one engine has no comparison available to it.
+ * That narrowing stays — it is a real developer convenience and a narrowed
+ * run still exits 0 — but it does NOT get to close with the words a full
+ * run closes with. The two verdicts are separate strings, `HICASSO HMR
+ * PASS` and `HICASSO HMR PARTIAL PASS`, neither a substring of the other,
+ * so no skim of a log and no grep for the full-matrix verdict can mistake
+ * one for the other (rf2-l92i).
+ *
+ * The token means the PINNED MATRIX RAN, not merely that some comparison
+ * happened, and those come apart in the middle: a two-engine run compares
+ * perfectly well and still leaves an engine unrun. So the verdict's
+ * discriminator is `ranFullMatrix` and the comparator's floor is
+ * `comparedAcrossEngines` — one question each, because one predicate
+ * answering both is how a two-engine run came to print the full token
+ * while WebKit never started.
  *
  * The three timeout ceilings are knobs of the same kind (rf2-qzm8).
  * `HICASSO_HMR_BUILD_TIMEOUT_MS`, `HICASSO_HMR_SAVE_TIMEOUT_MS` and
@@ -278,11 +286,18 @@ const ENGINES = ONLY
 //
 // `divergenceReport` needs two engines before there is any disagreement to
 // find, and below that it correctly returns nothing. What would NOT be
-// correct is for the run to then close with the line a compared run prints:
-// a PASS meaning "three engines ran and agreed" and a PASS meaning "one
+// correct is for the run to then close with the line a full run prints: a
+// PASS meaning "three engines ran and agreed" and a PASS meaning "one
 // engine ran and the comparator never ran" must not be the same words
 // (rf2-l92i). Neither token is a substring of the other, so a grep for the
 // full-matrix verdict cannot be answered by a narrowed run.
+//
+// Nor by a PARTLY narrowed one, which is the harder half. Two engines DO
+// get compared, so the comparator floor is met and the first cut of this
+// fix let `chromium,firefox` close with the full token — a fail-open that
+// survived precisely at the point PR bodies quote, with WebKit unrun. The
+// full token is spent on the full matrix; every other engine set, compared
+// or not, closes with the narrowed one and says which engines are missing.
 //
 // A raised timeout ceiling (rf2-qzm8) closes with the same narrowed token:
 // both are runs that proved less than the contract, and the sentence after
@@ -561,30 +576,71 @@ function divergenceReport(perEngine, narrowings = NARROWINGS) {
  *
  * The same two-engine floor `divergenceReport` applies, named once so the
  * comparator's silence and the verdict's admission cannot drift apart.
+ *
+ * This is the COMPARATOR's question and only that one. It is deliberately
+ * not the verdict's — see `ranFullMatrix`.
  */
 function comparedAcrossEngines(engines) {
   return engines.length >= 2;
 }
 
 /**
+ * Whether this run drove the PINNED matrix — every engine in `ALL_ENGINES`.
+ *
+ * Two different questions were once asked through `comparedAcrossEngines`
+ * alone: "did a comparison happen?" and "did the pinned matrix run?". They
+ * part company at exactly two engines, and the run that fell in the gap
+ * closed with the full verdict: `HICASSO_HMR_ENGINES=chromium,firefox`
+ * printed `HICASSO HMR PASS (chromium + firefox)`, so a grep for the token
+ * this file calls the full-matrix verdict was answered by a run in which
+ * WebKit — the engine likeliest to diverge, and the one every NARROWINGS
+ * entry is about — never started.
+ *
+ * The floor stays where it belongs: a comparison really does need two
+ * engines, and `divergenceReport` really is right to be silent below that.
+ * What changed is that the VERDICT now asks this question instead, because
+ * the full token is documented as meaning the pinned matrix ran and must
+ * therefore be earned by running it (rf2-l92i).
+ */
+function ranFullMatrix(engines, all = ALL_ENGINES) {
+  return all.every((e) => engines.includes(e));
+}
+
+/**
  * The line the run closes with.
  *
  * A weakened run passed everything it ran, so it still exits 0 and still
- * says PASS — what it must not do is say it the same way. Two weakenings
- * cost the full token: an engine set below two, whose sentence states that
- * the cross-engine comparison was NOT performed, and a RAISED timeout
- * ceiling (rf2-qzm8), whose sentence states that the pass may have needed
- * a wider window than the contract allows. Either way the sentence names
- * the variable that caused it, so the reader knows which knob to unset. A
- * LOWERED ceiling is stricter than the contract and costs nothing here —
- * the up-front banner in `main` is its only trace.
+ * says PASS — what it must not do is say it the same way. Three weakenings
+ * cost the full token, and each one's sentence names the variable that
+ * caused it so the reader knows which knob to unset:
+ *
+ * - an engine MISSING from the pinned matrix, whose sentence names the
+ *   engines that never ran — this is the verdict's discriminator;
+ * - an engine set below two, whose sentence states that the cross-engine
+ *   comparison was NOT performed. A one-engine run is strictly worse than
+ *   a two-engine one and says both sentences, because it lost both the
+ *   matrix and the comparator and those are different losses;
+ * - a RAISED timeout ceiling (rf2-qzm8), whose sentence states that the
+ *   pass may have needed a wider window than the contract allows.
+ *
+ * A LOWERED ceiling is stricter than the contract and costs nothing here —
+ * the up-front banner in `main` is its only trace. So is naming the full
+ * matrix explicitly in `HICASSO_HMR_ENGINES`: that is not a narrowing, and
+ * a run that drove all three engines earns the full token however it was
+ * asked to.
  */
-function verdictLine(engines, reloads, overrides = TIMEOUT_OVERRIDES) {
+function verdictLine(engines, reloads, overrides = TIMEOUT_OVERRIDES,
+  all = ALL_ENGINES) {
   const tail = `${reloads} real shadow reloads`;
+  const missing = all.filter((e) => !engines.includes(e));
   const causes = [];
+  if (missing.length > 0) {
+    causes.push(`HICASSO_HMR_ENGINES narrowed this run, so `
+      + `${missing.join(' + ')} never ran`);
+  }
   if (!comparedAcrossEngines(engines)) {
-    causes.push('HICASSO_HMR_ENGINES narrowed this run, so the cross-engine '
-      + 'comparison was NOT performed');
+    causes.push('fewer than two engines ran, so the cross-engine comparison '
+      + 'was NOT performed');
   }
   for (const o of overrides.filter((x) => x.raised)) {
     causes.push(`${o.name}=${o.value} raised the ${o.dflt}ms ceiling, so `
@@ -593,9 +649,10 @@ function verdictLine(engines, reloads, overrides = TIMEOUT_OVERRIDES) {
   if (causes.length === 0) {
     return `${FULL_VERDICT} (${engines.join(' + ')}) — ${tail}`;
   }
-  return `${NARROWED_VERDICT} (${engines.join(' + ') || 'no engine'}`
-    + `${comparedAcrossEngines(engines) ? '' : ' only'}; `
-    + `${causes.join('; ')}) — ${tail}`;
+  const head = ranFullMatrix(engines, all)
+    ? engines.join(' + ')
+    : `${engines.join(' + ') || 'no engine'} of ${all.join(' + ')}`;
+  return `${NARROWED_VERDICT} (${head}; ${causes.join('; ')}) — ${tail}`;
 }
 
 function coverageReport(result, required = REQUIRED_SECTIONS) {
@@ -815,10 +872,14 @@ function runMutationTeeth() {
   //
   // The comparator going quiet below two engines is correct. A closing line
   // that does not say so is not, and these teeth are what stop the two
-  // verdicts collapsing back into one string (rf2-l92i). The last of them
-  // is the load-bearing one: it holds the comparator's silence and the
-  // verdict's admission against each other, so neither can be changed
-  // alone.
+  // verdicts collapsing back into one string (rf2-l92i).
+  //
+  // The two-engine teeth are the ones this section was missing, and their
+  // absence is why the first cut shipped a fail-open: with only a
+  // one-engine and a three-engine case, `comparedAcrossEngines` and
+  // `ranFullMatrix` agree on every input under test, so nothing could tell
+  // the two questions apart. The middle of the range is where they differ
+  // and is therefore where the teeth have to bite.
 
   bite('a compared run prints the full verdict and names its engines', () => {
     const line = verdictLine(ALL_ENGINES, 36, []);
@@ -840,6 +901,12 @@ function runMutationTeeth() {
       && line.includes('12 real shadow reloads');
   });
 
+  bite('a one-engine run reports BOTH losses, the matrix and the comparator', () => {
+    const line = verdictLine(['chromium'], 12, []);
+    return /firefox \+ webkit never ran/.test(line)
+      && /cross-engine comparison was NOT performed/.test(line);
+  });
+
   bite('neither verdict token can be grepped for the other', () =>
     !NARROWED_VERDICT.includes(FULL_VERDICT)
     && !FULL_VERDICT.includes(NARROWED_VERDICT));
@@ -850,6 +917,55 @@ function runMutationTeeth() {
     && !comparedAcrossEngines(['chromium'])
     && !comparedAcrossEngines([]));
 
+  // THE TWO-ENGINE TOOTH. `HICASSO_HMR_ENGINES=chromium,firefox` shipped
+  // `HICASSO HMR PASS (chromium + firefox)` — the comparator floor was met,
+  // so the verdict that shared its predicate declared a full matrix that
+  // never ran. This is the case that must not come back.
+  bite('a TWO-engine run does NOT print the full verdict, and names the engine that never ran', () => {
+    const line = verdictLine(['chromium', 'firefox'], 36, []);
+    return line.startsWith(NARROWED_VERDICT)
+      && !line.includes(FULL_VERDICT)
+      && /webkit never ran/.test(line)
+      && /HICASSO_HMR_ENGINES/.test(line)
+      // It WAS compared, so it must not claim the comparator was skipped.
+      && !/cross-engine comparison was NOT performed/.test(line)
+      && line.includes('36 real shadow reloads');
+  });
+
+  bite('the two questions come apart at exactly two engines', () =>
+    // Every engine set the verdict can see, and the pair of answers it
+    // gets. The middle row is the whole bead: compared, yet not full.
+    comparedAcrossEngines(['chromium', 'firefox', 'webkit'])
+      && ranFullMatrix(['chromium', 'firefox', 'webkit'])
+    && comparedAcrossEngines(['chromium', 'firefox'])
+      && !ranFullMatrix(['chromium', 'firefox'])
+    && !comparedAcrossEngines(['chromium'])
+      && !ranFullMatrix(['chromium'])
+    && !comparedAcrossEngines([]) && !ranFullMatrix([]));
+
+  bite('EVERY narrowing of the matrix loses the full verdict', () => {
+    // All six proper subsets of the pinned matrix, so a future engine set
+    // cannot slip through on a case nobody enumerated.
+    const subsets = [
+      ['chromium'], ['firefox'], ['webkit'],
+      ['chromium', 'firefox'], ['chromium', 'webkit'], ['firefox', 'webkit'],
+    ];
+    return subsets.every((s) => {
+      const line = verdictLine(s, 1, []);
+      const missing = ALL_ENGINES.filter((e) => !s.includes(e));
+      return line.startsWith(NARROWED_VERDICT)
+        && !line.includes(FULL_VERDICT)
+        && line.includes(`${missing.join(' + ')} never ran`);
+    });
+  });
+
+  bite('naming the full matrix explicitly is not a narrowing', () =>
+    // Order is a caller's choice, not a weakening: what is asked for does
+    // not matter, only what ran.
+    ranFullMatrix(['webkit', 'chromium', 'firefox'])
+    && verdictLine(['webkit', 'chromium', 'firefox'], 36, [])
+      .startsWith(FULL_VERDICT));
+
   bite('the comparator\'s silence and the verdict\'s admission move together', () => {
     const one = { chromium: { row: { a: 1 } } };
     const two = { chromium: { row: { a: 1 } }, firefox: { row: { a: 2 } } };
@@ -859,9 +975,11 @@ function runMutationTeeth() {
     return divergenceReport(one, []).length === 0
       && verdictLine(Object.keys(one), 1, []).startsWith(NARROWED_VERDICT)
       // ...and two engines ARE compared, which is what makes the silence
-      // above a fact about the engine count and nothing else.
+      // above a fact about the engine count and nothing else. The verdict
+      // still refuses the full token, and for the OTHER reason — which is
+      // what keeps the two predicates from being folded back into one.
       && divergenceReport(two, []).length === 1
-      && verdictLine(Object.keys(two), 1, []).startsWith(FULL_VERDICT);
+      && verdictLine(Object.keys(two), 1, []).startsWith(NARROWED_VERDICT);
   });
 
   // --- the ceilings, which may move but not in silence (rf2-qzm8) --------
@@ -1381,9 +1499,12 @@ async function main() {
   // instrument announces itself: this run is about to spend half an hour,
   // and the reader should not discover only in the last line that it was
   // never going to compare anything.
-  if (ONLY) {
+  if (ONLY && !ranFullMatrix(ENGINES)) {
+    const missing = ALL_ENGINES.filter((e) => !ENGINES.includes(e));
     console.log(`> HICASSO_HMR_ENGINES=${ONLY} — narrowed to `
-      + `${ENGINES.join(' + ')} of ${ALL_ENGINES.join(' + ')}.`);
+      + `${ENGINES.join(' + ')} of ${ALL_ENGINES.join(' + ')}, so `
+      + `${missing.join(' + ')} will not run. This run closes with at most `
+      + `"${NARROWED_VERDICT}".`);
     if (!comparedAcrossEngines(ENGINES)) {
       console.log('> a divergence needs two engines to be visible, so the '
         + 'cross-engine comparison will NOT be performed on this run.');
@@ -1444,13 +1565,22 @@ async function main() {
     for (const engine of ENGINES) {
       console.log(`  [${engine}] ${JSON.stringify(recorded[engine])}`);
     }
+    // What was and was not held against what. Said HERE, next to the rows,
+    // is the half the closing line cannot do: this is the point at which a
+    // reader is looking at the numbers and would otherwise assume something
+    // had checked all of them.
     if (!comparedAcrossEngines(ENGINES)) {
-      // The rows above were measured and not compared. Saying so HERE, next
-      // to them, is the half the closing line cannot do: this is the point
-      // at which a reader is looking at the numbers and would otherwise
-      // assume something had checked them.
       console.log(`  cross-engine comparison NOT PERFORMED — ${ENGINES.length} `
         + `engine ran, and a divergence needs two to be visible. Unset `
+        + `HICASSO_HMR_ENGINES for the full ${ALL_ENGINES.join(' + ')} matrix.`);
+    } else if (!ranFullMatrix(ENGINES)) {
+      // Compared, but across less than the matrix — the case that used to
+      // print the full verdict. A divergence only WebKit shows is invisible
+      // to a chromium+firefox run, and the rows above look no different.
+      const missing = ALL_ENGINES.filter((e) => !ENGINES.includes(e));
+      console.log(`  compared across ${ENGINES.join(' + ')} ONLY — `
+        + `${missing.join(' + ')} did not run, so a divergence only `
+        + `${missing.join(' or ')} shows is invisible here. Unset `
         + `HICASSO_HMR_ENGINES for the full ${ALL_ENGINES.join(' + ')} matrix.`);
     }
     const problems = divergenceReport(recorded);
@@ -1473,7 +1603,9 @@ async function main() {
 module.exports = {
   divergenceReport,
   comparedAcrossEngines,
+  ranFullMatrix,
   verdictLine,
+  ALL_ENGINES,
   FULL_VERDICT,
   NARROWED_VERDICT,
   runMutationTeeth,
