@@ -244,9 +244,12 @@ a named declaration for tooling and tests; the raw escape is for migration and
 one-off dynamic cases.
 
 An intrinsic-headed `n/$` result can render deterministically on the server.
-A component-headed island defaults to Client-only and emits its declared
-fallback, or nothing, until explicitly marked Render and verified for
-hydration.
+A component-headed island reads its `:server` declaration. Under
+`{:server :render}` the island is the element type: it renders into the server
+response and hydrates against those bytes. Under the Client-only default it
+contributes nothing at all — there is no native `:fallback` option, so markup
+that should stand in for the region is written in the enclosing Hiccup, where
+it is ordinary Hicasso.
 
 ??? info "Using UIx"
     A rung-3 `defview` may return a UIx element, and a rung-4 island may be a

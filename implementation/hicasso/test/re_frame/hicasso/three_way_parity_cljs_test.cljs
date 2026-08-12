@@ -65,15 +65,25 @@
 
   So this file lands the population and the DETERMINISTIC half of the
   band, which is the half a hosted runner is allowed to decide:
-  [[a-native-component-is-the-authors-own-function-and-costs-no-wrapper]]
+  [[a-declared-render-island-is-the-authors-own-function-and-costs-no-wrapper]]
   and [[the-convenience-layer-pays-a-per-render-price-the-native-tier-does-not]]
   read the two routes' construction cost as a structural fact rather
   than as a clock. That is a stronger reading than a timing, not a weaker
-  one: a native island and a handwritten React component are the SAME
-  element type with the SAME props object, so there is no interposed work
-  for a stopwatch to find. No number is transcribed into the ledger here;
-  the figures are this file's own, and the ledger row is `rf2-hic-089`'s
-  to transcribe, as D10–D13 were."
+  one: a `{:server :render}` island and a handwritten React component are
+  the SAME element type with the SAME props object, so there is no
+  interposed work for a stopwatch to find.
+
+  **The band is stated over the DECLARED arm, and the declaration is what
+  makes it comparable.** Since rf2-hic-046 the `:client-only` default
+  mints a gate rather than the author's function, so it costs one fiber
+  and one hook the declared arm does not — the ruled price of the
+  conservative default, and not a figure about `n/defcomponent`'s
+  construction. Every native fixture below therefore writes
+  `{:server :render}`, exactly as the UIx crossing declares its own.
+
+  No number is transcribed into the ledger here; the figures are this
+  file's own, and the ledger row is `rf2-hic-089`'s to transcribe, as
+  D10–D13 were."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as uix-adapter]
             [re-frame.core :as rf]
@@ -378,17 +388,24 @@
                  rather than an exception hidden here")))))))
 
 ;; ---------------------------------------------------------------------------
-;; 3. Component identity — the native route's zero wrapper
+;; 3. Component identity — the declared `:render` arm's zero wrapper
 ;; ---------------------------------------------------------------------------
 ;;
 ;; This is the deterministic half of the island band. See the namespace
 ;; docstring: C7 is UNPINNED and its clock is rf2-hic-071's, but the
 ;; structural fact underneath it is decidable here and is the stronger
 ;; statement — there is no interposed work for a stopwatch to find.
+;;
+;; The subject is `{:server :render}`, which is what [[native-cell]]
+;; declares. The `:client-only` default answers a gate instead
+;; (rf2-hic-046), and a gate is a wrapper: one fiber and one hook between
+;; React and the author's function. Naming the arm is the whole of the
+;; qualification — the rows below are unchanged by it.
 
-(deftest a-native-component-is-the-authors-own-function-and-costs-no-wrapper
-  (testing "`n/defcomponent` answers a FUNCTION, and it is the element type
-            React reconciles on — not a wrapper holding one"
+(deftest a-declared-render-island-is-the-authors-own-function-and-costs-no-wrapper
+  (testing "`n/defcomponent` answers a FUNCTION, and under `{:server :render}`
+            it is the element type React reconciles on — not a wrapper
+            holding one"
     (is (fn? native-cell))
     (is (identical? native-cell (.-type (n/$ native-cell #js {:label "42"})))))
 
@@ -401,8 +418,9 @@
     (is (= ["label"] (vec (js/Object.keys (.-props (n/$ native-cell #js {:label "42"})))))))
 
   (testing "and the body runs when the function is CALLED — no fiber, no
-            hook, no shell. This is what `a native island costs what React
-            costs` means as a structural fact rather than a timing"
+            hook, no shell. This is what `a DECLARED native island costs
+            what React costs` means as a structural fact rather than a
+            timing"
     (let [el (native-cell #js {:label "42"})]
       (is (= "span" (.-type el)))
       (is (= "42" (.-children (.-props el))))))
