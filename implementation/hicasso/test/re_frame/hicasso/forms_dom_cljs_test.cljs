@@ -45,7 +45,8 @@
   Every row needs a real document and a real React DOM. `:node-test`
   compiles this namespace too (`cljs-test$` matches `-dom-cljs-test`), and
   each row degrades there to a STATED skip rather than a false green."
-  (:require [cljs.test :refer-macros [deftest is testing use-fixtures async]]
+  (:require [cljs.test :refer-macros [deftest is use-fixtures async]]
+            [clojure.string :as str]
             [re-frame.adapter.uix :as uix-adapter]
             [re-frame.core :as rf]
             [re-frame.fx]
@@ -77,8 +78,8 @@
          trimmed candidate, refuse a blank one, advance the revision
          either way."}
   (fn [{:keys [db]} [_ id candidate]]
-    (let [title (clojure.string/trim candidate)]
-      (if (clojure.string/blank? title)
+    (let [title (str/trim candidate)]
+      (if (str/blank? title)
         {:db (update-in db [:todo id :title-revision] inc)}
         {:db (-> db
                  (assoc-in [:todo id :title] title)
