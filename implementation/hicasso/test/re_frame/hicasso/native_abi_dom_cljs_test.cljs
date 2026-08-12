@@ -176,14 +176,45 @@
 (defn- label-key [frame-kw] [frame-kw [::label]])
 (defn- readers-of [sub-key] (inventory/cell-readers sub-key))
 
+(defonce ^:private !minted
+  ;; Every root a row has minted through `mount-live!`, oldest first.
+  ;; Emptied by `release-minted!` on the row's single trailing step.
+  ;; `defonce` takes no docstring, hence the comment.
+  (atom []))
+
+(defn- release-minted!
+  "Release every root this row minted, and forget them. Rides the single
+  trailing step, which BOTH arms reach, so the teardown is written once
+  and runs once per path; `mount/release!` is idempotent, so a row whose
+  success path already tore its root down pays nothing here.
+
+  **Why the rejection arm cannot do this itself (rf2-fqof).**
+  [[mount-live!]] mints its root SYNCHRONOUSLY and hands it over only
+  once the wait succeeds, so a rejection reaches the arm with a live root
+  the arm has no name for — the wait's own deadline is one such path, and
+  a throw anywhere in the row body above is another. Reporting and
+  finishing there leaves a mounted React root and its container standing
+  in the document for the NEXT namespace to inherit, which is the very
+  contamination the rf2-fyba campaign is about, arriving by a second
+  door (rf2-o0n1)."
+  []
+  (run! mount/release! @!minted)
+  (reset! !minted [])
+  nil)
+
 (defn- mount-live!
   "Mount `hiccup` under `frame-kw` and return only once `sub-key` has
   exactly `readers` subscribed readers — a commit-owned fact, so a row
   that started before it would be measuring a tree that had not yet
-  joined the runtime."
+  joined the runtime.
+
+  Enrols the root in [[!minted]] the instant it exists, because from that
+  instant until [[release-minted!]] runs there is a live root on the page
+  and this promise is the only thing that could ever name it."
   [frame-kw hiccup sub-key readers]
   (let [container (mount/fresh-container!)
         handle    (mount/root! container frame-kw hiccup)]
+    (swap! !minted conj handle)
     (-> (support/wait-until! #(= readers (count (readers-of sub-key))))
         (.then (fn [subscribed?]
                  (when-not subscribed?
@@ -209,11 +240,13 @@
                    " | residue " (pr-str (inventory/residue))))
     nil))
 
-;; Teardown is NOT hoisted onto those trailing steps in the `mount-live!`
-;; rows: the rejection arm never had the handle at all, because `mount-live!`
-;; resolves WITH it, so the two arms were never writing the same release.
-;; `a-lazy-head-suspends-and-then-names-its-own-component` is the one row
-;; that holds its handle before the wait, and it hoists — it says so there.
+;; Teardown IS hoisted onto those trailing steps, through [[release-minted!]].
+;; That the rejection arm never had the handle — `mount-live!` resolves WITH
+;; it — is not a reason to leave the teardown on the success path; it is the
+;; defect (rf2-fqof). The root is already on the page when the promise is
+;; created, so the arm that cannot name it is the arm that strands it.
+;; `a-lazy-head-suspends-and-then-names-its-own-component` holds its handle in
+;; an enclosing `let` and hoists that one directly — it says so there.
 
 ;; ---------------------------------------------------------------------------
 ;; 1. The outward bridge
@@ -255,8 +288,10 @@
                 (support/teardown-census! handle)
                 nil))
             (.catch (report-failure! "outward bridge"))
-            ;; The single `done`, with nothing after it.
-            (.then (fn [_] (done))))))))
+            ;; The single trailing step, which BOTH arms reach: this row's
+            ;; roots go down first, and the single `done` is the last act,
+            ;; with nothing after it.
+            (.then (fn [_] (release-minted!) (done))))))))
 
 (deftest two-frames-are-two-cells-across-the-bridge
   (async done
@@ -297,8 +332,10 @@
                 (support/teardown-census! b)
                 nil))
             (.catch (report-failure! "two frames across the bridge"))
-            ;; The single `done`, with nothing after it.
-            (.then (fn [_] (done))))))))
+            ;; The single trailing step, which BOTH arms reach: this row's
+            ;; roots go down first, and the single `done` is the last act,
+            ;; with nothing after it.
+            (.then (fn [_] (release-minted!) (done))))))))
 
 (deftest the-views-memo-wrapper-survives-the-bridge
   (async done
@@ -341,8 +378,10 @@
                 (support/teardown-census! handle)
                 nil))
             (.catch (report-failure! "memo across the bridge"))
-            ;; The single `done`, with nothing after it.
-            (.then (fn [_] (done))))))))
+            ;; The single trailing step, which BOTH arms reach: this row's
+            ;; roots go down first, and the single `done` is the last act,
+            ;; with nothing after it.
+            (.then (fn [_] (release-minted!) (done))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 2. The inward door
@@ -390,8 +429,10 @@
                 (support/teardown-census! handle)
                 nil))
             (.catch (report-failure! "inward door"))
-            ;; The single `done`, with nothing after it.
-            (.then (fn [_] (done))))))))
+            ;; The single trailing step, which BOTH arms reach: this row's
+            ;; roots go down first, and the single `done` is the last act,
+            ;; with nothing after it.
+            (.then (fn [_] (release-minted!) (done))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 3. The helpers, across a second render and a remount
@@ -434,8 +475,10 @@
                 (support/teardown-census! handle)
                 nil))
             (.catch (report-failure! "memo across a re-render"))
-            ;; The single `done`, with nothing after it.
-            (.then (fn [_] (done))))))))
+            ;; The single trailing step, which BOTH arms reach: this row's
+            ;; roots go down first, and the single `done` is the last act,
+            ;; with nothing after it.
+            (.then (fn [_] (release-minted!) (done))))))))
 
 (deftest a-fresh-mint-replaces-the-subtree-and-that-is-the-hmr-contract
   (async done
@@ -477,8 +520,10 @@
                 (support/teardown-census! handle)
                 nil))
             (.catch (report-failure! "fresh mint"))
-            ;; The single `done`, with nothing after it.
-            (.then (fn [_] (done))))))))
+            ;; The single trailing step, which BOTH arms reach: this row's
+            ;; roots go down first, and the single `done` is the last act,
+            ;; with nothing after it.
+            (.then (fn [_] (release-minted!) (done))))))))
 
 (deftest strict-modes-double-mount-crosses-the-bridge-exactly-once
   (async done
@@ -503,8 +548,10 @@
                 (support/teardown-census! handle)
                 nil))
             (.catch (report-failure! "strict mode"))
-            ;; The single `done`, with nothing after it.
-            (.then (fn [_] (done))))))))
+            ;; The single trailing step, which BOTH arms reach: this row's
+            ;; roots go down first, and the single `done` is the last act,
+            ;; with nothing after it.
+            (.then (fn [_] (release-minted!) (done))))))))
 
 (deftest a-ref-reaches-a-real-dom-node-through-the-memo-helper
   (async done
@@ -613,8 +660,10 @@
                 (exercised! :bridge/teardown)
                 nil))
             (.catch (report-failure! "teardown"))
-            ;; The single `done`, with nothing after it.
-            (.then (fn [_] (done))))))))
+            ;; The single trailing step, which BOTH arms reach: this row's
+            ;; roots go down first, and the single `done` is the last act,
+            ;; with nothing after it.
+            (.then (fn [_] (release-minted!) (done))))))))
 
 (deftest the-declared-population-was-actually-exercised
   (if-not (mount/browser?)
