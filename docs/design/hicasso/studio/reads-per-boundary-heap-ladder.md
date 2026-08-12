@@ -2893,13 +2893,28 @@ contention does to it — a deliberately contended trial landed within about
 
 ---
 
-### The `+139 B/read` attributed, and the premise it had to correct first (rf2-l50z)
+### The `+139 B/read` attributed to one line, and the premise it had to correct first (rf2-l50z)
 
-**Pre-registered 2026-08-13 06:13 +1000, before any arm of this bisection ran.**
-The section above left the mechanism of its one moved quantity `[OPEN]` and said
-so plainly; [`substrate-decision.md` §6](../product/substrate-decision.md#6-what-this-page-does-not-decide)
+**Measured 2026-08-13 for `rf2-l50z`.** The section above left the mechanism of
+its one moved quantity `[OPEN]` and said so plainly;
+[`substrate-decision.md` §6](../product/substrate-decision.md#6-what-this-page-does-not-decide)
 named the ablation that would settle it and declined to guess. This subsection
-runs that ablation.
+runs that ablation, and the answer is one line:
+
+```
+per read at Q = E                     ratom seg.   spine seg.
+  A   main as it stands                    1,417        2,115
+  B   minus interop/activate-derived-value! 1,278        2,115
+  A2  restored                             1,417        2,115
+
+      the activation                        +139           +0
+```
+
+**The whole of the moved quantity, priced to a single line, with the negative
+control flat to the byte.** The prediction below was registered before arm B was
+built; `1,278` is what it named, and `1,278` [1,276–1,280] is what arm B
+returned — the published prototype figure, `1,278` [1,275–1,280], recovered
+exactly.
 
 #### The premise did not survive being checked, and the asymmetry is why
 
@@ -2954,21 +2969,191 @@ nothing.
 **This is a hypothesis with a mechanism, and it is not yet an attribution.** The
 ablation below is what makes it one.
 
-#### The registered prediction
+#### The registered prediction, and what it got
 
-Written before the first arm was measured, in the terms the A–B–A bisection
-above established:
+Written before any arm was measured and **committed before arm B — the arm that
+decides — was built** (authored at `f36bf0df1f` on this branch, off `origin/main`
+`c6b7da3cd8`, 06:13 +1000; arm B's bundle compiled at 06:15), so the
+pre-registration is mechanical here rather than
+disciplinary, in the same shape the two-dispatch package re-pin above used at a
+larger scale. The A arm was already running when the prediction was written and
+had returned when it was committed, which cannot inform a prediction *about B*
+and is stated so a reader does not have to reconstruct the order:
 
-| quantity | A (main as it stands) | B (main minus the one line) | A2 (restored) |
-|---|---:|---:|---:|
-| slope, Reagent segment | 1,417 B/read | **≈ 1,278 B/read** | 1,417 B/read |
-| slope, UIx segment | 2,115 B/read | **2,115 B/read — unchanged** | 2,115 B/read |
-| both donors, both floors, both shells | published | **unchanged** | published |
+| quantity | A (main as it stands) | B (main minus the one line) | A2 (restored) | outcome |
+|---|---:|---:|---:|---|
+| slope, Reagent segment | 1,417 | **predicted ≈ 1,278** → **measured 1,278** | 1,417 | **hit** |
+| slope, UIx segment | 2,115 | **predicted 2,115 unchanged** → **measured 2,115** | 2,115 | **hit** |
+| both donors, both floors, both shells | published | **predicted unchanged** → unchanged | published | **hit** |
 
 The **UIx segment is the negative control and it is a control by measurement**,
-having reproduced `2,115` to the byte across the tree move the whole delta is
-supposed to live in. If the ablation moves it, activation is not the mechanism
-and the reading is refused rather than published.
+having reproduced `2,115` to the byte across the tree move the whole delta lives
+in. Had the ablation moved it, activation would not have been the mechanism and
+the reading would have been refused rather than published.
+
+#### The three runs
+
+All three on this instrument — `p0_run.cjs --only ladder`, six rounds, default
+rungs, same collector, same guard — on 2026-08-13, **strictly one at a time**,
+with the rig untouched throughout: all nine instrument blobs are byte-identical
+to the package run above, and the only file that differs between arms is the one
+line in `impl/collector.cljs`.
+
+| run | tree | Hicasso, Reagent seg. | Hicasso, UIx seg. | donors (Rg / UIx) | `main.js` |
+|---|---|---:|---:|---:|---|
+| *§6's package run (2026-08-12, above)* | *`ce31a30b77`* | *1,417 [1,416–1,417]* | *2,115 [2,109–2,118]* | *948 / 2,980* | *—* |
+| **A1** | `c6b7da3cd8`, which is `origin/main` | **1,417** [1,416–1,418] | **2,115** [2,110–2,118] | 947 / 2,978 | sha256 `2c794d01…` |
+| **B** | the same, minus the one activation line | **1,278** [1,276–1,280] | **2,115** [2,110–2,117] | 947 / 2,979 | sha256 `0bbdce6f…` |
+| **A2** | restored, byte-identical to A1 | **1,417** [1,415–1,418] | **2,115** [2,110–2,118] | 948 / 2,979 | sha256 `2c794d01…` |
+
+**A1 is the box control and it is the strongest one available**, because the
+instrument and the measured collector are literally the same objects the package
+run used: `impl/collector.cljs` hashes `3876ae02…` in both, and A1 returns the
+package run's `1,417` and `2,115` inside their published bands, its positive
+control landing on the identical `4,700,284 B`.
+
+**A1 and A2 are an A–B–A bracket in time**, and they agree **to the byte** —
+`1,417` / `2,115` both times — around the hook-less reading between them. So the
+139 B is the line and not the box, which is the same test the disposal-hook
+bisection above had to pass.
+
+**The bands are disjoint** — `[1,276–1,280]` against `[1,416–1,418]` and
+`[1,415–1,418]`, a gap of **136 B** at A1 and **135 B** at A2, which is the same
+gap the package run measured between the prototype's published slope and its
+own.
+
+#### What the ablation prices, and what it deliberately does not
+
+The removed line is a **correctness repair**, and this is its price on this axis,
+not an argument for reverting it. Without it the arm is the deaf arm `rf2-2kshh`
+found: it paints once at mount and no later write becomes re-render work. What
+`139 B/read` buys is that a Reagent-hosted Hicasso boundary answers writes at
+all.
+
+Two figures the ablation moves that are **not** claims:
+
+- The fitted **intercept** on the Reagent segment reads `1,096 B` at both A arms
+  and `1,301 B` at B. The directly measured R=0 **shell** does not move at all
+  (`1,099` / `1,101` / `1,100` across the three runs), which is the reading that
+  matters and the one this page publishes — activation costs nothing at R=0
+  because a boundary with no reads has no cells to activate. The intercept is
+  fit geometry over a moved slope, and this page has never quoted it as the
+  shell.
+- The **first read** reads `1,848` and `1,850 B` at the A arms and `1,727 B` at
+  B. It is a separate quantity from the slope, reported by the driver and not
+  restated here.
+
+**No published figure changes.** S3 stays `1,417 B/read`, the bracket a shipped
+Hicasso sits in stays `1,417 – 2,115 B/read`, and the governed contrast against
+Reagent stays `1.4953×`. This subsection attributes a figure; it does not move
+one.
+
+#### What this correction is worth beyond this one number
+
+The section above reads its result as a *package versus prototype* contrast and
+concludes "the move is the candidate's and not the instrument's". Both halves
+survive — it is the candidate's, and it is not the instrument's — but the
+sentence sits on a premise that does not hold, and the premise is the reusable
+part. **A ten-quantity reproduction table across two sessions prices the whole
+interval between them, not the one difference the columns are named after.**
+Nine quantities reproduced not because nothing else changed but because nothing
+else in that window touched them; the tenth moved because one landing did. A
+table like that is a strong instrument for *localising* a move and a weak one
+for *naming* it, and the fe0l window was right to refuse the naming.
+
+#### The controls
+
+Every control below is **from these three runs**. Nothing is scaled in.
+
+**The positive control** — the same dense array of 587,500 unboxed doubles,
+`4,700,000 B` fixed before every run: measured **4,700,284 / 4,700,230 /
+4,700,230 B**, ratios 1.0001 / 1.0000 / 1.0000, `ok` under
+`lane/control-verdict` on all three.
+
+**The donors, the floors and both shells ride every run as negative controls**,
+and none of them moves: Reagent 947 / 947 / 948 B/read, UIx 2,978 / 2,979 /
+2,979, floors 258 / 256 / 258 and 256 / 256 / 257 B, candidate shells 1,099 /
+1,101 / 1,100 and 1,096 / 1,096 / 1,094 B. **The ablation reaches the one
+quantity it was aimed at and nothing else on the page.**
+
+**The runtime demonstrably saw the plant, which a source hash alone cannot
+show.** The `:advanced` bundle the driver built and served is `2c794d01…`
+(836,168 B) for A1, `0bbdce6f…` (836,100 B) for B, and `2c794d01…` (836,168 B)
+again for A2 — **byte-identical across the bracket and different in the middle**.
+The restore is verified the same way at the source: `impl/collector.cljs` hashes
+`3876ae02…` before the plant and `3876ae02…` after it, `6468c2aa…` in between,
+with `git status --porcelain` empty at the end.
+
+**The ladder is its own control for the slope**: reads walk 0 → 20 and every arm
+of every run answers with a line — r² 0.99833 to 0.99996, **6 of 6 rounds linear
+on all four arms of all three runs**, including arm B, whose r² on the ablated
+Reagent segment is 0.99932.
+
+**The fit's own self-test** ran in the page before anything was measured in each
+run: an exact line recovered to the byte with R=0 excluded, a quadratic refused
+by the r² floor at 0.96464, and an absurd 99,999 B R=0 rung moving the fit by not
+one bit.
+
+**The arm-order guard** returned `reportable` on all three, the structural
+witness answered every expected count on every arm of every round and read zero
+after teardown, and **0 unverified of 154 mounts** each time. Captured exit **0**
+on all three.
+
+#### Provenance
+
+Whole-tree anchor **`c6b7da3cd8`**, which is `origin/main` — the measured tree
+and the published tree are the same tree, and `git status --porcelain` was empty
+before arm A1 and again after arm A2. The one line under test, in
+`implementation/hicasso/src/re_frame/hicasso/impl/collector.cljs`:
+
+| arm | line 675 | `impl/collector.cljs` blob |
+|---|---|---|
+| **A1, A2** | `(interop/activate-derived-value! reaction)` | `3876ae023224f670e2cdaa086cf364f5fdbf4844` |
+| **B** | the same, commented out | `6468c2aaf15ae9d69996f5736f09753146bff0b3` |
+
+The instrument, all under `implementation/core/test/re_frame/bench/`, **all nine
+byte-identical to the package run above** — `p0_run.cjs` `ce4f01a9e5`,
+`p0_heap.cljs` `ef9b5adcf0`, `p0_hicasso.cljs` `7a91564f59`, `p0_reagent.cljs`
+`419e166a93`, `p0_uix.cljs` `f1aaf9cb1e`, `p0_fixture.cljc` `de27135ce8`,
+`p0_arms.cljs` `beced24315`, `p0_harness.cljs` `e18c2f50d4`, `p0_floor.cljs`
+`6b61e125f4`. `impl/collector.cljs` and `impl/inventory.cljs` are likewise
+byte-identical to it; `impl/mount.cljs` and the facade moved after it, and
+neither is on the per-cell path this bisection cuts.
+
+**The convicting landing is `9d01cd171e`** (`rf2-2kshh`, merged 2026-08-07 09:32
++1000), whose whole code change is the line in the table above.
+
+Reproduce — arm A as the tree stands, arm B by commenting out that one line:
+
+```
+node implementation/core/test/re_frame/bench/p0_run.cjs --only ladder
+```
+
+**Conditions.** 2026-08-13 06:07–06:22 +1000, three runs of ~4 minutes each
+(build ~24 s, six rounds), run strictly one at a time. React 19.2.0, Reagent
+2.0.1, UIx 1.4.4, `:advanced` with `goog.DEBUG false`, headless Chromium via
+Playwright, Windows 11, 24 logical cores, 63 GB.
+
+**The box was NOT quiet, and that is stated rather than corrected for.** Real
+CPU occupancy — summed per-process CPU-time deltas over a 5-second window
+divided by the core count, never `LoadPercentage` — read **4.90%** at open,
+**10.61%** and **6.13%** during arms B and A2 (both including this run's own
+Chromium), and **0.82%** at close; `\System\Processor Queue Length` was **0 on
+every sample**, so nothing was ever waiting for a core. Around a dozen sibling
+worker agents were running browser and JVM gates in other worktrees throughout.
+Zero java in this checkout, ~33 GB free.
+
+Two things carry that, and neither is an argument that load does not matter:
+this is a **retained-heap** row rather than a clock row, and this page has
+already priced contention on it — a deliberately contended trial landed within
+about 0.07% of a quiet six-round range. More decisively, **A1 reproduced the
+package run's `1,417` and `2,115` inside their published bands, and its positive
+control landed on the identical `4,700,284 B`, on an instrument and a collector
+that are byte-for-byte the same objects.** That is the box saying, by
+measurement rather than by probe, that it had not moved. Had A1 missed, the
+right answer would have been to refuse the window rather than to publish a
+number taken under load — and the bracket A1 = A2 to the byte is what would have
+caught it if the box had drifted mid-window instead.
 
 ---
 

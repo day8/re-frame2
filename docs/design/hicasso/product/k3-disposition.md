@@ -399,16 +399,16 @@ worse than none. Re-issuing it requires the same decider.
 
 ## 11. What this record does not decide
 
-- **[OPEN] The mechanism of the `+139 B/read` package move on the ratom
-  segment.** `rf2-hic-018` left it open and said it is owed an attribution to
-  this bead or to one of its own; **this record takes the second route and files
-  it as `rf2-l50z`.** No verdict above needs it: the move sits entirely inside
-  the arm that does not ship, and the shipped column reproduced to the byte. The
-  ablation that would settle it is **named on `rf2-hic-018`, not guessed at
-  here** — the A–B–A bisection on the ratom segment only, riding the spine
-  segment as a negative control, with one suspect carrying a precedent *as a
-  suspect and not as an answer*. This page repeats neither the suspect nor a
-  cause; it cites [where both are written down](substrate-decision.md#6-what-this-page-does-not-decide).
+- **[SETTLED elsewhere] The mechanism of the `+139 B/read` package move on the
+  ratom segment.** `rf2-hic-018` left it open and said it is owed an attribution
+  to this bead or to one of its own; **this record took the second route and
+  filed it as `rf2-l50z`**, which ran the named A–B–A bisection and attributed
+  the whole move to one ratom-only correctness line. **No verdict above changes,
+  and none ever needed it**: the move sits entirely inside the arm that does not
+  ship, the shipped column reproduced to the byte, and the attribution names the
+  cost rather than moving the figure — S3 is still `1,417 B/read`. This page
+  repeats neither the mechanism nor its evidence; it cites
+  [where both are written down](substrate-decision.md#6-what-this-page-does-not-decide).
 - **The R=0 shell breach.** `rf2-hic-018`'s, carried red against the frozen
   `1,024 B` line, with the substrate arm refused on the evidence because the two
   shells are five bytes apart.
@@ -428,8 +428,8 @@ worse than none. Re-issuing it requires the same decider.
   comparative and regression rules, the reference profiles, and §7's enforcement
   homes.
 - [`substrate-decision.md`](substrate-decision.md) — `rf2-hic-018`: which
-  substrate ships, the `+698 B/read` premium, the shell disposition, and the open
-  `+139 B/read` attribution with its named ablation.
+  substrate ships, the `+698 B/read` premium, the shell disposition, and the
+  `+139 B/read` attribution its named ablation settled (`rf2-l50z`).
 - [`../studio/reads-per-boundary-heap-ladder.md`](../studio/reads-per-boundary-heap-ladder.md#the-package-itself-priced-on-this-rung-at-last-rf2-fe0l)
   — the package run: rows, fitted lines, the ten-quantity reproduction table, and
   the gate reproduction that anchors the donors.
