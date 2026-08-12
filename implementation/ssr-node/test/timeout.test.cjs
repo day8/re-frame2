@@ -18,7 +18,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert');
-const { withService, collect, refusalOf } = require('./_support.cjs');
+const { withService, collect, observed, refusalOf } = require('./_support.cjs');
 const { CODE } = require('../src/protocol.cjs');
 
 const hang = (extra = {}) => ({ protocol: 1, entry: 'app/root', state: {}, ...extra });
@@ -44,7 +44,7 @@ test('a render that never returns is refused inside its budget', async () => {
 test('the pool recovers, and the replacement is a DIFFERENT thread', async () => {
   await withService('hang', { isolates: 1, admissionTimeoutMs: 10000 }, async (service) => {
     const before = await collect(service, quick());
-    const firstThread = before.complete.meta.threadId;
+    const firstThread = observed(before).threadId;
 
     const err = await refusalOf(() => collect(service, hang({ timeoutMs: 150 })));
     assert.strictEqual(err.code, CODE.RENDER_TIMEOUT);
@@ -53,7 +53,7 @@ test('the pool recovers, and the replacement is a DIFFERENT thread', async () =>
     const after = await collect(service, quick());
     assert.strictEqual(after.chunks.length, 1, 'the service must serve the next request normally');
     assert.notStrictEqual(
-      after.complete.meta.threadId,
+      observed(after).threadId,
       firstThread,
       'a terminated isolate must never be reused — this must be a fresh thread',
     );

@@ -40,6 +40,11 @@ operator's ruling names beside the other five, and the **bytes reaching
 the client unaltered**, which is what makes a hydration contract survive
 the crossing (`test/bytes.test.cjs`).
 
+Guarantee 2 has a response leg as well as a request one — **application
+data cannot cross outside body markup** — and it is witnessed separately,
+in `test/egress.test.cjs`, because a fail-closed door on the way in and an
+open one on the way out is not a fail-closed crossing.
+
 ### 1. Per-request state isolation, via immutable snapshots
 
 A request's `state` never crosses as a reference. It crosses as a
@@ -84,6 +89,36 @@ refusal so the message teaches instead of merely declining.
 module publishes. An id the bundle does not carry is refused per request
 (`:rf.ssr-node/unknown-entry`) — the per-request half of the skew detector
 the server-arm pricing named as row B5.
+
+**The response leg's fields.** A fail-closed request door with an open
+response door is not a fail-closed crossing. `COMPLETE_FIELDS` in
+`src/protocol.cjs` is the terminal frame's field list and it is the same
+kind of object as `REQUEST_FIELDS` rather than a comment: `type`,
+`chunks`, `renderMs`, `buildId` and the optional `requestId`. Every one is
+a fact **this service** produced about the crossing it just performed —
+counted here, timed here, or read from the bundle's published table at
+boot — and `requestId` is the caller's own correlation token handed back.
+There is no member the application's render module fills in, and no
+mechanism by which it could: **`emit` is a render module's only output
+channel**, and a module that returns a value is refused
+(`:rf.ssr-node/render-threw`) rather than having the value quietly
+dropped. `test/egress.test.cjs` is the witness.
+
+That door was not there in the first cut of this package, and how it was
+missing is worth keeping on the record. `worker.cjs` forwarded an
+arbitrary `out.meta` from the render module, `isolate.cjs` carried it and
+`service.renderFrames()` published it — and the fixtures under `test/`
+demonstrated the channel carrying application state (`readTodos`,
+`readRoute`). The HTTP transport happened not to serialise it, so nothing
+looked wrong; but "the current transport drops it" is a fact about
+`http.cjs` and not a guarantee about this package, and the protocol is
+documented as transport-independent while `renderFrames()` and
+`renderToString()` are an in-process API that carried it in full. A
+contract asserting a property its code does not enforce is the exact
+fail-open class this repo hunts in its own instruments, so the property is
+now enforced in `worker.cjs` — the one place where the topology *can* be
+enforced, because nothing downstream can carry what it never posts — and
+checked on the FRAMES rather than on the HTTP response.
 
 **The state keys.** Each entry in the table declares its own
 `stateAllowlist`: the top-level app-db keys a render of that entry may
@@ -270,8 +305,13 @@ frames rather than changing semantics.
 ```jsonc
 { "type": "chunk",    "seq": 0, "html": "<div>…" }
 { "type": "complete", "chunks": 1, "renderMs": 1.4, "buildId": "…",
-  "requestId": "…", "meta": {} }
+  "requestId": "…" }
 ```
+
+The `complete` frame's field list is `COMPLETE_FIELDS`, and it is closed
+in the same sense the request's is. Nothing on it originates in the
+application's render module — see
+[the response leg](#2-allowlisted-request-fail-closed).
 
 or, instead of everything:
 
@@ -300,7 +340,7 @@ rather than presenting a well-formed shorter page.
 | `:rf.ssr-node/state-key-not-allowed` | a key the entry does not declare |
 | `:rf.ssr-node/build-identity-mismatch` | caller's `buildId` ≠ the bundle's |
 | `:rf.ssr-node/render-timeout` | deadline expired; the isolate was terminated |
-| `:rf.ssr-node/render-threw` | the render module threw, or emitted nothing |
+| `:rf.ssr-node/render-threw` | the render module threw, emitted nothing, or returned a value |
 | `:rf.ssr-node/isolate-lost` | the worker died mid-render |
 | `:rf.ssr-node/service-saturated` | no isolate free within the admission budget |
 | `:rf.ssr-node/service-closed` | the service is shutting down |
@@ -354,10 +394,10 @@ module.exports = {
   boot() { /* rf.init!(adapter); registerViews(); */ },
 
   // Once per request. `state` is frozen; writing to it throws. Call `emit`
-  // one or more times with body markup.
+  // one or more times with body markup, and return nothing — `emit` is
+  // this module's only channel out of the isolate.
   render({ entry, state, args }, emit) {
     emit(MY_APP_SSR.renderToString(entry, state, args));
-    return { meta: {} };
   },
 };
 ```
@@ -365,6 +405,18 @@ module.exports = {
 `render` may return a promise; the isolate awaits it under the same
 deadline, so a streaming module is governed identically. A module that
 returns without emitting is refused rather than served as an empty page.
+
+**A module that returns a *value* is also refused**
+(`:rf.ssr-node/render-threw`), and that is the response leg's fail-closed
+door rather than fussiness — see
+[the response leg's fields](#2-allowlisted-request-fail-closed) for what
+it is holding and what it cost to find missing. An `async render` that
+falls off its end returns `undefined` and is fine; `return { … }` is a
+module reaching for a second way out, and the refusal says so in as many
+words. Because it can only be discovered *after* the render, a module that
+both emitted and returned produces a **torn** response carrying
+`detail.afterChunks` — the bytes really did leave, and the transport must
+not present them as a page.
 
 The CLJS half — the thing behind `MY_APP_SSR.renderToString` — is the
 existing Hicasso render entry: a per-request `gensym` frame, `:rf/set-db`
@@ -499,10 +551,10 @@ that is out of scope here.
 node implementation/ssr-node/test/run.cjs
 ```
 
-No build, no npm install, no browser, roughly seven seconds. Each suite
-runs in its own process, because several of them deliberately kill worker
-threads and a shared process would let one file's leaked isolate turn the
-next file's clean failure into a hang.
+No build, no npm install, no browser, roughly seven seconds — eight
+suites, 83 rows. Each suite runs in its own process, because several of
+them deliberately kill worker threads and a shared process would let one
+file's leaked isolate turn the next file's clean failure into a hang.
 
 **There is deliberately no npm script and no CI job yet, and the reason is
 measurable rather than aesthetic.** Adding one line to
@@ -521,9 +573,17 @@ affect", answers *nothing* for this package's files.
 
 The suite drives the service against reference render modules under
 `test/fixtures/` — well-behaved, mutating, sloppy-mode, hanging, throwing,
-chunking and byte-hostile — because every guarantee here is a property of
-the *service*, and a fixture that misbehaves on purpose is the only way to
-see a guard fire.
+chunking, byte-hostile and leaky — because every guarantee here is a
+property of the *service*, and a fixture that misbehaves on purpose is the
+only way to see a guard fire.
+
+A fixture reports what it observed by **rendering** it, as a base64
+attribute on markup it was emitting anyway, and the witnesses read it back
+out of the body (`test/observations.cjs`). That is not a workaround for a
+missing channel; it is the response contract holding, in the one place a
+suite would feel it. The observations used to ride the terminal frame,
+which is the egress described above — they were not deleted when it
+closed, because four of the five guarantees are witnessed through them.
 
 **Every guard has a control beside it, and the controls are ordinary rows
 rather than a `--self-test` flag**, so they cannot be skipped by anyone
@@ -533,7 +593,9 @@ false proof of a real guard, which is worse than no proof. So the overlap
 counter is shown reading 2 before it is trusted reading 1; the byte
 comparison is shown moving under a re-encoding before it is trusted
 agreeing; the runaway render is shown still running after 400 ms before a
-200 ms refusal is called a termination; and the absence scan is shown
+200 ms refusal is called a termination; the egress scan is shown finding a
+planted leak — and the leaky fixture shown really returning one — before
+its zero is believed; and the absence scan is shown
 finding a planted reference before its zero is believed.
 
 ---
@@ -577,7 +639,10 @@ the tree, which is what the PR's quality-gate table records.
 ## Provenance
 
 - `rf2-hic-056` — this package. Operator ruling of 2026-08-12
-  (`rf2-xpq9`) lifted the dormancy and set V0 scope.
+  (`rf2-xpq9`) lifted the dormancy and set V0 scope. Reopened at P2 by the
+  merged-PR audit of #8028 for the response-contract escape described
+  under [guarantee 2](#2-allowlisted-request-fail-closed); the remedy is
+  the response-leg field list and `test/egress.test.cjs`.
 - `rf2-hic-046` — the per-surface SSR/hydration witnesses this builds on.
   The client-side hydration contract is that bead's and is already
   mandatory; nothing here waits on this service.

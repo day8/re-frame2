@@ -4,6 +4,7 @@
 
 const path = require('node:path');
 const { createService } = require('../src/service.cjs');
+const { observationsIn } = require('./observations.cjs');
 
 const fixture = (name) => path.join(__dirname, 'fixtures', `${name}.cjs`);
 
@@ -36,6 +37,17 @@ async function collect(service, request) {
 }
 
 /**
+ * What the render module observed, read back out of the body it rendered.
+ *
+ * The response contract carries body markup and nothing else, so this is
+ * the only channel a fixture has — see `observations.cjs` for why that is
+ * a feature of the witness rather than a workaround. Takes a `collect`
+ * result or a raw body string.
+ */
+const observed = (x) =>
+  observationsIn(typeof x === 'string' ? x : x.chunks.map((c) => c.html).join(''));
+
+/**
  * The refusal a call produced, or `null` if it produced none. Written as a
  * helper because "assert it refused" and "assert it refused with THIS
  * code" are different claims and the second is the one worth making.
@@ -60,4 +72,4 @@ async function post(url, body, headers = {}) {
   return { status: res.status, headers: res.headers, buf, text: buf.toString('utf8') };
 }
 
-module.exports = { fixture, boot, withService, collect, refusalOf, post };
+module.exports = { fixture, boot, withService, collect, observed, refusalOf, post };

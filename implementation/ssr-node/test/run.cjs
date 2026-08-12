@@ -31,6 +31,7 @@ const PACKAGE_DIR = path.resolve(HERE, '..');
 // seconds of worker threads and ten of filesystem scanning.
 const FILES = [
   'protocol.test.cjs',
+  'egress.test.cjs',
   'isolation.test.cjs',
   'concurrency.test.cjs',
   'timeout.test.cjs',
@@ -41,6 +42,7 @@ const FILES = [
 
 console.log(`gate root: ${PACKAGE_DIR}`);
 console.log(`gate: re-frame2 ssr-node — ${FILES.length} suites\n`);
+console.log(`gate files: ${FILES.join(' ')}\n`);
 
 const failures = [];
 for (const file of FILES) {
