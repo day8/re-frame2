@@ -6,7 +6,11 @@ re-frame2 product operator's (Mike Thompson)**; this document records the
 profiles a budget is stated *on*, the estimand/instrument/control standard each
 row must meet, and the state of every baseline the later gates will anchor to.
 Enforcement lives in [`rf2-hic-089`](#7-where-each-row-is-enforced) (the early
-framework) and `rf2-hic-071` (the full gates), never here.
+framework) and `rf2-hic-071` (the full gates), never here. What this page does
+carry, since 2026-08-12, is [§9's reconciliation ledger](#9-the-budget-line-reconciliation-ledger)
+— one row per registered line, each stating its own verdict — and the gate that
+keeps that ledger honest. **That gate enforces the record, not the budgets**:
+it can tell you a breach is unrecorded, and it cannot tell you a budget is met.
 
 Three things are deliberately *not* decided on this page, because each is
 another bead's to decide:
@@ -229,16 +233,20 @@ not, and cannot be until a package-resident clock instrument exists.
 
 ### The comparative and regression rules
 
-| Rule | Disposition |
-|---|---|
-| Pinned ordinary-Hicasso benchmark does not regress > 5% on same witness and instrument | same-instrument regression **blocks** until the benchmark owner validates the instrument and the adapter owner fixes or reverts |
-| Cold mount ≤ 1.25x direct UIx (subject to ratification) | proposal only; `1.10x` registered line stands |
-| Broad updates ≤ 1.25x best relevant adapter after topology tuning | 1.25–1.5x is a **warning band**: attribute cause, one bounded topology pass, test a local island |
-| Sustained > 1.5x | cannot graduate as ordinary Hicasso until fixed or deliberately classified a native-host use case |
-| R=0 shell meets the frozen byte-exact `1,024 B` line | **not** governed by baseline-plus-10%; see §5 |
-| Per-read retained ≤ 10% regression on same pinned witness | governed by the K3 disposition (`rf2-hic-070`) |
-| Native island within 5% or 1 ms of the same component mounted directly | co-instrumented against both handwritten React and UIx |
-| An escape recovers ≥ 20%, saves ≥ 2 ms p95, or converts a failed budget to a pass | an island missing its threshold is simplified or removed — **thresholds do not widen to keep it** |
+The eight rules carry ids so that §9's ledger can reconcile each one by name.
+The ids are this table's, not a second register: a rule is registered *here*
+and its verdict is recorded there.
+
+| # | Rule | Disposition |
+|---|---|---|
+| C1 | Pinned ordinary-Hicasso benchmark does not regress > 5% on same witness and instrument | same-instrument regression **blocks** until the benchmark owner validates the instrument and the adapter owner fixes or reverts |
+| C2 | Cold mount ≤ 1.25x direct UIx (subject to ratification) | proposal only; `1.10x` registered line stands |
+| C3 | Broad updates ≤ 1.25x best relevant adapter after topology tuning | 1.25–1.5x is a **warning band**: attribute cause, one bounded topology pass, test a local island |
+| C4 | Sustained > 1.5x | cannot graduate as ordinary Hicasso until fixed or deliberately classified a native-host use case |
+| C5 | R=0 shell meets the frozen byte-exact `1,024 B` line | **not** governed by baseline-plus-10%; see §5 |
+| C6 | Per-read retained ≤ 10% regression on same pinned witness | governed by the K3 disposition (`rf2-hic-070`) |
+| C7 | Native island within 5% or 1 ms of the same component mounted directly | co-instrumented against both handwritten React and UIx |
+| C8 | An escape recovers ≥ 20%, saves ≥ 2 ms p95, or converts a failed budget to a pass | an island missing its threshold is simplified or removed — **thresholds do not widen to keep it** |
 
 ---
 
@@ -470,6 +478,11 @@ and no figure may be scaled from one onto the other.
 | Shell breach disposition | `rf2-hic-018` |
 | K3 per-read record | `rf2-hic-070` |
 
+Row by row, with each verdict beside its line, that table is
+[§9's ledger](budgets.md#9-the-budget-line-reconciliation-ledger). The routing
+above is what the ledger's own gate enforces: a deterministic row must name a
+witness a pull request runs, and a distributional row must not.
+
 ---
 
 ## 8. This page's own run, and what would falsify it
@@ -514,3 +527,206 @@ the standing invitation); a package-resident heap instrument producing shell or
 per-read figures materially apart from S1–S4 (§6 says how to build it); the
 operator freezing the byte line somewhere other than the §5 recommendation; or
 any deterministic row D1–D9 moving without a topology change to explain it.
+
+---
+
+## 9. The budget-line reconciliation ledger
+
+Every line this page registers has a verdict somewhere above, and above is
+eight sections long. A page whose verdicts are spread that far can carry a
+breach nobody has to look at — not by hiding it, but by never putting it next
+to the rows that are fine. This section is the one place each registered line
+states its own verdict, and
+[`check_budget_ledger.py`][gate] is what stops the ledger drifting from the
+sections it summarises.
+
+[gate]: ../../../../implementation/hicasso/scripts/check_budget_ledger.py
+
+**The gate does not enforce the budgets, and cannot.** Two thirds of the rows
+below are distributional, and §1 has already said a hosted runner may never
+source a distributional figure. What the gate enforces is that the *record*
+tells the truth: every registered line has a row; a row that is not green names
+who owns it and where it was dispositioned; a confidence band that crosses its
+line reads `UNRESOLVED` rather than green; and no distributional row is quietly
+routed into a pull-request threshold. It can tell you a breach has gone
+unrecorded. It cannot tell you a budget is met.
+
+### 9.1 How to read a row
+
+**Status is four-valued, and exactly one value is a pass.** The fourth column
+is the point of the whole table, so it uses a closed vocabulary rather than
+prose:
+
+| Status | What the evidence did | A pass? |
+|---|---|---|
+| `MET` | decided the row on the meeting side of its registered line | **yes** |
+| `BREACH` | decided it on the failing side | no — carried, red, with a named disposition |
+| `UNRESOLVED` | did **not** decide it: a confidence band that crosses the line, or a comparison whose two arms are not the same witness | **no, and never silently folded into a pass** |
+| `UNPINNED` | never reached the row — no instrument for it exists on the governed population | no; there is nothing yet to decide |
+
+`UNRESOLVED` is the status the operator's 2026-08-12 ruling exists to make
+sayable. §5 froze the shell line at `1,024 B` *and* adopted the adjudication
+rule that a band crossing it is unresolved rather than a pass; a ledger with
+only pass and fail would have had to round that ruling to one or the other, and
+whichever it chose would have been a fabrication. Where a row carries a
+machine-readable byte ceiling and a machine-readable band, the gate recomputes
+the verdict from those two numbers and refuses a status that disagrees — so
+`MET` cannot be written over a crossing band by hand.
+
+**A `BREACH` row does not redden the gate; an unrecorded one does.** The
+distinction is the whole design. §5 says the shell breach is carried and never
+normalised, and [the substrate decision](substrate-decision.md#52-the-read-free-boundary-shell--the-disposition)
+carried it red deliberately after refusing substrate remediation on the
+evidence. A gate that failed the build on that would be demanding a fix the
+programme has already ruled against; a gate that quietly greened it would be
+the normalisation §5 forbids. So the gate asks the only question it is entitled
+to ask — *is this breach on the record, with an owner and a disposition that
+resolves?* — and reds when the answer is no.
+
+**The other cells.** *Population* is `package`, `bench-tree` or `—`, and it is
+pinned per row in the gate: `rf2-fe0l` made S1–S5 package figures and left S6,
+S7 and U1–U4 where they were, so a later edit cannot quietly promote a
+bench-tree figure by rewriting a cell. *Instrument* names the thing that took
+the reading and, in parentheses, the lane it runs in — `PR gate`,
+`P-DEV-1 evidence run`, or `none`. A deterministic row must name a witness file
+that exists and runs in the first lane; a distributional row may never name the
+first lane at all. *Authority* is the bead that owns the row's disposition
+today. *Disposition* is a link that must resolve to a section naming the row.
+
+<!-- rf2-hic-089: ledger -->
+
+| # | Registered line | Current value | Population | Status | Instrument (lane) | Authority | Disposition |
+|---|---|---|---|---|---|---|---|
+| D1 | 2 bodies per keystroke at 5×5, and equal to D2 | 2 | package | `MET` | `implementation/hicasso/test/re_frame/hicasso/examples/grid/scaling_dom_cljs_test.cljs` (PR gate) | `rf2-hic-089` | — |
+| D2 | 2 bodies per keystroke at 10×10, and equal to D1 | 2 | package | `MET` | `implementation/hicasso/test/re_frame/hicasso/examples/grid/scaling_dom_cljs_test.cljs` (PR gate) | `rf2-hic-089` | — |
+| D3 | 26 bodies, coarse shape at 5×5 | 26 | package | `MET` | `implementation/hicasso/test/re_frame/hicasso/examples/grid/scaling_dom_cljs_test.cljs` (PR gate) | `rf2-hic-089` | — |
+| D4 | 101 bodies, coarse shape at 10×10 | 101 | package | `MET` | `implementation/hicasso/test/re_frame/hicasso/examples/grid/scaling_dom_cljs_test.cljs` (PR gate) | `rf2-hic-089` | — |
+| D5 | 0 bodies for a refused keystroke | 0 | package | `MET` | `implementation/hicasso/test/re_frame/hicasso/examples/grid/scaling_dom_cljs_test.cljs` (PR gate) | `rf2-hic-089` | — |
+| D6 | 11 bodies for `clear-row` on a 10-wide row | 11 | package | `MET` | `implementation/hicasso/test/re_frame/hicasso/examples/grid/scaling_dom_cljs_test.cljs` (PR gate) | `rf2-hic-089` | — |
+| D7 | 2 bodies, first keystroke of an editor session | 2 | package | `MET` | `implementation/hicasso/test/re_frame/hicasso/examples/editor/flow_dom_cljs_test.cljs` (PR gate) | `rf2-hic-089` | — |
+| D8 | 1 body, every keystroke after the first | 1 | package | `MET` | `implementation/hicasso/test/re_frame/hicasso/examples/editor/flow_dom_cljs_test.cljs` (PR gate) | `rf2-hic-089` | — |
+| D9 | zero teardown residue in counters and frame ids | zero | package | `MET` | `implementation/hicasso/test_kit/src/re_frame/hicasso/test/mounted.cljs` (PR gate) | `rf2-hic-089` | — |
+| S1 | 1,024 B, R=0 shell, Reagent segment | 1,100 B [1,091–1,107] | package | `BREACH` | P0 heap ladder, package candidate arm (P-DEV-1 evidence run) | `rf2-hic-018` | [substrate-decision §5.2](substrate-decision.md#52-the-read-free-boundary-shell--the-disposition) |
+| S2 | 1,024 B, R=0 shell, UIx segment | 1,095 B [1,087–1,101] | package | `BREACH` | P0 heap ladder, package candidate arm (P-DEV-1 evidence run) | `rf2-hic-018` | [substrate-decision §5.2](substrate-decision.md#52-the-read-free-boundary-shell--the-disposition) |
+| S3 | ≤ 10% regression on the same pinned witness | 1,417 vs Reagent 948 per read | package | `UNRESOLVED` | P0 heap ladder, package candidate arm (P-DEV-1 evidence run) | `rf2-hic-070` | [substrate-decision §6](substrate-decision.md#6-what-this-page-does-not-decide) |
+| S4 | ≤ 10% regression on the same pinned witness | 2,115 vs UIx 2,980 per read | package | `MET` | P0 heap ladder, package candidate arm (P-DEV-1 evidence run) | `rf2-hic-070` | — |
+| S5 | teardown retained indistinguishable from 0 | indistinguishable from 0; all ten rungs' bands straddle it | package | `MET` | P0 heap ladder, package candidate arm (P-DEV-1 evidence run) | `rf2-hic-089` | — |
+| S6 | 1.10x cold mount against direct UIx-on-subs | 1.1718x [1.1263–1.2190] n=8; 1.1976x [1.1504–1.2468] n=6 | bench-tree | `BREACH` | final K1 estimator (P-DEV-1 evidence run) | `rf2-hic-018` | [§9.2](budgets.md#92-what-each-not-green-row-is-waiting-on) |
+| S7 | warm allocation, a fitted series clearing the quality floor | no publishable claim | bench-tree | `UNPINNED` | — (none) | `rf2-hic-071` | [§9.2](budgets.md#92-what-each-not-green-row-is-waiting-on) |
+| U1 | echo within one 60 Hz frame at p95 | — | — | `UNPINNED` | — (none) | `rf2-hic-071` | [§9.2](budgets.md#92-what-each-not-green-row-is-waiting-on) |
+| U2 | ≤ 50 ms p95 and ≤ 100 ms p99 to next paint | — | — | `UNPINNED` | — (none) | `rf2-hic-071` | [§9.2](budgets.md#92-what-each-not-green-row-is-waiting-on) |
+| U3 | ≤ 100 ms p95 for broad operations | — | — | `UNPINNED` | — (none) | `rf2-hic-071` | [§9.2](budgets.md#92-what-each-not-green-row-is-waiting-on) |
+| U4 | dragging and animation inside the frame budget | — | — | `UNPINNED` | — (none) | `rf2-hic-071` | [§9.2](budgets.md#92-what-each-not-green-row-is-waiting-on) |
+| U5 | body work scales with changed rows, not mounted rows | 2 at 25 cells and at 100 | package | `MET` | `implementation/hicasso/test/re_frame/hicasso/examples/grid/scaling_dom_cljs_test.cljs` (PR gate) | `rf2-hic-089` | — |
+| U6 | teardown residue zero after quiescence | zero counters (D9); bytes indistinguishable from 0 (S5) | package | `MET` | `implementation/hicasso/test_kit/src/re_frame/hicasso/test/mounted.cljs` (PR gate) | `rf2-hic-089` | — |
+| C1 | ≤ 5% regression on the same witness and instrument | — | — | `UNPINNED` | — (none) | `rf2-hic-071` | [§9.2](budgets.md#92-what-each-not-green-row-is-waiting-on) |
+| C2 | 1.10x cold mount, the registered line | see S6 | bench-tree | `BREACH` | final K1 estimator (P-DEV-1 evidence run) | `rf2-hic-018` | [§9.2](budgets.md#92-what-each-not-green-row-is-waiting-on) |
+| C3 | ≤ 1.25x the best relevant adapter on broad updates | — | — | `UNPINNED` | — (none) | `rf2-hic-071` | [§9.2](budgets.md#92-what-each-not-green-row-is-waiting-on) |
+| C4 | no sustained 1.5x as ordinary Hicasso | — | — | `UNPINNED` | — (none) | `rf2-hic-071` | [§9.2](budgets.md#92-what-each-not-green-row-is-waiting-on) |
+| C5 | 1,024 B byte-exact, not governed by baseline-plus-10% | 1,100 B / 1,095 B [1,087–1,107] | package | `BREACH` | P0 heap ladder, package candidate arm (P-DEV-1 evidence run) | `rf2-hic-018` | [§9.2](budgets.md#92-what-each-not-green-row-is-waiting-on) |
+| C6 | ≤ 10% per-read regression on the same pinned witness | see S3 / S4 | package | `UNRESOLVED` | P0 heap ladder, package candidate arm (P-DEV-1 evidence run) | `rf2-hic-070` | [§9.2](budgets.md#92-what-each-not-green-row-is-waiting-on) |
+| C7 | a native island within 5% or 1 ms of the same component mounted directly | — | — | `UNPINNED` | — (none) | `rf2-hic-071` | [§9.2](budgets.md#92-what-each-not-green-row-is-waiting-on) |
+| C8 | an escape recovers ≥ 20%, saves ≥ 2 ms p95, or flips a failed budget | — | — | `UNPINNED` | — (none) | `rf2-hic-071` | [§9.2](budgets.md#92-what-each-not-green-row-is-waiting-on) |
+| I9 | ≤ 2 React hooks per boundary shell, invariant in read count | 2 | package | `MET` | `implementation/hicasso/test/re_frame/hicasso/hook_budget_cljs_test.cljs` (PR gate) | `rf2-hic-018` | — |
+
+<!-- rf2-hic-089: end-ledger -->
+
+Thirty-one rows: the nine deterministic figures of §3, the seven distributional
+rows and six user-visible budgets of §4, the eight comparative rules §4 now
+gives ids to, and one row registered off this page — **I9**, the two-hook
+ceiling frozen by
+[the substrate decision](substrate-decision.md#4-the-two-hook-ceiling-frozen-with-its-measurement).
+I9 is here because it is a budget with a package-resident witness and no other
+ledger; its provenance is held in the gate rather than assumed.
+
+**U6 is the split row, and the ledger shows only one half of it.** Its
+deterministic half is D9's counters and its distributional half is S5's bytes,
+and §3 has already said the two are not interchangeable evidence. The
+instrument cell names the deterministic witness because that is the half a pull
+request runs; the other half is S5's own row, one line above.
+
+### 9.2 What each not-green row is waiting on
+
+Three rows have a disposition record of their own and point at it: `S1` and
+`S2` at [the substrate decision's §5.2](substrate-decision.md#52-the-read-free-boundary-shell--the-disposition),
+where the shell breach was carried red on the evidence, and `S3` at
+[its §6](substrate-decision.md#6-what-this-page-does-not-decide), where the
+`+139 B/read` package move is left open. Every other row that is not `MET`
+points here, and here is what each is waiting on.
+
+- **No package-resident clock instrument exists.** `U1`, `U2`, `U3` and `U4`
+  are latency budgets, and §4 says in terms that they cannot be pinned until
+  such an instrument exists. `C3` and `C4` are the comparative rules stated on
+  the same missing readings. None of the six can be pinned by measuring harder
+  on the rig that exists; each needs a clock instrument pointed at
+  `implementation/hicasso`, on P-DEV-1, in its own window.
+- **The 5% rule has no same-instrument anchor.** `C1` compares a reading
+  against the pinned ordinary-Hicasso benchmark, and §6 records that the
+  registered instrument's eleven pinned blobs are superseded rather than
+  repaired — one of its files no longer exists. Until the ladder is re-pinned,
+  "the same instrument" names nothing, and a comparison against it would be
+  un-attributable in exactly the way §6 describes. The re-pin is `rf2-hic-071`'s
+  along with the gate it enables.
+- **The cold-mount line is missed and its replacement is unratified.** `S6` and
+  `C2` are red against the registered `1.10x`. The `1.25x` figure is a proposal
+  pending the operator's sitting, so it is not written in either row's line
+  cell, and the gate refuses to let it be: §4's standing prohibition — no
+  evidence row may use the proposal to mark K1 green — is held as a pin on
+  those two rows rather than as a sentence nobody re-reads.
+- **`S7` has no publishable claim to pin.** No fitted allocation series clears
+  the quality floor. This is a property of the readings rather than of the
+  rig, so it is `UNPINNED` rather than `UNRESOLVED`: nothing crossed a line,
+  because nothing reached one.
+- **`C7` and `C8` have no population yet.** The native-island rule and the
+  escape-benefit rule are both stated over landed escapes and islands, and the
+  apps that would carry them are `rf2-hic-034`, `rf2-hic-047` and `rf2-hic-045`.
+  `rf2-hic-071` names them as the beads it extends over, which is the same
+  statement from the other side.
+- **`C5` and `C6` are rules whose readings have been dispositioned, and the
+  rules have not.** `C5` is the shell rule; its evidence is `S1` and `S2`, and
+  §5.2 above carries that reading red. `C6` is the per-read rule; its evidence
+  is `S3` and `S4`, and §6 above leaves the `S3` move open to `rf2-hic-070`.
+  Neither section adjudicates the *rule*, only the readings under it, so the
+  two rows point here rather than borrowing a disposition that was not made
+  about them. `C5` is settled the day a shell arm lands under `1,024 B` on the
+  package; `C6` the day the K3 record is taken.
+
+### 9.3 Where this ledger stops and rf2-hic-071 begins
+
+This bead is the *early* framework: the half that can exist before the
+population does. The boundary is not a matter of taste, and it is worth stating
+as a rule rather than as a list.
+
+**What can be gated early is what a hosted runner is allowed to decide.** §1
+permits CI-RUNNER-A correctness gates and same-run relative drift, and forbids
+it any distributional product budget; §2 sorts every row into the two families;
+§7 routes them. So the early framework is *the deterministic family plus the
+record*: the D rows and I9 already run as ordinary blocking witnesses in a pull
+request, and this section adds the ledger and the gate that keeps it honest.
+Everything the ledger says about a distributional row is a transcription of an
+evidence run, checked for internal honesty and nothing more.
+
+**Two of this bead's stated deliverables cannot be built early, and the reason
+is on this page.** They are recorded here rather than quietly dropped:
+
+- *The 5% same-instrument regression gate, running in CI per relevant PR.* The
+  pinned ordinary-Hicasso benchmark is a heap figure — distributional, P-DEV-1
+  only, and §7 says such a row is never converted into a flaky PR threshold.
+  Wiring it to a hosted runner would breach §1 on the first green. It is `C1`
+  in the ledger, `UNPINNED`, and it additionally has no anchor to compare
+  against until §6's instrument drift is re-pinned. The gate below enforces
+  that no one wires it there by mistake: a distributional row may not name the
+  `PR gate` lane.
+- *Slice-app user-visible gates at 50 ms p95 / 100 ms p99 and one-frame
+  keystroke echo.* These are `U1`–`U4`, and §4 records that no package-resident
+  clock instrument exists to pin them on. The deterministic half that *is*
+  reachable — a controlled update landing same-turn, and the per-keystroke body
+  count behind the echo claim — is already gated, as `U5`, `D7` and `D8`.
+  Building a second instrument to say more would be building a second thing to
+  drift, which is the rule §3 states and `rf2-fe0l` was dispatched to honour.
+
+**`rf2-hic-071` therefore inherits three things, not one**: the clock
+instrument and the U-row gates it makes possible, the ladder re-pin and the 5%
+comparison it makes meaningful, and the escape-benefit rule over the escapes
+its own dependencies land. This ledger is what it will report into — the bead
+owns the status columns from the moment it takes them.
