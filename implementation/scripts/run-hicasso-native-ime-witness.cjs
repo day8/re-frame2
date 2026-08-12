@@ -289,6 +289,59 @@ const NOT_REAL = {
 const OPEN = { ...REAL, compositionend: 0, compositionendData: null };
 const CLOSED = { ...REAL, compositionend: 1 };
 
+/**
+ * Did the REHEARSAL actually rehearse? Pure, so the teeth below can drive it.
+ *
+ * The rehearsal's whole claim is procedural — "every page-side step of every
+ * check ran and every read came back" — and until now nothing checked it.
+ * `driveEngine` catches a prepare failure and returns `results: []` so that one
+ * engine's refusal cannot take the other two down with it (the right conduct,
+ * added after Firefox's honest abort discarded WebKit on 2026-08-12), and it
+ * catches a per-check throw into an INCONCLUSIVE. Both are correct locally and
+ * both were invisible to the caller: `main` returned 0 for every non-inject
+ * mode regardless, so a run that found no window, mounted nothing and drove
+ * ZERO checks printed REHEARSAL COMPLETE and exited 0.
+ *
+ * That is the same fail-open shape as wall 2 one layer out — a claim that
+ * satisfied itself instead of being measured — so it is measured here.
+ *
+ * READBACK is the load-bearing clause. Every one of the eight runners emits
+ * one, and a check that threw mid-drive is caught into a verdict that has
+ * none. A rehearsal in which every selector silently resolved to `null` would
+ * otherwise print the same eight INCONCLUSIVEs as one in which they all
+ * worked; requiring the readback is what separates them, which is precisely
+ * the discriminator §5 of the scripted-witness doc already names for a human
+ * reading the log.
+ *
+ * This says nothing about any ENGINE — a rehearsal never can. It says only
+ * whether the rig ran, which is the only thing a rehearsal is entitled to
+ * assert.
+ */
+function rehearsalOutcome(runs, engines, checkCount) {
+  const problems = [];
+  const seen = new Set(runs.map((r) => r.engine));
+  for (const engine of engines) {
+    if (!seen.has(engine)) problems.push(`${engine} produced no run at all`);
+  }
+  for (const run of runs) {
+    if (run.refusal) {
+      problems.push(`${run.engine} was refused before any check was driven, so ` +
+        `none of its page-side steps ran: ${run.refusal}`);
+      continue;
+    }
+    if (run.results.length !== checkCount) {
+      problems.push(`${run.engine} drove ${run.results.length} of ${checkCount} checks`);
+    }
+    const mute = run.results.filter((r) => !r.readback).map((r) => r.id);
+    if (mute.length > 0) {
+      problems.push(`${run.engine} produced no READBACK for ${mute.length} ` +
+        `check(s) — ${mute.join(', ')} — so its reads cannot be said to have ` +
+        'come back');
+    }
+  }
+  return { ok: problems.length === 0, problems };
+}
+
 function runMutationTeeth() {
   const teeth = [];
   const bite = (name, fn) => {
@@ -579,6 +632,39 @@ function runMutationTeeth() {
     const cell = W.dispositionCell(W.summarise(full),
       { engine: 'firefox', build: 'firefox-1511', date: '2026-08-11' });
     return cell.includes('Witness-verified') && cell.includes('firefox-1511');
+  });
+
+  // --- the REHEARSAL's own claim, fail-closed in every direction ---
+  // Merged-PR audit #7956 found `--dry-run` able to exit 0 having executed no
+  // check at all. These four are the alternatives that used to pass.
+  const drove = (engine) => ({
+    engine,
+    refusal: null,
+    results: W.CHECKS.map((c) => ({ id: c.id, verdict: W.INCONCLUSIVE, readback: 'read' })),
+  });
+  const ENG = ['chromium', 'firefox', 'webkit'];
+  const rehearsed = ENG.map(drove);
+
+  bite('a rehearsal that drove every check on every engine is complete', () =>
+    rehearsalOutcome(rehearsed, ENG, W.CHECKS.length).ok === true);
+
+  bite('an engine REFUSED in prepare cannot pass the rehearsal', () => {
+    const r = rehearsalOutcome(
+      [drove('chromium'), { engine: 'firefox', refusal: 'no window', results: [] }, drove('webkit')],
+      ENG, W.CHECKS.length);
+    return r.ok === false && r.problems.some((p) => p.includes('firefox') && p.includes('refused'));
+  });
+
+  bite('an engine that never ran at all cannot pass the rehearsal', () => {
+    const r = rehearsalOutcome([drove('chromium'), drove('firefox')], ENG, W.CHECKS.length);
+    return r.ok === false && r.problems.some((p) => p.includes('webkit') && p.includes('no run'));
+  });
+
+  bite('a check with no READBACK cannot pass the rehearsal', () => {
+    const quiet = drove('webkit');
+    quiet.results[3] = { ...quiet.results[3], readback: undefined };
+    const r = rehearsalOutcome([drove('chromium'), drove('firefox'), quiet], ENG, W.CHECKS.length);
+    return r.ok === false && r.problems.some((p) => p.includes('READBACK'));
   });
 
   return teeth;
@@ -1402,6 +1488,15 @@ async function main() {
     }
 
     if (args.mode !== 'inject') {
+      const rehearsal = rehearsalOutcome(runs, args.engines, W.CHECKS.length);
+      if (!rehearsal.ok) {
+        console.error(
+          '\nREHEARSAL INCOMPLETE — it did NOT run every page-side step of every\n' +
+          'check, so it says nothing about the rig either, and nothing above may\n' +
+          'be cited as proof that the pipeline works:');
+        for (const p of rehearsal.problems) console.error(`  - ${p}`);
+        return 1;
+      }
       console.log(
         '\nREHEARSAL COMPLETE. Every page-side step of every check ran and every\n' +
         'read came back; no keystroke was sent, so no verdict above says\n' +
