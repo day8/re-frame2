@@ -52,11 +52,11 @@
     FIND <b64 title-substring>    -> {hwnd, title, matches}
     IMESTATE <hwnd>               -> {hkl, langid, japanese, open, conversion,
                                       native, foreground, isForeground}
-    RESOLVE <tokens>              -> {tokens, vks}
+    RESOLVE <tokens> [hwnd]       -> {tokens, vks, scans}
     FOREGROUND <hwnd>             -> {isForeground}                    [armed]
     IMEON <hwnd>                  -> {requested, hkl, langid, ...}     [armed]
     IMECONV <hwnd>                -> {conversion, native, ...}         [armed]
-    KEYS <hwnd> <tokens> <delay>  -> {sent, tokens}                    [armed]
+    KEYS <hwnd> <tokens> <delay>  -> {sent, tokens, scans}             [armed]
     QUIT                          -> OK
 
   ## What it does NOT do
@@ -68,27 +68,54 @@
   way a person would. And `IMEON` is a REQUEST, not a guarantee: the modern
   Microsoft IME is a TSF text service, and the IMM32 messages below reach it
   through a compatibility layer that a given browser build may not honour.
-  That is why `IMESTATE` exists as a separate verb — the caller ASKS, then
-  VERIFIES, and stops for the operator when the answer is no.
+  `IMESTATE` exists as a separate verb so the caller can ASK and then look —
+  but see the next section for what that reading is worth, and for the one
+  thing it must never be used as.
 
-  ## The warning above came true, and what answers it
+  ## What `IMESTATE` is worth: the write-through finding of 2026-08-12
 
-  On 2026-08-12 the first armed run got the whole way in — foreground
-  seized on all three engines, romaji and ESC both delivered — and still
-  decided nothing: `IMESTATE` read `langid 0x0411`, `japanese: true` and
-  **`open: 0`** on Chromium, Firefox and WebKit alike. The TSF IME had
-  simply ignored `IMC_SETOPENSTATUS`, exactly as this header said it might,
-  so seven romaji letters landed as plain ASCII and all 24 checks returned
-  INCONCLUSIVE.
+  Two armed runs that day, and between them they emptied this verb of any
+  authority.
 
-  The door that was open all along is the one the keystrokes came through.
-  `SendInput` reached that IME when IMM32 did not, so the caller opens it by
-  sending the IME'S OWN TOGGLE — `kanji` (半角/全角, VK 0x19), already in the
-  vocabulary below — through `KEYS`, and then re-reads `IMESTATE`. `IMECONV`
-  is the same shape one level along: the toggle says nothing about which
-  reading mode the IME came back in, so Hiragana is re-asserted and the
-  `native` flag re-read. Neither verb is trusted either. The caller ASKS,
-  VERIFIES, and refuses the engine when the answer is still no.
+  The FIRST got the whole way in — foreground seized on all three engines,
+  romaji and ESC both delivered — and still decided nothing: `IMESTATE` read
+  `langid 0x0411`, `japanese: true` and **`open: 0`** on Chromium, Firefox
+  and WebKit alike. The TSF IME had ignored `IMC_SETOPENSTATUS`, exactly as
+  the paragraph above said it might. The answer taken then was to open the
+  IME by its OWN TOGGLE — `kanji` (半角/全角, VK 0x19) through `KEYS`, the
+  door the keystrokes were demonstrably arriving by — and to require
+  `open: 1` back from `IMESTATE` before typing anything.
+
+  The SECOND run returned `open: 1`, `conversion: 9`, `native: true` on
+  Chromium — engaged, by that gate — while `compositionstart` stayed at ZERO
+  on every check and the romaji went into the box as literal ASCII. And
+  `conversion: 9` is `IME_CMODE_HIRAGANA`: the exact constant
+  `RequestJapanese` had just written. **The IMM32 shim's state is
+  WRITE-THROUGH.** `IMC_GETOPENSTATUS` handed back the bit `IMC_SETOPENSTATUS`
+  had set, on an input context the TSF service was not reading, so the gate
+  proved a value had been written and nothing else. It could not have failed.
+
+  So `IMESTATE`, `IMEON` and `IMECONV` are ATTEMPTS AND OBSERVATIONS, and the
+  caller uses them as such: it prints the reading and gates on CONDUCT
+  instead — one romaji letter typed into the page, and a `compositionstart`
+  read off the page's own event stream. Nothing this driver can write to an
+  input context produces one of those.
+
+  ## Why the toggle went nowhere: `MapVirtualKey` and the zero scan code
+
+  The same run leaves the toggle itself under suspicion, and the cause was in
+  `SendKey`. It resolved every scan code with `MapVirtualKeyW`, which maps
+  against the layout of the CALLING thread — this driver's, which is English.
+  `VK_KANJI` has no key on that layout, so the call answered 0, and a
+  zero-scan keystroke is one an IME may decline (the comment on `SendKey`
+  said so all along). Measured here: `MapVirtualKeyW(0x19, VK_TO_VSC)` is
+  `0x00`, and so, it turns out, is `MapVirtualKeyExW(0x19, VK_TO_VSC,
+  0x04110411)` — `VK_KANJI` is an IMM32 virtual key with no physical key
+  behind it in any layout table. `ScanFor` therefore asks the target
+  window's own layout first, falls back to this thread's, and puts a LITERAL
+  `0x29` under the IME toggle beneath both, which is the only one of the
+  three that can answer for it. `KEYS` reports the scans it sent, so a zero
+  can never again be invisible.
 #>
 
 [CmdletBinding()]
@@ -130,6 +157,7 @@ public static class Rf2Ime
   // --- synthetic input ----------------------------------------------------
   [DllImport("user32.dll", SetLastError = true)] private static extern uint SendInput(uint n, INPUT[] inputs, int size);
   [DllImport("user32.dll")] private static extern uint MapVirtualKeyW(uint code, uint mapType);
+  [DllImport("user32.dll")] private static extern uint MapVirtualKeyExW(uint code, uint mapType, IntPtr hkl);
 
   [StructLayout(LayoutKind.Sequential)]
   private struct KEYBDINPUT { public ushort wVk; public ushort wScan; public uint dwFlags; public uint time; public IntPtr dwExtraInfo; }
@@ -163,6 +191,20 @@ public static class Rf2Ime
   // Hiragana: native reading, full-width. What a person selects when they
   // pick "ひらがな" in the language bar.
   private const int IME_CMODE_HIRAGANA = 0x0009;   // NATIVE | FULLSHAPE
+
+  private const uint MAPVK_VK_TO_VSC = 0;
+  private const uint VK_KANJI = 0x19;
+  // 半角/全角 sits where the backtick does on a US board: set-1 scan code
+  // 0x29. A LITERAL, and load-bearing rather than belt-and-braces. Measured
+  // on this machine, with the Japanese layout installed:
+  //
+  //     MapVirtualKeyW  (0x19, VK_TO_VSC)             -> 0x00
+  //     MapVirtualKeyExW(0x19, VK_TO_VSC, 0x04110411) -> 0x00
+  //
+  // VK_KANJI is an IMM32 virtual key with no physical key behind it in ANY
+  // layout table — the JIS 半角/全角 key reaches Windows as VK_OEM_AUTO — so
+  // no lookup can supply this and only a literal can.
+  private const ushort SCAN_HANKAKU_ZENKAKU = 0x29;
 
   /// Every visible top-level window whose title contains `needle`. Returned
   /// with the match COUNT rather than only the first hit: two windows
@@ -227,7 +269,9 @@ public static class Rf2Ime
   /// the IME and put it in Hiragana. A REQUEST: `WM_INPUTLANGCHANGEREQUEST`
   /// is posted (the owning thread applies it, not us), and the IMM32
   /// control messages reach a TSF text service through a compatibility
-  /// shim that need not honour them. The caller verifies afterwards.
+  /// shim that need not honour them — and whose stored state answers the
+  /// matching GETs whether it honoured them or not. The caller verifies
+  /// afterwards, by conduct, not by reading these values back.
   public static long RequestJapanese(IntPtr hwnd)
   {
     IntPtr hkl = LoadKeyboardLayoutW("00000411", 0x00000001 /* KLF_ACTIVATE */);
@@ -271,13 +315,41 @@ public static class Rf2Ime
     return conversion >= 0 && (conversion & IME_CMODE_NATIVE) == IME_CMODE_NATIVE;
   }
 
-  /// One key down+up through the OS input stack. The virtual key carries a
-  /// real scan code (`MapVirtualKey`) because an IME reads both, and a
-  /// keystroke with a zero scan code is one an IME may decline to compose
-  /// from.
-  public static uint SendKey(ushort vk)
+  /// The scan code a physical keyboard would carry for `vk`, resolved UNDER
+  /// THE LAYOUT OF THE WINDOW BEING TYPED INTO.
+  ///
+  /// `MapVirtualKeyW` maps against the CALLING thread's layout — this
+  /// driver's, which is English — where `VK_KANJI` is not a key and the
+  /// answer is 0. That is how the 半角/全角 toggle came to be sent all of
+  /// 2026-08-12 with a zero scan code, which is precisely the keystroke
+  /// `SendKey` below says an IME may decline.
+  ///
+  /// So: the window's own HKL first (`MapVirtualKeyExW`), this thread's
+  /// layout as the fallback, and a literal under the IME toggle beneath
+  /// both. THE LITERAL IS THE ONE THAT ANSWERS FOR THAT KEY — measured, the
+  /// Japanese HKL returns 0 for `VK_KANJI` as well (see
+  /// `SCAN_HANKAKU_ZENKAKU`). The layout lookup is still the right first
+  /// question for the ordinary keys, whose scan codes DO differ between
+  /// layouts, and a zero surviving all three is a real answer that `KEYS`
+  /// reports rather than hides.
+  public static ushort ScanFor(ushort vk, IntPtr hwnd)
   {
-    ushort scan = (ushort)MapVirtualKeyW(vk, 0 /* MAPVK_VK_TO_VSC */);
+    long hkl = LayoutOf(hwnd);
+    ushort scan = 0;
+    if (hkl != 0) scan = (ushort)MapVirtualKeyExW(vk, MAPVK_VK_TO_VSC, new IntPtr(hkl));
+    if (scan == 0) scan = (ushort)MapVirtualKeyW(vk, MAPVK_VK_TO_VSC);
+    if (scan == 0 && vk == VK_KANJI) scan = SCAN_HANKAKU_ZENKAKU;
+    return scan;
+  }
+
+  /// One key down+up through the OS input stack. The virtual key carries a
+  /// real scan code because an IME reads both, and a keystroke with a zero
+  /// scan code is one an IME may decline to compose from. The scan is a
+  /// PARAMETER rather than something computed here: the only correct answer
+  /// depends on the window being typed into, which this function is not
+  /// told, and a witness has to be able to print what it actually sent.
+  public static uint SendKey(ushort vk, ushort scan)
+  {
     INPUT[] two = new INPUT[2];
     two[0].type = INPUT_KEYBOARD;
     two[0].U.ki.wVk = vk; two[0].U.ki.wScan = scan; two[0].U.ki.dwFlags = 0;
@@ -298,8 +370,8 @@ $VK = @{
   'home' = 0x24; 'end' = 0x23; 'delete' = 0x2E;
   # The IME's own keys: 半角/全角 toggles the IME, 変換 opens conversion,
   # F7 forces katakana. `kanji` is no longer decorative — it is what the
-  # caller's engage preflight sends, through `KEYS`, when `IMEON`'s IMM32
-  # request leaves a TSF IME closed. The other three are here so a key plan
+  # caller's engage ladder sends, through `KEYS`, while the page is still
+  # showing no `compositionstart`. The other three are here so a key plan
   # can name them, and no default plan does.
   'kanji' = 0x19; 'convert' = 0x1C; 'nonconvert' = 0x1D; 'f7' = 0x76
 }
@@ -398,9 +470,17 @@ while ($null -ne ($line = [Console]::In.ReadLine())) {
         # against this verb cannot drift from the table that sends it.
         $tokens = $parts[2].Split(',') | Where-Object { $_.Length -gt 0 }
         $vks = @($tokens | ForEach-Object { Resolve-Vk $_ })
+        # The window handle is OPTIONAL, because which scan code a key carries
+        # is a question about the layout of the thread that owns the window
+        # and the preflight asks this before any window is found. Given one,
+        # the answer is what `KEYS` would actually send — which is how the
+        # REHEARSAL can show the 半角/全角 toggle carrying a non-zero scan
+        # without sending a single keystroke.
+        $h = if ($parts.Length -gt 3) { [IntPtr][int64]$parts[3] } else { [IntPtr]::Zero }
         Reply $id 'OK' ([ordered]@{
           tokens = ($tokens -join ',')
           vks    = @($vks | ForEach-Object { '0x{0:X2}' -f $_ })
+          scans  = @($vks | ForEach-Object { '0x{0:X2}' -f [Rf2Ime]::ScanFor($_, $h) })
         })
       }
       'FOREGROUND' {
@@ -441,6 +521,10 @@ while ($null -ne ($line = [Console]::In.ReadLine())) {
           # Resolve the WHOLE plan before sending anything. A typo in the
           # fifth token must not leave four keystrokes already delivered.
           $vks = @($tokens | ForEach-Object { Resolve-Vk $_ })
+          # Resolved against the TARGET window's layout, once, before the
+          # first key goes out — see `ScanFor`. Reported below, because the
+          # zero that stopped the IME toggle working was invisible.
+          $scans = @($vks | ForEach-Object { [Rf2Ime]::ScanFor($_, $h) })
           $sent = 0
           for ($i = 0; $i -lt $vks.Count; $i++) {
             # Re-verified per key, not once per batch: the operator can
@@ -451,11 +535,17 @@ while ($null -ne ($line = [Console]::In.ReadLine())) {
               $sent = -1
               break
             }
-            [void][Rf2Ime]::SendKey($vks[$i])
+            [void][Rf2Ime]::SendKey($vks[$i], $scans[$i])
             $sent++
             Start-Sleep -Milliseconds $delay
           }
-          if ($sent -ge 0) { Reply $id 'OK' ([ordered]@{ sent = $sent; tokens = ($tokens -join ',') }) }
+          if ($sent -ge 0) {
+            Reply $id 'OK' ([ordered]@{
+              sent   = $sent
+              tokens = ($tokens -join ',')
+              scans  = ((@($scans | ForEach-Object { '0x{0:X2}' -f $_ })) -join ',')
+            })
+          }
         }
       }
       'QUIT' { Reply $id 'OK' $null; break }
