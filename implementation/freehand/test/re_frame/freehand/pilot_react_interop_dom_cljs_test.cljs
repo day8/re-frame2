@@ -179,11 +179,9 @@
                        (act #(teardown! container mounted))))
               (.then (fn [_]
                        (is (= 0 (pilot/live-instances)))
-                       (is (= 0 (behaviors/connection-count)))
-                       (done)))
-              (.catch (fn [e]
-                        (is false (str "mount rejected: " e))
-                        (done)))))))))
+                       (is (= 0 (behaviors/connection-count)))))
+              (.catch (fn [e] (is false (str "mount rejected: " e)) nil))
+              (.then (fn [_] (done)))))))))
 
 (deftest the-widget-reconciles-from-config-and-nothing-else
   (testing "Desired state reaches the host through `:config` and `:update`,
@@ -206,11 +204,9 @@
                        (is (= 1 (pilot/live-instances))
                            "WITHOUT reconstructing the widget — one instance throughout")
                        (is (= 1 (:constructed (pilot/ledger-snapshot)))
-                           "constructed exactly once")
-                       (done)))
-              (.catch (fn [e]
-                        (is false (str "mount rejected: " e))
-                        (done)))))))))
+                           "constructed exactly once")))
+              (.catch (fn [e] (is false (str "mount rejected: " e)) nil))
+              (.then (fn [_] (done)))))))))
 
 (deftest a-command-reaches-the-widget-and-its-result-comes-back-as-an-event
   (testing "The one-shot imperative operation — export — travels the whole
@@ -271,11 +267,9 @@
                            "and the live DECOY was untouched")
                        (act #(teardown! container mounted))))
               (.then (fn [_]
-                       (is (= 0 (pilot/live-instances)))
-                       (done)))
-              (.catch (fn [e]
-                        (is false (str "mount rejected: " e))
-                        (done)))))))))
+                       (is (= 0 (pilot/live-instances)))))
+              (.catch (fn [e] (is false (str "mount rejected: " e)) nil))
+              (.then (fn [_] (done)))))))))
 
 (deftest widget-teardown-is-total-measured-against-a-control
   (testing "Acceptance for this pilot is an EXACT retained count after
@@ -309,11 +303,9 @@
                             cumulative totals prove the release RAN rather than
                             the counters never having been written")
                        (is (= 0 (behaviors/connection-count)))
-                       (is (= #{} (behaviors/target-ids)))
-                       (done)))
-              (.catch (fn [e]
-                        (is false (str "mount rejected: " e))
-                        (done)))))))))
+                       (is (= #{} (behaviors/target-ids)))))
+              (.catch (fn [e] (is false (str "mount rejected: " e)) nil))
+              (.then (fn [_] (done)))))))))
 
 ;; ===========================================================================
 ;; 2 — a foreign component at a vector head, in the BROWSER
@@ -413,11 +405,9 @@
                            "the foreign component's cleanup ran")
                        (is (= 0 (rpilot/live-probe-listeners))
                            "and its window listener came back off — total release
-                            through a boundary the substrate never sees inside")
-                       (done)))
-              (.catch (fn [e]
-                        (is false (str "mount rejected: " e))
-                        (done)))))))))
+                            through a boundary the substrate never sees inside")))
+              (.catch (fn [e] (is false (str "mount rejected: " e)) nil))
+              (.then (fn [_] (done)))))))))
 
 (deftest a-real-third-party-react-component-renders-and-releases
   (testing "`@xyflow/react` — a genuine third-party React component library,
@@ -454,11 +444,9 @@
                            "and the nested root closed on unmount (one microtask
                             later — see the ABI case above)")
                        (is (nil? (q container ".react-flow"))
-                           "leaving no React Flow DOM behind")
-                       (done)))
-              (.catch (fn [e]
-                        (is false (str "mount rejected: " e))
-                        (done)))))))))
+                           "leaving no React Flow DOM behind")))
+              (.catch (fn [e] (is false (str "mount rejected: " e)) nil))
+              (.then (fn [_] (done)))))))))
 
 (deftest the-nested-roots-release-is-the-one-that-is-not-synchronous
   (testing "The workaround's sharpest edge, MEASURED rather than described.
@@ -524,11 +512,9 @@
                        (is (= 0 (rpilot/live-probe-listeners))
                            "and the foreign listener came back off — the release
                             is total, it is simply one tick behind")
-                       (.remove container)
-                       (done)))
-              (.catch (fn [e]
-                        (is false (str "mount rejected: " e))
-                        (done)))))))))
+                       (.remove container)))
+              (.catch (fn [e] (is false (str "mount rejected: " e)) nil))
+              (.then (fn [_] (done)))))))))
 
 ;; ===========================================================================
 ;; 3b — THE CHILD PATH: a React component as an ordinary child value
@@ -583,11 +569,9 @@
                             the nested root's deferred release")
                        (is (= 0 (behaviors/connection-count))
                            "and nothing connected — the child path opened no behavior")
-                       (.remove container)
-                       (done)))
-              (.catch (fn [e]
-                        (is false (str "mount rejected: " e))
-                        (done)))))))))
+                       (.remove container)))
+              (.catch (fn [e] (is false (str "mount rejected: " e)) nil))
+              (.then (fn [_] (done)))))))))
 
 ;; ===========================================================================
 ;; 3c — THE INWARD HALF of the child path: how a foreign component calls BACK
@@ -745,11 +729,14 @@
                                     (is (= 0 (behaviors/connection-count))
                                         "and no behavior connection — this is the child
                                          path, not the nested-root one")
-                                    (teardown! container mounted)
-                                    (done))))))
-              (.catch (fn [e]
-                        (is false (str "mount rejected: " e))
-                        (done)))))))))
+                                    ;; Success-only, as everywhere in this file:
+                                    ;; `mounted` is what the mount resolved with, so
+                                    ;; the rejection arm has nothing to tear down.
+                                    ;; The nested chain is RETURNED into the outer
+                                    ;; one, whose trailing step owns the single done.
+                                    (teardown! container mounted))))))
+              (.catch (fn [e] (is false (str "mount rejected: " e)) nil))
+              (.then (fn [_] (done)))))))))
 
 ;; ===========================================================================
 ;; 4 — a COMPILED page containing the integration, on a real page
@@ -795,11 +782,9 @@
               (.then (fn [_]
                        (is (= 0 (pilot/live-instances))
                            "and teardown across the crossing is still total")
-                       (is (= 0 (behaviors/connection-count)))
-                       (done)))
-              (.catch (fn [e]
-                        (is false (str "mount rejected: " e))
-                        (done)))))))))
+                       (is (= 0 (behaviors/connection-count)))))
+              (.catch (fn [e] (is false (str "mount rejected: " e)) nil))
+              (.then (fn [_] (done)))))))))
 
 (deftest the-nested-root-is-not-free-and-the-cost-is-named
   (testing "The honest cost accounting, asserted rather than asserted away,
@@ -833,8 +818,6 @@
                          (is (= 1 (:roots-closed l))
                              "opened once, closed once — the second React tree's
                               lifetime is exactly the behavior's connection")
-                         (is (= 0 (:roots l))))
-                       (done)))
-              (.catch (fn [e]
-                        (is false (str "mount rejected: " e))
-                        (done)))))))))
+                         (is (= 0 (:roots l))))))
+              (.catch (fn [e] (is false (str "mount rejected: " e)) nil))
+              (.then (fn [_] (done)))))))))
