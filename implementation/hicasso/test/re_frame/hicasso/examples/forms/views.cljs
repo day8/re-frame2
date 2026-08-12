@@ -59,6 +59,21 @@
 ;; Recipe 1 — the buffered subject field
 ;; ---------------------------------------------------------------------------
 
+(h/defview subject-hint
+  "*Enter commits, Escape reverts* — present only while a session is open.
+
+  Its own boundary, and that is not tidiness. It is the ONLY body that
+  reads `::subs/editing?`, so opening and closing a session re-renders
+  this line and does not re-render the field. That matters more than it
+  looks: the field's reads are what decide when it re-commits, and a
+  re-commit is what re-asserts the model over the box. Leave this read in
+  the field's own body and every session end re-commits for free — which
+  would make `::h/revision` inert, and a reset that only works because
+  something else happened to re-render is not a reset."
+  [{:keys [ikey]}]
+  (when (h/sub [::subs/editing? ikey])
+    [:p.subject-hint "Enter commits, Escape reverts."]))
+
 (h/defview subject-field
   "The ticket's subject, edited in place behind a draft.
 
@@ -74,18 +89,24 @@
   namespace docstring on why this field has one and the two below do
   not."
   [{:keys [ikey]}]
-  [:div.subject-field
-   [:label {:for "ticket-subject"} "Subject"]
-   [:input#ticket-subject.subject
-    {:type        "text"
-     :value       (h/sub [::subs/subject-shown ikey])
-     ::h/revision (h/sub [::subs/subject-revision ikey])
-     :on-input    [db/subject-draft ikey ::h/value]
-     :on-blur     [::events/commit-subject ikey]
-     :on-key-down {"Enter"  [::events/commit-subject ikey]
-                   "Escape" [::events/cancel-subject ikey]}}]
-   (when (h/sub [::subs/editing? ikey])
-     [:p.subject-hint "Enter commits, Escape reverts."])])
+  ;; The id carries the instance key for the same reason the draft does:
+  ;; two tickets edited on one page must not share an id, or the second
+  ;; `<label for=…>` names the first field and a click focuses the wrong
+  ;; one. An id is per-instance state too, and the page is where it shows.
+  (let [id (str "ticket-" ikey "-subject")]
+    [:div.subject-field
+     [:label {:for id} "Subject"]
+     [:input
+      {:id          id
+       :class       "subject"
+       :type        "text"
+       :value       (h/sub [::subs/subject-shown ikey])
+       ::h/revision (h/sub [::subs/subject-revision ikey])
+       :on-input    [db/subject-draft ikey ::h/value]
+       :on-blur     [::events/commit-subject ikey]
+       :on-key-down {"Enter"  [::events/commit-subject ikey]
+                     "Escape" [::events/cancel-subject ikey]}}]
+     [subject-hint {:ikey ikey}]]))
 
 ;; ---------------------------------------------------------------------------
 ;; Recipe 2 — an ordinary field, its touch mark and its gated problem
