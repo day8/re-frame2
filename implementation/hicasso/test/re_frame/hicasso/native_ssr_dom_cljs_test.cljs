@@ -49,11 +49,15 @@
 
   ## What is deliberately NOT here
 
-  - **`identifierPrefix` across two hydrating roots.** `h/hydrate!` takes
-    no root options for it (`impl.mount/hydrate-root!` passes
-    `onRecoverableError` and nothing else), so it is not reachable from a
-    native island; it belongs to HS-11/HS-14 and those rows stay
-    Client-only.
+  - **`identifierPrefix` across two hydrating roots.** It belongs to
+    HS-11/HS-14 and it is witnessed there, in
+    `re-frame.hicasso.identifier-prefix-ssr-dom-cljs-test`. When this
+    file was written the prefix was UNSPELLABLE — `hydrate-root!` passed
+    `onRecoverableError` and nothing else — and the bullet said so and
+    stopped. The operator then ruled a thin pass-through, so
+    `:identifier-prefix` is now an option on both root doors and the
+    clause is reachable; what has not changed is that it is not a
+    NATIVE-tier claim, which is why it is still not here.
   - **Two overlapping roots' mismatch ATTRIBUTION.** Witnessed already,
     per root and against React's own count, in
     `re-frame.hicasso.roots-frames-hydration-dom-cljs-test`. What is
