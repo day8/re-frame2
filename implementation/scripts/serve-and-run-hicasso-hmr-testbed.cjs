@@ -635,7 +635,7 @@ function verdictLine(engines, reloads, overrides = TIMEOUT_OVERRIDES,
   const missing = all.filter((e) => !engines.includes(e));
   const causes = [];
   if (missing.length > 0) {
-    causes.push(`HICASSO_HMR_ENGINES narrowed this run, so `
+    causes.push('HICASSO_HMR_ENGINES narrowed this run, so '
       + `${missing.join(' + ')} never ran`);
   }
   if (!comparedAcrossEngines(engines)) {
@@ -881,7 +881,10 @@ function runMutationTeeth() {
   // the two questions apart. The middle of the range is where they differ
   // and is therefore where the teeth have to bite.
 
-  bite('a compared run prints the full verdict and names its engines', () => {
+  // Named for what it actually requires. It used to read "a compared run",
+  // which is the very substitution this bead is about: being compared is
+  // not what earns the full token, having run the matrix is.
+  bite('a FULL-MATRIX run prints the full verdict and names its engines', () => {
     const line = verdictLine(ALL_ENGINES, 36, []);
     return line.startsWith(FULL_VERDICT)
       && line.includes('chromium + firefox + webkit')
