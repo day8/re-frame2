@@ -434,7 +434,7 @@
                             that instead — and would still leave `activeElement`
                             on a marked heading, which is why the row below is
                             written against the application's OWN node rather
-                            than against the marker")))
+                            than against the marker"))
                      (focused-heading m "the deep link's landing focus")))
             (.then (fn [h]
                      (is (identical? h (active))
