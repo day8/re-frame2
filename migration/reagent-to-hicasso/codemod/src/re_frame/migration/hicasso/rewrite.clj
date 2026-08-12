@@ -282,14 +282,29 @@
 (defn ns-form?
   "Is this node the file's `ns` form? Public because the census asks it of
   a zipper LOCATION (it wants the form's line), and one spelling of \"this
-  is the `ns` form\" is one spelling."
+  is the `ns` form\" is one spelling.
+
+  **Through metadata.** `^:cljstyle/ignore (ns …)` is an ordinary
+  top-level shape, and reading it as \"not the `ns` form\" is not a
+  cosmetic miss: [[ns-context]] then binds NOTHING for the whole file, so
+  W4 and W5 go dead in it, every Reagent API in it goes unnamed, and the
+  report stays non-empty — `:>` needs no alias — so nothing looks wrong.
+  Athens' `views/pages/graph.cljs` is exactly this file: four `(r/atom …)`
+  invisible under a `^:cljstyle/ignore`, in a namespace whose report had
+  eleven other entries in it."
   [node]
-  (and (list-node? node) (= 'ns (sexpr-safe (element-at node 0)))))
+  (let [nd (second (unwrap-metas node))]
+    (and (list-node? nd) (= 'ns (sexpr-safe (element-at nd 0))))))
 
 (defn- ns-form-node
-  "This file's `ns` form, as a node, or `nil`."
+  "This file's `ns` form, as a node, or `nil` — under any metadata chain,
+  so callers get the list whose elements are the clauses."
   [root-node]
-  (first (filter ns-form? (elements root-node))))
+  (some->> (elements root-node)
+           (filter ns-form?)
+           first
+           unwrap-metas
+           second))
 
 (defn names-reagent?
   "Does this file's `ns` form NAME a Reagent namespace — whatever the
@@ -323,7 +338,7 @@
   [root-node]
   (boolean
    (when-let [nsf (ns-form-node root-node)]
-     (let [clauses (remove #(contains? #{:token :multi-line :map} (n/tag %))
+     (let [clauses (remove #(contains? #{:token :multi-line :map :meta} (n/tag %))
                            (elements nsf))
            s       (apply str (map n/string clauses))]
        (some #(str/includes? s (str %)) reagent-namespaces)))))
