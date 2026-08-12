@@ -448,12 +448,17 @@
   (let [[split? set-split] (react/useState false)]
     (react/useEffect (fn [] (reset! !set-split set-split) js/undefined)
                      #js [set-split])
+    ;; The panel is a DIRECT child of the boundary, with no wrapper. React
+    ;; hides a suspended primary tree by setting `display: none` on the
+    ;; boundary's own host children, and `getComputedStyle` does not
+    ;; cascade that to descendants — a `<div>` in between would report the
+    ;; panel visible throughout the suspension and the ownership rows
+    ;; below would be measuring a premise that never held.
     (codec/root-element
       frame-id
       [suspense-host {:fallback [:p {:id "skel2"} "waiting"]}
-       [:div
-        [own-panel {}]
-        (when split? [own-host {}])]])))
+       [own-panel {}]
+       (when split? [own-host {}])])))
 
 (unchecked-set split-host "displayName" "lzb/split-host")
 
