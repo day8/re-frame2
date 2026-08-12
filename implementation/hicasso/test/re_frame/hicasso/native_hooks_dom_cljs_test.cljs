@@ -222,13 +222,24 @@
 
 (defn- skip! [why] (is true (str "a native-hook claim needs a real React DOM — " why)))
 
-(defn- fail-and-finish!
-  [done label handle]
+(defn- report-failure!
+  "Reports a rejection against `label`, releasing `handle` when this row's
+  rejection arm has one; it does NOT finish the row.
+
+  `done` hands `cljs.test/run-block` a continuation that runs the WHOLE
+  remainder of the run synchronously, so a `.catch` sitting downstream of the
+  step that finished the row claims whatever a LATER namespace throws, prints
+  it against this row's label, and calls `done` a SECOND time — re-forcing
+  `run-block`'s unrealized delay and re-running the offending namespace, which
+  `run-browser-tests.cjs` promotes to a fatal console match (rf2-e8kc). Every
+  chain below therefore reports here and finishes on a single trailing step,
+  with nothing after it."
+  [label handle]
   (fn [e]
     (is false (str label " — " (.-message e)
                    " | residue " (pr-str (inventory/residue))))
     (when handle (mount/release! handle))
-    (done)))
+    nil))
 
 (defn- teardown!
   "Unmount, read the census while it is still exact, then finish the
@@ -304,8 +315,14 @@
                 (exercised! :hooks/mounted-read)
                 (testing "teardown releases every membership the mount took"
                   (is (= support/released (teardown! handle))))
-                (done)))
-            (.catch (fail-and-finish! done "W1 mounted read" nil)))))))
+                nil))
+            (.catch (report-failure! "W1 mounted read" nil))
+            ;; The single `done`, on the single trailing step, with nothing
+            ;; after it. Teardown is NOT hoisted onto it: it is an ASSERTION
+            ;; under test in the success arm — the census must read
+            ;; `support/released` — and the rejection arm never had the
+            ;; handle, which `mount-live!` resolves WITH.
+            (.then (fn [_] (done))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; W2. A write wakes its readers and nobody else
@@ -346,8 +363,14 @@
 
                 (exercised! :hooks/selective-wake)
                 (is (= support/released (teardown! handle)))
-                (done)))
-            (.catch (fail-and-finish! done "W2 selective wake" nil)))))))
+                nil))
+            (.catch (report-failure! "W2 selective wake" nil))
+            ;; The single `done`, on the single trailing step, with nothing
+            ;; after it. Teardown is NOT hoisted onto it: it is an ASSERTION
+            ;; under test in the success arm — the census must read
+            ;; `support/released` — and the rejection arm never had the
+            ;; handle, which `mount-live!` resolves WITH.
+            (.then (fn [_] (done))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; W3. THE characteristic failure: a re-render that changed no read
@@ -413,8 +436,14 @@
 
                   (exercised! :hooks/no-resubscribe)
                   (is (= support/released (teardown! handle)))
-                  (done))))
-            (.catch (fail-and-finish! done "W3 no re-subscribe" nil)))))))
+                  nil)))
+            (.catch (report-failure! "W3 no re-subscribe" nil))
+            ;; The single `done`, on the single trailing step, with nothing
+            ;; after it. Teardown is NOT hoisted onto it: it is an ASSERTION
+            ;; under test in the success arm — the census must read
+            ;; `support/released` — and the rejection arm never had the
+            ;; handle, which `mount-live!` resolves WITH.
+            (.then (fn [_] (done))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; W4. StrictMode's double mount, and exact teardown
@@ -469,8 +498,14 @@
                                (is (= {:cells 0 :cell-refs 0 :boundaries 0
                                        :edges 0 :entries 0}
                                       (inventory/residue))))
-                             (done))))))
-            (.catch (fail-and-finish! done "W4 StrictMode" nil)))))))
+                             nil)))))
+            (.catch (report-failure! "W4 StrictMode" nil))
+            ;; The single `done`, on the single trailing step, with nothing
+            ;; after it. Teardown is NOT hoisted onto it: it is an ASSERTION
+            ;; under test in the success arm — the census must read
+            ;; `support/released` — and the rejection arm never had the
+            ;; handle, which `mount-live!` resolves WITH.
+            (.then (fn [_] (done))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; W5. Frames are isolated contexts — on this side of the fence too
@@ -517,8 +552,14 @@
                   (mount/unmount! a)
                   (is (= support/released (teardown! b)))
                   (mount/release! (assoc a :root nil))
-                  (done))))
-            (.catch (fail-and-finish! done "W5 frame isolation" nil)))))))
+                  nil)))
+            (.catch (report-failure! "W5 frame isolation" nil))
+            ;; The single `done`, on the single trailing step, with nothing
+            ;; after it. Teardown is NOT hoisted onto it: it is an ASSERTION
+            ;; under test in the success arm — the census must read
+            ;; `support/released` — and the rejection arm never had the
+            ;; handle, which `mount-live!` resolves WITH.
+            (.then (fn [_] (done))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; W6. `use-frame`, both halves of the incarnation rule
@@ -610,9 +651,25 @@
 
                             (exercised! :hooks/incarnation)
                             (is (= support/released (teardown! handle)))
-                            (done)))
-                        (.catch (fail-and-finish! done "W6 incarnation" handle)))))))
-            (.catch (fail-and-finish! done "W6 incarnation" nil)))))))
+                            nil))
+                        ;; The inner chain now finishes NOTHING — it is
+                        ;; returned into the outer one below, whose single
+                        ;; trailing step is this row's only exit. Its own
+                        ;; diagnostic is kept rather than folded into the
+                        ;; outer one, because only this arm can say the
+                        ;; reincarnation never landed.
+                        ;;
+                        ;; Its `handle` release stays here rather than riding
+                        ;; the tail: the success arm's `teardown!` is an
+                        ;; ASSERTION under test — the census must read
+                        ;; `support/released` — so the failure arm does
+                        ;; strictly less, not the same thing.
+                        (.catch (report-failure! "W6 incarnation" handle)))))))
+            (.catch (report-failure! "W6 incarnation" nil))
+            ;; The single `done`, on the single trailing step, with nothing
+            ;; after it. Both of the inner chain's arms reach it, because the
+            ;; inner chain is returned into this one.
+            (.then (fn [_] (done))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; W7. The external-store ceiling, measured
@@ -652,8 +709,14 @@
 
                 (exercised! :hooks/transition)
                 (is (= support/released (teardown! handle)))
-                (done)))
-            (.catch (fail-and-finish! done "W7 transition" nil)))))))
+                nil))
+            (.catch (report-failure! "W7 transition" nil))
+            ;; The single `done`, on the single trailing step, with nothing
+            ;; after it. Teardown is NOT hoisted onto it: it is an ASSERTION
+            ;; under test in the success arm — the census must read
+            ;; `support/released` — and the rejection arm never had the
+            ;; handle, which `mount-live!` resolves WITH.
+            (.then (fn [_] (done))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; The roster
