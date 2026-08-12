@@ -233,12 +233,12 @@
               (.then (fn [_]
                        (ms/outlines-agree? (anchor ci) (anchor cc) "route-link anchor")
                        (is (= "/articles/the-intro" (.getAttribute (anchor ci) "href"))
-                           "non-vacuous: the shared anchor really carries the route href")
-                       (ms/destroy-root! ci ri)
-                       (ms/destroy-root! cc rc)
-                       (done)))
-              (.catch (fn [e]
-                        (is false (str "a route-link mount rejected: " e))
-                        (ms/destroy-root! ci ri)
-                        (ms/destroy-root! cc rc)
-                        (done)))))))))
+                           "non-vacuous: the shared anchor really carries the route href")))
+              ;; Reports and RELEASES; it never finishes (rf2-o0n1). `done` runs
+              ;; the whole remainder of the run synchronously, so a `.catch`
+              ;; downstream of it would claim a later namespace's throw as this
+              ;; row's and fire `done` a second time.
+              (.catch (fn [e] (is false (str "a route-link mount rejected: " e)) nil))
+              ;; Both arms tore both roots down identically, so the teardown
+              ;; rides the single trailing step: written once, run once per path.
+              (.then (fn [_] (ms/destroy-root! ci ri) (ms/destroy-root! cc rc) (done)))))))))

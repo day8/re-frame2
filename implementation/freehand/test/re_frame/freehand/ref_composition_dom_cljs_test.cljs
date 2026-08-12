@@ -267,8 +267,11 @@
                          (is (= pending (top-layer/pending-count))
                              "with the commit batch drained"))
                        (is (nil? (by-id menu-id))
-                           "and the node left the document with both of them")
-                       (done)))
-              (.catch (fn [e]
-                        (is false (str "browser run failed: " e))
-                        (done)))))))))
+                           "and the node left the document with both of them")))
+              ;; Reports and RELEASES; it never finishes (rf2-o0n1). `done` runs
+              ;; the whole remainder of the run synchronously, so a `.catch`
+              ;; downstream of it would claim a later namespace's throw as this
+              ;; row's and fire `done` a second time. Nothing to hoist: both
+              ;; teardowns are `act`ed mid-chain, as the steps under test.
+              (.catch (fn [e] (is false (str "browser run failed: " e)) nil))
+              (.then (fn [_] (done)))))))))

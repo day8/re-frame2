@@ -129,15 +129,15 @@
               (.then (fn [_]
                        (ms/outlines-agree? (el ci) (el cc) "popover element")
                        (is (= "auto" (.getAttribute (el ci) "popover"))
-                           "non-vacuous: it really is an auto popover")
-                       (ms/destroy-root! ci ri)
-                       (ms/destroy-root! cc rc)
-                       (done)))
-              (.catch (fn [e]
-                        (is false (str "a popover mount rejected: " e))
-                        (ms/destroy-root! ci ri)
-                        (ms/destroy-root! cc rc)
-                        (done)))))))))
+                           "non-vacuous: it really is an auto popover")))
+              ;; Reports and RELEASES; it never finishes (rf2-o0n1). `done` runs
+              ;; the whole remainder of the run synchronously, so a `.catch`
+              ;; downstream of it would claim a later namespace's throw as this
+              ;; row's and fire `done` a second time.
+              (.catch (fn [e] (is false (str "a popover mount rejected: " e)) nil))
+              ;; Both arms tore both roots down identically, so the teardown
+              ;; rides the single trailing step: written once, run once per path.
+              (.then (fn [_] (ms/destroy-root! ci ri) (ms/destroy-root! cc rc) (done)))))))))
 
 ;; ===========================================================================
 ;; Row 2 — a popover promotes to the real top layer at layout time

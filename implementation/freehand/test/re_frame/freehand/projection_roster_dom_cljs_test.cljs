@@ -162,11 +162,16 @@
                            "and the dismissal is the WORD the platform used — no
                             counting, no inference, and distinguishable from the
                             opening report by equality")
-                       (teardown! container root)
-                       (done)))
-              (.catch (fn [e]
-                        (is false (str "browser run failed: " e))
-                        (done)))))))))
+                       ;; ASYMMETRIC, so it stays put: the rejection arm below
+                       ;; tore nothing down, and there is nothing here that both
+                       ;; arms already wrote for the trailing step to carry.
+                       (teardown! container root)))
+              ;; Reports and RELEASES; it never finishes (rf2-o0n1). `done` runs
+              ;; the whole remainder of the run synchronously, so a `.catch`
+              ;; downstream of it would claim a later namespace's throw as this
+              ;; row's and fire `done` a second time.
+              (.catch (fn [e] (is false (str "browser run failed: " e)) nil))
+              (.then (fn [_] (done)))))))))
 
 ;; ===========================================================================
 ;; `::v/scroll-top` — the offset a windowed table windows on
@@ -201,8 +206,8 @@
                        (is (= 640 (scroll-top))
                            "each scroll reads its OWN event, so a windowed table
                             follows the viewport rather than one render's snapshot")
-                       (teardown! container root)
-                       (done)))
-              (.catch (fn [e]
-                        (is false (str "browser run failed: " e))
-                        (done)))))))))
+                       ;; Success-only, as above.
+                       (teardown! container root)))
+              ;; Reports and RELEASES, as above.
+              (.catch (fn [e] (is false (str "browser run failed: " e)) nil))
+              (.then (fn [_] (done)))))))))

@@ -611,15 +611,22 @@
                   (is (empty? (root/frame-ledger-snapshot))
                       "and the row is released")
                   (trace-tooling/unregister-listener! k)
-                  (rf/destroy-frame! fid)
-                  (.remove node)
-                  (done)))
+                  (rf/destroy-frame! fid)))
+              ;; Reports and RELEASES; it never finishes (rf2-o0n1). `done` runs
+              ;; the whole remainder of the run synchronously, so a `.catch`
+              ;; downstream of it would claim a later namespace's throw as this
+              ;; row's and fire `done` a second time.
+              ;;
+              ;; The unregister is written on both arms rather than hoisted: on
+              ;; the success arm it has to run BEFORE `destroy-frame!`, whose
+              ;; own diagnostics the listener is not meant to collect.
               (.catch
                 (fn [e]
                   (trace-tooling/unregister-listener! k)
                   (is false (str "legacy-release loudness suite rejected: " e))
-                  (.remove node)
-                  (done)))))))))
+                  nil))
+              ;; Shared node detach, hoisted onto the single trailing step.
+              (.then (fn [_] (.remove node) (done)))))))))
 
 ;; ===========================================================================
 ;; FH-ROOT-005 — the UPGRADE boundary: a pre-#6871 FLAT ledger row across the
@@ -756,13 +763,16 @@
               (.then
                 (fn [_]
                   (is (empty? (root/frame-ledger-snapshot))
-                      "final release of the tombstoned row empties the ledger, no re-alarm")
-                  (.remove node) (done)))
+                      "final release of the tombstoned row empties the ledger, no re-alarm")))
+              ;; Reports and RELEASES, as above; the unregister stays on both
+              ;; arms for the same reason.
               (.catch
                 (fn [e]
                   (trace-tooling/unregister-listener! k)
                   (is false (str "migrated-flat destroy-hook suite rejected: " e))
-                  (.remove node) (done)))))))))
+                  nil))
+              ;; Shared node detach, hoisted onto the single trailing step.
+              (.then (fn [_] (.remove node) (done)))))))))
 
 (deftest fh-root-005-a-tokenless-flat-row-stays-legacy-and-fails-loud
   (testing "Per FH-ROOT-005 / rf2-4pvsy AC4 (browser): a genuinely tokenless

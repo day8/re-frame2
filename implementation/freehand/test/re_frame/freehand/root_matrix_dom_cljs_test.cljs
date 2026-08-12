@@ -215,12 +215,17 @@
                            (.then (fn [mc]
                                     (ms/outlines-agree? (ms/q ni "#app") (ms/q nc "#app") "root element")
                                     (is (= "same" (ms/text-of ni "#app")) "non-vacuous: the root really rendered")
+                                    ;; ASYMMETRIC, so they stay put: `mi` and
+                                    ;; `mc` are what the two mounts resolved
+                                    ;; with, and a rejection arm never had a
+                                    ;; root to unmount.
                                     (-> (ms/act #(v/unmount! mi))
-                                        (.then (fn [_] (ms/act #(v/unmount! mc))))
-                                        (.then (fn [_]
-                                                 (.remove ni) (.remove nc)
-                                                 (done)))))))))
-              (.catch (fn [e]
-                        (is false (str "a root mount rejected: " e))
-                        (.remove ni) (.remove nc)
-                        (done)))))))))
+                                        (.then (fn [_] (ms/act #(v/unmount! mc))))))))))
+              ;; Reports and RELEASES; it never finishes (rf2-o0n1). `done` runs
+              ;; the whole remainder of the run synchronously, so a `.catch`
+              ;; downstream of it would claim a later namespace's throw as this
+              ;; row's and fire `done` a second time.
+              (.catch (fn [e] (is false (str "a root mount rejected: " e)) nil))
+              ;; The node detach both arms DID share rides the single trailing
+              ;; step: written once, run once per path.
+              (.then (fn [_] (.remove ni) (.remove nc) (done)))))))))
