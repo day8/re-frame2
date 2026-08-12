@@ -398,7 +398,11 @@
       [:span {:style {:color (:text-secondary tokens)}}
        (str "owner: " (hh/format-id (:owner class))
             " (" (hh/format-id (:basis class)) ")  ")]
-      (loss-chip (str stem "-class") (hh/loss-chip (:loss class) hh/unknown))
+      ;; One-arity on purpose. Passing `hh/unknown` as the value would mint
+      ;; an `unknown` chip for a classification that IS known — a measured
+      ;; `:computation` owner carries no loss, and a chip beside it saying
+      ;; the field is not held would contradict the sentence next to it.
+      (loss-chip (str stem "-class") (hh/loss-chip (:loss class)))
       [:div {:style {:margin-top "3px"}} (:says class)]]
      ;; THE ROUTE — or the refusal, which is the same field and never a
      ;; blank. A boundary the advisor will not route is the case a reader
