@@ -1,18 +1,32 @@
 # Native IME on Firefox and WebKit — the scripted witness
 
+> **THE AVENUE IS REFUSED, AND THIS IS THE RECORD OF HOW** (operator ruling, 2026-08-12). The rig was built to replace
+> the human at the keyboard. Three armed runs established that the OS will not permit that on this machine — the modern
+> Microsoft IME never composed for the Playwright windows, **not even under the operator's physical toggle**. Acceptance
+> therefore goes back to the bounded manual session at
+> [`native-ime-manual-witness.md`](native-ime-manual-witness.md), real-IME automation is **again** classified as
+> over-engineering, and no further rig work or IME-automation attempt is sanctioned. **Read [§11](#11-the-outcome-and-the-three-walls) first**: it
+> carries the three walls, their run evidence, and the amended close rule.
+>
+> **The rig is not deprecated and this document is not history.** It stays in the tree with its 39 teeth, because it is
+> what found all three walls — each of them honestly, and none of them guessed at. Sections 1–10 describe it as built,
+> in the present tense of its own design; read them as the record of a sanctioned attempt rather than as instructions
+> to run one.
+
 A **locally-run, machine-bound** witness that drives a **real** Windows IME from a script, in Playwright's pinned
-Firefox and WebKit with Chromium as the already-verified control. It replaces the human in the bounded native-IME
-session of [`native-ime-manual-witness.md`](native-ime-manual-witness.md). It does **not** replace a gate, because it
-was never one.
+Firefox and WebKit with Chromium as the already-verified control. It was built to replace the human in the bounded
+native-IME session of [`native-ime-manual-witness.md`](native-ime-manual-witness.md) — an intent
+[§11](#11-the-outcome-and-the-three-walls) records as refused. It does **not** replace a gate, because it was never one.
 
 ## 1. Read this before you quote it as coverage
 
 | | |
 |---|---|
-| **Is** | a scripted, repeatable version of the one bounded operator session, whose results fill the two pending cells in [`product/dispositions.md` §2.3](product/dispositions.md#23-per-control-and-dom-conformance-dispositions) |
+| **Is** | the record of a **refused avenue** — a scripted attempt at the one bounded operator session, and the three walls it found ([§11](#11-the-outcome-and-the-three-walls)) |
+| **Is not** | the acceptance path. That is the manual session at [`native-ime-manual-witness.md`](native-ime-manual-witness.md), reinstated on 2026-08-12 |
 | **Is not** | a CI gate. It cannot become one |
-| **Needs** | Windows, an **installed Japanese IME**, a visible desktop session, and the machine's keyboard focus |
-| **Recurring regression net** | unchanged — the synthetic three-engine gate `implementation/hicasso/testbed/spec.cjs`, driven by `serve-and-run-hicasso-controlled-testbed.cjs` in the required `cljs-hicasso-controlled` job |
+| **Was built to need** | Windows, an **installed Japanese IME**, a visible desktop session, and the machine's keyboard focus. All were satisfied, and it still could not compose |
+| **Recurring regression net** | unchanged — the synthetic three-engine gate `implementation/hicasso/testbed/spec.cjs`, driven by `serve-and-run-hicasso-controlled-testbed.cjs` in the required `cljs-hicasso-controlled` job, at **97 checks × 3 engines** per PR |
 
 There is no hosted runner with a Japanese IME and a foreground window, so this script runs on a person's desktop, on
 purpose, while they watch. **A green run here is a dated observation, not continuous coverage.** The synthetic gate is
@@ -20,6 +34,10 @@ what reds when someone breaks the composition carve-out tomorrow; this script is
 with it on the day it was run.
 
 ## 2. Why a script, when the ruling once said not to
+
+> **Superseded on 2026-08-12.** The fence quoted below as overturned has been **restored**, and the manual session with
+> it. What follows is why the script was sanctioned; [§11](#11-the-outcome-and-the-three-walls) is what the script then
+> found. Both readings were correct at the time they were made.
 
 The 2026-08-10 ruling settled real native-IME conduct with a bounded manual session and fenced automation off as
 over-engineering. The 2026-08-11 ruling **overturned that fence** and directed the opposite:
@@ -83,8 +101,14 @@ npm run witness:hicasso-native-ime
 node scripts/run-hicasso-native-ime-witness.cjs --dry-run
 
 # 3. The witness proper. THIS TAKES THE KEYBOARD.
+#    DO NOT RUN THIS — see §11. Three armed runs established the IME will not
+#    compose for these windows, and no further attempt is sanctioned.
 node scripts/run-hicasso-native-ime-witness.cjs --inject
 ```
+
+Modes 1 and 2 remain useful and remain honest about what they prove; mode 3 is the refused one. Nothing below is
+withdrawn — it is the design as built, and it is why the refusal in [§11](#11-the-outcome-and-the-three-walls) can be
+stated as a fact about the IME rather than a suspicion about the script.
 
 The rehearsal is the default, and it is a real rehearsal rather than a smoke test: it compiles the `:hicasso/testbed`
 build, serves it, launches each engine headed, installs the observer, reads the trace table back through the DOM,
@@ -138,10 +162,10 @@ Three verdicts, and the third is the point:
 - **INCONCLUSIVE** — the check could not be decided because its **premise** was not met, most often that no composition
   ever started. An inconclusive check leaves the disposition cell unfillable; the run says so and exits non-zero.
 
-The verdict functions are pure and carry **35 mutation teeth** (`--self-test`), because a witness whose verdict logic
-cannot be shown to fail is decoration. The teeth cover each check's tick shape, its defect shape and its
-premise-not-met shape, plus the recording rule that a crossed or incomplete run can never be written into
-`dispositions.md` as verified.
+The verdict functions are pure and carry **39 mutation teeth** (`--self-test`, which prints
+`verdict logic teeth bit: 39`), because a witness whose verdict logic cannot be shown to fail is decoration. The teeth
+cover each check's tick shape, its defect shape and its premise-not-met shape, plus the recording rule that a crossed
+or incomplete run can never be written into `dispositions.md` as verified.
 
 ### What building this found, before it typed anything
 
@@ -159,6 +183,11 @@ override so it costs under a second per engine rather than the thirty the #7815 
 handler reds it with the diagnosis in the message.
 
 ## 8. Check 5, and the observation it exists to resolve
+
+> **The observation is no longer this document's to resolve.** Per the 2026-08-12 ruling it is answered by the manual
+> session's **check 5** — see [`native-ime-manual-witness.md` §5](native-ime-manual-witness.md#5-the-checks). What
+> follows is why the script would have been the sharper instrument for it, which remains true and is part of why the
+> avenue was worth trying.
 
 During the operator's partial manual session on 2026-08-11, typing in the `plain` field and pressing ESC **discarded
 nothing — the draft stayed**. The engine was not recorded and the underline / candidate-window discriminator was never
@@ -186,16 +215,24 @@ testbed app is unmodified: the same bundle a human would open, and the trace tab
 
 ## 9. Recording the results
 
+> **No cell is ever filled from this rig.** It never reached a definite verdict on any engine, and by the 2026-08-12
+> ruling it will not be run again. The cells are filled from the manual session — the close rule below is the amended
+> one, and [§11.5](#115-where-acceptance-goes) is where it is stated in full.
+
 1. The run prints, per engine, a ready-made cell for
    [`product/dispositions.md` §2.3](product/dispositions.md#23-per-control-and-dom-conformance-dispositions) with the
    engine build and the date. It says **Witness-verified** only when every check on the roster reached a definite
-   verdict and none crossed; a crossed run reads **Divergence** and an undecided one reads **Not established**.
-2. **One bead per cross**, with the engine name on it.
-3. `rf2-hic-016` closes when the witness has run on Firefox and WebKit, the results are in §2.3, and any divergence is
-   filed.
+   verdict and none crossed; a crossed run reads **Divergence** and an undecided one reads **Not established**. Across
+   three armed runs it printed no such cell, because no run was ever complete.
+2. **One bead per finding**, with the engine name on it. Unchanged, and it applies to the manual session.
+3. `rf2-hic-016` closes when the **operator's manual session** results for **Firefox and WebKit** are recorded in
+   §2.3 with **date and engine builds**. **Chromium stays the witnessed control.**
 
 If an engine turns out not to accept Windows IME input at all — the Playwright WebKit shell is the plausible
-candidate — **that is itself the finding.** Record it, file the bead, and do not go looking for a way around it.
+candidate — **that is itself the finding.** Record it, file the bead, and do not go looking for a way around it. That
+sentence was written before [§11](#11-the-outcome-and-the-three-walls) and it is the rule the ruling followed: what the
+armed runs found was not a shell that resists a script but a **text service that will not engage for these windows at
+all**, and the answer was to record it and stop, not to route around it.
 
 ## 10. Files
 
@@ -204,3 +241,118 @@ candidate — **that is itself the finding.** Record it, file the bead, and do n
 | `implementation/scripts/run-hicasso-native-ime-witness.cjs` | the orchestrator: preflight, teeth, compile, serve, headed launch per engine, report |
 | `implementation/hicasso/testbed/native-ime-witness.cjs` | the eight checks, the page observer, and the pure verdict functions |
 | `implementation/scripts/lib/windows-ime-driver.ps1` | the OS-level driver: window lookup, IME request/interrogation, `SendInput`, and both interlocks |
+
+All three stay in the tree. None is deprecated; see [§11.6](#116-what-becomes-of-this-rig).
+
+## 11. The outcome, and the three walls
+
+The rig was sanctioned to replace the human at the keyboard. **It cannot, on this machine** — and the reason is not
+that the rig is unfinished. Three armed runs on 2026-08-12, each from an interactive desktop session and each against a
+freshly repaired rig, walked into three separate walls, and **the rig found every one of them itself**. That is what
+makes the avenue closable on evidence rather than abandoned on suspicion: at no point did it type into a window it had
+not verified, keep calling an unengaged IME engaged once the fault was named, or offer a disposition cell from a run
+that had decided nothing.
+
+### 11.1 Wall 1 — the foreground cannot be seized from a non-interactive session
+
+The first armed attempt was run from a background agent session on the evening of 2026-08-11, and every check of every
+engine came back the same way:
+
+```
+KEYS aborted: "foreground window changed after 0 key(s); batch aborted"
+"foreground":70198252,"isForeground":false
+```
+
+The window was found — hwnd matched, title matched, one match per engine — and `SetForegroundWindow` simply did not
+take. Windows restricts foreground seizure to a process that is already the foreground process, which a background
+harness is not. The per-key interlock of [§3](#3-what-it-will-do-to-your-desktop) therefore refused after **zero**
+keystrokes, reported all eight checks INCONCLUSIVE, printed *"WITNESS INCOMPLETE — the disposition cells cannot be
+filled from this run"*, and exited 1.
+
+**This wall was solved, and it stayed solved.** The operator ran the rig interactively and every later run read
+`isForeground: true` on all three engines, with romaji and ESC both proven to arrive. Wall 1 is a precondition the rig
+did not know it had; it is not why the avenue closed. It is here because a rig that had typed anyway would have been
+far worse than one that refused.
+
+### 11.2 Wall 2 — the open-status gate read back its own write
+
+Two runs, one fault, and the second telling is the sharp one.
+
+The **first interactive run** (2026-08-12, against the rig as of PR #7948) delivered keys and still decided nothing.
+`IMESTATE` read `langid 0x0411` and `japanese: true` — and `open: 0` on **every** engine. The modern Microsoft IME is a
+TSF text service reached through an IMM32 compatibility layer, and it had ignored the `IMC_SETOPENSTATUS` request that
+`IMEON` posts, exactly as the driver's own header warns it may. The romaji landed as plain ASCII, no composition ever
+started, and all **24** checks — eight × three engines — returned INCONCLUSIVE against the named premise. PR #7952
+answered it by sending the IME's own toggle key through the proven `SendInput` path and **requiring `open: 1`** before
+any plan could be driven.
+
+The **second interactive run** (2026-08-12, against PR #7952) produced the finding that generalises past this rig.
+Chromium reported `open=1`, `conversion=9`, `native=true`; the rig printed **IME ENGAGED**; its delivery probes read
+1/1 — and `compositionstart` and `compositionupdate` stayed at **0 on every check**, with the romaji sitting in the box
+as literal ASCII. `conversion=9` is `IME_CMODE_HIRAGANA`, the exact constant the driver had just written. The IMM32
+shim's state is **write-through**: `require open:1` was reading back the bit it had itself set, and could not have
+failed.
+
+> **A check that reads back its own write is not evidence.** It was a fail-open sitting *inside* the guard built to
+> prevent one.
+
+**PR #7956** repaired it into a **conduct probe**: type one romaji letter into the `plain` field and require
+`compositionstart > 0` from the page's own observer — an event the browser emits in response to real composed input,
+and one that nothing this rig writes into an input context can produce. The IMM32 reading became a log line and never
+the gate again.
+
+The same run surfaced a second, independent fault wearing the first one's clothes. Firefox read `open: 0` after `IMEON`
+plus two toggles and **aborted honestly with nothing typed** — the right conduct — but the throw killed the whole
+batch, so **WebKit never launched**. Honest abort is correct per *engine*; per *batch* it discards two engines' worth of
+evidence to report one engine's failure. #7956 caught engagement failure at the engine boundary and carried on.
+
+### 11.3 Wall 3 — the IME never composed for the Playwright windows, under any hand
+
+With conduct as the gate, the third run answered the only question left, and answered it against the avenue.
+
+**The modern Microsoft IME never composed for the Playwright browser windows.** Not from `IMEON`. Not from an injected
+半角/全角 carrying a correct scan code. And **not from the operator's physical toggle at the keyboard**: the IME badge
+stayed **"A"** — alphanumeric — for the focused browser window. The "previous version" compatibility engine, tried
+next, reported **"Japanese IME not ready"** pending a session restart.
+
+That last clause is what makes this wall decisive. It is not the rig failing to drive the IME. It is **the IME
+declining to engage for those windows at all, including under a human hand on the physical key.** There is no
+rig-shaped thing left between the keystroke and the text service, so no further rig work reaches past it.
+
+### 11.4 The proportion, and the ruling
+
+The target was always **one-time evidence for two disposition cells** — Firefox and WebKit, once — never a recurring
+gate. The recurring net is untouched and green: the synthetic three-engine gate, **97 checks × 3 engines on every PR**.
+Continuing to fight the Windows text-input service to fill two cells is out of proportion to the two cells, and on
+**2026-08-12** the operator ruled it exactly so. Real-IME automation is **again** classified as over-engineering, the
+2026-08-11 ruling quoted in [§2](#2-why-a-script-when-the-ruling-once-said-not-to) is superseded, and no further rig
+work or IME-automation attempt is sanctioned.
+
+### 11.5 Where acceptance goes
+
+**Back to the bounded manual session.** [`native-ime-manual-witness.md`](native-ime-manual-witness.md) — with its trace
+table, its armed buttons and its discriminating check 7 — **is** the witness. Manual hardware typing is not speculative
+here: the operator's partial session of 2026-08-11 composed real drafts in these same Playwright shells. Eight checks
+per engine, Firefox and WebKit, once.
+
+The amended, final close rule:
+
+> `rf2-hic-016` closes when the operator's **manual session** results for **Firefox and WebKit** are recorded in
+> [`product/dispositions.md` §2.3](product/dispositions.md#23-per-control-and-dom-conformance-dispositions) with
+> **date and engine builds**. **Chromium stays the witnessed control.** Any oddity is **one bead per finding, with the
+> engine name on it.**
+
+The operator's unresolved 2026-08-11 ESC observation ([§8](#8-check-5-and-the-observation-it-exists-to-resolve)) is
+resolved by the manual session's **check 5**, per that document.
+
+### 11.6 What becomes of this rig
+
+**It stays in the tree, with its 39 teeth and its findings.** Nothing here is deprecated, withdrawn or apologised for.
+It is **documentation of a refused avenue** — and the avenue is refused *on evidence* precisely because this rig
+produced the evidence. Read back through the three walls and the pattern is the same each time: the foreground
+interlock refused rather than sprayed; the readback fail-open was caught because the rig reported `compositionstart: 0`
+honestly beside its own "IME ENGAGED"; and the conduct probe is what let wall 3 be stated as a fact about the IME
+rather than a suspicion about the script.
+
+A rig that had typed anyway, or ticked on a bit it had itself set, would have left two disposition cells filled with
+nothing at all. This one left them empty and said why — three times.

@@ -1,17 +1,18 @@
 # Native IME on Firefox and WebKit — the one bounded manual witness
 
-> **SUPERSEDED AS THE ACCEPTANCE PATH (operator ruling, 2026-08-11).** The manual session is retired: the results that
-> fill §2.3 now come from the scripted witness at
-> [`native-ime-scripted-witness.md`](native-ime-scripted-witness.md), which drives a **real** Windows IME from a
-> script. The 2026-08-10 fence quoted in §1 below — "no automation attempts at real IME (ruled over-engineering)" — was
-> explicitly overturned.
+> **REINSTATED AS THE ACCEPTANCE PATH (operator ruling, 2026-08-12).** This session is the witness again, and the
+> results that fill §2.3 come from running it. The 2026-08-11 ruling that retired it in favour of a scripted witness is
+> **superseded**: three armed runs established that the modern Microsoft IME will not compose for the Playwright
+> windows on this machine — not from a script, and **not under the operator's physical toggle** — so the 2026-08-10
+> fence quoted in §1 below is restored and real-IME automation is again classified as over-engineering. The scripted
+> rig stays in the tree as the record of that refused avenue; its outcome section
+> ([`native-ime-scripted-witness.md` §11](native-ime-scripted-witness.md#11-the-outcome-and-the-three-walls)) carries
+> the three walls and their run evidence. **Do not attempt further IME automation.**
 >
-> **This document is not retired, and it is not history.** It remains the prose statement of what each of the eight
-> checks *means*, which field it reads and why that field and not another; the scripted witness implements these
-> semantics rather than restating them, and §7 of that document maps check to code. It also remains the **fallback**:
-> if an engine turns out not to accept scripted OS-level input at all, a human with this checklist is what is left.
-> Read §5 for the checks. Read §3.1 before running any `playwright install` — that hazard is unchanged and is still
-> stated only here.
+> **Run this document.** Read §5 for the checks, §6 for the result table, and §7 for what to do with the results. Read
+> §3.1 before running any `playwright install` — that hazard is unchanged and is still stated only here. It also
+> remains the prose statement of what each of the eight checks *means*, which field it reads and why that field and not
+> another.
 
 A checklist for a single operator session. It is run **once**, by hand, and its results are written into
 [`product/dispositions.md` §2.3](product/dispositions.md#23-per-control-and-dom-conformance-dispositions). It is not a
@@ -42,11 +43,15 @@ The operator ruled on that gap on 2026-08-10, and the ruling is what this docume
 So the recurring witness is the synthetic sequence, and it is enough. This session answers one narrower question the
 synthetic sequence cannot: does a **real** IME, holding a **real** composition range, behave the same way?
 
-~~**Do not try to automate this.** Driving a real IME from a script was considered and ruled over-engineering. If the
-session is awkward, that is the expected cost of running it once.~~ — **overturned on 2026-08-11.** The operator
-sanctioned exactly this automation; see [`native-ime-scripted-witness.md`](native-ime-scripted-witness.md). The
-sentence is struck rather than deleted because the ruling it recorded was real, and a reader who finds this fence
-quoted elsewhere needs to see where it went.
+**Do not try to automate this.** Driving a real IME from a script was considered and ruled over-engineering. If the
+session is awkward, that is the expected cost of running it once.
+
+That fence was overturned on 2026-08-11, the automation was built, and on **2026-08-12 the fence was restored** — this
+time on evidence rather than on estimate. The rig reached the keyboard and the IME still would not compose for the
+Playwright windows, under a script or under a human hand; see
+[`native-ime-scripted-witness.md` §11](native-ime-scripted-witness.md#11-the-outcome-and-the-three-walls). The
+sentence is un-struck rather than left struck because it is operative again, and the history is recorded here rather
+than in typography.
 
 ## 2. What you need
 
@@ -264,9 +269,11 @@ Session date: ______________  Firefox build: ______________  WebKit build: _____
 1. Write the outcome into
    [`product/dispositions.md` §2.3](product/dispositions.md#23-per-control-and-dom-conformance-dispositions), in the
    native-IME block appended there, with the date and both engine builds.
-2. **Anything strange becomes a bead** — per the ruling. A cross in the table is not a reason to re-run the session
-   until it passes; it is a defect report with an engine name on it.
-3. `rf2-hic-016` closes when these results are recorded. Until then it stays open, whatever else has landed against it.
+2. **Anything strange becomes a bead** — per the ruling. One bead per finding, with the engine name on it. A cross in
+   the table is not a reason to re-run the session until it passes; it is a defect report with an engine name on it.
+3. `rf2-hic-016` closes when **these** results — this session's, for **Firefox and WebKit** — are recorded in §2.3 with
+   the date and both engine builds. **Chromium stays the witnessed control** and needs nothing from this session. Until
+   then the bead stays open, whatever else has landed against it.
 
 If an engine turns out not to accept Windows IME input at all — the Playwright WebKit shell is a plausible candidate —
 that is itself the finding. Record it as such and file the bead. It is not a reason to start automating.
