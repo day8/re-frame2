@@ -283,9 +283,9 @@
                                (is (= 1140207590 (:handler-fn-hash edn))
                                    "handler-fn-hash is the wire-friendly substitute for :handler-fn")
                                (is (not (contains? edn :value))
-                                   "the bug shape stuffed the map under :value as a string — must not recur"))
-                             (done))))))
-            (.catch (fn [e] (is false (str "rejected: " (.-message e))) (done))))))))
+                                   "the bug shape stuffed the map under :value as a string — must not recur")))))))
+            (.catch (fn [e] (is false (str "rejected: " (.-message e))) nil))
+            (.then (fn [_] (done))))))))
 
 (deftest handler-meta-unserializable-surfaces-structured
   (testing "rf2-qobqy: a runtime meta map that can't round-trip as EDN now rides back as a tagged :unserializable envelope — NOT a meta map smuggled as a STRING"
@@ -311,9 +311,9 @@
                                (is (= :event (:kind edn)) "kind stamped on the error")
                                (is (= :counter/inc (:id edn)) "id stamped on the error")
                                (is (str/includes? (:preview edn) "#object")
-                                   "the preview shows WHAT couldn't serialize"))
-                             (done))))))
-            (.catch (fn [e] (is false (str "rejected: " (.-message e))) (done))))))))
+                                   "the preview shows WHAT couldn't serialize")))))))
+            (.catch (fn [e] (is false (str "rejected: " (.-message e))) nil))
+            (.then (fn [_] (done))))))))
 
 (deftest handler-meta-not-registered-passes-through
   (testing "the runtime's :not-registered envelope still passes through unchanged"
@@ -325,9 +325,9 @@
                     (.then (fn [result]
                              (let [edn (extract-edn result)]
                                (is (false? (:ok? edn)))
-                               (is (= :not-registered (:reason edn))))
-                             (done))))))
-            (.catch (fn [e] (is false (str "rejected: " (.-message e))) (done))))))))
+                               (is (= :not-registered (:reason edn)))))))))
+            (.catch (fn [e] (is false (str "rejected: " (.-message e))) nil))
+            (.then (fn [_] (done))))))))
 
 (deftest handler-meta-genuinely-unparseable-still-fails
   (testing "a non-map non-recoverable value still surfaces :unexpected-shape"
@@ -354,9 +354,9 @@
                              (is (false? (:ok? edn)))
                              (is (= :unexpected-shape (:reason edn)))
                              (is (= 42 (:value edn))
-                                 "the offending value rides on :value for forensics"))
-                           (done))))))
-          (.catch (fn [e] (is false (str "rejected: " (.-message e))) (done)))))))
+                                 "the offending value rides on :value for forensics")))))))
+          (.catch (fn [e] (is false (str "rejected: " (.-message e))) nil))
+          (.then (fn [_] (done)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Eval-form capture helper — used by the frame-targeting tests below to assert
@@ -396,9 +396,9 @@
                                (is (str/includes? @form "registrar-describe")
                                    "default path still uses the runtime registrar-describe fn")
                                (is (not (contains? edn :frame))
-                                   "default response carries NO :frame key (byte-identical)"))
-                             (done))))))
-            (.catch (fn [e] (is false (str "rejected: " (.-message e))) (done))))))))
+                                   "default response carries NO :frame key (byte-identical)")))))))
+            (.catch (fn [e] (is false (str "rejected: " (.-message e))) nil))
+            (.then (fn [_] (done))))))))
 
 (deftest list-handlers-default-form-is-byte-identical
   (testing "list-handlers with no :frame ⇒ runtime registrar-list (unchanged), no :frame key"
@@ -410,9 +410,9 @@
                     (.then (fn [result]
                              (let [edn (extract-edn result)]
                                (is (str/includes? @form "registrar-list"))
-                               (is (not (contains? edn :frame))))
-                             (done))))))
-            (.catch (fn [e] (is false (str "rejected: " (.-message e))) (done))))))))
+                               (is (not (contains? edn :frame)))))))))
+            (.catch (fn [e] (is false (str "rejected: " (.-message e))) nil))
+            (.then (fn [_] (done))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; EP-0016 resource kinds — happy-path EXECUTION coverage.
@@ -455,9 +455,9 @@
                            (is (= expect-i (:id edn))
                                "the requested id rides back stamped")
                            (is (= 'app.articles (:ns edn))
-                               "registrar metadata surfaces (routed through registrar-describe)"))
-                         (done))))))
-        (.catch (fn [e] (is false (str "rejected: " (.-message e))) (done))))))
+                               "registrar metadata surfaces (routed through registrar-describe)")))))))
+        (.catch (fn [e] (is false (str "rejected: " (.-message e))) nil))
+        (.then (fn [_] (done))))))
 
 (deftest handler-meta-accepts-resource-kind
   (testing "handler-meta accepts kind \"resource\" and stamps kind+id"
@@ -489,9 +489,9 @@
                          (is (not (str/includes? @form "machine-meta"))
                              (str kind-str " is NOT mis-routed through the machine wrapper"))
                          (is (str/includes? @form kw-str)
-                             (str "the form carries the " kw-str " kind keyword"))
-                         (done))))))
-        (.catch (fn [e] (is false (str "rejected: " (.-message e))) (done))))))
+                             (str "the form carries the " kw-str " kind keyword")))))))
+        (.catch (fn [e] (is false (str "rejected: " (.-message e))) nil))
+        (.then (fn [_] (done))))))
 
 (deftest handler-meta-resource-routes-through-registrar
   (testing "kind \"resource\" emits a registrar-describe form, never machine-meta"
@@ -526,9 +526,9 @@
                                (is (= {:username [:db [:auth :user :username]]} (:inputs edn))
                                    "the resolver's declared :inputs ride through")
                                (is (false? (:whole-db? edn))
-                                   "the whole-db cost flag rides through"))
-                             (done))))))
-            (.catch (fn [e] (is false (str "rejected: " (.-message e))) (done))))))))
+                                   "the whole-db cost flag rides through")))))))
+            (.catch (fn [e] (is false (str "rejected: " (.-message e))) nil))
+            (.then (fn [_] (done))))))))
 
 (defn- list-handlers-accepts-kind-test
   "Run list-handlers for `kind-str` with a canned id vector `ids`,
@@ -549,9 +549,9 @@
                          (is (= ids (:ids edn))
                              "the runtime id vector rides through")
                          (is (= (count ids) (:count edn))
-                             "count matches the id vector"))
-                       (done))))))
-      (.catch (fn [e] (is false (str "rejected: " (.-message e))) (done)))))
+                             "count matches the id vector")))))))
+      (.catch (fn [e] (is false (str "rejected: " (.-message e))) nil))
+      (.then (fn [_] (done)))))
 
 (deftest list-handlers-accepts-resource-kind
   (testing "list-handlers accepts \"resource\", stamps the kind, returns ids + count"
@@ -582,9 +582,9 @@
                          (is (not (str/includes? @form "re-frame.core/machines"))
                              (str kind-str " is NOT mis-routed through the machines enumerator"))
                          (is (str/includes? @form kw-str)
-                             (str "the form carries the " kw-str " kind keyword"))
-                         (done))))))
-        (.catch (fn [e] (is false (str "rejected: " (.-message e))) (done))))))
+                             (str "the form carries the " kw-str " kind keyword")))))))
+        (.catch (fn [e] (is false (str "rejected: " (.-message e))) nil))
+        (.then (fn [_] (done))))))
 
 (deftest list-handlers-resource-routes-through-registrar-list
   (testing "kind \"resource\" emits a registrar-list form, never the machines enumerator"
@@ -634,9 +634,9 @@
                                    "the resolved frame is stamped on the response")
                                (is (= {:source :registered :ns "blue.core"}
                                       (:rf.image/coordinate edn))
-                                   "the provenance coordinate rides through"))
-                             (done))))))
-            (.catch (fn [e] (is false (str "rejected: " (.-message e))) (done))))))))
+                                   "the provenance coordinate rides through")))))))
+            (.catch (fn [e] (is false (str "rejected: " (.-message e))) nil))
+            (.then (fn [_] (done))))))))
 
 (deftest handler-meta-default-path-has-no-frame
   (testing "no :frame ⇒ the default registrar-describe path, no :frame key on the response"
@@ -650,9 +650,9 @@
                              (let [edn (extract-edn result)]
                                (is (not (str/includes? @form "frame-registrar-describe")))
                                (is (not (contains? edn :frame))
-                                   "default-path response carries NO :frame key (byte-identical)"))
-                             (done))))))
-            (.catch (fn [e] (is false (str "rejected: " (.-message e))) (done))))))))
+                                   "default-path response carries NO :frame key (byte-identical)")))))))
+            (.catch (fn [e] (is false (str "rejected: " (.-message e))) nil))
+            (.then (fn [_] (done))))))))
 
 (deftest handler-meta-rejects-frame-with-machine
   (testing ":frame + kind=machine ⇒ structured :frame-unsupported-for-machine"
@@ -681,9 +681,9 @@
                                (is (str/includes? @form ":blue/main"))
                                (is (true? (:ok? edn)))
                                (is (= :blue/main (:frame edn))
-                                   "the resolved frame is stamped on the response"))
-                             (done))))))
-            (.catch (fn [e] (is false (str "rejected: " (.-message e))) (done))))))))
+                                   "the resolved frame is stamped on the response")))))))
+            (.catch (fn [e] (is false (str "rejected: " (.-message e))) nil))
+            (.then (fn [_] (done))))))))
 
 (deftest list-handlers-rejects-frame-with-machine
   (testing "list-handlers :frame + kind=machine ⇒ :frame-unsupported-for-machine"

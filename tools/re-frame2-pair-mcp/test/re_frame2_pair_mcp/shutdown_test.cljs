@@ -51,9 +51,9 @@
                      (is (= 1 @end-count) "the persistent nREPL socket was closed exactly once")
                      (is (nil? (:conn (server/session-state-snapshot)))
                          "the session conn reference was dropped")
-                     (is (= [0] @exit-args) "exited exactly once with code 0")
-                     (done)))
-            (.catch (fn [e] (is false (str "unexpected reject: " (.-message e))) (done))))))))
+                     (is (= [0] @exit-args) "exited exactly once with code 0")))
+            (.catch (fn [e] (is false (str "unexpected reject: " (.-message e))) nil))
+            (.then (fn [_] (done))))))))
 
 (deftest duplicate-terminal-event-is-a-no-op
   (testing "a second shutdown! (end then close) does not double-close or re-exit"
@@ -73,9 +73,9 @@
                                   (is (= 1 @end-count)
                                       "the socket was NOT closed a second time")
                                   (is (= [0] @exit-args)
-                                      "exit fired exactly once across both calls")
-                                  (done))))))
-            (.catch (fn [e] (is false (str "unexpected reject: " (.-message e))) (done))))))))
+                                      "exit fired exactly once across both calls"))))))
+            (.catch (fn [e] (is false (str "unexpected reject: " (.-message e))) nil))
+            (.then (fn [_] (done))))))))
 
 (deftest eof-before-first-tool-exits-cleanly
   (testing "EOF with no discovered conn (no socket ever opened) still exits 0"
@@ -85,6 +85,6 @@
         (is (nil? (:conn (server/session-state-snapshot))))
         (-> (server/shutdown! "early EOF" (fn [code] (swap! exit-args conj code)))
             (.then (fn [_]
-                     (is (= [0] @exit-args) "exited 0 with nothing to close")
-                     (done)))
-            (.catch (fn [e] (is false (str "unexpected reject: " (.-message e))) (done))))))))
+                     (is (= [0] @exit-args) "exited 0 with nothing to close")))
+            (.catch (fn [e] (is false (str "unexpected reject: " (.-message e))) nil))
+            (.then (fn [_] (done))))))))

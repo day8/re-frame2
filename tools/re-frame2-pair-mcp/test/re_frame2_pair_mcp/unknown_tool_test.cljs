@@ -101,9 +101,9 @@
                    (is (false? (:discovered? snap))
                        "discovery was NOT run — the refusal short-circuited before ensure-connection!")
                    (is (nil? (:discovery-error snap))
-                       "no discovery attempt recorded — connection step never reached"))
-                 (done)))
-        (.catch (fn [e] (is false (str "handle-call rejected: " (.-message e))) (done))))))
+                       "no discovery attempt recorded — connection step never reached"))))
+        (.catch (fn [e] (is false (str "handle-call rejected: " (.-message e))) nil))
+        (.then (fn [_] (done))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Server-boundary regression guard: an unregistered alias such as
@@ -127,9 +127,9 @@
                    ;; the :available-tools list + the tools/list hint.
                    (is (some #{"list-handlers"} (:available-tools edn))
                        "list-handlers is enumerated in the live catalogue")
-                   (is (re-find #"tools/list" (:hint edn))))
-                 (done)))
-        (.catch (fn [e] (is false (str "handle-call rejected: " (.-message e))) (done))))))
+                   (is (re-find #"tools/list" (:hint edn))))))
+        (.catch (fn [e] (is false (str "handle-call rejected: " (.-message e))) nil))
+        (.then (fn [_] (done))))))
 
 ;; ---------------------------------------------------------------------------
 ;; structuredContent on the boundary refusal preserves the keyword
@@ -147,6 +147,6 @@
                        "structuredContent :reason keeps its token")
                    (is (= false (j/get sc "ok?"))
                        ":ok? false round-trips through the structured slot")
-                   (is (= "no-such-tool" (j/get sc "tool"))))
-                 (done)))
-        (.catch (fn [e] (is false (str "handle-call rejected: " (.-message e))) (done))))))
+                   (is (= "no-such-tool" (j/get sc "tool"))))))
+        (.catch (fn [e] (is false (str "handle-call rejected: " (.-message e))) nil))
+        (.then (fn [_] (done))))))

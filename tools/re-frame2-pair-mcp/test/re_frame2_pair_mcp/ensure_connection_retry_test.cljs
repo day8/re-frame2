@@ -36,11 +36,13 @@
                   (do (server/mark-discovered-for-tests! conn)
                       (js/Promise.resolve :ok)))))]
         ;; First tool call: discovery fails. `:discovery-error` recorded.
+        ;; The rejection arm IS this row's success path, so both handlers are
+        ;; siblings of one two-arg `.then`; the retry chain is RETURNED into it,
+        ;; and the single `done` sits in the trailing step with nothing after it.
         (-> (server/ensure-connection! {} discover-fn)
-            (.then (fn [_]
-                     (is false "first call must REJECT (discovery failed)")
-                     (done)))
-            (.catch
+            (.then
+             (fn [_]
+               (is false "first call must REJECT (discovery failed)"))
              (fn [e1]
                (is (= err e1) "first failure surfaces the structured discovery error")
                (is (some? (:discovery-error (server/session-state-snapshot)))
@@ -57,11 +59,11 @@
                             (is (= conn resolved-conn)
                                 "the retry resolves to the freshly-discovered conn")
                             (is (true? (:discovered? (server/session-state-snapshot)))
-                                "the session is now attached")
-                            (done)))
+                                "the session is now attached")))
                    (.catch (fn [_e2]
                              (is false "the retry must SUCCEED once discovery recovers")
-                             (done)))))))))))
+                             nil)))))
+            (.then (fn [_] (done))))))))
 
 (deftest repeated-failures-keep-resurfacing-fresh-errors
   (testing "while discovery keeps failing, each call re-runs it and surfaces a fresh rejection (no permanent wedge)"
