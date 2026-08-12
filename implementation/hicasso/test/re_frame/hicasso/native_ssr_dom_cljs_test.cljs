@@ -132,6 +132,13 @@
      :async?        true
      :init-fn       (fn [] (collector/reset-runtime!))}))
 
+(def ^:private pristine-console-error
+  "`console.error` as this namespace loaded, captured before any row has
+  had a chance to wrap it. [[the-next-row-sees-no-residue]] compares
+  against it by IDENTITY: `watch-errors!`'s interceptor is a function
+  too, so nothing but identity distinguishes restored from replaced."
+  (when (exists? js/console) (.-error js/console)))
+
 (defn- skip! [why]
   (is true (str "a native-tier hydration claim needs a real React DOM — " why)))
 
@@ -420,8 +427,18 @@
   `innerHTML`, so a node still answering to it afterwards is the very
   node the server markup produced rather than a replacement that looks
   alike. Adopted and re-created are indistinguishable in the markup and
-  opposites here."
-  [hiccup after]
+  opposites here.
+
+  THE ROW OWNS `done`, and `after` is assertion-only — deliberately, and
+  merged-PR audit #7966 is why. `cljs.test/run-block` continues the rest
+  of the run SYNCHRONOUSLY from the `done` call, so a row whose `after`
+  called `done` itself left its console interception, its React root and
+  its container standing for every test and namespace that followed, and
+  ran the teardown only when that whole continuation returned. The order
+  below is therefore load-bearing: assert, then restore/unmount/remove/
+  reset, then `done` as the last act with nothing after it.
+  [[the-next-row-sees-no-residue]] is the control that reads it."
+  [hiccup done after]
   (fresh!)
   (reset! !runs 0)
   (let [html      (server-html hiccup)
@@ -443,7 +460,8 @@
             (restore)
             (.unmount root)
             (when-some [p (.-parentNode container)] (.removeChild p container))
-            (collector/reset-runtime!))))
+            (collector/reset-runtime!)
+            (done))))
       150)))
 
 ;; ---------------------------------------------------------------------------
@@ -738,6 +756,7 @@
       (do (skip! ":node-test has no DOM") (done))
       (hydration-row
         [plain-page {}]
+        done
         (fn [container seen html]
           (is (not (re-find #"class=\"island\"" html))
               (str "the markup hydrated FROM has no island in it — the
@@ -757,8 +776,7 @@
               "and it is the SERVER'S node, still carrying the expando —
                adoption, not a re-render of the page")
           (is (pos? @!runs)
-              "the island's body ran on the client, and only on the client")
-          (done))))))
+              "the island's body ran on the client, and only on the client"))))))
 
 (deftest a-render-island-hydrates-once-and-never-remounts
   (async done
@@ -768,6 +786,7 @@
         (reset! !mounts 0)
         (hydration-row
           [counted-render-page {}]
+          done
           (fn [container seen html]
             (is (re-find #"class=\"server-island\"" html)
                 (str "the markup hydrated FROM carries the island — so a
@@ -792,8 +811,7 @@
                       unadopted branch returns something other than the
                       island swaps the position's element TYPE at
                       adoption, and React reconciles a position by type —
-                      so it would read 2 here. Read " @!mounts))
-            (done)))))))
+                      so it would read 2 here. Read " @!mounts))))))))
 
 (deftest two-roots-under-opposite-policies-do-not-interfere
   (async done
@@ -915,6 +933,7 @@
       (do (skip! ":node-test has no DOM") (done))
       (hydration-row
         [reading-page {}]
+        done
         (fn [container _seen _html]
           (is (some? (q container ".island-read"))
               "the reading island is mounted")
@@ -922,8 +941,41 @@
               (str "exactly ONE reader on the ISLAND'S OWN key after
                     adoption — the server render registered none and the
                     client registered one, so the two halves did not both
-                    acquire; cells: " (pr-str (sup/cell-keys))))
-          (done))))))
+                    acquire; cells: " (pr-str (sup/cell-keys)))))))))
+
+(deftest the-next-row-sees-no-residue
+  (testing "the control for [[hydration-row]]'s teardown order, and the
+            repair merged-PR audit #7966 asked for. It runs AFTER the
+            hydration rows and reads what they left behind: the console
+            they intercepted, the containers they attached, the readers
+            they acquired. Every assertion here is about state that is
+            not this row's own, which is the point — a row that cleaned
+            up only when the whole run had finished would leave all
+            three standing and be invisible to its own suite.
+
+            Narrowing caught: the shipped defect — `after` calling
+            `done`, so `cljs.test/run-block` continued the entire
+            remaining run synchronously from inside the `try`, and the
+            `finally` executed once that continuation returned. The
+            aggregate lane stayed green while a live React root and a
+            wrapped `console.error` sat under every namespace that
+            followed, swallowing their React errors"
+    (if-not (mount/browser?)
+      (skip! ":node-test has no DOM")
+      (do
+        (is (identical? pristine-console-error (.-error js/console))
+            "`console.error` is the function this namespace loaded with,
+             not a `watch-errors!` interceptor still standing — identity,
+             not arity, because the wrapper is also a function and only
+             identity separates restored from replaced")
+        (is (zero? (.-length (.querySelectorAll js/document
+                                                ".island, .server-island, .island-read, .title")))
+            (str "and no hydration row's container is still attached to
+                  the document, which is the observable for a React root
+                  that was never unmounted: the root holds the subtree,
+                  and the subtree is these nodes. Found "
+                 (.-length (.querySelectorAll js/document
+                                              ".island, .server-island, .island-read, .title"))))))))
 
 (deftest a-native-read-is-released-on-unmount
   (if-not (mount/browser?)
