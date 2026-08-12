@@ -173,12 +173,23 @@
                                  (str "a real synthetic click on the injected `#(dispatch …)` "
                                       "button dispatched successfully AFTER the render boundary "
                                       "— app-db advanced to {:n 1}"))
-                             (finalize!)))
+                             nil))
+                    ;; Reports; it does NOT finalize. `done` hands
+                    ;; `cljs.test/run-block` a continuation that runs the WHOLE
+                    ;; remainder of the run synchronously, so a rejection
+                    ;; handler downstream of the step that finished the row
+                    ;; claims whatever a LATER namespace throws and prints it
+                    ;; against this row's label (rf2-e8kc). The CAS inside
+                    ;; `finalize!` swallowed the second `done`; it could not
+                    ;; swallow the misattributed failure.
                     (.catch (fn [e]
                               (is false
                                   (str "injected dispatch never advanced the render frame: "
                                        (pr-str (ex-message e))))
-                              (finalize!)))))))
+                              nil))
+                    ;; THE single finalizer, on the single trailing step —
+                    ;; both arms reach it, and nothing follows it.
+                    (.then (fn [_] (finalize!)))))))
           (catch :default e
             (is false (str "reagent-slim synthetic-event proof threw: " (pr-str e)))
             (finalize!)))))))
