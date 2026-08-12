@@ -93,6 +93,35 @@
     :touched           #{}
     :submit-attempted? false}))
 
+(defn- seed-slice
+  "Fold a settled article read into the editor slice WITHOUT clobbering typing.
+
+   The obvious spelling — replace the whole slice with a fresh
+   `(editor-slice slug (draft-from-article article))` — loses every keystroke the
+   user made while the read was still in flight, because entering the editor and
+   typing is faster than a round trip. `FH-CTRL-013` states that seed law for
+   `re-frame.freehand` forms; this app holds its own `:touched` set rather than a
+   freehand form, so it spells the same rule by hand.
+
+   The seed is LEAFWISE. A field the user has already touched keeps BOTH its
+   draft and its baseline, so their text stays on screen AND stays dirty — the
+   save that follows sends what they typed. Every untouched field takes the
+   loaded value in both, so the dirty-check compares against what the server
+   actually holds. A seeded field also drops the validation error its old (blank)
+   value earned; a touched field keeps the error its current value earns.
+
+   With nothing touched — the ordinary load — every field is seeded and the
+   result is exactly the whole-slice replacement it replaces."
+  [slice slug loaded]
+  (let [touched (or (:touched slice) #{})
+        seeded  (remove touched (keys loaded))
+        seed-in #(reduce (fn [m k] (assoc m k (get loaded k))) % seeded)]
+    (-> slice
+        (assoc :slug slug)
+        (update :draft seed-in)
+        (update :baseline seed-in)
+        (update :errors #(apply dissoc % seeded)))))
+
 (defn- validate-draft [{:keys [title description body]}]
   (cond-> {}
     (str/blank? title)       (assoc :title "Title is required.")
@@ -296,8 +325,12 @@
          A reply from clobbering the draft the editor now shows (an actively-edited
          B, a fresh create draft, or — off the editor entirely — nothing). On `:ok`
          for the still-current slug, seed the editor draft + baseline from the
-         loaded article so the dirty-check has a baseline to compare against; a load
-         error surfaces through the read's own state, so there's nothing to do
+         loaded article so the dirty-check has a baseline to compare against. That
+         seed is LEAFWISE (`seed-slice`): the same-slug race is real too — entering
+         edit A and typing before A settles — and a whole-slice replacement would
+         discard those keystrokes, so a field the user has already touched keeps
+         its own draft and baseline while the rest take the loaded article's. A
+         load error surfaces through the read's own state, so there's nothing to do
          here. This is the read counterpart of the mutation `:reply-to` idiom
          settings.cljs uses — a declarative, replayable causal event, not an
          off-render Form-3 reaction watching the read settle."}
@@ -311,7 +344,7 @@
                               (= slug (get-in current [:params :slug])))]
       (when (and still-editing? (= :ok status))
         (when-let [article (:article value)]
-          {:db (assoc db :editor (editor-slice (:slug article) (draft-from-article article)))})))))
+          {:db (update db :editor seed-slice (:slug article) (draft-from-article article))})))))
 
 ;; There is deliberately NO `:editor/release-article` event. The article read is
 ;; owned by the ROUTE (`:realworld.editor/edit` `:resources`, routing.cljs), so

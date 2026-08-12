@@ -275,7 +275,7 @@ instances `[:edit id]`/`[:status id]`/`[:create id]` (`linearlite/core.cljs:504-
 
 | # | Requirement | Evidence anchor |
 |---|---|---|
-| R-C1 | **Late async arrival must not clobber user input.** A settle that seeds form state must merge against fields the user already touched. Today's baseline FAILS this for the same-slug case: entering edit A and typing before A settles, the accepted same-slug reply replaces the entire slice (article_editor.cljs:304-314 — `(assoc db :editor (editor-slice …))`, no `:touched` consultation), discarding keystrokes. The rf2-y4mgw audit named it ("MATERIAL P2 RUNTIME OMISSION — SAME-SLUG INITIAL LOAD CAN STILL CLOBBER TYPING"); it is present in the current checkout. A candidate design must make typed-field survival across settle either automatic or one obvious spelling. | article_editor.cljs:304-314; bd rf2-y4mgw |
+| R-C1 | **Late async arrival must not clobber user input.** A settle that seeds form state must merge against fields the user already touched. The baseline FAILED this for the same-slug case — entering edit A and typing before A settles, the accepted same-slug reply replaced the entire slice (`(assoc db :editor (editor-slice …))`, no `:touched` consultation), discarding keystrokes. The rf2-y4mgw audit named it ("MATERIAL P2 RUNTIME OMISSION — SAME-SLUG INITIAL LOAD CAN STILL CLOBBER TYPING") and rf2-czvc closed it: both editors now seed LEAFWISE through a hand-written `seed-slice`, and both suites cover it. **What the baseline cost to get there is the requirement**: the guarantee is 30 lines of hand-rolled merge per app, invisible to tooling, and it was got wrong twice. A candidate design must make typed-field survival across settle either automatic or one obvious spelling. | article_editor.cljs `seed-slice` + `:editor/article-loaded`; bd rf2-y4mgw, rf2-czvc |
 | R-C2 | **Reply correlation**: every async completion names WHICH request it answers (the slug rides in the reply target, :280); stale/cross-key replies are droppable by the receiver. The generation gate suppresses same-entry supersession only — cross-entry lateness is the app's to guard (:282-303). | article_editor.cljs:246-314; rf2-y4mgw PR #6628 note |
 | R-C3 | **Lifetime has a causal owner that covers EVERY exit path.** Whoever mints a data lifetime must have an end event for every leave (ordinary navigation included — the exact gap that stranded the owner in the native editor, per y4mgw: the Reagent Form-3 unmount was removed and no route-owned release replaced it). "Naming hypothetical future end events is not completion." | bd rf2-y4mgw description; article_editor.cljs:316-321 |
 | R-C4 | **Cancellation is best-effort; the design must survive its failure.** A cancelled request's settle may still arrive and must be inert (guard, not assumption). | article_editor.cljs:282-303 |
@@ -291,9 +291,12 @@ instances `[:edit id]`/`[:status id]`/`[:create id]` (`linearlite/core.cljs:504-
 - **Slug-correlated replies were retrofitted twice** (y4mgw: PR #6569 reopen → #6628
   fix): uncorrelated `:reply-to [:editor/article-loaded]` accepted ANY successful
   article and re-slugged the editor. Correlation must be the paved path, not a lesson.
-- **The same-slug typing clobber** is STILL live (R-C1) — a harness case no green suite
-  currently covers (the cross-slug regression settles B before editing B, so it cannot
-  catch it — y4mgw audit).
+- **The same-slug typing clobber** went uncaught for two rounds of this exact bug
+  (R-C1): the cross-slug regression settles B before anyone edits B, so it could
+  never reach the same-slug half, and no other suite looked. It is fixed and
+  covered now (rf2-czvc), but the *shape* is the trap worth keeping — a
+  correlation guard reads like the whole answer to "late reply clobbers the
+  form", and it is only half of it.
 - **Vacuous teardown assertions**: the browser fixture asserted `(is true)` instead of
   inspecting `:active-owners` (y4mgw) — the harness demands owner-state assertions on a
   real leave path.

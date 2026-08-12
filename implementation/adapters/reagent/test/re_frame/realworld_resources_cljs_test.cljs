@@ -960,6 +960,63 @@
           (is (= "Bee Article" (:title (rf/compute-sub [:editor/draft] (state-value f))))
               "the late A reply must NOT clobber the current B draft — the seed is slug-correlated"))))))
 
+(deftest editor-same-slug-seed-does-not-clobber-typed-fields
+  (testing "examples/real-apps/realworld_resources — the SAME-SLUG half of the
+            clobber, which the cross-slug test above cannot reach (it settles B
+            before anyone types into B). Entering edit A and typing before A's
+            read settles is the ordinary case, not a race: the round trip is
+            slower than the first keystroke. The reply is for the current slug,
+            so the slug guard passes it, and the seed it then performs used to be
+            a whole-slice `(assoc db :editor (editor-slice …))` that threw the
+            keystrokes away — the R-C1 harness case (fitness-harness.md §C.2),
+            named MATERIAL by the rf2-y4mgw audit and uncovered by any suite
+            until now. The seed is LEAFWISE instead, the same law `FH-CTRL-013`
+            states for freehand forms: a TOUCHED field keeps its own draft AND
+            its own baseline, so the typing survives and stays dirty; every
+            untouched field takes the loaded article's value in both, so the
+            dirty-check still compares against what the server holds."
+    (with-new-frame [f (frame/make-anon-frame-record! {:url-bound? true
+                                       :fx-overrides {:rf.nav/push-url :rf/no-op}})]
+      (rf/dispatch-sync [:auth/store-session {:username "alice" :token "jwt"}] {:frame f})
+      ;; ENTER edit A. Capture A's read WITHOUT settling it — the fetch is still
+      ;; outstanding, which is exactly when a user starts typing.
+      (rf/dispatch-sync [:rf.route/navigate {:to :realworld.editor/edit :params {:slug "article-a"}}] {:frame f})
+      (let [a-read @last-managed-args]
+        (is (some? a-read) "edit A lowered the article read")
+        (is (= "" (:title (rf/compute-sub [:editor/draft] (state-value f))))
+            "the pre-settle draft is blank — there is nothing to preserve yet")
+        ;; TYPE, mid-flight. `:editor/edit-field` marks :title touched.
+        (rf/dispatch-sync [:editor/edit-field :title "My unsaved heading"] {:frame f})
+        (is (= #{:title} (:touched (rf/compute-sub [:editor/slice] (state-value f))))
+            "typing marked :title touched and nothing else")
+        ;; A SETTLES, for the slug the editor is still on. The slug guard passes
+        ;; it (correctly — this IS the article being edited), so the seed runs.
+        ;; RED on the whole-slice seed: :title becomes "Ay Article".
+        (reply-success! a-read
+                        {:article {:slug "article-a" :title "Ay Article"
+                                   :description "about a" :body "body a" :tagList ["ay"]}}
+                        f)
+        (let [slice (rf/compute-sub [:editor/slice] (state-value f))
+              draft (rf/compute-sub [:editor/draft] (state-value f))]
+          (is (= "My unsaved heading" (:title draft))
+              "the touched field keeps the user's text — the settle must not clobber typing")
+          (is (= "" (:title (:baseline slice)))
+              "the touched field keeps its own baseline too, so the typing reads as UNSAVED")
+          (is (= "about a" (:description draft))
+              "an untouched field IS seeded from the loaded article")
+          (is (= "body a" (:body draft)) "…and so is every other untouched field")
+          (is (= "ay" (:tagList draft)) "…including the joined tag string")
+          (is (= {:title "" :description "about a" :body "body a" :tagList "ay"}
+                 (:baseline slice))
+              "the baseline is seeded leafwise in step with the draft — asserted whole,
+               because the bug is never the leaf you looked at")
+          (is (= "article-a" (:slug slice))
+              "the slice still targets the loaded slug")
+          (is (true? (rf/compute-sub [:editor/dirty?] (state-value f)))
+              "typing that survived a settle leaves the draft DIRTY — the save must send it")
+          (is (= #{:title} (:touched slice))
+              "the seed marks nothing touched of its own"))))))
+
 ;; ============================================================================
 ;; 10. SESSION-RESTORE-WITH-TOKEN — the documented "restore stays put" invariant,
 ;;     plus the passive-re-key feed re-ensure (rf2-svj926)
