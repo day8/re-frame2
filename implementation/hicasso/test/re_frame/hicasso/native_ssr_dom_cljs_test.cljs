@@ -296,10 +296,18 @@
    [counted-render-host {:label (collector/sub [:hicasso.native-ssr/title])}]])
 
 (h/defview reading-page
+  "The page the hydration rows use, so one adoption covers the reading
+  island (HS-28), the frame island (HS-29) and both intrinsic forms
+  (HS-24, HS-26) rather than leaving three of them witnessed on the
+  server side only."
   [_]
-  [:div.page
-   [:h1.title (collector/sub [:hicasso.native-ssr/title])]
-   [reading-host {}]])
+  (let [dynamic {:class "intrinsic-dynamic" :data-kind "dyn"}]
+    [:div.page
+     [:h1.title (collector/sub [:hicasso.native-ssr/title])]
+     (n/$ :p #js {"className" "intrinsic-literal"} "literal")
+     (n/$ :p (n/props dynamic) "dynamic")
+     [reading-host {}]
+     [framed-host {}]]))
 
 (h/defview framed-page
   [_]
@@ -571,9 +579,9 @@
 
   (testing "HS-29. `n/use-frame` resolves the same context and answers the
             frame this island is mounted in"
-    (is (re-find (re-pattern (str ":" (name frame-id)))
+    (is (re-find (re-pattern (str "<i class=\"island-frame\">" frame-id "</i>"))
                  (server-html [framed-page {}]))
-        "the ops bundle named this island's own frame")))
+        "the ops bundle named this island's own frame, fully qualified")))
 
 (deftest a-server-render-acquires-no-subscription-to-release
   (fresh!)
@@ -829,6 +837,65 @@
                   (collector/reset-runtime!)
                   (done))))
             200))))))
+
+(deftest a-deliberate-mismatch-inside-an-island-is-attributed-to-source
+  (async done
+    (if-not (mount/browser?)
+      (do (skip! ":node-test has no DOM") (done))
+      (do
+        (fresh!)
+        (let [html      (server-html [reading-page {}])
+              container (sup/server-dom! html)
+              {:keys [seen stop!]}      (sup/watch-mismatches!)
+              ;; MANUFACTURED here and asserted on here — the only shape of
+              ;; call site at which swallowing an uncaught error is not the
+              ;; fail-open rf2-mwx08 forbids.
+              {:keys [captured close!]} (sup/open-console-capture!
+                                          {:swallow-uncaught? true})]
+          ;; The request the client renders is not the request the server
+          ;; rendered. A `:render` island reads the store, so this diverges
+          ;; INSIDE the island rather than in the hiccup around it.
+          (rf/with-frame frame-id
+            (rf/dispatch-sync [:hicasso.native-ssr/retitle "annual"]))
+          (let [handle (mount/hydrate-root! container frame-id [reading-page {}])]
+            (js/setTimeout
+              (fn []
+                (close!)
+                (stop!)
+                (try
+                  (testing "§2.4's third clause, for a native island: a
+                            deliberate divergence is DETECTED and ATTRIBUTED.
+                            The island renders on the server under `:render`,
+                            so its bytes are the ones that can diverge — and
+                            they do, through the product door
+                            (`impl.mount/hydrate-root!`), not a hand-built
+                            `hydrateRoot`. Narrowing caught: a policy under
+                            which the island never reached the server at all,
+                            which would produce NO mismatch and read as a
+                            clean hydration"
+                    (is (re-find #"quarterly" html)
+                        (str "the server bytes carried the first request's
+                              value: " html))
+                    (is (seq (filterv #(re-find #"Hydration failed" %) @captured))
+                        (str "React itself complained: " (pr-str @captured)))
+                    (is (= 1 (count @seen))
+                        (str "and the framework's own Spec 011 diagnostic fired
+                              exactly once for this one root; got "
+                             (pr-str (mapv (comp :error sup/tags-of) @seen))))
+                    (is (= 're-frame.hicasso.impl.mount/hydrate-root!
+                           (:where (sup/tags-of (first @seen))))
+                        "tier-discriminated by the door that owns the adoption")
+                    (is (= :warned-and-replaced
+                           (:recovery (sup/tags-of (first @seen))))
+                        "with the recovery React had already performed")
+                    (is (= "annual" (.-textContent (q container ".island-read")))
+                        "and the repaired DOM carries the CLIENT's value, which
+                         is what 'warned and replaced' means"))
+                  (finally
+                    (mount/release! handle)
+                    (collector/reset-runtime!)
+                    (done))))
+              300)))))))
 
 (deftest a-hydrated-island-releases-exactly-what-it-acquired
   (async done

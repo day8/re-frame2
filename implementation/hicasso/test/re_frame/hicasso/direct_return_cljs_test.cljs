@@ -248,7 +248,13 @@
 
 (h/defview tag-row  [{:keys [label]}] [:span {:class "tag"} label])
 
-(n/defcomponent native-tag-row [^js props]
+(n/defcomponent native-tag-row
+  "`{:server :render}` because [[render!]] is the server renderer and the
+  native tier's policy is now READ (rf2-hic-046): a Client-only island's
+  body does not run there, so the instrument needs the declaration. The
+  arms compare a key DIAGNOSTIC, not a server policy."
+  {:server :render}
+  [^js props]
   (n/$ :span {:class "tag"} (.-label props)))
 
 (h/defview key-hiccup-arm
