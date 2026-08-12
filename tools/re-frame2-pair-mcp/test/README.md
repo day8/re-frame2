@@ -175,12 +175,15 @@ var in an unloaded namespace is rejected by shadow's analyzer before any
 branch of it runs. No stubbed suite can see that, because no stub
 compiles anything.
 
-Consequently **the witness wants a FRESH watch**. Its own
-`(require 're-frame.hicasso.tool)` loads the door for the life of the
-`shadow-cljs watch`, so a second run finds it already there; rather than
-skip the row — a skip and a pass being indistinguishable, which is the
-very failure shape the row exists to catch — the script fails and names
-the remedy.
+The row's population is self-restoring: the script's own
+`(require 're-frame.hicasso.tool)` reaches the RUNTIME rather than the
+build's module graph, and each run opens a fresh page, so consecutive
+runs against one long-lived watch all see the door absent again. What
+the row cannot survive is a host page that already carries the door —
+one hosting Xray, say — and `RF2_HICASSO_WIRE_URL` accepts any host, so
+the script probes first and fails rather than skipping: a skip and a
+pass are indistinguishable, which is the very failure shape the row
+exists to catch.
 
 Requires a browser build carrying the `re-frame2-pair.runtime` preload
 whose classpath can reach `re-frame.hicasso.tool` and the slice — the
