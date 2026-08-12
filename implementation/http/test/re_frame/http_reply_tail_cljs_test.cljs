@@ -107,10 +107,8 @@
                                            (= :rf.http/transport
                                               (get-in ev [:tags :kind])))
                                          @traces))
-                         "the reply-tail throw was NOT reclassified as :rf.http/transport")
-                     (restore)
-                     (done)))
+                         "the reply-tail throw was NOT reclassified as :rf.http/transport")))
             (.catch (fn [e]
-                      (restore)
                       (is false (str "rf2-ln85eg — unexpected: " e))
-                      (done))))))))
+                      nil))
+            (.then (fn [_] (restore) (done))))))))
