@@ -252,20 +252,24 @@
         excerpt     (fn [loc] (let [s (z/string loc)]
                                 (if (> (count s) 200) (str (subs s 0 200) " …") s)))
         ns-node?    rw/ns-form?]
-    (loop [loc     (z/of-string source {:track-position? true})
-           entries []]
+    (loop [loc      (z/of-string source {:track-position? true})
+           entries  []
+           ns-said? false]
       (if (z/end? loc)
         {:entries entries :reagent? reagent? :unresolved? unresolved?}
         (let [nd         (z/node loc)
               k          (roster-name nd)
-              [line col] (when (or k (and unresolved? (ns-node? nd))) (z/position loc))]
+              ns-here?   (and unresolved? (not ns-said?) (ns-node? nd))
+              [line col] (when (or k ns-here?) (z/position loc))]
           (recur
            (z/next loc)
            (cond
              ;; The `ns` form of a file that names Reagent and binds
              ;; nothing to it. Reported at the form itself, so the fix is
-             ;; where the line number points.
-             (and unresolved? (ns-node? nd))
+             ;; where the line number points. Once per file: `ns-form?`
+             ;; sees through metadata, so `^:cljstyle/ignore (ns …)`
+             ;; matches at the meta node AND at the list inside it.
+             ns-here?
              (conj entries (entry {:class   :unresolved-reagent-require
                                    :verdict :runtime-blocker}
                                   file line col (excerpt loc) nil))
@@ -295,7 +299,8 @@
                                   {:api    (str k)
                                    :symbol (str (head-symbol nd))}))
 
-             :else entries)))))))
+             :else entries)
+           (or ns-said? ns-here?)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; The summary

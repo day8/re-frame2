@@ -99,6 +99,35 @@
             be bound, so a call with no alias is not evidence of it."
     (is (not-any? #(= 5 (:line %)) (:entries (census/scan conditional-require "app/ssr.cljc"))))))
 
+(deftest an-ns-form-under-metadata-is-still-the-ns-form
+  (testing "`^:cljstyle/ignore (ns …)` is ordinary. Reading it as `nil` binds
+            NOTHING for the whole file — W4 and W5 dead, every Reagent API
+            unnamed — and nothing looks wrong, because `:>` needs no alias and
+            the fixer's report stays non-empty. Athens'
+            `views/pages/graph.cljs` is that file: four `(r/atom …)` invisible
+            under the ignore, in a namespace already carrying eleven entries.
+            A `r/atom` cross-check against the corpus read 47 where the text
+            said 51, and the four were all in it."
+    (let [src (str "^:cljstyle/ignore\n"
+                   "(ns ^{:doc \"Graph and controls.\"}\n"
+                   " app.graph\n"
+                   "  (:require\n"
+                   "   [re-frame.core :as rf]\n"
+                   "   [reagent.core :as r]))\n"
+                   "\n"
+                   "(def graph-ref-map (r/atom {}))\n")
+          {:keys [entries reagent? unresolved?]} (census/scan src "app/graph.cljs")]
+      (is (true? reagent?))
+      (is (false? unresolved?) "resolved, not merely reported")
+      (is (= [:local-reactive-cell] (mapv :class entries)))
+      (is (= 8 (:line (first entries))))))
+  (testing "and the ns is reported ONCE when it cannot be bound, though
+            `ns-form?` matches at the meta node and at the list inside it"
+    (let [src (str "^:cljstyle/ignore\n"
+                   "(ns app.graph\n"
+                   "  (:require #?(:cljs [reagent.core :as r])))\n")]
+      (is (= [:unresolved-reagent-require] (classes src "app/graph.cljc"))))))
+
 ;; ---------------------------------------------------------------------------
 ;; A legal population comes back CLEAN
 ;; ---------------------------------------------------------------------------
