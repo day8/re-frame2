@@ -763,7 +763,7 @@ points here, and here is what each is waiting on.
   the quality floor. This is a property of the readings rather than of the
   rig, so it is `UNPINNED` rather than `UNRESOLVED`: nothing crossed a line,
   because nothing reached one.
-- **`C8` has no population yet, and `C7` no longer does.** The native-island rule
+- **`C8` has no population yet; `C7` now has one.** The native-island rule
   and the escape-benefit rule are both stated over landed escapes and islands,
   and the apps that would carry them are `rf2-hic-034`, `rf2-hic-047` and
   `rf2-hic-045`. `rf2-hic-034` has landed, bringing `C7` its population and the
