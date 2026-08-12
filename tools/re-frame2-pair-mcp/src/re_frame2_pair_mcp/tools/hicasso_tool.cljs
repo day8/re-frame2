@@ -63,10 +63,11 @@
   that is how the substrate keeps the door out of a production build entirely.
   An app on the Reagent or UIx adapter never has it at all. Requiring it in the
   generic preload would make the preload uncompilable in those apps. So each
-  tool evals a self-contained form guarded by `cljs.core/exists?`: the door is
-  called only when present, and its absence is surfaced HONESTLY as
+  tool evals a self-contained form that RESOLVES the door at runtime and calls
+  it only when present, surfacing its absence HONESTLY as
   `:reason :evidence-tier-unavailable` — 'tolerate absent evidence explicitly',
-  not a fabricated emptiness.
+  not a fabricated emptiness. [[projection-form]] carries why that resolution
+  cannot be a fully-qualified var reference.
 
   ## Absent / older evidence + schema gate
 
@@ -194,9 +195,8 @@
     (probe/map-envelope-result v)))
 
 (defn projection-form
-  "Build the `cljs.core/exists?`-guarded, self-describing eval form for a
-  `re-frame.hicasso.tool` read. Pure string → string, so the form composition
-  is unit-checkable off the wire.
+  "Build the self-describing eval form for a `re-frame.hicasso.tool` read. Pure
+  string → string, so the form composition is unit-checkable off the wire.
 
     `read-fn`  the reader fn name (e.g. \"read-mounted-boundaries\").
 
@@ -208,17 +208,60 @@
   such argument.)
 
   The whole form is one `try` so a throwing read degrades to
-  `:evidence-tier-error` rather than rejecting the eval."
+  `:evidence-tier-error` rather than rejecting the eval.
+
+  ## The door is resolved, never REFERENCED (rf2-t2ec)
+
+  This form names `re-frame.hicasso.tool` in two STRINGS and nowhere as a
+  symbol, and that is the whole point rather than a stylistic preference.
+  The guard here used to be `(cljs.core/exists? re-frame.hicasso.tool/<read>)`
+  around a direct call to the same fully-qualified var. `exists?` is a fair
+  test — it resolves under `no-warn` and answers `false` for an absent door —
+  but the CALL it guarded is a var reference like any other, and shadow's
+  analyzer resolves every form it compiles before any of it runs. Against
+  `:hicasso/hmr-testbed` with the door not required, the emitted form came back:
+
+      {:ok? false, :reason :rf.error/eval-cljs-compile-error,
+       :err \"WARNING - :undeclared-var … Use of undeclared Var
+             re-frame.hicasso.tool/read-mounted-boundaries\"}
+
+  So the one case `:evidence-tier-unavailable` names — a Reagent/UIx app, or a
+  Hicasso app nothing pulled the door into — was the one case that branch could
+  not reach, and the operator got an analyzer warning where the load-the-door
+  hint belonged.
+
+  `cljs.core/find-ns-obj` is the fix because it asks the question the rung is
+  actually about — *is this NAMESPACE loaded* — as a runtime lookup on
+  `goog/global`, which the analyzer has nothing to reject. It takes the door's
+  name in the provider's own spelling and munges it with the runtime's own
+  `munge`, so [[tier-ns]] stays on the wire verbatim and Pair never has to
+  carry a second munging implementation that could disagree with the compiler's
+  (`goog.getObjectByName`, the other candidate, works but wants a pre-munged
+  `re_frame.hicasso.tool.read_mounted_boundaries` built here). It is marked
+  *bootstrap only* in `cljs.core`, meaning it is not the everyday API; it is
+  nonetheless public, present in every dev build, and the only supported way to
+  reach a namespace object by name. This eval path is dev-only in both
+  directions — the tools require the `re-frame2-pair.runtime` preload, which a
+  `:release` build does not run — so the `:advanced` renaming that would defeat
+  it cannot arise here.
+
+  A door that is loaded but INACTIVE is untouched by all of this: its namespace
+  object is present, the read resolves, and it answers `nil` — the
+  `:evidence-tier-inactive` rung, exactly as before. A door that is loaded but
+  whose read has been RENAMED resolves to `undefined`, and calling it throws
+  into the `catch` as `:evidence-tier-error` rather than claiming the door is
+  absent; [[re-frame2-pair-mcp.hicasso-wire-test]] is what stops that reaching
+  a user."
   [read-fn]
-  (let [fq (str tier-ns "/" read-fn)]
-    (str "(try"
-         " (if (cljs.core/exists? " fq ")"
-         " (let [p (" fq ")]"
-         " (if (cljs.core/nil? p)"
-         " {:ok? false, :reason :evidence-tier-inactive, :hint " (pr-str inactive-hint) "}"
-         " (cljs.core/assoc p :ok? true)))"
-         " {:ok? false, :reason :evidence-tier-unavailable, :hint " (pr-str unavailable-hint) "})"
-         " (catch :default e {:ok? false, :reason :evidence-tier-error, :message (cljs.core/str e)}))")))
+  (str "(try"
+       " (let [d (cljs.core/find-ns-obj " (pr-str tier-ns) ")]"
+       " (if (cljs.core/nil? d)"
+       " {:ok? false, :reason :evidence-tier-unavailable, :hint " (pr-str unavailable-hint) "}"
+       " (let [p ((cljs.core/unchecked-get d (cljs.core/munge " (pr-str read-fn) ")))]"
+       " (if (cljs.core/nil? p)"
+       " {:ok? false, :reason :evidence-tier-inactive, :hint " (pr-str inactive-hint) "}"
+       " (cljs.core/assoc p :ok? true)))))"
+       " (catch :default e {:ok? false, :reason :evidence-tier-error, :message (cljs.core/str e)}))"))
 
 (defn- door-read-tool
   "The shared handler for the three nullary door reads."

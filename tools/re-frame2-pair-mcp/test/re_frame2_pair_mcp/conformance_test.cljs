@@ -1776,24 +1776,28 @@
      :reason :no-target-arg}}
 
    ;; ---------- the three re-frame.hicasso.tool reads ---------------------
-   ;; Each ships an exists?-guarded self-describing form calling
-   ;; re-frame.hicasso.tool/<read>; the form resolves to an {:ok? ...} envelope
-   ;; projected via map-envelope-result (every :ok? false is isError). The stub
-   ;; returns the envelope the guarded form would produce, so the corpus pins the
-   ;; happy passthrough (with :schema + the four projection axes) AND the honest
-   ;; absent/inactive envelopes.
+   ;; Each ships one self-describing form that RESOLVES re-frame.hicasso.tool at
+   ;; runtime — `find-ns-obj` on the door, `unchecked-get` on the munged read —
+   ;; and resolves to an {:ok? ...} envelope projected via map-envelope-result
+   ;; (every :ok? false is isError). The stub returns the envelope that form
+   ;; would produce, so the corpus pins the happy passthrough (with :schema + the
+   ;; four projection axes) AND the honest absent/inactive envelopes.
    ;;
-   ;; THE STUB KEY IS THE WIRE STRING, so these fixtures pin the emitter and
-   ;; nothing else — a form naming a read the provider does not publish matches a
+   ;; THE STUB KEY IS THE WIRE STRING — `(cljs.core/munge "<read>")`, the one
+   ;; place each read is named in the emitted form since rf2-t2ec replaced the
+   ;; fully-qualified var reference. These fixtures therefore pin the emitter and
+   ;; nothing else: a form naming a read the provider does not publish matches a
    ;; stub here just as happily as a real one. `hicasso-wire-test` is what reads
-   ;; the provider's own source and holds the other side of that.
+   ;; the provider's own source and holds the other side of that, and the
+   ;; door-absent rung is only witnessed live (test/live-hicasso-wire.cjs) —
+   ;; a stub cannot reject a form the way shadow's analyzer can.
    {:fixture/id    :read-mounted-boundaries/happy
-    :fixture/doc   "read-mounted-boundaries forwards the versioned roster; the form calls re-frame.hicasso.tool/read-mounted-boundaries under an exists? guard. A boundary is keyed by its READ SET — the runtime mints no boundary identity — so :view and :source ride as :unknown under the :naming projection rather than being omitted."
+    :fixture/doc   "read-mounted-boundaries forwards the versioned roster; the form resolves re-frame.hicasso.tool at runtime and calls read-mounted-boundaries off it. A boundary is keyed by its READ SET — the runtime mints no boundary identity — so :view and :source ride as :unknown under the :naming projection rather than being omitted."
     :fixture/tool  "read-mounted-boundaries"
     :fixture/args  {}
     :fixture/eval-script
     [["__re_frame2_pair_runtime"                         true]
-     ["re-frame.hicasso.tool/read-mounted-boundaries"    {:ok? true :schema :re-frame.hicasso.evidence/v2
+     ["(cljs.core/munge \"read-mounted-boundaries\")"    {:ok? true :schema :re-frame.hicasso.evidence/v2
                                                           :producer :re-frame/hicasso
                                                           :read :mounted-boundaries
                                                           :scope :mounted-boundaries
@@ -1813,7 +1817,8 @@
                                                                  :commit :unknown :paint :unknown}}]
      [:default                                           nil]]
     :fixture/eval-form-must-contain
-    ["re-frame.hicasso.tool/read-mounted-boundaries" "cljs.core/exists?"]
+    ["(cljs.core/munge \"read-mounted-boundaries\")"
+     "(cljs.core/find-ns-obj \"re-frame.hicasso.tool\")"]
     :fixture/expect
     {:isError? false
      :edn-submap {:ok? true :schema :re-frame.hicasso.evidence/v2
@@ -1826,7 +1831,7 @@
     :fixture/args  {}
     :fixture/eval-script
     [["__re_frame2_pair_runtime"                         true]
-     ["re-frame.hicasso.tool/read-mounted-boundaries"    {:ok? true :schema :re-frame.hicasso.evidence/v2
+     ["(cljs.core/munge \"read-mounted-boundaries\")"    {:ok? true :schema :re-frame.hicasso.evidence/v2
                                                           :read :mounted-boundaries
                                                           :complete? true :loss nil
                                                           :boundaries []}]
@@ -1836,12 +1841,12 @@
      :edn-submap {:ok? true :boundaries []}}}
 
    {:fixture/id    :read-mounted-boundaries/tier-unavailable-iserror
-    :fixture/doc   "when re-frame.hicasso.tool is not loaded - a Reagent/UIx app, or a Hicasso app nothing pulled the door into (nothing in re-frame.hicasso requires it, which is how a production build never loads it) - the guarded form resolves to {:ok? false :reason :evidence-tier-unavailable}, surfaced as an isError envelope. Absent evidence tolerated explicitly, never a fabricated empty roster."
+    :fixture/doc   "when re-frame.hicasso.tool is not loaded - a Reagent/UIx app, or a Hicasso app nothing pulled the door into (nothing in re-frame.hicasso requires it, which is how a production build never loads it) - find-ns-obj answers nil and the form resolves to {:ok? false :reason :evidence-tier-unavailable}, surfaced as an isError envelope. Absent evidence tolerated explicitly, never a fabricated empty roster."
     :fixture/tool  "read-mounted-boundaries"
     :fixture/args  {}
     :fixture/eval-script
     [["__re_frame2_pair_runtime"                         true]
-     ["re-frame.hicasso.tool/read-mounted-boundaries"    {:ok? false :reason :evidence-tier-unavailable
+     ["(cljs.core/munge \"read-mounted-boundaries\")"    {:ok? false :reason :evidence-tier-unavailable
                                                           :hint "the re-frame.hicasso.tool evidence door is not loaded..."}]
      [:default                                           nil]]
     :fixture/expect
@@ -1854,7 +1859,7 @@
     :fixture/args  {}
     :fixture/eval-script
     [["__re_frame2_pair_runtime"                         true]
-     ["re-frame.hicasso.tool/read-mounted-boundaries"    {:ok? true :schema :re-frame.hicasso.evidence/v1
+     ["(cljs.core/munge \"read-mounted-boundaries\")"    {:ok? true :schema :re-frame.hicasso.evidence/v1
                                                           :boundaries []}]
      [:default                                           nil]]
     :fixture/expect
@@ -1869,7 +1874,7 @@
     :fixture/args  {}
     :fixture/eval-script
     [["__re_frame2_pair_runtime"                         true]
-     ["re-frame.hicasso.tool/read-read-attribution"      {:ok? true :schema :re-frame.hicasso.evidence/v2
+     ["(cljs.core/munge \"read-read-attribution\")"      {:ok? true :schema :re-frame.hicasso.evidence/v2
                                                           :read :read-attribution
                                                           :scope :read-edges :basis :observation
                                                           :complete? true :loss nil
@@ -1880,19 +1885,19 @@
                                                           :host {:basis :host-opaque :complete? false}}]
      [:default                                           nil]]
     :fixture/eval-form-must-contain
-    ["re-frame.hicasso.tool/read-read-attribution"]
+    ["(cljs.core/munge \"read-read-attribution\")"]
     :fixture/expect
     {:isError? false
      :edn-submap {:ok? true :complete? true :basis :observation}
      :edn-contains-keys #{:edges}}}
 
    {:fixture/id    :read-read-attribution/tier-inactive-iserror
-    :fixture/doc   "a production build nil-gates the whole door - every read answers nil under :advanced with goog.DEBUG false - so the guarded form resolves to {:ok? false :reason :evidence-tier-inactive}, surfaced as isError. Distinguishable from :evidence-tier-unavailable, which is the door being absent rather than dev-gated."
+    :fixture/doc   "a production build nil-gates the whole door - every read answers nil under :advanced with goog.DEBUG false - so the door RESOLVES and the form resolves to {:ok? false :reason :evidence-tier-inactive}, surfaced as isError. Distinguishable from :evidence-tier-unavailable, which is the door being absent rather than dev-gated."
     :fixture/tool  "read-read-attribution"
     :fixture/args  {}
     :fixture/eval-script
     [["__re_frame2_pair_runtime"                         true]
-     ["re-frame.hicasso.tool/read-read-attribution"      {:ok? false :reason :evidence-tier-inactive
+     ["(cljs.core/munge \"read-read-attribution\")"      {:ok? false :reason :evidence-tier-inactive
                                                           :hint "the evidence door is DEV-ONLY..."}]
      [:default                                           nil]]
     :fixture/expect
@@ -1905,7 +1910,7 @@
     :fixture/args  {}
     :fixture/eval-script
     [["__re_frame2_pair_runtime"                         true]
-     ["re-frame.hicasso.tool/explain-render"             {:ok? true :schema :re-frame.hicasso.evidence/v2
+     ["(cljs.core/munge \"explain-render\")"             {:ok? true :schema :re-frame.hicasso.evidence/v2
                                                           :read :explain-render
                                                           :scope :mounted-boundaries
                                                           :basis :observation
@@ -1930,7 +1935,7 @@
                                                           :host {:basis :host-opaque :complete? false}}]
      [:default                                           nil]]
     :fixture/eval-form-must-contain
-    ["re-frame.hicasso.tool/explain-render"]
+    ["(cljs.core/munge \"explain-render\")"]
     :fixture/expect
     {:isError? false
      :edn-submap {:ok? true :complete? false
@@ -1943,7 +1948,7 @@
     :fixture/args  {}
     :fixture/eval-script
     [["__re_frame2_pair_runtime"                         true]
-     ["re-frame.hicasso.tool/explain-render"             {:ok? true :schema :re-frame.hicasso.evidence/v2
+     ["(cljs.core/munge \"explain-render\")"             {:ok? true :schema :re-frame.hicasso.evidence/v2
                                                           :read :explain-render
                                                           :scope :mounted-boundaries
                                                           :basis :observation
@@ -1972,7 +1977,7 @@
     :fixture/args  {}
     :fixture/eval-script
     [["__re_frame2_pair_runtime"                         true]
-     ["re-frame.hicasso.tool/explain-render"             {:ok? false :reason :evidence-tier-error
+     ["(cljs.core/munge \"explain-render\")"             {:ok? false :reason :evidence-tier-error
                                                           :message "TypeError: cannot read .-epoch of null"}]
      [:default                                           nil]]
     :fixture/expect

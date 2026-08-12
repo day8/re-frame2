@@ -1262,8 +1262,11 @@
 
 ;; ---------------------------------------------------------------------------
 ;; The three re-frame.hicasso.tool reads — the adapter-neutral evidence a
-;; pairing agent reads from a running app. Each ships one exists?-guarded
-;; self-describing form; every read answers inside the four-axis evidence
+;; pairing agent reads from a running app. Each ships one self-describing form
+;; that RESOLVES the door at runtime rather than referencing its vars — a
+;; namespace the build never loaded is rejected by shadow's analyzer before the
+;; form runs, which is what used to hide :evidence-tier-unavailable (rf2-t2ec);
+;; every read answers inside the four-axis evidence
 ;; projection (:scope / :basis / :complete? / :loss) stamped with :schema and
 ;; :read, and egresses only bounded serializable data (no cell / React handle,
 ;; and no read VALUE at all). Absence is honest: :evidence-tier-unavailable (the
