@@ -772,13 +772,21 @@
                            "remount — the re-seeding :initial-events [[:rf/set-db "
                            "{:n 999}]] was RE-RECORDED but NOT replayed (got "
                            (pr-str (rf/app-db-value target)) ")"))
-                  (cleanup!)
-                  (done!)))
+                  nil))
+              ;; Reports; it does NOT finish. `done` hands `cljs.test/run-block`
+              ;; a continuation that runs the WHOLE remainder of the run
+              ;; synchronously, so a rejection handler downstream of the step
+              ;; that finished the row claims whatever a LATER namespace throws,
+              ;; prints it against this row's label, and fires `done` a second
+              ;; time (rf2-e8kc). The CAS in `done!` swallows that second call;
+              ;; it cannot swallow the misattributed `is false`.
               (.catch
                 (fn [err]
                   (is false (str "scenario-6-frame-root threw: " (pr-str err)))
-                  (cleanup!)
-                  (done!)))))))))
+                  nil))
+              ;; Both arms cleaned up identically, so it rides the single
+              ;; trailing step: written once, run once per path.
+              (.then (fn [_] (cleanup!) (done!)))))))))
 
 ;; ---- Scenario 6 (frame-root): genuine unmount LEAVES the frame live -------
 ;;
@@ -824,25 +832,35 @@
                   (is (= {:n 3} (rf/app-db-value target)) ":initial-events seeded app-db")
                   ;; Genuine unmount — frame-root does NOT destroy.
                   (js/Promise.resolve (act-fn (fn [] (.unmount root))))))
+              ;; AWAITED rather than fired-and-forgotten. A bare `js/setTimeout`
+              ;; returns a NUMBER, so this step used to settle the chain
+              ;; immediately and the assertions below ran OFF THE END of it —
+              ;; where the handler could not see a throw, and a throw would have
+              ;; left `done!` uncalled and hung the lane with no diagnostic at
+              ;; all. The same double-macrotask window, expressed as a promise
+              ;; the chain can wait on (rf2-e8kc).
               (.then
                 (fn [_]
-                  (js/setTimeout
-                    (fn []
+                  (js/Promise.
+                    (fn [resolve _]
                       (js/setTimeout
-                        (fn []
-                          (is (some? (frame/frame target))
-                              "genuine unmount LEFT the frame live (frame-root has no destroy-on-unmount)")
-                          (is (= {:n 3} (rf/app-db-value target))
-                              "durable app-db survived the unmount intact")
-                          (cleanup!)
-                          (done!))
-                        4))
-                    4)))
+                        (fn [] (js/setTimeout (fn [] (resolve nil)) 4))
+                        4)))))
+              (.then
+                (fn [_]
+                  (is (some? (frame/frame target))
+                      "genuine unmount LEFT the frame live (frame-root has no destroy-on-unmount)")
+                  (is (= {:n 3} (rf/app-db-value target))
+                      "durable app-db survived the unmount intact")
+                  nil))
+              ;; Reports; it does NOT finish — as above (rf2-e8kc).
               (.catch
                 (fn [err]
                   (is false (str "frame-root genuine-unmount scenario threw: " (pr-str err)))
-                  (cleanup!)
-                  (done!)))))))))
+                  nil))
+              ;; Both arms cleaned up identically, so it rides the single
+              ;; trailing step: written once, run once per path.
+              (.then (fn [_] (cleanup!) (done!)))))))))
 
 ;; ---- Scenario 6 (frame-root): a DISCARDED render creates NO frame ---------
 ;;
@@ -925,25 +943,32 @@
           (do (is true "act() not reachable; discarded-render scenario skipped")
               (done!))
           (-> (js/Promise.resolve (act-fn (fn [] (.render root boundary))))
+              ;; AWAITED rather than fired-and-forgotten, for the reason given
+              ;; on the genuine-unmount scenario above: a bare `js/setTimeout`
+              ;; returns a NUMBER, so the assertion below used to run off the
+              ;; end of a chain that had already settled (rf2-e8kc).
               (.then
                 (fn [_]
-                  (js/setTimeout
-                    (fn []
-                      (is (nil? (frame/frame target))
-                          (str "GHOST-FRAME FIX: an aborted (never-committed) render "
-                               "created NO frame under " (pr-str target)
-                               " (frame-root ensures at commit, not during render)"))
-                      (cleanup!)
-                      (done!))
-                    8)))
+                  (js/Promise. (fn [resolve _] (js/setTimeout (fn [] (resolve nil)) 8)))))
+              (.then
+                (fn [_]
+                  (is (nil? (frame/frame target))
+                      (str "GHOST-FRAME FIX: an aborted (never-committed) render "
+                           "created NO frame under " (pr-str target)
+                           " (frame-root ensures at commit, not during render)"))
+                  nil))
               (.catch
                 (fn [_err]
                   ;; A thrown render may reject the act() thenable depending on the
                   ;; error-boundary timing; the invariant still holds — no frame.
+                  ;; This arm ASSERTS rather than merely reports, and it still
+                  ;; does not finish: the single `done!` is on the tail below.
                   (is (nil? (frame/frame target))
                       "aborted render created NO frame (error path)")
-                  (cleanup!)
-                  (done!)))))))))
+                  nil))
+              ;; Both arms cleaned up identically, so it rides the single
+              ;; trailing step: written once, run once per path.
+              (.then (fn [_] (cleanup!) (done!)))))))))
 
 ;; ---- Scenario 7: concurrent rendering / suspense + act --------------------
 ;;
@@ -1004,9 +1029,19 @@
                 mount-node (make-mount-node!)
                 root       (rdc/create-root mount-node)
                 finish     (fn [] (teardown-and-done! root done))
-                fail!      (fn [e]
+                ;; Reports; it does NOT finish. `finish` closes over `done`, so
+                ;; calling it from a rejection handler downstream of the step
+                ;; that already called it claims a LATER namespace's throw as
+                ;; this row's and fires `done` a second time (rf2-e8kc). A
+                ;; closure is invisible to a scanner looking for a literal
+                ;; `(done)` or for a helper that TAKES `done`; it finishes the
+                ;; row just the same.
+                report!    (fn [e]
                              (is false (str "scenario-7 threw: " (pr-str e)))
-                             (finish))]
+                             nil)
+                ;; The SYNCHRONOUS terminal path only — a throw before the
+                ;; chain exists has no trailing step to finish on.
+                fail!      (fn [e] (report! e) (finish))]
             (try
               ;; Render 1 — wrap the call in act() so pending React work
               ;; commits before we read the observed-* atoms.
@@ -1033,9 +1068,12 @@
                       (is (some #{2} @observed-values)
                           (str "post-dispatch re-render observes the incremented value n=2; got "
                                (pr-str @observed-values)))
-                      ;; SOURCE fix (rf2-vp3m9): await the deferred teardown.
-                      (finish)))
-                  (.catch fail!))
+                      nil))
+                  (.catch report!)
+                  ;; SOURCE fix (rf2-vp3m9): await the deferred teardown. The
+                  ;; single exit, on the single trailing step, with nothing
+                  ;; after it.
+                  (.then (fn [_] (finish))))
               (catch :default e
                 (fail! e)))))))))
 

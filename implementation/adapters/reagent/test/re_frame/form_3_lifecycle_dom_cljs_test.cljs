@@ -219,10 +219,20 @@
                   cleanup! (fn []
                              (try (act-fn #(rdc/unmount root-a)) (catch :default _ nil))
                              (try (act-fn #(rdc/unmount root-b)) (catch :default _ nil)))
-                  fail! (fn [err]
-                          (is false (str "Form-3 isolation fixture threw: " (pr-str err)))
-                          (cleanup!)
-                          (done!))]
+                  ;; Reports; it does NOT finish. `done` hands
+                  ;; `cljs.test/run-block` a continuation that runs the WHOLE
+                  ;; remainder of the run synchronously, so a rejection handler
+                  ;; downstream of the step that finished the row claims
+                  ;; whatever a LATER namespace throws, prints it against this
+                  ;; row's label, and fires `done` a second time (rf2-e8kc).
+                  ;; The CAS in `done!` swallows that second call; it cannot
+                  ;; swallow the misattributed `is false`.
+                  report! (fn [err]
+                            (is false (str "Form-3 isolation fixture threw: " (pr-str err)))
+                            nil)
+                  ;; The SYNCHRONOUS terminal path only — a throw before the
+                  ;; chain exists has no trailing step to finish on.
+                  fail! (fn [err] (report! err) (cleanup!) (done!))]
               (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) true)
               (try
                 (act-fn #(rdc/render root-a
@@ -301,9 +311,11 @@
                         (is (= 3 (count (filter #(= :render-release (:phase %))
                                                 @events)))
                             "each Reagent-owned render reaction releases exactly once")
-                        (cleanup!)
-                        (done!)))
-                    (.catch fail!))
+                        nil))
+                    (.catch report!)
+                    ;; Both arms cleaned up identically, so it rides the single
+                    ;; trailing step: written once, run once per path.
+                    (.then (fn [_] (cleanup!) (done!))))
                 (catch :default e (fail! e))))))))))
 
 (deftest keyed-provider-retarget-remounts-the-locked-capture
@@ -326,10 +338,13 @@
                   root (rdc/create-root (.createElement js/document "div"))
                   cleanup! #(try (act-fn (fn [] (rdc/unmount root)))
                                  (catch :default _ nil))
-                  fail! (fn [err]
-                          (is false (str "Form-3 retarget fixture threw: " (pr-str err)))
-                          (cleanup!)
-                          (done!))]
+                  ;; Reports; it does NOT finish — as above, and for the same
+                  ;; reason (rf2-e8kc).
+                  report! (fn [err]
+                            (is false (str "Form-3 retarget fixture threw: " (pr-str err)))
+                            nil)
+                  ;; The SYNCHRONOUS terminal path only.
+                  fail! (fn [err] (report! err) (cleanup!) (done!))]
               (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) true)
               (try
                 (act-fn #(rdc/render root (retarget-tree frame-a view)))
@@ -389,9 +404,11 @@
                       (fn [_]
                         (is (= {} (cache-state frame-b))
                             "final B unmount restores B's exact baseline")
-                        (cleanup!)
-                        (done!)))
-                    (.catch fail!))
+                        nil))
+                    (.catch report!)
+                    ;; Both arms cleaned up identically, so it rides the single
+                    ;; trailing step: written once, run once per path.
+                    (.then (fn [_] (cleanup!) (done!))))
                 (catch :default e (fail! e))))))))))
 
 (deftest strict-mode-replay-preserves-render-ownership
@@ -418,10 +435,12 @@
                   tree [rf/frame-provider {:frame frame-a}
                         [klass :strict-one]]
                   cleanup! #(try (rdc/unmount root) (catch :default _ nil))
-                  fail! (fn [err]
-                          (is false (str "Form-3 StrictMode fixture threw: " (pr-str err)))
-                          (cleanup!)
-                          (done!))]
+                  ;; Reports; it does NOT finish — as above, and for the same
+                  ;; reason (rf2-e8kc). This row has no synchronous terminal
+                  ;; path, so the chain's tail is the row's only exit.
+                  report! (fn [err]
+                            (is false (str "Form-3 StrictMode fixture threw: " (pr-str err)))
+                            nil)]
               (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) true)
               ;; The four-arity stock-Reagent renderer installs StrictMode
               ;; outside its two internal bridge components. An authored
@@ -474,9 +493,11 @@
                             "Reagent destroys the retained render owner exactly once")
                         (is (= {} (cache-state frame-a))
                             "real unmount restores the exact cache baseline"))
-                      (cleanup!)
-                      (done!)))
-                  (.catch fail!)))))))))
+                      nil))
+                  (.catch report!)
+                  ;; Both arms cleaned up identically, so it rides the single
+                  ;; trailing step: written once, run once per path.
+                  (.then (fn [_] (cleanup!) (done!)))))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; rf2-rjjry + rf2-ynved — the exceptional imperative-subscription recipe must be
@@ -656,10 +677,15 @@
                   tree  [rf/frame-provider {:frame frame-a} [klass :strict-gauge]]
                   rc    (fn [] (ref-count (cache-state frame-a) gauge-query))
                   cleanup! #(try (rdc/unmount root) (catch :default _ nil))
-                  fail! (fn [err]
-                          (is false (str "gauge StrictMode fixture threw: " (pr-str err)))
-                          (cleanup!)
-                          (done!))]
+                  ;; Reports and RELEASES; it does NOT finish — as above, and
+                  ;; for the same reason (rf2-e8kc). `cleanup!` stays HERE
+                  ;; rather than riding the tail: the success path unmounts the
+                  ;; root in-chain as a step under test, so only the failure
+                  ;; arm can still have a mounted root to drop.
+                  report! (fn [err]
+                            (is false (str "gauge StrictMode fixture threw: " (pr-str err)))
+                            (cleanup!)
+                            nil)]
               (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) true)
               (-> (js/Promise.resolve (act-fn #(rdc/render root tree nil true)))
                   (.then (fn [_] (settle-macrotasks 3)))
@@ -684,5 +710,7 @@
                     (fn [_]
                       (is (zero? (rc))
                           "the real unmount returns the shared reaction to zero")
-                      (done!)))
-                  (.catch fail!)))))))))
+                      nil))
+                  (.catch report!)
+                  ;; The single `done`, with nothing after it.
+                  (.then (fn [_] (done!)))))))))))
