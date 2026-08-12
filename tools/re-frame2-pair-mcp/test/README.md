@@ -14,7 +14,7 @@ integration scripts.
 | Does the compiled `out/server.js` complete an MCP handshake and surface the documented tool descriptors? | **JS** — `stdio-roundtrip.js` |
 | Does the persistent nREPL socket survive multiple ops on one server process without leaking / hanging? | **JS** — `live-nrepl.js` |
 | Do connect / dispatch / trace / hot-reload work end-to-end against a live browser-hosted fixture, through the real MCP boundary? | **JS** — `live-e2e-fixture.cjs` |
-| Do the three Hicasso evidence-door tools return a schema-matched, non-empty, value-free projection when actually run against a live Hicasso application? | **JS** — `live-hicasso-wire.cjs` |
+| Do the three Hicasso evidence-door tools return a schema-matched, non-empty, value-free projection when actually run against a live Hicasso application — and, against a build that has never loaded the door, reach `:evidence-tier-unavailable` rather than an analyzer compile error? | **JS** — `live-hicasso-wire.cjs` |
 | Does closing stdin (EOF) retire the session — close the persistent nREPL socket and exit 0 — with no out-of-band kill? | **JS** — `stdin-eof-shutdown.cjs` |
 
 If a regression would only be visible **after** the CLJS compiles to
@@ -163,6 +163,24 @@ read, and — the point of the file — that it does **not** carry the
 secret seeded into that draft. Non-vacuity comes first: `read-sub`, the
 same server on the same socket, returns the secret, so the absence rows
 are about the door rather than about an empty runtime.
+
+**It also witnesses the door-ABSENT rung, and that row runs first**
+(rf2-t2ec). Before anything pulls `re-frame.hicasso.tool` in, the same
+three tools must answer `:reason :evidence-tier-unavailable` with the
+load-the-door hint — the population being a Hicasso build that has never
+compiled the door, which is what a Reagent or UIx app is permanently.
+This is the row that found the original defect: the tools answered a raw
+`:rf.error/eval-cljs-compile-error` instead, because a form referencing a
+var in an unloaded namespace is rejected by shadow's analyzer before any
+branch of it runs. No stubbed suite can see that, because no stub
+compiles anything.
+
+Consequently **the witness wants a FRESH watch**. Its own
+`(require 're-frame.hicasso.tool)` loads the door for the life of the
+`shadow-cljs watch`, so a second run finds it already there; rather than
+skip the row — a skip and a pass being indistinguishable, which is the
+very failure shape the row exists to catch — the script fails and names
+the remedy.
 
 Requires a browser build carrying the `re-frame2-pair.runtime` preload
 whose classpath can reach `re-frame.hicasso.tool` and the slice — the

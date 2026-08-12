@@ -2610,10 +2610,22 @@ production build entirely. An app on the Reagent or UIx adapter never has
 it at all. Requiring it in the generic preload would make the preload
 uncompilable in those apps.
 
-So each tool evals a self-contained form guarded by
-`cljs.core/exists?`: the door is called only when present, and its
-absence is surfaced honestly as `:reason :evidence-tier-unavailable` —
-*tolerate absent evidence explicitly*, not a fabricated emptiness.
+So each tool evals a self-contained form that **resolves** the door at
+runtime — `cljs.core/find-ns-obj` on the namespace, `unchecked-get` on
+the munged read — and calls it only when present. Its absence is
+surfaced honestly as `:reason :evidence-tier-unavailable` — *tolerate
+absent evidence explicitly*, not a fabricated emptiness.
+
+**The form must never reference a door var as a symbol** (rf2-t2ec).
+It once did, behind a `cljs.core/exists?` guard, and the guard was fine
+while the branch it guarded was not: shadow's analyzer resolves every
+form it compiles before any of it runs, so against an app that has never
+loaded `re-frame.hicasso.tool` the whole eval came back
+`:rf.error/eval-cljs-compile-error` with a raw `:undeclared-var`
+warning. The one population `:evidence-tier-unavailable` is written for
+was the one population that could not reach it. A runtime lookup asks the
+question the rung is actually about — *is this namespace loaded* — and
+the analyzer has nothing to reject.
 
 ### The coupling is a wire STRING, and it has a witness
 

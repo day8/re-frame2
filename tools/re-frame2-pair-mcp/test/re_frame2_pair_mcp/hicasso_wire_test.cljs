@@ -84,15 +84,30 @@
 (def ^:private provider-evidence-src
   (delay (slurp-repo "implementation/hicasso/src/re_frame/hicasso/evidence.cljs")))
 
-(defn- emitted-fq-symbols
-  "Every `re-frame.hicasso.tool/<read>` occurrence in a form Pair will actually
-  send, as a set of bare read names."
+(defn- emitted-read-names
+  "Every read name a form Pair will actually send resolves off the door, as a
+  set.
+
+  Since rf2-t2ec the emitted form carries no `re-frame.hicasso.tool/<read>`
+  SYMBOL — a var reference into a namespace the running build has not loaded is
+  rejected by shadow's analyzer before the form can run, which is what made the
+  `:evidence-tier-unavailable` rung unreachable. The door is now resolved at
+  runtime, so the read name rides as the string handed to `cljs.core/munge`,
+  and that is the occurrence this parses. Still the EMITTED form rather than a
+  list: what is asserted against the provider is what Pair will send."
   [form]
   (into #{}
         (map second)
-        (re-seq (re-pattern (str (str/replace hicasso-tool/tier-ns "." "\\.")
-                                 "/([a-z0-9?!*<>=+-]+)"))
-                form)))
+        (re-seq #"\(cljs\.core/munge \"([^\"]+)\"\)" form)))
+
+(defn- emitted-door-namespaces
+  "Every namespace name the form asks `cljs.core/find-ns-obj` to resolve. The
+  other half of the wire coupling, and the half that decides whether the
+  absent-door rung is reached at all."
+  [form]
+  (into #{}
+        (map second)
+        (re-seq #"\(cljs\.core/find-ns-obj \"([^\"]+)\"\)" form)))
 
 ;; ---------------------------------------------------------------------------
 ;; 1. Every read the emitter names is published by the provider
@@ -103,9 +118,11 @@
     (doseq [read-fn hicasso-tool/tier-reads]
       (testing read-fn
         (let [form  (hicasso-tool/projection-form read-fn)
-              named (emitted-fq-symbols form)]
+              named (emitted-read-names form)]
           (is (= #{read-fn} named)
               "the emitted form names this read and no other")
+          (is (= #{hicasso-tool/tier-ns} (emitted-door-namespaces form))
+              "…resolved off the door namespace and no other")
           ;; A public `defn` at column 0. `defn-` would not match, and must
           ;; not: a private read is unreachable from an eval form even though
           ;; the name is spelled identically.
@@ -121,7 +138,7 @@
   ;; provider answers.
   (let [src   @provider-tool-src
         named (into #{}
-                    (mapcat #(emitted-fq-symbols (hicasso-tool/projection-form %)))
+                    (mapcat #(emitted-read-names (hicasso-tool/projection-form %)))
                     hicasso-tool/tier-reads)]
     (is (= (set hicasso-tool/tier-reads) named)
         "the emitted forms name exactly the declared reads")

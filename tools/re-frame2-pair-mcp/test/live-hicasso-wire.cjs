@@ -30,7 +30,7 @@
 //     -> `probe/eval-after-runtime!` (the `__re_frame2_pair_runtime`
 //        preload probe + the JVM-side liveness re-check)
 //     -> `nrepl/cljs-eval-value` — bencode frames on a REAL socket
-//     -> shadow-cljs COMPILES the `cljs.core/exists?`-guarded form that
+//     -> shadow-cljs COMPILES the door-resolving form that
 //        `hicasso-tool/projection-form` built, and evaluates it inside the
 //        browser CLJS runtime
 //     -> `re-frame.hicasso.tool/<read>` runs against the live application
@@ -68,17 +68,35 @@
 // Without step 1 the absence assertion would pass just as happily against
 // a runtime that never saw the value.
 //
-// ## A finding this witness produced, recorded rather than fixed
+// ## The DOOR-ABSENT rung, witnessed first (rf2-t2ec)
 //
-// The tools' documented degradation for an app that has no evidence door
-// (`:reason :evidence-tier-unavailable`) is NOT what a live absent door
-// answers. `cljs.core/exists?` guards a missing VAR; it does not stop
-// shadow's analyzer rejecting a var in a namespace the build has never
-// loaded, so the call comes back
-// `:reason :rf.error/eval-cljs-compile-error` instead. That is exactly the
-// class of divergence a static seam check cannot see. It is recorded on
-// rf2-hic-059 and left alone here: this bead's repair is a witness, not a
-// provider change.
+// The tools document a degradation ladder whose first rung is an app that
+// has no evidence door — a Reagent/UIx app, or a Hicasso app nothing
+// pulled the door into. This witness in its first form (rf2-hic-059)
+// found that the rung was unreachable: `cljs.core/exists?` guards a
+// missing VAR, but the call it guarded was a var reference like any
+// other, and shadow's analyzer rejects a var in a namespace the build
+// has never loaded before any of the form runs. The rung answered
+// `:reason :rf.error/eval-cljs-compile-error` and an analyzer warning
+// where the load-the-door hint belonged. That is exactly the class of
+// divergence a static seam check cannot see — the emitted string
+// contained the branch, and the branch could not run.
+//
+// rf2-t2ec resolves the door at runtime instead (`find-ns-obj` on the
+// namespace, `unchecked-get` on the munged read), and THIS is where the
+// repair is proved: before anything loads the door, the three tools are
+// called against the plain host build and must answer
+// `:evidence-tier-unavailable` with its hint. The row runs FIRST, because
+// it is the only assertion here whose population is destroyed by the rest
+// of the script.
+//
+// **That makes the run order load-bearing, and it makes the witness a
+// once-per-watch instrument.** `(require 're-frame.hicasso.tool)` below
+// compiles the door into this build for the life of the `shadow-cljs
+// watch` — a second run against the same watch finds the door already
+// there. Rather than skip the row (a skip here is indistinguishable from
+// a pass, which is the failure shape this bead is about), the script
+// checks the precondition and FAILS with the remedy: restart the watch.
 //
 // ## Running it
 //
@@ -86,8 +104,9 @@
 // it SOFT-SKIPS (exit 0 with a `SKIP` banner) when the infrastructure is
 // absent, so it is safe to invoke anywhere.
 //
-//   # 1. a browser build carrying the pair preload, on the implementation
-//   #    classpath (which is where the slice and the door both live):
+//   # 1. a FRESH browser build carrying the pair preload, on the
+//   #    implementation classpath (which is where the slice and the door
+//   #    both live). Fresh matters: see the door-absent section above.
 //   cd implementation
 //   npx shadow-cljs watch hicasso/hmr-testbed \
 //     --config-merge '{:devtools {:preloads [re-frame2-pair.runtime]}}'
@@ -146,6 +165,11 @@ const THE_SECRET = 'RF2-HIC-059-WIRE-SECRET-4d2a1f';
 const EXPECTED_SCHEMA = ':re-frame.hicasso.evidence/v2';
 
 const DOOR_READS = ['read-mounted-boundaries', 'read-read-attribution', 'explain-render'];
+
+// The evidence door itself. Spelled once because the door-absent row below
+// asserts on it three ways — the presence probe, the hint text, and the
+// require that ends the absent population.
+const DOOR_NS = 're-frame.hicasso.tool';
 
 function skip(reason) {
   // The same leading-line banner the mcp-conformance hermetic orchestrator
@@ -365,6 +389,48 @@ async function main() {
     const build = buildMatch[1];
     console.log(`OK   discover-app -> build ${build}`);
 
+    // ---- THE DOOR-ABSENT RUNG, before anything loads the door -----------
+    // Nothing in `re-frame.hicasso` requires `re-frame.hicasso.tool`, so a
+    // freshly-watched build has not compiled it and this host is, for the
+    // moment, indistinguishable from a Reagent/UIx app: the population the
+    // `:evidence-tier-unavailable` rung is written for.
+    const doorLoaded = await callTool(client, 'eval-cljs', {
+      form: `(cljs.core/some? (cljs.core/find-ns-obj "${DOOR_NS}"))`,
+      build,
+    });
+    assert(!doorLoaded.isError, 'the door-presence probe returned isError: ' + doorLoaded.text);
+    assert(
+      /:value false\b/.test(doorLoaded.text),
+      `${DOOR_NS} is ALREADY loaded in this build, so the door-absent rung cannot ` +
+        'be witnessed. This script loads the door itself further down, for the ' +
+        'life of the watch — restart `shadow-cljs watch hicasso/hmr-testbed` and ' +
+        're-run. Probe answered: ' + doorLoaded.text,
+    );
+    for (const read of DOOR_READS) {
+      const r = await callTool(client, read, { build, 'max-tokens': 0 });
+      // Every `:ok? false` rides isError:true, so a degraded read is never
+      // cached and never reads as a successful answer.
+      assert(r.isError, `${read} answered a door-less app without isError: ${r.text}`);
+      assert(
+        r.text.includes(':reason :evidence-tier-unavailable'),
+        `${read} did not reach the documented absent-door rung against a build ` +
+          `that has never loaded ${DOOR_NS}. rf2-t2ec: a form that REFERENCES a ` +
+          'var in an unloaded namespace is rejected by shadow\'s analyzer before ' +
+          'any branch of it runs, and the answer is a raw compile warning ' +
+          `instead. Got: ${r.text.slice(0, 500)}`,
+      );
+      assert(
+        !r.text.includes(':rf.error/eval-cljs-compile-error'),
+        `${read} answered the absent door with an analyzer compile error — the ` +
+          `exact rf2-t2ec regression: ${r.text.slice(0, 500)}`,
+      );
+      assert(
+        r.text.includes(`Load ${DOOR_NS} into the running build and retry`),
+        `${read} reached the rung without the hint an operator acts on: ${r.text.slice(0, 500)}`,
+      );
+      console.log(`OK   ${read} (door absent) -> :evidence-tier-unavailable + load-the-door hint`);
+    }
+
     // ---- Boot the slice through its own entry point ----------------------
     await evalCljs(client, `(require '${SLICE}.app)`, 'require the slice');
     // The slice mounts into `#app`, and the page hosting the runtime is
@@ -384,8 +450,10 @@ async function main() {
     );
     // Nothing in `re-frame.hicasso` requires the door — that is how a
     // production build never loads it — so a Hicasso app has it only once
-    // something pulls it in. Xray does; here this line does.
-    await evalCljs(client, "(require 're-frame.hicasso.tool)", 'load the evidence door');
+    // something pulls it in. Xray does; here this line does. It is also the
+    // line that ends the door-absent population above, for the life of the
+    // watch rather than of this process.
+    await evalCljs(client, `(require '${DOOR_NS})`, 'load the evidence door');
     console.log('OK   slice booted by its own -main; evidence door loaded');
 
     // ---- Seed the secret through the slice's OWN events ------------------
