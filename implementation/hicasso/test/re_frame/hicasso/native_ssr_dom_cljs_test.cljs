@@ -108,6 +108,13 @@
 
 (rf/reg-sub :hicasso.native-ssr/title (fn [db _] (:title db)))
 
+;; A SECOND key over the same db value, read only by the island. The page
+;; around it reads `:title` through an ordinary boundary, so a shared key
+;; would put two readers on one cell and the acquisition rows below could
+;; not say WHICH half acquired. Same value, so every markup row is
+;; unchanged by the split.
+(rf/reg-sub :hicasso.native-ssr/island-title (fn [db _] (:title db)))
+
 (rf/reg-event :hicasso.native-ssr/seed (fn [_ _] {:db {:title "quarterly"}}))
 (rf/reg-event :hicasso.native-ssr/retitle
               (fn [{:keys [db]} [_ t]] {:db (assoc db :title t)}))
@@ -191,7 +198,8 @@
   that have a reason to be islands."
   {:server :render}
   [^js _props]
-  (n/$ :b #js {"className" "island-read"} (n/use-sub [:hicasso.native-ssr/title])))
+  (n/$ :b #js {"className" "island-read"}
+       (n/use-sub [:hicasso.native-ssr/island-title])))
 
 (n/defcomponent framed-island
   "HS-29. `n/use-frame` under the same policy — the ops bundle for the
@@ -594,11 +602,11 @@
     (collector/reset-runtime!)
     (is (empty? (sup/cell-keys)) "the runtime starts empty")
     (server-html [reading-page {}])
-    (is (zero? (sup/readers-of [frame-id [:hicasso.native-ssr/title]]))
+    (is (zero? (sup/readers-of [frame-id [:hicasso.native-ssr/island-title]]))
         (str "the server render left no reader behind; cells: "
              (pr-str (sup/cell-keys))))
     (server-html [reading-page {}])
-    (is (zero? (sup/readers-of [frame-id [:hicasso.native-ssr/title]]))
+    (is (zero? (sup/readers-of [frame-id [:hicasso.native-ssr/island-title]]))
         "and a second request did not accumulate one either")))
 
 (deftest the-abi-helpers-carry-the-policy-rather-than-losing-it
@@ -906,9 +914,32 @@
         (fn [container _seen _html]
           (is (some? (q container ".island-read"))
               "the reading island is mounted")
-          (is (= 1 (sup/readers-of [frame-id [:hicasso.native-ssr/title]]))
-              (str "exactly ONE reader after adoption — the server render
-                    registered none and the client registered one, so the
-                    two halves did not both acquire; cells: "
-                   (pr-str (sup/cell-keys))))
+          (is (= 1 (sup/readers-of [frame-id [:hicasso.native-ssr/island-title]]))
+              (str "exactly ONE reader on the ISLAND'S OWN key after
+                    adoption — the server render registered none and the
+                    client registered one, so the two halves did not both
+                    acquire; cells: " (pr-str (sup/cell-keys))))
           (done))))))
+
+(deftest a-native-read-is-released-on-unmount
+  (if-not (mount/browser?)
+    (skip! ":node-test has no DOM")
+    (do
+      (fresh!)
+      (collector/reset-runtime!)
+      (testing "§2.4's last clause: exact cleanup. A mounted island holds
+                one reader on its own key and the teardown releases it —
+                `useSyncExternalStore`'s unsubscribe is the release, so a
+                gate that swallowed the island's unmount, or a policy that
+                left the body mounted behind a stale snapshot, would leave
+                the count at one. Narrowing caught: releasing on the FRAME
+                rather than on the subscription, which passes while one
+                root is up and leaks under two"
+        (let [h (mount/root! (mount/fresh-container!) frame-id [reading-page {}])]
+          (is (= 1 (sup/readers-of [frame-id [:hicasso.native-ssr/island-title]]))
+              (str "one reader while mounted; cells: "
+                   (pr-str (sup/cell-keys))))
+          (mount/release! h)
+          (is (zero? (sup/readers-of [frame-id [:hicasso.native-ssr/island-title]]))
+              (str "and none after teardown; cells: "
+                   (pr-str (sup/cell-keys)))))))))
