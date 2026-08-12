@@ -169,20 +169,24 @@
             "non-vacuous: the analysis really did elide the ViewCell for this body")
         (let [container (host-node!)]
           (-> (act #(v/mount [elided-but-reads {}] container {:frame fid}))
+              ;; The REJECTION is this row's success path — the mount must be
+              ;; refused — so the two handlers are SIBLINGS of one two-arg
+              ;; `.then`, which states "exactly one of these runs" directly. A
+              ;; `.catch` downstream of a `done` would instead claim a later
+              ;; namespace's throw as this row's and fire `done` twice
+              ;; (rf2-fyba). The shared container detach rides the single
+              ;; trailing step; the unmount is fulfilment-only and stays.
               (.then (fn [mounted]
                        (is false
                            (str "the shell-free mount SUCCEEDED and rendered "
                                 (pr-str (text container "#leak"))
                                 " — a read with no owner was not refused"))
-                       (when mounted (.unmount (.-react-root ^root/Root mounted)))
-                       (.remove container)
-                       (done)))
-              (.catch (fn [e]
-                        (is (= :rf.error/view-read-outside-render
-                               (:rf.error/id (ex-data e)))
-                            (str "refused loudly at the read; got " (pr-str e)))
-                        (.remove container)
-                        (done)))))))))
+                       (when mounted (.unmount (.-react-root ^root/Root mounted))))
+                     (fn [e]
+                       (is (= :rf.error/view-read-outside-render
+                              (:rf.error/id (ex-data e)))
+                           (str "refused loudly at the read; got " (pr-str e)))))
+              (.then (fn [_] (.remove container) (done)))))))))
 
 (deftest a-shell-free-boundary-still-resolves-a-frame-for-a-snapshot-read
   (testing "The ruling keeps `rf/subscribe-once` legal under the flag — a
@@ -217,15 +221,15 @@
                        (is (= "41" (text container "#snapshot"))
                            "the ambient one-shot read resolved the mounting frame
                             through the React frame context, with no shell above it")
-                       (when mounted (.unmount (.-react-root ^root/Root mounted)))
-                       (.remove container)
-                       (done)))
+                       ;; Fulfilment-only: there is no root to unmount on the
+                       ;; rejection arm. The container detach is shared.
+                       (when mounted (.unmount (.-react-root ^root/Root mounted)))))
               (.catch (fn [e]
                         (is false
                             (str "the snapshot read failed in a shell-free boundary: "
                                  (pr-str e)))
-                        (.remove container)
-                        (done)))))))))
+                        nil))
+              (.then (fn [_] (.remove container) (done)))))))))
 
 ;; ===========================================================================
 ;; 2 — a reactive child of a shell-free parent stays reactive
@@ -255,14 +259,12 @@
                            (.then (fn [_]
                                     (is (= "42" (text container "#child"))
                                         "and it repainted when the value moved")
+                                    ;; Fulfilment-only. The nested chain is
+                                    ;; RETURNED into the outer one, which finishes.
                                     (when mounted
-                                      (.unmount (.-react-root ^root/Root mounted)))
-                                    (.remove container)
-                                    (done))))))
-              (.catch (fn [e]
-                        (is false (str "shell-free parent mount rejected: " e))
-                        (.remove container)
-                        (done)))))))))
+                                      (.unmount (.-react-root ^root/Root mounted))))))))
+              (.catch (fn [e] (is false (str "shell-free parent mount rejected: " e)) nil))
+              (.then (fn [_] (.remove container) (done)))))))))
 
 ;; ===========================================================================
 ;; 3 — the event door, with no candidate: SILENT LOSS
@@ -297,11 +299,11 @@
                        (is (nil? (:pressed (db)))
                            "the click dispatched NOTHING — the authored intent vanished")
                        (act #(.unmount react-root))))
-              (.then (fn [_] (.remove container) (done)))
-              (.catch (fn [e]
-                        (is false (str "orphan mount rejected: " e))
-                        (.remove container)
-                        (done)))))))))
+              ;; UPSTREAM of the step that finishes: reports and releases, never
+              ;; finishes. Downstream it would claim a later namespace's throw as
+              ;; this row's and fire `done` a second time (rf2-fyba).
+              (.catch (fn [e] (is false (str "orphan mount rejected: " e)) nil))
+              (.then (fn [_] (.remove container) (done)))))))))
 
 (deftest the-same-markup-inside-a-shell-owning-boundary-dispatches
   (testing "The CONTROL for the arm above, and the reason it is a LOSS
@@ -335,14 +337,12 @@
                            (.then (fn [_]
                                     (is (true? (:pressed (db)))
                                         "the committed site dispatched into the frame")
+                                    ;; Fulfilment-only. The nested chain is RETURNED
+                                    ;; into the outer one, which finishes.
                                     (when mounted
-                                      (.unmount (.-react-root ^root/Root mounted)))
-                                    (.remove container)
-                                    (done))))))
-              (.catch (fn [e]
-                        (is false (str "owned mount rejected: " e))
-                        (.remove container)
-                        (done)))))))))
+                                      (.unmount (.-react-root ^root/Root mounted))))))))
+              (.catch (fn [e] (is false (str "owned mount rejected: " e)) nil))
+              (.then (fn [_] (.remove container) (done)))))))))
 
 (deftest a-v-event-carrier-with-no-candidate-loses-its-conversion
   (testing "The `v/event` spelling degrades on the same fork: its whole
@@ -372,16 +372,16 @@
                        (is (nil? (:pressed (db)))
                            "the declared conversion never reached a dispatcher")
                        (act #(.unmount react-root))))
-              (.then (fn [_] (.remove container) (done)))
               (.catch (fn [e]
                         ;; A THROW here is a perfectly good outcome for the
                         ;; spike's purposes — it would mean the position
-                        ;; already fails loud. Record which happened.
+                        ;; already fails loud. Record which happened, and
+                        ;; RELEASE: the trailing step below finishes.
                         (is (some? (:rf.error/id (ex-data e)))
                             (str "the carrier position raised rather than degraded: "
                                  (pr-str (ex-data e))))
-                        (.remove container)
-                        (done)))))))))
+                        nil))
+              (.then (fn [_] (.remove container) (done)))))))))
 
 (deftest a-bare-function-with-no-candidate-keeps-working-and-loses-its-site
   (testing "The THIRD degradation, and the most dangerous of the three
@@ -417,11 +417,8 @@
                            "non-vacuous: no re-frame site was involved; this is a raw
                             DOM callback with none of D008's identity laws")
                        (act #(.unmount react-root))))
-              (.then (fn [_] (.remove container) (done)))
-              (.catch (fn [e]
-                        (is false (str "bare-fn mount rejected: " e))
-                        (.remove container)
-                        (done)))))))))
+              (.catch (fn [e] (is false (str "bare-fn mount rejected: " e)) nil))
+              (.then (fn [_] (.remove container) (done)))))))))
 
 ;; ===========================================================================
 ;; 4 — the declared-host callback door, with no candidate
@@ -473,10 +470,12 @@
                            "the host called the raw carrier fn; the intent it answered
                             was discarded and nothing dispatched")
                        (act #(.unmount react-root))))
-              (.then (fn [_] (.remove container) (done)))
               (.catch (fn [e]
+                        ;; As above: a raise is an acceptable outcome here, so this
+                        ;; records which happened and RELEASES — the trailing step
+                        ;; finishes.
                         (is (some? (:rf.error/id (ex-data e)))
                             (str "the host callback position raised rather than degraded: "
                                  (pr-str (ex-data e))))
-                        (.remove container)
-                        (done)))))))))
+                        nil))
+              (.then (fn [_] (.remove container) (done)))))))))
