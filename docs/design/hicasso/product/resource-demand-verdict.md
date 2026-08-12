@@ -159,7 +159,105 @@ Written before the labels, so that the procedure cannot be said to have been aim
 
 ## The readings
 
-*Transcribed from the `rf2-hic-044` report by a later commit on this branch. Nothing is measured here.*
+Transcribed from the `rf2-hic-044` report. **Nothing on this page was measured by this bead**, and every figure keeps the control the report published with it. Where the report flags a question for the verdict, the flag is transcribed too, unanswered — it is answered in the next section, against the triggers and not against its persuasiveness.
+
+### C1 — the census as published
+
+Fifteen delimited regions, read off the source by `typeahead/census.clj` at macro-expansion time rather than transcribed by hand, and pinned by `l0-cljs-test`: **nine OWNERSHIP, five POLICY, one DOMAIN**. The OWNERSHIP split is **six release and three acquire**, both halves non-empty. *Control:* delete a marker and `the-census-counts-are-pinned` reds by id, and a malformed region stops the build naming its file and line — which it did three times while the witness was being written.
+
+Two adjacent populations are excluded and the exclusion is declared rather than silent: `service.cljs` entire, because a stand-in network has never heard of a read; and the `:details` cache with the `:revision` bump, because caching a fetched row by its id is what an application does under any mechanism. One region is **absent rather than wrong** — the release on unmount, which no handler in the application can carry, because the public door offers application code no unmount signal at all.
+
+**The reading this verdict is about, cited rather than re-derived.** A page mounted with its suggestion panel already open over a searchable term holds a committed read for `[::subs/suggestions "ca"]` from the first frame, and the service is asked for **0**. One intent on the same page asks for **1**. *Control:* the two arms of that same test — a committed read against an intent, on one page. No path runs from commit to acquisition, which is why all nine OWNERSHIP rows had to be hand-written at intents in the first place. That is the honest statement of what there is to buy.
+
+**What the report does not carry.** No OWNERSHIP row is marked removed-by-demand or surviving. The census table's columns are id, class, role, site and description; no column, and no prose in the section or under it, assigns any site a disposition under the proposed mechanism. The report's nearest statement runs the other way — that factoring the release into one function "does not retire the ceremony", which is a fact about today's answer rather than a marking against demand.
+
+### C2 — the classes, and what each one buys
+
+Every class claimed is one of the six registered in advance, and **no unregistered class is claimed**. *Control on the whole section:* each reachability mutation is registered in the test namespace and built from the application's own function with exactly one thing removed — `db/take-rows` without its guard, `events/dismiss-fx` without its `:fx`, `events/typed-fx` with its one abandon entry filtered out — so no arm can drift from another and the witness on disk stays the honest answer.
+
+| registered class | reading |
+|---|---|
+| Late reply clobbers a newer edit | **NOT KILLED.** Stale-reply suppression stays an explicit policy under demand. Its reachability is demonstrated anyway: delete `P3` and the model takes rows for a term the user has typed past |
+| Demand outlives the read that wanted it | **KILLED BY CONSTRUCTION**, residue surviving teardown. Demonstrated with **no mutation at all** — the page unmounts with a debounce armed, the tick fires, the request is issued after the page is gone, and its answer lands |
+| Duplicate acquisition on remount, retry or StrictMode double-invoke | **NOT DEMONSTRATED, and unreachable** on the status quo — there is no mount-time acquisition for a duplicate to originate from. Reported as inadmissible rather than claimed |
+| Acquisition for a render that never commits | **NOT DEMONSTRATED, and unreachable**, for the same reason: acquisition happens in a handler, and a handler is not a render |
+| Orphaned in-flight request after a parameter change | **KILLED BY CONSTRUCTION**, waste. Delete `O2`, move the term, and the page ends with **two requests in flight for one read** |
+| Missed release on a conditional-false read | **KILLED BY CONSTRUCTION**, residue outliving the read. Delete `O5`, close the panel, and the request is still armed |
+
+**Three killed by construction, two of them producing residue that survives teardown.** The report adds one qualification a verdict should read rather than infer: cancellation is best-effort and suppression is what makes the screen correct, so the release rows buy work and the stale-reply rows buy correctness. Demand would take the first and leave the second.
+
+### C3 — the abandonment population
+
+| arm | bodies run for one keystroke |
+|---|---|
+| plain | **3** |
+| under `React.StrictMode` | **6** |
+
+*Control:* StrictMode on or off, which is exactly what moves it — the abandoned-render population is the difference, **3 per keystroke**, and it is non-empty, counted on the witness by `hm/bodies-run`, and observable. The keystroke measured is the one that crosses the search threshold, so the three bodies are `screen`, `field` and the `panel` that has just appeared: a number with a reason rather than whatever a steady-state keystroke happened to cost.
+
+**And nothing is acquired for them.** A full search under StrictMode runs every body on the page twice and the service receives **exactly one** request. *Control:* the body counter moved and the request count did not, in the same run.
+
+**The acquisition point is stated post-commit, with render pure** — the report's own framing of what it establishes.
+
+**The second mechanism the criterion names is not counted here.** React abandonment and retry, along with Suspense retry, transition abort, error-boundary throw-and-retry and the render-to-commit gap, is exhibited at the runtime seam by `re-frame.hicasso.kernel-commit-owns-dom-cljs-test`, which the report cites rather than re-derives. That suite asserts its premise before its claim — `collector/body-runs` moved, so React really ran the body it discarded — but **this report publishes no population figure for it**, on the witness or anywhere else.
+
+**The report's own flag, transcribed unanswered:** *"Whether that satisfies C3's 'on the witness' is a judgement the verdict owns, and it is flagged here rather than assumed."*
+
+### C4 — derivability from committed read membership
+
+| demand | derivable from a committed read's identity and parameters? |
+|---|---|
+| suggestions for a term, `[::subs/suggestions "ca"]` | **Yes.** The query vector names the resource and its instance together, and the panel's mount and unmount are exactly the demand's start and end |
+| the detail for a chosen id, `[::subs/detail "canid"]` | **Yes**, on the same terms; release on parameter change is the pane's parameter moving |
+| a hovered row's detail | **No** — nothing renders it. Recorded out of scope and routed to `rf2-hic-054`'s recipes |
+| keeping the previous term's rows during a refresh | Not a demand at all: it is retention of an answer already received, and `demand ≠ retention` is the charter's own line |
+
+*Control on the fourth row's exclusion:* `hover-prefetch-is-a-demand-no-read-expresses` fires the request while nothing is chosen, so no boundary reads `[::subs/detail "cavil"]` at any point; a second hover asks nothing, and choosing the warmed row asks nothing. The parameter is in the query rather than read out of `app-db` inside the subscription, and the report says why that had to be true for a membership-riding mechanism to have anything to ride.
+
+**The report proposes no widening** of the mechanism to reach the demand no read expresses, and names widening as C5's second ledger under another name.
+
+### C5 — the retained structures
+
+The exact per-read and per-boundary structures of the status quo are the five counters `re-frame.hicasso.test.mounted/census` publishes, read at three named moments:
+
+| moment | cells | cell-refs | boundaries | edges | entries |
+|---|---|---|---|---|---|
+| panel closed | 5 | 5 | 2 | 5 | 2 |
+| panel open | 8 | 8 | 3 | 8 | 3 |
+| closed again | 8 | 5 | 2 | 5 | 3 |
+
+*Control:* the panel itself — opening it adds one boundary, its three reads and one cached read-set entry, and closing it returns `:cell-refs`, `:boundaries` and `:edges` to baseline exactly. *Second control, on the row that would otherwise read as a leak:* `:cells` and `:entries` are keyed by the query rather than by the read, so they outlive the last reader by design and are released at the runtime's quiescence horizon; `hm/assert-clean!`, which waits for quiescence before it reads, then reports the mount clean. A row that stopped at the third line would have published a leak that is not one.
+
+**The delta, stated as a design claim and labelled as one:** demand keyed by resource joins the query-keyed group, and a read contributes membership to the committed group. Nothing new is retained per read, per boundary, or per read-and-boundary pair.
+
+### C6 — the boundary shell
+
+**This witness measured no bytes and says so plainly rather than offering a proxy.** The landed figures it cites rather than re-derives: the pinned `R=0` shells are **1,100 B** on the Reagent segment and **1,095 B** on the UIx segment, against the operator-frozen **1,024 B** paper-fail line. The row is red today, so there is no headroom to spend even if spending it were otherwise acceptable.
+
+**Where demand state would live, stated:** keyed by resource, in the query-keyed group above, released at the runtime's own quiescence horizon.
+
+**The read-free boundary, shown structurally:** with the panel closed the page holds no resource-shaped structure at all, and the two boundaries that read no resource contribute exactly the memberships their own five reads need. A demand mechanism keyed by resource has nothing to add to a boundary that reads none.
+
+**The report's own flag, transcribed unanswered:** *"A verdict must treat the byte question as undecided by this report."*
+
+### Every figure, and the control that moves it
+
+Reproduced from the report's own summary, which is where these controls are published. Not one of them was taken here.
+
+| figure | value | control |
+|---|---|---|
+| OWNERSHIP census rows | 9 (6 release, 3 acquire) | delete a marker and `the-census-counts-are-pinned` reds by id; the macro refuses a malformed one at build time |
+| POLICY / DOMAIN census rows | 5 / 1 | same |
+| requests from a five-keystroke burst | 1 | the same burst with `P1` removed: **4** |
+| requests from a committed read that wants a resource | **0** | one intent on the same page: **1** |
+| bodies run for one keystroke | 3 plain | **6** under `React.StrictMode` — the abandonment population is the difference |
+| requests under StrictMode for one search | 1 | every body ran twice; the request count did not move |
+| requests still armed after the read ends | 0 with the release site | **1** with `O5` deleted; **2 in flight for one read** with `O2` deleted |
+| round trips paid for an unmounted page | 1, issued after unmount | the released arm, armed first and read last, asked for **0** |
+| retained structures, panel open minus closed | +1 boundary, +3 cell-refs, +3 edges, +1 entry | closing the panel returns cell-refs, boundaries and edges to baseline exactly |
+| cells and entries still held after close | +3 cells, +1 entry | `assert-clean!`, which waits for quiescence, reports clean |
+
+**No figure here is a duration**, on this page or on the report's. Two constants in the witness source are durations — a 20 ms debounce window and a 20 ms stand-in service delay — and neither is a measurement: every row waits on a condition, and the debounce rows are decided by a generation compare rather than by a race.
 
 ## The verdict
 
