@@ -55,6 +55,50 @@ written, and no figure, band, table or argument on this page moves. The pricing
 still prices unbuilt work, and the five start gates `rf2-2rtt6.88` named still
 govern when Arm B implementation begins — graduation did not start it.
 
+**A fourth status fact, added 2026-08-13 (`rf2-k6bv`, from the merged-PR audit
+of #8029): the last sentence above was already false when it was written, and
+Arm B is half-built.** The status fact it corrects is the *only* thing that
+moves; the sentence is left standing so the chronology is legible. **Graduation
+still did not start this arm** — but a *separate and earlier* ruling did.
+`rf2-xpq9` (operator, in session, 2026-08-12 17:36 AUSEST) made every Phase-5
+optional product v0 scope and removed `rf2-hic-056`'s *"when a named caller
+activates it"* condition, and **PR #8028 landed the bounded Node/React service
+at `implementation/ssr-node/`** at 2026-08-12T21:29:24Z — twelve seconds before
+the PR carrying the third status fact merged (#8029, 21:29:36Z). So the correct
+reading of the third fact is: *graduation* did not start the arm, and by the
+time it said so the arm had already been started by something else.
+
+What that does **not** change, stated so the page is not over-read in the other
+direction:
+
+- **The arm choice is untouched**, as the third fact says. `rf2-2rtt6.88` ruled
+  the Node sidecar on 2026-08-08 and nothing since has reopened it.
+- **The service is the Node half only.** It returns body markup and nothing
+  else, by its own refusal list; `ssr-ring` remains the HTTP host and still
+  hard-calls `ssr/render-to-string`, exactly as the 2026-08-11 fact above
+  records, and the render seam at `build-full-response*` is unwritten. That
+  fact's *"prices unbuilt work"* half is what has aged; its `ssr-ring` half has
+  not.
+- **Two of the five start gates are undischarged**, and they are the two the
+  crossing owns: gate 3's per-application **state projector** with its
+  round-trip corpus and its negative fixture — the JVM produces that projection,
+  and a service that allowlists what arrives is not a projector — and gate 5's
+  end-to-end **`JVM → Node → JVM` witness**, which has no JVM leg to witness.
+  Gates 1, 2 and 4 are answered inside the package and witnessed by its own
+  suite, which is not the same as witnessed across the crossing.
+- **§3's closing sentence and §5's table still hold where it counts.** The
+  compliant shape — JVM host, JVM payload, JVM shell, Node returning a body
+  string across a contract — now has its Node end built and its JVM end not, and
+  the crossing itself remains **unmeasured**, so *"the single largest unmeasured
+  thing on this page"* stands. §5's table is a reading taken while this page was
+  written and its column now says so; the rows the service changes are *"a
+  callable Node process"* and *"process supervision, pooling, restart"*, and the
+  rows naming the JVM↔Node contract, the JVM-written payload and shell, and the
+  production host in front of it are unchanged.
+- **No figure, band, table or argument moves**, on the same terms the third fact
+  set. The pricing below still prices the work that is still unbuilt, and it is
+  not re-costed here against what shipped.
+
 ## What this document deliberately does not contain, and the tension that produced it
 
 `rf2-2rtt6.88`'s description asks for "both branches priced in beads/weeks,
@@ -462,7 +506,7 @@ produces both sides, so there is nothing for two tables to disagree about.
 
 The render exists and is witnessed. What does not exist is everything around it.
 
-| Piece | State today |
+| Piece | State when this page was written |
 |---|---|
 | The render itself | **built** — the entry's `render`, `renderToString` over the same runtime/mount/codec the browser uses |
 | A root the JVM can name | **no** — `render` takes `:hiccup`, and a Hicasso root is `[<minted head> {props}]` whose head is a JavaScript function with no JVM referent. See below |
