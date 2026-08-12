@@ -1519,8 +1519,11 @@ inputs are gone; the durable path starts at the re-run and not before it.
   the selection of Hicasso plus the scoped price-acceptance amendment — the
   operative default, [`rf2-hic-003`](../product/k1-price-acceptance.md) — making
   the outcome a formalized **narrow-and-price, not a stop**; that record's
-  `1.25×` ceiling is ratified at the 2026-08-27 sitting and colours no result
-  before then, and the published miss above is not recoloured by it. The kill
+  `1.25×` ceiling ~~is ratified at the 2026-08-27 sitting and colours no result
+  before then~~ — **it was ratified on 2026-08-13 instead, by the operator's
+  P2 graduation ruling, which pre-empted that sitting; it is operative from
+  that date and colours no result at all** — and the published miss above is
+  not recoloured by it. The kill
   table carries the same record and is where the criterion lives:
   [`validation.md`](../validation.md#kill-criteria-any-tripping--stop-or-narrow-adapters-only-is-success))*
   — but no longer a range that straddles parity, and the direction
