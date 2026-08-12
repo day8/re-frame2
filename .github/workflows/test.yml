@@ -929,6 +929,64 @@ jobs:
       - name: Verify the register against the runtime, Spec 009 and the guide
         run: python implementation/hicasso/scripts/check_complaint_catalogue.py
 
+  # THE BUDGET-LEDGER GATE (rf2-hic-089; this routing is rf2-uomk, and it is
+  # the job above's hole in a second place — filed as such by the hic-089
+  # worker, who stopped at the hot zone rather than take the scheduling
+  # decision).
+  #
+  # `implementation/hicasso/scripts/check_budget_ledger.py` reads THREE input
+  # families:
+  #
+  #   docs/design/hicasso/product/budgets.md          the reconciliation ledger
+  #   docs/design/hicasso/product/substrate-decision.md   the disposition
+  #                                                   records L3 resolves
+  #   implementation/hicasso/**                       the witness files
+  #
+  # It shipped chained into `npm run test:hicasso-invariants`, whose only hosted
+  # invocation is a step of the `cljs` job under
+  # `needs.detect_changed_surfaces.outputs.cljs_node_test == 'true'`. ONLY THE
+  # LAST FAMILY ARMS THAT OUTPUT. Direct classifier probes measure the ledger
+  # page and the disposition page at every output `false`, so a LEDGER-ONLY
+  # edit — precisely the edit this gate exists to police, and the one a
+  # ledger-keeping habit produces most often — skips every check on the pull
+  # request. The gate would then next run on somebody else's source PR, red,
+  # over a row they did not write.
+  #
+  # UNCONDITIONAL, rather than a new classifier output, for the reason the job
+  # above gives at length and this one will not restate: the defect being
+  # repaired IS a surface gate that did not cover a checker's inputs, so a new
+  # arm is a fresh chance to make the same mistake and needs re-widening every
+  # time the checker learns to read another file. It is a sub-second pure-Python
+  # static read — no node, no JVM — so there is nothing to gate for.
+  #
+  # IT STAYS CHAINED INTO `test:hicasso-invariants` TOO. That chain is the local
+  # spine lane and the artefact's one-command run; this job is the CI
+  # reachability the chain cannot give it.
+  hicasso-budget-ledger:
+    name: Hicasso budget-ledger contract (rf2-hic-089)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
+        with:
+          python-version: '3.12'
+
+      # Self-test first, then the live read — the order every other pure-Python
+      # contract in this workflow uses. It drives every rule the checker
+      # publishes red in turn, so a green live run below is a verdict rather
+      # than a checker that has quietly stopped firing. HOW MANY rules is not
+      # written here on purpose (rf2-93u6): nothing links a count in this file
+      # to the case list in that one, so the correction is already scheduled.
+      # The self-test names its own cases as it runs.
+      - name: Self-test the budget-ledger rules
+        run: python implementation/hicasso/scripts/check_budget_ledger.py --self-test
+
+      - name: Verify the ledger against its registrations and dispositions
+        run: python implementation/hicasso/scripts/check_budget_ledger.py
+
   # rf2-3mh2f — CI arm of the STALE WORKER-SNAPSHOT guard (rf2-ia8o7).
   #
   # `bd` auto-stages the full-database JSONL export in EVERY checkout, so a
@@ -5909,6 +5967,13 @@ jobs:
       # its own gate says, which would put the contract back one `if:` from the
       # nowhere it just came from.
       - hicasso-complaint-catalogue
+      # rf2-uomk — required for the same reason, one gate over. Two of the
+      # three file families the budget-ledger gate reads arm no classifier
+      # output, so before this job a ledger-only or disposition-only PR ran the
+      # check nowhere. A job absent from this list is advisory whatever its own
+      # gate says, which would put the contract back one `if:` from the nowhere
+      # it just came from.
+      - hicasso-budget-ledger
       # rf2-3mh2f — the .beads guard's CI arm. Required, so the tracker
       # database cannot ride a PR past a `--no-verify` or an uninstalled hook.
       - beads-pr-boundary
