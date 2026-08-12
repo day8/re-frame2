@@ -31,6 +31,7 @@
   (:require
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
+   [clojure.string :as str]
    [re-frame.core :as rf]
    [re-frame.fx :as fx]
    [re-frame.frame :as frame]
@@ -109,6 +110,27 @@
 (def ^:private article-spec-request
   (fn [{:keys [slug]} _ctx]
     {:request {:method :get :url (str "/api/articles/" slug)}}))
+
+(defn- record-error-records!
+  "Run `body-fn` with an `:errors` listener installed; return the vector of
+  every always-on error record fanned during it (capture order).
+
+  The `:errors` stream — not stdout, not the dev trace — is where a framework
+  REFUSAL is legible: per Spec 009 §Observability channels the runtime ships no
+  default console sink, so a category that fans a record here is loud in dev
+  AND in a production build, while a category that fans nothing is invisible
+  everywhere. A refusal that reaches NO channel is indistinguishable from a
+  silent no-op at the call site, which is exactly the gap rf2-06lp closed on
+  the mutation path; this is the copy that lets the read path assert the same
+  way (rf2-w67y, sibling of `record-error-records!` in
+  `resources_mutation_cljs_test.cljc`)."
+  [body-fn]
+  (let [seen (atom [])
+        k    ::error-record-recorder]
+    (rf/register-listener! :errors k (fn [rec] (swap! seen conj rec)))
+    (try (body-fn)
+         (finally (rf/unregister-listener! :errors k)))
+    @seen))
 
 ;; ===========================================================================
 ;; 1. Canonical params + scope identity
@@ -477,6 +499,109 @@
     (is (thrown-with-msg?
           #?(:clj Throwable :cljs js/Error) #"resource-sub-unresolved-scope"
           (subs/resolve-scoped-key {:resource :ss/from-caller :params {:slug "x"}} {})))))
+
+;; ===========================================================================
+;; 2b. The registration guard on the READ path (rf2-w67y)
+;; ===========================================================================
+;;
+;; `registry/require-resource-spec!` is the read-path twin of the mutation
+;; registrar's `require-mutation-spec!`. It is the loud, fail-closed boundary
+;; behind SIX public surfaces — the four `:rf.resource/*` event handlers
+;; (`ensure` / `refetch` / `remove`, plus the `:rf.resource/*` internal
+;; arm in `events.cljc`), the route integration (`route.cljc`), and the
+;; subscription (`subs.cljc`).
+;;
+;; The guard was real and NOTHING in the corpus asserted it: `git grep
+;; resource-not-registered` over `implementation/` returned the throw site,
+;; the docs page and the Spec 009 catalogue row — no test. That is the same
+;; shape rf2-06lp repaired one registrar over, where the mutation path's
+;; `execute-unregistered-is-loud` asserted only `(nil? @last-managed-args)` —
+;; a claim a SILENT NO-OP satisfies exactly as well as a refusal does, so it
+;; could not fail. These three rows are written so a no-op FAILS them: each
+;; asserts the POSITIVE PRESENCE of the error record, not merely the absence
+;; of an effect.
+
+(deftest ensure-unregistered-refuses-and-names-the-id
+  ;; rf2-w67y. `require-resource-spec!` runs as the FIRST statement of the
+  ;; ensure handler's `let` — before scope resolution, before params
+  ;; canonicalization, before any entry write, work-ledger row or transport
+  ;; lowering. So "nothing was written" is a truthful reading of the abort
+  ;; rather than a half-built one, exactly as the mutation twin refuses
+  ;; before minting its instance.
+  (testing "Spec 016 §Public API — an unregistered resource id REFUSES"
+    (let [scoped-key (state/scoped-resource-key :rf.scope/global :r/nope {:slug "w"})
+          recs (record-error-records!
+                 #(rf/dispatch-sync [:rf.resource/ensure
+                                     {:resource :r/nope :scope :rf.scope/global
+                                      :params {:slug "w"} :owner [:app :test 1]}]))
+          rec  (first (filterv #(= :rf.error/handler-exception (:error %)) recs))]
+      (testing "the event ABORTED — no entry written, no request lowered"
+        (is (nil? (entry scoped-key)) "no cache entry was written")
+        (is (nil? @last-managed-args) "no request reached the transport"))
+      (testing "and the refusal is READABLE — the runtime did not stay silent"
+        ;; Read off the always-on `:errors` axis, not stderr: per Spec 009
+        ;; §Observability channels the framework ships NO default console sink,
+        ;; so this listener is where a refusal is legible in dev AND in prod.
+        ;; Without this half the two rows above are satisfied by a silent
+        ;; no-op and the test cannot fail.
+        (is (some? rec)
+            ":rf.resource/ensure fanned an always-on error record")
+        (is (= :rf.resource/ensure (:event-id rec)))
+        (let [data (ex-data (:exception rec))]
+          (is (= :rf.error/resource-not-registered (:rf.error/id data))
+              "the canonical catalogued category, not a bare host throw")
+          (is (= :r/nope (:resource-id data))
+              "the refusal NAMES the resource id the caller typed")
+          (is (= :fix-registration (:recovery data))
+              "and carries the catalogued recovery disposition"))
+        (is (str/includes? (str (some-> (:exception rec) ex-message)) ":r/nope")
+            "the human message names the id too")))))
+
+(deftest ensure-registered-under-another-kind-still-refuses
+  ;; rf2-w67y, the identity half. `require-resource-spec!` keys on the
+  ;; `:resource` REGISTRAR KIND, not on "is this keyword registered
+  ;; somewhere" — a mutation id reads as a perfectly well-formed keyword and
+  ;; resolves in a sibling registrar, so a guard widened to any known id
+  ;; would sail past here. rf2-06lp's sabotage proved this is the direction
+  ;; that silently lowers the WRONG THING: widening the mutation guard to
+  ;; the resource registrar made the runtime lower a resource's GET as a
+  ;; mutation write. The mirror hazard here is a mutation's POST lowered as
+  ;; a cache read.
+  (rf/reg-mutation :m/save
+                   {:params-schema [:map [:slug :string]]}
+                   (fn [{:keys [slug]} _ctx]
+                     {:request {:method :post :url (str "/api/articles/" slug)}}))
+  (testing "a MUTATION id passed as :resource refuses like any unknown id"
+    (let [scoped-key (state/scoped-resource-key :rf.scope/global :m/save {:slug "w"})
+          recs (record-error-records!
+                 #(rf/dispatch-sync [:rf.resource/ensure
+                                     {:resource :m/save :scope :rf.scope/global
+                                      :params {:slug "w"} :owner [:app :test 1]}]))
+          rec  (first (filterv #(= :rf.error/handler-exception (:error %)) recs))]
+      (is (nil? (entry scoped-key)) "no cache entry was written")
+      (is (nil? @last-managed-args) "no request reached the transport")
+      (is (some? rec) "the refusal fanned an always-on error record")
+      (is (= :rf.error/resource-not-registered
+             (:rf.error/id (ex-data (:exception rec))))
+          "the resource registrar, not the mutation one, decides")
+      (is (= :m/save (:resource-id (ex-data (:exception rec))))
+          "and the refusal names the id the caller typed"))))
+
+(deftest ensure-registered-resource-is-not-refused
+  ;; rf2-w67y, the restraint half — the direction a guard is almost never
+  ;; tested for. A REGISTERED resource must run exactly as before: entry
+  ;; written, request lowered, and the always-on `:errors` axis SILENT. An
+  ;; over-eager guard shows up here as a spurious record on an otherwise
+  ;; working read, which no other assertion in this suite would notice.
+  (rf/reg-resource :r/ok (article-spec) article-spec-request)
+  (let [scoped-key (state/scoped-resource-key :rf.scope/global :r/ok {:slug "w"})
+        recs (record-error-records!
+               #(rf/dispatch-sync [:rf.resource/ensure
+                                   {:resource :r/ok :scope :rf.scope/global
+                                    :params {:slug "w"} :owner [:app :test 1]}]))]
+    (is (= [] recs) "a registered resource raises NO error record")
+    (is (= :loading (:status (entry scoped-key))) "the cache entry was written")
+    (is (some? @last-managed-args) "and the request reached the transport")))
 
 ;; ===========================================================================
 ;; 3. Pure lifecycle status transition fn (NOT a spawned machine)
