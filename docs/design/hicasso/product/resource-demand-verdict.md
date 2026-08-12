@@ -1,6 +1,8 @@
 # The committed-read resource-demand verdict
 
-> **PRE-REGISTERED, NOT YET APPLIED.** This commit fixes the procedure, the address in the evidence that decides each criterion, and the reading that each possible answer produces. No label is recorded and the verdict section below is deliberately empty. Both are filled by later commits on this branch, so that the ordering in the history is itself the proof that the reading rules were not chosen to fit the answer.
+> **Verdict: STOP.** Four criteria met, two ambiguous, and under the frozen rule any ambiguity gives STOP. `rf2-hic-054`'s async-resource recipes are the standing answer. No implementation bead is filed and no dynamic-tail edge is added.
+
+> **How to check the ordering.** The reading rules below, the address in the evidence that decides each criterion, and the consequences of *both* outcomes were committed first, in this branch's opening commit, with every label reading `NOT YET APPLIED` and the verdict section empty. The readings arrived in the second commit and the labels in the third. A rebase rewrites a hash and does not rewrite an order, so it is the ordering rather than any hash that shows the rules were not chosen to fit the answer.
 
 `rf2-hic-050` decides the flagship experiment of the Hicasso programme: whether a committed `sub` that reads a resource may also declare demand for it, so that acquisition and release follow read liveness instead of hand-written correlation.
 
@@ -57,9 +59,13 @@ Each row states the frozen test, the address in the witness report that decides 
 - **NOT MET** when OWNERSHIP is empty or acquire-only, when any site is marked surviving, or when a POLICY or DOMAIN site is credited to demand.
 - **AMBIGUOUS** when an element the criterion names is missing from the report, including the per-site removed-or-surviving marking, since C7's first trigger covers evidence that is absent or incomplete.
 
-| Label |
-|---|
-| NOT YET APPLIED |
+| Label | Deciding reading |
+|---|---|
+| **AMBIGUOUS** | Three of the four elements hold, and hold well: the census is published and complete, machine-read from the source and pinned by a suite; OWNERSHIP is non-empty with both halves present, six release and three acquire; and no POLICY or DOMAIN site is credited to demand, which the report guards deliberately by separating `O2` from `P3` and saying what each buys. The fourth element is absent. **No OWNERSHIP row carries a removed-by-demand or surviving marking**, so the test C1 actually names — *and none survives* — has nothing in the report to run against. C7 trigger 1: the evidence for that element is absent |
+
+**Why the marking is not supplied from elsewhere.** The mapping is derivable — each row's role and description lines up with the design named in the criteria file's own [consequences](resource-demand-criteria.md#consequences), and doing the exercise puts all nine on the removed side. Supplying it here would nonetheless have the verdict make the report's determination for it, and a mechanism that takes over only *part* of the correlation is precisely what the per-site marking exists to expose. A verdict that fills in a report's missing column has stopped applying a rule and started writing evidence.
+
+**And the more charitable of two labels is the one recorded.** C1 opens "STOP unless all of the following hold", and on a literal reading an element that does not hold is NOT MET. AMBIGUOUS says the weaker thing — that the report leaves the element open rather than failing it. Both give STOP, so nothing turns on the choice except accuracy.
 
 ### C2 — Defect classes killed, named
 
@@ -71,9 +77,9 @@ Each row states the frozen test, the address in the witness report that decides 
 - **NOT MET** when fewer than two are killed by construction, when none of those produces wrong output or surviving residue, or when a claimed class arrives without its reachability demonstration.
 - **AMBIGUOUS** when a class is claimed on evidence the report does not publish.
 
-| Label |
-|---|
-| NOT YET APPLIED |
+| Label | Deciding reading |
+|---|---|
+| **MET** | Three registered classes killed by construction against a threshold of two, and two of the three produce residue that survives teardown against a requirement of one. Every claimed class carries its mechanism and a reachability demonstration, each mutation built from the application's own function with one thing removed. The two classes the status quo cannot reach are reported as not demonstrated and explicitly counted toward nothing, and the late-reply class is reported NOT killed rather than quietly credited — which is the criterion's own POLICY boundary being honoured rather than tested |
 
 ### C3 — Zero acquisition on abandoned renders
 
@@ -85,9 +91,11 @@ Each row states the frozen test, the address in the witness report that decides 
 - **NOT MET** when the population is empty or unobservable, or when the design sites acquisition anywhere in render.
 - **AMBIGUOUS** when a population the criterion requires is unstated in the report, which is C7's fourth trigger, or when the criterion turns on a judgement the report hands to the verdict and that judgement reduces to none of the published census, the named classes or the stated design, which is C7's second.
 
-| Label |
-|---|
-| NOT YET APPLIED |
+| Label | Deciding reading |
+|---|---|
+| **AMBIGUOUS**, on two independent triggers | **Trigger 4** — C3 names two mechanisms as the population the instrument must be able to name, and only one of them is counted. The StrictMode double-invoke has a population of 3 per keystroke with StrictMode as the control that moves it; React abandonment and retry has **no figure in this report at all**, on the witness or off it. A cited suite that asserts a body ran is not a counted population. **Trigger 2** — the report hands the verdict a judgement in terms: whether exhibiting the second mechanism at the runtime seam rather than on this application satisfies C3's *on the witness*. That question is about evidentiary scope, and it reduces to none of the published census, the named classes or the stated design, which are the only three bases C7 allows a judgement to rest on |
+
+**The other reading, and why it is not taken.** C3's STOP sentence names only an empty, unstated or unobservable population and acquisition sited in render, and one population *is* stated — so MET is available on the STOP clause read alone. It is not taken, for two reasons that are both in the frozen text. The requirement sentence, not the STOP sentence, is what the report had to satisfy, and it names both mechanisms. And C3 is the one criterion the criteria file calls "a veto, not a score" — the worst possible place to resolve a doubt in the mechanism's favour.
 
 ### C4 — Reuse of committed read membership
 
@@ -99,9 +107,9 @@ Each row states the frozen test, the address in the witness report that decides 
 - **NOT MET** when a demand needs registration commit does not already carry, or when the report proposes widening the mechanism to reach a demand no read expresses.
 - **AMBIGUOUS** when a demand's derivability is asserted without the read that implies it being named.
 
-| Label |
-|---|
-| NOT YET APPLIED |
+| Label | Deciding reading |
+|---|---|
+| **MET** | Both in-scope demands are derivable from a committed read's identity and parameters, each with the naming read given as a query vector rather than asserted. The one demand no read expresses is recorded out of scope, exhibited rather than argued, and routed to the recipes; the one thing that looks like a demand and is not is separated from the population by the charter's own `demand ≠ retention` line. No widening of the mechanism is proposed, which is C4's second STOP condition and the one that would have been easy to trip |
 
 ### C5 — No second per-read ledger
 
@@ -113,9 +121,9 @@ Each row states the frozen test, the address in the witness report that decides 
 - **NOT MET** when the delta introduces any structure meeting it, however small and however fast.
 - **AMBIGUOUS** when the status-quo structures are not enumerated, or the delta is not stated against them.
 
-| Label |
-|---|
-| NOT YET APPLIED |
+| Label | Deciding reading |
+|---|---|
+| **MET** | The status quo's retained structures are enumerated exactly — five named counters, read at three moments, with the panel as the control and quiescence as the second control on the row that would otherwise have published a leak that is not one. The delta is stated against them and is labelled a design claim rather than a measurement, which is the honest form for a witness that changes no runtime. Nothing in it holds one entry per read or per read-and-boundary pair, so nothing meets the recogniser |
 
 ### C6 — No boundary-shell change
 
@@ -129,9 +137,11 @@ Each row states the frozen test, the address in the witness report that decides 
 
 **A distinction fixed here, before it can be convenient.** C6 asks for a statement and a showing about a design; the *measurement* it also names — zero delta on the pinned read-free-shell and do-nothing controls — is explicitly an inherited gate that the implementation bead carries **on ADOPT**. A report that measures no bytes is therefore not, on that ground alone, incomplete for C6. If it were, C6 would be unmeetable by any witness that changes no runtime, and `rf2-hic-044` was commissioned as exactly such a witness.
 
-| Label |
-|---|
-| NOT YET APPLIED |
+| Label | Deciding reading |
+|---|---|
+| **MET** | Both of C6's evidentiary asks are answered: demand state is given a home and a lifecycle — keyed by resource, released at the runtime's quiescence horizon — and the read-free boundary is shown to hold no resource-shaped structure, with the two boundaries and five reads accounted for individually. The design adds no hook to the shell, no field to the read-free shell and nothing to the do-nothing path, so none of C6's three STOP conditions fires |
+
+**The report nominates C6 for ambiguity, and the nomination fires no trigger.** Its flag is about bytes, and the byte measurement is C6's inherited gate on ADOPT rather than part of what the report owed — the distinction fixed two paragraphs above, before any label was written. The cited shell figures are a second matter, and they cut against the mechanism rather than against the criterion: the read-free shell line is already red at 1,100 B against a 1,024 B floor, so an ADOPT would have inherited a gate with no headroom in it.
 
 ## The ambiguity triggers, transcribed
 
@@ -261,7 +271,48 @@ Reproduced from the report's own summary, which is where these controls are publ
 
 ## The verdict
 
-*Recorded by a later commit on this branch, after the readings above and by the reading rules above.*
+| criterion | label | what decided it |
+|---|---|---|
+| C1 — ceremony removed, counted | **AMBIGUOUS** | No OWNERSHIP row is marked removed-by-demand or surviving, so C1's *none survives* test has nothing to run against — trigger 1 |
+| C2 — defect classes killed, named | **MET** | Three killed by construction against a threshold of two; two of them residue that survives teardown |
+| C3 — zero acquisition on abandoned renders | **AMBIGUOUS** | One of the two named mechanisms has no population figure in the report — trigger 4; and the report hands the verdict a scope judgement that reduces to none of the three allowed bases — trigger 2 |
+| C4 — reuse of committed read membership | **MET** | Every in-scope demand derivable from a named read; the one that is not, recorded out of scope without widening |
+| C5 — no second per-read ledger | **MET** | Status quo enumerated, delta stated against it, nothing meeting the recogniser |
+| C6 — no boundary-shell change | **MET** | Home and lifecycle stated, read-free boundary shown to hold none of it, no hook, field or do-nothing cost added |
+
+**Step 3 of the procedure: any NOT MET or any AMBIGUOUS gives STOP.**
+
+### STOP
+
+Committed-read resource demand is **not adopted**. `rf2-hic-054`'s async-resource recipes are the standing answer for acquiring and releasing resources against read liveness, and the programme proceeds on that basis.
+
+**What follows, and what deliberately does not.** No implementation bead is filed. No dynamic-tail edge is added to `rf2-hic-065`, `rf2-hic-068`, `rf2-hic-072` or `rf2-hic-064`. No inventory id is minted and no row is added to the SSR/hydration matrix. Nothing in `implementation/` is touched by this bead on either outcome, and nothing was.
+
+**And no bead is filed to close the two gaps.** That is the frozen rule working rather than an oversight. C7 says an ambiguity "is not a request for more evidence, an invitation to re-run, or a deferral", and [the reopen conditions](resource-demand-criteria.md#reopen-conditions-and-revert-trigger) exclude a re-reading of the same report by name. A STOP that immediately commissioned the missing column and the missing population would be a deferral wearing a verdict's clothes, and it would make every future pre-registration cheaper to ignore. The reopen basis stands as written: a second application whose ownership census the recipes demonstrably cannot answer, a defect class arriving repeatedly from real consumer code, or a change to the committed-read membership contract that makes a previously inexpressible demand expressible.
+
+**The flow is ungated.** This verdict publishes and the programme proceeds on it. The operator may veto it asynchronously; nothing waits on that.
+
+### What the evidence did show
+
+A STOP is not a finding that the idea is empty, and saying so is part of recording the verdict honestly.
+
+The witness found **nine hand-written OWNERSHIP sites** in one ordinary typeahead, six of them releases the author must remember to call at every intent that can end a read, with nothing in the language, the linter or the handler's type able to say one was missed. It found **three defect classes killed by construction**, two of them producing residue that survives teardown, each with a mutation that makes today's answer actually exhibit the defect. And its sharpest reading is the one that says why those nine sites exist at all: a page mounted with its panel already open holds a committed read from the first frame and asks the service for **0**, while one intent on the same page asks for **1**. No path runs from commit to acquisition. The correlation genuinely is unowned, and hand-written correlation genuinely is what owns it today.
+
+What the report could not do is complete two of the six evidentiary asks the criteria fixed in advance. Under a rule whose default is STOP and whose ambiguity clause exists precisely to stop a strong impression from carrying a weak row, that is a STOP — not a "nearly", and not a score of four out of six.
+
+### A recorded dissent
+
+The criteria [close the document](resource-demand-criteria.md#amendment-rule) once the report exists and provide that a criterion believed wrong at that point is recorded as a dissent inside the verdict, with the verdict still following the frozen rule. One is recorded, and it is narrow.
+
+**C1's marking requirement is the weakest of the seven, and it is doing real work here.** The census the report published is better evidence than the criterion asked for — read off the source by a macro, pinned by a suite, refusing to build when malformed — and its author plainly read the removed-or-surviving disposition as implied by each row's role. On the substance, all nine rows land on the removed side under the design the criteria themselves name. So C1's row rests on an omitted column rather than on a mechanism that fails to retire ceremony, and a reader who thought C1 should have been recorded MET would not be being unreasonable.
+
+The dissent changes nothing, for the reason the freeze exists: a criterion read down after the data is a criterion that was never binding. And it changes nothing arithmetically either — **C3's ambiguity is substantive and gives STOP on its own**, on a veto criterion, with one of the two mechanisms it names carrying no population figure anywhere in the report.
+
+### That this procedure can report the other answer
+
+A rule that only ever produces one label is not a rule, so the demonstration is owed and here it is, unforced: **four of the six rows read MET**, and one of them — C6 — is a row the report itself nominated for ambiguity and that this verdict declined to call ambiguous, because its flag fires none of C7's six triggers. The procedure is not a machine for finding fault; it found none in four places, including one it was invited to find.
+
+The narrower control is C1's own label. On a literal reading of "STOP unless all of the following hold" the row is NOT MET; the more charitable AMBIGUOUS is what is recorded. A procedure aimed at STOP would have taken the harsher label, since both give the same outcome and only one of them sounds worse.
 
 ## Consequences, both branches, fixed in advance
 
