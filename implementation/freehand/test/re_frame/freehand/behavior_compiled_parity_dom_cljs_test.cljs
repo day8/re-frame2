@@ -114,6 +114,10 @@
         (-> (lifecycle-of! bv/plain)
             (.then (fn [interpreted]
                      (reset-lifecycle!)
+                     ;; The inner chain keeps its OWN diagnostic — a compiled
+                     ;; rejection and an interpreted one are different findings —
+                     ;; but neither handler finishes the row. Both report and
+                     ;; release; the single `done` is at the tail of the outer chain.
                      (-> (lifecycle-of! bv/plain-compiled)
                          (.then (fn [compiled]
                                   (is (= [:connect :update :disconnect] (mapv :op compiled))
@@ -121,14 +125,14 @@
                                   (is (= interpreted compiled)
                                       "and its WHOLE transcript equals the interpreted one — one runtime, both modes")
                                   (is (zero? (behaviors/connection-count))
-                                      "teardown left the connection table empty")
-                                  (done)))
+                                      "teardown left the connection table empty")))
                          (.catch (fn [e]
                                    (is false (str "compiled mount rejected: " e))
-                                   (done))))))
+                                   nil)))))
             (.catch (fn [e]
                       (is false (str "interpreted mount rejected: " e))
-                      (done))))))))
+                      nil))
+            (.then (fn [_] (done))))))))
 
 ;; ===========================================================================
 ;; The command channel reaches a compiled connection
@@ -160,12 +164,14 @@
                            "the command performed host work on the compiled node")
                        (teardown! container root)
                        (is (zero? (behaviors/connection-count))
-                           "and teardown released the connection")
-                       (done)))
+                           "and teardown released the connection")))
+              ;; Teardown is the ACT under test on the success arm, so it is not
+              ;; hoisted — the failure arm tears down for its own reason.
               (.catch (fn [e]
                         (is false (str "mount rejected: " e))
                         (teardown! container root)
-                        (done)))))))))
+                        nil))
+              (.then (fn [_] (done)))))))))
 
 ;; ===========================================================================
 ;; The :layout arm runs before paint in the compiled tier
@@ -190,12 +196,14 @@
                            "and its before-paint work is on the node")
                        (teardown! container root)
                        (is (zero? (behaviors/connection-count))
-                           "and released on unmount")
-                       (done)))
+                           "and released on unmount")))
+              ;; Teardown is the ACT under test on the success arm, so it is not
+              ;; hoisted — the failure arm tears down for its own reason.
               (.catch (fn [e]
                         (is false (str "mount rejected: " e))
                         (teardown! container root)
-                        (done)))))))))
+                        nil))
+              (.then (fn [_] (done)))))))))
 
 ;; ===========================================================================
 ;; The opaque-child law holds at RUNTIME in the compiled browser path
@@ -255,8 +263,8 @@
                      (mount-outcome! bv/opaque-with-children)))
             (.then (fn [i-kids]
                      (is (= :rf.error/behavior-bad-args (:id i-kids))
-                         "and the interpreted twin refuses on the SAME diagnostic — the two browser modes agree")
-                     (done)))
+                         "and the interpreted twin refuses on the SAME diagnostic — the two browser modes agree")))
             (.catch (fn [e]
                       (is false (str "an opaque-child mount chain rejected unexpectedly: " e))
-                      (done))))))))
+                      nil))
+            (.then (fn [_] (done))))))))

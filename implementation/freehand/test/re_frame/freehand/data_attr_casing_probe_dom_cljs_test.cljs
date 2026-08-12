@@ -131,15 +131,15 @@
                                               "svg" nil (react/createElement Child)))))))
               (.then (fn [msgs]
                        (is (some #(str/includes? % "data-cdx") msgs)
-                           "and warns across a component boundary too")
+                           "and warns across a component boundary too")))
+              (.catch (fn [e]
+                        (is false (str "probe failed: " e))
+                        nil))
+              (.then (fn [_]
                        (ms/destroy-root! c1 r1)
                        (ms/destroy-root! c2 r2)
                        (ms/destroy-root! c3 r3)
-                       (done)))
-              (.catch (fn [e]
-                        (ms/destroy-root! c1 r1) (ms/destroy-root! c2 r2) (ms/destroy-root! c3 r3)
-                        (is false (str "probe failed: " e))
-                        (done)))))))))
+                       (done)))))))))
 
 ;; ===========================================================================
 ;; Obligation 2 — the DOM facts, read off a real react-dom mount
@@ -168,11 +168,13 @@
                          (is (= "x" (.getAttribute node mixed))
                              "getAttribute is case-insensitive on HTML")
                          (is (= "x" (gobj/get (.-dataset node) (dataset-key low)))
-                             ".dataset keys off the lowercased name — the casing is lost"))
+                             ".dataset keys off the lowercased name — the casing is lost"))))
+              (.catch (fn [e]
+                        (is false (str "probe failed: " e))
+                        nil))
+              (.then (fn [_]
                        (ms/destroy-root! container root)
-                       (done)))
-              (.catch (fn [e] (ms/destroy-root! container root)
-                        (is false (str "probe failed: " e)) (done)))))))))
+                       (done)))))))))
 
 (deftest svg-and-mathml-preserve-the-name-but-lose-it-from-dataset
   (testing "SVG and MathML PRESERVE the mixed-case data-* name, so getAttribute
@@ -208,12 +210,13 @@
                        (render! r3 (react/createElement
                                      "math" nil (react/createElement "mi" (js-props "mth" math-name))))))
               (.then (fn [_]
-                       (check-foreign (.querySelector c3 "#mth") math-name "MathML")
-                       (ms/destroy-root! c1 r1) (ms/destroy-root! c2 r2) (ms/destroy-root! c3 r3)
-                       (done)))
+                       (check-foreign (.querySelector c3 "#mth") math-name "MathML")))
               (.catch (fn [e]
-                        (ms/destroy-root! c1 r1) (ms/destroy-root! c2 r2) (ms/destroy-root! c3 r3)
-                        (is false (str "probe failed: " e)) (done)))))))))
+                        (is false (str "probe failed: " e))
+                        nil))
+              (.then (fn [_]
+                       (ms/destroy-root! c1 r1) (ms/destroy-root! c2 r2) (ms/destroy-root! c3 r3)
+                       (done)))))))))
 
 ;; ===========================================================================
 ;; Obligation 2, continued — the SSR serialise-then-parse divergence
@@ -302,9 +305,10 @@
               (.then (fn [_]
                        (check "SSR/client HTML"   html-name html-ns   "#ssrh" false)
                        (check "SSR/client SVG"    svg-name  svg-ns    "#ssrs" true)
-                       (check "SSR/client MathML" math-name mathml-ns "#ssrm" true)
-                       (ms/destroy-root! container root)
-                       (done)))
+                       (check "SSR/client MathML" math-name mathml-ns "#ssrm" true)))
               (.catch (fn [e]
-                        (ms/destroy-root! container root)
-                        (is false (str "probe failed: " e)) (done)))))))))
+                        (is false (str "probe failed: " e))
+                        nil))
+              (.then (fn [_]
+                       (ms/destroy-root! container root)
+                       (done)))))))))
