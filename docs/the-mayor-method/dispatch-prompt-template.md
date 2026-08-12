@@ -249,9 +249,9 @@ none of them is obvious from the gate command itself.
   beginning mid-word. The exit code a PR body quotes is exactly the artefact
   that collision corrupts, and it reads as a clean pass — so this is the merge
   decision failing open, not a housekeeping slip. The boundary block above
-  states the rule for `pr-body-<worktree>.md`; it binds gate artefacts
-  identically, and an example here that dropped the suffix is what let two
-  workers obey the document and still collide.
+  carries the same rule, and an example here that dropped the suffix is what let
+  two workers obey the document and still collide — which is why the two have to
+  be kept in step.
 
   Saying only "put the log somewhere ignored" is the trap: a worker satisfies it
   and still strands the exit file, which for a while was itself untracked. One
