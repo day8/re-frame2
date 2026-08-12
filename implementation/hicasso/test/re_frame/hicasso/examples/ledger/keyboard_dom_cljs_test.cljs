@@ -318,11 +318,26 @@
         (is (true? (focusable? (note-node m 0))))
         (is (true? (focusable? (q m ".ledger-flag")))))
 
-      (testing "and the virtualizer's own wrappers are not — they carry
-                `role=\"presentation\"`, and an element that is
-                presentational to a screen reader and reachable by Tab
-                is a stop on the journey that announces nothing"
-        (is (false? (focusable? (viewport-in m))))
+      (testing "and the virtualizer's own wrappers are not in the
+                sequential-navigation order — they carry
+                `role=\"presentation\"`, and an element that announces
+                nothing and is reachable by Tab is a stop on the journey
+                for no reason"
+        (let [order (set (keyboard-order m))]
+          (is (not (contains? order "ledger-viewport")))
+          (is (not (contains? order "ledger-spacer")))))
+
+      (testing "MEASURED, AND WORTH RECORDING: the engine will
+                nonetheless accept a PROGRAMMATIC focus on the scroll
+                container, because a scroller is focusable in its own
+                right (Chromium's keyboard-focusable scrollers). Being
+                focusable and being in the tab order are therefore two
+                different questions, and `.focus()` answers only the
+                first — which is exactly why [[keyboard-order]] filters
+                a CANDIDATE SET rather than sweeping every element on
+                the page. The spacer, which does not scroll, is not
+                focusable at all"
+        (is (true? (focusable? (viewport-in m))))
         (is (false? (focusable? (q m ".ledger-spacer")))))
 
       (testing "nor is the grid, nor a cell: `role=\"grid\"` is a
@@ -453,13 +468,15 @@
   ;; then tabs away — whether they can ever get back.
   (if-not (browser?)
     (skip! "the pin's keyboard consequence")
-    (let [total  events/default-total
-          m      (mount-ledger! total)
-          ^js vp (viewport-in m)
-          field  (note-node m 5)]
+    (let [total     events/default-total
+          m         (mount-ledger! total)
+          ^js vp    (viewport-in m)
+          field     (note-node m 5)
+          top       (* 500 views/row-height)
+          [from to] (window-at top total)]
       (.focus field)
       (hm/settle! m)
-      (set! (.-scrollTop vp) (* 500 views/row-height))
+      (set! (.-scrollTop vp) top)
       (tell-the-vendor-it-scrolled! m)
 
       (is (some? (note-node m 5))
@@ -475,8 +492,14 @@
              which is the property that matters: a keyboard user who
              scrolled away can tab back to their own draft without
              hunting for it with the scrollbar")
-        (is (= 50 (count order))
-            "twenty-four rows plus the pinned one, two controls each"))
+        (is (= (* 2 (inc (inc (- to from)))) (count order))
+            "the window's rows plus the pinned one, two controls each —
+             derived from the geometry rather than typed, because the
+             window here is twenty-seven rows wide and the one at the
+             top of the model is twenty-four: the upper overscan is
+             clamped away at row zero and present everywhere else, and a
+             constant would be asserting about whichever offset it was
+             written at"))
 
       (hm/unmount! m))))
 
