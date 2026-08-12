@@ -379,6 +379,12 @@
     (let [m      (mount-ledger! 10000)
           _      (focused-typing-at m 40 "chase")
           before (active)]
+      ;; A caret in the middle of the word, so the claim below is about a
+      ;; SELECTION and not about a cursor that would sit at 0 either way.
+      ;; `completeness-audit.md` asks for *keyboard access, focus and
+      ;; selection*; this is the selection half, and the keyboard half is
+      ;; rf2-hic-049's browser witness.
+      (.setSelectionRange ^js before 2 2)
       (scroll-to! m 43)
       (is (identical? before (active))
           "THE ACCEPTANCE. The SAME DOM node still has focus after the
@@ -389,6 +395,9 @@
           "and it still belongs to record 40")
       (is (= "chase" (.-value ^js (active)))
           "carrying what was typed into it")
+      (is (= 2 (.-selectionStart ^js (active)))
+          "with the caret still between the two letters the user left it
+           between — the fact a node-identity claim exists to buy")
       (hm/unmount! m))))
 
 (deftest a-slot-keyed-window-moves-focus-to-another-record
