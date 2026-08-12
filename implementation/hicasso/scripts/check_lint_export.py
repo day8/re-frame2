@@ -28,10 +28,23 @@ take, and the two rules are circular for anything shaped like a deftest.
 A checker is not a workaround for that -- it is this artefact's OWN idiom.
 `check_freeze.py` sits beside this file and is the same shape: a gate over the
 package, with a `--self-test` that proves its own red.  This one runs the real
-clj-kondo, at the version CI pins, with the SHIPPED export directory as its
-`--config-dir`, which is exactly how a consumer's copied config is loaded.
-There is no second description of the rules here and no mock: a rule that
-passes this gate is the rule the artefact publishes.
+clj-kondo, with the SHIPPED export directory as its `--config-dir`, which is
+exactly how a consumer's copied config is loaded.  There is no second
+description of the rules here and no mock: a rule that passes this gate is the
+rule the artefact publishes.
+
+AT THE VERSION CI PINS -- WHEN IT CAN GET IT (rf2-x1mz).  This paragraph used
+to say so flatly, and it was TRUE ONLY IN CI, where the job installs the pin
+before running.  Locally the resolver took whatever was on PATH, and the two
+versions do not agree: measured on one line of `overlay.cljs`, 2025.10.23
+reports `errors: 0, exit 0` where 2026.04.15 reports `Expected: array,
+received: function` and exits 3.  The binary is now resolved through
+`scripts/lint_kondo.py`, which reads the pin off `lint.yml` and provisions it
+-- the npm distribution stops at 2025.10.23, so there is no other way to get
+it.  Where that fails (no network, an unpublished platform) the gate still runs
+on whatever is available, because a fixture witness at the wrong version is
+weaker evidence rather than none -- but it SAYS SO, loudly, naming both
+versions.  A quiet fallback is what made the old sentence a lie.
 
     python scripts/check_lint_export.py             run the gate
     python scripts/check_lint_export.py --self-test prove the gate fires
@@ -71,15 +84,56 @@ EXPECTED = {
 }
 
 
+REPO_ROOT = os.path.dirname(os.path.dirname(ARTEFACT_ROOT))
+PINNED_RESOLVER = os.path.join(REPO_ROOT, "scripts", "lint_kondo.py")
+_KONDO_COMMAND = []  # one-slot memo; see `_kondo_command`
+
+
+def _pinned_kondo():
+    """The binary at lint.yml's pin, or `None` with the reason printed.
+
+    Delegated rather than re-derived: `scripts/lint_kondo.py` already reads the
+    pin off the workflow, knows the per-platform release archives and caches
+    the download outside the repository. A second copy of that knowledge here
+    is a second thing to keep in step with a pin bump.
+    """
+    if not os.path.isfile(PINNED_RESOLVER):
+        return None
+    try:
+        proc = subprocess.run([sys.executable, PINNED_RESOLVER, "--print-binary"],
+                              capture_output=True, text=True, timeout=300)
+    except (OSError, subprocess.SubprocessError) as exc:
+        print("NOTE: could not run the pinned clj-kondo resolver (%s)" % exc)
+        return None
+    if proc.returncode != 0:
+        print("NOTE: clj-kondo at lint.yml's pin is unavailable here, so this "
+              "witness runs at whatever version is on PATH. Versions disagree "
+              "about which findings are errors (rf2-x1mz), so a green below is "
+              "weaker than CI's.")
+        for line in (proc.stderr or "").splitlines():
+            print("      " + line)
+        return None
+    return proc.stdout.strip() or None
+
+
 def _kondo_command():
-    """How to invoke clj-kondo here, preferring the NATIVE BINARY.
+    """How to invoke clj-kondo here, preferring the PINNED NATIVE BINARY.
 
     The binary is what `.github/workflows/lint.yml` installs, at the pin this
     gate asserts against, and it needs no JDK — which is what lets the fixture
     witness run as a step of the existing `clj-kondo` job rather than waiting
     for a JVM lane that does not exist. The artefact's `:clj-kondo` alias is
-    the local fallback, so a developer with no binary still gets the gate.
+    the last fallback, so a developer with neither still gets the gate.
     """
+    # Memoised: `check()` lints three times and the self-test calls `check()`
+    # once per mutation, so resolving afresh each time would spawn a process
+    # per lint AND repeat the notice above dozens of times.
+    if _KONDO_COMMAND:
+        return list(_KONDO_COMMAND[0])
+    pinned = _pinned_kondo()
+    if pinned:
+        _KONDO_COMMAND.append([pinned])
+        return [pinned]
     for name in ("clj-kondo", "clojure"):
         # The RESOLVED path, not the bare name. On Windows an npm-installed
         # tool leaves both an extensionless shell shim and a `.cmd`; only the
@@ -88,7 +142,9 @@ def _kondo_command():
         found = (shutil.which(name + ".cmd") or shutil.which(name + ".bat")
                  or shutil.which(name))
         if found:
-            return [found] if name == "clj-kondo" else [found, "-M:clj-kondo"]
+            cmd = [found] if name == "clj-kondo" else [found, "-M:clj-kondo"]
+            _KONDO_COMMAND.append(cmd)
+            return list(cmd)
     raise SystemExit(
         "FAIL: neither `clj-kondo` nor `clojure` is on PATH, so the Hicasso "
         "lint export gate cannot run. This is a HARD failure on purpose: it "
