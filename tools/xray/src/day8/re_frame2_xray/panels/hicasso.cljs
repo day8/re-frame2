@@ -1,8 +1,8 @@
 (ns day8.re-frame2-xray.panels.hicasso
-  "Hicasso tab — the glass on the live tier (rf2-hic-023).
+  "Hicasso tab — the glass on the live tier (rf2-hic-023, rf2-hic-037).
 
-  Four views over one evidence surface, answering the four questions Spec
-  SN §10 says a developer actually asks of a view substrate:
+  Six views over ONE evidence surface. The first four answer the questions
+  Spec SN §10 says a developer actually asks of a view substrate:
 
     - **Mounted** — which boundaries are mounted, over which frames?
     - **Reads** — which boundaries read each subscription, and at what
@@ -10,6 +10,18 @@
     - **Intents** — what was dispatched, in order, inside the retained
       window?
     - **Why** — which reads changed, and what does that prove?
+
+  The last two are derivations over the same one-turn read (rf2-hic-037):
+
+    - **Advisor** — ranks the census by time, frequency, read churn and
+      fan-out; classifies what owns the pressure; and recommends the
+      smallest route that addresses THAT owner — which, from this
+      evidence, is never a native one. See
+      `hicasso_advisor.cljc` for why the refusal is the product.
+    - **Causal** — §10's chain, `event → subscriptions recomputed →
+      values changed → boundaries notified → bodies run → React commit →
+      paint`, walked link by link for one real dispatch, with each link's
+      basis AND its join to the previous link printed separately.
 
   ## The tab's job is to make the LOSS legible, not to hide it
 
@@ -46,6 +58,8 @@
   Normative owner: `tools/xray/spec/027-Hicasso-Evidence.md`."
   (:require [clojure.string :as string]
             [day8.re-frame2-xray.panel-registry :as panel-registry]
+            [day8.re-frame2-xray.panels.hicasso-advisor :as advisor]
+            [day8.re-frame2-xray.panels.hicasso-causal :as causal]
             [day8.re-frame2-xray.panels.hicasso-helpers :as hh]
             [day8.re-frame2-xray.panels.hicasso-reads :as reads]
             [day8.re-frame2-xray.panels.overflow-indicator :as overflow]
@@ -337,6 +351,139 @@
                        "  leads not searched — the window holds nothing")]])
                  [(overflow/overflow-row {:panel-id (str panel-id "-explain") :over-cap? over? :hidden-count hidden})])))]))
 
+;; ---- view 5 — the advisor -------------------------------------------------
+
+(def ^:private route-style
+  {:margin-top "6px" :padding "6px 8px" :border-radius "4px"
+   :background (:bg-1 tokens)
+   :border (str "1px solid " (:border-subtle tokens))
+   :font-family sans-stack :font-size "12px" :line-height "1.45"
+   :color (:text-secondary tokens)})
+
+(def ^:private refusal-style
+  (assoc route-style
+         :background (with-alpha :warning 10)
+         :border (str "1px solid " (with-alpha :warning 35))))
+
+(defn- axis-line
+  "The four axes on one line, each in its own unit.
+
+  Never a composite score: the units are milliseconds, dispatch counts,
+  read orders and reader slots, and any single number over them would be
+  the weights talking rather than the evidence."
+  [{:keys [time frequency read-churn fan-out]}]
+  (string/join " · "
+               [(str "time " (advisor/format-ms (:ms time)))
+                (str "freq " (:runs frequency) " recompute"
+                     (when (not= 1 (:runs frequency)) "s")
+                     " / " (:memo-hits frequency) " memo hit"
+                     (when (not= 1 (:memo-hits frequency)) "s"))
+                (str "churn " (:reads read-churn) " read"
+                     (when (not= 1 (:reads read-churn)) "s")
+                     ", " (:read-orders read-churn) " order"
+                     (when (not= 1 (:read-orders read-churn)) "s"))
+                (str "fan-out " (:total fan-out))]))
+
+(defn- advice-row
+  [row]
+  (let [{:keys [class advice]} row
+        stem (str "rf-xray-" panel-id "-advice-" (:slug row))]
+    [:li {:data-testid stem :style row-style}
+     [:div
+      [:span {:style {:font-family mono-stack}} (str "#" (:rank row) "  " (:label row))]
+      (loss-chip (str stem "-frame") (hh/loss-chip nil (:frame row)))]
+     [:div {:style detail-style} (axis-line (:axes row))]
+     ;; WHAT OWNS IT — with the loss for the half that was not measured.
+     [:div {:data-testid (str stem "-class") :style detail-style}
+      [:span {:style {:color (:text-secondary tokens)}}
+       (str "owner: " (hh/format-id (:owner class))
+            " (" (hh/format-id (:basis class)) ")  ")]
+      (loss-chip (str stem "-class") (hh/loss-chip (:loss class) hh/unknown))
+      [:div {:style {:margin-top "3px"}} (:says class)]]
+     ;; THE ROUTE — or the refusal, which is the same field and never a
+     ;; blank. A boundary the advisor will not route is the case a reader
+     ;; most needs a sentence for.
+     [:div {:data-testid (str stem "-route")
+            :style       (if (:refusal advice) refusal-style route-style)}
+      [:div [:strong (:label advice)]
+       (when (:rung advice) (str "  · ladder rung " (:rung advice)))]
+      [:div {:style {:margin-top "3px"}} (:says advice)]
+      (when-some [r (:refusal advice)]
+        [:div {:data-testid (str stem "-refusal") :style {:margin-top "5px"}}
+         [:div (:says r)]
+         (into [:ul {:style {:margin "4px 0 0 16px" :padding 0}}]
+               (for [n (:next r)]
+                 ^{:key (str (:class n))}
+                 [:li {:data-testid (str stem "-refusal-" (name (:class n)))}
+                  (str (:label n) " — " (:authority n))]))])
+      (into [:ol {:data-testid (str stem "-loop")
+                  :style {:margin "6px 0 0 16px" :padding 0
+                          :color (:text-tertiary tokens)}}]
+            (for [[i s] (map-indexed vector (:working-loop advice))]
+              ^{:key i} [:li s]))]]))
+
+(defn- advisor-view
+  [{:keys [advice envelope]}]
+  (let [rows (:rows advice)
+        [shown over? hidden] (ch/cap-rows rows)]
+    [:div {:data-testid (str "rf-xray-" panel-id "-advisor")}
+     (or (presence-note (hh/presence envelope (empty? rows)) :advisor)
+         (into [:ol {:style {:list-style "none" :margin 0 :padding 0}}]
+               (concat (for [row shown] ^{:key (:slug row)} [advice-row row])
+                       [(overflow/overflow-row {:panel-id     (str panel-id "-advisor")
+                                                :over-cap?    over?
+                                                :hidden-count hidden})])))
+     ;; Stated on EVERY render, rows or none. The three classes this tab
+     ;; does not measure are the reason its top row is not a verdict, and a
+     ;; reader who saw that only when the roster was empty would read a
+     ;; populated roster as complete.
+     [:div {:data-testid (str "rf-xray-" panel-id "-advisor-unmeasured")
+            :style       (assoc state-style :margin-top "10px")}
+      [:div "Three of the five pressure classes are not measured here:"]
+      (into [:ul {:style {:margin "4px 0 0 16px" :padding 0}}]
+            (for [c (:unmeasured advice)]
+              ^{:key (str (:class c))}
+              [:li {:data-testid (str "rf-xray-" panel-id "-advisor-unmeasured-"
+                                      (name (:class c)))}
+               [:strong (:label c)] " — " (:authority c) ". " (:why c)]))]]))
+
+;; ---- view 6 — the causal slice --------------------------------------------
+
+(defn- causal-link
+  [link]
+  (let [stem (str "rf-xray-" panel-id "-causal-link-" (name (:id link)))]
+    [:li {:data-testid stem :style row-style}
+     [:div
+      [:span {:style {:font-family mono-stack}}
+       (str (:ordinal link) ". " (:label link))]
+      (loss-chip stem (hh/loss-chip (:loss link)
+                                    (if (:evidenced? link) ::present hh/unknown)))
+      [:span {:data-testid (str stem "-basis")
+              :style (assoc detail-style :display "inline" :margin-left "8px")}
+       (str (if (:evidenced? link) "evidenced" "not evidenced")
+            " · basis " (hh/format-id (:basis link)))]]
+     (when (:seam link)
+       [:div {:style detail-style} (str "seam: " (:seam link))])
+     [:div {:style detail-style} (:says link)]
+     ;; THE JOIN, on its own row. A link's own basis and its join to the
+     ;; previous link are different questions, and printing only the first
+     ;; is how four solid facts in a row come to read as a proven cause.
+     (when-some [j (:joins link)]
+       [:div {:data-testid (str stem "-join")
+              :style       (assoc detail-style :margin-top "4px")}
+        [:span (str "join to the link above: " (hh/format-id (:status j))
+                    (when (:on j) (str " on " (hh/format-id (:on j)))) " — ")]
+        (:says j)])]))
+
+(defn- causal-view
+  [{:keys [slice]}]
+  [:div {:data-testid (str "rf-xray-" panel-id "-causal")}
+   (if (nil? slice)
+     (presence-note :idle :causal)
+     (into [:ol {:style {:list-style "none" :margin 0 :padding 0}}]
+           (for [link (:links slice)]
+             ^{:key (name (:id link))} [causal-link link])))])
+
 ;; ---- the sub-strip and the panel -----------------------------------------
 
 ;; `dispatch` (rf2-1w07r) is the reg-view-injected frame-bound dispatcher
@@ -374,11 +521,27 @@
                                   :mounted     :mounted-boundaries
                                   :attribution :read-attribution
                                   :intents     :intents
-                                  :explain     :explain-render))]
+                                  :explain     :explain-render
+                                  ;; The advisor ranks the mounted census and
+                                  ;; the slice starts from the boundary it
+                                  ;; named, so both inherit that envelope's
+                                  ;; presence — absent, mismatched or idle
+                                  ;; means the same three things here.
+                                  :advisor     :mounted-boundaries
+                                  :causal      :mounted-boundaries))]
     [:section {:data-testid (str "rf-xray-" panel-id) :style panel-root-style}
      (sub-strip dispatch selected)
      [:div {:data-testid (str "rf-xray-" panel-id "-summary") :style summary-style}
-      (or (hh/read-summary envelope) "no envelope")]
+      ;; The derived views state their OWN claim, not the census's. An
+      ;; advice envelope and a slice envelope have their own scope, basis
+      ;; and loss, and printing the producer's summary over them would
+      ;; credit Hicasso with a completeness claim about a derivation Xray
+      ;; made.
+      (or (case selected
+            :advisor (advisor/advice-summary (:advice data))
+            :causal  (causal/slice-summary (:slice data))
+            (hh/read-summary envelope))
+          "no envelope")]
      [:div {:style scroll-style}
       (section/section-row
         {:label  (string/upper-case (:label (first (filter #(= selected (:id %))
@@ -388,7 +551,9 @@
           :mounted     [mounted-view     {:envelope envelope :rows (:mounted data)}]
           :attribution [attribution-view {:envelope envelope :rows (:attribution data)}]
           :intents     [intents-view     {:envelope envelope :rows (:intents data)}]
-          :explain     [explain-view     {:envelope envelope :rows (:explain data)}]))]]))
+          :explain     [explain-view     {:envelope envelope :rows (:explain data)}]
+          :advisor     [advisor-view     {:envelope envelope :advice (:advice data)}]
+          :causal      [causal-view      {:slice (:slice data)}]))]]))
 
 ;; ---- installation --------------------------------------------------------
 
@@ -418,12 +583,28 @@
   (rf/reg-sub :rf.xray.hicasso/data
     :<- [:rf.xray/trace-buffer]
     (fn [_tick _query]
-      (let [envelopes (reads/evidence)]
+      (let [envelopes (reads/evidence)
+            ;; The window is taken in the SAME turn as the four envelopes,
+            ;; for the reason the four are taken together: the advisor
+            ;; joins the ring's recompute counts to the census's read
+            ;; edges, and a mount landing between the two reads would
+            ;; price a boundary against a window that never described it.
+            windows   (or (reads/trace-windows envelopes) {})
+            advice    (advisor/advise envelopes (advisor/sub-timing windows))]
         {:envelopes   envelopes
          :mounted     (hh/mounted-rows     (:mounted-boundaries envelopes))
          :attribution (hh/attribution-rows (:read-attribution envelopes))
          :intents     (hh/intent-rows      (:intents envelopes))
-         :explain     (hh/explain-rows     (:explain-render envelopes))})))
+         :explain     (hh/explain-rows     (:explain-render envelopes))
+         :advice      advice
+         ;; The slice is drawn for the boundary the advisor ranked FIRST
+         ;; and the newest dispatch the ring still holds — so the two views
+         ;; are one workflow rather than two lookups, and the causal chain
+         ;; is about the boundary the roster just pointed at.
+         :slice       (when-some [top (first (:rows advice))]
+                        (causal/slice {:envelopes    envelopes
+                                       :windows      windows
+                                       :boundary-key (:key (:boundary top))}))})))
 
   (panel-registry/reg-l4-tab!
     {:id    :hicasso
