@@ -357,10 +357,10 @@
   "See [[re-frame.hicasso.overlay/modal]]."
   (codec/mark-boundary!
     (doto (fn hicasso-modal [js-props] (body modal-ops modal-dismissal-attrs js-props))
-      (aset "displayName" "hicasso/modal"))))
+      (unchecked-set "displayName" "hicasso/modal"))))
 
 (def popover
   "See [[re-frame.hicasso.overlay/popover]]."
   (codec/mark-boundary!
     (doto (fn hicasso-popover [js-props] (body popover-ops popover-dismissal-attrs js-props))
-      (aset "displayName" "hicasso/popover"))))
+      (unchecked-set "displayName" "hicasso/popover"))))
