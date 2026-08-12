@@ -230,7 +230,24 @@ none of them is obvious from the gate command itself.
   which is worse than no proof. Hash the file before the plant and compare after
   the restore. On a checkout whose line endings are translated, **anchor a patch to
   a single line**: one worker's first multi-line anchor matched nothing, with no
-  error and no edit, and only the hash caught it.
+  error and no edit, and only the hash caught it. **A hash proves the SOURCE
+  changed, not that the runtime ever saw it** — and that second half has a false
+  green of its own. On 2026-08-12 a worker planted a one-line egress fault in
+  `implementation/hicasso/src/re_frame/hicasso/tool.cljs` and its live wire witness
+  came back GREEN. The hashes differed (`2c6ecbed…5148` before, `915aaf91…e424`
+  planted), so the plant had genuinely applied and the rule above reported success
+  — but `re-frame.hicasso.tool` is not in the host build's module graph, so
+  `shadow-cljs watch` never noticed the edit and served the pre-plant compile.
+  Restarting the watch produced the red at once, naming the fault exactly. So **a
+  green sabotage run is evidence only once both halves hold**: the hash for the
+  source, and positive evidence the runtime observed the plant — restart the watch,
+  assert the plant's own marker in the served bundle, or confirm the build reported
+  recompiling the file you edited. Read without that second half, the green says
+  *the control is vacuous, my witness proves nothing*, and the worker's next move is
+  to tune the witness until it reds against a fault that was never being compiled —
+  a conclusion about the wrong artefact altogether. The hash deepens this trap
+  rather than closing it, because it is genuine evidence for a narrower claim than
+  the worker needs.
 - **Put *every* gate artefact where git ignores it, and name each one FOR your
   worktree** — the log and the exit-code file both. `*.log`, `*.exit` and
   `*-exit.txt` are all ignored, and the `-<worktree>` suffix is what stops a
