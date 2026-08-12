@@ -1025,15 +1025,29 @@
      Use this in CLJS tests under `cljs.test/async` that previously
      chained nested `js/setTimeout` calls to wait for a router drain,
      pipeline run, or sub re-fire. The Promise composes with `.then` /
-     `.catch` and integrates cleanly with `async done`:
+     `.catch` and integrates cleanly with `async done`.
+
+     Put the rejection handler UPSTREAM of the single trailing step that
+     calls `done`, and call `done` exactly once with nothing after it
+     (rf2-d3tc / rf2-qpns / rf2-fyba). `cljs.test/run-block` hands `done` a
+     continuation that runs the WHOLE REMAINDER of the run synchronously, so
+     a `.catch` sitting downstream of `done` claims whatever a later
+     namespace throws as this row's failure — printing it against this row's
+     label — and then calls `done` a SECOND time, which re-forces
+     `run-block`'s unrealized delay and re-runs the offending namespace.
+     The handler reports and releases; it never finishes:
 
          (deftest drains
            (async done
              (-> (test-support/poll-until
                    #(= 3 (:n (rf/app-db-value :rf/default)))
                    {:label \"counter reached 3\"})
-                 (.then (fn [_] (is (= 3 ...)) (done)))
-                 (.catch (fn [e] (is false (.-message e)) (done))))))"
+                 (.then  (fn [_] (is (= 3 ...))))
+                 (.catch (fn [e] (is false (.-message e)) nil))
+                 (.then  (fn [_] (done))))))
+
+     Teardown that both paths share belongs in that trailing step, where it
+     is written once and still runs once per path."
      ([pred] (poll-until pred nil))
      ([pred opts]
       (let [{:keys [timeout-ms interval-ms label]
