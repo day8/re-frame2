@@ -2893,6 +2893,85 @@ contention does to it — a deliberately contended trial landed within about
 
 ---
 
+### The `+139 B/read` attributed, and the premise it had to correct first (rf2-l50z)
+
+**Pre-registered 2026-08-13 06:13 +1000, before any arm of this bisection ran.**
+The section above left the mechanism of its one moved quantity `[OPEN]` and said
+so plainly; [`substrate-decision.md` §6](../product/substrate-decision.md#6-what-this-page-does-not-decide)
+named the ablation that would settle it and declined to guess. This subsection
+runs that ablation.
+
+#### The premise did not survive being checked, and the asymmetry is why
+
+The section above reads its own result as a *package versus prototype* contrast,
+and records the thing that does not fit: "a package carrying more per-read state
+than the frozen prototype would be expected to show it in **both** segments; it
+shows in one, to the byte."
+
+It shows in one because the contrast is not the one the table's columns imply.
+Those two columns are **two runs separated in time**, not two source trees
+measured together — the prototype's last published slope was taken
+**2026-08-04** (the frame-prop section above, whole-tree anchor `2303ef6781` off
+`origin/main` `1ce64c06a2`, which landed 2026-08-04 03:03 +1000), and the
+package run was taken **2026-08-12**. Everything that landed in that window is
+inside the delta, and the `wire-cell!` bodies of the two trees are *identical
+today* — the package's `impl/collector.cljs` and the prototype's
+`arm1/runtime.cljs` carry the same subscribe / activate / baseline / watch /
+on-dispose sequence, line for line.
+
+One landing in that window adds exactly one per-cell retained item and adds it
+**to the ratom family alone**: `9d01cd171e`, `fix(hicasso): arm1 must activate
+its Reaction before watching it` (`rf2-2kshh`), merged **2026-08-07 09:32
++1000** — three days after the 1,278 reading and five before the package run.
+Its whole code change is one line inside `wire-cell!`:
+
+```clojure
+(interop/activate-derived-value! reaction)
+```
+
+and its own commit message states the property that makes the observed shape
+predictable rather than puzzling: *"The op is a routed no-op on the React-hook
+spine, so UIx is untouched."*
+
+**The mechanism, in objects.** A `re-frame.subs` subscription under the ratom
+family IS a bare `reagent.ratom/Reaction` built without `:auto-run`, and a
+Reaction learns its sources only through `deref-capture`. The baseline deref
+`wire-cell!` takes is outside `*ratom-context*`, so before this landing the
+reaction ran its body raw and left `watching` **nil** — watchable, watched, and
+notifying nobody (the deafness `rf2-2kshh` repaired). Activation is
+`ratom/run`, a real capture: afterwards the reaction holds a populated
+`watching` array **and** is enrolled in each captured source's watcher map. Both
+are retained for the life of the cell, and cells are B·R on this rung's
+mandatory distinct-query witness — so the whole price lands in the marginal
+slope and none of it in the shell, which is the same reason
+[the disposal hook](#the-slope-went-stale-before-this-section-merged-and-the-landing-that-moved-it-rf2-2rtt660)
+was invisible to work pointed at the shell. On the React-hook spine
+`:adapter/activate-derived-value!` is published by nobody
+(`make-derived-value-fn` wires one watch per source at construction), the
+late-bound lookup finds no hook, and the call returns `nil` having allocated
+nothing.
+
+**This is a hypothesis with a mechanism, and it is not yet an attribution.** The
+ablation below is what makes it one.
+
+#### The registered prediction
+
+Written before the first arm was measured, in the terms the A–B–A bisection
+above established:
+
+| quantity | A (main as it stands) | B (main minus the one line) | A2 (restored) |
+|---|---:|---:|---:|
+| slope, Reagent segment | 1,417 B/read | **≈ 1,278 B/read** | 1,417 B/read |
+| slope, UIx segment | 2,115 B/read | **2,115 B/read — unchanged** | 2,115 B/read |
+| both donors, both floors, both shells | published | **unchanged** | published |
+
+The **UIx segment is the negative control and it is a control by measurement**,
+having reproduced `2,115` to the byte across the tree move the whole delta is
+supposed to live in. If the ablation moves it, activation is not the mechanism
+and the reading is refused rather than published.
+
+---
+
 ## 7. Anchors, and one that does not fully reproduce
 
 The R=0 rung is here to tie this instrument to the published sub-free rows
