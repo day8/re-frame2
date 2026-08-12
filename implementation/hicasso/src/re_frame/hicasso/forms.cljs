@@ -105,6 +105,28 @@
   a no-op, because the model has already answered it. Unmount neither
   commits nor cancels: nothing here holds a lifecycle.
 
+  ## The honest limit — THE FENCE IS THE RENDER
+
+  A commit intent carries the revision of the render that produced it,
+  and the record carries the revision of the edit that wrote it. That is
+  every fact the module has: the caller's CURRENT revision is a prop, so
+  it reaches this namespace only through a render, and D016 forbids the
+  render-time dispatch that could carry it any other way.
+
+  What follows is worth stating rather than leaving to be found. An
+  external reset re-renders the field, so every commit produced after it
+  carries the new revision, meets a record written under the old one, and
+  is refused — which is the chapter's async fence and is the case a page
+  produces. An intent captured BEFORE that render and delivered after it
+  is indistinguishable from an ordinary commit at that generation, and it
+  commits. React commits the reset render before it delivers a later user
+  event, so a browser does not build that ordering; a synthetic dispatch
+  does, and
+  [[re-frame.hicasso.forms-cljs-test/the-fence-is-the-render-and-that-limit-is-stated]]
+  pins it so a future change to the rule is a deliberate one. The
+  residual case is the caller's own supersession policy to hold, which is
+  what the chapter tells it to do anyway.
+
   ## What this module deliberately does not have
 
   It is one view. There is no form-level object, no validation DSL, no
