@@ -318,15 +318,26 @@
       {:request {:url "/api/articles"}}))
 
   (rf/reg-mutation favourite-mutation
-    {:params-schema [:map [:slug :string] [:favourite? :boolean]]
+    {:scope         :rf.scope/global
+     :params-schema [:map [:slug :string] [:favourite? :boolean]]
      ;; THE OPTIMISTIC PLAN. It patches the cached list BEFORE the request
      ;; is sent, and the runtime commits, rolls back or reconciles it
      ;; deterministically when the reply settles. `:on-conflict` is left
      ;; at its `:invalidate` default: if a concurrent write landed on the
      ;; entry in between, a blind restore would clobber newer truth, so
      ;; the entry is marked stale and the read path fetches the answer.
+     ;;
+     ;; The target is a MAP — `{:resource :params :scope}` — and not the
+     ;; `[id params]` vector a reader of `[:rf/resource …]` might reach
+     ;; for. Optimistic targets run BEFORE the request lowers, so a target
+     ;; that could write the cache under a wrong identity is rejected
+     ;; outright rather than dropped-and-warned; the vector spelling
+     ;; therefore takes the write with it, and the instance reads `:idle`
+     ;; afterwards. Measured here, on this file's first node-lane run.
      :optimistic    (fn [{:keys [slug favourite?]}]
-                      {[articles-resource {}]
+                      {{:resource articles-resource
+                        :params   {}
+                        :scope    :rf.scope/global}
                        (fn [articles]
                          (mapv (fn [a]
                                  (cond-> a
