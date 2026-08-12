@@ -121,31 +121,40 @@
 ;; The field
 ;; ---------------------------------------------------------------------------
 
+(defn typed-fx
+  "The whole effect map a keystroke produces.
+
+  Named for the same reason [[dismiss-fx]] is: the witness demonstrates
+  C2's *orphaned in-flight request after a parameter change* by
+  registering this effect map with its abandon removed, so the mutation is
+  one filtered entry rather than a second copy of a keystroke handler."
+  [db typed]
+  (let [db'      (-> db
+                     (assoc-in [:search :term] typed)
+                     (assoc-in [:search :open?] true)
+                     (update-in [:search :generation] inc))
+        term     (db/wanted db')
+        gen      (get-in db' [:search :generation])
+        ;; CENSUS O2 | OWNERSHIP | release | the term moved, so the request out for the old one is work nobody reads
+        release  (release-search db)
+        ;; /CENSUS O2
+        ;; CENSUS P1 | POLICY | debounce | one tick armed per keystroke; the guard at the tick decides which survives
+        debounce (when (some? term)
+                   [[:dispatch-later {:ms    debounce-ms
+                                      :event [::search-due {:token gen}]}]])
+        ;; /CENSUS P1
+        ]
+    {:db (cond-> (assoc-in db' [:search :status] (if term :typing :idle))
+           ;; Rows for a term the field no longer holds would satisfy a
+           ;; later acquire site and paint a stale panel. An application
+           ;; drops what it can no longer show, under any mechanism.
+           (nil? term) (assoc-in [:search :shown] nil)
+           true        (assoc-in [:search :requested] nil))
+     :fx (into [] cat [release debounce])}))
+
 (rf/reg-event ::typed
   {:doc "A keystroke. Positional, because it carries `::h/value`."}
-  (fn [{:keys [db]} [_ typed]]
-    (let [db'      (-> db
-                       (assoc-in [:search :term] typed)
-                       (assoc-in [:search :open?] true)
-                       (update-in [:search :generation] inc))
-          term     (db/wanted db')
-          gen      (get-in db' [:search :generation])
-          ;; CENSUS O2 | OWNERSHIP | release | the term moved, so the request out for the old one is work nobody reads
-          release  (release-search db)
-          ;; /CENSUS O2
-          ;; CENSUS P1 | POLICY | debounce | one tick armed per keystroke; the guard at the tick decides which survives
-          debounce (when (some? term)
-                     [[:dispatch-later {:ms    debounce-ms
-                                        :event [::search-due {:token gen}]}]])
-          ;; /CENSUS P1
-          ]
-      {:db (cond-> (assoc-in db' [:search :status] (if term :typing :idle))
-             ;; Rows for a term the field no longer holds would satisfy a
-             ;; later acquire site and paint a stale panel. An application
-             ;; drops what it can no longer show, under any mechanism.
-             (nil? term) (assoc-in [:search :shown] nil)
-             true        (assoc-in [:search :requested] nil))
-       :fx (into [] cat [release debounce])})))
+  (fn [{:keys [db]} [_ typed]] (typed-fx db typed)))
 
 (rf/reg-event ::clear
   {:doc "Empty the field. The term stops being readable, so the request
