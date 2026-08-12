@@ -311,7 +311,7 @@ tree needs its own subscription tracking or props bail-out, not merely because
 the source became long.
 
 If a measured region remains hot after fixing read placement and props
-stability, use the method in [Performance](18-performance.md) before moving it
+stability, use the method in [Performance](19-performance.md) before moving it
 to the native tier.
 
 ## Advanced

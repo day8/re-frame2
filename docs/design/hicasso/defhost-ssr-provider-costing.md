@@ -618,5 +618,5 @@ server HTML that produced it.
   standing instruction that the escape grows no `:ssr` spelling of its own
 - [`draft-guide/09-interop.md`](draft-guide/09-interop.md) — the Defaults table
   and the Providers section
-- [`draft-guide/17-ssr-and-hydration.md`](draft-guide/17-ssr-and-hydration.md)
+- [`draft-guide/18-ssr-and-hydration.md`](draft-guide/18-ssr-and-hydration.md)
   — the tier's mismatch story and the `:ssr` teaching block

@@ -323,13 +323,13 @@ work that has an actual duration; use `hm/settle!` for work that does not.
 
 Examples include:
 
-- a real error boundary catching a real throw ([Errors](16-errors.md));
+- a real error boundary catching a real throw ([Errors](17-errors.md));
 - StrictMode double invocation or an abandoned render;
 - keyed insertion, deletion, and reorder against real nodes;
 - a foreign component's hooks, context, and refs ([Interop](09-interop.md));
 - Activity hide and reveal, including subscription release and reacquisition;
 - hydration through `hm/hydrate!`
-  ([SSR and hydration](17-ssr-and-hydration.md)).
+  ([SSR and hydration](18-ssr-and-hydration.md)).
 
 `hm/assert-clean!` requires zero additional residue after unmount. A surviving
 subscription, listener, scheduled task, or retained callback is a bug. Do not
@@ -349,14 +349,14 @@ browser engine:
 
 Controlled-input composition is a canonical L4 case
 ([Controlled inputs](04-controlled-inputs.md)). Performance scripts and
-budgets belong to [Performance](18-performance.md).
+budgets belong to [Performance](19-performance.md).
 
 ## Migration shadow tests
 
 `ht/shadow!` is a development-only migration harness. It drives a Hicasso view
 and its Reagent original with one script, then compares canonical DOM and
 intent streams at each checkpoint. Its full use belongs to
-[Migrating from Reagent](19-migration-from-reagent.md).
+[Migrating from Reagent](20-migration-from-reagent.md).
 
 ## Prevent vacuous tests with a sabotage twin
 
@@ -422,7 +422,7 @@ Do not claim more than the level proves:
 - a semantic tree does not prove server or hydration bytes;
 - a DOM test in one engine does not prove cross-browser IME or focus;
 - a timing assertion is not a performance test until it follows the method in
-  [Performance](18-performance.md).
+  [Performance](19-performance.md).
 
 ## Advanced
 
@@ -450,6 +450,6 @@ Use canonical DOM when comparing:
 
 - before and after a refactor;
 - a Hicasso port with its Reagent original
-  ([Migrating from Reagent](19-migration-from-reagent.md));
+  ([Migrating from Reagent](20-migration-from-reagent.md));
 - a native island with the interpreted subtree it replaced
   ([The native tier](10-native-tier.md)).

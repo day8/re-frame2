@@ -278,7 +278,7 @@ sentence on A's SSR bullet rather than an unqualified *"no flash by construction
 
 `:ssr :render` landed on 2026-08-05 (`rf2-l0wfx`, `rf2-nv07k`), and with it guide
 10 §[`:render` — when the region has to be in the
-response](../draft-guide/17-ssr-and-hydration.md#client-only-components-and-fallbacks).
+response](../draft-guide/18-ssr-and-hydration.md#client-only-components-and-fallbacks).
 The load-bearing fact for theming is the one that ruling states about the other
 two policies: `:client-only` (**the default**) and `{:fallback …}` render *instead
 of* the component, so *"a provider at a crossing takes every descendant out of the
@@ -313,7 +313,7 @@ but a channel that exists, where the per-root attribute has none.
   design's claim that per-frame B needs `make-frame :fx-overrides`: `spec/002-Frames.md`
   §*The binary fx-handler signature* already gives an fx handler the frame id in
   its ctx under `:frame`. Since then `h/frame` has **shipped** and guide 03
-  §[Frame-safe callbacks and foreign APIs](../draft-guide/03-events-as-data.md#frame-safe-callbacks-and-foreign-apis)
+  §[Frame-safe callbacks and `h/frame`](../draft-guide/03-events-as-data.md#frame-safe-callbacks-and-hframe)
   teaches *"an fx handler receives the frame id in its context"* as a first-class
   fact, echoed in guide 01's troubleshooting table. So B per-root is an app-owned
   `frame-id → node` map populated at mount plus one global fx reading `(:frame m)`

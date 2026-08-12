@@ -6,10 +6,12 @@ The runtime turns that data into React elements; app-db, events, subscriptions,
 frames, and the event pipeline remain ordinary re-frame2.
 
 This guide explains the Hicasso view model, controlled inputs, forms, routing,
-resources, React interop, native components, local UI state, overlays, SSR,
-testing, diagnostics, performance, migration, code splitting, and
-accessibility. The MkDocs sidebar supplies the chapter order and page
-navigation.
+resources, React interop, native components, local UI state, motion/presence,
+overlays, SSR, testing, diagnostics, performance, migration, code splitting,
+and accessibility. Numbered pages run from
+[`00-installation`](00-installation.md) through
+[`22-accessibility`](22-accessibility.md). The MkDocs sidebar supplies the
+chapter order and page navigation when the corpus is wired into the site.
 
 ## Prerequisites
 

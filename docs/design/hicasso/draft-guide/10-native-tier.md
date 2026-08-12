@@ -59,7 +59,7 @@ React element:
         (h/sub [:quotes/display-row sym])]
     (n/$ :tr
          {:class    (if up? "quote up" "quote down")
-          :on-click (h/event [_]
+          :on-click (h/fn [_]
                       [:watchlist/select sym])}
          (n/$ :td {:class "sym"} sym)
          (n/$ :td {:class "px"} px)
@@ -80,7 +80,7 @@ Important syntax changes:
 
 - Hiccup selector shorthand has no native equivalent. Write class and id in
   props.
-- Native event props require functions. Use `h/event` in a rung-3 body to
+- Native event props require functions. Use `h/fn` in a rung-3 body to
   create a frame-aware callback; an event vector is rejected.
 - Native children are ReactNode values. Nest `n/$` forms. Convert a Hicasso
   subtree explicitly with `h/as-element`.
@@ -326,7 +326,7 @@ strategy.
 | --- | --- | --- |
 | A CLJS map is rejected as a React child | Dynamic map was not classified as props | Wrap the expression with `(n/props m)` |
 | A vector child is rejected inside `n/$` | Hiccup is not interpreted past the native fence | Convert with `h/as-element` or keep the subtree interpreted |
-| An event vector in a native prop is rejected | Native props require functions | Use `h/event` in a rung-3 body or dispatch from `n/use-frame` in an island |
+| An event vector in a native prop is rejected | Native props require functions | Use `h/fn` in a rung-3 body or dispatch from `n/use-frame` in an island |
 | `:children` in the props map is rejected | Native grammar has one trailing child channel | Move children after the props operand |
 | Two prop keys are rejected as a slot collision | Both normalize to one React slot | Keep one canonical spelling |
 | `n/use-sub` or `n/use-frame` raises `:rf.error/no-frame-context` | Component mounted outside a Hicasso frame provider | Mount under the application root or use the test kit's provider |

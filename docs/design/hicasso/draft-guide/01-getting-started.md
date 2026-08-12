@@ -72,7 +72,7 @@ part of the tree, that region can move to native React or UIx while staying on
 the same frame and app-db. There is no `:fast` interpretation mode and no
 second meaning for `[...]`.
 
-[Performance](18-performance.md) defines the measurement method and
+[Performance](19-performance.md) defines the measurement method and
 [Native tier](10-native-tier.md) defines the crossing.
 
 ## Hicasso, Reagent, and UIx
@@ -113,7 +113,7 @@ state are covered in [Ephemeral state](11-ephemeral-state.md).
 | Calling a `defview` as `(todo-row {:id 7})` refuses and names the view | A Hicasso view is a React/Hiccup head, not an inline function | Mount it as `[todo-row {:id 7}]`; use a plain `defn` for an inline helper |
 | A plain helper written as `[row-icon props]` raises `:rf.error/hicasso-bad-head` | A plain function appeared in Hiccup head position | Call it as `(row-icon props)`, or define it with `h/defview` when it needs its own re-render boundary |
 | `h/sub` raises `:rf.error/hicasso-sub-outside-render` | The read ran outside the direct synchronous execution of a Hicasso view | Read inside the view body and pass or close over the realised value |
-| An event vector raises `:rf.error/hicasso-intent-outside-boundary` | The intent was lowered without a view/frame boundary | Keep it in Hiccup produced by a view, or use `h/event` at an explicit foreign callback edge |
+| An event vector raises `:rf.error/hicasso-intent-outside-boundary` | The intent was lowered without a view/frame boundary | Keep it in Hiccup produced by a view, or use `h/fn` at an explicit foreign callback edge |
 | A controlled field drops characters or moves the caret | The write path became asynchronous, or the field left Hicasso's controlled path | Dispatch the edit synchronously and follow [Controlled inputs](04-controlled-inputs.md) |
 
 ## When not to use Hicasso

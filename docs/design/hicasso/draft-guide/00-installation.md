@@ -1,9 +1,10 @@
 # Installation
 
-This page adds Hicasso to a browser build and mounts a small counter. The
-example establishes the three forms used throughout the guide:
-[`h/defview`](glossary.md#defview) for a view, [`h/sub`](glossary.md#hsub) for a
-subscription read, and event vectors for ordinary handlers.
+Chapter `00` of the Hicasso draft guide. This page adds Hicasso to a browser
+build and mounts a small counter. The example establishes the three forms used
+throughout the guide: [`h/defview`](glossary.md#defview) for a view,
+[`h/sub`](glossary.md#hsub) for a subscription read, and event vectors for
+ordinary handlers.
 
 ## Add the dependencies
 

@@ -252,7 +252,7 @@ each view and their churn.
 | A bulk write runs every body despite equal-props memoization | Props contain a fresh function/JS object or fields that change but are not rendered | Use event vectors and persistent values; select only displayed fields |
 | Filtering is slow | Large oscillating dependency set or whole-table recomputation on each edit | Give rows stable reads, chunk the model, or move filtering into a subscription |
 | A plain function or JS component is rejected as a head | `:rf.error/hicasso-bad-head` | Use `h/defview` for Hicasso views and `h/defhost` for foreign components |
-| Virtualized rows render but interactions use the wrong frame or are inert | Render callback returned raw Hiccup or performed a deferred read | Return the row through `h/as-element`; read values before the callback; use `h/event` for callback-produced events |
+| Virtualized rows render but interactions use the wrong frame or are inert | Render callback returned raw Hiccup or performed a deferred read | Return the row through `h/as-element`; read values before the callback; use `h/fn` for callback-produced events |
 
 ## When not to tune or virtualize
 

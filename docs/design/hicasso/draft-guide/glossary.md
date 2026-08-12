@@ -27,7 +27,7 @@ Forms, overlays, routing helpers, the native tier, and test tooling are separate
 optional namespaces.
 
 Related: [Getting started](01-getting-started.md),
-[Installation](installation.md).
+[Installation](00-installation.md).
 
 <a id="defview"></a>
 ### `defview`
@@ -203,24 +203,47 @@ inspect it with `=`.
 
 Related: [Events as data](03-events-as-data.md).
 
-<a id="hevent"></a>
-### `h/event`
+<a id="hfn"></a>
+### `h/fn`
 
-An explicit callback form for cases where the callback's arguments are needed
-to compute an event. It captures the current frame when created and dispatches
-a returned event vector when invoked later.
+The one marked callback form (HD-024). Expands to an ordinary function. The
+contract comes from the **position** where it is written: event positions
+dispatch a returned vector; render positions must stay pure; unclaimed host
+props refuse the mark.
 
 ```clojure
-{:on-change
- (h/event [date]
-   [:calendar/picked date])}
+[:input {:type "file"
+         :on-change (h/fn [e]
+                      [:upload/picked
+                       (js/Array.from (.. e -target -files))])}]
 ```
 
-Use it for value-first foreign callbacks, file lists, drag data, or calculated
-events.
+Captures the rendering frame when created. Use it when arguments determine the
+event — value-first foreign callbacks, file lists, drag data — or when the
+body must call browser methods such as `.preventDefault`.
 
 Related: [Events as data](03-events-as-data.md),
 [Interop](09-interop.md).
+
+<a id="hframe"></a>
+### `h/frame`
+
+Returns the frame **id keyword** of the Hicasso boundary currently rendering.
+Legal only during a boundary body or a render callback that boundary supplied.
+Not a tracked subscription.
+
+The taught carry spelling is composition with core:
+
+```clojure
+(let [{:keys [dispatch]} (rf/capture-frame (h/frame))]
+  …)
+```
+
+Zero-arity ambient `(rf/capture-frame)` refuses under Hicasso's body
+discipline. Prefer effects for application async work; use this at foreign
+edges that retain a dispatching closure.
+
+Related: [Events as data](03-events-as-data.md).
 
 <a id="hvalue"></a>
 <a id="hchecked"></a>
@@ -309,7 +332,7 @@ A map from DOM `.key` strings to event intents, used at `:on-key-down` or
   "Escape" [:editor/cancel]}}
 ```
 
-Unlisted keys are ignored. There is no modifier DSL; use [`h/event`](#hevent)
+Unlisted keys are ignored. There is no modifier DSL; use [`h/fn`](#hfn)
 for cases such as Ctrl+Enter. Key maps suppress matches during IME composition.
 
 Related: [Events as data](03-events-as-data.md).
@@ -383,7 +406,7 @@ Use the overlay module instead when the UI should live on the browser's native
 top layer.
 
 Related: [Interop](09-interop.md),
-[Overlays and focus](12-overlays-and-focus.md).
+[Overlays and focus](13-overlays-and-focus.md).
 
 <a id="server-policy"></a>
 ### Server policy
@@ -397,7 +420,7 @@ The SSR contract for a host or native component:
 Foreign hosts and named native components default to Client-only. Native
 Hiccup and intrinsic React elements render by default.
 
-Related: [SSR and hydration](17-ssr-and-hydration.md),
+Related: [SSR and hydration](18-ssr-and-hydration.md),
 [Interop](09-interop.md).
 
 <a id="raw-escape"></a>
@@ -506,7 +529,7 @@ Marker-preserving `React.lazy` loading for a named native component. It follows
 React's promise-returning loader contract and retains the Hicasso native marker.
 Declare it at namespace top level.
 
-Related: [Code splitting and lazy loading](20-code-splitting.md),
+Related: [Code splitting and lazy loading](21-code-splitting.md),
 [The native tier](10-native-tier.md).
 
 <a id="performance-ladder"></a>
@@ -520,7 +543,7 @@ Five explicit implementation levels:
 4. a named [native island](#native-island);
 5. a native screen.
 
-Related: [Performance](18-performance.md),
+Related: [Performance](19-performance.md),
 [The native tier](10-native-tier.md).
 
 <a id="escape-benefit-rule"></a>
@@ -534,7 +557,7 @@ Keep a native escape only when it:
 
 Otherwise remove it.
 
-Related: [Performance](18-performance.md).
+Related: [Performance](19-performance.md).
 
 ## State homes
 
@@ -546,6 +569,18 @@ component-local reactive store. A host may retain private mechanics only when
 they are not a hidden duplicate of an application fact.
 
 Related: [Ephemeral state](11-ephemeral-state.md).
+
+<a id="motion-presence"></a>
+### `motion/presence`
+
+Optional exit-retention head from `re-frame.hicasso.motion`. Keeps keyed
+children for `:timeout-ms` after their data leaves app-db so CSS exit
+transitions can run. Applies `::h/mounting` / `::h/unmounting` attribute
+overrides on elements, or passes `:rf/phase` to view children. Not an
+animation system.
+
+Related: [Motion and presence](12-motion-and-presence.md),
+[Ephemeral state](11-ephemeral-state.md).
 
 <a id="pressure-valve"></a>
 ### Pressure valve
@@ -569,7 +604,7 @@ owns stacking, light-dismiss, modal focus trapping, and focus restoration.
 
 A closed overlay has no DOM node, listener, or active body subscriptions.
 
-Related: [Overlays and focus](12-overlays-and-focus.md).
+Related: [Overlays and focus](13-overlays-and-focus.md).
 
 <a id="route-link"></a>
 ### `route-link`
@@ -614,7 +649,7 @@ Two namespaces:
 - `re-frame.hicasso.test.mounted`, usually `hm`, for mounted React and DOM
   tests.
 
-Related: [Testing](14-testing.md).
+Related: [Testing](15-testing.md).
 
 <a id="testing-ladder"></a>
 ### Testing ladder
@@ -629,7 +664,7 @@ Related: [Testing](14-testing.md).
 
 A lower level does not prove the equality of a higher level.
 
-Related: [Testing](14-testing.md).
+Related: [Testing](15-testing.md).
 
 <a id="semantic-harness"></a>
 ### Semantic harness
@@ -639,7 +674,7 @@ fixtures and returns a semantic tree. Nested views remain represented as calls.
 Hooks, hosts, raw React elements, and `n/$` results are refused and belong at
 L3.
 
-Related: [Testing](14-testing.md).
+Related: [Testing](15-testing.md).
 
 <a id="mounted-facade"></a>
 ### Mounted facade
@@ -648,7 +683,7 @@ The `hm` namespace for L3 tests. It provides isolated-frame mount and hydrate,
 rerender, dispatch-and-settle, settle, virtual-clock advancement, unmount, and
 `assert-clean!` residue checking.
 
-Related: [Testing](14-testing.md).
+Related: [Testing](15-testing.md).
 
 <a id="sabotage-control"></a>
 ### Sabotage control
@@ -657,7 +692,7 @@ A deliberately broken twin of an important test or measurement. It proves that
 the instrument moves when the input is wrong and prevents an empty population
 from passing vacuously.
 
-Related: [Testing](14-testing.md).
+Related: [Testing](15-testing.md).
 
 <a id="canonical-dom"></a>
 ### Canonical DOM
@@ -669,8 +704,8 @@ were inserted in a different sequence.
 Canonical DOM is distinct from semantic-tree equality, exact server bytes, and
 hydrated browser behaviour.
 
-Related: [Testing](14-testing.md),
-[Migrating from Reagent](19-migration-from-reagent.md).
+Related: [Testing](15-testing.md),
+[Migrating from Reagent](20-migration-from-reagent.md).
 
 ## Diagnostics
 
@@ -691,7 +726,7 @@ event
 
 Render, commit, and paint are separate claims.
 
-Related: [Diagnostics](15-diagnostics.md).
+Related: [Diagnostics](16-diagnostics.md).
 
 <a id="explain-render"></a>
 ### Explain-render
@@ -699,7 +734,7 @@ Related: [Diagnostics](15-diagnostics.md).
 Xray's answer to “why did this view run?” It reports the cause category, changed
 reads or props, current read set, fan-out, completeness, and evidence loss.
 
-Related: [Diagnostics](15-diagnostics.md).
+Related: [Diagnostics](16-diagnostics.md).
 
 <a id="hot-view-advisor"></a>
 ### Hot-view advisor
@@ -709,8 +744,8 @@ then classifies the pressure as computation, topology, lowering, React, or
 layout. It recommends the smallest credible remedy and never auto-promotes
 code to native.
 
-Related: [Diagnostics](15-diagnostics.md),
-[Performance](18-performance.md).
+Related: [Diagnostics](16-diagnostics.md),
+[Performance](19-performance.md).
 
 <a id="loss-labels"></a>
 ### Loss labels
@@ -725,7 +760,7 @@ Explicit labels for incomplete evidence:
 
 Missing evidence is not represented as an empty result.
 
-Related: [Diagnostics](15-diagnostics.md).
+Related: [Diagnostics](16-diagnostics.md).
 
 <a id="complaint-catalogue"></a>
 ### Complaint catalogue
@@ -734,7 +769,7 @@ The stable `:rf.error/*` and `:rf.warning/*` identifier set, including cause,
 recovery, and source links where available. Tests assert the id, not the human
 message.
 
-Related: [Diagnostics](15-diagnostics.md).
+Related: [Diagnostics](16-diagnostics.md).
 
 <a id="production-erasure"></a>
 ### Production erasure
@@ -743,7 +778,7 @@ Removal of development diagnostics, evidence machinery, source locations, and
 complaint messages from default release bundles. Optional performance timing
 has a separate compile-time flag and is disabled by default.
 
-Related: [Diagnostics](15-diagnostics.md).
+Related: [Diagnostics](16-diagnostics.md).
 
 ## Lifecycle and delivery
 
@@ -769,7 +804,7 @@ first paint.
    [app-shell {}]))
 ```
 
-Related: [Installation](installation.md).
+Related: [Installation](00-installation.md).
 
 <a id="hydrate"></a>
 ### `hydrate!`
@@ -781,7 +816,7 @@ Two functions complete hydration:
 
 State hydration must run before DOM adoption.
 
-Related: [SSR and hydration](17-ssr-and-hydration.md).
+Related: [SSR and hydration](18-ssr-and-hydration.md).
 
 <a id="error-boundary"></a>
 ### Error boundary
@@ -792,7 +827,7 @@ error boundary catches descendant render and lifecycle exceptions.
 
 Expected failures remain ordinary app-db state.
 
-Related: [Errors](16-errors.md).
+Related: [Errors](17-errors.md).
 
 <a id="user-visible-budget"></a>
 ### User-visible budget
@@ -806,7 +841,7 @@ A performance requirement expressed as an observable user outcome, such as:
 
 Synthetic benchmark scores do not replace these budgets.
 
-Related: [Performance](18-performance.md).
+Related: [Performance](19-performance.md).
 
 <a id="shadow-comparison"></a>
 ### Shadow comparison
@@ -815,4 +850,4 @@ A migration witness that mounts a reference implementation and candidate under
 isolated equivalent state, drives both with one script, and compares canonical
 DOM plus event-intent streams at each checkpoint.
 
-Related: [Migrating from Reagent](19-migration-from-reagent.md).
+Related: [Migrating from Reagent](20-migration-from-reagent.md).
