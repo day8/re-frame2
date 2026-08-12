@@ -32,6 +32,7 @@
   one level down."
   (:require [clojure.java.io :as io]
             [clojure.string :as str]
+            [re-frame.migration.hicasso.census :as census]
             [re-frame.migration.hicasso.report :as report]
             [re-frame.migration.hicasso.rewrite :as rw]
             [rewrite-clj.node :as n]
@@ -269,9 +270,14 @@
             r    (if rewrite? (rewrite-string orig path) (scan-string orig path))
             changed? (and rewrite? (not= orig (:source r)))]
         (when (and write? changed?) (spit f (:source r)))
-        (assoc r :path path :changed? (boolean changed?)))
+        (assoc r :path path :changed? (boolean changed?)
+               :census (census/scan orig path)))
       (catch Exception e
         {:path path :changed? false :sites 0 :left-alone 0 :suggestions []
+         ;; A file the reader cannot read is one refusal, not two: the
+         ;; census population is empty here for the same reason the
+         ;; fixer's is, and `:parse-error` already says so.
+         :census {:entries [] :reagent? false :unresolved? false}
          :entries [{:file path :line 0 :col 0 :form "" :head nil
                     :class :parse-error :action :refused
                     :detail {:message (.getMessage e)}
@@ -286,6 +292,7 @@
     (report/build
      {:entries          (vec (mapcat :entries results))
       :suggestions      (vec (mapcat :suggestions results))
+      :census           (census/build (mapv :census results))
       :files-scanned    (count files)
       :files-changed    (count (filter :changed? results))
       :dry-run?         (and rewrite? (not write?))
@@ -329,9 +336,11 @@
       (let [rep (run paths {:rewrite? (contains? flags "--rewrite")
                             :write?   (contains? flags "--write")})]
         (report/print-lines (:entries rep))
+        (census/print-lines (:entries (:census rep)))
         (report/write! rep report-p)
         (println)
         (println (pr-str (:summary rep)))
+        (println (census/describe (:census rep)))
         (println (str "report: " report-p))
         ;; Exit 0 for any run that COMPLETED. A migration tool that fails a
         ;; build because a consumer's code needs a human decision is a tool

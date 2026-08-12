@@ -137,8 +137,14 @@
          sketch-indent "}})")))
 
 (defn build
-  "Assemble the report artefact from the per-file results."
-  [{:keys [entries suggestions files-scanned sites-total sites-left-alone
+  "Assemble the report artefact from the per-file results.
+
+  `:census` is a SECOND SECTION, not more `:entries`. The fixer's entries
+  count `[:>]`-family crossing sites; the census counts Reagent API call
+  sites. Merging them would produce one number that answers neither
+  question, and the golden corpus — which asserts `:entries` — would stop
+  being a statement about the fixer."
+  [{:keys [entries suggestions census files-scanned sites-total sites-left-alone
            files-changed dry-run?]}]
   (let [entries (sort-entries entries)
         by-class (->> entries (group-by :class)
@@ -158,6 +164,7 @@
                :entries           (count entries)
                :by-class          by-class}
      :entries entries
+     :census  census
      :suggestions
      (when (seq suggestions)
        {:caution suggestion-caution

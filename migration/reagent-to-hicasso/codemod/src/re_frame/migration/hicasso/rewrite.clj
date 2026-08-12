@@ -279,6 +279,55 @@
 (def ^:private reagent-namespaces
   '#{reagent.core reagent.dom reagent.dom.client reagent.ratom})
 
+(defn ns-form?
+  "Is this node the file's `ns` form? Public because the census asks it of
+  a zipper LOCATION (it wants the form's line), and one spelling of \"this
+  is the `ns` form\" is one spelling."
+  [node]
+  (and (list-node? node) (= 'ns (sexpr-safe (element-at node 0)))))
+
+(defn- ns-form-node
+  "This file's `ns` form, as a node, or `nil`."
+  [root-node]
+  (first (filter ns-form? (elements root-node))))
+
+(defn names-reagent?
+  "Does this file's `ns` form NAME a Reagent namespace — whatever the
+  reader was able to make of the form?
+
+  [[ns-context]] answers the stronger question (which local symbols are
+  bound to it) and answers `#{}` for a require the reader cannot resolve:
+  `#?(:cljs [reagent.core :as r])` is the common one, and it is the only
+  legal way to require Reagent from a `.cljc` file. The two answers
+  disagreeing is precisely the state a census must REPORT rather than
+  read as \"no Reagent here\" — see
+  [[re-frame.migration.hicasso.census/scan]].
+
+  Read off the TEXT of the `ns` form's CLAUSES, against the
+  `reagent-namespaces` roster, so it is blind to nothing the reader is
+  blind to.
+
+  **The clauses, and not the whole form.** Reading the form entire found
+  five files in this repository's own example corpus whose `ns`
+  DOCSTRING discusses `reagent.ratom/run!` in prose — a legal, clean
+  population reported as five migration blockers. A census that reports
+  what a sentence says is the same defect as one that reports nothing,
+  arriving from the other side. Token and multi-line nodes (the namespace
+  symbol, the docstring) and the attribute map are dropped; lists and
+  reader-conditional nodes are kept, which is every shape a require can
+  arrive in.
+
+  The one shape this does not see is the deprecated prefix list
+  `[reagent [core :as r]]`, which spells no Reagent namespace in full;
+  [[ns-context]] does not see that either."
+  [root-node]
+  (boolean
+   (when-let [nsf (ns-form-node root-node)]
+     (let [clauses (remove #(contains? #{:token :multi-line :map} (n/tag %))
+                           (elements nsf))
+           s       (apply str (map n/string clauses))]
+       (some #(str/includes? s (str %)) reagent-namespaces)))))
+
 (defn ns-context
   "Read a file's `ns` form and answer which symbols name Reagent's API.
 
@@ -290,10 +339,7 @@
   it — unless the `ns` form referred Reagent's, so the referred set is
   read rather than assumed."
   [root-node]
-  (let [ns-form (->> (elements root-node)
-                     (filter #(and (list-node? %)
-                                   (= 'ns (sexpr-safe (element-at % 0)))))
-                     first)
+  (let [ns-form (ns-form-node root-node)
         form    (some-> ns-form sexpr-safe)
         reqs    (when (seq? form)
                   (->> form
