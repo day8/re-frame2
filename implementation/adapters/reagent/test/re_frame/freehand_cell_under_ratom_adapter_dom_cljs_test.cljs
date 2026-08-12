@@ -211,14 +211,15 @@
             (fn [_]
               (is (= "2" (text container "#compiled"))
                   "0 → 1 → 2, the sequence the Freehand-hosted arm produced
-                   and the Reagent-hosted one could not")
-              (unmount! container @mounted)
-              (done)))
+                   and the Reagent-hosted one could not")))
+           ;; Reports and releases; it never finishes (rf2-fyba). The unmount both
+           ;; arms used to duplicate now rides the single trailing step, so it is
+           ;; written once, still runs on both paths, and `done` is last.
            (.catch
             (fn [e]
               (is false (str "freehand-under-reagent repaint rejected: " e))
-              (unmount! container @mounted)
-              (done)))))))))
+              nil))
+           (.then (fn [_] (unmount! container @mounted) (done)))))))))
 
 (deftest a-real-press-repaints-a-freehand-cell-under-the-reagent-adapter
   (testing "the operator pressed a button, so drive a real DOM press: the
@@ -245,14 +246,12 @@
               (is (= 42 (:count (frame/frame-app-db-value fid)))
                   "the press dispatched into the committed frame")
               (is (= "42" (text container "#compiled"))
-                  "and the mounted Freehand occurrence repainted from it")
-              (unmount! container @mounted)
-              (done)))
+                  "and the mounted Freehand occurrence repainted from it")))
            (.catch
             (fn [e]
               (is false (str "freehand-under-reagent press rejected: " e))
-              (unmount! container @mounted)
-              (done)))))))))
+              nil))
+           (.then (fn [_] (unmount! container @mounted) (done)))))))))
 
 (deftest an-unmoved-write-repaints-no-freehand-cell-under-the-reagent-adapter
   (testing "the adversarial companion. Activating the node must not make the
@@ -297,11 +296,9 @@
            (.then
             (fn [_]
               (is (= "6" (text container "#compiled"))
-                  "…and still repaints")
-              (unmount! container @mounted)
-              (done)))
+                  "…and still repaints")))
            (.catch
             (fn [e]
               (is false (str "freehand-under-reagent no-movement arm rejected: " e))
-              (unmount! container @mounted)
-              (done)))))))))
+              nil))
+           (.then (fn [_] (unmount! container @mounted) (done)))))))))
