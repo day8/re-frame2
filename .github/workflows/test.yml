@@ -1522,9 +1522,15 @@ jobs:
     # waits for the NEW LITERAL to appear on screen before asserting — which is
     # what separates "shadow delivered code" from "an after-load hook fired".
     # 36 real reloads per run, 105 checks per engine. Narrowing the engine set
-    # would be the quiet way to keep the name and drop the claim: the runner's
-    # cross-engine comparator is inert below two engines, so this job passes NO
-    # `HICASSO_HMR_ENGINES`, and a classifier regression pins that.
+    # would be the quiet way to keep the name and drop the claim, and there are
+    # TWO distinct losses in it — so "the comparator would be inert" is not the
+    # whole reason. The comparator's floor is two engines
+    # (`if (engines.length < 2) return problems`), and only a ONE-engine run is
+    # below it. A TWO-engine narrowing IS still compared; what it drops is one
+    # of the three pinned engines — `HICASSO_HMR_ENGINES=chromium,firefox`
+    # never starts WebKit, while this job's name goes on promising it. So this
+    # job passes NO `HICASSO_HMR_ENGINES` at all, and a classifier regression
+    # pins that.
     #
     # PER-PR on its own changed surface rather than nightly, for the reason
     # TESTING.md's placement table gives for slow essential coverage: this is
