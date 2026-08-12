@@ -32,6 +32,7 @@
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
             [re-frame.adapter.uix :as uix-adapter]
+            [re-frame.adapter.context :as adapter-context]
             [re-frame.adapter.react-shared-suite :as suite]
             [re-frame.test-support :as test-support]))
 
@@ -75,6 +76,25 @@
   (let [v (uix-adapter/use-subscribe [:rf.uix-use-subscribe-test/k])]
     (swap! probe-frame-provider-observed conj v)
     ($ :div (str "k=" v))))
+
+;; ---- rf2-5rqn: which context slot does the SERVER renderer populate? -------
+;; Reads all three observation points off the SHARED frame-context during a
+;; render, so the suite can pin the MECHANISM of the SSR refusal rather than
+;; only its symptom: the private `_currentValue` slot (what the
+;; `:adapter/current-frame` reader consults), the private `_currentValue2`
+;; slot (React's secondary-renderer slot), and the PUBLIC `useContext` return
+;; (renderer-agnostic). Deliberately calls no re-frame hook — it must render
+;; under `react-dom/server` without tripping the very refusal being measured.
+
+(def ^:private ssr-slot-observed (atom nil))
+
+(defui ProbeSsrSlots []
+  (let [ctx adapter-context/frame-context]
+    (reset! ssr-slot-observed
+            {:current-value  (.-_currentValue ^js ctx)
+             :current-value2 (.-_currentValue2 ^js ctx)
+             :use-context    (React/useContext ctx)})
+    ($ :div "slots")))
 
 ;; ---- use-frame probe (rf2-y6dz8t) ------------------------------------------
 ;; Pushes each render's `use-frame` ops map into a side-channel atom; the
@@ -318,6 +338,12 @@
    :probe-frame-provider-observed probe-frame-provider-observed
    :frame-provider-frame          :rf.uix-use-subscribe-test/frame-provider-frame
    :frame-provider-query          :rf.uix-use-subscribe-test/k
+   ;; rf2-5rqn — the ambient (1-arg) form under `react-dom/server`. Its own
+   ;; frame: the row is a COLD server render and must not read a sub-cache
+   ;; some earlier browser-lane row warmed.
+   :ssr-ambient-frame             :rf.uix-5rqn/ssr-ambient-frame
+   :probe-ssr-slots-element       (fn [] (uix/$ ProbeSsrSlots))
+   :ssr-slot-observed             ssr-slot-observed
    ;; rf2-y6dz8t — use-frame (capture-frame in hook position)
    :probe-use-frame-element (fn [] (uix/$ ProbeUseFrame))
    :use-frame-observed      use-frame-observed
@@ -417,6 +443,9 @@
 
 (deftest use-subscribe-frame-provider-resolution
   (suite/assert-use-subscribe-frame-provider-resolution cfg))
+
+(deftest use-subscribe-ambient-under-ssr
+  (suite/assert-use-subscribe-ambient-under-ssr cfg))
 
 (deftest use-subscribe-2-arg-pins-explicit-frame
   (suite/assert-use-subscribe-2-arg-pins-explicit-frame cfg))
