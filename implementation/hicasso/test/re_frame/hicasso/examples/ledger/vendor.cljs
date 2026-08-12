@@ -44,10 +44,23 @@
   | it can be told to **keep a row mounted** | React destroys the focused node the moment it leaves the window | focus is lost mid-interaction, silently, on an ordinary scroll |
 
   All three are real library features rather than inventions for this
-  file. `@tanstack/react-virtual` hands the consumer `virtualItem.key`
-  and takes a `rangeExtractor` that can force an index to stay in the
-  rendered range; `react-window` does neither, which is exactly why the
-  recipe names the property rather than the package.
+  file. `@tanstack/react-virtual` has all three: `virtualItem.key` in
+  the consumer's hands, every element on screen the consumer's own, and
+  a `rangeExtractor` that can force an index to stay in the rendered
+  range. `react-window` has the first two and lacks only the third. The
+  key has been the consumer's across both its generations — `itemKey`
+  through the whole 1.x line, `rowKey` in 2.3.0 — and so have the
+  wrappers, through `outerElementType`/`innerElementType` in 1.x and
+  through a root whose `tagName` and `role` the consumer sets in 2.x.
+  What neither generation offers is any seam that admits an
+  out-of-range index to what renders: each computes one contiguous
+  `[start, stop]` range and loops it, with `overscanCount` the only
+  consumer influence on it, so a record four hundred rows away cannot
+  be kept mounted. That single missing property is why the recipe names
+  the properties rather than the package — and it is why a collection
+  with nothing focusable in its rows can use `react-window` quite
+  happily. `virtualizer-recipe.md` carries the version-pinned audit
+  these sentences are read from; the two must move together.
 
   ## The ABI
 
@@ -68,8 +81,9 @@
 
   The rows position THEMSELVES, at the offset they are given, inside a
   spacer of the model's full height. That is `@tanstack/react-virtual`'s
-  contract rather than `react-window`'s `style` handoff, and it is the
-  one that leaves the key in the consumer's hands."
+  contract rather than `react-window`'s `style` handoff — a difference
+  in who computes the offset, and nothing to do with the key, which
+  both packages leave to the consumer."
   (:require ["react" :as react]))
 
 (defn window-from
