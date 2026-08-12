@@ -406,7 +406,32 @@ if [ -n "$changed_files" ]; then
   fi
 fi
 
-# ---- resolve the three tiers, honouring overrides + conservative fallback ----
+# ---- lint surface, delegated to the runner that owns the lint gate ----
+# A SEPARATE classifier because lint.yml has a separate one: the clj-kondo job
+# is armed by its own `detect` job, not by report-changed-surfaces.sh, and the
+# two populations genuinely differ (`examples/`, `testbeds/`, `tools/*` and
+# `.clj-kondo/` arm the linter and no runtime tier).  `lint_kondo.py --classify`
+# answers from the `--lint` roots it reads out of lint.yml, so a root added
+# there arms this lane with no edit here — the same "read the roster, never
+# restate it" discipline the JVM artefact selection below uses.
+kondo_surface=false
+kondo_classify_failed=false
+if [ -n "$changed_files" ]; then
+  _kondo_arr=()
+  while IFS= read -r _f; do
+    [ -n "$_f" ] && _kondo_arr+=("$_f")
+  done <<< "$changed_files"
+  if kondo_out="$(python "$spine_root/scripts/lint_kondo.py" --classify \
+                    "${_kondo_arr[@]}" 2>/dev/null)"; then
+    case "$kondo_out" in
+      *kondo_surface=true*) kondo_surface=true ;;
+    esac
+  else
+    kondo_classify_failed=true
+  fi
+fi
+
+# ---- resolve the tiers, honouring overrides + conservative fallback ----
 run_jvm=false
 run_node=false
 run_docs=false
@@ -472,6 +497,19 @@ case "$with_docs" in
   force) run_docs=true ;;
   skip)  run_docs=false ;;
 esac
+
+# The clj-kondo lane decides on its OWN surface, not on the tiers above — it
+# reads trees no runtime tier owns.  `--all` runs it; an unresolvable base or a
+# classifier that itself failed runs it, because an indeterminate change set is
+# not evidence of absence.
+run_kondo=false
+if [ "$run_all" = true ]; then
+  run_kondo=true
+elif [ "$base_resolved" != true ] || [ "$kondo_classify_failed" = true ]; then
+  run_kondo=true
+else
+  run_kondo="$kondo_surface"
+fi
 
 # ---------------------------------------------------------------------------
 # WHICH JVM ARTEFACT SUITES — the roster is READ, never listed here (rf2-uwszd).
@@ -546,6 +584,7 @@ if [ "$plan_only" = true ]; then
   printf '  mkdocs --strict:     %s\n' "$mkdocs_plan"
   printf '  JVM tier:            %s\n' "$([ "$run_jvm" = true ] && echo run || echo skip)"
   printf '  node/CLJS suite:     %s\n' "$([ "$run_node" = true ] && echo run || echo skip)"
+  printf '  clj-kondo (pinned):  %s\n' "$([ "$run_kondo" = true ] && echo run || echo skip)"
   printf '  reason:              %s\n' "$plan_reason"
   printf '  JVM artefact suites: %s\n' \
     "$([ "$run_jvm" = true ] && echo "${jvm_run_list# }" || echo '(tier skipped)')"
@@ -557,7 +596,12 @@ if [ "$plan_only" = true ]; then
   printf ' here (scripts/test-jvm-implementation.sh).\n'
   printf '                       No browser, bundle, adapter, Xray, MCP or'
   printf ' tool-JVM gate is in any tier.\n'
+  # `PLAN` keeps its three fields (rf2-x1mz): the self-test asserts that line
+  # verbatim in fourteen cases, and a fourth field would rewrite every one of
+  # them to say nothing new.  The kondo lane gets its own machine-readable
+  # line, as `PLAN-JVM` / `PLAN-MKDOCS` / `PLAN-SELFTEST` already do.
   printf 'PLAN docs=%s jvm=%s node=%s\n' "$run_docs" "$run_jvm" "$run_node"
+  printf 'PLAN-KONDO %s\n' "$([ "$run_kondo" = true ] && echo run || echo skip)"
   printf 'PLAN-JVM%s\n' "$([ "$run_jvm" = true ] && printf '%s' "$jvm_run_list")"
   printf 'PLAN-MKDOCS %s\n' "$mkdocs_plan"
   printf 'PLAN-SELFTEST %s\n' "$([ "$spine_self_surface" = true ] && echo run || echo skip)"
@@ -1320,6 +1364,49 @@ if [ "$run_docs" = true ]; then
 else
   printf '\n--- documentation surface unchanged → skipping doc gates (override with --with-docs) ---\n'
   note_skipped "documentation gates (surface unchanged; --with-docs forces)"
+fi
+
+# ---------------------------------------------------------------------------
+# clj-kondo, AT THE VERSION CI PINS, OVER THE PATHS CI LINTS (rf2-x1mz).
+#
+# Before this lane the repo had no local gate that could catch a source error
+# lint.yml fails on, for two independent reasons.  The only local lane that ran
+# clj-kondo at all was the Hicasso fixture witness below, and it (a) took
+# whatever binary was on PATH — 2025.10.23 here, which reports `errors: 0` on
+# the exact line CI fails at 2026.04.15 — and (b) lints two fixture files and
+# `hicasso/testbed`, never `hicasso/src/`.  An `(aset f "displayName" …)` pair
+# went out green locally and red in CI, and no amount of care locally could
+# have found it.
+#
+# It runs BEFORE the JVM and node tiers because it is the cheapest of the three
+# and the one whose red is most often a one-line fix: ~70s warm over the whole
+# corpus, against minutes for either tier below.
+#
+# `lint_kondo.py` provisions the pinned binary once per machine and runs the
+# workflow's OWN command; nothing about the gate is restated in this file.  If
+# the pin cannot be provisioned it exits 2 WITHOUT LINTING, and that becomes a
+# loud skip rather than a pass — a green from another version is the false
+# assurance this lane exists to remove, not a fallback.
+# ---------------------------------------------------------------------------
+if [ "$run_kondo" = true ]; then
+  kondo_status=0
+  python "$spine_root/scripts/lint_kondo.py" --print-binary >/dev/null 2>&1 \
+    || kondo_status=$?
+  if [ "$kondo_status" -eq 2 ]; then
+    printf '\n    NOT CHECKED: clj-kondo — the version lint.yml pins could not be\n'
+    printf '      provisioned on this host (no network, or no published build for\n'
+    printf '      this platform).  This is NOT a pass: a differently-versioned\n'
+    printf '      binary disagrees about which findings are errors, so running one\n'
+    printf '      would report a verdict it has not earned.  Left with NO local\n'
+    printf '      gate: every .clj/.cljs/.cljc file under the roots lint.yml lists.\n'
+    note_skipped "clj-kondo (pinned) — the pinned binary could not be provisioned, so no local lane linted implementation/, examples/, testbeds/ or tools/ this run"
+  else
+    run "clj-kondo (pinned, CI's own command)" "python scripts/lint_kondo.py" \
+      bash -lc "cd '$spine_root' && python scripts/lint_kondo.py"
+  fi
+else
+  printf '\n--- no clj-kondo lint surface in the diff → skipping the lint lane ---\n'
+  note_skipped "clj-kondo (pinned) — no file under a --lint root, .clj-kondo/ or lint.yml changed"
 fi
 
 # ---------------------------------------------------------------------------

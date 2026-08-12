@@ -243,6 +243,45 @@ SPINE_LANES = (
         "spine node tier: 'hicasso invariants gate' chains this checker "
         "(`npm run test:hicasso-invariants`), both modes",
     ),
+    # rf2-x1mz — the lint gate itself, which had NO local lane at all until
+    # `scripts/lint_kondo.py` landed.  The signature is deliberately anchored
+    # on the flags rather than the `--lint` roots: the roots are read out of
+    # this very step at run time, so pinning them here would put a second copy
+    # of the target list in the file whose whole job is to notice second copies
+    # going stale.
+    Lane(
+        "clj-kondo",
+        r"^clj-kondo --parallel --fail-level error --lint ",
+        "spine lint tier: 'clj-kondo (pinned, CI's own command)' -- "
+        "`python scripts/lint_kondo.py` provisions the pinned binary and runs "
+        "THIS step's command, read from this file",
+    ),
+    # The fixture witness runs as a step of the same job.  It has had a spine
+    # lane in fact since rf2-hic-022 but not in this map, and the omission was
+    # accidentally telling the truth: the gate resolved clj-kondo off PATH, so
+    # the local run proved nothing CI's did (rf2-x1mz measured 2025.10.23 at
+    # `errors: 0` where the pin exits 3).  It now resolves through
+    # `lint_kondo.py` too, which is what makes this lane an honest claim rather
+    # than the over-report it would have been a commit earlier.
+    Lane(
+        "hicasso-lint-export",
+        r"^npm run test:hicasso-lint$",
+        "spine node tier: 'hicasso lint export gate', at lint.yml's pin",
+        working_dir="implementation",
+    ),
+    # rf2-uomk — the budget ledger's own unconditional job, the same shape and
+    # for the same reason as `hicasso-complaint-catalogue` above: the checker's
+    # other input families (the ledger page, the disposition records) arm no
+    # classifier output, so the npm chain alone left a ledger-only PR running
+    # it nowhere.  The spine covers both homes through the chain, so the job's
+    # two steps are not a local gap.
+    Lane(
+        "hicasso-budget-ledger",
+        r"^python implementation/hicasso/scripts/check_budget_ledger\.py"
+        r"(?: --self-test)?$",
+        "spine node tier: 'hicasso invariants gate' chains this checker "
+        "(`npm run test:hicasso-invariants`), both modes",
+    ),
     Lane(
         "mkdocs-strict",
         r"^mkdocs build --strict$",
