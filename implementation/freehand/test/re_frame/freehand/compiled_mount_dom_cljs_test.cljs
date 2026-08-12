@@ -396,12 +396,25 @@
               (.then (fn [mounted]
                        (doseq [row (:dom struct-007)]
                          (check-row! container row))
-                       (unmount! container mounted)
-                       (done)))
+                       (unmount! container mounted)))
+              ;; Reports and releases; it never finishes (rf2-fyba). `cljs.test`
+              ;; hands `done` a continuation that runs the WHOLE REMAINDER of the
+              ;; run synchronously, so a `.catch` downstream of it claims whatever
+              ;; a later namespace throws as this row's failure, prints it against
+              ;; this row's label, and fires `done` a SECOND time — re-forcing
+              ;; `run-block`'s unrealized delay and re-running that namespace.
+              ;;
+              ;; The teardown is ASYMMETRIC throughout this file and stays put.
+              ;; The success arm's `unmount!` retires the React root AND detaches
+              ;; the container; the failure arm can only `.remove`, because the
+              ;; rejection may be the mount itself and `mounted` is the fulfilled
+              ;; value — not in scope here at all. Neither belongs on a shared
+              ;; trailing step.
               (.catch (fn [e]
                         (is false (str "compiled mount rejected: " e))
                         (.remove container)
-                        (done)))))))))
+                        nil))
+              (.then (fn [_] (done)))))))))
 
 ;; ===========================================================================
 ;; The elision verdict is the wrapper React actually ran
@@ -436,12 +449,14 @@
                                                (:view-id (v/describe inert-probe)))))
                            "and the boundary React reconciles was minted for exactly
                             that lowering and that verdict")
-                       (unmount! container mounted)
-                       (done)))
+                       (unmount! container mounted)))
+              ;; Reports and releases; it never finishes (rf2-fyba). Asymmetric
+              ;; teardown stays put — see the first mounted row above.
               (.catch (fn [e]
                         (is false (str "inert mount rejected: " e))
                         (.remove container)
-                        (done)))))))))
+                        nil))
+              (.then (fn [_] (done)))))))))
 
 (deftest a-reactive-compiled-view-mounts-inside-the-atomic-shell
   (testing "A compiled body carrying a subscription renders INSIDE the
@@ -465,12 +480,14 @@
                        (is (= [:compiled :present]
                               (:signature (get (fr/boundary-cache)
                                                (:view-id (v/describe sub-probe))))))
-                       (unmount! container mounted)
-                       (done)))
+                       (unmount! container mounted)))
+              ;; Reports and releases; it never finishes (rf2-fyba). Asymmetric
+              ;; teardown stays put — see the first mounted row above.
               (.catch (fn [e]
                         (is false (str "reactive mount rejected: " e))
                         (.remove container)
-                        (done)))))))))
+                        nil))
+              (.then (fn [_] (done)))))))))
 
 ;; ===========================================================================
 ;; The subscription arm — observe, and repaint when the value moves
@@ -508,12 +525,14 @@
                        (is (= "42" (text container "#reactive"))
                            "and the compiled arm repainted the MOUNTED occurrence
                             identically, off the same committed dependency")
-                       (unmount! container @mounted)
-                       (done)))
+                       (unmount! container @mounted)))
+              ;; Reports and releases; it never finishes (rf2-fyba). Asymmetric
+              ;; teardown stays put — see the first mounted row above.
               (.catch (fn [e]
                         (is false (str "subscription arm rejected: " e))
                         (.remove container)
-                        (done)))))))))
+                        nil))
+              (.then (fn [_] (done)))))))))
 
 ;; ===========================================================================
 ;; The event arm — a committed site, fired from a real DOM event
@@ -549,12 +568,14 @@
               (.then (fn [_]
                        (is (= 2 (:presses (db)))
                            "and the site's proxy survived the repaint between clicks")
-                       (unmount! container @mounted)
-                       (done)))
+                       (unmount! container @mounted)))
+              ;; Reports and releases; it never finishes (rf2-fyba). Asymmetric
+              ;; teardown stays put — see the first mounted row above.
               (.catch (fn [e]
                         (is false (str "event arm rejected: " e))
                         (.remove container)
-                        (done)))))))))
+                        nil))
+              (.then (fn [_] (done)))))))))
 
 (deftest a-compiled-v-event-site-dispatches-the-vector-its-body-answered
   (testing "The arm above fires a LITERAL intent. This one fires a
@@ -591,12 +612,14 @@
               (.then (fn [_]
                        (is (= [[:compiled/converted 7] [:compiled/converted 8]] (:converted (db)))
                            "and the site's proxy converted the second click too")
-                       (unmount! container @mounted)
-                       (done)))
+                       (unmount! container @mounted)))
+              ;; Reports and releases; it never finishes (rf2-fyba). Asymmetric
+              ;; teardown stays put — see the first mounted row above.
               (.catch (fn [e]
                         (is false (str "v/event arm rejected: " e))
                         (.remove container)
-                        (done)))))))))
+                        nil))
+              (.then (fn [_] (done)))))))))
 
 ;; ===========================================================================
 ;; Props forwarding — the forwarded map really reaches the mounted element
@@ -641,13 +664,15 @@
                        (is (= 2 (:presses (db)))
                            "and the interpreted twin's forwarded handler dispatched too")
                        (doseq [[c m] (map vector [c-compiled c-interpreted] @mounts)]
-                         (unmount! c m))
-                       (done)))
+                         (unmount! c m))))
+              ;; Reports and releases; it never finishes (rf2-fyba). Asymmetric
+              ;; teardown stays put — see the first mounted row above.
               (.catch (fn [e]
                         (is false (str "spread arm rejected: " e))
                         (.remove c-compiled)
                         (.remove c-interpreted)
-                        (done)))))))))
+                        nil))
+              (.then (fn [_] (done)))))))))
 
 (deftest a-compiled-v-spread-safe-folds-the-guarded-caller-under-the-owned-props
   (testing "The guarded caller map reaches the element; the OWNED props win
@@ -680,13 +705,15 @@
                        (is (= "owned" (.-value (.querySelector c-compiled "input")))
                            "the owned controlled value is what React is holding")
                        (doseq [[c m] (map vector [c-compiled c-interpreted] @mounts)]
-                         (unmount! c m))
-                       (done)))
+                         (unmount! c m))))
+              ;; Reports and releases; it never finishes (rf2-fyba). Asymmetric
+              ;; teardown stays put — see the first mounted row above.
               (.catch (fn [e]
                         (is false (str "spread-safe arm rejected: " e))
                         (.remove c-compiled)
                         (.remove c-interpreted)
-                        (done)))))))))
+                        nil))
+              (.then (fn [_] (done)))))))))
 
 (deftest a-permitted-caller-handler-through-v-spread-safe-becomes-a-committed-site
   (testing "The deny law below proves `v/spread-safe` REFUSES a caller
@@ -726,13 +753,15 @@
                             dispatched too, so the guard blocks the forged carrier
                             without blocking the good one in either mode")
                        (doseq [[c m] (map vector [c-compiled c-interpreted] @mounts)]
-                         (unmount! c m))
-                       (done)))
+                         (unmount! c m))))
+              ;; Reports and releases; it never finishes (rf2-fyba). Asymmetric
+              ;; teardown stays put — see the first mounted row above.
               (.catch (fn [e]
                         (is false (str "permitted caller-handler arm rejected: " e))
                         (.remove c-compiled)
                         (.remove c-interpreted)
-                        (done)))))))))
+                        nil))
+              (.then (fn [_] (done)))))))))
 
 (deftest a-compiled-v-event-prop-arrives-at-the-boundary-and-dispatches
   (testing "The same defect one boundary further out. A `(v/event …)` at a
@@ -760,12 +789,14 @@
                        (is (= [[:compiled/converted 5]] (:converted (db)))
                            "the callback crossed the boundary intact and dispatched
                             the vector its body answered")
-                       (unmount! container @mounted)
-                       (done)))
+                       (unmount! container @mounted)))
+              ;; Reports and releases; it never finishes (rf2-fyba). Asymmetric
+              ;; teardown stays put — see the first mounted row above.
               (.catch (fn [e]
                         (is false (str "crossing callback arm rejected: " e))
                         (.remove container)
-                        (done)))))))))
+                        nil))
+              (.then (fn [_] (done)))))))))
 
 (deftest the-spread-safe-deny-law-still-fires-through-the-compiled-fold
   (testing "The bound is the whole point of the form, so it is not
@@ -811,12 +842,14 @@
                            "the committed handler carried the native value into app-db")
                        (is (= "abc" (.-value (.querySelector container "#field")))
                            "and the field shows what app-db now holds")
-                       (unmount! container @mounted)
-                       (done)))
+                       (unmount! container @mounted)))
+              ;; Reports and releases; it never finishes (rf2-fyba). Asymmetric
+              ;; teardown stays put — see the first mounted row above.
               (.catch (fn [e]
                         (is false (str "controlled-input arm rejected: " e))
                         (.remove container)
-                        (done)))))))))
+                        nil))
+              (.then (fn [_] (done)))))))))
 
 ;; ===========================================================================
 ;; Crossings — a compiled parent mounting an interpreted child
@@ -844,12 +877,14 @@
                               (mapv #(select-keys % [:view-id :lowering])
                                     (:crossings (v/manifest crossing-probe))))
                            "and the manifest named that crossing, and its mode")
-                       (unmount! container mounted)
-                       (done)))
+                       (unmount! container mounted)))
+              ;; Reports and releases; it never finishes (rf2-fyba). Asymmetric
+              ;; teardown stays put — see the first mounted row above.
               (.catch (fn [e]
                         (is false (str "crossing mount rejected: " e))
                         (.remove container)
-                        (done)))))))))
+                        nil))
+              (.then (fn [_] (done)))))))))
 
 ;; ===========================================================================
 ;; Non-vacuity
