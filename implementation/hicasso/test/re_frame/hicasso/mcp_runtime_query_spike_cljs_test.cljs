@@ -153,16 +153,30 @@
 (defn- intent-event-ids [envelope]
   (into #{} (map :event-id) (:intents envelope)))
 
+(defn- holds?
+  "Does this row's boundary key hold a read of `sub-id`?
+
+  **This is the only way in.** A boundary is keyed by its edge set and
+  carries no name — `:view` and `:source` are the explicit unknown,
+  permanently — so a caller that can name a subscription reaches the
+  boundary through the key rather than by asking for it. Each element of
+  the key is the exported read identity `[frame-id sub-id projected-query]`."
+  [row sub-id]
+  (boolean (some (fn [read-identity] (= sub-id (nth read-identity 1)))
+                 (:key (:boundary row)))))
+
 (defn- explanation-for
-  "The explanation whose boundary key holds `sub-id` — the way in that
-  `read-read-attribution` is for, used here to reach a boundary that has
-  no name to ask for."
+  "The one explanation whose boundary holds a read of `sub-id`."
   [envelope sub-id]
-  (first (filter (fn [ex] (some #(= sub-id (:sub-id %)) (:reads ex)))
-                 (:explanations envelope))))
+  (first (filter #(holds? % sub-id) (:explanations envelope))))
 
 (defn- latest-sub-ids [explanation]
   (into #{} (map :sub-id) (:latest-reads explanation)))
+
+(defn- peak-of
+  "The `:peak-epoch` of the boundary holding `sub-id`, right now."
+  [sub-id]
+  (:peak-epoch (explanation-for (tool/explain-render) sub-id)))
 
 (defn- candidate-event-ids [explanation]
   (let [c (:candidates explanation)]
@@ -261,8 +275,14 @@
       (testing "a run carries what it recomputed — the slice's own subscription ids"
         (let [row (first (filter #(= ::events/set-theme (:event-id %)) (:intents e)))]
           (is (some? row))
-          (is (contains? (:sub-ids row) ::subs/token)
-              "the theme token is a layer-2 read over the theme, so it recomputes")))
+          ;; `:sub-ids` egresses as an ORDERED VECTOR, not the set
+          ;; `intent-row` builds — `ordered` imposes one total order so two
+          ;; calls in a quiescent turn `pr-str` identically. A consumer that
+          ;; reaches for `contains?` is asking about INDICES and gets a
+          ;; quiet false; this suite made that mistake first.
+          (is (= [::subs/feed ::subs/locale ::subs/tags-open? ::subs/theme ::subs/token]
+                 (:sub-ids row))
+              "the run recomputed the whole feed route's read set, ordered")))
       (testing "no row carries an event VECTOR, on this application as on any other"
         (is (not-any? #(contains? % :event) (:intents e)))))
     (release)))
@@ -300,7 +320,8 @@
       (art-release))))
 
 (deftest explain-render-tells-a-theme-switch-from-a-locale-switch
-  (testing "the same boundary, two real intents of this application, two answers"
+  (testing "ONE boundary — the chrome — two real intents of this application,
+            and the two answers must not be the same answer"
     (boot!)
     (let [release (mount-feed!)]
       (go! [::events/set-theme {:theme :dark}])
@@ -317,30 +338,60 @@
       (go! [::events/set-locale :fr])
       (let [ex (explanation-for (tool/explain-render) ::subs/theme)]
         (is (some? ex))
-        (is (not (contains? (latest-sub-ids ex) ::subs/theme))
-            "a locale switch did NOT move the theme read — the answer moved with the cause")
-        (is (contains? (latest-sub-ids ex) ::subs/t)
-            "what moved is the string table, which is what the locale is")
+        (is (= #{::subs/locale ::subs/t} (latest-sub-ids ex))
+            "the locale moved the locale read and the string table over it — and
+             NOT the theme read, which is the same boundary answering differently")
         (is (contains? (candidate-event-ids ex) ::events/set-locale)))
       (release))))
 
-(deftest the-root-boundary-is-what-a-theme-switch-moves
-  (testing "the finding this surface is FOR: the slice's root reads two theme tokens,
-            so switching theme moves the root and switching locale does not"
+(deftest a-theme-switch-moves-the-slices-root-boundary-and-a-locale-switch-does-not
+  (testing "the finding this surface is FOR, and it is a number that MOVES.
+
+            The slice's shell reads two theme tokens for its own background and
+            ink, so a theme switch moves the ROOT — and everything below a
+            moved root is downstream of it. A locale switch moves the chrome
+            and the strings and leaves the root standing. Nothing in the source
+            says so; the two `:peak-epoch`s do."
+    (boot!)
+    (let [release  (mount-feed!)
+          root-0   (peak-of ::subs/token)
+          chrome-0 (peak-of ::subs/theme)]
+      (is (number? root-0) "the shell holds the token reads")
+      (is (number? chrome-0))
+
+      (go! [::events/set-locale :fr])
+      (let [root-1   (peak-of ::subs/token)
+            chrome-1 (peak-of ::subs/theme)]
+        (is (= root-0 root-1)
+            "the locale left the root standing — its reads did not move")
+        (is (> chrome-1 chrome-0)
+            "while the chrome, which reads the string table, did move")
+
+        (go! [::events/set-theme {:theme :dark}])
+        (let [root-2 (peak-of ::subs/token)]
+          (is (> root-2 root-1)
+              "and the theme moves the root, which the locale did not")))
+      (release))))
+
+(deftest explain-render-reports-a-boundarys-OWN-peak-not-the-last-dispatch
+  (testing "the qualifier a consumer of this read has to know.
+
+            `:latest-reads` names the reads standing at the boundary's own
+            maximum epoch. For a boundary the last event did not touch, that
+            maximum is HISTORIC: the row still names reads, and they are not
+            the reads the last dispatch moved. The number that separates the
+            two cases is `:peak-epoch`, which is why the row above compares it
+            rather than reading `:latest-reads` as *what just happened*."
     (boot!)
     (let [release (mount-feed!)]
       (go! [::events/set-theme {:theme :dark}])
-      (let [ex (explanation-for (tool/explain-render) ::subs/token)]
-        (is (some? ex) "the shell holds the token reads")
-        (is (contains? (latest-sub-ids ex) ::subs/token)
-            "the root's own reads moved — every boundary beneath it is downstream of that"))
-      (release))
-
-    (boot!)
-    (let [release (mount-feed!)]
-      (go! [::events/set-locale :fr])
-      (let [ex (explanation-for (tool/explain-render) ::subs/token)]
-        (is (some? ex))
-        (is (not (contains? (latest-sub-ids ex) ::subs/token))
-            "the locale left the root's reads standing — the two switches are not alike"))
+      (let [root-after-theme (peak-of ::subs/token)]
+        (go! [::events/set-locale :fr])
+        (let [e  (tool/explain-render)
+              ex (explanation-for e ::subs/token)]
+          (is (= root-after-theme (:peak-epoch ex))
+              "the locale did not move the root, so its peak is the theme's still")
+          (is (seq (:latest-reads ex))
+              "and the row nonetheless names reads — a reader taking these for
+               the last dispatch's would be reading a stale maximum as news")))
       (release))))
