@@ -95,6 +95,67 @@
           (is (integer? (:line sc)))
           (is (string?  (:file sc))))))))
 
+(deftest captured-refusal-escapes-no-caller-and-reaches-no-host-channel
+  ;; rf2-fu75 — the witness for Spec 009 §What IS available in production
+  ;; channel #5. That channel used to say that "a re-frame2 event handler that
+  ;; throws in production still surfaces" at `window.onerror`. It does not, and
+  ;; the code says so in terms: `re-frame.interceptor/invoke-before` and
+  ;; `invoke-after` CAPTURE the throw into `:rf/interceptor-error` rather than
+  ;; re-throwing it, and `re-frame.router/emit-pipeline-exception!`'s docstring
+  ;; states the reason — "the drain must not abort". Nothing propagates out of
+  ;; `dispatch-sync`, so the host's uncaught machinery never sees the failure
+  ;; and this `:errors` stream is the ONLY channel it reaches.
+  ;;
+  ;; The stale claim cost a finder four browser runs (rf2-06lp): they hunted a
+  ;; `:rf.mutation/execute` guard that was never missing, because the refusal it
+  ;; DID raise reached no channel they were watching. This suite is where the
+  ;; corrected sentence becomes checkable — the complaint-catalogue conformance
+  ;; gates bind register↔spec by ERROR ID, so a prose correction reds nothing
+  ;; on its own.
+  ;;
+  ;; TWO-SIDED ON PURPOSE, and neither half alone is the contract. Assert only
+  ;; "nothing escaped" and a runtime that swallowed the failure entirely passes.
+  ;; Assert only "a record arrived" and a runtime that ALSO re-threw passes —
+  ;; which is precisely the shape the old spec sentence described. Both must
+  ;; hold at once, per case.
+  ;;
+  ;; THREE refusal classes, because the capture is not handler-specific: a
+  ;; throwing handler, the rf2-04tx effect-map-envelope refusal, and a
+  ;; completely unregistered event id. Deliberately NOT asserting that nothing
+  ;; is PRINTED: whether a dev build should ship a default console sink is the
+  ;; open half of rf2-fu75, and a test pinning the absence of one would
+  ;; pre-decide a question left to the operator.
+  (let [seen     (atom [])
+        settled! (fn [event]
+                   ;; ::returned iff the dispatch returned normally; the
+                   ;; throwable itself otherwise, so a failure names it.
+                   (try (rf/dispatch-sync event) ::returned
+                        (catch #?(:clj Throwable :cljs :default) e e)))]
+    (rf/register-listener! :errors :test/recorder
+      (fn [record] (swap! seen conj record)))
+
+    (testing "a throwing event handler — captured, not re-thrown"
+      (rf/reg-event :fu75/throws (fn [_ _] (throw (ex-info "kaboom" {}))))
+      (is (= ::returned (settled! [:fu75/throws]))
+          "the chain exception did NOT propagate out of dispatch-sync")
+      (is (= [:rf.error/handler-exception] (mapv :error @seen))
+          "and the :errors stream carried it — the failure was not swallowed"))
+
+    (testing "the rf2-04tx effect-map envelope refusal — same silence"
+      (reset! seen [])
+      (rf/reg-event :fu75/foreign-fx (fn [_ _] {:db {} :fu75/not-an-fx-key 1}))
+      (is (= ::returned (settled! [:fu75/foreign-fx]))
+          "the refusal did NOT propagate out of dispatch-sync")
+      (is (= [:rf.error/effect-map-shape] (mapv :error @seen))
+          "and the :errors stream carried it"))
+
+    (testing "an unregistered event id — the typo case, equally silent"
+      (reset! seen [])
+      (is (= ::returned (settled! [:fu75/no-such-handler-at-all]))
+          "dispatching an unknown id did NOT propagate out of dispatch-sync")
+      (is (= [:rf.error/no-such-handler] (mapv :error @seen))
+          "and the :errors stream carried it"))))
+
 (deftest error-listener-exception-is-swallowed
   (testing "Per the substrate contract: a buggy listener cannot break
             the cascade OR prevent sibling listeners from running.
