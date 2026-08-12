@@ -186,6 +186,60 @@
       delay)))
 
 ;; ---------------------------------------------------------------------------
+;; The digest — a second async source, and the retry an error region offers
+;; (rf2-hic-074)
+;;
+;; There is no stale-reply check on this pair, and its absence is deliberate
+;; rather than an oversight the save path caught and this one missed. A save
+;; is per-ARTICLE, so two of them can be in flight for different subjects and
+;; the late one must be told apart from the current one; the digest is one
+;; region with one content source, so every reply carries the same answer and
+;; there is nothing for a later one to clobber. A slug check written here
+;; would be ceremony copied from a neighbour rather than a rule this handler
+;; needs.
+;; ---------------------------------------------------------------------------
+
+(def digest-delay-ms
+  "How long the stand-in content server takes. Its own number rather than
+  a shared one: the witness that drives it waits on the REPLY, and a
+  constant two regions share is a constant one of them will eventually be
+  tuned for at the other's expense."
+  30)
+
+(rf/reg-event ::reload-digest
+  {:doc "Ask the content server for the digest again — the intent behind
+  the retry control in the digest region's error fallback."}
+  (fn [{:keys [db]} _]
+    ;; The BLOCKS are left exactly as they are. A reload that emptied them
+    ;; first would clear the region's error boundary by moving its reset
+    ;; key to `[]`, so the failed region would blink through an empty
+    ;; success on its way back — and if the reply never came, the user
+    ;; would be left looking at nothing at all instead of at the failure
+    ;; and the button that retries it.
+    {:db (assoc-in db [:digest :status] :loading)
+     :fx [[::fetch-digest {:delay digest-delay-ms :on-ok ::digest-arrived}]]}))
+
+(rf/reg-event ::digest-arrived
+  {:doc "The content server answered. Take the payload as it came."}
+  (fn [{:keys [db]} [_ {:keys [blocks]}]]
+    ;; Taken WITHOUT inspection, and that is the honest shape: a client
+    ;; that validated every block before rendering it would need a second
+    ;; schema for every content type it will ever be sent, and the region's
+    ;; error boundary exists precisely so it does not. A payload that
+    ;; breaks a renderer's contract is caught where it breaks — see
+    ;; `views/list-block` and the region around it.
+    {:db (assoc db :digest {:status :ready :blocks blocks})}))
+
+(rf/reg-fx ::fetch-digest
+  {:doc       "The stand-in content server: waits, then sends the digest whole."
+   :platforms #{:client}}
+  (fn [ctx {:keys [delay on-ok]}]
+    (js/setTimeout
+      (fn []
+        (rf/dispatch [on-ok {:blocks db/digest}] {:frame (:frame ctx)}))
+      delay)))
+
+;; ---------------------------------------------------------------------------
 ;; Presentation state — a locale and a theme are ordinary values
 ;; ---------------------------------------------------------------------------
 

@@ -52,16 +52,37 @@ sh scripts/remove-worker-worktree.sh <worktree-path>   # POSIX (primary)
 
 ## A Backgrounded Gate Runs by Absolute Path — or in Someone Else's Worktree
 
-Every gate script under `scripts/` derives its repo root from
-`${BASH_SOURCE[0]}`, which is relative when the invocation is — and a
+The shell gates — every `scripts/test-*.sh` — derive their repo root from
+`${BASH_SOURCE[0]}`, which is relative when the invocation is, and a
 `cd <worktree> && sh scripts/…` does not reliably keep that `cd` once
 backgrounded, so the run adopts whatever cwd the shell really has. One did
 exactly that inside *another live worker's* checkout: it took that tree as its
 spine root, its diff root and its classifier input, then reported the resulting
 verdict as its own. A complete, internally consistent run about somebody else's
-work is far harder to catch than a broken one, so every gate prints
-`gate root: <path>` as its first line — check that line against your worktree
-before believing any colour.
+work is far harder to catch than a broken one, so those same gates print
+`gate root: <path>` as their first line, and some node runners emit it too —
+check that line against your worktree before believing any colour. That check,
+not any naming rule, is what has actually caught this class: both 2026-08-12
+scratchpad collisions (next section) were caught by a worker reading
+`gate root:` and finding a sibling's worktree name there.
+
+**Every other gate prints no banner at all** — not one of the
+`scripts/check_*.py` gates, nor their `check-*.sh` siblings, and several print
+nothing whatever on success. Nor do they pin themselves to the script's own
+location the way `${BASH_SOURCE[0]}` does: the Python gates resolve their
+rosters against the **cwd**, so invoking one by absolute path buys no
+protection the `cd` did not already give. There the proof is the same shape
+drawn from a different source — **plant a fault at a line you are already
+editing and run the gate red.** Do not expect the failure to name your
+worktree; `check_doc_slugs.py` reports repo-relative paths, which cannot tell
+two checkouts apart. The discrimination is the red itself: the fault exists
+only in your tree, so a run that had wandered into a sibling's comes back
+**green**, and a green sabotage run is a reason to stop rather than a pass.
+This half is written down because the section used to claim that every gate
+under `scripts/` did both, which is an instruction a worker on a Python gate
+cannot satisfy — two hit it in one day, and one improvised its way to the
+negative control unprompted. So the check is mandatory on every gate run, by
+whichever of the two routes that gate affords.
 
 ## Gate Artefacts Go Where Git Ignores Them
 
@@ -82,9 +103,10 @@ the worktree), so a peer silently overwrites a bare `gate-fastpr.exit`, and the
 loser then reads an exit code belonging to another worker's run: a `0` somebody
 else earned, quoted as its own green. Two of six workers in a single wave
 collided exactly that way. Confirm a scratch file is your own before believing
-it, and check the gate's printed `gate root:` line against your worktree (the
-section above) — that check, not this naming rule, is what caught both
-observed collisions.
+it, and check that the run read *your* worktree — its `gate root:` line where
+the gate prints one, the negative control's red where it does not (the section
+above). That check, not this naming rule, is what caught both observed
+collisions.
 
 A single untracked leftover makes `git worktree remove` refuse the tree from
 then on, and nine worktrees accumulated exactly that way before anyone worked
