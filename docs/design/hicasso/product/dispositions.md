@@ -138,8 +138,9 @@ with a unique inventory id. The two policies are the canonical ones:
 Each row carries both a **target policy** and an **operative disposition**. The target policy is the surface class's
 default in the [canonical matrix](lanes/react-compatibility-notes.md#public-surface-ssrhydration-matrix) — what the
 surface is expected to become once its behavior is proved. The operative disposition is what the surface is entitled to
-do *today*, and today it is Client-only for every row without exception, because no server witness exists for any
-Hicasso surface yet. The operative column is therefore the upgrade slot, owned by the per-surface SSR/hydration witness
+do *today*. It was Client-only for every row without exception until `rf2-hic-046` began landing witnesses; the native
+tier (HS-24 to HS-30) is the first block to move, and every other row is still Client-only because no server witness
+exists for it yet. The operative column is therefore the upgrade slot, owned by the per-surface SSR/hydration witness
 bead `rf2-hic-046`: see [2.4](#24-the-default-rule-and-how-a-row-is-upgraded).
 
 ### 2.1 Surface inventory and dispositions
@@ -156,7 +157,7 @@ bead `rf2-hic-046`: see [2.4](#24-the-default-rule-and-how-a-row-is-upgraded).
 | HS-08 | Controlled DOM fields as a class (per-control rows in [2.3](#23-per-control-and-dom-conformance-dispositions)) | 4.2 | Controlled DOM fields | Render | Client-only — refusal until rf2-hic-046 |
 | HS-09 | `h/error-boundary` | 4 | `h/error-boundary` | Render | Client-only — refusal until rf2-hic-046 |
 | HS-10 | `h/mount!` | 4 | Root/frame provider | Client-only (client root creation; recovery is the server render entry plus `h/hydrate!`) | Client-only — refusal until rf2-hic-046 |
-| HS-11 | `h/hydrate!` | 4 | Root/frame provider | Client-only (the adoption half of every Render row) | Client-only — refusal until rf2-hic-046 |
+| HS-11 | `h/hydrate!` | 4 | Root/frame provider | Client-only (the adoption half of every Render row) | Client-only — refusal until rf2-hic-046. **Measured obstruction (rf2-hic-046):** the door passes `onRecoverableError` and nothing else, so `identifierPrefix` is unspellable and [2.4](#24-the-default-rule-and-how-a-row-is-upgraded)'s two-root clause is unreachable from EVERY per-surface witness. The rows upgraded above are upgraded on the other four proofs and say so |
 | HS-12 | `h/render!` | 4 | Root/frame provider | Client-only | Client-only — refusal until rf2-hic-046 |
 | HS-13 | `h/unmount!` | 4 | Root/frame provider | Client-only | Client-only — refusal until rf2-hic-046 |
 | HS-14 | Root and frame-provider element, including `identifierPrefix` | 4 | Root/frame provider | Render | Client-only — refusal until rf2-hic-046 |
@@ -169,13 +170,13 @@ bead `rf2-hic-046`: see [2.4](#24-the-default-rule-and-how-a-row-is-upgraded).
 | HS-21 | Outward bridge: a Hicasso view under a native React parent | 4.3 | Root/frame provider and outward bridge | Render | Client-only — refusal until rf2-hic-046 |
 | HS-22 | `React.lazy` boundary-ABI bridge and Hiccup-aware Suspense host | 7 | Lazy/Suspense/error boundary | Client-only until every server branch and the selected React server API are declared | Client-only — refusal until rf2-hic-046 |
 | HS-23 | Activity-hosted subtree | 8 | Declared host | Client-only | Client-only — refusal until rf2-hic-046 |
-| HS-24 | `n/$` intrinsic form | [native surface](lanes/ergonomics-api.md#optional-native-surface) | Intrinsic `n/$` | Render | Client-only — refusal until rf2-hic-046 |
-| HS-25 | `n/$` component-headed form | [native surface](lanes/ergonomics-api.md#optional-native-surface) | `n/defcomponent` and component-headed `n/$` | Client-only until the component declaration selects Render | Client-only — refusal until rf2-hic-046 |
-| HS-26 | `n/props` marker | [n/$ grammar](lanes/ergonomics-api.md#provisional-n-grammar) | Intrinsic `n/$` | Render | Client-only — refusal until rf2-hic-046 |
-| HS-27 | `n/defcomponent` | [native surface](lanes/ergonomics-api.md#optional-native-surface) | `n/defcomponent` | Client-only unless the declaration selects `:render` | Client-only — refusal until rf2-hic-046 |
-| HS-28 | `n/use-sub` | [native surface](lanes/ergonomics-api.md#optional-native-surface) | `n/defcomponent` | Client-only until its component selects Render | Client-only — refusal until rf2-hic-046 |
-| HS-29 | `n/use-frame` | [native surface](lanes/ergonomics-api.md#optional-native-surface) | `n/defcomponent` | Client-only until its component selects Render | Client-only — refusal until rf2-hic-046 |
-| HS-30 | Native ABI helpers: memo, lazy, ref, and both embedding directions | [native surface](lanes/ergonomics-api.md#optional-native-surface) | Memo/lazy/ref helpers | Client-only until the component declaration selects Render | Client-only — refusal until rf2-hic-046 |
+| HS-24 | `n/$` intrinsic form | [native surface](lanes/ergonomics-api.md#optional-native-surface) | Intrinsic `n/$` | Render | **Render** — `native-ssr-dom-cljs-test` (HS-11 owes `identifierPrefix`) |
+| HS-25 | `n/$` component-headed form | [native surface](lanes/ergonomics-api.md#optional-native-surface) | `n/defcomponent` and component-headed `n/$` | Client-only until the component declaration selects Render | **Render on declaration, Client-only by default** — both arms in `native-ssr-dom-cljs-test` (HS-11 owes `identifierPrefix`) |
+| HS-26 | `n/props` marker | [n/$ grammar](lanes/ergonomics-api.md#provisional-n-grammar) | Intrinsic `n/$` | Render | **Render** — `native-ssr-dom-cljs-test` (HS-11 owes `identifierPrefix`) |
+| HS-27 | `n/defcomponent` | [native surface](lanes/ergonomics-api.md#optional-native-surface) | `n/defcomponent` | Client-only unless the declaration selects `:render` | **Render on declaration, Client-only by default** — both arms in `native-ssr-dom-cljs-test`; the default's refusal is the gate rendering nothing, and its body is witnessed never to run (HS-11 owes `identifierPrefix`) |
+| HS-28 | `n/use-sub` | [native surface](lanes/ergonomics-api.md#optional-native-surface) | `n/defcomponent` | Client-only until its component selects Render | **Render on declaration** — `native-ssr-dom-cljs-test`, including no duplicate acquisition: a server render registers no reader and a hydration registers exactly one (HS-11 owes `identifierPrefix`) |
+| HS-29 | `n/use-frame` | [native surface](lanes/ergonomics-api.md#optional-native-surface) | `n/defcomponent` | Client-only until its component selects Render | **Render on declaration** — `native-ssr-dom-cljs-test`; the frame resolves through React's own `useContext`, which the server renderer answers (HS-11 owes `identifierPrefix`) |
+| HS-30 | Native ABI helpers: memo, lazy, ref, and both embedding directions | [native surface](lanes/ergonomics-api.md#optional-native-surface) | Memo/lazy/ref helpers | Client-only until the component declaration selects Render | **Render on declaration for `n/memo`, Client-only for `n/lazy`** — `native-ssr-dom-cljs-test` carries both memo arms and lazy's; `ref` has no server behaviour to disposition, and the OUTWARD bridge is HS-21's row, still Client-only |
 | HS-31 | Optional forms module | 4.2 | Optional module | Client-only until its module contract selects Render | Client-only — refusal until rf2-hic-046 |
 | HS-32 | Optional overlay module (popover and modal) | 7 | Optional module | Client-only until its module contract selects Render | Client-only — refusal until rf2-hic-046 |
 | HS-33 | Optional motion and presence module | 7 | Optional module | Client-only until its module contract selects Render | Client-only — refusal until rf2-hic-046 |
