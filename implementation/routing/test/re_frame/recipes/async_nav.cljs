@@ -77,7 +77,18 @@
             ;; passive `:rf/mutation` / `:rf/resource` subscriptions, and
             ;; the resource cache this application's recipe 2 reads.
             [re-frame.resources]
-            [re-frame.routing :as routing]))
+            [re-frame.routing :as routing])
+  ;; The `reg-view` MACRO rather than `reg-view*`, and the reason is the
+  ;; whole of recipe 3's confirm UI. An `:on-*` handler runs LATER — on the
+  ;; user's click, on a fresh JS stack, after the render that built it has
+  ;; committed — by which time the frame scope has unwound and the
+  ;; `frame-provider`'s React context has been popped. A fully-qualified
+  ;; `rf/dispatch` from a click resolves NO frame and raises
+  ;; `:rf.error/no-frame-context`; nothing lands. The macro injects a
+  ;; `dispatch` / `subscribe` pair captured at RENDER time, which is what
+  ;; survives that boundary — and it is the spelling
+  ;; `docs/routing/how-to/guard-unsaved-changes.md` already teaches.
+  (:require-macros [re-frame.core :refer [reg-view]]))
 
 ;; ---------------------------------------------------------------------------
 ;; The routes
@@ -419,44 +430,46 @@
 (def stay-selector "[data-leave-stay]")
 (def leave-selector "[data-leave-anyway]")
 
-(rf/reg-view* ::leave-prompt
-  {:doc "The confirm UI, as ordinary state-driven view code. No
-         `window.confirm`, no `beforeunload`: a blocked attempt is a
-         value in `:rf/pending-navigation`, so this renders nothing at
-         all until there is something pending, and both buttons dispatch
-         the pending's own `:id` — the runtime keys the slot by it and a
-         stale id is a safe no-op."}
-  (fn leave-prompt []
-    (when-let [pending @(rf/subscribe [:rf/pending-navigation])]
-      [:div {:data-leave-prompt true}
-       [:p "You have unsaved changes. Leave anyway?"]
-       [:button {:data-leave-stay true
-                 :on-click #(rf/dispatch [:rf.route/cancel (:id pending)])}
-        "Stay"]
-       [:button {:data-leave-anyway true
-                 :on-click #(rf/dispatch [:rf.route/continue (:id pending)])}
-        "Discard and leave"]])))
+;; The confirm UI, as ordinary state-driven view code. No `window.confirm`
+;; and no `beforeunload`: a blocked attempt is a VALUE in
+;; `:rf/pending-navigation`, so this renders nothing at all until there is
+;; something pending. Both buttons dispatch the pending's own `:id` — the
+;; runtime keys the slot by it, and a stale id is a safe no-op, which is
+;; what makes a double-click harmless.
+;;
+;; `dispatch` and `subscribe` here are the macro's render-time injections;
+;; see the `:require-macros` note above for why a qualified `rf/dispatch`
+;; would raise from these handlers rather than navigate.
+(reg-view leave-prompt []
+  (when-let [pending @(subscribe [:rf/pending-navigation])]
+    [:div {:data-leave-prompt true}
+     [:p "You have unsaved changes. Leave anyway?"]
+     [:button {:data-leave-stay true
+               :on-click #(dispatch [:rf.route/cancel (:id pending)])}
+      "Stay"]
+     [:button {:data-leave-anyway true
+               :on-click #(dispatch [:rf.route/continue (:id pending)])}
+      "Discard and leave"]]))
 
-(rf/reg-view* ::app
-  (fn app []
-    (let [route @(rf/subscribe [:rf.route/id])]
-      [:main
-       (condp = route
-         list-route
-         [:h1 {:data-route-heading true :tab-index -1} "Articles"]
+(reg-view app []
+  (let [route @(subscribe [:rf.route/id])]
+    [:main
+     (condp = route
+       list-route
+       [:h1 {:data-route-heading true :tab-index -1} "Articles"]
 
-         editor-route
-         [:div
-          [:h1 {:data-route-heading true :tab-index -1} "Editing"]
-          [:input {:data-editor-title true
-                   :value @(rf/subscribe [::draft-field :title])
-                   :on-change #(rf/dispatch [::edit :title (.. % -target -value)])}]
-          (when @(rf/subscribe [::dirty?])
-            [:span {:data-dirty-badge true} "unsaved"])]
+       editor-route
+       [:div
+        [:h1 {:data-route-heading true :tab-index -1} "Editing"]
+        [:input {:data-editor-title true
+                 :value @(subscribe [::draft-field :title])
+                 :on-change #(dispatch [::edit :title (.. % -target -value)])}]
+        (when @(subscribe [::dirty?])
+          [:span {:data-dirty-badge true} "unsaved"])]
 
-         [:p.no-route "no route"])
-       [(rf/view ::leave-prompt)]
-       ;; Tall enough that the page genuinely scrolls, so a row measuring
-       ;; an offset is measuring something. A document shorter than the
-       ;; viewport answers 0 however far you ask it to scroll.
-       [:div {:style {:height "4000px"}}]])))
+       [:p.no-route "no route"])
+     [leave-prompt]
+     ;; Tall enough that the page genuinely scrolls, so a row measuring an
+     ;; offset is measuring something. A document shorter than the viewport
+     ;; answers 0 however far you ask it to scroll.
+     [:div {:style {:height "4000px"}}]]))
