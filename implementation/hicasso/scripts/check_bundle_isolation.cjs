@@ -1,7 +1,14 @@
 #!/usr/bin/env node
 /*
- * THE NATIVE TIER'S ZERO-RENT PROOF, read off a real production bundle
- * (rf2-hic-034).
+ * THE ZERO-RENT PROOF FOR EVERY ISOLATED SURFACE, read off a real
+ * production bundle (rf2-hic-034; the forms module added by rf2-sh56).
+ *
+ * Two surfaces are measured here and the law each answers to is its own:
+ * the NATIVE TIER, whose clause is quoted next, and the optional FORMS
+ * MODULE, whose clause is `invariants.md` §1 — *optional libraries:
+ * named consumer required; zero reachable production code when absent*.
+ * They share this file because they share one instrument and one bundle;
+ * each surface's own reasoning is with its rows.
  *
  * > 6. The native namespace is separately reachable. An interpreted-only
  * >    production dependency graph and bundle contain neither native-tier
@@ -127,6 +134,45 @@
  * and that is the source-side gate's kind of question, not a bundle's.
  * It is reported rather than quietly re-scoped.
  *
+ * ## The forms module's two sentinels, and why they are NOT two shapes
+ *
+ * rf2-sh56 shipped `re-frame.hicasso.forms` — the optional module whose
+ * `buffered-field` the guide's chapter 5 documents — and it is measured
+ * here beside the native tier. The rows are two, and the reason is
+ * DIFFERENT from the native tier's, so the sentence above is not
+ * borrowed:
+ *
+ *   - the tier has two reachability shapes because `n/defcomponent` and
+ *     `(n/props …)` drag different code, and either sentinel alone is
+ *     green against the other's leak;
+ *   - the forms module has ONE. It registers its events at namespace
+ *     load, so nothing about it is conditionally reachable: require it
+ *     and both strings are present, do not and neither is.
+ *
+ * What the second row buys is therefore not coverage of a second path.
+ * It is that a hit NAMES WHICH HALF leaked, and that the two halves can
+ * be moved independently. The module is a view over a protocol, and the
+ * live way for it to leak is for the protocol to be pulled down into
+ * `impl.*` to be shared with something — at which point the concern's
+ * keyword reaches a bundle the view's name does not. One row would
+ * report that as a clean bundle.
+ *
+ * Each is paired with an EXISTING control of the same idiom, so the pair
+ * differs by reachability and by nothing else:
+ *
+ *   - `re-frame.hicasso.forms/buffered-field` (absent) against
+ *     `re-frame.hicasso.consumer-app/app` (present) — two `h/defview`
+ *     view names, both stamped by `mint-view!` unconditionally, one in a
+ *     namespace the release entry requires and one in a namespace
+ *     nothing does;
+ *   - `re-frame.hicasso.forms/drafts` (absent) against
+ *     `rf.error/hicasso-empty-vector` (present) — two namespaced keyword
+ *     literals whose fully-qualified names survive `:advanced` because a
+ *     keyword carries its own name at runtime. The concern is
+ *     load-bearing three times over: `reg-state` makes it a sub id, an
+ *     event id and an `app-db` key at once, so the module cannot read or
+ *     write a draft without it.
+ *
  * ## The live half is a test, not a comment
  *
  * A sentinel that has quietly stopped being emitted is absent from every
@@ -193,6 +239,43 @@ const SENTINELS = [
     remedy:
       'Same as above — the tier became reachable. `props*` is the runtime ' +
       'half of `n/$`\'s props rule and only a dynamic props operand calls it.',
+  },
+  {
+    surface: 'forms module — the view the chapter documents (rf2-sh56)',
+    sentinel: 're-frame.hicasso.forms/buffered-field',
+    source: 'src/re_frame/hicasso/forms.cljs',
+    premise: '(h/defview buffered-field',
+    why:
+      'The view NAME `h/defview` computes and `mint-view!` stamps as the ' +
+      'boundary\'s `displayName`, unconditionally — the same idiom the ' +
+      'release entry\'s own control is read through. It is in this bundle ' +
+      'if and only if the module is reachable from the entry.',
+    remedy:
+      'Find the `:require` of `re-frame.hicasso.forms` that made the module ' +
+      'reachable. Nothing under implementation/hicasso/src/ may name it and ' +
+      'the release entry must not either — an application requires it in the ' +
+      'region that wants a buffered field, and ' +
+      '`check_optional_module_reachability.py` decides the source half of ' +
+      'that exhaustively.',
+  },
+  {
+    surface: 'forms module — the app-db concern every draft lives under (rf2-sh56)',
+    sentinel: 're-frame.hicasso.forms/drafts',
+    source: 'src/re_frame/hicasso/forms.cljs',
+    premise: ':re-frame.hicasso.forms/drafts',
+    why:
+      'The `h/reg-state` concern, which is a sub id, an event id and an ' +
+      '`app-db` key at once — the module cannot read or write a draft ' +
+      'without it, and a keyword carries its own fully-qualified name at ' +
+      'runtime, so `:advanced` can neither rename nor drop it while the ' +
+      'code that uses it is reachable. It is the PROTOCOL half of the ' +
+      'module, and it can outlive the view above: pull the protocol down ' +
+      'into `impl.*` to share it and this string reaches a bundle the view ' +
+      'name does not.',
+    remedy:
+      'Same as above for a whole-module leak. If this row is red ALONE, the ' +
+      'draft protocol has moved somewhere the public door reaches — which ' +
+      'is an architectural change, not a convenience.',
   },
 ];
 
@@ -267,7 +350,7 @@ function scan(bundle) {
   for (const s of SENTINELS) {
     if (bundle.includes(s.sentinel)) {
       problems.push(
-        `NATIVE TIER LEAKED: ${s.surface}\n` +
+        `OPTIONAL SURFACE LEAKED: ${s.surface}\n` +
         `    sentinel: ${JSON.stringify(s.sentinel)}\n` +
         `    ${s.why}\n` +
         `    ${s.remedy}`
@@ -323,7 +406,7 @@ function selfTest() {
   for (const s of SENTINELS) {
     const problems = scan(`${green} … ${s.sentinel} …`);
     assert(problems.length === 1, `one problem for ${s.sentinel}: ${problems}`);
-    assert(problems[0].includes('NATIVE TIER LEAKED'), problems[0]);
+    assert(problems[0].includes('OPTIONAL SURFACE LEAKED'), problems[0]);
     assert(problems[0].includes(s.surface), problems[0]);
     assert(problems[0].includes(s.sentinel), problems[0]);
   }
@@ -355,11 +438,19 @@ function selfTest() {
   //     the native one;
   //   - the other refusal families share `rf.error/hicasso-` with the
   //     tier's, and the tier's suffix is the whole of the difference.
+  //
+  // The forms rows add a near-miss of their own, and it is the reason
+  // both of their sentinels are fully qualified: an application is
+  // entirely free to have a `buffered-field` of its own and a `:drafts`
+  // key of its own, and a bundle carrying either must stay green.
   const legal = [
     `${green} … re-frame.hicasso.native/declared-server …`,   // a docstring link
     `${green} … hicassoBody hicassoBoundary hicassoOwner …`,   // neighbouring markers
     `${green} … rf.error/hicasso-empty-vector rf.error/hicasso-bad-head …`,
     `${green} … "native" nativeEvent isComposing …`,           // React's own plumbing
+    `${green} … re-frame.hicasso/revision re-frame.hicasso/clear …`,
+    `${green} … drafts buffered-field myapp.forms/buffered-field :app/drafts …`,
+    `${green} … re-frame.hicasso.motion/presence …`,           // a sibling module
   ];
   for (const bundle of legal) {
     const problems = scan(bundle);
@@ -419,7 +510,7 @@ function main(argv) {
   if (problems.length > 0) return fail(problems);
 
   process.stdout.write(
-    `OK: no native-tier runtime in the interpreted-only :advanced / goog.DEBUG=false ` +
+    `OK: no isolated surface reached the interpreted-only :advanced / goog.DEBUG=false ` +
     `bundle (${SENTINELS.length} sentinels absent, ${CONTROLS.length} positive controls present).\n`
   );
   return 0;

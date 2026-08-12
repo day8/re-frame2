@@ -124,6 +124,34 @@ MODULES = [
             "re_frame/hicasso/native.cljc",
         ],
     },
+    {
+        # rf2-sh56.  The forms module — `forms/buffered-field` and the
+        # three events its commit protocol is made of — shipped into v0
+        # by operator ruling because `draft-guide/05-forms.md` documents
+        # it and the code owed the chapter a namespace.
+        #
+        # NO ENGINE, for the `native` row's reason and not for a
+        # different one.  This module owns exactly one file; everything
+        # it reaches — `re-frame.events`, `re-frame.fx`, the public door
+        # and `impl.state` — is either core's or the SHARED runtime the
+        # public door already leads to, so naming any of them here would
+        # forbid the rest of the package its own machinery.
+        #
+        # The direction that matters is therefore the door, and it is a
+        # live risk rather than a theoretical one: `buffered-field` is a
+        # view, and a single convenience `:require` in `hicasso.cljc` —
+        # to re-export it beside `h/portal`, say — would put the
+        # protocol, the `reg-state` concern and the boundary into the
+        # bundle of every application that ever aliased `h`.  The public
+        # door names no optional module, and this row is what keeps that
+        # true.
+        "name": "forms",
+        "door": "re-frame.hicasso.forms",
+        "engine": [],
+        "files": [
+            "re_frame/hicasso/forms.cljs",
+        ],
+    },
 ]
 
 NS_FORM = re.compile(r"\(ns\s+([A-Za-z0-9_.*+!?<>=$%&/-]+)")
@@ -342,6 +370,33 @@ def self_test():
     assert len(flagged) == 1, flagged
     assert "re-frame.hicasso.native" in flagged[0], flagged
     assert "`native` module" in flagged[0], flagged
+
+    # rf2-sh56 — the forms module's door, required from a `src/`
+    # namespace that is not it.  Driven as its own case for the reason
+    # the native one is: a roster entry nothing drives is an entry that
+    # can stop working in silence.  The fixture is the exact shape the
+    # risk has — the public door re-exporting the module's view.
+    flagged = scan(
+        {
+            "src/f.cljs": "(ns re-frame.hicasso\n"
+            "  (:require [re-frame.hicasso.forms :as forms]))"
+        }
+    )
+    assert len(flagged) == 1, flagged
+    assert "re-frame.hicasso.forms" in flagged[0], flagged
+    assert "`forms` module" in flagged[0], flagged
+
+    # And the direction that must stay clean: the module reaching the
+    # public door and the shared `impl.state` is exactly how it is
+    # written, and neither is an import OF the module.
+    clean = scan(
+        {
+            "src/g.cljs": "(ns re-frame.hicasso.forms\n"
+            "  (:require [re-frame.hicasso :as h]\n"
+            "            [re-frame.hicasso.impl.state :as impl-state]))"
+        }
+    )
+    assert clean == [], clean
 
     # And the shape the real tree actually has: `impl/codec.cljs` carries
     # four `[[re-frame.hicasso.native/…]]` docstring links today.  Prose is
