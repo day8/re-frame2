@@ -53,11 +53,18 @@
   {:pending? false :success? false :error? false :settled? false})
 
 (defn- subject-tree
-  [{:keys [shown revision editing?]}]
+  "The field's ENTIRE read set is these two. The hint is a child boundary
+  and reads `::subs/editing?` in its own body, so a session opening or
+  closing does not re-render the field — see `views/subject-hint` on why
+  that separation is what keeps `::h/revision` load-bearing."
+  [{:keys [shown revision]}]
   (ht/tree [views/subject-field {:ikey ticket}]
            {:subs {[::subs/subject-shown ticket]    shown
-                   [::subs/subject-revision ticket] revision
-                   [::subs/editing? ticket]         (boolean editing?)}}))
+                   [::subs/subject-revision ticket] revision}}))
+
+(defn- hint-tree [editing?]
+  (ht/tree [views/subject-hint {:ikey ticket}]
+           {:subs {[::subs/editing? ticket] (boolean editing?)}}))
 
 (defn- field-tree
   [{:keys [field label multiline? text problem save]}]
@@ -86,10 +93,15 @@
         "the key MAP, not a callback reading `.key` — which is what keeps
          the composition gate, and why this file finds no function")))
 
-(deftest the-hint-is-absent-until-a-session-is-open
-  (is (nil? (classed (subject-tree {:shown "s" :revision 0}) "subject-hint")))
-  (is (some? (classed (subject-tree {:shown "s" :revision 0 :editing? true})
-                      "subject-hint"))))
+(deftest the-hint-is-absent-until-a-session-is-open-and-is-its-own-boundary
+  (is (nil? (classed (hint-tree false) "subject-hint")))
+  (is (some? (classed (hint-tree true) "subject-hint")))
+  (testing "and the FIELD does not read it — an empty fixture entry here
+            would red, because `tree` refuses a read it was not given"
+    (is (= "re-frame.hicasso.examples.forms.views/subject-hint"
+           (:view-id (ht/find (subject-tree {:shown "s" :revision 0}) :view-id)))
+        "the hint is a CALL from inside the field's markup, so its read
+         belongs to its own body and not to the field's")))
 
 (deftest the-buffered-field-is-controlled-and-carries-the-reset-trigger
   ;; `ht/controlled?` asks the RUNTIME which component the codec installs,
@@ -239,7 +251,8 @@
   own fixture reset."
   []
   (vec
-    [(subject-tree {:shown "Login page hangs" :revision 1 :editing? true})
+    [(subject-tree {:shown "Login page hangs" :revision 1})
+     (hint-tree true)
      (field-tree {:field :assignee :label "Assignee" :text ""
                   :problem :problem/assignee-blank})
      (field-tree {:field :notes :label "Notes" :multiline? true
