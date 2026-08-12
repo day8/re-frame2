@@ -164,6 +164,14 @@
   frames away in React's effect runner."
   (atom 0))
 
+(def ^:private !island-runs
+  "[[spark-island]] body invocations, counted where the body runs. It says
+  one thing only: whether StrictMode is engaged. A double RENDER is
+  StrictMode's cheapest and most visible signature, so the row claiming
+  something about the double-invoke of EFFECTS can state that premise
+  independently of the counters it is about to assert on."
+  (atom 0))
+
 (defn- new-spark
   "`new Spark(node)` — the vendor's constructor, and the acquisition the
   whole file is about.
@@ -216,7 +224,8 @@
   (reset! !live {})
   (reset! !acquired 0)
   (reset! !released 0)
-  (reset! !double-destroys 0))
+  (reset! !double-destroys 0)
+  (reset! !island-runs 0))
 
 ;; ---------------------------------------------------------------------------
 ;; THE RECIPE — the wrapper, and the five hooks it spends
@@ -251,6 +260,7 @@
   something above it threw — which is the exit path nobody writes by
   hand, and the reason a recipe beats an ad-hoc teardown."
   [^js props]
+  (swap! !island-runs inc)
   (let [node-ref (react/useRef nil)
         sdk-ref  (react/useRef nil)
         data     (.-data props)
@@ -289,46 +299,57 @@
   spark-island
   {:callbacks {:on-pick :event}})
 
-(h/defhost strict-mode
-  "React's own adversary, declared rather than reached for: `:server
-  :render` because `StrictMode` renders on the server and its children
-  must reach the response, and because a Client-only gate between the
-  screen and the island would be a second thing to reason about in the
-  one row where React's double-invoke is the subject."
-  react/StrictMode
-  {:server :render})
-
 ;; ---------------------------------------------------------------------------
 ;; The screens
 ;; ---------------------------------------------------------------------------
+;;
+;; EVERY screen reads `[::picks]`, and the read is not decoration — it is
+;; what makes `inventory/residue` a live instrument here.
+;;
+;; The first draft of this file had no read anywhere: a chart takes its
+;; data from a prop and the SDK owns everything else, so no body ever
+;; called `h/sub`. Every `(is (= support/released (teardown-census! …)))`
+;; then compared `{:cell-refs 0 :boundaries 0 :edges 0}` against a runtime
+;; that had never owned anything — five assertions that could not fail,
+;; and which a reader would have taken for teardown evidence. The premise
+;; row caught it on the first run, at `(pos? (:boundaries before))`, which
+;; is exactly what a positive control is for. A screen showing a count
+;; beside its chart is also the more realistic screen.
 
 (h/defview screen
   "One island, in one boundary. `:on-pick` is written FRESH on every
   render — the standing rule, and the reason the acquire effect may not
   depend on it."
   [{:keys [data]}]
-  [:div [spark {:data data :on-pick (h/hfn [v] [::picked v])}]])
+  [:div
+   [:span.picks (str (h/sub [::picks]))]
+   [spark {:data data :on-pick (h/hfn [v] [::picked v])}]])
 
 (h/defview two-screen
   "Two islands under one root — the positive control that says [[!live]]
   counts instances rather than answering a constant."
   [{:keys [data]}]
   [:div
+   [:span.picks (str (h/sub [::picks]))]
    [spark {:data data :on-pick (h/hfn [v] [::picked v])}]
    [spark {:data (str data "-b") :on-pick (h/hfn [v] [::picked v])}]])
 
-(h/defview strict-screen
-  [{:keys [data]}]
-  [:div [strict-mode {} [spark {:data data :on-pick (h/hfn [v] [::picked v])}]]])
-
 (h/defview toggle-screen
   "The island behind a `when`, with its identity under the caller's
-  control. Dropping it is an ordinary unmount; changing `:instance` is a
-  keyed remount — two exits, one screen."
+  control. Dropping it is an ordinary unmount; changing `:key` is a keyed
+  remount — two exits, one screen.
+
+  `:key` in the PROPS MAP and not as `^{:key …}` metadata: hicasso reads
+  no hiccup metadata anywhere, which the codec's own unkeyed-children
+  warning states in as many words (*a key written as Reagent metadata is
+  not read here*). Written the Reagent way here the metadata is inert, the
+  crossing keeps its position, and the keyed-remount arm below silently
+  measures nothing — observed, on the first run of this file."
   [{:keys [data show? instance]}]
   [:div
+   [:span.picks (str (h/sub [::picks]))]
    (when show?
-     ^{:key instance} [spark {:data data :on-pick (h/hfn [v] [::picked v])}])])
+     [spark {:key instance :data data :on-pick (h/hfn [v] [::picked v])}])])
 
 (h/defview detonator
   "A SIBLING of the island that throws during render once armed. A
@@ -345,10 +366,12 @@
 
 (h/defview guarded-screen
   [{:keys [data boom? attempt]}]
-  [h/error-boundary {:fallback [:p.fell "fell"] :reset-key attempt}
-   [:div
-    [spark {:data data :on-pick (h/hfn [v] [::picked v])}]
-    [detonator {:boom? boom?}]]])
+  [:div
+   [:span.picks (str (h/sub [::picks]))]
+   [h/error-boundary {:fallback [:p.fell "fell"] :reset-key attempt}
+    [:div
+     [spark {:data data :on-pick (h/hfn [v] [::picked v])}]
+     [detonator {:boom? boom?}]]]])
 
 ;; ---------------------------------------------------------------------------
 ;; Fixture and harness
@@ -389,6 +412,16 @@
     (.render root (app-element hiccup))
     {:root root :container container :frame frame-id}))
 
+(defn- strict-mount!
+  "The same mount with React's own adversary wrapped around the WHOLE
+  tree, which is where an application puts it and where this repo's other
+  StrictMode witnesses put it (`kernel_commit_owns_dom_cljs_test`)."
+  [hiccup]
+  (let [container (mount/fresh-container!)
+        root      (react-dom-client/createRoot container)]
+    (.render root (react/createElement (.-StrictMode react) nil (app-element hiccup)))
+    {:root root :container container :frame frame-id}))
+
 (defn- rerender! [handle hiccup]
   (.render ^js (:root handle) (app-element hiccup))
   nil)
@@ -422,9 +455,12 @@
 (defn- picks [] (rf/with-frame frame-id @(rf/subscribe [::picks])))
 (defn- picked [] (rf/with-frame frame-id @(rf/subscribe [::picked])))
 
-(defn- text [handle] (.-textContent ^js (:container handle)))
 (defn- at [handle sel] (.querySelector ^js (:container handle) sel))
 (defn- text-at [handle sel] (some-> (at handle sel) .-textContent))
+
+(defn- all-text [handle sel]
+  (mapv #(.-textContent ^js %)
+        (array-seq (.querySelectorAll ^js (:container handle) sel))))
 
 (defn- ids [] (set (keys @!live)))
 
@@ -488,7 +524,7 @@
                             node — the vendor wrote `textContent` React never
                             renders, so this text is evidence about the
                             INSTANCE and not about the element"
-                    (is (= "seedseed-b" (text handle))))
+                    (is (= ["seed" "seed-b"] (all-text handle ".spark"))))
 
                   (testing "CENSUS 2 — the `window` listener FIRES. A ledger
                             entry saying a listener was registered is a fact
@@ -611,13 +647,17 @@
       (do (skip! ":node-test has no React DOM") (done))
       (do
         (seat!)
-        (let [handle (mount! [strict-screen {:data "sm"}])]
+        (let [handle (strict-mount! [screen {:data "sm"}])]
           (-> (wait-live! 1)
               (.then
                 (fn [_]
-                  (testing "the premise: StrictMode really did double-invoke.
-                            A production React build silently removes it, and
-                            without it this row asserts nothing at all"
+                  (testing "the premise: StrictMode really is engaged, and it
+                            really did run the acquire effect twice. A
+                            production React build silently removes both, and
+                            without them this row asserts nothing at all"
+                    (is (< 1 @!island-runs)
+                        (str "the wrapper body ran " @!island-runs
+                             " time(s); StrictMode double-invokes render"))
                     (is (= 2 @!acquired)
                         (str "the acquire effect ran " @!acquired
                              " time(s); StrictMode runs mount/cleanup/mount"))
@@ -764,15 +804,30 @@
                     (is (= 1 (picks)) "live, and reachable from outside React"))
 
                   (rerender! handle [guarded-screen {:data "g0" :boom? true :attempt 0}])
-                  (poll #(some? (at handle ".fell")) "the error boundary catches")))
+                  ;; TWO conditions, and the second is not redundant.
+                  ;;
+                  ;; The fallback appearing is a MUTATION-phase fact; running
+                  ;; a deleted fiber's effect cleanups is a PASSIVE-phase one,
+                  ;; and React flushes that later. Measured: a row that waited
+                  ;; only for `.fell` read `!released` 0 with the instance
+                  ;; still live and still answering external events — it would
+                  ;; have reported a leak that is not there, and a sabotage of
+                  ;; the release would have been indistinguishable from it. The
+                  ;; wait is therefore on the release itself, exactly as the
+                  ;; remount arm waits on `wait-live!`; a release that never
+                  ;; happens times out here and names this label, which is the
+                  ;; red the acceptance criterion asks for.
+                  (poll #(and (some? (at handle ".fell"))
+                              (zero? (count @!live)))
+                        "the boundary caught, and the deleted subtree's cleanup ran")))
               (.then
                 (fn [_]
                   (testing "the region fell back, and the deletion ran the
                             island's cleanup: the instance the throw destroyed
                             is the one that was live"
                     (is (= "fell" (text-at handle ".fell")))
+                    (is (= 1 @!acquired) "no second acquisition anywhere in this")
                     (is (= 1 @!released))
-                    (is (= 0 (count @!live)))
                     (is (= 0 @!double-destroys))
                     (is (balanced?)))
 
