@@ -92,6 +92,21 @@ MODULES = [
         ],
     },
     {
+        # rf2-hic-052.  The overlay module's shape is `motion`'s exactly:
+        # a thin door onto one private namespace that carries its weight,
+        # so both edges have something to guard and the door-only check
+        # would be the hole it was written to close.
+        "name": "overlay",
+        "door": "re-frame.hicasso.overlay",
+        "engine": [
+            "re-frame.hicasso.impl.overlay",
+        ],
+        "files": [
+            "re_frame/hicasso/overlay.cljs",
+            "re_frame/hicasso/impl/overlay.cljs",
+        ],
+    },
+    {
         # rf2-hic-034.  The native tier is the module the native-boundary
         # law names in terms: *the native namespace is separately
         # reachable; an interpreted-only production dependency graph and
@@ -354,6 +369,31 @@ def self_test():
         }
     )
     assert clean == [], clean
+
+    # rf2-hic-052 — the overlay row, driven for a different reason than
+    # the native one above.  Its SHAPE is `motion`'s, so the fixtures at
+    # the top already exercise the code path; what they cannot exercise is
+    # whether THIS row names the namespaces the tree actually declares. A
+    # typo in either string leaves the live scan green (nothing requires a
+    # namespace that does not exist), and the file check below would still
+    # pass because it reads paths rather than ns forms.
+    flagged = scan(
+        {
+            "src/o.cljs": "(ns re-frame.hicasso\n"
+            "  (:require [re-frame.hicasso.overlay :as overlay]\n"
+            "            [re-frame.hicasso.impl.overlay :as impl-overlay]))"
+        }
+    )
+    assert len(flagged) == 2, flagged
+    assert "`overlay` module" in flagged[0], flagged
+    for module in MODULES:
+        if module["name"] == "overlay":
+            for ns in [module["door"], *module["engine"]]:
+                declared = {
+                    ns_of(SRC.joinpath(rel).read_text(encoding="utf-8"))
+                    for rel in module["files"]
+                }
+                assert ns in declared, (ns, declared)
 
     # The roster's premise: every file it names exists. A rename must fail
     # here rather than report a green absence for a file nobody compiles.
