@@ -809,8 +809,23 @@
   never a keyword — `NoFrameContextTags` in spec/Spec-Schemas.md declares the
   slot `:symbol`, and every call site in the corpus emits a quoted symbol.
 
-  `:reason` is always composed, and `:rf.trace/dispatch-id` (the capture-site
-  correlation key) is merged whenever a handler scope is in effect. There is
+  `:reason` is always composed, and names BOTH halves of the repair (rf2-8747).
+  EP-0002 resolves a frame three ways — **scope**, **hold** (carry), and
+  **override** — and the enumerated \"three distinct ways\" cover only scope
+  (1, 2) and override (3). The single most-travelled way to reach this error is
+  a deferred callback — an `:on-click`, a timer, a `.then` — written inside a
+  live scope and run after it unwound, and for that case all three are the wrong
+  advice: the author has not forgotten to establish a scope, they had one and it
+  ended. The composed sentence therefore leads with the **hold** repair (the
+  `reg-view` macro's injected render-time `dispatch` / `subscribe`, or an
+  explicit `(:dispatch (rf/capture-frame))` taken while the scope is live) and
+  keeps the three scope/override ways behind an \"otherwise\". This is prose
+  only: the discriminator is `:rf.error/id` and the machine-readable recovery
+  is `:recovery :supply-frame`, both unchanged — per Spec 009, nothing branches
+  on message bytes.
+
+  `:rf.trace/dispatch-id` (the capture-site correlation key) is merged
+  whenever a handler scope is in effect. There is
   no `:rf.trace/parent-dispatch-id` on this payload: per Spec 009 §Dispatch
   correlation that key is scoped to `:rf.event/dispatched` only, and the
   parent is walked from the dispatch-id through the correlation graph.
@@ -825,7 +840,15 @@
            :recovery    :supply-frame
            :reason      (str "a frame-scoped " (name operation) " ran with no frame "
                              "context — no carried frame stamp and no established "
-                             "scope. Frame identity is carried, not found. Establish a "
+                             "scope. Frame identity is carried, not found. If this fired "
+                             "from an :on-* handler, a timer, a promise or any other "
+                             "deferred callback, the scope it was WRITTEN inside had "
+                             "already unwound by the time it RAN: the repair is to carry "
+                             "the frame across that boundary, not to establish a second "
+                             "scope there. In a view, use the dispatch / subscribe the "
+                             "reg-view macro injects — they are render-time captures; "
+                             "elsewhere hold (:dispatch (rf/capture-frame)) while the "
+                             "scope is still live. Otherwise establish a "
                              "scope one of three distinct ways (do not combine 1 and 2): "
                              "(1) create a frame with rf/make-frame, then scope the "
                              "operation inside it with with-frame or a frame-provider "
