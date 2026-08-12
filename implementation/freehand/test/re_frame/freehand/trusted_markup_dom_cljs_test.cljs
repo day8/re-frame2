@@ -197,18 +197,27 @@
   nil)
 
 (defn- mounted!
-  "Mount `form`, run `check` against the container, tear the root down."
+  "Mount `form`, run `check` against the container, tear the root down.
+
+  The rejection handler sits UPSTREAM of the step that calls `done`, and the
+  single `done` sits at the tail with nothing after it (rf2-o0n1). `done` runs
+  the whole remainder of the run synchronously, so a `.catch` downstream of it
+  would claim a later namespace's throw as this row's failure and fire `done` a
+  second time."
   [form check done]
   (let [container (host-node!)]
     (-> (act #(v/mount form container))
         (.then (fn [m]
                  (check container)
-                 (unmount! container m)
-                 (done)))
+                 ;; ASYMMETRIC, so it stays put: `m` is what the mount resolved
+                 ;; with, and the rejection arm never had a root to unmount — it
+                 ;; can only detach the host node, which it does below.
+                 (unmount! container m)))
         (.catch (fn [e]
                   (is false (str "trusted-markup mount rejected: " e))
                   (.remove container)
-                  (done))))))
+                  nil))
+        (.then (fn [_] (done))))))
 
 (defn- each-mode
   "Run `check` over the interpreted and compiled members of one pair, one

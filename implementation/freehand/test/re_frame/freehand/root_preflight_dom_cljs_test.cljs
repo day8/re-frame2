@@ -802,16 +802,18 @@
                           (is (nil? (frame/frame fid))
                               "the last reference destroyed C — exactly the
                                incarnation R2 installed")
-                          (is (empty? (root/frame-ledger-snapshot)))
-                          (.remove node-1)
-                          (.remove node-2)
-                          (done))))))
+                          (is (empty? (root/frame-ledger-snapshot))))))))
+              ;; Reports and RELEASES; it never finishes (rf2-o0n1). `done` runs
+              ;; the whole remainder of the run synchronously, so a `.catch`
+              ;; downstream of it would claim a later namespace's throw as this
+              ;; row's and fire `done` a second time.
               (.catch
                 (fn [e]
                   (is false (str "fresh-incarnation authorship suite rejected: " e))
-                  (.remove node-1)
-                  (.remove node-2)
-                  (done)))))))))
+                  nil))
+              ;; The node detach both arms DID share rides the single trailing
+              ;; step: written once, run once per path.
+              (.then (fn [_] (.remove node-1) (.remove node-2) (done)))))))))
 
 ;; ===========================================================================
 ;; FH-ROOT-004 — Fable sequence (3): an external destroy of a root-ensured
@@ -891,13 +893,18 @@
               (.then
                 (fn [_]
                   (is (nil? (frame/frame fid)) "the last reference destroyed C exactly")
-                  (is (empty? (root/frame-ledger-snapshot)))
-                  (.remove node-1) (.remove node-2) (done)))
+                  (is (empty? (root/frame-ledger-snapshot)))))
+              ;; Reports and RELEASES, as above. The unregister is written on
+              ;; both arms rather than hoisted: the success arm drops the
+              ;; listener mid-chain, BEFORE the two unmounts it is not meant to
+              ;; observe.
               (.catch
                 (fn [e]
                   (trace-tooling/unregister-listener! k)
                   (is false (str "loud-destroy + fresh-tuple suite rejected: " e))
-                  (.remove node-1) (.remove node-2) (done)))))))))
+                  nil))
+              ;; Shared node detach, hoisted onto the single trailing step.
+              (.then (fn [_] (.remove node-1) (.remove node-2) (done)))))))))
 
 ;; ===========================================================================
 ;; FH-ROOT-004 — Layer 1's join is the SOLE authority, even when the destroy
@@ -950,12 +957,15 @@
                   (is (identical? @b-token (frame/frame-incarnation-token fid))
                       "final unmount never reached B — the exact-token teardown no-oped")
                   (late-bind/set-fn! :freehand/on-frame-destroyed! saved)
-                  (rf/destroy-frame! fid)
-                  (.remove node)
-                  (done)))
+                  (rf/destroy-frame! fid)))
+              ;; Reports and RELEASES, as above. The hook restore is written on
+              ;; both arms rather than hoisted: it has to precede the success
+              ;; arm's `destroy-frame!`, so that destroy runs through the
+              ;; genuine hook and not the stub this row installed.
               (.catch
                 (fn [e]
                   (late-bind/set-fn! :freehand/on-frame-destroyed! saved)
                   (is false (str "join-is-sole-authority suite rejected: " e))
-                  (.remove node)
-                  (done)))))))))
+                  nil))
+              ;; Shared node detach, hoisted onto the single trailing step.
+              (.then (fn [_] (.remove node) (done)))))))))
