@@ -511,7 +511,7 @@ and no figure may be scaled from one onto the other.
 
 | Family | Enforcement home |
 |---|---|
-| Deterministic rows D1–D9 | ordinary blocking PR gates; framework in `rf2-hic-089`, full gates in `rf2-hic-071` |
+| Deterministic rows D1–D13 | ordinary blocking PR gates; framework in `rf2-hic-089`, full gates in `rf2-hic-071` |
 | Distributional rows S1–S7, U1–U4 | pinned interleaved evidence runs on P-DEV-1; never converted into flaky PR thresholds |
 | Shell breach disposition | `rf2-hic-018` |
 | K3 per-read record | `rf2-hic-070` — [`k3-disposition.md`](k3-disposition.md), whose §8 makes the 10% same-witness per-read rule executable for `rf2-hic-071` |
@@ -564,7 +564,7 @@ user-visible budgets behave differently in tier (§1's accepted limitation is
 the standing invitation); a package-resident heap instrument producing shell or
 per-read figures materially apart from S1–S4 (§6 says how to build it); the
 operator freezing the byte line somewhere other than the §5 recommendation; or
-any deterministic row D1–D9 moving without a topology change to explain it.
+any deterministic row D1–D13 moving without a topology change to explain it.
 
 ---
 
@@ -644,6 +644,10 @@ today. *Disposition* is a link that must resolve to a section naming the row.
 | D7 | 2 bodies, first keystroke of an editor session | 2 | package | `MET` | `implementation/hicasso/test/re_frame/hicasso/examples/editor/flow_dom_cljs_test.cljs` (PR gate) | `rf2-hic-089` | — |
 | D8 | 1 body, every keystroke after the first | 1 | package | `MET` | `implementation/hicasso/test/re_frame/hicasso/examples/editor/flow_dom_cljs_test.cljs` (PR gate) | `rf2-hic-089` | — |
 | D9 | zero teardown residue in counters and frame ids | zero | package | `MET` | `implementation/hicasso/test_kit/src/re_frame/hicasso/test/mounted.cljs` (PR gate) | `rf2-hic-089` | — |
+| D10 | 3 hiccup-walk entries dropped by a direct return (`codec/vec->element`) | 3 — the hiccup arm reads 4 against the crossing's floor of 1 | package | `MET` | `implementation/hicasso/test/re_frame/hicasso/direct_return_cljs_test.cljs` (PR gate) | `rf2-hic-033` | — |
+| D11 | 3 prop-pipeline entries dropped by a direct return (`codec/convert-props`) | 3 — the hiccup arm reads 3 against a floor of 0 | package | `MET` | `implementation/hicasso/test/re_frame/hicasso/direct_return_cljs_test.cljs` (PR gate) | `rf2-hic-033` | — |
+| D12 | 2 event-lowering entries dropped by a direct return (`intent/lower-prop`) | 2 — the hiccup arm reads 2 against a floor of 0 | package | `MET` | `implementation/hicasso/test/re_frame/hicasso/direct_return_cljs_test.cljs` (PR gate) | `rf2-hic-033` | — |
+| D13 | 3 controlled-repair entries dropped by a direct return (`controlled/install!`) | 3 — the hiccup arm reads 3 against a floor of 0 | package | `MET` | `implementation/hicasso/test/re_frame/hicasso/direct_return_cljs_test.cljs` (PR gate) | `rf2-hic-033` | — |
 | S1 | 1,024 B, R=0 shell, Reagent segment | 1,100 B [1,091–1,107] | package | `BREACH` | P0 heap ladder, package candidate arm (P-DEV-1 evidence run) | `rf2-hic-018` | [substrate-decision §5.2](substrate-decision.md#52-the-read-free-boundary-shell--the-disposition) |
 | S2 | 1,024 B, R=0 shell, UIx segment | 1,095 B [1,087–1,101] | package | `BREACH` | P0 heap ladder, package candidate arm (P-DEV-1 evidence run) | `rf2-hic-018` | [substrate-decision §5.2](substrate-decision.md#52-the-read-free-boundary-shell--the-disposition) |
 | S3 | ≤ 10% regression on the same pinned witness | 1,417 vs Reagent 948 per read | package | `UNRESOLVED` | P0 heap ladder, package candidate arm (P-DEV-1 evidence run) | `rf2-hic-070` | [substrate-decision §6](substrate-decision.md#6-what-this-page-does-not-decide) |
@@ -669,7 +673,7 @@ today. *Disposition* is a link that must resolve to a section naming the row.
 
 <!-- rf2-hic-089: end-ledger -->
 
-Thirty-one rows: the nine deterministic figures of §3, the seven distributional
+Thirty-five rows: the thirteen deterministic figures of §3, the seven distributional
 rows and six user-visible budgets of §4, the eight comparative rules §4 now
 gives ids to, and one row registered off this page — **I9**, the two-hook
 ceiling frozen by
