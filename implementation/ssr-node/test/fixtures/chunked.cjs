@@ -22,6 +22,5 @@ module.exports = {
       await new Promise((r) => setImmediate(r));
       emit(p);
     }
-    return { meta: { emitted: parts.length } };
   },
 };

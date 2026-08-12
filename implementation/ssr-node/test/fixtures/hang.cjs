@@ -7,6 +7,8 @@
 // from outside the thread. An `await`-based hang would be a much weaker
 // test, because a cooperative cancel would have been enough to pass it.
 
+const { encode } = require('../observations.cjs');
+
 module.exports = {
   protocol: 1,
   buildId: 'hang-build-1',
@@ -14,11 +16,13 @@ module.exports = {
 
   render({ entry }, emit) {
     if (entry === 'app/quick') {
-      emit('<p>quick</p>');
       // The thread id is what proves a REPLACEMENT rather than a revival:
       // a terminated isolate is never reused, so the isolate that serves
-      // the request after a timeout must be a different thread.
-      return { meta: { threadId: require('node:worker_threads').threadId } };
+      // the request after a timeout must be a different thread. It rides
+      // the markup, because that is the only channel out of here.
+      const threadId = require('node:worker_threads').threadId;
+      emit(`<p${encode({ threadId })}>quick</p>`);
+      return;
     }
     while (true) {
       // Touch something so no engine can optimise the loop away.
