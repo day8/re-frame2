@@ -279,7 +279,10 @@
         (testing "the premise: the tree was really mounted, so the zeros
                   below are a release and not the reading of a page that
                   never held anything"
-          (is (= 3 (count (.querySelectorAll ^js container "span.cell")))))
+          ;; `.-length`, not `count`: a `NodeList` is array-LIKE and
+          ;; ES6-iterable but implements no ClojureScript protocol, so
+          ;; `count` throws `ICounted` rather than answering three.
+          (is (= 3 (.-length (.querySelectorAll ^js container "span.cell")))))
 
         (let [census (roots-support/teardown-census! handle)]
 
