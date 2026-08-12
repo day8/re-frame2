@@ -103,7 +103,7 @@ this makes them three, which is a doc delta the codec docstring and `authoring.m
 must carry rather than a surprise a reader discovers.
 
 **Freeze flag, escalated.** Three reset-ish names will exist: this element
-revision, `h/boundary`'s `:reset-key` (which *remounts*), and D016's ladder
+revision, `h/error-boundary`'s `:reset-key` (which *remounts*), and D016's ladder
 `:reset-key` if the controller ever ships under its own spelling. Two of those three
 would be the same word for opposite conduct. The API freeze must face the trio
 together; nothing here needs deciding now.

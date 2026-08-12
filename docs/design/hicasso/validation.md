@@ -586,7 +586,7 @@ refusal and across a normalisation is the arm's own since `rf2-fki5d`, taken in
 the element path and witnessed on this grid);
 keyed insert/delete/reorder; changing query identity through an abandoned render;
 a foreign hook/context/ref component and a real error boundary (the runtime's
-`h/boundary` class component, HD-020); StrictMode, abandoned first mount, root
+`h/error-boundary` class component, HD-020); StrictMode, abandoned first mount, root
 teardown, HMR body swap. Assert the DOM, actual
 commits, and **zero leaked subscription ref-counts after teardown**; an unchanged
 hot read performs no new attach/release.
