@@ -233,8 +233,10 @@
                   "and the engine agrees it is IN the top layer, modally")
               (let [d (.getBoundingClientRect dialog)
                     c (.getBoundingClientRect ($ "#clip"))]
-                (is (> (.-bottom d) (.-bottom c))
-                    "its painted box is not contained by the box that clips it"))))
+                (is (or (< (.-top d) (.-top c)) (> (.-bottom d) (.-bottom c)))
+                    (str "its painted box is not contained by the 20px box that "
+                         "clips it. dialog=[" (.-top d) "," (.-bottom d) "] "
+                         "clip=[" (.-top c) "," (.-bottom c) "]")))))
           (finally (mount/release! handle)))))))
 
 (deftest a-modal-makes-the-document-behind-it-unfocusable
@@ -279,7 +281,7 @@
                    :on-dismiss [::dismissed :m]
                    :label      "Confirm"}
     [:button#first {:type "button"} "First"]
-    [:button#second {:type "button" :autofocus true} "Second"]]])
+    [:button#chosen {:type "button" :auto-focus true} "Chosen"]]])
 
 (deftest closing-through-the-platform-door-returns-focus-to-the-trigger
   (if-not (mount/browser?)
@@ -309,7 +311,7 @@
                    anywhere in the application")))
           (finally (mount/release! handle)))))))
 
-(deftest the-focus-one-shot-is-the-attribute-and-not-reacts-prop
+(deftest the-focus-one-shot-is-the-platforms-focus-delegate-and-not-reacts-autofocus
   (if-not (mount/browser?)
     (skip! ":node-test runs no dialog focusing steps")
     (do
@@ -318,20 +320,55 @@
         (try
           (mount/settle!)
           (go! [::opened :m])
-          (testing "THE ONE-SHOT: `:autofocus true`, unhyphenated, reaches the
-                    DOM as the attribute the platform's dialog-focusing steps
-                    read — so focus lands on the control the author named and
-                    not on the first focusable one"
-            (is (= "second" (.-id (.-activeElement js/document)))
-                (str "the autofocus target has focus, not #first. The spelling "
-                     "is load-bearing: `:auto-focus` camelCases to React's own "
-                     "`autoFocus` prop, which React applies by calling .focus() "
-                     "during the commit WITHOUT emitting the attribute — one "
-                     "child-first commit before showModal runs its own focusing "
-                     "steps and moves focus to the first focusable control. "
-                     "Active: " (.-id (.-activeElement js/document))))
-            (is (.hasAttribute ($ "#second") "autofocus")
-                "and the attribute really is in the DOM, which is why it worked"))
+          (testing "THE ONE-SHOT, as the engine actually performs it: opening
+                    runs the platform's own dialog-focusing steps, which take
+                    the FOCUS DELEGATE — the first element carrying the
+                    `autofocus` ATTRIBUTE, or, when there is none, the first
+                    focusable control in tree order"
+            (is (= "first" (.-id (.-activeElement js/document)))
+                (str "focus is on the first focusable control. Active: "
+                     (.-id (.-activeElement js/document))))
+            (is (not (.hasAttribute ($ "#chosen") "autofocus"))
+                (str "and `:auto-focus true` did NOT put the attribute in the "
+                     "DOM: it camelCases to React's own `autoFocus` prop, which "
+                     "React implements by calling .focus() during the commit — "
+                     "child-first, one commit BEFORE this module's ref attaches "
+                     "and calls showModal, at which point the dialog is still "
+                     "display:none and nothing inside it is focusable. React "
+                     "rejects the unhyphenated `:autofocus` outright, with "
+                     "`Invalid DOM property autofocus. Did you mean autoFocus?`, "
+                     "and emits no attribute either. So NEITHER spelling reaches "
+                     "the platform, and the recipe is tree order.")))
+          (finally (mount/release! handle)))))))
+
+(deftest a-close-request-on-a-modal-arrives-as-an-intent
+  (if-not (mount/browser?)
+    (skip! ":node-test has no dialog to make a close request of")
+    (do
+      (fresh!)
+      (let [handle (mount/root! (mount/fresh-container!) frame-id [trigger-page {}])]
+        (try
+          (mount/settle!)
+          (go! [::opened :m])
+          (let [dialog ($ "dialog")]
+            (if-not (fn? (.-requestClose dialog))
+              (skip! (str "this engine has no HTMLDialogElement.requestClose, "
+                          "which is the only close request reachable without "
+                          "trusted input — a real Escape key is rf2-hic-049's"))
+              (testing "THE ROUND TRIP: a close request takes the platform's
+                        `cancel` path — the same one Escape and a `closedby`
+                        backdrop click take — and arrives in app-db as the
+                        author's own intent, which is what closes the overlay"
+                (is (zero? (get-in (db) [:dismissed :m] 0)) "premise: nothing yet")
+                (.requestClose dialog)
+                (mount/settle!)
+                (is (= 1 (get-in (db) [:dismissed :m]))
+                    "the intent landed exactly once")
+                (is (false? (get-in (db) [:open :m]))
+                    "and the author's handler is what wrote the open flag false")
+                (is (nil? ($ "dialog"))
+                    "so the element left because app-db said so, and not
+                     because the platform closed it behind app-db's back"))))
           (finally (mount/release! handle)))))))
 
 ;; --- the stack -------------------------------------------------------------
@@ -429,6 +466,10 @@
             (go! [::opened :pm])
             (is (.matches ($ "#pop-m") ":popover-open"))
             (is (= "manual" (.getAttribute ($ "#pop-m") "popover")))
+            ;; A's flag is still TRUE while its element is closed — `::noted`
+            ;; left it that way on purpose — so it has to be cleared before it
+            ;; can be set again, or the re-render never happens.
+            (go! [::closed :pa])
             (go! [::opened :pa])
             (is (.matches ($ "#pop-a") ":popover-open"))
             (is (.matches ($ "#pop-m") ":popover-open")
@@ -565,16 +606,23 @@
                   (is (zero? (:intervals open-log)))
                   (is (zero? (:observers open-log)))))
 
-              (go! [::closed :pa])
-              (let [closed-log @log]
-                (testing "TEARDOWN: every element listener the open window
-                          recorded is matched by a removal"
-                  (is (nil? ($ "#pop-a")))
-                  (is (>= (count (:removed closed-log)) (count (:element closed-log)))
-                      (str "added " (pr-str (:element closed-log))
-                           ", removed " (pr-str (:removed closed-log))))
-                  (is (= [] (:global closed-log))
-                      "and still nothing global, on the way out either")))
+              (let [node ($ "#pop-a")]
+                (go! [::closed :pa])
+                (let [closed-log @log]
+                  (testing "TEARDOWN: the element leaves the document, and the
+                            listeners leave with it. React does not call
+                            `removeEventListener` for a discarded node and does
+                            not need to — a disconnected node is unreachable
+                            from any event path, which is exactly why an
+                            ELEMENT-scoped listener cannot be idle and a
+                            `document`-scoped one can"
+                    (is (nil? ($ "#pop-a")))
+                    (is (false? (.-isConnected node))
+                        "the node this window's listeners were attached to is
+                         no longer in the document")
+                    (is (= [] (:global closed-log))
+                        (str "and still nothing global, on the way out either: "
+                             (pr-str (:global closed-log)))))))
               (finally (restore!))))
           (finally (mount/release! handle)))))))
 
@@ -674,7 +722,15 @@
                      :anchor     "no-such-element"
                      :placement  :bottom-start
                      :id         "pop-x"}
-    [:p "unanchored"]]])
+    [:p "unanchored"]]
+   ;; Room BELOW the trigger, so `scrollIntoView` can put it at the centre
+   ;; of the viewport rather than at the bottom edge. A `[popover]` is
+   ;; `position: fixed`, so its containing block is the viewport and a
+   ;; `block-end` placement with no viewport left under the anchor is
+   ;; clamped — which is the engine being right and the fixture being
+   ;; wrong. This lane's page carries every earlier suite's container, so
+   ;; without a spacer the trigger lands at the very end of the document.
+   [:div {:style {:height "1200px"}}]])
 
 (deftest the-anchor-is-claimed-while-open-and-handed-back-on-teardown
   (if-not (mount/browser?)
@@ -688,15 +744,28 @@
             (is (= "--mine" (.. trigger -style -anchorName))
                 "premise: the trigger carries the author's own anchor name")
 
+            ;; A `[popover]` is `position: fixed`, so its containing block is
+            ;; the VIEWPORT: a trigger scrolled far out of view leaves no
+            ;; in-viewport region below it and the used position is clamped.
+            ;; This lane's page carries every earlier suite's container, so the
+            ;; trigger starts tens of thousands of pixels down.
+            (.scrollIntoView trigger #js {"block" "center"})
             (go! [::opened :pa])
             (let [panel ($ "#pop-a")]
               (testing "ANCHORED: the panel sits against the trigger, and the
                         engine is what put it there"
                 (let [t (.getBoundingClientRect trigger)
-                      p (.getBoundingClientRect panel)]
+                      p (.getBoundingClientRect panel)
+                      cs (js/getComputedStyle panel)]
                   (is (>= (.-top p) (- (.-bottom t) 1))
                       (str ":bottom-start puts the panel below the trigger. "
-                           "trigger.bottom=" (.-bottom t) " panel.top=" (.-top p)))
+                           "trigger=[" (.-top t) "," (.-bottom t) "] "
+                           "panel=[" (.-top p) "," (.-bottom p) "] "
+                           "position=" (.-position cs)
+                           " position-anchor=" (.getPropertyValue cs "position-anchor")
+                           " position-area=" (.getPropertyValue cs "position-area")
+                           " anchor-name(trigger)="
+                           (.getPropertyValue (js/getComputedStyle trigger) "anchor-name")))
                   (is (< (js/Math.abs (- (.-left p) (.-left t))) 2)
                       (str "and left-aligned with it. trigger.left=" (.-left t)
                            " panel.left=" (.-left p)))))
