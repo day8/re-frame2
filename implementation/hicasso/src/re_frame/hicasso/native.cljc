@@ -116,7 +116,9 @@
   ## The ABI helpers, and the two directions across the boundary
 
   [[memo]] and [[lazy]] are `react/memo` and `react/lazy` with the tier
-  [[marker]] carried across, and they are the whole helper surface: React
+  [[marker]] carried across — and [[lazy]] additionally behind the
+  Client-only gate its `:server` names, so the server does not fetch a
+  chunk it can do nothing with. They are the whole helper surface: React
   19 hands a function component its `ref` as an ordinary prop, so refs
   need no helper and get none. Neither helper touches props or children —
   the ABI is one raw JavaScript props object at every rung, and a second
@@ -447,12 +449,22 @@
 
   The gate hands its own props straight through, `ref` included, so the
   ABI a `:client-only` island sees is the one a `:render` island sees:
-  one raw JavaScript props object, children at `.-children`."
+  one raw JavaScript props object, children at `.-children`.
+
+  **`f` is an element TYPE and not necessarily a function**, which is
+  what makes [[lazy]] the second caller: a `react/lazy` record is an
+  element type too, so the same gate withholds a chunk from the server
+  exactly as it withholds an island. That caller passes `nil` for the
+  name — a head declared before its component exists has none to give,
+  and its marker is where the name appears on arrival — so the display
+  name is set only when there is one to set. `undefined` there is what
+  React already reads for any anonymous type."
        [component-name f]
        (let [gate (fn [props]
                     (when (codec/adopted?)
                       (react/createElement f props)))]
-         (set! (.-displayName gate) component-name)
+         (when component-name
+           (set! (.-displayName gate) component-name))
          gate))
 
      (defn component
@@ -520,8 +532,16 @@
      ;; wrapper and Xray names an anonymous boundary where an island
      ;; should be. Neither changes the props or children ABI at all: a
      ;; memo passes props through untouched and a lazy resolves TO the
-     ;; component. So the whole of the repair is carrying the two stamps
-     ;; across, and these helpers are deliberately nothing else.
+     ;; component. So carrying the two stamps across is the whole of
+     ;; [[memo]], and it is deliberately nothing else.
+     ;;
+     ;; [[lazy]] carries one thing more, because a lazy head's `:server`
+     ;; is a POLICY and a policy that only the marker knows about is a
+     ;; comment. React calls a pending loader while it is producing
+     ;; server bytes — measured, not assumed (merged-PR audit #7969) —
+     ;; so the head goes behind [[mint-server-gate]], the same gate a
+     ;; Client-only `defcomponent` wears. No second mechanism, and the
+     ;; marker then DESCRIBES the gate instead of standing in for one.
 
      (defn- carry!
        "Copy `f`'s display name and tier marker onto `wrapper`, and answer
@@ -564,7 +584,8 @@
        ([f props=] (carry! (react/memo f props=) f)))
 
      (defn lazy
-       "**`React.lazy`, with the marker intact and the loader unwrapped.**
+       "**`React.lazy`, with the marker intact, the loader unwrapped, and
+  the chunk behind the Client-only gate.**
 
       (def chart-loadable (lazy/loadable app.charts.island/heavy-chart))
       (def heavy-chart (n/lazy #(lazy/load chart-loadable)))
@@ -616,17 +637,44 @@
   arrival the honest answer is that the head has no name, and that is
   what it says.
 
-  **`:server` is `client-only` and is not the inner component's to
-  override.** The server never sent the chunk, so no policy the component
-  declares can make bytes exist: the region is Client-only whatever
-  `n/defcomponent` said.
+  The marker is stamped on the GATE, because the gate is the element
+  type a parent writes and therefore the object every seam is handed.
+  The `react/lazy` record is an implementation detail one fiber below
+  it, exactly as a Client-only island's own function is.
 
-  **Nothing stands in for it on the server unless a DECLARATION says so.**
-  The `defhost` that crosses to this head emits server bytes only where
-  it was given a `:fallback`, and React's own Suspense fallback is not
-  that fallback — it is a prop at a ReactNode slot, and a Client-only
-  region renders nothing at all, slot included. A page that wants a
-  skeleton in its server response declares one.
+  ## The head IS the Client-only gate, and that is the whole of `:server`
+
+  **`:server` is `client-only`, it is not the inner component's to
+  override, and it is BEHAVIOUR rather than a note on the marker.** What
+  this answers is [[mint-server-gate]] — the identical gate a
+  `:client-only` `n/defcomponent` wears, reading the identical
+  [[re-frame.hicasso.impl.codec/adopted?]] — with the `react/lazy` record
+  behind it. So the loader is not called while React is producing server
+  bytes, is not called on hydration's first client pass, and IS called on
+  the first pass of a fresh mount. The chunk is a client artefact and the
+  server never reaches for one.
+
+  **That gate is the mechanism and the marker merely describes it.** The
+  marker alone was the defect: React's `lazyInitializer` runs during
+  `renderToString` like any other render, so an ungated head reached from
+  a native parent — `(n/$ heavy-chart …)` under a `:render` island —
+  fetched the chunk on the server and wrote React's switched-to-client
+  template into the response. Measured in
+  [[re-frame.hicasso.lazy-boundary-dom-cljs-test]], whose control renders
+  a raw `react/lazy` in the same shape and counts the call this one does
+  not make.
+
+  The price is a Client-only island's exactly: one fiber, one hook, no
+  server bytes. Hydration needs no separate argument for the same reason
+  — one gate, already witnessed
+  ([[re-frame.hicasso.native-ssr-dom-cljs-test]]).
+
+  **Nothing stands in for the region on the server unless a DECLARATION
+  says so.** The gate renders `nil`, so the region is absent — React's
+  own Suspense fallback is a prop at a ReactNode slot inside it and is
+  never reached. A page that wants a skeleton in its server response
+  declares one: `defhost`'s `:fallback`, inert markup on the declaration
+  that the crossing renders on the server and on hydration's first pass.
 
   Declared at top level, never in a render — `React.lazy`'s own law.
   Minting inside a body allocates a fresh identity per pass, so the
@@ -640,9 +688,10 @@
                               (fn [component]
                                 (when-some [inner (marker component)]
                                   (unchecked-set m "name" (unchecked-get inner "name")))
-                                #js {:default component}))))]
-         (unchecked-set lazy* tier-sentinel m)
-         lazy*))
+                                #js {:default component}))))
+             head  (mint-server-gate nil lazy*)]
+         (unchecked-set head tier-sentinel m)
+         head))
 
      ;; ----------------------------------------------------------------
      ;; The two hooks (rf2-hic-031)
