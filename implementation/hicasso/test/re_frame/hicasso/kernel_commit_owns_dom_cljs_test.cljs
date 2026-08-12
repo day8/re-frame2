@@ -33,7 +33,7 @@
   | [[a-suspended-attempt-acquires-nothing-and-its-retry-acquires-exactly-once]] | a sibling throws a thenable; React discards the attempt and commits the fallback |
   | [[an-aborted-transition-acquires-nothing-and-its-completion-acquires-exactly-once]] | the tree a `startTransition` rendered suspends, so React keeps the old UI and drops the new render entirely |
   | [[strictmodes-double-invoke-is-not-additive]] | React runs every body twice and mounts, unmounts and remounts every effect |
-  | [[a-body-that-throws-after-its-reads-is-caught-and-the-retry-acquires-exactly-once]] | a render-phase throw, caught by `h/boundary`, retried through `:reset-key` |
+  | [[a-body-that-throws-after-its-reads-is-caught-and-the-retry-acquires-exactly-once]] | a render-phase throw, caught by `h/error-boundary`, retried through `:reset-key` |
 
   A fifth property the bead names — **delayed commit** — is
   [[a-write-landing-in-the-render-to-commit-gap-heals-the-boundary]]: a
@@ -484,7 +484,8 @@
 
 (defn- guarded
   [reset-key]
-  (app [h/boundary {:fallback [:p {:id "fb"} "caught"] :reset-key reset-key}
+  (app [h/error-boundary {:fallback  [:p {:id "fb"} "caught"]
+                          :reset-key reset-key}
         [thrower {}]]))
 
 (deftest a-body-that-throws-after-its-reads-is-caught-and-the-retry-acquires-exactly-once

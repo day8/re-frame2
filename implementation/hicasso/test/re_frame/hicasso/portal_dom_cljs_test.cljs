@@ -212,14 +212,14 @@
 (def ^:private !caught (atom nil))
 
 (defn- watched-root!
-  "Mount `hiccup` under an `h/boundary` whose only job is to hand the
+  "Mount `hiccup` under an `h/error-boundary` whose only job is to hand the
   assertion whatever the subject threw. A render-phase refusal is
   precisely what React routes to a class boundary and nowhere else."
   [hiccup]
   (reset! !caught nil)
   (mount/root! (mount/fresh-container!) frame-id
-               [h/boundary {:fallback [:p.escaped "the portal refused"]
-                            :on-error (fn [e] (reset! !caught e))}
+               [h/error-boundary {:fallback [:p.escaped "the portal refused"]
+                                  :on-error (fn [e] (reset! !caught e))}
                 hiccup]))
 
 ;; ---------------------------------------------------------------------------

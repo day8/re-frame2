@@ -428,10 +428,15 @@
   [[re-frame.hicasso.impl.intent/hframe]]."}
        hframe impl-intent/hframe)
 
-     (def ^{:doc "`h/boundary` — the runtime's own error boundary
+     (def ^{:doc "`h/error-boundary` — the runtime's own error boundary
   (HD-020(c)); takes `:fallback`, `:reset-key` and `:on-error`.
-  [[re-frame.hicasso.impl.boundary/boundary]]."}
-       boundary impl-boundary/boundary)
+
+  Named for React's own term of art, which is also what the naming ledger
+  ruled (row 12, rf2-g8rb). A bare `boundary` would have been the wrong
+  word twice over: every minted `defview` is already *a boundary* here,
+  and React has a second kind — the Suspense boundary — that this one is
+  not. [[re-frame.hicasso.impl.boundary/boundary]]."}
+       error-boundary impl-boundary/boundary)
 
      (def ^{:doc "`h/reg-state` — the instance-key sugar (HD-009). Mints one
   parametric subscription and one setter event under `[:ui ::concern ikey]`,

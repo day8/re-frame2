@@ -247,9 +247,9 @@
      ;; English sentence would be the one place in the application a
      ;; French reader falls out of their own language, and it would do so
      ;; at the worst possible moment.
-     [h/boundary {:reset-key route
-                  :fallback  [:p.pane-error {:role "alert"}
-                              (h/sub [::subs/t :app/pane-error])]}
+     [h/error-boundary {:reset-key route
+                        :fallback  [:p.pane-error {:role "alert"}
+                                    (h/sub [::subs/t :app/pane-error])]}
       (cond
         (= route routes/article) [article-page {}]
         (= route routes/feed)    [feed-page {}]

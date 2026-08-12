@@ -2,7 +2,7 @@
   "AN INTENT ON A BOUNDARY'S FALLBACK, AND ON ITS CHILDREN (rf2-uo9di).
 
   The sibling of [[re-frame.hicasso.presence-intent-dom-cljs-test]], and
-  the identical mechanism one component along. A `h/boundary`'s
+  the identical mechanism one component along. An `h/error-boundary`'s
   `:fallback` and its
   `:children` are hiccup **data**, written in the parent boundary's body
   — and both are **lowered inside the class component's own React
@@ -35,7 +35,7 @@
   are here because they need exactly what [[watched-root!]] already
   builds: a refusal raised inside the class's own `render` escapes to the
   boundary ABOVE, so reading it takes a watcher. The claim is that
-  `h/boundary`'s four props are a CLOSED roster and a shape, refused
+  `h/error-boundary`'s four props are a CLOSED roster and a shape, refused
   rather than dropped — `{:on-errors …}` used to mint, cross `rfProps`
   intact and be consulted by nothing, and `{:on-error :app/failed}` used
   to reach `report!`'s `:else nil` and swallow every caught error.
@@ -54,7 +54,7 @@
      end to end;
   2. an **`h/fn` at an event position on a function fallback** dispatches
      what it returns, closing over the error the fallback was handed;
-  3. a **bare intent vector on a native child** of `h/boundary`
+  3. a **bare intent vector on a native child** of `h/error-boundary`
      dispatches;
   4. an **`h/fn` on a native child** does;
   5. the intent lands in the frame the **boundary** was mounted under,
@@ -82,8 +82,8 @@
   A throw while the boundary lowers its own fallback or children escapes
   the class and lands on the **next** boundary above it, and React does
   not print the `ex-info` it swallowed. [[watched-root!]] puts an
-  ordinary `h/boundary` there for no reason except to catch that and hand
-  it to the assertion message, so a mutation names
+  ordinary `h/error-boundary` there for no reason except to catch that
+  and hand it to the assertion message, so a mutation names
   `:rf.error/hicasso-intent-outside-boundary` in the test output rather
   than in a browser console somebody has to go and read. Its own fallback
   is deliberately intent-free — it is the instrument, and an instrument
@@ -170,10 +170,10 @@
 (def ^:private !caught (atom nil))
 
 (defn- watched-root!
-  "Mount `hiccup` under an ordinary `h/boundary` whose only job is to
-  catch what the subject threw and hand it to the assertion message. Its
-  fallback and its `:on-error` are intent-free: an instrument that fails
-  the way the subject fails measures nothing."
+  "Mount `hiccup` under an ordinary `h/error-boundary` whose only job is
+  to catch what the subject threw and hand it to the assertion message.
+  Its fallback and its `:on-error` are intent-free: an instrument that
+  fails the way the subject fails measures nothing."
   [frame-kw hiccup]
   (reset! !caught nil)
   (mount/root! (mount/fresh-container!) frame-kw
@@ -237,8 +237,8 @@
 
 (h/defview child-intent-screen
   "The CHILDREN half. Nothing throws here: these are ordinary native
-  children of `h/boundary`, written in this body and lowered one render
-  later inside the class's."
+  children of `h/error-boundary`, written in this body and lowered one
+  render later inside the class's."
   [_]
   [boundary {:fallback [:p.fb "unused — nothing throws on this screen"]}
    [:div.body
@@ -315,7 +315,7 @@
           (finally (mount/release! handle)))))))
 
 ;; ---------------------------------------------------------------------------
-;; 3 — a bare intent vector on a native child of h/boundary
+;; 3 — a bare intent vector on a native child of h/error-boundary
 ;; ---------------------------------------------------------------------------
 
 (deftest a-native-child-of-a-boundary-dispatches-its-inline-intent
@@ -465,8 +465,8 @@
               (is (= #{"useContext" "useSyncExternalStore"} (set names))
                   (str "every dispatcher read on this page belongs to a "
                        "`defview` SHELL — the two `collector/shell-hook-ledger` "
-                       "declares. Two `h/boundary` classes are in this tree "
-                       "(the watcher and the subject) and between them they "
+                       "declares. Two `h/error-boundary` classes are in this "
+                       "tree (the watcher and the subject) and between them they "
                        "contributed none. Raw: " (pr-str names)))
               (is (= 2 (count collector/shell-hook-ledger) (count (distinct names)))
                   "and the declared shell ledger is the measured roster")

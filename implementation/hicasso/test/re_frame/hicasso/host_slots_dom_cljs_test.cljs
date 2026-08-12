@@ -584,7 +584,7 @@
       (fresh!)
       (reset! !caught nil)
       (let [handle (mount/root! (mount/fresh-container!) frame-id
-                                [h/boundary
+                                [h/error-boundary
                                  {:fallback [:p.escaped "the slot refused"]
                                   :on-error (fn [e] (reset! !caught e))}
                                  [thrown-slot-screen {}]])]
