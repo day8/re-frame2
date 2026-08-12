@@ -16,6 +16,7 @@
 | **[DERIVED]** | Follows by direct reading of quoted normative text or of source in this repository. Overturn the reading and the conclusion goes. |
 | **[INFERRED]** | This page's conclusion from evidence the record does not itself draw. Weakest class — check it before relying on it. |
 | **[OPEN]** | Not adjudicable from the current evidence. What would settle it is named. |
+| **[SETTLED]** | Was **[OPEN]**; a later bead ran what this page named and settled it. The bead, the ablation and the result are named — including when nothing this page decided changes. |
 
 Governing documents: [specification §3.4](specification.md#34-capability-pays-rent)
 and [§6](specification.md#6-performance-contract), the
@@ -45,9 +46,13 @@ and [§6](specification.md#6-performance-contract), the
    three routes that could close it are priced below for the operator.
 
 What this page does **not** decide is in [§6](#6-what-this-page-does-not-decide).
-The largest item there is the mechanism of a `+139 B/read` move the package
-re-pin found; it is not needed for any verdict above, and the ablation that would
-name it is stated rather than guessed at.
+The `+139 B/read` move the package re-pin found is no longer on that list: the
+ablation §6 named has since been run (`rf2-l50z`), and it attributed the whole
+move to a single ratom-only correctness line in `wire-cell!`. **No figure above
+moves** — S3 is still `1,417 B/read` — because the attribution names what that
+cost buys rather than removing it. What §6 still leaves open is the ratom
+family's missing clock and migration contrasts, and whether a Hicasso-owned
+derived-value container could beat the spine.
 
 ---
 
