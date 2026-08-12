@@ -162,10 +162,17 @@
                 ;; `hicasso/src` and outside the artefact's published :paths:
                 ;; the kit is reachable when a test uses it and unreachable
                 ;; otherwise, so bundle-isolation holds by construction rather
-                ;; than by review. The namespace is not `*-cljs-test`, so no
-                ;; test-selecting ns-regexp matches it; its witnesses live
-                ;; under `hicasso/test` with everything else the lane runs.
+                ;; than by review. No namespace under it is `*-cljs-test`, so
+                ;; no test-selecting ns-regexp matches the KIT itself.
                 "hicasso/test_kit/src"
+                ;; rf2-kyum — the kit's own witnesses. Most of them live under
+                ;; `hicasso/test` with everything else the lane runs; this root
+                ;; exists so a witness can be written while `hicasso/test` is
+                ;; held by another branch, and so the kit's src root stays free
+                ;; of test namespaces. Same discovery as `hicasso/test`: the
+                ;; suffix picks the lane (`-dom-cljs-test` → `:browser-test`,
+                ;; and `cljs-test$` → the always-on `:node-test` gate).
+                "hicasso/test_kit/test"
                 ;; rf2-hic-016 — the controlled-input testbed. A standalone
                 ;; app under hicasso/testbed/ whose fields are the §4.2
                 ;; policy family (accept / refuse / normalise / reset), and
