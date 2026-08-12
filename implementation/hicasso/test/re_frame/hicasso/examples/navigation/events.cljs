@@ -117,8 +117,11 @@
 (rf/reg-event ::pane-shown
   {:doc "The routes' `:on-match`. A navigation committed, so ask for focus
   to move to whichever pane is now on screen."}
+  ;; `:fx`, not a top-level effect key: re-frame2's effect map is CLOSED at
+  ;; `{:db … :fx …}`, so a classic `{::focus-heading …}` return is not an
+  ;; effect at all.
   (fn [_ _]
-    {::focus-heading {:selector heading-selector}}))
+    {:fx [[::focus-heading {:selector heading-selector}]]}))
 
 (rf/reg-fx ::focus-heading
   {:doc       "Move focus to the element `:selector` names, on the first
