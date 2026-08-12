@@ -359,7 +359,10 @@
             `:host-opaque` and stays so. What is measured is narrower and is
             the point: `:peak-epoch` on THIS boundary does not separate these
             two intents, and a spike that had asserted its expectation without
-            driving it would have published the opposite."
+            driving it would have published the opposite.
+
+            The row BELOW says why the root moves, and the reason is a read the
+            root's body does not look like it makes."
     (boot!)
     (let [release (mount-feed!)
           root-0  (peak-of ::subs/token)]
@@ -374,27 +377,48 @@
             "and so does the theme, so the two are not told apart by this number"))
       (release))))
 
-(deftest the-root-boundarys-answer-does-not-diverge-and-that-is-the-reads-limit
-  (testing "the same two intents that the CHROME answers differently, the ROOT
-            answers identically — because the root holds no read either intent
-            distinguishes. The read's discriminating power is a property of the
-            boundary's edge set, not of the read, and an agent that asked only
-            the root would learn nothing about which switch happened.
+(deftest the-root-holds-a-string-read-its-own-body-does-not-look-like-it-holds
+  (testing "WHY the root moves on a locale switch, which the row above measured
+            and could not explain — and the sharpest thing this spike found.
 
-            This row is a negative and is asserted as one: two measured values
-            compared to each other, with no literal to drift."
+            `views/app` reads two theme tokens and the route id. It also reads
+            the string table, and the reason is not visible where a reader
+            looks for reads: the `h/error-boundary` fallback is MARKUP written
+            in the root's own body, so `(h/sub [::subs/t :app/pane-error])`
+            inside it is evaluated when the root runs — not when the boundary
+            catches. The root therefore holds a `::t` edge and re-stamps on
+            every locale change, for a string that is on screen only after a
+            pane has thrown.
+
+            Nothing is wrong here and the slice is not being accused of a bug:
+            the fallback has to be built somewhere and its own docstring
+            explains why it is built there. What is being recorded is that the
+            edge is a RUNTIME fact this read states outright and a reading of
+            the body does not, which is the whole question the spike was set."
     (boot!)
-    (let [release-a (mount-feed!)]
-      (go! [::events/set-locale :fr])
-      (let [after-locale (latest-sub-ids (explanation-for (tool/explain-render) ::subs/token))]
-        (release-a)
+    (let [release (mount-feed!)
+          root    (explanation-for (tool/explain-render) ::subs/token)]
+      (is (some? root))
+      (is (holds? root ::subs/t)
+          "the root's own edge set holds the string table")
+      (is (holds? root :rf.route/id)
+          "beside the route id, which its body reads plainly")
+      (release))
 
-        (boot!)
-        (let [release-b    (mount-feed!)
-              _            (go! [::events/set-theme {:theme :dark}])
-              after-theme  (latest-sub-ids (explanation-for (tool/explain-render) ::subs/token))]
-          (is (seq after-locale) "both answers are non-empty")
-          (is (contains? after-locale ::subs/token))
-          (is (= after-locale after-theme)
-              "and they are the SAME answer — the root cannot tell the two apart")
-          (release-b))))))
+    (boot!)
+    (let [release-a    (mount-feed!)
+          _            (go! [::events/set-locale :fr])
+          after-locale (latest-sub-ids (explanation-for (tool/explain-render) ::subs/token))]
+      (release-a)
+      (boot!)
+      (let [release-b   (mount-feed!)
+            _           (go! [::events/set-theme {:theme :dark}])
+            after-theme (latest-sub-ids (explanation-for (tool/explain-render) ::subs/token))]
+        (is (= #{::subs/t} after-locale)
+            "so the ROOT diverges too: a locale switch leaves the string table
+             standing at its maximum")
+        (is (= #{::subs/token} after-theme)
+            "and a theme switch leaves the tokens there instead")
+        (is (not= after-locale after-theme)
+            "two intents, one boundary, two answers")
+        (release-b)))))
