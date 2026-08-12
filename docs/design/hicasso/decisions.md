@@ -303,6 +303,17 @@ dogfood failure *on state ceremony* triggers the sugar iteration, not a raw
 kill: HD-009 deliberately ships nothing in v0 while the controls kit that
 carries drafts is also post-v0, so ceremony complaints in v0 are expected
 signal, not verdicts.
+*(Amended 2026-08-12 by operator ruling — Mike, in session, 17:36 AUSEST,
+`rf2-xpq9`, following `rf2-sh56` the same day: **the controls kit that carries
+drafts is no longer post-v0.** `re-frame.hicasso.forms/buffered-field` shipped
+in v0, and every Phase 5 item is now v0 scope. Both premises of the sentence
+above have therefore lapsed — the 2026-08-04 addendum already superseded "ships
+nothing in v0" by ruling `h/reg-state` into v0 — so a v0 ceremony complaint is
+now made against a v0 that HAS both the sugar and the drafts kit, which is
+closer to a verdict than to expected signal. Whether that changes the
+conclusion this sentence supports — iteration rather than a raw kill — is the
+operator's to say; this note records that its support is gone, and rules
+nothing.)*
 
 ## HD-010 — Theming; no native context API
 
@@ -1307,6 +1318,25 @@ candidate second call site appears. The composition value path reopens on
 > **Status.** Four pieces have since landed on the now-closed beads
 > `rf2-2rtt6.84`–`.87`: the hydration door, the `defhost` `:ssr` policy, the
 > Node render entry, and the X1–X5 spike witness.
+
+> **Addendum, 2026-08-12 — the bounded Node/React SSR service is V0 scope, and
+> its "named caller" condition is REMOVED (operator ruling, `rf2-xpq9`).** The
+> 2026-08-04 addendum above made SSR + hydration required scope but left the
+> *service* — the deployable Node/React renderer behind that contract — waiting
+> on a named caller, which is how `specification.md`'s Phase 5 ladder and its
+> definition of done both read it, and how `rf2-hic-056` was written. Mike ruled
+> in session at 17:36 AUSEST on 2026-08-12 that every Phase 5 item is completed
+> as part of v0, this one included: the service is built in v0 to its own spec —
+> immutable request snapshots, allowlisted state, build identity, bounded
+> isolate concurrency, hard termination, and a pre-registered caller latency
+> envelope. `rf2-hic-056`'s `[DORMANT]` marker is lifted accordingly.
+>
+> **What does not move.** The per-surface hydration contract was already
+> mandatory and never waited on this service, and R0's "never a parallel
+> Hicasso-only mechanism" stands: the service hosts Spec 011's story, it does
+> not fork it. SSR *speed* stays off the bar. Clauses (a)–(c) of the ruling
+> below are untouched, and (d) remains the dated record of what v0 was
+> originally scoped to.
 
 **Ruling.** (a) **Frame plumbing**: each boundary reads the frame once via the
 substrate's single internal context, then binds it ambiently for the render's
