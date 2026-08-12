@@ -57,9 +57,10 @@ govern when Arm B implementation begins — graduation did not start it.
 
 **A fourth status fact, added 2026-08-13 (`rf2-k6bv`, from the merged-PR audit
 of #8029): the last sentence above was already false when it was written, and
-Arm B is half-built.** The status fact it corrects is the *only* thing that
-moves; the sentence is left standing so the chronology is legible. **Graduation
-still did not start this arm** — but a *separate and earlier* ruling did.
+Arm B is half-built.** Nothing on this page moves except this paragraph and one
+table-column heading in §5; the sentence above is left standing rather than
+rewritten, because the chronology is the finding. **Graduation still did not
+start this arm** — but a *separate and earlier* ruling did.
 `rf2-xpq9` (operator, in session, 2026-08-12 17:36 AUSEST) made every Phase-5
 optional product v0 scope and removed `rf2-hic-056`'s *"when a named caller
 activates it"* condition, and **PR #8028 landed the bounded Node/React service
