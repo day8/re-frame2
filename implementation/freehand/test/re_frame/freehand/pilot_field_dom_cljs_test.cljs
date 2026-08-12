@@ -216,11 +216,10 @@
         (.then (fn [_]
                  (live!)
                  (js/Promise.resolve (f container))))
-        (.then (fn [_] (teardown! container root) (done)))
         (.catch (fn [e]
                   (is false (str "the mounted pilot rejected: " e))
-                  (teardown! container root)
-                  (done))))))
+                  nil))
+        (.then (fn [_] (teardown! container root) (done))))))
 
 ;; ===========================================================================
 ;; R-A1 — same-tick echo, through the library's own event site
@@ -568,11 +567,10 @@
                     (is (.contains (.closest c2 "[data-component='acme/field']")
                                    (.getElementById js/document id2))
                         "line 2's aria-describedby resolves inside line 2's own field"))))
-              (.then (fn [_] (teardown! container root) (done)))
               (.catch (fn [e]
                         (is false (str "the mounted pilot rejected: " e))
-                        (teardown! container root)
-                        (done)))))))))
+                        nil))
+              (.then (fn [_] (teardown! container root) (done)))))))))
 
 (deftest pilot-two-instances-a-lossy-slug-collapsed-keep-distinct-mounted-ids
   (testing "rf2-drpa3.146 (mounted). The collision the numeric line-id test
@@ -615,11 +613,10 @@
                         "the \"a/b\" region resolves by document id")
                     (is (some? (.getElementById js/document id2))
                         "the \"a-b\" region resolves by document id"))))
-              (.then (fn [_] (teardown! container root) (done)))
               (.catch (fn [e]
                         (is false (str "the mounted pilot rejected: " e))
-                        (teardown! container root)
-                        (done)))))))))
+                        nil))
+              (.then (fn [_] (teardown! container root) (done)))))))))
 
 (deftest pilot-two-emoji-instances-keep-distinct-mounted-ids
   (testing "rf2-drpa3.146, audit reopen (mounted). The collision a lossy first
@@ -668,11 +665,10 @@
                         "the 😀 region resolves by document id")
                     (is (some? (.getElementById js/document id2))
                         "the 😁 region resolves by document id"))))
-              (.then (fn [_] (teardown! container root) (done)))
               (.catch (fn [e]
                         (is false (str "the mounted pilot rejected: " e))
-                        (teardown! container root)
-                        (done)))))))))
+                        nil))
+              (.then (fn [_] (teardown! container root) (done)))))))))
 
 (deftest pilot-a-typed-instance-and-its-string-namesake-keep-distinct-mounted-ids
   (testing "rf2-drpa3.146, audit follow-up (mounted). The narrowed codec keeps
@@ -718,11 +714,10 @@
                         "the `:a` region resolves by document id")
                     (is (some? (.getElementById js/document id2))
                         "the \"a\" region resolves by document id"))))
-              (.then (fn [_] (teardown! container root) (done)))
               (.catch (fn [e]
                         (is false (str "the mounted pilot rejected: " e))
-                        (teardown! container root)
-                        (done)))))))))
+                        nil))
+              (.then (fn [_] (teardown! container root) (done)))))))))
 
 ;; ===========================================================================
 ;; The compiled cell, re-opened — the pilot's compiled twin mounts
@@ -757,11 +752,9 @@
                       (is (some? node)
                           (str "the compiled twin mounted the " nm " control"))
                       (is (= v (.-value node))
-                          (str nm " holds its seeded value"))))
-                  (teardown! container root)
-                  (done)))
+                          (str nm " holds its seeded value"))))))
               (.catch
                 (fn [e]
                   (is false (str "the compiled pilot rejected: " e))
-                  (teardown! container root)
-                  (done)))))))))
+                  nil))
+              (.then (fn [_] (teardown! container root) (done)))))))))

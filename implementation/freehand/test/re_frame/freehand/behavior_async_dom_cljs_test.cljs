@@ -599,9 +599,9 @@
               (.then (fn [_]
                        (is (= [[:acquire 1 [1 2]] [:set-spec 1 [1 2]] [:dispose 1]] @ops)
                            "unmount released it, exactly once")
-                       (released! "FH-BEHAVIOR-005 — after teardown")
-                       (done)))
-              (.catch (fn [e] (is false (str "mount rejected: " e)) (done)))))))))
+                       (released! "FH-BEHAVIOR-005 — after teardown")))
+              (.catch (fn [e] (is false (str "mount rejected: " e)) nil))
+              (.then (fn [_] (done)))))))))
 
 ;; ===========================================================================
 ;; 2 — THE HEADLINE: unmount BEFORE the Promise resolves
@@ -656,9 +656,9 @@
                        (is (= [false] (accepted))
                            "and its outward dispatch was REFUSED — the context is
                             fenced to a generation that is gone")
-                       (released! "FH-BEHAVIOR-005 — after the late arrival")
-                       (done)))
-              (.catch (fn [e] (is false (str "mount rejected: " e)) (done)))))))))
+                       (released! "FH-BEHAVIOR-005 — after the late arrival")))
+              (.catch (fn [e] (is false (str "mount rejected: " e)) nil))
+              (.then (fn [_] (done)))))))))
 
 ;; ===========================================================================
 ;; 3 — config that moves while the acquisition is in flight
@@ -700,9 +700,9 @@
                        (ms/act #(ms/destroy-root! container root))))
               (.then (fn [_]
                        (is (= [:dispose 1] (last @ops)) "and it still releases once")
-                       (released! "FH-BEHAVIOR-005 — after teardown")
-                       (done)))
-              (.catch (fn [e] (is false (str "mount rejected: " e)) (done)))))))))
+                       (released! "FH-BEHAVIOR-005 — after teardown")))
+              (.catch (fn [e] (is false (str "mount rejected: " e)) nil))
+              (.then (fn [_] (done)))))))))
 
 ;; ===========================================================================
 ;; 4 — a failure that arrives after teardown
@@ -739,9 +739,9 @@
                             has already settled the connection is terminal")
                        (is (= [false] (accepted))
                            "and its dispatch was refused, because the view is gone")
-                       (released! "FH-BEHAVIOR-005 — after the late rejection")
-                       (done)))
-              (.catch (fn [e] (is false (str "mount rejected: " e)) (done)))))))))
+                       (released! "FH-BEHAVIOR-005 — after the late rejection")))
+              (.catch (fn [e] (is false (str "mount rejected: " e)) nil))
+              (.then (fn [_] (done)))))))))
 
 ;; ===========================================================================
 ;; 5 — a command while the host is still pending
@@ -792,9 +792,9 @@
                        (ms/act #(ms/destroy-root! container root))))
               (.then (fn [_]
                        (is (= [:dispose 1] (last @ops)))
-                       (released! "FH-BEHAVIOR-005 — after teardown")
-                       (done)))
-              (.catch (fn [e] (is false (str "mount rejected: " e)) (done)))))))))
+                       (released! "FH-BEHAVIOR-005 — after teardown")))
+              (.catch (fn [e] (is false (str "mount rejected: " e)) nil))
+              (.then (fn [_] (done)))))))))
 
 ;; ===========================================================================
 ;; 6 — THE FINALIZER FAILS, on the first release
@@ -864,13 +864,13 @@
                             than routing or swallowing it")
                        (is (= [[:chart/ready :main]] (events))
                            "and the teardown announced nothing of its own — the only
-                            event is the one the successful install sent")
-                       (close-door)
-                       (done)))
+                            event is the one the successful install sent")))
               (.catch (fn [e]
-                        (close-door)
                         (is false (str "case rejected: " e))
-                        (done)))))))))
+                        nil))
+              (.then (fn [_]
+                       (close-door)
+                       (done)))))))))
 
 ;; ===========================================================================
 ;; 7 — the same failure, on the LATE-SUCCESS finalizer
@@ -928,10 +928,10 @@
                             continuation is an unhandled rejection, not a React error")
                        (is (= [] (events))
                            "so the :chart/abandoned announcement AFTER the dispose never
-                            ran: a refusing host takes the notification with it")
-                       (close-door)
-                       (done)))
+                            ran: a refusing host takes the notification with it")))
               (.catch (fn [e]
-                        (close-door)
                         (is false (str "case rejected: " e))
-                        (done)))))))))
+                        nil))
+              (.then (fn [_]
+                       (close-door)
+                       (done)))))))))
