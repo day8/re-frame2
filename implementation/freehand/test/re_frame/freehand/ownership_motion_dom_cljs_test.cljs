@@ -342,9 +342,18 @@
                        (ms/remove-node! container)
                        (is (= (:after-unmount react-010)
                               {:roots (count (root/live-root-ids))}))
-                       (released! "FH-REACT-010 — after the uncontested case")
-                       (done)))
-              (.catch (fn [e] (is false (str "case rejected: " e)) (done)))))))))
+                       (released! "FH-REACT-010 — after the uncontested case")))
+              ;; Reports and RELEASES; it never finishes (rf2-o0n1). `done` runs
+              ;; the whole remainder of the run synchronously, so a `.catch`
+              ;; downstream of it would claim a later namespace's throw as this
+              ;; row's and fire `done` a second time.
+              ;;
+              ;; Nothing is hoisted onto the trailing step: the node removal and
+              ;; the residue reading are the SUCCESS arm's, and a second failure
+              ;; attributed to the leak rule would bury the one that actually
+              ;; happened.
+              (.catch (fn [e] (is false (str "case rejected: " e)) nil))
+              (.then (fn [_] (done)))))))))
 
 ;; ===========================================================================
 ;; 2 — two writers: the commit wins, and the library does not know
@@ -399,9 +408,11 @@
                   (ms/act (fn [] (v/unmount! mounted) nil))))
               (.then (fn [_]
                        (ms/remove-node! container)
-                       (released! "FH-REACT-010 — after the contested case")
-                       (done)))
-              (.catch (fn [e] (is false (str "case rejected: " e)) (done)))))))))
+                       (released! "FH-REACT-010 — after the contested case")))
+              ;; Reports and RELEASES, as above; nothing to hoist for the same
+              ;; reason.
+              (.catch (fn [e] (is false (str "case rejected: " e)) nil))
+              (.then (fn [_] (done)))))))))
 
 ;; ===========================================================================
 ;; 3 — one exit-retention owner
@@ -462,6 +473,8 @@
                        (ms/remove-node! container)
                        (is (= (:after-unmount react-010)
                               {:roots (count (root/live-root-ids))}))
-                       (released! "FH-REACT-010 — after the retention case")
-                       (done)))
-              (.catch (fn [e] (is false (str "case rejected: " e)) (done)))))))))
+                       (released! "FH-REACT-010 — after the retention case")))
+              ;; Reports and RELEASES, as above; nothing to hoist for the same
+              ;; reason.
+              (.catch (fn [e] (is false (str "case rejected: " e)) nil))
+              (.then (fn [_] (done)))))))))

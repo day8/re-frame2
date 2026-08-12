@@ -151,13 +151,15 @@
                        (is (not (present? container "b"))
                            "the timeout removed b terminally — its subtree is unmounted")
                        (is (= 0 (presence/pending-count))
-                           "and the exit fired exactly once, leaving nothing pending")
-                       (teardown! container root)
-                       (done)))
-              (.catch (fn [e]
-                        (is false (str "mount rejected: " e))
-                        (teardown! container root)
-                        (done)))))))))
+                           "and the exit fired exactly once, leaving nothing pending")))
+              ;; Reports and RELEASES; it never finishes (rf2-o0n1). `done` runs
+              ;; the whole remainder of the run synchronously, so a `.catch`
+              ;; downstream of it would claim a later namespace's throw as this
+              ;; row's and fire `done` a second time.
+              (.catch (fn [e] (is false (str "mount rejected: " e)) nil))
+              ;; Both arms tore down identically, so the teardown rides the
+              ;; single trailing step: written once, run once per path.
+              (.then (fn [_] (teardown! container root) (done)))))))))
 
 ;; ===========================================================================
 ;; FH-PRESENCE-003 — re-entry cancels the exit
@@ -194,13 +196,11 @@
                        (act #(presence/flush-presence!))))
               (.then (fn [_]
                        (is (present? container "b")
-                           "a flush after re-entry leaves the re-entered child mounted")
-                       (teardown! container root)
-                       (done)))
-              (.catch (fn [e]
-                        (is false (str "mount rejected: " e))
-                        (teardown! container root)
-                        (done)))))))))
+                           "a flush after re-entry leaves the re-entered child mounted")))
+              ;; Reports and RELEASES, as above.
+              (.catch (fn [e] (is false (str "mount rejected: " e)) nil))
+              ;; Shared teardown, hoisted onto the single trailing step.
+              (.then (fn [_] (teardown! container root) (done)))))))))
 
 (deftest the-fixture-is-loaded
   (testing "Non-vacuity: the browser assertions read their expectations from

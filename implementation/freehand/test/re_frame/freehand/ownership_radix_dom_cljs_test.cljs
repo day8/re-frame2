@@ -397,9 +397,18 @@
                       "FH-REACT-009 — and nothing survived, INCLUDING the node
                        React put outside the container, which no container-scoped
                        teardown would have reached")
-                  (released! "FH-REACT-009 — after the compound teardown")
-                  (done)))
-              (.catch (fn [e] (is false (str "case rejected: " e)) (done)))))))))
+                  (released! "FH-REACT-009 — after the compound teardown")))
+              ;; Reports and RELEASES; it never finishes (rf2-o0n1). `done` runs
+              ;; the whole remainder of the run synchronously, so a `.catch`
+              ;; downstream of it would claim a later namespace's throw as this
+              ;; row's and fire `done` a second time.
+              ;;
+              ;; Nothing is hoisted onto the trailing step: the node removal and
+              ;; the residue readings are the SUCCESS arm's, and a second failure
+              ;; attributed to the leak rule would bury the one that actually
+              ;; happened.
+              (.catch (fn [e] (is false (str "case rejected: " e)) nil))
+              (.then (fn [_] (done)))))))))
 
 ;; ===========================================================================
 ;; 2 — the withheld promise, measured
@@ -449,6 +458,8 @@
               (.then
                 (fn [_]
                   (ms/remove-node! container)
-                  (released! "FH-REACT-009 — after the clone probes")
-                  (done)))
-              (.catch (fn [e] (is false (str "case rejected: " e)) (done)))))))))
+                  (released! "FH-REACT-009 — after the clone probes")))
+              ;; Reports and RELEASES, as above; nothing to hoist for the same
+              ;; reason.
+              (.catch (fn [e] (is false (str "case rejected: " e)) nil))
+              (.then (fn [_] (done)))))))))
