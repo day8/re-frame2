@@ -495,11 +495,12 @@
                      (is (= 300 (scroll-y))
                          (str "a `:restore` with nothing saved for this URL must
                               leave the page where it is; it reads " (scroll-y)
-                              ". " deep-offset " here would mean the cache had
-                              handed back the LIST's position — a restore keyed
-                              by \"the last thing saved\" rather than by URL,
-                              which passes the positive row and puts every user
-                              at somebody else's scroll offset"))
+                              ". The LIST's offset (" deep-offset ") appearing
+                              here would mean the cache had handed back somebody
+                              else's position — a restore keyed by \"the last
+                              thing saved\" rather than by URL, which passes the
+                              positive row and puts every user at an offset they
+                              never chose"))
                      (two-frames)))
             (.then (fn [_]
                      (is (= 300 (scroll-y))
