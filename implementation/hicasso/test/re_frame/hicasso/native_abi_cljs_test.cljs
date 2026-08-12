@@ -18,6 +18,7 @@
   | [[the-taught-spellings-decode-to-themselves]] | `className` comes back as `:class`, not as `:class-name` | a missing rename table, which row 1 passes with because both spellings emit into `className` |
   | [[a-native-parents-props-arrive-as-the-views-own-props-map]] | the outward bridge's whole promise, measured in the body | a bridge that handed the body the raw JavaScript object — the second ABI clause 5 forbids |
   | [[the-outward-bridge-adds-no-refusal-of-its-own]] | a bad head refuses through the codec's own id and coordinate | a bridge that minted a private complaint, which is a spelling no catalogue carries |
+  | [[the-children-a-body-reads-are-the-same-through-either-crossing]] | ONE body, rendered from a hiccup parent and from a React parent at 0, 1 and N children, reads the same `:children` — the falsifiable form of the ABI-preserving claim | copying React's `props.children` through unchanged, which is a vector at two children and the element itself at one (audit #7874) |
   | [[n-memo-keeps-the-marker-where-a-raw-react-memo-loses-it]] | the helper's entire reason to exist, with its own control beside it | a `memo` that forwarded the call and stamped nothing |
   | [[n-lazy-is-a-native-head-from-the-moment-it-is-declared]] | a code-split head is recognisable during the whole window it is waiting | a marker minted inside the loader — nil until the chunk lands |
   | [[a-lazy-region-is-client-only-whatever-its-component-declared]] | the server never sent the chunk, so no declaration can make bytes exist | copying `:server` off the loaded component |
@@ -74,6 +75,27 @@
   (reset! !received props)
   [:article {:class (:class props)} (str "#" (:article-id props))])
 
+(defonce ^:private !roster
+  ;; The props map [[child-roster]] was handed, whichever crossing filled
+  ;; it. Held whole for the same reason as `!received`: the parity row is
+  ;; about `(find props :children)`, and absent is not nil.
+  (atom nil))
+
+(h/defview child-roster
+  "A view whose whole body is the ABI under test: it SPLICES its
+  children. Written once and rendered through both crossings, so the
+  parity row compares one body's own reading rather than two bodies that
+  happen to agree — and the splice is the falsifier, because `into` over
+  a lone React element or a JavaScript array is not a thing that
+  quietly renders wrong, it is a thing that throws."
+  [props]
+  (reset! !roster props)
+  (into [:ul] (:children props)))
+
+(def ^:private roster-bridged
+  ;; Minted ONCE, at top level, as the bridge's own law requires.
+  (h/as-component child-roster))
+
 (n/defcomponent quote-cell*
   "A pure display island, the sort worth memoising."
   [^js props]
@@ -100,6 +122,23 @@
   (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) false)
   (rf/make-frame {:id frame-id})
   (react-dom-server/renderToStaticMarkup (mount/provider frame-id element)))
+
+(defn- through-hiccup
+  "Render [[child-roster]] with `kids` from a HICCUP parent, and answer
+  what the body saw beside what the page became."
+  [& kids]
+  (reset! !roster nil)
+  (let [markup (render-outward! (h/as-element (into [child-roster {}] kids)))]
+    {:markup markup :props @!roster}))
+
+(defn- through-react
+  "The same view, the same children, from a REACT parent — the outward
+  bridge. `createElement`'s variadic children are the shape a JSX parent
+  writes, so this is the crossing a consumer actually has."
+  [& kids]
+  (reset! !roster nil)
+  (let [markup (render-outward! (apply react/createElement roster-bridged nil kids))]
+    {:markup markup :props @!roster}))
 
 (defn- refusal
   [f]
@@ -228,8 +267,12 @@
 
     (testing "React's children arrive at `:children`, which is the slot a
               hiccup caller's children land in too — one spelling,
-              whichever side of the bridge filled it"
-      (is (react/isValidElement (:children props))))
+              whichever side of the bridge filled it, and the vector the
+              slot means there. The SHAPE parity across every arity is
+              [[the-children-a-body-reads-are-the-same-through-either-crossing]]"
+      (is (vector? (:children props)))
+      (is (= 1 (count (:children props))))
+      (is (react/isValidElement (first (:children props)))))
 
     (testing "and the internal crossing is nowhere in what the body was
               given: the bridge decodes INTO the props map, so no
@@ -259,6 +302,71 @@
             the extra fiber belongs to"
     (is (= "hicasso/as-component(re-frame.hicasso.native-abi-cljs-test/article-card)"
            (.-displayName (h/as-component article-card))))))
+
+(deftest the-children-a-body-reads-are-the-same-through-either-crossing
+  (let [one   (react/createElement "li" #js {:key "a"} "one")
+        two   (react/createElement "li" #js {:key "b"} "two")
+        three (react/createElement "li" #js {:key "c"} "three")]
+
+    (testing "NO children: `:children` is ABSENT on both sides, not
+              present-and-empty — so `(when-some [cs (:children props)] …)`
+              answers the same question whichever parent asked it"
+      (let [hiccup (through-hiccup)
+            bridge (through-react)]
+        (is (nil? (find (:props hiccup) :children)))
+        (is (nil? (find (:props bridge) :children)))
+        (is (= "<ul></ul>" (:markup hiccup) (:markup bridge)))))
+
+    (testing "ONE child: a vector of one on both sides. THIS IS THE ROW
+              THE AUDIT REOPENED THIS BEAD FOR — React hands a lone child
+              through as the child ITSELF, and copied across unchanged it
+              made `:children` mean an element here and a vector at two
+              children. The body splices, so the old shape does not render
+              differently: it throws"
+      (let [hiccup (through-hiccup one)
+            bridge (through-react one)]
+        (is (vector? (:children (:props bridge))))
+        (is (= [one] (:children (:props hiccup)) (:children (:props bridge))))
+        (is (identical? one (first (:children (:props bridge))))
+            "and the child crossed by identity, not through a clone —
+             `React.Children.toArray` would re-key it")
+        (is (= "<ul><li>one</li></ul>" (:markup hiccup) (:markup bridge)))))
+
+    (testing "SEVERAL children: a ClojureScript vector, not the JavaScript
+              array React holds them in — `(vector? (:children props))` is
+              the ABI, and a body that reads `(count …)` or `(map … )` or
+              destructures is reading a vector on both crossings"
+      (let [hiccup (through-hiccup one two three)
+            bridge (through-react one two three)]
+        (is (vector? (:children (:props bridge))))
+        (is (= [one two three] (:children (:props hiccup)) (:children (:props bridge))))
+        (is (= "<ul><li>one</li><li>two</li><li>three</li></ul>"
+               (:markup hiccup) (:markup bridge)))))
+
+    (testing "an EMPTY dynamic list is absent, not empty — `{items}` over
+              nothing on the React side and `(for [x []] …)` on the
+              hiccup side are one intent, and a body that renders a
+              wrapper only `when-some` children must not see one on
+              exactly one of them"
+      (let [hiccup (through-hiccup (list))
+            bridge (through-react #js [])]
+        (is (nil? (find (:props hiccup) :children)))
+        (is (nil? (find (:props bridge) :children)))
+        (is (= "<ul></ul>" (:markup hiccup) (:markup bridge)))))
+
+    (testing "and a NESTED array stays one member rather than splicing —
+              the boundary this normalisation stops at, stated rather
+              than discovered. React flattens it at render, so it paints
+              correctly as a member; walking into it here would be the
+              second level of conversion the bridge refuses everywhere
+              else, and the hiccup side's one-level seq splice is not
+              claimed to mirror it"
+      (let [bridge (through-react one #js [two three])
+            kids   (:children (:props bridge))]
+        (is (= 2 (count kids)))
+        (is (identical? one (first kids)))
+        (is (array? (second kids)))
+        (is (= "<ul><li>one</li><li>two</li><li>three</li></ul>" (:markup bridge)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 3. The ABI helpers

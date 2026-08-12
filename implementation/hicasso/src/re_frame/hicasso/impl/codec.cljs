@@ -3700,7 +3700,7 @@
   difference a body sees as `(when-some [cs (:children props)] …)`."
   [c]
   (if (array? c)
-    (when (pos? (alength ^js c)) (vec c))
+    (when (pos? (alength c)) (vec c))
     [c]))
 
 (defn- outward-props
