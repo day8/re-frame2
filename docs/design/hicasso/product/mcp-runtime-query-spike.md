@@ -100,7 +100,7 @@ The evidence is `implementation/hicasso/test/re_frame/hicasso/mcp_runtime_query_
 
 ### The premise this bead was written on did not hold
 
-**The MCP-queryable runtime already ships.** `tools/re-frame2-pair-mcp` exposes three of the four door reads as wire tools today — `read-mounted-boundaries`, `read-read-attribution` and `explain-render` — each an `exists?`-guarded eval of `re-frame.hicasso.tool`, gated against a consumer-owned evidence-schema literal, with `hicasso_wire_test.cljs` holding the wire names and the provider's fn names in agreement. The bead asks for a surface that was built while it sat in the queue.
+**The MCP-queryable runtime already ships.** `tools/re-frame2-pair-mcp` exposes three of the four door reads as wire tools today — `read-mounted-boundaries`, `read-read-attribution` and `explain-render` — each an eval of `re-frame.hicasso.tool` that resolves the door at runtime — `cljs.core/find-ns-obj` on the namespace, since `rf2-t2ec` replaced the original `exists?` guard, whose `:evidence-tier-unavailable` rung was unreachable in any app that had never loaded the door — gated against a consumer-owned evidence-schema literal, with `hicasso_wire_test.cljs` holding the wire names and the provider's fn names in agreement. The bead asks for a surface that was built while it sat in the queue.
 
 So the spike's live question is not *should there be one* but *what is missing from the one there is*, and the answer decides three candidates rather than one.
 
