@@ -27,7 +27,7 @@ Hicasso is the second row, chosen with eyes open; the fourth row stays alive as 
 
 **4. The mount premium is priced, and the amendment is its record.** The canonical K1 record—one estimator producing point and interval together; rf2-diaud / PR #7704—stands at **1.1718x [1.1263–1.2190]** and **1.1976x [1.1504–1.2468]** versus direct UIx, both intervals above the original 1.10x gate: **K1 is missed, decisively**, and remains a miss.
 
-About 70% of that premium is read-count *capability*: ambient `sub` in loops and helpers declares fine reads a hook twin cannot spell; per read, Hicasso is cheaper; read-matched pages run near parity. The dogfood verdict prefers the capability, and the selection is made. The **prospective, scoped amendment** is the selection's honest record — the accepted price, the use-cases it buys, the escape route, and the reconsideration trigger — drafted in Phase 0 and ratified at the sitting; the original result is never recoloured and no threshold widens.
+About 70% of that premium is read-count *capability*: ambient `sub` in loops and helpers declares fine reads a hook twin cannot spell; per read, Hicasso is cheaper; read-matched pages run near parity. The dogfood verdict prefers the capability, and the selection is made. The **scoped amendment** is the selection's honest record — the accepted price, the use-cases it buys, the escape route, and the reconsideration trigger — drafted in Phase 0 and **ratified on 2026-08-13 by operator ruling rather than at the sitting** (see the closing section); the original result is never recoloured and no threshold widens.
 
 Bulk is gated on the Reagent pair only, unresolved and instrument-limited. Heap keeps **three scoreboards, no denominator substitution**: viability against the best shipped path (Reagent, the governed K3 row); architecture progress against the UIx parent (~29% better, reported beside); and author preference (the verdict). None replaces another.
 
@@ -141,7 +141,7 @@ Comparative bands follow: an initial mount ceiling of 1.25x direct UIx; tuned br
 
 Every spike must retain the detailed fence and deciding witness in `lanes/left-field-ideas.md`; this ledger is not permission to build an open-ended experiment.
 
-**First moves now**: the reincarnation-dispatch witness; the `hicasso.test` extraction; the installable package spine; the hot-view advisor; the forms field recipe; the first lint checks; and at the sitting — the K3 disposition and the amendment that names the accepted mount price.
+**First moves now**: the reincarnation-dispatch witness; the `hicasso.test` extraction; the installable package spine; the hot-view advisor; the forms field recipe; the first lint checks. The last two items on this list read *"and at the sitting — the K3 disposition and the amendment that names the accepted mount price"*, and both are now records rather than moves: the amendment was ratified by the 2026-08-13 ruling ([`k1-price-acceptance.md`](k1-price-acceptance.md)) and the K3 disposition is operative by default ([`k3-disposition.md`](k3-disposition.md)), each operator-overturnable.
 
 **Kill rules**: no compiler or dual mode for the hiccup language (`n/$` is a visibly distinct second language, never a second mode of `[...]`), no ViewCell-class graph, no second emitter, for any gate. Bulk above its kill line after the allowed iterations stops or narrows. Standing cost without a paying use-case is refused. Tools without daily consumers build no retained machinery. Thresholds never widen.
 
@@ -149,9 +149,11 @@ Every spike must retain the detailed fence and deciding witness in `lanes/left-f
 
 ## The sitting (2026-08-27) and this document
 
-The direction is selected, so the sitting is a **recording and dispositioning session, not a go/no-go**. Its business is to ratify the price-acceptance amendment as the formal record of the decisive K1 miss: frozen original criterion, purchased use-cases, escape route, and reconsideration trigger. The held instrument is exactly this. It also takes the K3 disposition and assigns the open proof obligations—correctness, bulk, WebKit, and application witnesses—as execution risks inside the selected direction, each with an owner and a phase.
+**The sitting did not happen, and does not need to: the P2 fork was ruled in chat on 2026-08-13 at 04:57 AUSEST — Hicasso graduates, as a success.** The operator is the decider the fork was reserved to, and the ruling pre-empts both the 2026-08-25 packet freeze and the 2026-08-27 sitting. The record is [`decisions.md` HD-029](../decisions.md#hd-029--the-p2-fork-hicasso-graduates-as-a-success); the kill-table dispositions at graduation are in [`validation.md`](../validation.md#the-kill-table-at-graduation--the-p2-ruling-of-2026-08-13); the epic `rf2-2rtt6` carries the ruling in full. Nothing here is restated from those records.
 
-The residual governance is the amendment's reconsideration trigger. The plan is robust under it: the kit, lint, glass laws, recipes, and requirements corpus retain their value regardless.
+What the sitting was booked to do, and where each item landed instead. The direction was already selected, so it was a **recording and dispositioning session, not a go/no-go**. Its business was to ratify the price-acceptance amendment as the formal record of the decisive K1 miss — frozen original criterion, purchased use-cases, escape route, and reconsideration trigger — and that amendment is now **ratified by the ruling**, in [`k1-price-acceptance.md`](k1-price-acceptance.md), with every one of those four parts exactly as drafted and the miss not recoloured. It was also to take the K3 disposition, which stands as the operative record in [`k3-disposition.md`](k3-disposition.md). The open proof obligations — correctness, bulk, WebKit, and application witnesses — are unchanged by the ruling and remain execution risks inside the selected direction, each owed an owner and a phase.
+
+The residual governance is the amendment's reconsideration trigger, which survives ratification and still bites. The plan is robust under it: the kit, lint, glass laws, recipes, and requirements corpus retain their value regardless.
 
 ## Sources
 

@@ -728,6 +728,72 @@ comments in the Wave-1 bench sources. Those are historical: they record why a
 shape was chosen while the criterion stood. They are left intact, and they are
 read against this note.
 
+## The kill table at graduation — the P2 ruling of 2026-08-13
+
+**The P2 fork is ruled: Hicasso graduates, as a success.** Operator ruling given
+directly in chat on 2026-08-13 at 04:57 AUSEST, pre-empting the packet freeze of
+2026-08-25 and the sitting of 2026-08-27; the decision entry is
+[HD-029](decisions.md#hd-029--the-p2-fork-hicasso-graduates-as-a-success) and
+the ruling in full is on the epic `rf2-2rtt6`. This section closes the K7 clock
+and records where each kill criterion stood **at graduation**. It is a record of
+disposition, not of measurement: **no result below is recoloured, no threshold
+widens, and nothing here marks a missed gate as met.**
+
+**K7 is satisfied, and the clock closes with this record.** It ran from the
+first Hicasso-arm commit that mounted the dogfood screen, per
+[HD-014](decisions.md#hd-014--the-clock) — commit `b27df87f42`, 2026-07-31 at
+21:22 AUSEST — which put its six-week boundary at 2026-09-11 ~21:00 AUSEST. The
+fork was ruled on 2026-08-13, **well inside that boundary**, so the clock is
+satisfied on its own terms rather than extended: HD-014 admits extension only by
+explicit operator ruling, and none was sought or given.
+
+**The dispositions, carried verbatim from the
+[decision brief's scoreboard](product/decision-brief.md#part-i--analysis-what-everything-rests-on)**
+so that a reading cannot drift between the two pages. These four rows are quoted
+as published and are not restated, re-derived or re-adjudicated here:
+
+> | Axis | Where it stands |
+> |---|---|
+> | Mount (K1) | **Missed decisively**: 1.1718x / 1.1976x vs direct UIx, canonical, both intervals above 1.10x — the priced capability premium |
+> | Bulk (K2) | Gated on the Reagent pair only (ruled); all gated intervals straddle 1.0 — unresolved, instrument-limited |
+> | Per-read heap (K3) | Misses the governed Reagent row (~1.4x); beats the UIx parent by ~29% — both reported, disposition owed explicitly |
+> | Controlled input | Strong in Chromium; WebKit matrix open (K4) |
+
+What the ruling does and does not do to each, with the record that owns it named
+rather than summarised:
+
+- **K1** — the miss stands exactly as published above and in
+  [§2.1 of the price record](product/k1-price-acceptance.md#21-the-gate-half-missed-decisively).
+  What the ruling adds is **acceptance of the priced premium**: graduating *as a
+  success* with that record on the table ratifies the scoped prospective
+  amendment by ruling rather than by a sitting, which is recorded on
+  [`product/k1-price-acceptance.md`](product/k1-price-acceptance.md). Acceptance
+  of a price is not a pass — the registered `1.10×` gate is untouched and no
+  evidence row may cite the ruling to colour K1 green.
+- **K2** — unresolved and instrument-limited, as the row says. **The `1.5×`
+  architecture kill is not waived by this ruling**, measurement continues under
+  `rf2-8a746`'s protocol, and a later red result bites exactly as registered.
+- **K3** — the row's *disposition owed explicitly* is discharged by
+  [`product/k3-disposition.md`](product/k3-disposition.md), the three-scoreboard
+  record that is operative by default and operator-overturnable; no denominator
+  is substituted and no scoreboard stands in for another.
+- **K4** — the WebKit half of the control matrix is **open and unwitnessed**,
+  which is an evidence limitation the ruling accepts rather than closes; it
+  stays a Phase 1 obligation.
+- **K5** — already removed as an operative kill criterion by operator ruling on
+  2026-08-04, and nothing here revives or replaces it (see the note above).
+- **K6** — untouched. The criterion text stands as registered, and the kill
+  rules banning a compiler, an analyzer or a dual mode stand with it: the K1 line
+  is **priced, not met by a compiler**, so nothing in this ruling reads as
+  licence to build one.
+
+**The scoreboard's non-kill rows are unchanged too**, and the ruling closes none
+of them: the read-free boundary shell is still red against its registered `1 KB`
+paper line and is owned by the Phase 1 substrate adjudication, the correctness
+risk register is still open, and the open proof obligations — a full application
+witness, a serious vendor integration, the WebKit matrix — are execution risks
+inside the selected direction rather than discharged ones.
+
 ## Timing (HD-015)
 
 The programme starts immediately: P0 and the donor arm are ordinary bench-lane

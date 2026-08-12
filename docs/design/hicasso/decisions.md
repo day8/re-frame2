@@ -1,4 +1,4 @@
-# Hicasso — decisions (HD-001 … HD-028)
+# Hicasso — decisions (HD-001 … HD-029)
 
 Every design decision for the Hicasso programme, resolved. Each record carries the
 ruling, the decisive rationale, and the condition under which it reopens. These
@@ -2285,3 +2285,61 @@ to refuse, and makes every `for` site a performance decision.
 **Reopens** if the priced cost moves: if the extra Fiber is later shown to fail the
 retained-heap bar on a shape that matters, the same comparator ships as an explicit
 boundary-level opt-in and HD-006 is restored as the default.
+
+## HD-029 — The P2 fork: Hicasso graduates, as a success
+
+**Ruling.** The P2 fork is ruled: **Hicasso graduates, and the programme's
+outcome is recorded as a SUCCESS.** Given by the operator directly in chat on
+**2026-08-13 at 04:57 AUSEST**, which is the decider
+[HD-013](#hd-013--governance) reserves this ruling to; the advisory passes
+advised it and did not make it, exactly as that entry provides. **It pre-empts
+the planned freeze and sitting** — the packet freeze of 2026-08-25 and the
+sitting of 2026-08-27 were scheduled to put this question, the question is
+answered, and neither is required for the fork. The ruling is recorded in full
+on the epic `rf2-2rtt6` and written into this tree by `rf2-2rtt6.144`; the
+kill-table dispositions as they stand at graduation are in
+[validation.md](validation.md#the-kill-table-at-graduation--the-p2-ruling-of-2026-08-13).
+
+**Consequences, and each one is a consequence rather than a new decision.**
+
+**(a) v0 proceeds in `implementation/hicasso/`**, which is already the live
+tree. [HD-017](#hd-017--code-residence-and-graduation)'s graduation clause is
+executed by this ruling rather than pending it, and
+[HD-018](#hd-018--end-state)'s end state is the one v0 now works toward — on
+its own stated conditions, which this ruling does not discharge.
+
+**(b) The adapters remain first-class alongside it.** Graduating Hicasso is not
+a demotion of the Reagent, reagent-slim and UIx adapters: they stay supported,
+and they remain the standing comparator every Hicasso measurement is taken
+against ([HD-012](#hd-012--the-bar-and-uixs-role-in-it)).
+
+**(c) The held K1 price is accepted, and the amendment is ratified by this
+ruling rather than by a sitting.** Graduating *as a success* with the canonical
+K1 record on the table is the operator's acceptance of the price that record
+prices; [`product/k1-price-acceptance.md`](product/k1-price-acceptance.md)
+carries the accepted price, the use-cases it buys, the escape route and the
+reconsideration trigger, all exactly as drafted, and records this ruling as the
+ratifying act. **The published miss is not recoloured and no threshold widens** —
+acceptance of a price is not a pass, and the figures are cited from their own
+record rather than restated here.
+
+**(d) The K7 clock closes, satisfied.** The six-week clock
+([HD-014](#hd-014--the-clock)) ran from the first dogfood-mounting commit and
+the fork was ruled well inside its boundary; the dates and both endpoints are
+recorded once, in [validation.md](validation.md#the-kill-table-at-graduation--the-p2-ruling-of-2026-08-13).
+
+**(e) The epic closes when this record lands.** `rf2-2rtt6` stays open until the
+governance record carries the ruling, which is what this entry and its four
+sibling sites are.
+
+**Rationale.** The decider named in HD-013 exercised the ruling directly, and a
+ruling given is a ruling: the sitting was the *forum* prepared to obtain one,
+never a condition on the operator's authority to give it. Recording it here, in
+the entry series that HD-013 makes normative, is what keeps the fork's outcome
+where every other Hicasso decision already lives, rather than resident only in a
+tracker note. The direction itself was argued in the
+[decision brief](product/decision-brief.md) and is not re-argued here.
+
+**Reopens** by operator ruling, like every ruling in this repo — and the price
+half carries its own reopen and revert conditions, which are unchanged and live,
+in [`product/k1-price-acceptance.md` §7](product/k1-price-acceptance.md#7-reopen-and-revert).
