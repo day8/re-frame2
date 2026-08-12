@@ -140,12 +140,13 @@ default in the [canonical matrix](lanes/react-compatibility-notes.md#public-surf
 surface is expected to become once its behavior is proved. The operative disposition is what the surface is entitled to
 do *today*. It was Client-only for every row without exception until `rf2-hic-046` began landing witnesses. The native
 tier (HS-24 to HS-30) moved first; the interpreted tier (HS-01 to HS-09 and HS-15) and the declared host, escape, portal
-and lazy rows (HS-16, HS-19, HS-20, HS-22) have since followed. A row that is still Client-only is now so for a **stated
-reason** rather than for want of anyone having looked, and three of those reasons are findings rather than gaps: HS-10,
-HS-12 and HS-13 owe a refusal that no code implements; HS-21's third clause is unreachable for want of a door rather
-than a witness; and HS-33 is measured to satisfy *neither* policy. The operative column is the upgrade slot, owned by
-the per-surface SSR/hydration witness bead `rf2-hic-046`: see
-[2.4](#24-the-default-rule-and-how-a-row-is-upgraded).
+and lazy rows (HS-16, HS-19, HS-20, HS-22) have since followed. Where a witness has reached a row that is still
+Client-only, the row now says **why** rather than merely that no one had looked, and three of those reasons are findings
+rather than gaps: HS-10, HS-12 and HS-13 owe a refusal that no code implements; HS-21's third clause is unreachable for
+want of a door rather than a witness; and HS-33 is measured to satisfy *neither* policy. Five rows are still awaiting a
+first witness and say so in the old form — *refusal until rf2-hic-046*: HS-23, and the optional modules HS-31, HS-32,
+HS-34 and HS-35. The operative column is the upgrade slot, owned by the per-surface SSR/hydration witness bead
+`rf2-hic-046`: see [2.4](#24-the-default-rule-and-how-a-row-is-upgraded).
 
 ### 2.1 Surface inventory and dispositions
 
