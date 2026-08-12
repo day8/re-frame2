@@ -103,6 +103,16 @@ hicasso_controlled=false
 # bundle over http-server, and a compiled bundle cannot hot-reload itself.
 hicasso_hmr=false
 migration_v1_codemod=false
+# rf2-n8vp — the ssr-node package's OWN gate (`npm run test:ssr-node`), and its
+# own output for the reason the two migration-codemod outputs have theirs: no
+# job any other output gates would run it. The package is plain CommonJS on
+# `node:` builtins — no shadow-cljs build lists it, no `deps.edn` puts it on a
+# classpath, and it declares no npm dependency (its own absence.test.cjs asserts
+# all three) — so `cljs_node_test`, `implementation_jvm` and `cljs_browser`
+# would each fire a tier that cannot reach a line of it and STILL leave its 73
+# rows unrun. It landed (PR #8028) classifying to nothing at all: the arm below
+# is the half that makes the schedule real.
+ssr_node=false
 
 mark_all() {
   implementation_jvm=true
@@ -136,6 +146,7 @@ mark_all() {
   hicasso_controlled=true
   hicasso_hmr=true
   migration_v1_codemod=true
+  ssr_node=true
 }
 
 # rf2-k9ekz — predicate: does `$1` look like a Story/Xray runtime
@@ -730,6 +741,36 @@ else
         bundle_isolation=true
         mcp_conformance=true
         mcp_live=true
+        ;;
+      implementation/ssr-node/*)
+        # rf2-n8vp — the ssr-node package's own lane, and ONE output.
+        #
+        # WHY IT SITS ABOVE ITS SIBLINGS rather than joining the per-feature arm
+        # directly below. A POSIX `case` takes the FIRST match, and today
+        # neither `implementation/ssr/*` nor `implementation/ssr-ring/*` matches
+        # a path under `implementation/ssr-node/` — the literal `/` after `ssr`
+        # sees to that, which is exactly why this package classified to NOTHING
+        # on arrival rather than to something wrong. That is a fact about two
+        # patterns, not a property anybody maintains: widen either to
+        # `implementation/ssr*` and this tree silently joins a five-lane JVM/CLJS
+        # fan-out that cannot execute a line of it. Placed first, this arm keeps
+        # the narrow answer whatever happens below it.
+        #
+        # ONE output, and not one of the existing ones. The package is plain
+        # CommonJS on `node:` builtins with no npm dependency, so
+        # `implementation_jvm` / `cljs_node_test` / `cljs_browser` would each
+        # queue a tier with no edge into it and still not run its suite. Nor does
+        # it arm `examples_compile`: no example build lists it, and the first
+        # case block at the top of the loop is deliberately left unmatched for
+        # the same reason.
+        #
+        # The arm is the WHOLE package tree, not `src/**`. `test/**` carries the
+        # seven suites and their nine fixtures — the fixtures ARE inputs to the
+        # allowlist, protocol and byte-fidelity rows — and README.md documents
+        # the five bounded guarantees those rows witness. The suite is seconds
+        # and needs no build, so narrowing buys nothing and would skip the very
+        # files a change is most likely to be in.
+        ssr_node=true
         ;;
       implementation/schemas/*|implementation/machines/*|implementation/routing/*|implementation/flows/*|implementation/http/*|implementation/ssr/*|implementation/ssr-ring/*|implementation/resources/*|implementation/security/*|implementation/deps.edn)
         # rf2-8jz9t — adapter_testbed_smokes NOT fired here. Per-feature
@@ -1799,6 +1840,19 @@ else
           implementation/shadow-cljs.edn|implementation/package.json|implementation/package-lock.json)
             freehand_reachability=true ;;
         esac
+        # rf2-n8vp — package.json ALONE, and the narrowest scoping in this arm.
+        # `test:ssr-node` is defined there and nowhere else, so an edit that
+        # renamed or emptied it would otherwise stop the gate running with no
+        # job going red. shadow-cljs.edn is off it because no build id reaches
+        # this package; package-lock.json is off it because the package declares
+        # no npm dependency and the job does no `npm ci`, so a lockfile change
+        # cannot alter what it executes; `implementation/scripts/*` is off it
+        # because the gate's whole body lives under implementation/ssr-node/,
+        # which has its own arm above.
+        case "$file" in
+          implementation/package.json)
+            ssr_node=true ;;
+        esac
         ;;
       examples/*)
         # rf2-bxdk8 + rf2-cjp0i + rf2-8cevm — examples/** is test-free.
@@ -2270,3 +2324,4 @@ emit migration_hicasso_codemod "$migration_hicasso_codemod"
 emit hicasso_controlled "$hicasso_controlled"
 emit hicasso_hmr "$hicasso_hmr"
 emit migration_v1_codemod "$migration_v1_codemod"
+emit ssr_node "$ssr_node"
