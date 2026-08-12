@@ -131,6 +131,28 @@
   name>` off the same string. The emitted fn's own symbol fed none of
   them; it reached nothing but a stack frame.
 
+  ## Hooks do not belong in the body — a law, and why not a refusal
+  (rf2-hic-033)
+
+  A body is dynamically composed: its branches, its `for`s and its
+  early returns are all free to follow the data it reads. React's rules
+  of hooks are about CALL SEQUENCE, so a hook written in a body would
+  make its own order depend on a Hicasso data path — a subscription
+  answering one row fewer, and the sequence moves. Hook-intensive
+  behaviour belongs in a separately defined native component, where
+  React's rules apply to source the author controls: `n/defcomponent`,
+  and ordinary `react/useX` interop inside it. [spec §5, Rung 3]
+
+  Nothing enforces this at runtime and nothing here intends to. The
+  macro reads no body — that is the contract above, not an omission —
+  so a refusal would need a compiler that analyses one, which
+  `lanes/hot-path-architecture.md` refuses outright. React is the
+  enforcement: a hook whose call order moves fails in React's own
+  words, at the boundary that moved it.
+
+  The shell's own two hooks are unaffected and are the whole budget (I9,
+  HD-020(b)); `hook-budget-cljs-test` counts them at React's dispatcher.
+
   ## The source coordinate (rf2-hic-007)
 
   The expansion opens a declaration extent around the mint, carrying the
