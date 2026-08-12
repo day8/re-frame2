@@ -17,7 +17,7 @@
   | # | Link | Seam | Basis |
   |---|---|---|---|
   | 1 | event | Spec 009's retained ring, the bundle for this dispatch | `:observation` |
-  | 2 | subscriptions recomputed | that bundle's `:subs` events, keyed `:rf.sub/id` | `:observation` |
+  | 2 | subscriptions recomputed | that bundle's `:subs` RECOMPUTE events (`hh/sub-recompute?`), keyed `:rf.sub/id` | `:observation` |
   | 3 | values changed | the cell table's epoch stamps, at the boundary's peak | `:observation` |
   | 4 | boundaries notified | the cells' reader arrays — the reverse edge `notify!` walks | `:derivation` |
   | 5 | bodies run | — | `:host-opaque` |
@@ -174,21 +174,44 @@
      :says  "read off the retained bundle for this dispatch."}))
 
 (defn- link-subs
+  "Link 2 — the subscriptions this dispatch RECOMPUTED.
+
+  The roster is filtered on `hh/sub-recompute?`, which is the same
+  predicate `hicasso-advisor`'s timing fold asks of the same events. It
+  was not: this link collected every `:subs` item carrying an
+  `:rf.sub/id`, and the projection's `:subs` slot holds `:rf.sub/skip` and
+  `:rf.sub/dispose` alongside `:rf.sub/run` and `:rf.sub/create` (Spec 009
+  §`:op-type` vocabulary). A memo hit therefore appeared in a roster
+  labelled *subscriptions recomputed*, under an `evidenced` chip, while
+  the advisor was correctly calling the same event a skip — one window,
+  two public answers, and they disagreed (rf2-hic-037, audit #8027).
+
+  The memo hits are REPORTED rather than discarded. A skip is real
+  evidence that the cell was considered and did not run, which is the
+  informative half of a dispatch that recomputed nothing — dropping it
+  would leave a bare empty roster where the window actually held a
+  finding."
   [bundle]
   (if (nil? bundle)
     {:id :subs-recomputed :ordinal 2 :label "subscriptions recomputed"
      :seam "the bundle's `:subs` trace events"
      :basis :cap :evidenced? false
      :holds hh/unknown
+     :skipped hh/unknown
      :loss  {:reason :cap :dropped hh/unknown}
      :joins {:on :rf.trace/dispatch-id :status :cap
              :says "no bundle to join to."}
      :says  "the window holds no bundle for this dispatch."}
-    (let [subs    (:subs bundle)
-          named   (into [] (distinct) (keep #(get-in % [:tags :rf.sub/id]) subs))
-          unnamed (count (remove #(get-in % [:tags :rf.sub/id]) subs))]
+    (let [subs      (:subs bundle)
+          runs      (filterv hh/sub-recompute? subs)
+          skips     (filterv hh/sub-skip? subs)
+          named     (into [] (distinct) (keep #(get-in % [:tags :rf.sub/id]) runs))
+          unnamed   (count (remove #(get-in % [:tags :rf.sub/id]) runs))
+          skip-ids  (into [] (distinct) (keep #(get-in % [:tags :rf.sub/id]) skips))
+          skip-count (count skips)]
       {:id :subs-recomputed :ordinal 2 :label "subscriptions recomputed"
-       :seam "the bundle's `:subs` trace events, keyed `:rf.sub/id`"
+       :seam (str "the bundle's `:subs` RECOMPUTE events "
+                  "(`:rf.sub/run` / `:rf.sub/create`), keyed `:rf.sub/id`")
        :basis :observation
        :evidenced? (boolean (or (seq named) (zero? unnamed)))
        ;; An empty roster with no unnamed runs is a genuine survey result:
@@ -197,6 +220,10 @@
        ;; field states `:unknown` rather than `[]`, which is the one
        ;; substitution the evidence schema exists to refuse.
        :holds (if (and (empty? named) (pos? unnamed)) hh/unknown named)
+       ;; The memo hits, on their OWN field. Never merged into `:holds`:
+       ;; the two are different events with opposite meanings, and one
+       ;; roster holding both is the defect this link had.
+       :skipped {:count skip-count :sub-ids skip-ids}
        :loss  (if (pos? unnamed)
                 {:reason :uncorrelated :dropped unnamed}
                 {:reason :cap :dropped hh/unknown})
@@ -204,11 +231,31 @@
                :says (str "every event in the bundle carries this dispatch's "
                           "own `:rf.trace/dispatch-id` — the ring groups by it, "
                           "so the join is the storage and not an inference.")}
-       :says  (if (pos? unnamed)
-                (str unnamed " sub run" (when (not= 1 unnamed) "s")
-                     " in this bundle carried no `:rf.sub/id` and join to no "
-                     "subscription.")
-                "read off the bundle's own sub events.")})))
+       :says  (string/join
+                " "
+                (remove
+                  nil?
+                  [(cond
+                     (pos? unnamed)
+                     (str unnamed " sub run" (when (not= 1 unnamed) "s")
+                          " in this bundle carried no `:rf.sub/id` and join to no "
+                          "subscription.")
+
+                     (seq named)
+                     "read off the bundle's own recompute events."
+
+                     :else
+                     (str "no subscription recomputed in this dispatch. The "
+                          "bundle was surveyed and holds no `:rf.sub/run` or "
+                          "`:rf.sub/create` at all — a survey result, not an "
+                          "empty seam."))
+                   (when (pos? skip-count)
+                     (str "The bundle also holds " skip-count " memo hit"
+                          (when (not= 1 skip-count) "s")
+                          " (`:rf.sub/skip`), reported separately and never in "
+                          "this roster: a skip is the cell answering WITHOUT "
+                          "running, so counting one as a recompute would "
+                          "report work that did not happen."))]))})))
 
 (defn- link-values
   [ex]

@@ -146,16 +146,14 @@
 ;; The timing digest — Spec 009's ring, folded per read edge
 ;; ---------------------------------------------------------------------------
 
-(defn- sub-run?
-  "A trace event that is a subscription RECOMPUTE.
-
-  `:rf.sub/skip` is a memo hit — the cell answered without running, so it
-  is not work and must not be summed into a duration. It is counted
-  separately because it is the single most informative topology signal
-  there is: a read whose runs are mostly skips is well-placed, and one
-  that runs every time is not."
-  [ev]
-  (contains? #{:rf.sub/run :rf.sub/create} (:operation ev)))
+;; The recompute predicate is `hh/sub-recompute?` and lives in the shared
+;; algebra rather than here, because `hicasso-causal`'s link-2 roster asks
+;; the same question of the same events and the two answers must be one
+;; answer (rf2-hic-037, audit #8027). `:rf.sub/skip` is a memo hit — the
+;; cell answered without running, so it is not work and must not be summed
+;; into a duration. It is counted separately because it is the single most
+;; informative topology signal there is: a read whose considerations are
+;; mostly skips is well-placed, and one that runs every time is not.
 
 (defn- fold-bundle
   "Fold ONE event bundle's sub events into `acc`, keyed `[frame-id sub-id]`.
@@ -180,7 +178,7 @@
             ;; an untagged stream read as an idle one.
             (nil? sid)      (update m ::unnamed-runs (fnil inc 0))
 
-            (sub-run? ev)
+            (hh/sub-recompute? ev)
             (let [ms (get-in ev [:tags :rf.sub/elapsed-ms])]
               (-> m
                   (update-in [k :runs] (fnil inc 0))
@@ -191,7 +189,7 @@
                                      (update-in [k :max-ms] (fnil max 0.0) ms))
                     (not (number? ms)) (update-in [k :untimed-runs] (fnil inc 0)))))
 
-            (= :rf.sub/skip (:operation ev))
+            (hh/sub-skip? ev)
             (update-in m [k :memo-hits] (fnil inc 0))
 
             :else m)))
@@ -401,25 +399,47 @@
 (defn classify
   "What owns this boundary's pressure — as far as the instruments reach.
 
-  Four outcomes, and the difference between the last two is the point:
+  Five outcomes, and the difference between the last three is the point:
 
-  | `:owner` | `:basis` | Means |
-  |---|---|---|
-  | `:computation` | `:observation` | one read's measured recompute time dominates, above the clock's floor |
-  | `:read-topology` | `:derivation` | the read set is the problem: it oscillates, or it re-runs repeatedly for little measured work |
-  | `:unattributed` + `:host-opaque` | `:host-opaque` | the window WAS searched and the measured half does not explain it, so the owner is one of the three classes above — and this door cannot say which |
-  | `:unattributed` + `:cap` | `:cap` | nothing was retained, so no search happened; this is an absence of evidence, not evidence of absence |
+  | `:owner` | `:basis` | `:observed` | Means |
+  |---|---|---|---|
+  | `:computation` | `:observation` | `:recomputes` | one read's measured recompute time dominates, above the clock's floor |
+  | `:read-topology` | `:derivation` | `:recomputes` / `:memo-hits-only` | the read set is the problem: it oscillates, or it re-runs repeatedly for little measured work |
+  | `:unattributed` | `:host-opaque` | `:recomputes` | the window WAS searched, recomputes happened, and the measured half does not explain them — so the owner is one of the three unmeasured classes, and this door cannot say which |
+  | `:unattributed` | `:host-opaque` | `:memo-hits-only` | the window retained this boundary's reads being CONSIDERED and the memo answered every one. Nothing recomputed, so computation owns none of it |
+  | `:unattributed` | `:cap` | `:nothing` | the window retained no activity for this boundary at all; this is an absence of evidence, not evidence of absence |
 
-  The last two rows are the pair a naive advisor collapses. `:cap` says
-  *raise the retention knob and look again*; `:host-opaque` says *the
-  answer is real and lives in another tool*. One remedy is free and the
-  other is a change of instrument."
+  The last three are the trio a naive advisor collapses, and `:observed`
+  is what keeps them apart in DATA rather than only in prose. `:cap` says
+  *raise the retention knob and look again* — free. The two
+  `:host-opaque` rows say *the answer is real and lives in another tool*
+  — a change of instrument.
+
+  **The `:memo-hits-only` row is the one that was wrong** (rf2-hic-037,
+  audit #8027). `searched?` was derived from recompute runs alone, so a
+  window holding nothing but tagged `:rf.sub/skip` events fell through to
+  `:cap` and told the reader to enlarge a window that had already
+  retained the answer — sending them to fix the instrument instead of the
+  code. A skip is not a recompute and is still not nothing: Spec 009
+  emits one only when the cell was CONSIDERED, so a retained skip is
+  positive evidence, and the remedy has to be the one that follows from
+  it. It is classified as observed activity WITHOUT reclassifying the
+  skip as a run — `:runs` stays 0 and the memo hits are counted on their
+  own axis, because making the arithmetic work by promoting a skip would
+  be the same lie one layer down."
   [{:keys [time frequency read-churn]} att]
-  (let [ms       (:ms time)
-        timed?   (:timed? att)
-        hottest  (:hottest att)
-        hot-ms   (or (:elapsed-ms hottest) 0.0)
-        searched? (pos? (:runs frequency))]
+  (let [ms        (:ms time)
+        timed?    (:timed? att)
+        hottest   (:hottest att)
+        hot-ms    (or (:elapsed-ms hottest) 0.0)
+        memo-hits (:memo-hits frequency 0)
+        ;; SEARCHED is about recomputes and CONSIDERED is about activity of
+        ;; any kind. They are two questions and were one predicate.
+        searched?  (pos? (:runs frequency))
+        considered? (or searched? (pos? memo-hits))
+        observed   (cond searched?   :recomputes
+                         considered? :memo-hits-only
+                         :else       :nothing)]
     (cond
       ;; MEASURED. One read holds the majority of a total the clock can
       ;; actually order.
@@ -429,6 +449,7 @@
            (>= (/ hot-ms ms) dominance))
       {:owner :computation
        :basis :observation
+       :observed observed
        :loss  nil
        :read  (select-keys hottest [:frame-id :sub-id :elapsed-ms :max-ms :runs])
        :says  (str "measured: " (hh/format-id (:sub-id hottest))
@@ -443,6 +464,7 @@
       (:oscillating? read-churn)
       {:owner :read-topology
        :basis :derivation
+       :observed observed
        :loss  nil
        :says  (str "the entry cache holds " (:read-orders read-churn)
                    " distinct read orders for this boundary — an oscillating "
@@ -459,6 +481,7 @@
            (< ms computation-floor-ms))
       {:owner :read-topology
        :basis :derivation
+       :observed observed
        :loss  nil
        :says  (str "recomputed " (:runs frequency) " times for "
                    (format-ms ms) " of measured work — under the "
@@ -470,6 +493,7 @@
       searched?
       {:owner      :unattributed
        :basis      :host-opaque
+       :observed   observed
        :loss       {:reason :host-opaque :dropped hh/unknown}
        :candidates (mapv :class unmeasured-classes)
        :says       (str "the window was searched and the measured half does not "
@@ -480,16 +504,42 @@
                         ". The owner is lowering, React or layout — and this "
                         "door observes none of the three.")}
 
-      ;; Nothing was retained, so nothing was searched.
+      ;; OBSERVED, and what was observed is that nothing recomputed. The
+      ;; window RETAINED this boundary's reads being considered, and the
+      ;; memo answered every time — which is a finding about the read
+      ;; topology, not a gap in the window. Routing this to the `:cap` arm
+      ;; below told the reader to enlarge a window that had already held
+      ;; the answer (audit #8027).
+      considered?
+      {:owner      :unattributed
+       :basis      :host-opaque
+       :observed   observed
+       :loss       {:reason :host-opaque :dropped hh/unknown}
+       :candidates (mapv :class unmeasured-classes)
+       :says       (str "the retained window holds " memo-hits " memo hit"
+                        (when (not= 1 memo-hits) "s")
+                        " for this boundary's reads and no recompute at all: "
+                        "the cells were considered and answered without "
+                        "running. Evidence was retained, so this is not a "
+                        "capped window — and subscription computation owns "
+                        "none of this boundary's cost, because none of it ran. "
+                        "If the boundary is still slow the owner is lowering, "
+                        "React or layout, and this door observes none of the "
+                        "three.")}
+
+      ;; Nothing at all was retained for this boundary — neither a
+      ;; recompute nor a memo hit — so nothing was searched.
       :else
       {:owner      :unattributed
        :basis      :cap
+       :observed   observed
        :loss       {:reason :cap :dropped hh/unknown}
        :candidates (mapv :class unmeasured-classes)
-       :says       (str "nothing in the retained window recomputed this "
-                        "boundary's reads, so no search happened. This is an "
-                        "absence of evidence — raise `:rf.trace/events-retained` "
-                        "and reproduce the interaction.")})))
+       :says       (str "nothing in the retained window touched this "
+                        "boundary's reads — no recompute and no memo hit — so "
+                        "no search happened. This is an absence of evidence — "
+                        "raise `:rf.trace/events-retained` and reproduce the "
+                        "interaction.")})))
 
 ;; ---------------------------------------------------------------------------
 ;; The route ladder — a table keyed on the OWNER, and the refusal it produces
