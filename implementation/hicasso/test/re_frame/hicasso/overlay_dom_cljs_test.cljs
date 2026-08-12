@@ -114,6 +114,7 @@
             [re-frame.hicasso.impl.mount :as mount]
             [re-frame.hicasso.impl.overlay :as impl-overlay]
             [re-frame.hicasso.overlay :as overlay]
+            [re-frame.hicasso.test :as ht]
             [re-frame.test-support :as test-support]))
 
 (def ^:private frame-id ::overlay)
@@ -169,6 +170,62 @@
             other placement"
     (is (= "botom-start" (impl-overlay/position-area :botom-start)))
     (is (not (contains? (set (vals impl-overlay/position-areas)) "botom-start")))))
+
+(h/defview menu-page [_]
+  [:div
+   [:button#trigger {:aria-haspopup "menu"} "Filter"]
+   [overlay/popover {:open?      (h/sub [::open? :m])
+                     :on-dismiss [::dismissed :m]
+                     :anchor     "trigger"
+                     :placement  :bottom-start}
+    [:ul {:role "menu"}
+     [:li [:button "Unread"]]
+     [:li [:button "Flagged"]]]]])
+
+(h/defview unnamed-menu-page [_]
+  [:div
+   [overlay/popover {:open?      (h/sub [::open? :m])
+                     :on-dismiss [::dismissed :m]}
+    [:ul {:role "menu"}
+     [:li [:button "Unread"]]
+     ;; An icon button nobody named — its glyph is a CSS background, so it
+     ;; carries no content to be named from. P12, the finding the corpus
+     ;; actually ships, and the one this page exists to have found.
+     [:li [:button.icon]]]]])
+
+(deftest an-overlays-contents-are-ordinary-markup-and-the-a11y-kit-reads-them
+  (let [t    (ht/tree [menu-page {}] {:subs {[::open? :m] true}})
+        menu (ht/find t #(= :menu (ht/role %)))]
+    (testing "premise: an overlay is a BOUNDARY CALL in the L2 tree. Its body
+              does not run — no hooks, no top layer, no refusal — so the kit
+              sees the author's own children and claims nothing whatever about
+              what the module renders around them"
+      (is (some? menu) "the author's own menu list is in the tree")
+      (is (nil? (ht/role (ht/find t #(= "hicasso/popover" (:view-id %)))))
+          "and the overlay boundary itself has no role, because it is not an
+           element — which is `role`'s own stated answer for a view-boundary"))
+
+    (testing "so the accessibility of what an author puts INSIDE an overlay is
+              decidable HEADLESS, on rf2-hic-043's projections, and needs none
+              of this suite's browser lane"
+      (is (= ["Filter" "Unread" "Flagged"]
+             (mapv #(ht/accessible-name t %)
+                   (ht/find-all t #(= :button (ht/role %)))))
+          "every control names itself from its own content — and the TRIGGER is
+           in the same list as the panel's items, which is the other half of
+           what the top layer buys: paint order changed, the tree did not")
+      (is (= [] (ht/unnamed-controls t))))
+
+    (testing "and the instrument can say otherwise: the same panel with one
+              icon-only button reports it. Without this arm the `[]` above is
+              an emptiness claim from a projection that might be ranging over
+              nothing at all — which it WAS, on the first draft, because
+              `:menuitem` is outside `interactive-roles` and every control in
+              the panel wore one"
+      (let [u     (ht/tree [unnamed-menu-page {}] {:subs {[::open? :m] true}})
+            found (ht/unnamed-controls u)]
+        (is (= 1 (count found)) (str "expected one unnamed control, got " (pr-str found)))
+        (is (= :button (ht/role (first found))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; The DOM half
