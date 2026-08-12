@@ -40,7 +40,6 @@
             [re-frame.core :as rf]
             [re-frame.fx :as fx]
             [re-frame.hicasso :as h]
-            [re-frame.hicasso.examples.forms.db :as db]
             [re-frame.hicasso.examples.forms.events :as events]
             [re-frame.hicasso.examples.forms.subs :as subs]
             [re-frame.hicasso.examples.forms.views :as views]
@@ -67,7 +66,13 @@
      :init-fn       (fn []
                       ;; React's `act` queue is not the browser's scheduler,
                       ;; and every reading here is taken outside it.
-                      (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) false))}))
+                      (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) false)
+                      ;; The reset restores the registrar to a baseline and the
+                      ;; resources artefact clears the mutation kind, so the
+                      ;; ns-load registration is not still there when a row
+                      ;; runs. `events/register-save!` says what that costs
+                      ;; when it is forgotten (rf2-06lp).
+                      (events/register-save!))}))
 
 (def ^:private ticket 7)
 (def ^:private committed "Login page hangs on submit")
@@ -307,8 +312,19 @@
             "one problem — the blank assignee. The note is empty and empty is
              legal, so a gate that revealed both would be reporting a
              problem that does not exist")
-        (is (= [] @!requests) "and nothing was asked of the server")
-        (finish m done)))))
+        ;; `[]` here would be a false green on its own: `::submit`'s write
+        ;; would have gone out on the ASYNC dispatch queue, and reading the
+        ;; recorder on the next line reads it before that turn. So a marker
+        ;; goes through the same queue and the assertion waits behind it —
+        ;; anything the submission enqueued has run by then.
+        (rf/dispatch [::events/edit :notes "marker"] {:frame (:frame m)})
+        (-> (test-support/poll-until
+              #(= "marker" (read-sub m [::subs/field :notes]))
+              {:label "the dispatch queue to reach a marker enqueued after the submit"})
+            (.then (fn [_]
+                     (is (= [] @!requests)
+                         "and nothing was asked of the server")
+                     (finish m done))))))))
 
 (deftest a-valid-submission-goes-busy-from-the-writes-own-status
   (async done
@@ -324,15 +340,24 @@
         (type-into! m (node m "#ticket-assignee") "ada")
         (is (= "false" (.getAttribute button "aria-disabled")))
         (.requestSubmit (node m "form.details"))
-        (hm/settle! m)
-        (is (= 1 (count @!requests)))
-        (is (true? (.-disabled button)) "busy — from the instance")
-        (is (true? (.-disabled (node m "#ticket-assignee")))
-            "and so are the fields, off the same read")
-        (hm/dispatch-and-settle! m (conj (:on-success (last @!requests))
-                                         {:status :ok :value {:ok true}}))
-        (is (false? (.-disabled button)))
-        (is (= "" (.-value (node m "#ticket-assignee")))
-            "the reply landed at the named event and blanked the form —
-             there is no completion callback anywhere in this application")
-        (finish m done)))))
+        ;; The write leaves on the async dispatch queue — an intent's own
+        ;; dispatch is synchronous, but the `:fx [[:dispatch …]]` a handler
+        ;; returns is a turn of its own. `hm/settle!` is a React flush and
+        ;; cannot help, because nothing is scheduled in React yet.
+        (-> (test-support/poll-until #(seq @!requests)
+                                     {:label "the write to reach the transport"})
+            (.then
+              (fn [_]
+                (hm/settle! m)
+                (is (= 1 (count @!requests)))
+                (is (true? (.-disabled button)) "busy — from the instance")
+                (is (true? (.-disabled (node m "#ticket-assignee")))
+                    "and so are the fields, off the same read")
+                (hm/dispatch-and-settle! m (conj (:on-success (last @!requests))
+                                                 {:status :ok :value {:ok true}}))
+                (is (false? (.-disabled button)))
+                (is (= "" (.-value (node m "#ticket-assignee")))
+                    "the reply landed at the named event and blanked the form —
+                     there is no completion callback anywhere in this
+                     application")
+                (finish m done))))))))
