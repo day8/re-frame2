@@ -27,7 +27,8 @@
             [[canonical-dom]], [[capture-intents]], [[fire!]].
       L2  one hook-free Hicasso body, run for its semantic tree
           → [[tree]] + [[find]] / [[find-all]] / [[attrs]] / [[text]] /
-            [[intents]].
+            [[intents]], and the accessibility trio [[role]] /
+            [[accessible-name]] / [[unnamed-controls]].
       L3  React lifecycle, context, hooks, refs, errors, foreign hosts
           → the mounted facade (rf2-hic-027). NOT here.
       L4  IME, caret, focus, hydration, layout, performance
@@ -1445,3 +1446,320 @@
                                     (map? v)    (filterv vector? (vals v))
                                     :else       nil))))
         (tree-seq map? :children tree)))
+
+;; ---------------------------------------------------------------------------
+;; L2 — accessibility: the role, the name, and the controls that have neither
+;; (rf2-hic-043)
+;; ---------------------------------------------------------------------------
+;;
+;; Data-first markup is what makes this tier possible at all. A role is an
+;; attribute or a tag; a label is an element with a `:for`; a name is text.
+;; None of it is behind a renderer, so none of it needs one — which is why
+;; these three sit at L2 beside `attrs` and `text` rather than at L3 with a
+;; document.
+;;
+;; WHAT THEY ARE NOT. They are not an implementation of ARIA. The real
+;; accessible-name computation walks a live tree with computed style,
+;; `aria-hidden` subtrees, host-language quirks per element and a recursion
+;; whose termination rules fill a specification; a browser is the only honest
+;; implementation of it and L4 is where a browser is. What is here is the
+;; DECIDABLE part — the part that is a fact about the markup an author wrote
+;; — and every narrowing is named below rather than left to be discovered.
+;; The one thing these must never do is answer a plausible name for markup a
+;; screen reader would announce differently, so where the answer depends on
+;; something the tree does not carry, the answer is `nil` and the limit is
+;; stated.
+
+(def ^:private input-roles
+  "`<input>` by `:type`, per ARIA in HTML §Document conformance
+  requirements. The absent types (`password`, `file`, `color`, the
+  date/time family, `hidden`) have NO corresponding role — that is the
+  specification's answer and not an omission, so they read `nil` here
+  through the same miss as an unknown type."
+  {"text"     :textbox
+   "email"    :textbox
+   "tel"      :textbox
+   "url"      :textbox
+   "search"   :searchbox
+   "checkbox" :checkbox
+   "radio"    :radio
+   "button"   :button
+   "submit"   :button
+   "reset"    :button
+   "image"    :button
+   "range"    :slider
+   "number"   :spinbutton})
+
+(def ^:private implicit-roles
+  "The role a tag carries with no `:role` attribute, for the tags whose
+  answer is decidable FROM THE NODE ALONE.
+
+  Four tags answer conditionally and are handled in [[role]] rather than
+  here: `:a` (a link only with an `:href`), `:input` (by `:type`),
+  `:select` (a listbox when it takes more than one) and `:img` (a
+  presentational image when its `:alt` is empty).
+
+  DELIBERATELY ABSENT, and each for the same reason: `:header`,
+  `:footer`, `:section`, `:aside`, `:form`, `:td` and `:th` have roles
+  that depend on an ancestor, on a heading, or on whether the element has
+  an accessible name — context this projection would have to guess at.
+  A guess here is the failure mode these helpers exist to avoid, so they
+  answer `nil` and a test that cares asserts the `:role` the author
+  wrote."
+  {:button   :button
+   :textarea :textbox
+   :option   :option
+   :ul       :list
+   :ol       :list
+   :li       :listitem
+   :h1       :heading
+   :h2       :heading
+   :h3       :heading
+   :h4       :heading
+   :h5       :heading
+   :h6       :heading
+   :main     :main
+   :nav      :navigation
+   :dialog   :dialog
+   :progress :progressbar
+   :hr       :separator})
+
+(def ^:private named-by-content
+  "The roles whose accessible name comes from the element's own text when
+  nothing labels it (ARIA §Name From: contents). Every other role — an
+  `:alert`, a `:status`, a `:textbox` — takes no name from its contents,
+  and answering one would be this projection inventing a name the
+  platform does not give."
+  #{:button :link :heading :listitem :option :tab :menuitem
+    :checkbox :radio :switch})
+
+(def ^:private interactive-roles
+  "The roles a user OPERATES, and therefore the roles for which a missing
+  accessible name is a defect rather than a style. The set
+  [[unnamed-controls]] ranges over."
+  #{:button :link :textbox :searchbox :checkbox :radio
+    :combobox :listbox :slider :spinbutton})
+
+(defn- flat
+  "One accessible-name string, or `nil` when there is nothing to say.
+  Internal whitespace runs collapse and the ends are trimmed, which is
+  what the platform's own flat-string step does — so `\"  Save \\n draft \"`
+  and `\"Save draft\"` are the same name."
+  [s]
+  (when (string? s)
+    (let [t (str/trim (str/replace s #"\s+" " "))]
+      (when (seq t) t))))
+
+(defn- attr
+  "One attribute off an ELEMENT node, or nil for any other node kind."
+  [node k]
+  (get (:attrs node) k))
+
+(defn- token
+  "An attribute whose value is a string or a keyword, as a lower-case
+  string — the two spellings an author uses for `:type`, `:role` and
+  friends, read the one way."
+  [v]
+  (cond
+    (keyword? v) (str/lower-case (name v))
+    (string? v)  (str/lower-case v)
+    :else        nil))
+
+(defn- explicit-role
+  "The `:role` the author wrote, as a keyword. ARIA's `role` is a TOKEN
+  LIST and the first token wins, so a fallback chain (`role=\"doc-subtitle
+  heading\"`) answers its first entry exactly as a user agent reads it."
+  [node]
+  (some-> (token (attr node :role))
+          (str/split #"\s+")
+          first
+          not-empty
+          keyword))
+
+(defn role
+  "The ARIA role of `node` — the `:role` the author wrote, else the role
+  the tag carries implicitly — as a keyword, or `nil` when the node has
+  none.
+
+      (ht/role (ht/find tree #(= :button (:tag %))))   ;=> :button
+      (ht/role (ht/find tree #(= \"alert\" (:role (ht/attrs %)))))
+      ;=> :alert
+
+  Total over the node set: a **fragment** and a **view-boundary** answer
+  `nil` (neither is an element, so neither has a role), and so does an
+  element whose tag maps to nothing. `nil` in, `nil` out.
+
+  The implicit table is [[implicit-roles]] plus the four conditional tags
+  named there; read it rather than this docstring for what is covered and
+  what is deliberately not."
+  [node]
+  (cond
+    (nil? node)    nil
+    (string? node) (refuse! :rf.error/ui-tree-malformed
+                            (str "text content is not a node — role projects "
+                                 "map nodes; text carries no role.")
+                            :no-recovery
+                            {:value node})
+    (map? node)
+    (case (node-kind node)
+      :element
+      (or (explicit-role node)
+          (case (:tag node)
+            :a      (when (some? (attr node :href)) :link)
+            :input  (get input-roles (or (token (attr node :type)) "text"))
+            :select (if (or (attr node :multiple)
+                            (when-some [n (attr node :size)]
+                              (and (number? n) (> n 1))))
+                      :listbox
+                      :combobox)
+            :img    (if (= "" (attr node :alt)) :presentation :img)
+            (get implicit-roles (:tag node))))
+
+      (:view-boundary :fragment) nil)
+
+    :else (not-a-node! node)))
+
+(defn- contains-node?
+  "Is `target` somewhere under `n`, by REFERENCE? Reference and not `=`:
+  two rows of a list can be structurally equal and are still different
+  places on the page, and a label wraps one of them."
+  [n target]
+  (boolean (some (fn [c]
+                   (or (identical? c target)
+                       (and (map? c) (contains-node? c target))))
+                 (:children n))))
+
+(defn- in-tree?
+  [tree node]
+  (or (identical? tree node)
+      (and (map? tree) (contains-node? tree node))))
+
+(defn- labels-for
+  "Every `<label>` in `tree` that labels `node`, in document order —
+  either by `:for` matching its `:id`, or by containing it. HTML's own
+  two ways, and a control may have both."
+  [tree node]
+  (let [id (attr node :id)]
+    (find-all tree
+              (fn [n]
+                (and (= :label (:tag n))
+                     (or (and (some? id) (= id (attr n :for)))
+                         (contains-node? n node)))))))
+
+(defn- joined
+  [nodes]
+  (flat (str/join " " (keep #(flat (text %)) nodes))))
+
+(defn accessible-name
+  "The accessible name `node` carries WITHIN `tree`, as a flat string, or
+  `nil` when it has none.
+
+      (ht/accessible-name tree (ht/find tree #(= :select (:tag %))))
+      ;=> \"Language\"          ;; from the <label for=…> beside it
+
+  `tree` is needed and is not decoration: `aria-labelledby` points at
+  another node by id and a `<label>` labels from wherever it sits, so a
+  name is a fact about the MARKUP and not about the element. A `node`
+  that is not in `tree` is a **refusal**, because answering `nil` there
+  would report a labelled control as unlabelled — the exact wrong answer
+  in the exact direction that matters.
+
+  ## The order, which is ARIA's own, narrowed
+
+  1. **`:aria-labelledby`** — each id resolved within `tree`, in the
+     order written, joined by a space. Unresolvable ids contribute
+     nothing. NARROWED: the platform recurses into each referent's own
+     accessible NAME; this takes the referent's TEXT. The two agree
+     wherever the referent is ordinary content, and differ only for a
+     referent that is itself labelled from somewhere else — a shape this
+     projection does not claim.
+  2. **`:aria-label`**, when it is not blank.
+  3. **The host language's own labelling**, by element:
+     `<img>` its `:alt`; `<input type=button|submit|reset>` its `:value`;
+     `<input>`, `<select>` and `<textarea>` their `<label>`s, joined in
+     document order; `<fieldset>` its `<legend>`.
+  4. **The element's own text**, for the roles named in
+     [[named-by-content]] and no others.
+  5. **`:title`**.
+
+  ## What it does not model, stated so it is not mistaken for covered
+
+  `<table><caption>`, `<optgroup label=…>`, `<summary>`, `alt` on
+  `<area>`, and the `aria-hidden` / `hidden` / `display:none` exclusions
+  the real algorithm applies while walking. Whitespace is flattened; a
+  name that would be visually broken by CSS is not.
+
+  ## The lane
+
+  This is a claim about markup, and a browser is what decides whether the
+  markup means it. Its L4 counterpart is
+  `re-frame.hicasso.examples.slice.a11y-focus-dom-cljs-test`, which reads
+  the engine's own `HTMLInputElement.labels` and its own
+  `document.activeElement` back for the same page."
+  [tree node]
+  (cond
+    (nil? node)    nil
+    (string? node) (refuse! :rf.error/ui-tree-malformed
+                            (str "text content is not a node — accessible-name "
+                                 "projects map nodes; read text with ht/text on "
+                                 "the node that contains it.")
+                            :no-recovery
+                            {:value node})
+    (not (map? node)) (not-a-node! node)
+
+    :else
+    (do
+      (node-kind node)
+      (when-not (in-tree? tree node)
+        (refuse! :rf.error/ui-tree-malformed
+                 (str "the node is not in the tree it was read against — a "
+                      "name is computed from `aria-labelledby` id references "
+                      "and from the `<label>`s that surround the node, so a "
+                      "node from somewhere else would be reported UNNAMED "
+                      "however well labelled it is.")
+                 :pass-the-tree-the-node-came-from
+                 {:value node}))
+      (let [labelled-by (when-some [ids (flat (attr node :aria-labelledby))]
+                          (joined (keep (fn [id]
+                                          (find tree #(= id (attr % :id))))
+                                        (str/split ids #"\s+"))))]
+        (or labelled-by
+            (flat (attr node :aria-label))
+            (case (:tag node)
+              :img      (flat (attr node :alt))
+              ;; HTML: the FIRST `<legend>` CHILD, so a nested fieldset's
+              ;; legend cannot be borrowed by the one above it.
+              :fieldset (some-> (first (filter #(and (map? %) (= :legend (:tag %)))
+                                               (:children node)))
+                                text
+                                flat)
+              (:input :select :textarea)
+              (if (contains? #{"button" "submit" "reset"} (token (attr node :type)))
+                (flat (attr node :value))
+                (joined (labels-for tree node)))
+              nil)
+            (when (contains? named-by-content (role node))
+              (flat (text node)))
+            (flat (attr node :title)))))))
+
+(defn unnamed-controls
+  "Every node in `tree` a user can OPERATE that has no accessible name,
+  in document order — the empty vector when there are none.
+
+      (is (= [] (ht/unnamed-controls tree)))
+
+  One assertion for the whole rendering, and the nodes it answers with
+  name themselves in the failure output. The roles it ranges over are
+  [[interactive-roles]]; the name is [[accessible-name]]'s, with all of
+  its stated narrowings.
+
+  It does NOT exempt a control inside an `aria-hidden` or `hidden`
+  subtree, deliberately: an interactive control hidden from the
+  accessibility tree is reachable by Tab and is a finding in its own
+  right, so exempting one would be this helper hiding a defect rather
+  than reporting it."
+  [tree]
+  (find-all tree
+            (fn [n]
+              (and (contains? interactive-roles (role n))
+                   (nil? (accessible-name tree n))))))
