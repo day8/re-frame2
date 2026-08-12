@@ -129,7 +129,8 @@ test('a non-object request is refused', () => {
 
 test('the protocol version is checked, in both directions', () => {
   assert.strictEqual(codeOf({ ...OK(), protocol: 2 }), CODE.PROTOCOL_VERSION);
-  const { protocol, ...noVersion } = OK();
+  const noVersion = OK();
+  delete noVersion.protocol;
   assert.strictEqual(codeOf(noVersion), CODE.PROTOCOL_VERSION);
 });
 
