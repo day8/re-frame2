@@ -18,6 +18,7 @@
   say the thing that matters — the refusal comes from the instruments, not
   from a missing arm."
   (:require [clojure.string :as string]
+            #?(:cljs [cljs.reader])
             #?(:clj  [clojure.test :refer [deftest is testing]]
                :cljs [cljs.test :refer [deftest is testing]])
             [day8.re-frame2-xray.panels.hicasso-advisor :as advisor]
@@ -397,6 +398,24 @@
               (advisor/sub-timing {}))]
     (is (= 7 (get-in (first (:rows adv)) [:axes :fan-out :total]))
         "3 + 4 — and never the 99, which is another frame's cell")))
+
+(deftest the-advisor-ADVISES-and-carries-nothing-executable
+  ;; The bead's own words: it never rewrites code and never switches
+  ;; semantics. Structurally that is a property of the VALUE — advice made
+  ;; of readable EDN cannot carry a patch, a thunk or a rewrite, and it
+  ;; round-trips through the reader unchanged.
+  (let [envelopes {:mounted-boundaries (mounted-envelope [(boundary [[:app/main :a]])])}
+        timing    (advisor/sub-timing {:app/main [(bundle 1 :e [(sub-ev :a 4.0)])]})
+        adv       (advisor/advise envelopes timing)]
+    (is (= adv #?(:clj (read-string (pr-str adv))
+                  :cljs (cljs.reader/read-string (pr-str adv))))
+        (str "the whole advice round-trips through the reader — so it is "
+             "data a reader can inspect, print and diff, and not a closure "
+             "that could do something"))
+    (testing "and it is deterministic over one turn's evidence"
+      (is (= adv (advisor/advise envelopes timing))))
+    (testing "and reading it does not disturb what it read"
+      (is (= envelopes {:mounted-boundaries (mounted-envelope [(boundary [[:app/main :a]])])})))))
 
 (deftest an-absent-door-yields-an-empty-roster-and-still-states-what-is-unmeasured
   (let [adv (advisor/advise {:mounted-boundaries nil} (advisor/sub-timing {}))]
