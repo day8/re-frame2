@@ -196,6 +196,13 @@ const NOT_REAL = {
   compositionendData: null, composingInputs: 0, settledInputs: 7,
   processKeydowns: 0, escapeKeydowns: 1,
 };
+// The evidence PAIR a decisive edge is read from: OPEN is the reading taken
+// immediately before the keystroke (a real exchange, not yet closed), CLOSED
+// the one taken immediately after it. Feeding a verdict OPEN twice says the
+// edge closed nothing; feeding it CLOSED twice says the exchange was already
+// over when the edge arrived. Both are what audit #7896 found ticking.
+const OPEN = { ...REAL, compositionend: 0, compositionendData: null };
+const CLOSED = { ...REAL, compositionend: 1 };
 
 function runMutationTeeth() {
   const teeth = [];
@@ -212,14 +219,14 @@ function runMutationTeeth() {
     v(W.abortVerdict({
       before: { value: 'abcにほんご', committed: '"abc"', edits: 5 },
       after: { value: 'abc', committed: '"abc"', edits: 5 },
-      evidence: REAL, seed: 'abc',
+      evBefore: OPEN, evAfter: CLOSED, seed: 'abc',
     })) === W.TICK);
 
   bite('a real exchange whose ESC discarded nothing CROSSES, and names the operator observation', () => {
     const r = W.abortVerdict({
       before: { value: 'abcにほんご', committed: '"abcにほんご"', edits: 5 },
       after: { value: 'abcにほんご', committed: '"abcにほんご"', edits: 5 },
-      evidence: REAL, seed: 'abc',
+      evBefore: OPEN, evAfter: CLOSED, seed: 'abc',
     });
     return r.verdict === W.CROSS && r.why.includes('2026-08-11');
   });
@@ -230,7 +237,7 @@ function runMutationTeeth() {
     const r = W.abortVerdict({
       before: { value: 'abcnihongo', committed: '"abcnihongo"', edits: 7 },
       after: { value: 'abcnihongo', committed: '"abcnihongo"', edits: 7 },
-      evidence: NOT_REAL, seed: 'abc',
+      evBefore: NOT_REAL, evAfter: NOT_REAL, seed: 'abc',
     });
     return r.verdict === W.INCONCLUSIVE && r.why.includes('IME was not engaged');
   });
@@ -239,8 +246,34 @@ function runMutationTeeth() {
     v(W.abortVerdict({
       before: { value: 'abcにほんご', committed: '"abc"', edits: 5 },
       after: { value: 'abc', committed: '"abc"', edits: 3 },
-      evidence: REAL, seed: 'abc',
+      evBefore: OPEN, evAfter: CLOSED, seed: 'abc',
     })) === W.CROSS);
+
+  // #7896, THE FIRST OF THE TWO NEW REFUSALS. An aggregate reading could not
+  // tell an exchange that was open when ESC arrived from one the IME had
+  // already closed — so a field sitting at its committed value ticked either
+  // way, and the tick said "the abort worked" about an abort that aborted
+  // nothing. This exact input ticked before the repair.
+  bite('a composition already CLOSED before the ESC cannot tick', () => {
+    const r = W.abortVerdict({
+      before: { value: 'abc', committed: '"abc"', edits: 5 },
+      after: { value: 'abc', committed: '"abc"', edits: 5 },
+      evBefore: CLOSED, evAfter: CLOSED, seed: 'abc',
+    });
+    return r.verdict === W.INCONCLUSIVE && r.why.includes('none was OPEN');
+  });
+
+  // The other half of the same premise: open at the ESC, and still open after
+  // it. Whatever the field shows was not produced by an abort that never
+  // reached the exchange.
+  bite('an ESC that closed nothing cannot tick', () => {
+    const r = W.abortVerdict({
+      before: { value: 'abcにほんご', committed: '"abc"', edits: 5 },
+      after: { value: 'abc', committed: '"abc"', edits: 5 },
+      evBefore: OPEN, evAfter: OPEN, seed: 'abc',
+    });
+    return r.verdict === W.INCONCLUSIVE && r.why.includes('STILL open');
+  });
 
   // --- check 1 ---
   bite('a draft standing over a refusing model ticks', () =>
@@ -328,14 +361,14 @@ function runMutationTeeth() {
     v(W.commitAddsNoIntentVerdict({
       before: { value: 'abcにほんご', committed: '"abcにほんご"', edits: 5 },
       after: { value: 'abc日本語', committed: '"abc日本語"', edits: 5 },
-      evidence: REAL,
+      evBefore: OPEN, evAfter: CLOSED,
     })) === W.TICK);
 
   bite('a close that adds an arrival crosses and reports the delta', () => {
     const r = W.commitAddsNoIntentVerdict({
       before: { value: 'abcにほんご', committed: '"abcにほんご"', edits: 5 },
       after: { value: 'abc日本語', committed: '"abc日本語"', edits: 6 },
-      evidence: REAL,
+      evBefore: OPEN, evAfter: CLOSED,
     });
     return r.verdict === W.CROSS && r.why.includes('added 1 intent');
   });
@@ -344,8 +377,22 @@ function runMutationTeeth() {
     v(W.commitAddsNoIntentVerdict({
       before: { value: 'にほんご', committed: '"にほんご"', edits: 5 },
       after: { value: '日本語日本語', committed: '"日本語日本語"', edits: 5 },
-      evidence: REAL,
+      evBefore: OPEN, evAfter: CLOSED,
     })) === W.CROSS);
+
+  // #7896 again, one edge along: the candidate-window Space can close the
+  // exchange itself, and an aggregate `compositionend > 0` cannot tell that
+  // close from the Enter's. A no-op Enter then ticked on the Space's
+  // transition — "the close added no intent" said of a close that had already
+  // happened. This exact input ticked before the repair.
+  bite('an exchange the SPACE already closed cannot tick on the Enter', () => {
+    const r = W.commitAddsNoIntentVerdict({
+      before: { value: 'abc日本語', committed: '"abc日本語"', edits: 5 },
+      after: { value: 'abc日本語', committed: '"abc日本語"', edits: 5 },
+      evBefore: CLOSED, evAfter: CLOSED,
+    });
+    return r.verdict === W.INCONCLUSIVE && r.why.includes('none was OPEN');
+  });
 
   // --- check 7 ---
   bite('a draft standing across a mid-exchange revision bump ticks', () =>
@@ -370,20 +417,34 @@ function runMutationTeeth() {
   bite('a clean blur and a fired unmount tick', () =>
     v(W.teardownVerdict({
       afterBlur: { value: '9' }, afterUnmount: { gone: true },
-      evidence: REAL, seed: '9', pageErrors: [],
+      evBlur: CLOSED, evUnmount: OPEN, seed: '9', pageErrors: [],
     })) === W.TICK);
 
   bite('a stranded draft after blur crosses', () =>
     v(W.teardownVerdict({
       afterBlur: { value: '9にほんご' }, afterUnmount: { gone: true },
-      evidence: REAL, seed: '9', pageErrors: [],
+      evBlur: CLOSED, evUnmount: OPEN, seed: '9', pageErrors: [],
     })) === W.CROSS);
 
   bite('a page error during teardown crosses even with a clean field', () =>
     v(W.teardownVerdict({
       afterBlur: { value: '9' }, afterUnmount: { gone: true },
-      evidence: REAL, seed: '9', pageErrors: ['boom'],
+      evBlur: CLOSED, evUnmount: OPEN, seed: '9', pageErrors: ['boom'],
     })) === W.CROSS);
+
+  // #7896, THE SECOND OF THE TWO NEW REFUSALS, and the sharpest of them. The
+  // check reloads between its two phases, so the blur phase's evidence is
+  // about a page that no longer exists. Passing only that evidence made the
+  // unmount half unfalsifiable: real blur evidence + a fired unmount + NO
+  // composition whatever in the second phase returned a TICK for a check whose
+  // entire subject is the word "mid-composition".
+  bite('an unmount phase with no composition of its own cannot tick', () => {
+    const r = W.teardownVerdict({
+      afterBlur: { value: '9' }, afterUnmount: { gone: true },
+      evBlur: CLOSED, evUnmount: NOT_REAL, seed: '9', pageErrors: [],
+    });
+    return r.verdict === W.INCONCLUSIVE && r.why.includes('UNMOUNT PHASE');
+  });
 
   // --- the roster and the summary: fail-closed in every direction ---
   bite('the roster is the eight checks, uniquely identified', () => {
@@ -519,14 +580,18 @@ const RUNNERS = {
     await page.focus('[data-testid="plain"]');
     await W.resetEvents(page);
     await keys(W.KEY_PLANS.compose);
+    // Bracketed around the ESC and nothing else: the cells say what the field
+    // did, the two evidence readings say the ESC is what did it.
     const before = await cell(page, 'plain');
+    const evBefore = W.compositionEvidence(await W.readEvents(page), 'plain');
     await keys(W.KEY_PLANS.abort);
     const after = await cell(page, 'plain');
-    const evidence = W.compositionEvidence(await W.readEvents(page), 'plain');
+    const evAfter = W.compositionEvidence(await W.readEvents(page), 'plain');
     return {
-      ...W.abortVerdict({ before, after, evidence, seed: W.SEEDS.plain }),
-      evidence: { before, after, ...evidence },
-      readback: `before-ESC ${fmtCell(before)} | after-ESC ${fmtCell(after)} | ${fmtEv(evidence)}`,
+      ...W.abortVerdict({ before, after, evBefore, evAfter, seed: W.SEEDS.plain }),
+      evidence: { before, after, evBefore, evAfter },
+      readback: `before-ESC ${fmtCell(before)} ${fmtEv(evBefore)} | `
+        + `after-ESC ${fmtCell(after)} ${fmtEv(evAfter)}`,
     };
   },
 
@@ -622,16 +687,20 @@ const RUNNERS = {
     await W.resetEvents(page);
     // Compose AND select the candidate first: the Space that opens the
     // candidate window is itself a composing update, so the reading either
-    // side of the close has to be taken around the ENTER alone.
+    // side of the close has to be taken around the ENTER alone. The evidence
+    // is bracketed the same way, which is what proves the close the verdict
+    // reads belongs to the Enter and not to that Space.
     await keys([...W.KEY_PLANS.compose, ...W.KEY_PLANS.selectCandidate]);
     const before = await cell(page, 'plain');
+    const evBefore = W.compositionEvidence(await W.readEvents(page), 'plain');
     await keys(W.KEY_PLANS.commit);
     const after = await cell(page, 'plain');
-    const evidence = W.compositionEvidence(await W.readEvents(page), 'plain');
+    const evAfter = W.compositionEvidence(await W.readEvents(page), 'plain');
     return {
-      ...W.commitAddsNoIntentVerdict({ before, after, evidence }),
-      evidence: { before, after, ...evidence },
-      readback: `before-ENTER ${fmtCell(before)} | after-ENTER ${fmtCell(after)} | ${fmtEv(evidence)}`,
+      ...W.commitAddsNoIntentVerdict({ before, after, evBefore, evAfter }),
+      evidence: { before, after, evBefore, evAfter },
+      readback: `before-ENTER ${fmtCell(before)} ${fmtEv(evBefore)} | `
+        + `after-ENTER ${fmtCell(after)} ${fmtEv(evAfter)}`,
     };
   },
 
@@ -671,25 +740,30 @@ const RUNNERS = {
       if (el && el.blur) el.blur();
     });
     const afterBlur = await cell(page, 'mountable');
-    const evidence = W.compositionEvidence(await W.readEvents(page), 'mountable');
+    const evBlur = W.compositionEvidence(await W.readEvents(page), 'mountable');
 
+    // PHASE TWO, on a page this reloads into: a fresh exchange, and the
+    // unmount fired under it. The reload plus `resetEvents` is what makes
+    // `evUnmount` this phase's own evidence rather than a running total, and
+    // it is read BEFORE the arm fires — the claim is that the node went while
+    // an exchange was live, so the reading has to be taken while it still is.
     await reload();
     await page.click('[data-testid="arm-unmount"]');
     const readout = await armedReadout(page);
     await page.focus('[data-testid="mountable"]');
     await W.resetEvents(page);
     await keys(W.KEY_PLANS.compose);
+    const evUnmount = W.compositionEvidence(await W.readEvents(page), 'mountable');
     const armedFired = await waitForArmToFire(page);
     const gone = await page.evaluate(() =>
       document.querySelector('[data-testid="mountable-gone"]') !== null);
-    const evUnmount = W.compositionEvidence(await W.readEvents(page), 'mountable');
     return {
       ...W.teardownVerdict({
-        afterBlur, afterUnmount: { gone }, evidence, seed: W.SEEDS.mountable,
+        afterBlur, afterUnmount: { gone }, evBlur, evUnmount, seed: W.SEEDS.mountable,
         pageErrors: pageErrors.slice(),
       }),
-      evidence: { afterBlur, readout, armedFired, gone, blur: evidence, unmount: evUnmount },
-      readback: `after-blur ${fmtCell(afterBlur)} ${fmtEv(evidence)} | `
+      evidence: { afterBlur, readout, armedFired, gone, blur: evBlur, unmount: evUnmount },
+      readback: `after-blur ${fmtCell(afterBlur)} ${fmtEv(evBlur)} | `
         + `armed=${JSON.stringify(readout)} fired=${armedFired} unmounted=${gone} `
         + `${fmtEv(evUnmount)}`,
     };
