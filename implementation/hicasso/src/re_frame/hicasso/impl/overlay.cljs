@@ -60,16 +60,24 @@
   dialog, `popover=\"manual\"` on the popover. Both are attributes, so the
   not-dismissable case costs no JavaScript and no listener whatever.
 
-  ## The one guard, and why only the popover needs it
+  ## Which event each one routes on, and why they differ
 
-  A programmatic `close()` does NOT fire `cancel`, so a modal's teardown
-  cannot be mistaken for a dismissal the user asked for and needs no
-  guard. A programmatic `hidePopover()` DOES fire `toggle`, identically to
-  a light dismiss, so the popover's teardown marks its node before hiding
-  and the handler declines a toggle the module caused itself. Without that
-  mark every teardown would dispatch `:on-dismiss` a second time —
-  including the teardown that happens *because* the author's own handler
-  already ran."
+  The modal routes on `cancel`, which fires only for a close request —
+  never on the way in, and never for a programmatic `close()`. The popover
+  routes on `beforetoggle` rather than `toggle`, because the platform
+  QUEUES a task for `toggle`: an application that reads its own open flag
+  on the line after a dismissal would read the value the dismissal has not
+  written yet. `beforetoggle` fires in both directions, so the popover's
+  handler takes only `newState == \"closed\"` — the one filter in the file,
+  and the sabotage that widens it dispatches `:on-dismiss` on OPEN.
+
+  A first draft carried a second guard, a per-node mark set before the
+  module's own `hidePopover()` so a teardown could not be read as a
+  dismissal. **No sabotage could redden it**: React does not deliver an
+  event from a fiber it is in the middle of deleting, so the case never
+  arises. The mark is gone and the measurement replaced it — the teardown
+  rows of `re-frame.hicasso.overlay-dom-cljs-test` red the day that stops
+  being true."
   (:require [re-frame.adapter.context :as adapter-context]
             [re-frame.hicasso.impl.codec :as codec]
             [re-frame.hicasso.impl.collector :as collector]
@@ -162,12 +170,6 @@
 ;; The two platform doors, and the mark that tells them apart from a user
 ;; ---------------------------------------------------------------------------
 
-(def ^:private closing-slot
-  "Marks the node the module is itself taking out of the top layer, so a
-  `toggle` the module caused is not read as a dismissal the user asked
-  for."
-  "rfOverlayClosing")
-
 (def ^:private modal-ops
   {:tag       :dialog
    :show!     (fn [node] (when-not (.-open node) (.showModal node)))
@@ -176,9 +178,9 @@
    ;; CLOSED, and not when it is merely removed from the document.
    :hide!     (fn [node] (when (.-open node) (.close node)))
    :event     :on-cancel
-   ;; `cancel` fires for a close request and never for a programmatic
-   ;; `close()`, so the module's own teardown cannot be mistaken for one.
-   :guard?    false})
+   ;; `cancel` fires only for a close request — never on the way in, and
+   ;; never for a programmatic `close()` — so it needs no filter at all.
+   :closed-only? false})
 
 (def ^:private popover-ops
   {:tag       :div
@@ -191,9 +193,10 @@
    ;; after a dismissal — every test does — reads the value the dismissal
    ;; has not written yet.
    :event     :on-before-toggle
-   ;; It fires for a light dismiss AND for the module's own
-   ;; `hidePopover()`, so this one is guarded.
-   :guard?    true})
+   ;; It fires on the way IN as well as on the way out, so this one is
+   ;; filtered by `newState`. The module's own `hidePopover()` fires it
+   ;; too, and needs no filter of its own — see [[dismissal-handler]].
+   :closed-only? true})
 
 ;; ---------------------------------------------------------------------------
 ;; The instance cell, and the one ref callback that ever attaches
@@ -210,13 +213,11 @@
       cell "ref"
       (fn [node]
         (when node
-          (unchecked-set node closing-slot false)
           (unchecked-set cell "claimed"
                          (claim-anchor! (unchecked-get cell "anchorId")
                                         (unchecked-get cell "ident")))
           (show! node)
           (fn []
-            (unchecked-set node closing-slot true)
             (hide! node)
             (release-anchor! (unchecked-get cell "claimed"))
             (unchecked-set cell "claimed" nil)
@@ -227,16 +228,29 @@
   "The function the platform's own dismissal event lands on, or nil when
   there is nothing to route.
 
+  `closed-only?` is the popover's, because `beforetoggle` fires on the way
+  IN as well as on the way out — an unfiltered handler dispatches
+  `:on-dismiss` when the overlay OPENS, which is the wrong direction this
+  filter exists to stop.
+
+  **The module's own teardown needs no filter, and that was measured
+  rather than reasoned.** `hidePopover()` in the ref cleanup does fire the
+  identical event, so a first draft carried a per-node closing mark to
+  tell the two apart — and no sabotage could redden that mark, because
+  React does not deliver an event from a fiber it is in the middle of
+  deleting. It was unreachable code defending a case that does not arise,
+  and it is gone. `re-frame.hicasso.overlay-dom-cljs-test` holds the
+  measurement rather than the mark: the teardown rows red the day it stops
+  being true.
+
   A fresh closure per render, deliberately: it closes over the intent and
   the frame dispatch THIS render saw, so an overlay whose `:on-dismiss`
   changed cannot dispatch the previous one. React swaps a listener for
   free; a stale intent would cost a wrong event."
-  [dispatch on-dismiss guard?]
+  [dispatch on-dismiss closed-only?]
   (when (and dispatch on-dismiss)
     (fn [e]
-      (when-not (and guard?
-                     (or (not= "closed" (.-newState e))
-                         (true? (unchecked-get (.-target e) closing-slot))))
+      (when-not (and closed-only? (not= "closed" (.-newState e)))
         (dispatch on-dismiss)))))
 
 ;; ---------------------------------------------------------------------------
@@ -260,7 +274,7 @@
       (seq style) (assoc :style style))))
 
 (defn- body
-  [{:keys [tag event guard?] :as ops} dismissal-attrs js-props]
+  [{:keys [tag event closed-only?] :as ops} dismissal-attrs js-props]
   (let [props    (or (unchecked-get js-props "rfProps") {})
         ;; Hook 1 — the frame, classified through the shared reader so a
         ;; no-provider sentinel resolves to nil ("no scope") rather than
@@ -284,7 +298,7 @@
               area     (position-area (:placement props))
               extra    (cond-> (assoc (dismissal-attrs props)
                                       :ref   (unchecked-get cell "ref")
-                                      event  (dismissal-handler dispatch (:on-dismiss props) guard?))
+                                      event  (dismissal-handler dispatch (:on-dismiss props) closed-only?))
                          (some? (:label props))
                          (assoc :aria-label (:label props))
 

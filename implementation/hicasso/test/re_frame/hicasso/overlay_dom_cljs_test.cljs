@@ -59,11 +59,22 @@
     which leaves the page behind it live) reds the top-layer, inertness
     and stacking rows; dropping `close()` from the ref cleanup reds the
     focus row; a `document` listener added while open reds the census row.
-  - WIDEN the guard — deleting the `closing-slot` test in
-    `dismissal-handler` (leaving a handler that is right about every real
-    dismissal and wrong only about the module's own teardown) reds the
-    dispatch-count row; making `:open?` default true reds the closed-cost
-    row.
+  - WIDEN the guard — deleting the `newState` filter in
+    `dismissal-handler`, which leaves a handler with the correct SHAPE
+    (it is the platform's own dismissal event, on the right element, with
+    the author's own intent) and one wrong direction: `beforetoggle` also
+    fires on the way IN, so an overlay dispatches `:on-dismiss` when it
+    OPENS. That reds the dispatch-count rows with `(not (= 1 2))`.
+    Widening `:open?` to default true reds the closed-cost row.
+
+  A third sabotage is recorded here because it did NOT redden, and the
+  module changed as a result. The popover's teardown fires the same
+  `beforetoggle` a light dismiss fires, so the first draft carried a
+  per-node closing mark to tell them apart; deleting the mark left every
+  row green. React does not deliver an event from a fiber it is deleting,
+  so the mark was unreachable code. It is gone, and
+  [[the-platform-dismissal-arrives-as-an-intent-and-the-teardown-does-not]]
+  is what holds the property in its place.
 
   ## What is measured against what
 
@@ -369,6 +380,17 @@
                 (is (nil? ($ "dialog"))
                     "so the element left because app-db said so, and not
                      because the platform closed it behind app-db's back"))))
+
+          (testing "and the modal needs no guard for its own teardown: a
+                    programmatic `close()` fires `close` and never `cancel`, so
+                    an application closing its own dialog reports no dismissal"
+            (go! [::opened :m])
+            (is (some? ($ "dialog")) "premise: open again, and genuinely open")
+            (let [before (get-in (db) [:dismissed :m] 0)]
+              (go! [::closed :m])
+              (is (nil? ($ "dialog")))
+              (is (= before (get-in (db) [:dismissed :m] 0))
+                  "the count did not move")))
           (finally (mount/release! handle)))))))
 
 ;; --- the stack -------------------------------------------------------------
@@ -492,15 +514,33 @@
               "premise: `::noted` deliberately left the flag TRUE, so the
                element is still mounted and its teardown is still ahead")
 
-          (testing "THE GUARD: the module's own teardown hides the popover
-                    through the same door and fires the same `toggle` event —
-                    and dispatches nothing. A handler that were right about
-                    every real dismissal and wrong only about this one would
-                    double-count every close in the application"
+          (testing "tearing down an ALREADY-DISMISSED overlay adds nothing: its
+                    element is closed, so the module's `hide!` has nothing to do
+                    and fires no event at all"
             (go! [::closed :pa])
             (is (nil? ($ "#pop-a")) "the element is gone")
             (is (= 1 (get-in (db) [:dismissed :pa]))
-                "still one — the teardown is not a dismissal"))
+                "still one — the teardown is not a second dismissal"))
+
+          (testing "TEARDOWN OF A STILL-OPEN OVERLAY: the module hides it
+                    through the platform's own `hidePopover`, which fires the
+                    identical `beforetoggle` a light dismiss fires — and no
+                    dismissal is reported, because React delivers no event from
+                    a fiber it is deleting. This row is the whole of that claim:
+                    a first draft defended it with a per-node closing mark, and
+                    removing the mark reddened nothing, which is how the mark
+                    was found to be unreachable. If React's deletion order ever
+                    changes, THIS is what reds — and every close in the
+                    application would otherwise dispatch `:on-dismiss` twice"
+            (is (.matches ($ "#pop-b") ":popover-open")
+                "premise: B is genuinely open, so its teardown really does hide it")
+            (is (zero? (get-in (db) [:dismissed :pb] 0))
+                "premise: B has never been dismissed")
+            (go! [::closed :pb])
+            (is (nil? ($ "#pop-b")) "the element is gone")
+            (is (zero? (get-in (db) [:dismissed :pb] 0))
+                "and no dismissal was reported for a close the application asked
+                 for itself"))
           (finally (mount/release! handle)))))))
 
 ;; --- the census ------------------------------------------------------------
