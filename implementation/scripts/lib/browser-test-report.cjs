@@ -31,11 +31,49 @@
 //   createDiagnosticBuffer()    → an ordered stdout/stderr line buffer
 //                                  flushed verbatim (with stream routing)
 //                                  only when the runner needs the trail.
+//   findFixtureAbort(errors)    → the page error that ENDED the run, or null
+//                                  (rf2-u0j8).
+//   testingNamespaces(lines)    → the namespaces cljs-test-display announced,
+//                                  in order — the trail's own answer to "how
+//                                  far did the run get?" (rf2-u0j8).
 // isVerboseTests(env) is the RF2_VERBOSE_TESTS=1 escape hatch shared
 // with lib/gate-report.cjs.
 
 const RAN_RE = /Ran\s+(\d+)\s+tests?\s+containing\s+(\d+)\s+assertions?\./;
 const FAIL_RE = /(\d+)\s+failures?,\s*(\d+)\s+errors?\.?/;
+
+// rf2-u0j8 — the one uncaught page error that is TERMINAL for the whole run.
+//
+// cljs.test refuses `async` rows in a namespace whose fixtures are POSITIONAL
+// (`(use-fixtures :once (fn [f] … (f)))`) rather than maps. `execution-strategy`
+// picks `:sync` for a namespace whose fixtures are all fns, and the `:sync`
+// branch wraps every test body in `disable-async`, which throws `::async-disabled`
+// the moment a body returns an async object. `test-var-block*` catches that and
+// rethrows a bare STRING:
+//
+//     ::async-disabled (throw "Async tests require fixtures to be specified as
+//                              maps.  Testing aborted.")
+//
+// Nothing catches it after that. `cljs.test/run-block` has no try/catch, and
+// shadow.test runs the ENTIRE lane — every namespace block plus the closing
+// `:summary` / `:end-run-tests` reports — inside ONE `run-block`. So the throw
+// unwinds the whole lane: every namespace sorted after the offender never
+// executes, and the `Ran N tests containing M assertions.` line the runner
+// waits for is never printed.
+//
+// Two independent substrings of the same sentence, so a reword upstream has to
+// take out both before this stops matching. It does NOT have to keep matching
+// for the runner to stay correct: the abort still produces a `pageerror` and no
+// summary, which the generic no-summary-with-pageerror arm reports on its own.
+// This matcher only buys IMMEDIACY (fail in seconds instead of burning the
+// whole BROWSER_TEST_TIMEOUT_MS budget) and the named remedy.
+const FIXTURE_ABORT_RE = /Testing aborted|fixtures to be specified as maps/;
+
+// The `Testing <ns>` line cljs-test-display prints at every `:begin-test-ns`
+// when `cljs-test-display.core/printing` is true (the `:browser-test` build
+// sets it via `:closure-defines`). Anchored to the start of a line because
+// that is where the reporter's own `(println "\nTesting" ns)` puts it.
+const TESTING_NS_RE = /^Testing\s+([^\s]+)\s*$/;
 
 function isVerboseTests(env = process.env) {
   return env.RF2_VERBOSE_TESTS === '1';
@@ -123,6 +161,36 @@ function parseRanCounts(ran) {
   };
 }
 
+// rf2-u0j8: the first captured page error that is the cljs.test fixture abort,
+// or null. Kept pure (and separate from the runner) so the classification is
+// unit-testable without launching a browser.
+function findFixtureAbort(errors) {
+  if (!errors) return null;
+  for (const err of errors) {
+    if (err != null && FIXTURE_ABORT_RE.test(String(err))) return String(err);
+  }
+  return null;
+}
+
+// rf2-u0j8: the namespaces the run announced, in order. `lines` may be raw
+// console texts (which carry embedded newlines) or already-split lines; both
+// are handled. The LAST entry is the namespace that was executing when a
+// terminal error fired, and the COUNT is how far the lane got — the two numbers
+// that turn "the run stopped" into "the run stopped HERE, and N namespaces
+// after it never ran".
+function testingNamespaces(lines) {
+  const out = [];
+  if (!lines) return out;
+  for (const raw of lines) {
+    if (raw == null) continue;
+    for (const line of String(raw).replace(/\r\n/g, '\n').split('\n')) {
+      const match = line.match(TESTING_NS_RE);
+      if (match) out.push(match[1]);
+    }
+  }
+  return out;
+}
+
 function formatCompactSummary({ label = 'Browser tests', ran, failErr, source }) {
   const sourceSuffix = source ? ` (source: ${source})` : '';
   return `${label}: ${ran} ${failErr}${sourceSuffix}`;
@@ -155,6 +223,9 @@ function createDiagnosticBuffer() {
 module.exports = {
   RAN_RE,
   FAIL_RE,
+  FIXTURE_ABORT_RE,
+  findFixtureAbort,
+  testingNamespaces,
   isVerboseTests,
   summaryPartsFromText,
   parseFailureCounts,
