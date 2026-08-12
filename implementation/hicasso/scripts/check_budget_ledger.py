@@ -502,7 +502,7 @@ def check(rows, registered, sections, existing_files):
                     "L6 %s is a distributional row wired to the PR-gate lane. "
                     "A hosted runner may never source a distributional budget "
                     "(budgets.md sec. 1) and such a row is never converted into a "
-                    "flaky PR threshold (§7)" % rid)
+                    "flaky PR threshold (sec. 7)" % rid)
             if row["status"] == "UNPINNED" and lane != "none":
                 failures.append(
                     "L6 %s is UNPINNED and names the lane %r. Nothing has "
