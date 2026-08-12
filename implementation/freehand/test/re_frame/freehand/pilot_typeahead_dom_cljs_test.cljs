@@ -170,13 +170,13 @@
                          (insert-at! node 2 "X")
                          (is (= "anXna" (.-value node)) "the insert landed at the caret")
                          (is (= [3 3] (caret node)) "and the caret followed it")
-                         (is (= "anXna" (:query (record))) "and reached the draft"))
-                       (teardown! container root)
-                       (done)))
+                         (is (= "anXna" (:query (record))) "and reached the draft"))))
               (.catch (fn [e]
                         (is false (str "browser run failed: " e))
-                        (teardown! container root)
-                        (done)))))))))
+                        nil))
+              (.then (fn [_]
+                       (teardown! container root)
+                       (done)))))))))
 
 (deftest a-settle-arriving-mid-word-touches-neither-the-value-nor-the-caret
   (testing "R-C1, in a browser. The corpus baseline FAILS this: an accepted
@@ -218,13 +218,13 @@
                                                              (.-body js/document)
                                                              "[data-part='option']")))
                                           (str "and its results are NOT shown — they answer "
-                                               "'an', and the user has typed 'anna'"))
-                                      (teardown! container root)
-                                      (done)))))))
+                                               "'an', and the user has typed 'anna'"))))))))
               (.catch (fn [e]
                         (is false (str "browser run failed: " e))
-                        (teardown! container root)
-                        (done)))))))))
+                        nil))
+              (.then (fn [_]
+                       (teardown! container root)
+                       (done)))))))))
 
 (deftest a-callers-refusal-restores-the-baseline-on-the-same-node
   (testing "The generation fence in a browser. The caller refuses the draft
@@ -256,13 +256,13 @@
                                       (is (identical? before (field))
                                           "restored on the SAME node, not remounted")
                                       (is (identical? before js/document.activeElement)
-                                          "which still has focus")
-                                      (teardown! container root)
-                                      (done)))))))
+                                          "which still has focus")))))))
               (.catch (fn [e]
                         (is false (str "browser run failed: " e))
-                        (teardown! container root)
-                        (done)))))))))
+                        nil))
+              (.then (fn [_]
+                       (teardown! container root)
+                       (done)))))))))
 
 (deftest the-debounce-debounces-on-a-real-host-clock
   (testing "The headless rows deliver the delayed event by hand, which is
@@ -287,13 +287,13 @@
                            (str "exactly one request after the quiet period, not four "
                                 "(got " (mapv :query (requests)) ")"))
                        (is (= "anna" (:query (first (requests))))
-                           "for what the user actually typed")
-                       (teardown! container root)
-                       (done)))
+                           "for what the user actually typed")))
               (.catch (fn [e]
                         (is false (str "browser run failed: " e))
-                        (teardown! container root)
-                        (done)))))))))
+                        nil))
+              (.then (fn [_]
+                       (teardown! container root)
+                       (done)))))))))
 
 (deftest choosing-a-suggestion-commits-and-retires-the-control
   (testing "The whole loop, live: type, settle, click a suggestion. The
@@ -321,10 +321,10 @@
                            "the caller's state moved")
                        (is (nil? (record)) "and the control retired itself")
                        (is (= "anna" (.-value (field)))
-                           "with the committed value now the input's baseline")
-                       (teardown! container root)
-                       (done)))
+                           "with the committed value now the input's baseline")))
               (.catch (fn [e]
                         (is false (str "browser run failed: " e))
-                        (teardown! container root)
-                        (done)))))))))
+                        nil))
+              (.then (fn [_]
+                       (teardown! container root)
+                       (done)))))))))
