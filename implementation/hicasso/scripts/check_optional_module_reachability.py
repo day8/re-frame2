@@ -47,6 +47,16 @@ the property needs: the module is unreachable or it is not, and
 reachability is decided in the source.  What a byte count would add is
 confidence about the COMPILER, which is not what regresses here.
 
+For the `native` row there IS such a companion, and the division of
+labour is worth stating because neither instrument subsumes the other.
+`scripts/check_bundle_isolation.cjs` (rf2-hic-034) reads the
+`:hicasso-release` bundle for the tier's two sentinel strings, which is
+the linker's half of the same claim — but it can only see the parts of
+the tier that have a production footprint, and a consumer who writes
+only `n/$` with literal props leaves none at all.  THIS gate is the one
+that decides the property exhaustively, because a `:require` is a
+`:require` whether or not Closure keeps anything from it.
+
 SELF-TEST
 ---------
 `--self-test` runs the detector over synthetic sources first, because a
@@ -79,6 +89,39 @@ MODULES = [
             "re_frame/hicasso/motion.cljs",
             "re_frame/hicasso/impl/presence.cljs",
             "re_frame/hicasso/impl/presence_react.cljs",
+        ],
+    },
+    {
+        # rf2-hic-034.  The native tier is the module the native-boundary
+        # law names in terms: *the native namespace is separately
+        # reachable; an interpreted-only production dependency graph and
+        # bundle contain neither native-tier runtime nor UIx code*
+        # (`docs/design/hicasso/product/lanes/design-laws.md`).  This row
+        # is the DEPENDENCY-GRAPH half of that sentence.
+        #
+        # NO ENGINE, and the emptiness is the design rather than an
+        # omission.  `motion`'s weight is in two private namespaces it
+        # alone reaches, so protecting its door alone would leave a
+        # `impl.presence-react` require as an unguarded way in.  The
+        # native tier owns exactly one file: everything else it touches —
+        # `impl.error`, `impl.slot`, `impl.collector` — is the SHARED
+        # runtime that the public door already reaches, so naming any of
+        # them here would forbid the interpreted tier its own machinery.
+        # There is therefore one edge to guard and it is the door.
+        #
+        # The two-languages fence is what makes that true: `n/$` reads its
+        # own form and never a `defview` body, so no interpreted path has
+        # any reason to reach for the tier, and neither embedding bridge
+        # names it — `h/as-component` outward, `h/defhost` and `[:>]`
+        # inward, both of which cross to a foreign React component without
+        # caring which tier minted it (rf2-hic-032).  A require appearing
+        # here would therefore be a genuine architectural change and not a
+        # convenience.
+        "name": "native",
+        "door": "re-frame.hicasso.native",
+        "engine": [],
+        "files": [
+            "re_frame/hicasso/native.cljc",
         ],
     },
 ]
@@ -280,6 +323,34 @@ def self_test():
     clean = scan(
         {
             "src/m.cljs": "(ns {}\n  (:require [{} :as p]))".format(door, engine)
+        }
+    )
+    assert clean == [], clean
+
+    # rf2-hic-034 — the native tier's door, required from a `src/`
+    # namespace that is not it.  Driven as its own case rather than left
+    # to the generic loop above: that row has an engine and this one does
+    # not, so the fixtures written for `motion` exercise a shape the
+    # native row does not have, and a roster entry nothing drives is an
+    # entry that can stop working in silence.
+    flagged = scan(
+        {
+            "src/n.cljs": "(ns re-frame.hicasso.impl.codec\n"
+            "  (:require [re-frame.hicasso.native :as n]))"
+        }
+    )
+    assert len(flagged) == 1, flagged
+    assert "re-frame.hicasso.native" in flagged[0], flagged
+    assert "`native` module" in flagged[0], flagged
+
+    # And the shape the real tree actually has: `impl/codec.cljs` carries
+    # four `[[re-frame.hicasso.native/…]]` docstring links today.  Prose is
+    # provenance, so the live scan below has to stay green over them.
+    clean = scan(
+        {
+            "src/p.cljs": '(ns re-frame.hicasso.impl.codec\n'
+            '  "The sibling door [[re-frame.hicasso.native/declared-server]]."\n'
+            "  (:require [re-frame.hicasso.impl.slot :as slot]))"
         }
     )
     assert clean == [], clean

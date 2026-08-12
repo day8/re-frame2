@@ -38,7 +38,7 @@
     "build:machines-viz-viewer": "shadow-cljs release machines-viz-viewer && node ../tools/machines-viz/scripts/stage-viewer-page.cjs",
     "build:freehand-release": "shadow-cljs release freehand-release",
     "build:freehand-evidence-elision": "shadow-cljs release freehand-release freehand-release-control",
-    "build:hicasso-release": "shadow-cljs release hicasso-release && node hicasso/scripts/check_production_erasure.cjs --self-test && node hicasso/scripts/check_production_erasure.cjs",
+    "build:hicasso-release": "shadow-cljs release hicasso-release && node hicasso/scripts/check_production_erasure.cjs --self-test && node hicasso/scripts/check_production_erasure.cjs && node hicasso/scripts/check_bundle_isolation.cjs --self-test && node hicasso/scripts/check_bundle_isolation.cjs",
     "test:ui": "npm run test:ui-isolation && node out/node-test-ui.js",
     "test:ui-isolation": "node scripts/check-ui-adapter-isolation.cjs --self-test && node scripts/compile-node-test.cjs node-test-ui out/node-test-ui.js && node scripts/check-ui-adapter-isolation.cjs",
     "test:ui-warm-watch": "node scripts/check-ui-warm-watch.cjs",
