@@ -198,13 +198,17 @@
   (text-in container ".probe"))
 
 (defn- id-in-html
-  "The id inside `html` — read back out of a detached parse rather than
-  matched with a pattern, because the row is about a STRING React chose
-  and this file has no business knowing its shape."
+  "The id inside `html`, read straight off the bytes.
+
+  A string match rather than a parse, because the server rows run under
+  `:node-test` too and there is no `document` there to parse with. What
+  it matches is [[id-probe]]'s OWN markup — this file authored
+  `<b class=\"probe\">`, so recognising it is reading back what it
+  wrote. What it must not assume is the shape of the ID, and it does
+  not: the capture is `.*?` and every assertion below compares ids to
+  each other rather than to a literal."
   [html]
-  (let [node (.createElement js/document "div")]
-    (set! (.-innerHTML node) html)
-    (some-> (.querySelector node ".probe") .-textContent)))
+  (second (re-find #"<b class=\"probe\">(.*?)</b>" html)))
 
 (defn- relabel!
   "Dispatch into `frame-kw` and let the sync-lane notification commit, so
@@ -220,9 +224,9 @@
 
 (deftest the-server-renderer-honours-the-prefix-and-is-deterministic
   (fresh!)
-  (let [a1 (server-html! frame-a [id-page {}] "alpha-")
-        a2 (server-html! frame-a [id-page {}] "alpha-")
-        b1 (server-html! frame-a [id-page {}] "beta-")
+  (let [a1 (server-html! frame-a [id-page {}] "pfx-a-")
+        a2 (server-html! frame-a [id-page {}] "pfx-a-")
+        b1 (server-html! frame-a [id-page {}] "pfx-b-")
         none (server-html! frame-a [id-page {}] nil)]
 
     (testing "the same request rendered twice is the same bytes — §2.4's
@@ -234,7 +238,7 @@
       (is (some? (id-in-html a1)) "premise: the island is IN the bytes, so
                                    there is an id to read — a Client-only
                                    island would leave nothing here")
-      (is (re-find #"alpha-" (id-in-html a1))
+      (is (re-find #"pfx-a-" (id-in-html a1))
           (str "the server id must carry the prefix it was rendered with; got "
                (pr-str (id-in-html a1)))))
 
@@ -243,12 +247,12 @@
       (is (not= (id-in-html a1) (id-in-html b1))
           (str "two prefixes, two ids; got " (pr-str (id-in-html a1))
                " and " (pr-str (id-in-html b1))))
-      (is (re-find #"beta-" (id-in-html b1))))
+      (is (re-find #"pfx-b-" (id-in-html b1))))
 
     (testing "naming no prefix is not an error and not a default of this
               arm's invention — it is React's own unprefixed id"
       (is (some? (id-in-html none)))
-      (is (not (re-find #"alpha-" (id-in-html none)))
+      (is (not (re-find #"pfx-a-" (id-in-html none)))
           "an unprefixed render carries no prefix"))))
 
 ;; ---------------------------------------------------------------------------
@@ -261,7 +265,7 @@
       (do (sup/skip! ":node-test has no React DOM") (done))
       (do
         (fresh!)
-        (let [html      (server-html! frame-a [id-page {}] "alpha-")
+        (let [html      (server-html! frame-a [id-page {}] "pfx-a-")
               server-id (id-in-html html)
               container (sup/stamp-server-nodes! (sup/server-dom! html))
               {:keys [seen stop!]} (sup/watch-mismatches!)]
@@ -270,7 +274,7 @@
               "premise: the page on screen is the server's, before any adoption")
           (collector/reset-runtime!)
           (let [handle (mount/hydrate-root! container frame-a [id-page {}]
-                                            {:identifier-prefix "alpha-"})]
+                                            {:identifier-prefix "pfx-a-"})]
             (-> (sup/adopted! handle)
                 (.then
                   (fn [ok]
@@ -314,8 +318,8 @@
       (do (sup/skip! ":node-test has no React DOM") (done))
       (do
         (fresh!)
-        (let [html-a    (server-html! frame-a [id-page {}] "alpha-")
-              html-b    (server-html! frame-b [id-page {}] "beta-")
+        (let [html-a    (server-html! frame-a [id-page {}] "pfx-a-")
+              html-b    (server-html! frame-b [id-page {}] "pfx-b-")
               server-a  (id-in-html html-a)
               server-b  (id-in-html html-b)
               ca        (sup/stamp-server-nodes! (sup/server-dom! html-a))
@@ -326,9 +330,9 @@
                    (pr-str server-a) " and " (pr-str server-b)))
           (collector/reset-runtime!)
           (let [ha (mount/hydrate-root! ca frame-a [id-page {}]
-                                        {:identifier-prefix "alpha-"})
+                                        {:identifier-prefix "pfx-a-"})
                 hb (mount/hydrate-root! cb frame-b [id-page {}]
-                                        {:identifier-prefix "beta-"})]
+                                        {:identifier-prefix "pfx-b-"})]
             ;; The overlap is a CONSTRUCTION and not a timing guess: both
             ;; roots were handed to React before either had adopted, and
             ;; each root's OWN window being open on this line says so.
@@ -370,8 +374,8 @@
                         (is (not= (probe-id ca) (probe-id cb))
                             (str "two roots on one page must not mint the same id; "
                                  "got " (pr-str (probe-id ca)) " twice"))
-                        (is (re-find #"alpha-" (probe-id ca)))
-                        (is (re-find #"beta-" (probe-id cb))))
+                        (is (re-find #"pfx-a-" (probe-id ca)))
+                        (is (re-find #"pfx-b-" (probe-id cb))))
 
                       (testing "§2.4's *exact cleanup on unmount*, and the fact
                                 that teardown is root-scoped: A's unmount leaves
@@ -411,13 +415,13 @@
       (do (sup/skip! ":node-test has no React DOM") (done))
       (do
         (fresh!)
-        (let [html      (server-html! frame-a [id-page {}] "alpha-")
+        (let [html      (server-html! frame-a [id-page {}] "pfx-a-")
               server-id (id-in-html html)
               container (sup/stamp-server-nodes! (sup/server-dom! html))
               {:keys [seen stop!]} (sup/watch-mismatches!)]
           (collector/reset-runtime!)
           (let [handle (mount/hydrate-root! container frame-a [id-page {}]
-                                            {:identifier-prefix "beta-"})]
+                                            {:identifier-prefix "pfx-b-"})]
             (-> (sup/adopted! handle)
                 (.then
                   (fn [_]
@@ -440,7 +444,7 @@
                         (is (not= server-id (probe-id container))
                             (str "the disagreeing client id must have replaced "
                                  "the server's; both read " (pr-str server-id)))
-                        (is (re-find #"beta-" (probe-id container))
+                        (is (re-find #"pfx-b-" (probe-id container))
                             (str "and it is the client's prefix; got "
                                  (pr-str (probe-id container)))))
 
