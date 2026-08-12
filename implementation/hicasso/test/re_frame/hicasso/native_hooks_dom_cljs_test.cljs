@@ -241,6 +241,12 @@
     (when handle (mount/release! handle))
     nil))
 
+;; Teardown is NOT hoisted onto those trailing steps anywhere in this file,
+;; and the reason is one reason: in the success arm it IS the assertion —
+;; `(is (= support/released (teardown! handle)))` — while the rejection arm
+;; never had the handle at all, because `mount-live!` resolves WITH it. The
+;; two arms were never writing the same release, so there is nothing to hoist.
+
 (defn- teardown!
   "Unmount, read the census while it is still exact, then finish the
   release. The order is the load-bearing part: `mount/release!` calls
@@ -317,11 +323,7 @@
                   (is (= support/released (teardown! handle))))
                 nil))
             (.catch (report-failure! "W1 mounted read" nil))
-            ;; The single `done`, on the single trailing step, with nothing
-            ;; after it. Teardown is NOT hoisted onto it: it is an ASSERTION
-            ;; under test in the success arm — the census must read
-            ;; `support/released` — and the rejection arm never had the
-            ;; handle, which `mount-live!` resolves WITH.
+            ;; The single `done`, with nothing after it.
             (.then (fn [_] (done))))))))
 
 ;; ---------------------------------------------------------------------------
@@ -365,11 +367,7 @@
                 (is (= support/released (teardown! handle)))
                 nil))
             (.catch (report-failure! "W2 selective wake" nil))
-            ;; The single `done`, on the single trailing step, with nothing
-            ;; after it. Teardown is NOT hoisted onto it: it is an ASSERTION
-            ;; under test in the success arm — the census must read
-            ;; `support/released` — and the rejection arm never had the
-            ;; handle, which `mount-live!` resolves WITH.
+            ;; The single `done`, with nothing after it.
             (.then (fn [_] (done))))))))
 
 ;; ---------------------------------------------------------------------------
@@ -438,11 +436,7 @@
                   (is (= support/released (teardown! handle)))
                   nil)))
             (.catch (report-failure! "W3 no re-subscribe" nil))
-            ;; The single `done`, on the single trailing step, with nothing
-            ;; after it. Teardown is NOT hoisted onto it: it is an ASSERTION
-            ;; under test in the success arm — the census must read
-            ;; `support/released` — and the rejection arm never had the
-            ;; handle, which `mount-live!` resolves WITH.
+            ;; The single `done`, with nothing after it.
             (.then (fn [_] (done))))))))
 
 ;; ---------------------------------------------------------------------------
@@ -500,11 +494,7 @@
                                       (inventory/residue))))
                              nil)))))
             (.catch (report-failure! "W4 StrictMode" nil))
-            ;; The single `done`, on the single trailing step, with nothing
-            ;; after it. Teardown is NOT hoisted onto it: it is an ASSERTION
-            ;; under test in the success arm — the census must read
-            ;; `support/released` — and the rejection arm never had the
-            ;; handle, which `mount-live!` resolves WITH.
+            ;; The single `done`, with nothing after it.
             (.then (fn [_] (done))))))))
 
 ;; ---------------------------------------------------------------------------
@@ -554,11 +544,7 @@
                   (mount/release! (assoc a :root nil))
                   nil)))
             (.catch (report-failure! "W5 frame isolation" nil))
-            ;; The single `done`, on the single trailing step, with nothing
-            ;; after it. Teardown is NOT hoisted onto it: it is an ASSERTION
-            ;; under test in the success arm — the census must read
-            ;; `support/released` — and the rejection arm never had the
-            ;; handle, which `mount-live!` resolves WITH.
+            ;; The single `done`, with nothing after it.
             (.then (fn [_] (done))))))))
 
 ;; ---------------------------------------------------------------------------
@@ -711,11 +697,7 @@
                 (is (= support/released (teardown! handle)))
                 nil))
             (.catch (report-failure! "W7 transition" nil))
-            ;; The single `done`, on the single trailing step, with nothing
-            ;; after it. Teardown is NOT hoisted onto it: it is an ASSERTION
-            ;; under test in the success arm — the census must read
-            ;; `support/released` — and the rejection arm never had the
-            ;; handle, which `mount-live!` resolves WITH.
+            ;; The single `done`, with nothing after it.
             (.then (fn [_] (done))))))))
 
 ;; ---------------------------------------------------------------------------
