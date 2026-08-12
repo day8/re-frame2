@@ -2,6 +2,7 @@
 
 const assert = require('assert/strict');
 const {
+  classifyTrustedInputRequest,
   createDiagnosticBuffer,
   findFixtureAbort,
   formatCompactSummary,
@@ -300,6 +301,73 @@ test('a "Testing" mention inside a log line is not mistaken for a namespace (rf2
   assert.deepEqual(testingNamespaces(['Testing']), []);
   assert.deepEqual(testingNamespaces([]), []);
   assert.deepEqual(testingNamespaces(null), []);
+});
+
+// rf2-il7b — the trusted-input bridge's classification.
+//
+// The suites that DRIVE this bridge are the witness that it works: three of
+// them press a real Tab or a real Escape on every `npm run test:browser`, and
+// they red the moment the press stops landing. What they cannot witness is
+// the case a healthy tree never produces — a request the runner cannot
+// acknowledge, which suspends the row that published it and takes the whole
+// lane down with it. That case is pure and belongs here.
+test('nothing published on the bridge is idle, not a fault (rf2-il7b)', () => {
+  assert.deepEqual(classifyTrustedInputRequest(null), { kind: 'idle' });
+  assert.deepEqual(classifyTrustedInputRequest(undefined), { kind: 'idle' });
+  assert.deepEqual(classifyTrustedInputRequest({ present: false }), { kind: 'idle' });
+});
+
+test('a well-formed request is servable, and its keys are strings (rf2-il7b)', () => {
+  assert.deepEqual(
+    classifyTrustedInputRequest({
+      present: true,
+      token: 'rf2-trusted-input-3',
+      tokenType: 'string',
+      keys: ['Tab', 'Escape'],
+      keysType: 'array',
+      ackType: 'function',
+    }),
+    { kind: 'ready', token: 'rf2-trusted-input-3', keys: ['Tab', 'Escape'] },
+  );
+});
+
+test('a request the runner cannot acknowledge is terminal, and says which part (rf2-il7b)', () => {
+  // Each of the three is a guaranteed stall rather than a nuisance: without a
+  // token there is nothing to match the acknowledgement against, without keys
+  // there is nothing to press, and without `ack` the answer has nowhere to go.
+  const noToken = classifyTrustedInputRequest({
+    present: true, token: null, tokenType: 'undefined',
+    keys: ['Tab'], keysType: 'array', ackType: 'function',
+  });
+  assert.equal(noToken.kind, 'malformed');
+  assert.match(noToken.reason, /token/);
+
+  const noKeys = classifyTrustedInputRequest({
+    present: true, token: 't', tokenType: 'string',
+    keys: null, keysType: 'string', ackType: 'function',
+  });
+  assert.equal(noKeys.kind, 'malformed');
+  assert.match(noKeys.reason, /keys/);
+
+  const noAck = classifyTrustedInputRequest({
+    present: true, token: 't', tokenType: 'string',
+    keys: ['Tab'], keysType: 'array', ackType: 'undefined',
+  });
+  assert.equal(noAck.kind, 'malformed');
+  assert.match(noAck.reason, /ack/);
+});
+
+test('an empty key list is served, not refused (rf2-il7b)', () => {
+  // Zero presses is a page-side bug, but it is not a STALL: the runner acks it
+  // with `pressed: 0` and the row resumes and reds on its own assertion. Only
+  // the unanswerable shapes short-circuit the poll loop.
+  assert.deepEqual(
+    classifyTrustedInputRequest({
+      present: true, token: 't', tokenType: 'string',
+      keys: [], keysType: 'array', ackType: 'function',
+    }),
+    { kind: 'ready', token: 't', keys: [] },
+  );
 });
 
 test('RF2_VERBOSE_TESTS=1 enables verbose mode', () => {
