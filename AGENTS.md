@@ -69,11 +69,22 @@ Never pipe a gate through `tail`, `head` or `grep` — a pipeline's exit status 
 its *last* command's, so a red runner reads green. Redirect to a file, capture
 the runner's own exit code, and quote that number in the PR body. **Every**
 artefact that produces — the log *and* the exit-code file — must land on an
-ignored path; `*.log`, `*.exit` and `*-exit.txt` all are:
+ignored path (`*.log`, `*.exit` and `*-exit.txt` all are) **and carry your
+worktree's name**:
 
 ```bash
-sh <WORKTREE_ROOT>/scripts/test-fast-pr.sh > gate-fastpr.log 2>&1; echo "$?" > gate-fastpr.exit
+sh <WORKTREE_ROOT>/scripts/test-fast-pr.sh > gate-fastpr-<worktree>.log 2>&1; echo "$?" > gate-fastpr-<worktree>.exit
 ```
+
+The suffix is not tidiness — a bare name fails the gate open. Concurrent
+workers share one scratchpad directory (its path carries the session id, not
+the worktree), so a peer silently overwrites a bare `gate-fastpr.exit`, and the
+loser then reads an exit code belonging to another worker's run: a `0` somebody
+else earned, quoted as its own green. Two of six workers in a single wave
+collided exactly that way. Confirm a scratch file is your own before believing
+it, and check the gate's printed `gate root:` line against your worktree (the
+section above) — that check, not this naming rule, is what caught both
+observed collisions.
 
 A single untracked leftover makes `git worktree remove` refuse the tree from
 then on, and nine worktrees accumulated exactly that way before anyone worked
