@@ -47,14 +47,24 @@ rather than trusting this list**; it grows a row at a time.
 
 ## 3. Where the design corpus is a HAZARD, not an input
 
-`docs/EP/EP-0036-*`, `docs/design/freehand/decisions/` and
-`docs/design/freehand/draft-guide/` describe the design, including forms that
-are **declared and not exported** — `local`, `effect`, `ref`,
+`docs/EP/EP-0036-*` and `docs/design/freehand/` describe the design, including
+forms that are **declared and not exported** — `local`, `effect`, `ref`,
 `v/check`, a React interop hook tier. They are useful for understanding *why* a
 shape is the way it is, and dangerous as a source of call shapes: some names once
 on this list (`v/->react`, `v/client-only`, `v/html`) have since shipped, which is exactly
 why **every verb goes through §1 before it is written** (design L9) rather than a
 remembered "not yet" list.
+
+The hazard is the whole `docs/design/**` tree, not a subdirectory of it. That
+tree is the working design RECORD — `mkdocs.yml` excludes it from the published
+site for exactly that reason — so design prose carrying unexported call shapes is
+as likely in `codex-design.md` or `studio/` as in `decisions/`, and naming
+subdirectories only invites the list to go stale as they are added and removed.
+
+**`docs/core/freehand/` is NOT on this list.** It is the promoted, digest-pinned
+guide — published documentation whose fenced blocks are hashed against the
+shipped surface — so it is a valid input, second only to §1's roster. Do not
+re-add it here as a hazard.
 
 ## 4. Tertiary inputs (shape the discipline, not quoted)
 
