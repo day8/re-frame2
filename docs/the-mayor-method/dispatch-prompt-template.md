@@ -221,14 +221,14 @@ none of them is obvious from the gate command itself.
   two checkouts apart on its own. The discrimination is the red itself: the
   fault exists only in your tree, so a run that had wandered into a sibling's
   would have come back green, and a green sabotage run is a reason to stop, not
-  to proceed. This half is written down because the
-  bullet used to claim *every* gate printed the banner, which is an instruction
-  a worker on a Python gate cannot satisfy — two hit it in one day, and one of
-  them arrived at the negative control's path unprompted, because a worker
-  facing an unsatisfiable rule improvises rather than stops. So the check is
-  mandatory on every gate run, by whichever of the two routes that gate affords
-  — a positive verification performed on evidence you received is a stronger
-  shape than a rule you are asked to remember.
+  to proceed. This half is written down because the bullet used to claim
+  *every* gate printed the banner, which is an instruction a worker on a Python
+  gate cannot satisfy — two hit it in one day, and one of them arrived at the
+  negative control unprompted, because a worker facing an unsatisfiable rule
+  improvises rather than stops. So the check is mandatory on every gate run, by
+  whichever of the two routes that gate affords — a positive verification
+  performed on evidence you received is a stronger shape than a rule you are
+  asked to remember.
 - **Never pipe a gate through `tail`, `head` or `grep`.** A pipeline's exit
   status is its *last* command's, so a red runner reads green and the PR claims
   a pass it never got. Redirect to a log file, echo the runner's own exit code
