@@ -241,13 +241,16 @@
                          (is (= "8484" (rows/cell-text container 0))
                              "and the measured window — write, one microtask,
                               forced drain — still lands its write too")
-                         ((:unmount arm) mounted)
-                         (.remove container)
-                         (done)))
-                (.catch (fn [e]
-                          (is false (str "rejected: " e))
-                          (.remove container)
-                          (done))))))))))
+                         ;; ASYMMETRIC, so it stays put: the rejection arm never
+                         ;; unmounted this root, and the detach both arms DID
+                         ;; share rides the single trailing step below.
+                         ((:unmount arm) mounted)))
+                ;; Reports and RELEASES; it never finishes (rf2-o0n1). `done`
+                ;; runs the whole remainder of the run synchronously, so a
+                ;; `.catch` downstream of it would claim a later namespace's
+                ;; throw as this row's and fire `done` a second time.
+                (.catch (fn [e] (is false (str "rejected: " e)) nil))
+                (.then (fn [_] (.remove container) (done))))))))))
 
 (deftest the-fixture-is-what-it-says-it-is
   (testing "Arithmetic over the fixture, so a reader can check the row's

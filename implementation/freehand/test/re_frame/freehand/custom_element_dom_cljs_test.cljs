@@ -230,13 +230,16 @@
                        (act #(.render root (fr/element [accent-host-literal {}])))))
               (.then (fn [_]
                        (assert-classified! (.querySelector container (:tag dom-row)) "literal")
-                       (.unmount root)
-                       (.remove container)
-                       (done)))
-              (.catch (fn [e]
-                        (is false (str "mount rejected: " (some-> e ex-message)))
-                        (.remove container)
-                        (done)))))))))
+                       ;; ASYMMETRIC, so it stays put: the rejection arm never
+                       ;; unmounted this root. The container detach both arms
+                       ;; DID share rides the single trailing step below.
+                       (.unmount root)))
+              ;; Reports and RELEASES; it never finishes (rf2-o0n1). `done` runs
+              ;; the whole remainder of the run synchronously, so a `.catch`
+              ;; downstream of it would claim a later namespace's throw as this
+              ;; row's and fire `done` a second time.
+              (.catch (fn [e] (is false (str "mount rejected: " (some-> e ex-message))) nil))
+              (.then (fn [_] (.remove container) (done)))))))))
 
 (deftest fh-struct-011-the-on-family-declaration-is-live
   (testing "Per FH-STRUCT-011: the `on-*` rows are evidence only if the
