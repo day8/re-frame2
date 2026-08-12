@@ -242,10 +242,17 @@
                     (is (= 0 (watch-count upstream))
                         (str "upstream watch count returned to baseline 0 after the genuine "
                              "unmount (clean teardown); got " (watch-count upstream)))
-                    (cleanup!)
-                    (done!)))
+                    nil))
+                ;; Reports; it does NOT finish. `done` hands
+                ;; `cljs.test/run-block` a continuation that runs the WHOLE
+                ;; remainder of the run synchronously, so a rejection handler
+                ;; downstream of the step that finished the row claims whatever
+                ;; a LATER namespace throws, prints it against this row's
+                ;; label, and fires `done` a second time (rf2-e8kc).
                 (.catch
                   (fn [err]
                     (is false (str "StrictMode double-mount scenario threw: " (pr-str err)))
-                    (cleanup!)
-                    (done!))))))))))
+                    nil))
+                ;; Both arms cleaned up identically, so it rides the single
+                ;; trailing step: written once, run once per path.
+                (.then (fn [_] (cleanup!) (done!))))))))))

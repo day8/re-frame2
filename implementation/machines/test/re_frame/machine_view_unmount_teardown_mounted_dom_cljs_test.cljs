@@ -145,10 +145,18 @@
               traces     (atom [])
               root       (rdc/create-root (.createElement js/document "div"))
               cleanup!   (fn [] (try (act-fn #(rdc/unmount root)) (catch :default _ nil)))
-              fail!      (fn [err]
+              ;; Reports; it does NOT finish. `done` hands `cljs.test/run-block`
+              ;; a continuation that runs the WHOLE remainder of the run
+              ;; synchronously, so a rejection handler downstream of the step
+              ;; that finished the row claims whatever a LATER namespace throws,
+              ;; prints it against this row's label, and fires `done` a second
+              ;; time (rf2-e8kc). The chain's single `done` sits at its tail.
+              report!    (fn [err]
                            (is false (str "mounted bare-unmount fixture threw: " (pr-str err)))
-                           (cleanup!)
-                           (done!))]
+                           nil)
+              ;; The SYNCHRONOUS terminal path only — a throw before the chain
+              ;; exists has no trailing step to finish on.
+              fail!      (fn [err] (report! err) (cleanup!) (done!))]
           (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) true)
           (try
             (rf/reg-machine machine-id
@@ -211,9 +219,11 @@
                       (is (empty? (filterv #(= :rf.machine (:op-type %)) @traces))
                           "NO :op-type :rf.machine trace fired — the real unmount
                            touched nothing in the machine runtime")
-                      (cleanup!)
-                      (done!)))
-                  (.catch fail!)))
+                      nil))
+                  (.catch report!)
+                  ;; Both arms cleaned up identically, so it rides the single
+                  ;; trailing step: written once, run once per path.
+                  (.then (fn [_] (cleanup!) (done!)))))
             (catch :default e (fail! e))))))))
 
 ;; ===========================================================================
@@ -239,10 +249,13 @@
               traces     (atom [])
               root       (rdc/create-root (.createElement js/document "div"))
               cleanup!   (fn [] (try (act-fn #(rdc/unmount root)) (catch :default _ nil)))
-              fail!      (fn [err]
+              ;; Reports; it does NOT finish — as in fixture A above, and for
+              ;; the same reason (rf2-e8kc).
+              report!    (fn [err]
                            (is false (str "mounted explicit-destroy fixture threw: " (pr-str err)))
-                           (cleanup!)
-                           (done!))]
+                           nil)
+              ;; The SYNCHRONOUS terminal path only.
+              fail!      (fn [err] (report! err) (cleanup!) (done!))]
           (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) true)
           (try
             ;; Stub `:rf.resource/release-owner` (stands in for the resources
@@ -310,6 +323,11 @@
                          destroy: the two teardowns are independent")
                     (is (zero? (count (ops-of @traces lifecycle-destroyed)))
                         "still zero registrar-channel destroys after the unmount")
-                    (done!)))
-                (.catch fail!))
+                    nil))
+                ;; The defensive `cleanup!` stays on the failure arm rather
+                ;; than riding the tail: the success path unmounted the root
+                ;; above as a step UNDER TEST, and a second unmount there
+                ;; would be teardown this row never asked for.
+                (.catch (fn [err] (report! err) (cleanup!) nil))
+                (.then (fn [_] (done!))))
             (catch :default e (fail! e))))))))
