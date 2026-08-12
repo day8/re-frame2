@@ -345,13 +345,9 @@
                     (is (= typed (.-value door))
                         "every keystroke survived in the DOM")
                     (is (= typed (app-text))
-                        "and application state holds exactly what was typed"))
-                  (teardown! container root)
-                  (done)))
-              (.catch (fn [e]
-                        (is false (str "mount rejected: " e))
-                        (teardown! container root)
-                        (done)))))))))
+                        "and application state holds exactly what was typed"))))
+              (.catch (fn [e] (is false (str "mount rejected: " e)) nil))
+              (.then (fn [_] (teardown! container root) (done)))))))))
 
 (deftest fh-input-003-the-control-field-loses-characters
   (testing "Per FH-INPUT-003: the CONTROL, and the reason every
@@ -380,13 +376,9 @@
                         (str "the control field must LOSE characters — it holds "
                              (pr-str (.-value batched))))
                     (is (< (count (.-value batched)) (count typed))
-                        "and it loses them by dropping, not by reordering"))
-                  (teardown! container root)
-                  (done)))
-              (.catch (fn [e]
-                        (is false (str "mount rejected: " e))
-                        (teardown! container root)
-                        (done)))))))))
+                        "and it loses them by dropping, not by reordering"))))
+              (.catch (fn [e] (is false (str "mount rejected: " e)) nil))
+              (.then (fn [_] (teardown! container root) (done)))))))))
 
 ;; ===========================================================================
 ;; FH-INPUT-003 — caret and selection
@@ -420,13 +412,9 @@
                     (is (= expected (.-value door)) "the insert landed where the caret was")
                     (is (= expected (app-text)) "and round-tripped through application state")
                     (is (= [expected-caret expected-caret] (caret door))
-                        "the caret did not jump"))
-                  (teardown! container root)
-                  (done)))
-              (.catch (fn [e]
-                        (is false (str "mount rejected: " e))
-                        (teardown! container root)
-                        (done)))))))))
+                        "the caret did not jump"))))
+              (.catch (fn [e] (is false (str "mount rejected: " e)) nil))
+              (.then (fn [_] (teardown! container root) (done)))))))))
 
 (deftest fh-input-003-a-range-selection-is-replaced-not-lost
   (testing "Per FH-INPUT-003: typing over a range selection replaces the
@@ -455,13 +443,9 @@
                     (is (= expected (.-value door)) "the range was replaced")
                     (is (= expected (app-text)))
                     (is (= [expected-caret expected-caret] (caret door))
-                        "and the caret collapsed after the insert rather than jumping"))
-                  (teardown! container root)
-                  (done)))
-              (.catch (fn [e]
-                        (is false (str "mount rejected: " e))
-                        (teardown! container root)
-                        (done)))))))))
+                        "and the caret collapsed after the insert rather than jumping"))))
+              (.catch (fn [e] (is false (str "mount rejected: " e)) nil))
+              (.then (fn [_] (teardown! container root) (done)))))))))
 
 ;; ===========================================================================
 ;; FH-INPUT-003 — IME composition
@@ -514,13 +498,9 @@
                     (is (= final (.-value door)) "the composition committed intact")
                     (is (= final (app-text)) "and reached application state")
                     (is (identical? before (node container "door"))
-                        "on the same node it started on"))
-                  (teardown! container root)
-                  (done)))
-              (.catch (fn [e]
-                        (is false (str "mount rejected: " e))
-                        (teardown! container root)
-                        (done)))))))))
+                        "on the same node it started on"))))
+              (.catch (fn [e] (is false (str "mount rejected: " e)) nil))
+              (.then (fn [_] (teardown! container root) (done)))))))))
 
 ;; ===========================================================================
 ;; FH-INPUT-003 — clearing a controlled field
@@ -570,6 +550,9 @@
                         box   (node container "clearable-box")]
                     (is (= seed (.-value field)) "the field starts at the seeded value")
                     (is (true? (.-checked box)) "and the box starts checked")
+                    ;; RETURNED into the outer chain — so the trailing step below
+                    ;; waits for the transition, and the `.catch` upstream of it
+                    ;; still sees a rejection raised in here.
                     (-> (render-clearing-page! root {:text nil :flag nil})
                         (.then
                           (fn [_]
@@ -582,15 +565,9 @@
                                 "and the box unchecked")
                             (is (= [] (control-complaints @errors))
                                 (str "React raised no controlled/uncontrolled diagnostic: "
-                                     (pr-str @errors)))
-                            (restore)
-                            (teardown! container root)
-                            (done)))))))
-              (.catch (fn [e]
-                        (is false (str "mount rejected: " e))
-                        (restore)
-                        (teardown! container root)
-                        (done)))))))))
+                                     (pr-str @errors)))))))))
+              (.catch (fn [e] (is false (str "mount rejected: " e)) nil))
+              (.then (fn [_] (restore) (teardown! container root) (done)))))))))
 
 ;; ===========================================================================
 ;; FH-INPUT-003 — the deterministic half of contention
@@ -627,13 +604,9 @@
                     (is (= (repeat n (str (count typed)))
                            (map #(.-textContent %)
                                 (array-seq (.querySelectorAll container "[data-sibling]"))))
-                        "and every sibling settled on the same keystroke's state"))
-                  (teardown! container root)
-                  (done)))
-              (.catch (fn [e]
-                        (is false (str "mount rejected: " e))
-                        (teardown! container root)
-                        (done)))))))))
+                        "and every sibling settled on the same keystroke's state"))))
+              (.catch (fn [e] (is false (str "mount rejected: " e)) nil))
+              (.then (fn [_] (teardown! container root) (done)))))))))
 
 ;; ===========================================================================
 ;; A CONTROLLED native `<select multiple>`, in a real browser

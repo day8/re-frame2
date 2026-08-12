@@ -159,10 +159,16 @@
                        ;; not a dead one, which is why the clock reading
                        ;; looked plausible.
                        (is (= "new" @(:parked arm))
-                           "the commit must be sitting parked outside the window")
-                       (.remove c)
-                       (done)))
-              (.catch (fn [e] (.remove c) (is false (str e)) (done)))))))))
+                           "the commit must be sitting parked outside the window")))
+              ;; Reports and RELEASES; it never finishes (rf2-fyba). `done` runs
+              ;; the whole remainder of the run synchronously, so a `.catch`
+              ;; downstream of it would claim a later namespace's throw as this
+              ;; row's and fire `done` a second time. The container detach both
+              ;; arms duplicated rides the single trailing step instead — written
+              ;; once, still run once per path, and every DOM read is upstream
+              ;; of it. Every chain in this file has the same shape.
+              (.catch (fn [e] (is false (str e)) nil))
+              (.then (fn [_] (.remove c) (done)))))))))
 
 (deftest microtask-arm-verifies-under-its-own-window
   (testing "declaring :scheduler :microtask puts NOTHING between the write
@@ -182,10 +188,9 @@
                            "nothing was parked — the drain got there first")
                        ;; 0.0 and it MEANS it: there is no harness turn
                        ;; inside this window to price.
-                       (is (zero? (:gap-ms r)) ":gap-ms must be 0.0, not merely small")
-                       (.remove c)
-                       (done)))
-              (.catch (fn [e] (.remove c) (is false (str e)) (done)))))))))
+                       (is (zero? (:gap-ms r)) ":gap-ms must be 0.0, not merely small")))
+              (.catch (fn [e] (is false (str e)) nil))
+              (.then (fn [_] (.remove c) (done)))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; The other family — and therefore why ONE shape cannot serve both
@@ -203,10 +208,9 @@
               (.then (fn [[r tally]]
                        (is (true? (:ok? r)) "the yielding window must verify this family")
                        (is (= {:writes 1 :unverified 0} tally) "0 unverified of 1")
-                       (is (= "new" (lane/text-at c 0)))
-                       (.remove c)
-                       (done)))
-              (.catch (fn [e] (.remove c) (is false (str e)) (done)))))))))
+                       (is (= "new" (lane/text-at c 0)))))
+              (.catch (fn [e] (is false (str e)) nil))
+              (.then (fn [_] (.remove c) (done)))))))))
 
 (deftest queued-notification-arm-is-unverified-under-the-microtask-window
   (testing "and the write-then-drain window BREAKS that same arm — so
@@ -221,10 +225,9 @@
                        (is (false? (:ok? r))
                            "draining immediately must find this arm's queue empty")
                        (is (= {:writes 1 :unverified 1} tally) "1 unverified of 1")
-                       (is (= "old" (lane/text-at c 0)))
-                       (.remove c)
-                       (done)))
-              (.catch (fn [e] (.remove c) (is false (str e)) (done)))))))))
+                       (is (= "old" (lane/text-at c 0)))))
+              (.catch (fn [e] (is false (str e)) nil))
+              (.then (fn [_] (.remove c) (done)))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; The default is the window every published P0 row was taken through
@@ -261,10 +264,9 @@
                        ;; The gap is a real, priced turn on this path: the
                        ;; asymmetry against the microtask window is a NUMBER
                        ;; rather than an assurance.
-                       (is (number? (:gap-ms r)) ":gap-ms is measured, not asserted")
-                       (.remove c)
-                       (done)))
-              (.catch (fn [e] (.remove c) (is false (str e)) (done)))))))))
+                       (is (number? (:gap-ms r)) ":gap-ms is measured, not asserted")))
+              (.catch (fn [e] (is false (str e)) nil))
+              (.then (fn [_] (.remove c) (done)))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; The batched window — k operations, ONE clock (rf2-zb3qg)
@@ -317,10 +319,9 @@
                        ;; row that banked one write per window would publish
                        ;; `N unverified of M` with an M a tenth of the truth.
                        (is (= {:writes k :unverified 0} (lane/tally-value t))
-                           "the tally banks every op in the batch")
-                       (.remove c)
-                       (done)))
-              (.catch (fn [e] (.remove c) (is false (str e)) (done)))))))))
+                           "the tally banks every op in the batch")))
+              (.catch (fn [e] (is false (str e)) nil))
+              (.then (fn [_] (.remove c) (done)))))))))
 
 (deftest a-batch-of-one-is-the-unbatched-window-exactly
   (testing "k = 1 is the pre-batch window, turn for turn — this is what lets
@@ -337,10 +338,9 @@
                        (is (= [:wrote :microtask-ran :forced] @seen)
                            "one write, one yield, one drain — the unbatched shape")
                        (is (true? (:ok? r)))
-                       (is (= {:writes 1 :unverified 0} (lane/tally-value t)))
-                       (.remove c)
-                       (done)))
-              (.catch (fn [e] (.remove c) (is false (str e)) (done)))))))))
+                       (is (= {:writes 1 :unverified 0} (lane/tally-value t)))))
+              (.catch (fn [e] (is false (str e)) nil))
+              (.then (fn [_] (.remove c) (done)))))))))
 
 (deftest a-batched-microtask-arm-puts-nothing-between-write-and-drain
   (testing "the microtask family's batched window is one synchronous run —
@@ -370,10 +370,9 @@
                               (vec (drop (* 2 k) @seen)))
                            "and the arm's own microtasks ran only once the window had closed")
                        (is (zero? (:gap-ms r)) ":gap-ms must be 0.0, not merely small")
-                       (is (= {:writes k :unverified 0} (lane/tally-value t)))
-                       (.remove c)
-                       (done)))
-              (.catch (fn [e] (.remove c) (is false (str e)) (done)))))))))
+                       (is (= {:writes k :unverified 0} (lane/tally-value t)))))
+              (.catch (fn [e] (is false (str e)) nil))
+              (.then (fn [_] (.remove c) (done)))))))))
 
 (deftest a-batch-reports-every-op-that-missed-the-dom
   (testing "an arm whose commits never land reads `k unverified of k`, not
@@ -392,7 +391,6 @@
                        (is (false? (:ok? r)))
                        (is (= [false false false] (:oks r)))
                        (is (= {:writes k :unverified k} (lane/tally-value t))
-                           "k unverified of k")
-                       (.remove c)
-                       (done)))
-              (.catch (fn [e] (.remove c) (is false (str e)) (done)))))))))
+                           "k unverified of k")))
+              (.catch (fn [e] (is false (str e)) nil))
+              (.then (fn [_] (.remove c) (done)))))))))
