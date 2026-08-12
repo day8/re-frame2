@@ -47,9 +47,9 @@
   the one page where that never shows — so the defect is legal, silent,
   and green under every single-root witness ever written for it.
 
-  So [[pane-shown]] names this application's own root ([[root-selector]],
-  the `<main>` the shell view renders) and [[focus-heading]] resolves the
-  heading INSIDE it. The scope is the correction the merged-PR audits of
+  So [[::pane-shown]] names this application's own root
+  ([[root-selector]], the `<main>` the shell view renders) and
+  [[::focus-heading]] resolves the heading INSIDE it. The scope is the correction the merged-PR audits of
   #7970 and #8031 asked for, and it is load-bearing rather than
   decorative: the browser witness mounts a marked DECOY heading ahead of
   the application and asserts both halves — that a document-wide lookup
@@ -165,7 +165,7 @@
   witness can read what it returns without a browser.
 
   It names `:root` beside `:selector`, and that one key is the whole of
-  the scoping: [[focus-heading]] resolves the heading inside this
+  the scoping: [[::focus-heading]] resolves the heading inside this
   application's own root, so a marked heading belonging to anything else
   on the page cannot take the landing focus."
   [_ _]
