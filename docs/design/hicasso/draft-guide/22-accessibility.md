@@ -36,7 +36,7 @@ Apply the same rule throughout the page:
 Use ARIA roles when no native element expresses the widget, such as a listbox
 or tab strip. In that case, implement the complete keyboard and state contract,
 not only the role. The dropdown in
-[Overlays and focus](12-overlays-and-focus.md) is an example.
+[Overlays and focus](13-overlays-and-focus.md) is an example.
 
 ## Give controls an accessible name
 
@@ -125,9 +125,9 @@ Focus movement has specific owners:
 | Moment | Behaviour | Owner |
 | --- | --- | --- |
 | Route change | Focus a keyed `main` region with `:tab-index -1` and `preventScroll` | [Routing and navigation](07-routing-and-navigation.md) |
-| Overlay open and close | Apply `:auto-focus`, use the platform trap, restore the opener | [Overlays and focus](12-overlays-and-focus.md) |
-| Menu or listbox navigation | Keep DOM focus on the trigger and move `:aria-activedescendant` | [Overlays and focus](12-overlays-and-focus.md) |
-| Exit animation | Add `:inert` and `:aria-hidden` during unmounting | [Ephemeral state](11-ephemeral-state.md) |
+| Overlay open and close | Apply `:auto-focus`, use the platform trap, restore the opener | [Overlays and focus](13-overlays-and-focus.md) |
+| Menu or listbox navigation | Keep DOM focus on the trigger and move `:aria-activedescendant` | [Overlays and focus](13-overlays-and-focus.md) |
+| Exit animation | Add `:inert` and `:aria-hidden` during unmounting | [Motion and presence](12-motion-and-presence.md) |
 | Virtualised collection | Decide how keyboard users reach items that do not exist in the DOM and verify it in a browser | [Lists and collections](06-lists-and-collections.md) |
 
 ## Test attributes as data

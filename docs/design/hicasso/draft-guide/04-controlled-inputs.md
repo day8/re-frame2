@@ -15,7 +15,7 @@ the same browser turn and handles caret and IME behaviour for the normal
 No local atom or caret helper is required. `:on-change` uses the same path. If
 a field defines both handlers, both may fire and the runtime converges once.
 Checkboxes use [`::h/checked`](glossary.md#hchecked); file inputs use
-[`h/event`](glossary.md#hevent) because the platform owns their value.
+[`h/fn`](glossary.md#hfn) because the platform owns their value.
 
 ## The controlled-field contract
 
@@ -75,7 +75,7 @@ platform value:
 | Checkbox | `:checked` | `:on-change` with `::h/checked` |
 | Radio option | `:checked` for each option | `:on-change` carrying that option's value literally |
 | `:select` | `:value` on the select | `:on-change` with `::h/value` |
-| File input | no controlled value | `:on-change` with `h/event`, reading `.files` |
+| File input | no controlled value | `:on-change` with `h/fn`, reading `.files` |
 
 ```clojure
 [:select {:value     (h/sub [:todo.ui/priority])

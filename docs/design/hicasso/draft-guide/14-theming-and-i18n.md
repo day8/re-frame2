@@ -83,10 +83,10 @@ Place the scope carefully:
 - **Place the scope above foreign crossings.** A Client-only host can replace
   its subtree with a fallback on the server. A theme scope beneath that host
   would be absent from the server response
-  ([SSR and hydration](17-ssr-and-hydration.md)).
+  ([SSR and hydration](18-ssr-and-hydration.md)).
 
 Restore a persisted choice through `:initial-events` so it reaches app-db
-before first paint ([Installation](installation.md)). The default applies only
+before first paint ([Installation](00-installation.md)). The default applies only
 when no preference has been chosen.
 
 A theme class works the same way:
@@ -125,7 +125,7 @@ reason not to.
 The browser's top layer does not need a document echo. An overlay's
 `::backdrop` inherits custom properties from the element that opened it, so a
 modal inside `theme-scope` receives the same tokens
-([Overlays and focus](12-overlays-and-focus.md)).
+([Overlays and focus](13-overlays-and-focus.md)).
 
 ## Treat translated strings as values
 
@@ -248,7 +248,7 @@ React side; your own application theme still uses CSS.
 | A theme switch re-runs the whole application | The content below the scope has no independent view boundary | Put a `defview` head such as `[app {}]` immediately below the scope |
 | Some strings remain in the old locale | They were computed at load time, stored in a `def`, or otherwise captured outside render | Read them where used with `(h/sub [:i18n/t k])` |
 | A missing translation displays the key name | The translation fallback is working | Add the key to the selected locale table |
-| Hydration keeps the server's theme | The hydration payload omitted `:theme/current`; attribute-only divergence may not produce a useful React warning | Include the theme choice in the hydration payload ([SSR and hydration](17-ssr-and-hydration.md)) |
+| Hydration keeps the server's theme | The hydration payload omitted `:theme/current`; attribute-only divergence may not produce a useful React warning | Include the theme choice in the hydration payload ([SSR and hydration](18-ssr-and-hydration.md)) |
 
 ## When not to add this machinery
 

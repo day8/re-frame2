@@ -19,12 +19,12 @@ Three re-frame2 properties depend on it.
 **Tests stay data-driven.** If “this dropdown is open” is stored at an app-db
 address, a headless test can seed that address directly. It does not need to
 mount a component, simulate a click, or wait for a timer
-([Testing](14-testing.md)).
+([Testing](15-testing.md)).
 
 **Diagnostics keep a complete cause chain.** Xray can connect an event to a
 state commit, subscription invalidation, view render, React commit, and paint.
 A private reactive store updates on a clock outside that chain
-([Diagnostics](15-diagnostics.md)).
+([Diagnostics](16-diagnostics.md)).
 
 **Frames remain isolated.** App-db is per-frame. A module-level atom is shared
 by every frame that mounts the code, which defeats frame isolation.
@@ -133,7 +133,7 @@ The rule at the edge is: **motion stays inside; meaning leaves as one event.**
   (let [title (h/sub [:card/title id])]
     (n/$ drag-surface
          {:label   title
-          :on-drop (h/event [col] [:card/dropped id col])})))
+          :on-drop (h/fn [col] [:card/dropped id col])})))
 ```
 
 Pointer movement remains local React state. The completed drop is an
@@ -156,55 +156,22 @@ commit on blur. The tradeoff is explicit: app-db, tests, and tools cannot see
 mid-edit text ([Controlled inputs](04-controlled-inputs.md)).
 
 **Platform controls** may own a presentational toggle, such as a native
-popover triggered by `:popovertarget` ([Overlays and focus](12-overlays-and-focus.md)).
+popover triggered by `:popovertarget` ([Overlays and focus](13-overlays-and-focus.md)).
 
 DOM ownership is a local design choice, not a hidden replacement for
 application state. When validation, another view, routing, or testing needs the
 fact, move it to app-db.
 
-## 5. Exit presence: what is still painted
+## 5. Exit retention: pixels that outlive data
 
-App-db records what is true. A dismissed toast should disappear from app-db
-immediately, but its DOM node may need another 300 ms to finish an exit
-animation. `re-frame.hicasso.motion` owns that gap.
+App-db records what is true. A dismissed toast should leave app-db immediately,
+but its DOM node may need a short exit animation. That gap is **not**
+ephemeral application state — it is paint retention.
 
-```clojure
-;; (:require [re-frame.hicasso.motion :as motion])
-(h/defview toast-tray [_]
-  [motion/presence {:timeout-ms 300}
-   (for [t (h/sub [:toasts/visible])]
-     [:div.toast
-      {:key (:id t)
-       ::motion/unmounting
-       {:class       "toast toast--exit"
-        :inert       true
-        :aria-hidden true}}
-      (:message t)])])
-```
-
-The exit class, `:inert`, and `:aria-hidden` arrive together. An exiting node
-is still in the document until the timeout ends, so it must stop accepting
-focus and interaction explicitly.
-
-When the child is a view, presence cannot merge attributes into the opaque
-view head. The view instead receives `:rf/phase` with one of
-`:mounting`, `:present`, or `:unmounting`, and branches on that ordinary prop.
-Tests can pass the phase directly without timers.
-
-Presence follows these rules:
-
-- `:timeout-ms` is required and is the hard upper bound. Removal does not wait
-  for `transitionend`, so disabled or overridden CSS cannot strand the node.
-- Re-entry cancels exit. A returning key becomes `:present` without remounting.
-- Order is frozen at first appearance, so an exiting child does not move while
-  it leaves.
-- Presence does not dispatch an event or keep the removed data in app-db.
-
-For entrances, prefer an insertion animation or `@starting-style`.
-`::motion/mounting` is for attributes that are true during entry, such as
-`:inert` until an element settles. Under SSR, a presence-managed server node
-hydrates as already present; the server HTML does not carry entry-phase
-attributes ([SSR and hydration](17-ssr-and-hydration.md)).
+Use the optional [`re-frame.hicasso.motion`](12-motion-and-presence.md) module
+and `motion/presence`. That chapter owns the API, phase markers
+(`::h/mounting` / `::h/unmounting`), the view `:rf/phase` prop, SSR behaviour,
+and accessibility attributes for exiting nodes.
 
 ## Common state and its owner
 
@@ -214,7 +181,7 @@ attributes ([SSR and hydration](17-ssr-and-hydration.md)).
 | Field draft | App-db through the forms module | Validation, submit gating, dirty-leave, and replay read it |
 | Drag position during a drag | Native host state | High-rate mechanics; dispatch the completed drop once |
 | Scroll offset | DOM; routing restores it per route | Do not re-render for every pixel. Commit meaningful thresholds as events when needed |
-| Animation phase | CSS for animation; `motion/presence` for exit retention; host state for rAF mechanics | App-db records truth, not what is still painted |
+| Animation / exit retention | CSS for animation; [`motion/presence`](12-motion-and-presence.md) for exit retention; host state for rAF mechanics | App-db records truth, not what is still painted |
 | Focus | Browser focus, changed through one-shot focus actions | A mirrored “focused element” value drifts and would update on every Tab |
 | Selected tab | App-db, or routing when it should survive reload | Other views, tests, or deep links care |
 | WebGL context or SDK handle | Declared host or native component | It is an object identity with an attach/teardown lifecycle, not application data |
@@ -245,8 +212,8 @@ already has a more specific owner:
 | Job | Use |
 | --- | --- |
 | Load data for a screen | Route `:resources` or a demand-driven resource ([Routing](07-routing-and-navigation.md), [Async resources](08-async-resources.md)) |
-| Run startup work once | `:initial-events`, before first paint ([Installation](installation.md)) |
-| Animate an entrance or exit | CSS or `motion/presence` |
+| Run startup work once | `:initial-events`, before first paint ([Installation](00-installation.md)) |
+| Animate an entrance or exit | CSS or [`motion/presence`](12-motion-and-presence.md) |
 | Attach to a DOM node or SDK | A callback ref or declared host ([Interop](09-interop.md)) |
 
 ## When app-db is the wrong place
@@ -272,7 +239,7 @@ Everything else is application state and should have one app-db address.
 
 ;; Don't: one event, subscription pass, and paint for every pointer move.
 :on-pointer-move
-(h/event [e] [:card/drag-moved id (.-clientX e) (.-clientY e)])
+(h/fn [e] [:card/drag-moved id (.-clientX e) (.-clientY e)])
 ```
 
 ## Troubleshooting
@@ -283,15 +250,13 @@ Everything else is application state and should have one app-db address.
 | A view-local atom resets or never repaints the view | The body can re-run or be abandoned, and Hicasso does not subscribe to the atom | Move the fact to app-db; move genuine widget mechanics into a native component |
 | You are looking for `:on-mount`, `componentDidMount`, or a mount effect | Hicasso has no generic lifecycle hook | Identify the job and use the owner in the table above |
 | Every panel opens at once | All instances share one address | Include a stable instance key in the address |
-| Typing or dragging lags and Xray shows an event per pointer move | High-rate mechanics were routed through app-db | Keep motion inside the host and dispatch only the semantic result |
-| Exit override on a view raises `:rf.error/hicasso-presence-override-on-a-view` | Presence can merge attributes into visible nodes, not opaque view heads | Branch on the child's `:rf/phase` prop |
-| A fading toast still accepts focus or clicks | The unmounting override changes appearance only | Add `:inert true` and `:aria-hidden true` with the exit class |
-| A dismissed item vanishes immediately | The node left with the data | Wrap keyed children in `motion/presence` and set `:timeout-ms` at least as long as the exit transition |
+| Typing or dragging lags and Xray shows an event per pointer move | High-rate mechanics were routed through app-db | Keep pointer mechanics inside the host and dispatch only the semantic result |
+| A dismissed item vanishes before its CSS exit finishes | Exit retention was treated as app-db state, or Presence was not used | See [Motion and presence](12-motion-and-presence.md) |
 | app-db accumulates many `:ui` entries | Application-visible UI state is correctly stored there | Namespace the slice and exclude it from persistence when appropriate |
-| A test simulates clicks only to open a dropdown | The open flag is data | Seed the address directly in the test ([Testing](14-testing.md)) |
+| A test simulates clicks only to open a dropdown | The open flag is data | Seed the address directly in the test ([Testing](15-testing.md)) |
 
 ??? info "Coming from Reagent"
     `r/atom` solved a view-local reactivity problem that Hicasso does not
     create. Put semantic state at addresses, drafts in the forms model,
     mechanics in hosts, browser-owned facts in the DOM, and exit retention in
-    `motion/presence`.
+    [Motion and presence](12-motion-and-presence.md).

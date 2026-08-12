@@ -118,7 +118,7 @@ Use `:aria-current "page"` as the semantic state and a class for styling.
 
 A specific link may replace its navigation with another action, such as asking
 whether to discard a local scratch pane. Pass one of the supported veto forms
-as `:on-click`: `nil`, `[::h/prevent INTENT]`, an `h/event`, or a plain
+as `:on-click`: `nil`, `[::h/prevent INTENT]`, an `h/fn`, or a plain
 function.
 
 ```clojure
@@ -314,7 +314,7 @@ and activation pipeline as route links:
 | Rendering a route link raises `:rf.error/routing-artefact-missing` | The core routing artefact was not required before rendering | Require `re-frame.routing` during boot |
 | An in-app link performs a full page load | A hand-written anchor bypassed route interception | Use `route-link` or the documented document-level routing listener |
 | Rendering raises `:rf.error/hicasso-malformed-navigate` | Application code created or altered the reserved navigation head | Do not author `::h/navigate`; let `route-link` create it |
-| `route-link` rejects a bare `:on-click` vector | The click would produce two semantic events | Use `[::h/prevent [:app/event]]`, `h/event`, or a plain function according to the intended veto |
+| `route-link` rejects a bare `:on-click` vector | The click would produce two semantic events | Use `[::h/prevent [:app/event]]`, `h/fn`, or a plain function according to the intended veto |
 | `:prefetch` is rejected | The value is not `:intent` | Remove the key or use `:prefetch :intent` |
 | Every attempt to leave is rejected and the guard is named | `:rf.error/can-leave-non-boolean` | Return strict `true` or `false` from the guard subscription |
 | Back/Forward restores to the top | Scroll restoration ran before content restored page height | Block activation on required resources or keep previous content visible |

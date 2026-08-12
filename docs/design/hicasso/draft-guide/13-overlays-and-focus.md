@@ -126,7 +126,7 @@ A modal gives you the platform's modal behaviour:
 
 Light-dismiss defaults to false for modals so a destructive confirmation does
 not close on a stray backdrop click. Style the native backdrop with
-`::backdrop` CSS ([Theming and internationalisation](13-theming-and-i18n.md)).
+`::backdrop` CSS ([Theming and internationalisation](14-theming-and-i18n.md)).
 
 ## Focus behaviour
 

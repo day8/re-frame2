@@ -100,7 +100,7 @@ measured owner. If lowering is 4% of an interaction, a lowering escape cannot
 recover more than that 4%.
 
 Xray recommends; it does not rewrite or promote code automatically. Any native
-escape must pass the benefit thresholds in [Performance](18-performance.md).
+escape must pass the benefit thresholds in [Performance](19-performance.md).
 
 ## Incomplete evidence is reported explicitly
 
@@ -133,8 +133,8 @@ Examples from the guide:
 | `:rf.error/hicasso-sub-outside-render` | A subscription read ran after every render context had ended | Read during the body and close over the value; handlers declare state as coeffects |
 | `:rf.error/hicasso-deferred-read-at-boundary` | An unforced `delay` carrying a read tried to leave a view | Force it in the body or pass the realised value |
 | `:rf.error/hicasso-bad-head` | A plain `defn` appeared in Hiccup head position | Call it inline or define a view with `h/defview` |
-| `:rf.error/hicasso-intent-outside-boundary` | An event intent reached a position with no frame | Keep it under a view boundary; use `h/event` at a foreign callback edge |
-| `:rf.error/hicasso-host-unclaimed-callback` | `h/event` was passed to a host prop with no callback contract | Declare the prop in `:callbacks` |
+| `:rf.error/hicasso-intent-outside-boundary` | An event intent reached a position with no frame | Keep it under a view boundary; use `h/fn` at a foreign callback edge |
+| `:rf.error/hicasso-host-unclaimed-callback` | `h/fn` was passed to a host prop with no callback contract | Declare the prop in `:callbacks` |
 | `:rf.error/hicasso-revision-not-controlled` | `::h/revision` appeared on a non-controlled field | Control the text field or remove the revision |
 | `:rf.warning/hicasso-missing-key` | A sequence child has no `:key` | Put a stable key in each member's props map |
 | `:rf.error/frame-destroyed` | An operation captured from a destroyed frame incarnation fired later | Drop the stale handle and capture from the current frame |
@@ -191,7 +191,7 @@ grep -c "rf.xray" public/js/main.js    # expect 0
 
 The development search must find the sentinel. Zero in both files means the
 search is ineffective, not that production erasure has been demonstrated.
-This is the sabotage-control principle from [Testing](14-testing.md).
+This is the sabotage-control principle from [Testing](15-testing.md).
 
 Application behaviour must never depend on diagnostics. Do not branch on
 whether evidence exists, count warnings as product data, or read panel state
@@ -206,7 +206,7 @@ from application code.
 | A foreign subtree shows `:host-opaque` | Raw React internals are not visible beyond the crossing | Use Xray for the crossing and React DevTools for its inner tree |
 | History ends with `:cap` | The bounded retention window discarded old epochs | Reproduce the issue and capture it again |
 | The advisor will not recommend a native island | The measured owner is not a cost native code fixes | Apply the smaller remedy it names and re-measure |
-| Repeated runs have different timings | Xray timing is diagnostic attribution, not a controlled benchmark | Use the cost classification; benchmark under [Performance](18-performance.md) |
+| Repeated runs have different timings | Xray timing is diagnostic attribution, not a controlled benchmark | Use the cost classification; benchmark under [Performance](19-performance.md) |
 | A complaint id has no catalogue entry | The id belongs to another namespace, or application and test-kit versions differ | Check the namespace and align installed versions |
 | Panels are empty in a release build | Diagnostics were erased as designed | Diagnose with a development build |
 
@@ -214,14 +214,14 @@ from application code.
 
 Xray identifies the cost owner and the likely class of remedy. It does not
 answer whether an interaction meets a production budget. Use the measurement
-method in [Performance](18-performance.md) for that.
+method in [Performance](19-performance.md) for that.
 
 Use React DevTools for commit-level React details and browser performance tools
 for layout and paint. Profile release builds for production slowness; a
 development build intentionally contains development work.
 
 When the question is correctness rather than cause, write a test
-([Testing](14-testing.md)).
+([Testing](15-testing.md)).
 
 ## Advanced
 

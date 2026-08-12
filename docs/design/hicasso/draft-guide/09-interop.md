@@ -20,7 +20,7 @@ with explicit callback, slot, and server contracts.
 (h/defview due-field [_]
   [date-picker
    {:selected  (h/sub [:task/due-date])
-    :on-change (h/event [date & _]
+    :on-change (h/fn [date & _]
                  [:task/set-due date])}])
 ```
 
@@ -73,19 +73,19 @@ infers a contract from an `on*` name.
 
 ### `:event`
 
-An event callback accepts an intent vector or `h/event`. The foreign component
-passes its own arguments in its documented order. Use `h/event` for a
+An event callback accepts an intent vector or `h/fn`. The foreign component
+passes its own arguments in its documented order. Use `h/fn` for a
 value-first callback such as `onChange(date)`:
 
 ```clojure
-(h/event [date _event]
+(h/fn [date _event]
   [:task/set-due date])
 ```
 
 A bare intent with no marker is valid even when no DOM event exists because it
 does not inspect callback arguments. A marker-bearing intent remains
 event-first; if argument one is not a DOM event, Hicasso raises
-`:rf.error/hicasso-intent-needs-the-event` and points to `h/event`.
+`:rf.error/hicasso-intent-needs-the-event` and points to `h/fn`.
 
 ### `:handler`
 
@@ -101,14 +101,14 @@ pure and must return a React element, not raw Hiccup:
 ```clojure
 [virtual-list
  {:item-count (count ids)
-  :render-row (h/event [i]
+  :render-row (h/fn [i]
                 (h/as-element
                  [:li.row
                   {:on-click [:feed/open (nth ids i)]}
                   (str (nth ids i))]))}]
 ```
 
-`h/as-element` converts the Hiccup result. `h/event` captures the supplying
+`h/as-element` converts the Hiccup result. `h/fn` captures the supplying
 view's frame, so event vectors inside that result later dispatch to the correct
 frame. Dispatching while the render callback itself runs raises
 `:rf.error/hicasso-dispatch-in-render-position`.
@@ -116,7 +116,7 @@ frame. Dispatching while the render callback itself runs raises
 A plain function is legal under any callback contract and passes through
 without a wrapper. It is enough when the callback returns a Hicasso view head
 whose frame is resolved where React renders it. If the callback's raw Hiccup
-contains event vectors, use `h/event`; otherwise conversion has no captured
+contains event vectors, use `h/fn`; otherwise conversion has no captured
 frame and raises `:rf.error/hicasso-intent-outside-boundary`.
 
 The declared contract always wins. Supplying an intent or key map to a
@@ -243,7 +243,7 @@ Declare a component once it appears more than once. The raw escape loses:
 | quarantine of JS require in a host namespace | require remains in the view namespace |
 
 An event vector at an `on*` prop raises
-`:rf.error/hicasso-host-undeclared-callback`; an `h/event` at any raw escape
+`:rf.error/hicasso-host-undeclared-callback`; an `h/fn` at any raw escape
 prop raises `:rf.error/hicasso-host-unclaimed-callback`. Both direct the author
 to `h/defhost` rather than allowing an inert array or unbound callback.
 

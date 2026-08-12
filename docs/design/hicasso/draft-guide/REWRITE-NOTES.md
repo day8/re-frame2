@@ -3,7 +3,7 @@
 This file records the editorial and preservation decisions used for the
 rewritten `draft-guide` corpus.
 
-The 21 numbered chapters, `installation.md`, `glossary.md`, and `README.md`
+The 21 numbered chapters, `00-installation.md`, `glossary.md`, and `README.md`
 were rewritten for directness and consistency with `docs/AUTHORING.md`.
 Technical content was retained unless it was duplicated elsewhere in the
 corpus. Duplication was replaced with a clear link to the owning chapter.
@@ -27,15 +27,15 @@ MkDocs path.
 
 ## Corpus inventory
 
-The package contains all 25 Markdown files from the source directory:
+The package is the numbered learning path plus supporting files:
 
 - `README.md`
-- `installation.md`
-- `01-getting-started.md` through `21-accessibility.md`
+- `00-installation.md`
+- `01-getting-started.md` through `11-ephemeral-state.md`
+- `12-motion-and-presence.md` (split from ephemeral state)
+- `13-overlays-and-focus.md` through `22-accessibility.md`
 - `glossary.md`
 - `REWRITE-NOTES.md`
-
-The numbered learning path remains unchanged.
 
 ## Information-preservation policy
 
@@ -75,7 +75,7 @@ sequence warnings, and collection topology.
 
 ### Performance method
 
-`18-performance.md` owns the complete measurement loop and benefit rule.
+`19-performance.md` owns the complete measurement loop and benefit rule.
 `10-native-tier.md` teaches the code for each native level and refers back to
 the performance decision method.
 
@@ -95,7 +95,7 @@ is not taught.
 
 ### Event callbacks
 
-The guide uses `h/event` consistently. `:handler` remains a valid `defhost`
+The guide uses `h/fn` consistently. `:handler` remains a valid `defhost`
 callback-contract value and is not the same thing as an `h/handler` macro.
 
 No form submit is auto-prevented. A submit that must stay on the page uses:
@@ -116,7 +116,7 @@ These names are taught as the current guide contract but were identified by
 the source audit as names requiring explicit naming-ledger approval or final
 implementation confirmation:
 
-- `h/event`
+- `h/fn` and `h/frame`
 - artifact coordinates for Hicasso
 - root lifecycle configuration around `h/mount!`, `h/hydrate!`, `h/render!`,
   and `h/unmount!`
@@ -130,7 +130,7 @@ implementation confirmation:
 - `h/as-component`
 - `n/memo` and `n/lazy`
 - overlay heads and option names
-- `motion/presence`, `::motion/mounting`, and `::motion/unmounting`
+- `motion/presence` with `::h/mounting` / `::h/unmounting` (not `::motion/*`)
 - `forms/buffered-field` and its control options
 - resource `:demand true`
 - route-link's generated `::h/navigate` carrier
@@ -174,7 +174,6 @@ The following older draft ideas are not restored:
 - vector-ref reservation
 - a Hicasso parts/theming subsystem
 - three-value `:ssr`
-- `h/frame`
 - public `subscribe-once`
 - old comparative benchmark figures
 - automatic submit prevention
@@ -182,9 +181,13 @@ The following older draft ideas are not restored:
 - position-dependent callback forms
 - Chromium-only IME wording
 - pre-React-19 ref contracts
+- invented `h/event` spelling (product form is `h/fn`)
+- `::motion/*` override keys (shipped markers remain `::h/mounting` /
+  `::h/unmounting`)
 
-The current guide instead uses app-db state ownership, CSS tokens, two server
-policies, `rf/capture-frame` at explicit edges, user-visible budgets, and the
+The current guide teaches `h/fn` as the one callback form, `(rf/capture-frame
+(h/frame))` at foreign edges, app-db state ownership, CSS tokens, two server
+policies, a dedicated motion/presence chapter, user-visible budgets, and the
 browser-neutral controlled-input contract.
 
 ## Chapter-level preservation record
@@ -212,7 +215,7 @@ refusals.
 ### 03 — Events as data
 
 Retained event-position detection, `::h/value`, `::h/checked`, `::h/prevent`,
-`h/event`, plain-function behaviour, keyboard maps, IME suppression, frame
+`h/fn`, plain-function behaviour, keyboard maps, IME suppression, frame
 capture, stale frame-incarnation refusal, and malformed-intent recovery.
 
 ### 04 — Controlled inputs

@@ -263,7 +263,7 @@ The app root can still hydrate cleanly. Each `h/hydrate!` has its own
 recoverable, caught, and uncaught error channels.
 
 Xray associates hydration complaints with the root, view source, and host
-policy ([Diagnostics](15-diagnostics.md)).
+policy ([Diagnostics](16-diagnostics.md)).
 
 React reports text differences and missing, extra, or wrong-type elements.
 Attribute-only divergence may produce only a development warning and can be

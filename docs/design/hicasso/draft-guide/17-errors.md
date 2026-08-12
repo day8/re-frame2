@@ -228,7 +228,7 @@ level that preserves it.
 | Retry intent in the fallback raises `:rf.error/hicasso-intent-outside-boundary` | The fallback was rendered outside the mounted Hicasso/frame tree | Keep fallback Hiccup inside the boundary and use an ordinary event intent |
 | A panel fallback throws and the larger page fallback appears | The fallback itself failed and the next outer boundary caught it | Keep fallbacks small and avoid re-reading the failed state |
 | `:on-error` appears to fire twice in development | Two distinct failures occurred; StrictMode alone still produces one report per catch | Inspect the two error records and their causes |
-| A server-render throw is not caught by the client boundary | Server rendering uses the server error channel; a client error boundary cannot handle server execution | Apply the surface's server policy and server error handling ([SSR and hydration](17-ssr-and-hydration.md)) |
+| A server-render throw is not caught by the client boundary | Server rendering uses the server error channel; a client error boundary cannot handle server execution | Apply the surface's server policy and server error handling ([SSR and hydration](18-ssr-and-hydration.md)) |
 
 ## When not to use an error boundary
 

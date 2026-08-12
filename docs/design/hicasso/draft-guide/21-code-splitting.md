@@ -170,7 +170,7 @@ app-db.
 
 Under SSR, the lazy host remains Client-only. Server HTML contains the
 deterministic fallback. The live component mounts after hydration when its
-code arrives ([SSR and hydration](17-ssr-and-hydration.md)).
+code arrives ([SSR and hydration](18-ssr-and-hydration.md)).
 
 ## What happens to reads during suspension
 

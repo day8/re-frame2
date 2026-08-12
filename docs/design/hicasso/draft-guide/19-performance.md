@@ -31,7 +31,7 @@ Teardown is part of performance. Long-lived applications must not accumulate
 subscriptions, timers, listeners, or SDK handles as users leave and revisit
 screens. Hicasso releases its own committed reads. Hosts and native islands
 must release what they acquire ([Interop](09-interop.md)). Prove the complete
-claim with `hm/assert-clean!` ([Testing](14-testing.md)).
+claim with `hm/assert-clean!` ([Testing](15-testing.md)).
 
 ## Start with ordinary Hicasso
 
@@ -75,7 +75,7 @@ Do not skip a step:
 2. **Attribute.** Identify changed subscriptions, notified views, body work,
    React commit, and browser paint. Use Xray to classify the pressure as
    computation, topology, lowering, React, or layout
-   ([Diagnostics](15-diagnostics.md)).
+   ([Diagnostics](16-diagnostics.md)).
 3. **Tune topology.** Change read placement, keys, boundaries, or collection
    shape. Most cases end here.
 4. **Compare a direct React return** only when lowering is the measured owner.
