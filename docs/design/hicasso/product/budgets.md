@@ -149,6 +149,9 @@ it exists to make assertable.
 | D11 | Prop-pipeline entries a direct return drops (`codec/convert-props`) | **3** | as D10 | as D10 — reads 3 against a floor of 0 |
 | D12 | Event-lowering entries a direct return drops (`intent/lower-prop`) | **2** | as D10 | as D10 — reads 2 against a floor of 0 |
 | D13 | Controlled-repair entries a direct return drops (`controlled/install!`) | **3** | as D10 | as D10 — reads 3 against a floor of 0 |
+| D14 | Wrappers between the element type React reconciles and the author's own function, declared island | **0** | `three_way_parity_cljs_test` | the `:client-only` default answers a gate instead; UIx's route answers a generated component |
+| D15 | Slots on the props object React carries, and they are the author's own | **1** | as D14 | UIx's route also reads 1 — but the slot is `argv`, which the author never wrote |
+| D16 | Unwrapping hops per render, per component, native and handwritten React | **0** | as D14 | the UIx route reads 1 — the `argv` carrier being opened |
 
 **These figures are cited, not re-derived.** D1–D8 were established by the two
 witness apps that landed on `main` ahead of this page; re-deriving them here
@@ -196,6 +199,37 @@ a window a duration can be attributed in. Nothing in D10–D13 licenses a claim
 about how much faster a direct return is, and a reader wanting the remedy's
 price must wait for that row rather than read one off these. It is tracked as
 `rf2-5yn9`.
+
+**On D14–D16 — the island band's structural half (`rf2-hic-034`).** These read the
+construction cost of a native island as a structural fact rather than as a clock,
+over one subject written three times: a cell that paints a label, as a declared
+native island, as a handwritten React component, and as a UIx component. D14 is
+the element type each route hands React — the native tier's is `identical?` to the
+author's own function, and so is the handwritten arm's, so nothing sits between
+React and the body. D15 reads the props object React then carries: one slot on
+every route, and on those two arms it is the author's own `label`. D16 is what the
+first two make of the third. UIx's element type is a generated component and its
+one slot is `argv`, a carrier `uix/$` builds around the map the author wrote, so
+that route pays one unwrapping hop per render per component where the other two
+pay none.
+
+**This is a stronger reading than a timing, not a weaker one.** A declared island
+and a handwritten React component are the same element type carrying the same
+props object, so there is no interposed work for a stopwatch to find — a thing a
+counter can decide and a clock could only fail to detect. It is also why §6
+requires the native tier to be co-instrumented against handwritten React and not
+against UIx alone: a floor set by UIx would have D16's hop inside it.
+
+Three qualifications, in the order a reader meets them. **The band is stated over
+the DECLARED arm** — since `rf2-hic-046` the `:client-only` default answers a gate
+rather than the author's function, costing one fiber and one hook the declared arm
+does not, and that is the ruled price of a conservative default rather than a
+figure about `n/defcomponent`. **They are counts and identities, not clocks**, so
+like D10–D13 they carry no hardware profile, which is what lets them sit in this
+section rather than §4. And **they are the deterministic half of C7 only**: they
+say there is no interposed work, never how long a render takes, so C7 stays
+`UNPINNED` and its clock half remains `rf2-hic-071`'s, along with the ladder re-pin
+and the package-resident clock instrument that half needs.
 
 **On D9.** This is teardown residue in **counters and objects**, which is a
 deterministic reading the package can make. It is *not* S5, the teardown row
@@ -511,7 +545,7 @@ and no figure may be scaled from one onto the other.
 
 | Family | Enforcement home |
 |---|---|
-| Deterministic rows D1–D13 | ordinary blocking PR gates; framework in `rf2-hic-089`, full gates in `rf2-hic-071` |
+| Deterministic rows D1–D16 | ordinary blocking PR gates; framework in `rf2-hic-089`, full gates in `rf2-hic-071` |
 | Distributional rows S1–S7, U1–U4 | pinned interleaved evidence runs on P-DEV-1; never converted into flaky PR thresholds |
 | Shell breach disposition | `rf2-hic-018` |
 | K3 per-read record | `rf2-hic-070` — [`k3-disposition.md`](k3-disposition.md), whose §8 makes the 10% same-witness per-read rule executable for `rf2-hic-071` |
@@ -564,7 +598,14 @@ user-visible budgets behave differently in tier (§1's accepted limitation is
 the standing invitation); a package-resident heap instrument producing shell or
 per-read figures materially apart from S1–S4 (§6 says how to build it); the
 operator freezing the byte line somewhere other than the §5 recommendation; or
-any deterministic row D1–D13 moving without a topology change to explain it.
+any deterministic row D1–D16 moving without a topology change to explain it.
+
+**On the scope of the run above.** The table records the confirmation this page
+took at `0c0aa22898`, which is the browser lane and therefore D1–D9. D10–D13 and
+D14–D16 landed later and run in the node lane, each with its own witness named in
+§9's ledger and run by every pull request; the falsification clause is stated over
+all sixteen because the claim it makes — a deterministic row does not move without
+a topology change — is the same claim whichever lane decides it.
 
 ---
 
@@ -648,6 +689,9 @@ today. *Disposition* is a link that must resolve to a section naming the row.
 | D11 | 3 prop-pipeline entries dropped by a direct return (`codec/convert-props`) | 3 — the hiccup arm reads 3 against a floor of 0 | package | `MET` | `implementation/hicasso/test/re_frame/hicasso/direct_return_cljs_test.cljs` (PR gate) | `rf2-hic-033` | — |
 | D12 | 2 event-lowering entries dropped by a direct return (`intent/lower-prop`) | 2 — the hiccup arm reads 2 against a floor of 0 | package | `MET` | `implementation/hicasso/test/re_frame/hicasso/direct_return_cljs_test.cljs` (PR gate) | `rf2-hic-033` | — |
 | D13 | 3 controlled-repair entries dropped by a direct return (`controlled/install!`) | 3 — the hiccup arm reads 3 against a floor of 0 | package | `MET` | `implementation/hicasso/test/re_frame/hicasso/direct_return_cljs_test.cljs` (PR gate) | `rf2-hic-033` | — |
+| D14 | 0 wrappers between the element type React reconciles and the author's own function, declared island | 0 — the type is `identical?` to the function, on the native and handwritten-React routes alike; UIx's is a generated component | package | `MET` | `implementation/hicasso/test/re_frame/hicasso/three_way_parity_cljs_test.cljs` (PR gate) | `rf2-hic-034` | — |
+| D15 | 1 slot on the props object React carries, and it is the author's own | 1 — `label`, the name the call site wrote; UIx also reads 1, and it is the `argv` carrier | package | `MET` | `implementation/hicasso/test/re_frame/hicasso/three_way_parity_cljs_test.cljs` (PR gate) | `rf2-hic-034` | — |
+| D16 | 0 unwrapping hops per render, per component, native and handwritten React | 0 — the UIx route reads 1, opening `argv` | package | `MET` | `implementation/hicasso/test/re_frame/hicasso/three_way_parity_cljs_test.cljs` (PR gate) | `rf2-hic-034` | — |
 | S1 | 1,024 B, R=0 shell, Reagent segment | 1,100 B [1,091–1,107] | package | `BREACH` | P0 heap ladder, package candidate arm (P-DEV-1 evidence run) | `rf2-hic-018` | [substrate-decision §5.2](substrate-decision.md#52-the-read-free-boundary-shell--the-disposition) |
 | S2 | 1,024 B, R=0 shell, UIx segment | 1,095 B [1,087–1,101] | package | `BREACH` | P0 heap ladder, package candidate arm (P-DEV-1 evidence run) | `rf2-hic-018` | [substrate-decision §5.2](substrate-decision.md#52-the-read-free-boundary-shell--the-disposition) |
 | S3 | ≤ 10% regression on the same pinned witness | 1,417 vs Reagent 948 per read | package | `UNRESOLVED` | P0 heap ladder, package candidate arm (P-DEV-1 evidence run) | `rf2-hic-070` | [substrate-decision §6](substrate-decision.md#6-what-this-page-does-not-decide) |
@@ -673,7 +717,7 @@ today. *Disposition* is a link that must resolve to a section naming the row.
 
 <!-- rf2-hic-089: end-ledger -->
 
-Thirty-five rows: the thirteen deterministic figures of §3, the seven distributional
+Thirty-eight rows: the sixteen deterministic figures of §3, the seven distributional
 rows and six user-visible budgets of §4, the eight comparative rules §4 now
 gives ids to, and one row registered off this page — **I9**, the two-hook
 ceiling frozen by
@@ -719,11 +763,17 @@ points here, and here is what each is waiting on.
   the quality floor. This is a property of the readings rather than of the
   rig, so it is `UNPINNED` rather than `UNRESOLVED`: nothing crossed a line,
   because nothing reached one.
-- **`C7` and `C8` have no population yet.** The native-island rule and the
-  escape-benefit rule are both stated over landed escapes and islands, and the
-  apps that would carry them are `rf2-hic-034`, `rf2-hic-047` and `rf2-hic-045`.
-  `rf2-hic-071` names them as the beads it extends over, which is the same
-  statement from the other side.
+- **`C8` has no population yet, and `C7` no longer does.** The native-island rule
+  and the escape-benefit rule are both stated over landed escapes and islands,
+  and the apps that would carry them are `rf2-hic-034`, `rf2-hic-047` and
+  `rf2-hic-045`. `rf2-hic-034` has landed, bringing `C7` its population and the
+  deterministic half of its band — D14–D16 above, the structural question a
+  hosted runner is allowed to decide. `C7` stays `UNPINNED` for the other half
+  only: no package-resident clock instrument exists to take the reading, the 5%
+  rule has no same-instrument anchor until the ladder is re-pinned, and §7
+  forbids converting a distributional row into a pull-request threshold in any
+  case. All three are `rf2-hic-071`'s, which names these beads as the ones it
+  extends over — the same statement from the other side.
 - **`C5` and `C6` are rules whose readings have been dispositioned, and the
   rules have not.** `C5` is the shell rule; its evidence is `S1` and `S2`,
   carried red by the substrate decision's §5.2. `C6` is the per-read rule; its

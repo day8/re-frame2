@@ -156,7 +156,9 @@ LANES = ("PR gate", "P-DEV-1 evidence run", "none")
 #
 # This is a REGISTRY, not a rule: it transcribes which ids §3 registers, so it
 # grows when §3 does.  `rf2-hic-033` added D10–D13, the direct-return delta,
-# and §3 states the test this list applies in terms — *they are counts, not
+# and `rf2-hic-034` added D14–D16, the island band's structural half — element
+# type identity, props-object slots and the unwrapping hop those two price.
+# §3 states the test this list applies in terms — *they are counts, not
 # clocks, so they are deterministic and carry no hardware profile; that is
 # what lets them sit in this section rather than §4*.  Note which way the
 # entry cuts: a row NAMED here must run in the `PR gate` lane and must name a
@@ -164,7 +166,7 @@ LANES = ("PR gate", "P-DEV-1 evidence run", "none")
 # that lane and has its witness checked not at all.  Adding an id tightens
 # this gate; leaving a deterministic id out is the loophole.
 DETERMINISTIC_IDS = frozenset(
-    ["D%d" % n for n in range(1, 14)] + ["U5", "U6", "I9"])
+    ["D%d" % n for n in range(1, 17)] + ["U5", "U6", "I9"])
 
 # L4.  Rows registered somewhere other than budgets.md, with the anchor that
 # registers them.  Held here rather than in a ledger column because it is a
@@ -177,12 +179,13 @@ EXTRA_ROWS = {
 # `rf2-fe0l` (PRs #7939, #7941) re-pinned S1–S5 on `implementation/hicasso`
 # and left S6, S7 and U1–U4 exactly where they were.  Changing one of these
 # is a deliberate act — a new measurement window and an edit here — which is
-# the whole point.  D10–D13 join the D rows' `package` pin on the same terms:
-# `rf2-hic-033` took them on `implementation/hicasso` and §3's heading is what
-# they landed under.  An unpinned row is the hole this constant exists to
-# close, so a new row is pinned as it lands rather than later.
+# the whole point.  D10–D13 and D14–D16 join the D rows' `package` pin on the
+# same terms: `rf2-hic-033` and `rf2-hic-034` took them on
+# `implementation/hicasso` and §3's heading is what they landed under.  An
+# unpinned row is the hole this constant exists to close, so a new row is
+# pinned as it lands rather than later.
 POPULATION_PIN = dict(
-    [("D%d" % n, "package") for n in range(1, 14)]
+    [("D%d" % n, "package") for n in range(1, 17)]
     + [("S%d" % n, "package") for n in range(1, 6)]
     + [("S6", "bench-tree"), ("S7", "bench-tree")]
     + [("U%d" % n, "—") for n in range(1, 5)]
