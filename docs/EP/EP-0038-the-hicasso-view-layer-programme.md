@@ -3,7 +3,7 @@
 Status: accepted
 Type: standards-track
 Created: 2026-07-30
-Resolution: accepted 2026-07-30 (HD-001–HD-021 resolved under delegated authority; operator-overturnable)
+Resolution: accepted 2026-07-30 (HD-001–HD-021 resolved under delegated authority; operator-overturnable); HD-022–HD-028 resolved under that same authority; P2 fork ruled by the operator directly 2026-08-13 (HD-029 — Hicasso graduates, as a success)
 
 ## Abstract
 
@@ -19,7 +19,7 @@ graduates exactly one arm — or stops, with "adapters + sugar" recorded as a
 deleted (no absorption programme); on a loss, the adapters stand. The durable
 design record is `docs/design/hicasso/` (excluded from the published site, read
 in the source tree — the EP-0036 precedent); every design decision is resolved
-in `docs/design/hicasso/decisions.md` (HD-001–HD-021).
+in `docs/design/hicasso/decisions.md` (HD-001–HD-029).
 
 ## Motivation
 
@@ -148,7 +148,7 @@ below). On a stop, the repo's shipped surface is exactly what it was.
 
 ## Resolved Decisions
 
-All twenty-one design decisions are resolved in
+The twenty-one design decisions resolved at acceptance are in
 `docs/design/hicasso/decisions.md`; dispositions in brief: HD-001 name/alias ·
 HD-002 sub-read tiers (grouped default / collector challenger / scalar
 comparator; both-fail→null) · HD-003 hooks placement rule (taught, not policed)
@@ -160,9 +160,20 @@ HD-013 deciders (operator at P2; delegated advisory at the donor gate) · HD-014
 the clock · HD-015 start now · HD-016 invocation + component ABI · HD-017 code
 residence + bench-lane carve-out · HD-018 delete-on-win · HD-019 the
 synchronous door · HD-020 v0 host mechanics · HD-021 root/HMR/headless.
-**Future operator rulings made under this EP — the donor-gate ruling and the P2
-fork ruling — are recorded here when made** (per EP-0009 rule 2), with their
-evidence on the standard bead.
+
+**The series has since grown to HD-029, and the last entry does not share the
+others' provenance.** HD-022–HD-028 were resolved under the same delegated
+authority as the twenty-one above — HD-022 `:ref`'s reserved vector value-space ·
+HD-023 the `:&` attribute merge · HD-024 one callback form · HD-025
+presence-as-data · HD-026 the `::h/prevent` head · HD-027 `route-link`'s
+`::h/navigate` head · HD-028 value equality as the boundary default. **HD-029,
+the P2 fork, was given by the operator directly on 2026-08-13** — the decider
+HD-013 reserves that ruling to — and is therefore not a delegated resolution.
+Each entry carries its own rationale and reopen condition in `decisions.md`.
+
+**Operator rulings made under this EP — the donor-gate ruling and the P2 fork
+ruling — are recorded here when made** (per EP-0009 rule 2), with their evidence
+on the standard bead. The P2 fork ruling is the 2026-08-13 addendum below.
 
 ### Addendum, 2026-07-31 — Hicasso is a React adapter; Arm 2 (PATCH) is dropped
 
@@ -342,6 +353,70 @@ Design record: `docs/design/hicasso/validation.md` (the dated note),
 `charter.md` item 4, and the note heading the HD-022 … HD-026 block in
 `decisions.md`. This addendum answers `rf2-825ft`.
 
+### Addendum, 2026-08-13 — the P2 fork is ruled: Hicasso graduates, as a success
+
+**Operator ruling (Mike), verbatim:** *"Make it graduate" … "as success"* — given
+directly in chat on 2026-08-13 at 04:57 AUSEST. That is the decider HD-013
+reserves this ruling to; the recorded adversarial and creative passes advised it
+and did not make it, exactly as that entry provides.
+
+Recorded here per rule 2, and as an addendum rather than an edit per EP-0009 rule
+3 — the wave-2 text and the Graduation section are left as written, because they
+are the proposal that was accepted and the programme they describe did run. Open
+issue 2 is annotated below in the dated style the two prior addenda used, since
+that list states what is open *now*.
+
+- **What is ruled: the Graduation section's "Go" exit.** Hicasso graduates and
+  the programme's outcome is recorded as a **success**. v0 proceeds in
+  `implementation/hicasso/`, which is already the live tree, so HD-017's
+  graduation clause is executed by this ruling rather than pending it. **The
+  adapters remain first-class alongside it** — graduating Hicasso is not a
+  demotion of Reagent, reagent-slim or UIx, which stay supported and stay the
+  standing comparator every Hicasso measurement is taken against (HD-012). Wave
+  3 — donor-surface deletion per HD-018, the real guide superseding the wave-0
+  draft, skill/migration work, and the product-phase roster — becomes fileable
+  from here, on its own stated conditions, which this ruling does not discharge.
+- **The held K1 price is accepted, and ratified by this ruling rather than by a
+  sitting.** Graduating *as a success* with the canonical K1 record on the table
+  is the operator's acceptance of the priced capability premium that record
+  prices. **The published miss is not recoloured and no threshold widens** —
+  acceptance of a price is not a pass, the registered gate is untouched, and no
+  evidence row may cite this ruling to colour K1 green. The accepted price, the
+  use cases it buys, the escape route and the reconsideration trigger are in
+  `docs/design/hicasso/product/k1-price-acceptance.md`, which records this ruling
+  as the ratifying act; the figures are cited from their own record rather than
+  restated here.
+- **The K7 clock closes, satisfied.** The six-week clock (HD-014) ran from the
+  first Hicasso-arm commit that mounted the dogfood screen and the fork was ruled
+  well inside its boundary — satisfied on its own terms rather than extended, and
+  no extension was sought or given. Both endpoints are recorded once, in
+  `validation.md`.
+- **What the ruling does not decide, stated so it is not over-read.** K2's `1.5×`
+  architecture kill is **not waived** and measurement continues under its own
+  protocol; K3's owed disposition is discharged by its own record, not by this
+  ruling; K4's WebKit half of the control matrix is **open and unwitnessed**, an
+  evidence limitation the ruling accepts rather than closes; and K6 stands with
+  its bans on a compiler, an analyzer and a dual mode — the K1 line is *priced,
+  not met by a compiler*, so nothing here reads as licence to build one. The
+  non-kill rows are unchanged too. Dispositions row by row in `validation.md`.
+- **The sitting is pre-empted, not adjourned.** The packet freeze of 2026-08-25
+  and the sitting of 2026-08-27 were scheduled to put this question; the question
+  is answered, and neither is required for the fork. The SSR addendum's
+  one-sitting linkage resolves with it: the production-server-arm choice it bound
+  to that sitting had already been ruled on 2026-08-08 (`rf2-2rtt6.88`) and is
+  untouched by the fork ruling, its five start gates still governing when that
+  arm's implementation begins.
+- **What this EP's own status is not.** The Graduation section makes `final`
+  conditional on v0 *and* the narrow contract graduation landing — the `spec/004`
+  view-family re-homing and EP-0036's supersession — and neither has. This EP
+  stays `accepted`; the fork ruling starts that work rather than completing it.
+
+Evidence and full text on the epic `rf2-2rtt6` (the dated ruling note). Design
+record written by `rf2-2rtt6.144`: `docs/design/hicasso/decisions.md` HD-029,
+`validation.md` §"The kill table at graduation", `product/k1-price-acceptance.md`,
+`product/decision-brief.md`, `production-server-arm.md`. This addendum answers
+`rf2-k6bv`.
+
 ## Open Issues
 
 1. The donor-gate ruling (delegated advisory; expected days after P0 publishes).
@@ -351,7 +426,9 @@ Design record: `docs/design/hicasso/validation.md` (the dated note),
    the SSR addendum above: the sitting additionally takes the X1–X5 SSR spike
    witness (`rf2-2rtt6.87`) as a required feasibility input, and prices + rules
    the production-server-arm choice (`rf2-2rtt6.88`) at the same sitting — one
-   sitting, no separate gate.
+   sitting, no separate gate. **Resolved 2026-08-13** by the addendum above: the
+   operator ruled the fork directly in chat, pre-empting the sitting — Hicasso
+   graduates, as a success (HD-029).
 3. The HD-002 read-mechanism adjudication (resolved by P1 instrumentation).
    **Narrowed 2026-07-31** by the addendum above: the ergonomics half is
    decided — Surface B (the ambient collector) is the only acceptable read

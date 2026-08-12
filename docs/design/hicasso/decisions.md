@@ -1,9 +1,13 @@
 # Hicasso — decisions (HD-001 … HD-029)
 
 Every design decision for the Hicasso programme, resolved. Each record carries the
-ruling, the decisive rationale, and the condition under which it reopens. These
-were resolved under delegated authority (operator-overturnable, like every ruling
-in this repo); the measured claims cite the studio/bench record. Companion pages:
+ruling, the decisive rationale, and the condition under which it reopens. **HD-001
+through HD-028 were resolved under delegated authority; HD-029 — the P2 fork — was
+given by the operator directly, which is the decider
+[HD-013](#hd-013--governance) reserves that ruling to.** Several of the delegated
+entries have since been superseded or amended by operator ruling, each marked in
+its own record, and every ruling here is operator-overturnable like every ruling
+in this repo. The measured claims cite the studio/bench record. Companion pages:
 [charter.md](charter.md), [architecture.md](architecture.md),
 [validation.md](validation.md), [authoring.md](authoring.md).
 

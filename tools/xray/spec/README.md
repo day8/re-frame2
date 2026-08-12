@@ -156,6 +156,22 @@ main read**.
   through unchanged, which is what makes byte-for-byte structural rather
   than separately asserted. An L4-only Dynamic tab (not in `panel-enum`).
   Read-only, dev-only.
+- **[028-Hicasso-Advisor.md](028-Hicasso-Advisor.md)** — The Hicasso tab's
+  two derived sub-views (rf2-hic-037). The **hot-view advisor** ranks the
+  mounted census on four axes in four units — never a composite score —
+  classifies what owns the pressure, and looks the route up on the OWNER
+  rather than on the rank. Two of Spec SN §10's five pressure classes have
+  an instrument here and three do not, every native ladder rung addresses
+  one of the three, and so the advisor **refuses the native ladder from
+  this evidence** and names the tool that settles each candidate instead;
+  the refusal is asserted as a property, with a non-vacuity control
+  proving the ladder is real. The **causal slice** walks §10's seven-link
+  chain for one dispatch, carrying each link's own basis AND its join to
+  the previous link as separate facts — links 2 and 3 are both
+  observations and the join between them is `:uncorrelated` — with every
+  evidenced link mutation-tested against its own positive control. No
+  governance pin moves: sub-views of an existing tab, no new build id and
+  no new port.
 
 ### Reference
 

@@ -246,7 +246,20 @@
     :says (str "There is no mounted boundary to explain. Why answers per "
                "boundary, so an empty roster here follows the mounted census "
                "and carries its qualifications — it is not a statement that "
-               "nothing has re-run.")}})
+               "nothing has re-run.")}
+   :advisor
+   {:testid-suffix "empty-advisor"
+    :says (str "There is no boundary to rank. The advisor ranks the mounted "
+               "census, so an empty roster here follows that census — it is "
+               "not a verdict that nothing is hot, and it says nothing at all "
+               "about lowering, React or layout, which this tab never "
+               "measures.")}
+   :causal
+   {:testid-suffix "empty-causal"
+    :says (str "There is no slice to draw: the advisor named no boundary to "
+               "trace, so there is no chain to walk. A slice needs a mounted "
+               "boundary AND a retained dispatch, and this is the first of "
+               "those two missing.")}})
 
 (def presence-copy
   "The sentence each non-live presence gets, and the testid it renders
@@ -490,8 +503,18 @@
 ;; ---------------------------------------------------------------------------
 
 (def sub-modes
-  "The tab's four views, in order — the four questions Spec SN §10 says a
-  developer actually asks, one sub-view each."
+  "The tab's six views, in order.
+
+  The first four are the questions Spec SN §10 says a developer asks of a
+  view substrate, one sub-view each. The last two are rf2-hic-037's: the
+  ADVISOR, which ranks and classifies and then refuses the routes its
+  evidence cannot support, and the CAUSAL slice, which walks §10's chain
+  link by link and labels every one it cannot evidence.
+
+  They are sub-views of this tab rather than a tab of their own because
+  they are derivations of exactly the same one-turn evidence — a second
+  tab would take a second turn, and a mount landing between the two would
+  give a ranking about a census the slice no longer agrees with."
   [{:id :mounted     :label "Mounted"     :mnem "m"
     :asks "which boundaries are mounted, over which frames"}
    {:id :attribution :label "Reads"       :mnem "r"
@@ -499,7 +522,11 @@
    {:id :intents     :label "Intents"     :mnem "i"
     :asks "what was dispatched, in order, inside the retained window"}
    {:id :explain     :label "Why"         :mnem "w"
-    :asks "which reads changed, and what that can and cannot prove"}])
+    :asks "which reads changed, and what that can and cannot prove"}
+   {:id :advisor     :label "Advisor"     :mnem "a"
+    :asks "which boundary is hot, what owns the pressure, and the smallest route that addresses it"}
+   {:id :causal      :label "Causal"      :mnem "c"
+    :asks "one dispatch, walked link by link from event to paint, with every missing link named"}])
 
 (def sub-mode-ids (into #{} (map :id) sub-modes))
 

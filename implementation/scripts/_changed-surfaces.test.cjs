@@ -1853,10 +1853,23 @@ test('the shared Clojure CLI installer exists and keeps its failure boundary (rf
   );
   const src = fs.readFileSync(CLOJURE_INSTALLER, 'utf8');
   // The semantics rf2-9sgj8 established, now owned in exactly one place:
-  // three whole download+install attempts, curl retry, bounded backoff, sudo
+  // whole download+install attempts, curl retry, bounded backoff, sudo
   // install, and a final `clojure --version` failure boundary.
   assert.match(src, /^set -euo pipefail$/m, 'installer must run under set -euo pipefail');
-  assert.match(src, /for attempt in 1 2 3; do/, 'installer must make three whole attempts');
+  // rf2-xsfr widened the envelope from three attempts / 10s-20s-30s backoff —
+  // about two minutes — because github.com 5xx storms outlasted it four times
+  // in one session (#8007, #8009, #8017, #8019). #8017 logged eighteen 503s,
+  // i.e. EVERY request the old script was willing to make, and still lost. The
+  // floor is stated as an inequality, not as the literal `attempts=6`: a later
+  // widening is the intended direction of travel and must not have to come
+  // here, while a narrowing back under the observed storm must.
+  const attemptsPin = src.match(/^attempts=(\d+)$/m);
+  assert.ok(attemptsPin, 'installer must declare its attempt count as `attempts=<n>`');
+  assert.ok(
+    Number(attemptsPin[1]) >= 6,
+    `installer must make at least 6 whole attempts (found ${attemptsPin[1]}) — three did not ` +
+      'outlast the observed 503 storms (rf2-xsfr)',
+  );
   assert.match(
     src,
     /curl -fsSL --retry 5 --retry-all-errors --retry-delay 3/,
@@ -1868,7 +1881,34 @@ test('the shared Clojure CLI installer exists and keeps its failure boundary (rf
     'installer must fetch the official linux-install.sh',
   );
   assert.match(src, /sudo bash \/tmp\/linux-install\.sh/, 'installer must install with sudo');
-  assert.match(src, /sleep "\$\(\(attempt \* 10\)\)"/, 'installer must keep the bounded backoff');
+  // Bounded backoff, now with a jitter term: ~59 jobs install this CLI
+  // concurrently, and without jitter they retry in lockstep and arrive on the
+  // struggling endpoint as one herd every round (rf2-xsfr).
+  assert.match(
+    src,
+    /delay=\$\(\(attempt \* \d+ \+ RANDOM % \d+\)\)/,
+    'installer must keep the bounded backoff, with a jitter term (rf2-xsfr)',
+  );
+  assert.match(src, /sleep "\$delay"/, 'installer must sleep the computed backoff');
+  // The half of rf2-xsfr that is NOT about surviving the storm: when the
+  // attempts ARE exhausted the step must say so as infrastructure. Falling
+  // through to `clojure --version` on a runner with no CLI dies `command not
+  // found`, exit 127 — a red that reads exactly like the gate this job exists
+  // to run having failed, when in fact no gate ran at all. Distinguishing those
+  // two by hand, from the raw log, is the cost rf2-xsfr was filed to delete, so
+  // a regression here is silent and expensive: assert the annotation.
+  assert.match(
+    src,
+    /echo "::error title=[^"]*::/,
+    'installer must fail exhaustion as an explicit ::error annotation, so a job that never ran ' +
+      'its gate is distinguishable from a gate that failed WITHOUT reading the raw log (rf2-xsfr)',
+  );
+  assert.match(
+    src,
+    /^\s*exit 1$/m,
+    'installer must exit nonzero on exhaustion rather than falling through to `clojure --version` ' +
+      "— the old fall-through's exit 127 is the masking failure (rf2-xsfr)",
+  );
   assert.match(
     src,
     /clojure --version\s*$/,

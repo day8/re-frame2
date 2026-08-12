@@ -38,7 +38,8 @@
   Every read is `nil` in a production build: the Hicasso door nil-gates on
   `re-frame.interop/debug-enabled?`, and Xray itself never reaches a
   production bundle (the tools/README bundle-isolation contract)."
-  (:require [re-frame.hicasso.tool :as tool]))
+  (:require [re-frame.hicasso.tool :as tool]
+            [re-frame.trace.tooling :as trace-tooling]))
 
 (defn- soft
   "Call `f`, answering nil on any throw.
@@ -83,3 +84,45 @@
    :read-attribution   (read-attribution)
    :intents            (intents)
    :explain-render     (explain-render)})
+
+(defn trace-windows
+  "Spec 009's retained ring for every frame this Hicasso runtime touches,
+  as `{frame-id [event-bundle …]}` — the advisor's clock and the causal
+  slice's event seam (rf2-hic-037).
+
+  ## Why this read exists beside the four, rather than inside them
+
+  The Hicasso door deliberately carries no duration. Its four reads
+  project the substrate's own tables, and a clock is not one of them: per
+  `lanes/left-field-ideas.md` §Capability receipts, per-boundary self time
+  was KILLED as a decision rather than deferred, because the 0.1 ms timer
+  grain is coarser than the quantity being measured. What Spec 009 does
+  publish is `:rf.sub/elapsed-ms` on the reactive recompute path — the
+  cost of the SUBSCRIPTIONS a boundary reads, which is a different
+  quantity, honestly measured, and the only one of the five pressure
+  classes this tab can weigh.
+
+  So this is a SECOND producer, not a fifth Hicasso read, and it is kept
+  separate for that reason: `hicasso-advisor/sub-timing` stamps it with
+  its own schema and its own `:cap` loss, and a reader can see at a glance
+  which producer vouched for which number.
+
+  ## The frames come from the evidence, not from a guess
+
+  `explain-render`'s `:window :frames` is already the union this needs —
+  the frames the runtime dispatches through PLUS any frame a boundary
+  reads from — computed by the producer for exactly the same reason a
+  per-boundary window is scoped that way. Reading every frame in the
+  process instead would let an unrelated application's activity inflate
+  this one's ranking.
+
+  Answers `{}` when Hicasso is absent, which is the same shape an idle
+  runtime gives — and the advisor renders that as a capped window rather
+  than as a quiet application."
+  [envelopes]
+  (soft
+    (fn []
+      (let [frames (or (get-in envelopes [:explain-render :window :frames])
+                       (get-in envelopes [:intents :scope :frames])
+                       [])]
+        (into {} (map (fn [fid] [fid (trace-tooling/trace-buffer fid)])) frames)))))

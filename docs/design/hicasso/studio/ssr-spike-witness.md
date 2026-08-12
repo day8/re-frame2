@@ -6,6 +6,17 @@ implied.** The sitting's decider is the operator
 superseded and closed on 2026-08-10); this page records what was measured, on
 what, with what command, and what each row could have lied about.
 
+**There is no sitting, and this page's tense is the only thing that changes
+(added 2026-08-13, `rf2-2rtt6.145`).** The P2 fork was ruled by the operator
+directly in chat on 2026-08-13 — *Hicasso graduates, as a success* — which
+pre-empts the 2026-08-25 packet freeze and the 2026-08-27 sitting
+([`decisions.md` HD-029](../decisions.md#hd-029--the-p2-fork-hicasso-graduates-as-a-success);
+[validation.md's graduation section](../validation.md#the-kill-table-at-graduation--the-p2-ruling-of-2026-08-13)).
+So read the header above as naming the forum this evidence was taken for
+rather than one still ahead. **No figure, row, digest or refusal below moves**,
+the page still publishes no verdict, and the SSR work it prices is unstarted
+either way — graduation did not start it.
+
 Bead: `rf2-2rtt6.87`, re-measured in full for `rf2-zn7pj`. Producing commit:
 **`b557ed71f4`** — a commit already on `main`. Every row below was taken at that
 commit, on one box, on 2026-08-06.
