@@ -271,7 +271,7 @@
       (is (= "Buy oat" (shown-now frame)))
       (is (= committed (title-of frame))
           "the committed title has not moved — that is what BUFFERED means")
-      (is (= 0 (revision-of frame))
+      (is (zero? (revision-of frame))
           "and typing is not a reset"))))
 
 (deftest a-commit-hands-the-caller-the-candidate-and-ends-the-session
@@ -402,7 +402,7 @@
     (fn [frame]
       (type! frame 0 "half typed")
       (send! frame [::retitle-only 7 "Buy soy milk"])
-      (is (= 0 (revision-of frame)) "the caller did not intend a reset")
+      (is (zero? (revision-of frame)) "the caller did not intend a reset")
       (is (= "half typed" (shown-now frame))
           "so the draft continues. If the caller MEANT to replace the edit
            it must move the revision — the distinction is explicit
@@ -704,8 +704,8 @@
       (is (= ["useContext" "useSyncExternalStore" "useState"] hooks)))
     (testing "so the module's own contribution is zero, stated as the
               difference the two arms leave"
-      (is (= 0 (- (count hooks)
-                  (count (:hooks (server-render! [hand-written-field {}])))))))
+      (is (zero? (- (count hooks)
+                    (count (:hooks (server-render! [hand-written-field {}])))))))
     (testing "and the shell's ledger did not move — no `useRef`, and the
               one `useState` is the element's rather than a boundary's"
       (is (= 2 (count collector/shell-hook-ledger)))
