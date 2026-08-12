@@ -152,10 +152,32 @@
   each other's pending state."
   ::save)
 
-(rf/reg-mutation ::save
-  {:params-schema [:map [:assignee :string] [:notes :string]]}
-  (fn [params _ctx]
-    {:request {:method :put :url "/api/tickets/7" :body params}}))
+(defn register-save!
+  "Register the `::save` mutation, and answer its id.
+
+  A FUNCTION, called at ns-load below and again from every suite's
+  fixture — the same shape and the same reason as
+  `re-frame.hicasso.examples.slice.routes/register!`. A reset fixture
+  restores the registrar to a baseline it captured, and the resources
+  artefact's own per-test reset clears the mutation kind outright, so a
+  registration performed once when this file loaded is not guaranteed to
+  still be there when a row runs.
+
+  What makes that worth a named function rather than a shrug is the
+  failure mode. `[:rf.mutation/execute {:mutation <unregistered> …}]`
+  mints no instance, issues no request, settles nothing and reports
+  NOTHING: the instance reads `:idle` afterwards, exactly as it does
+  before any write. Measured in this repository's `:browser-test` build,
+  where the registration was gone and every symptom pointed at the
+  transport. Filed as rf2-06lp."
+  []
+  (rf/reg-mutation ::save
+    {:params-schema [:map [:assignee :string] [:notes :string]]}
+    (fn [params _ctx]
+      {:request {:method :put :url "/api/tickets/7" :body params}}))
+  ::save)
+
+(register-save!)
 
 (rf/reg-event ::submit
   {:doc "Attempt the submission.

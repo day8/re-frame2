@@ -41,7 +41,14 @@
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture
     {:adapter       uix-adapter/adapter
-     :ambient-frame nil}))
+     :ambient-frame nil
+     ;; The reset restores the registrar to a baseline and the resources
+     ;; artefact clears the mutation kind, so the ns-load registration may
+     ;; not still be there when a row runs. It survived in this lane and
+     ;; not in the browser one, which is exactly the kind of luck a
+     ;; witness should not be standing on — see `events/register-save!`
+     ;; and rf2-06lp for what its absence costs.
+     :init-fn       (fn [] (events/register-save!))}))
 
 (def ^:private ticket 7)
 
