@@ -53,7 +53,7 @@
   dispatch. Filed as rf2-2rtt6.66 rather than smoothed here, because it
   was presence's frame plumbing and not the door's; repaired on main
   (presence resolves the frame through the substrate's context and binds
-  it around its one `as-element` call), and `h/boundary` since took the
+  it around its one `as-element` call), and `h/error-boundary` since took the
   identical repair for its fallback and children (rf2-uo9di).
 
   That repair could not witness its own host half — the door was still

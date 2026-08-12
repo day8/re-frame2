@@ -1071,8 +1071,8 @@
   entire subtree rather than bail out of it.
 
   Opt-in at the mint site rather than applied to every marked head, so
-  heads that are not reactive boundaries — `h/boundary`'s error-boundary
-  class, presence — keep the semantics they were written with."
+  heads that are not reactive boundaries — `h/error-boundary`'s class,
+  presence — keep the semantics they were written with."
   [f]
   (let [memo (react/memo f boundary-props=)]
     (unchecked-set memo "displayName" (unchecked-get f "displayName"))

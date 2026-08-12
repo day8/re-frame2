@@ -375,7 +375,7 @@
 
 (deftest the-boundary-spends-no-shell-hook
   (testing "HD-020(b)'s ≤2 is the boundary SHELL's budget, and
-           `h/boundary` is a class — it calls no hooks at all. Counted at
+           `h/error-boundary` is a class — it calls no hooks at all. Counted at
            React's own dispatcher, on a page that wraps one Hicasso
            boundary in another"
     (if-not (mount/browser?)
