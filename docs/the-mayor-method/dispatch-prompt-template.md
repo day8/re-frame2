@@ -213,9 +213,15 @@ none of them is obvious from the gate command itself.
   print no such line** — not one of `scripts/check_*.py` emits it,
   `check_doc_slugs.py` included, and several of them print nothing whatever on
   success. There the proof is the same shape drawn from a different source:
-  **the file path the gate names in its own negative control.** Plant a fault,
-  run the gate red, and read the path it reports; if that path is inside your
-  worktree, that gate read your tree. This half is written down because the
+  **the fault the gate names when you plant one.** Plant it at a line you are
+  already editing, run the gate red, and check that the path and line number in
+  the failure are the ones you planted. Do not expect that path to name your
+  worktree — `check_doc_slugs.py` reports repo-relative
+  (`docs\the-mayor-method\dispatch-prompt-template.md:214`), which cannot tell
+  two checkouts apart on its own. The discrimination is the red itself: the
+  fault exists only in your tree, so a run that had wandered into a sibling's
+  would have come back green, and a green sabotage run is a reason to stop, not
+  to proceed. This half is written down because the
   bullet used to claim *every* gate printed the banner, which is an instruction
   a worker on a Python gate cannot satisfy — two hit it in one day, and one of
   them arrived at the negative control's path unprompted, because a worker
