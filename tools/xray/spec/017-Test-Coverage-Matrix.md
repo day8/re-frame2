@@ -384,18 +384,23 @@ panel still ships would instead restore the gate-blindness rf2-6pohj closed.
 
 **So it goes when they go, under rf2-hic-062 — and it is EIGHT artefacts, not
 four.** Four are the deck; four more name it by build id or by scenario name
-from outside it. Exactly one reds a gate. The other seven go quietly stale,
-which is why this is a written checklist rather than a grep.
+from outside it. TWO of the eight red a gate, and they catch different
+omissions: leave row 4's scenario and its `STAGED_SURFACES` entry standing while
+the staged source and build go, and the PR-smoke run — derived from those
+entries rather than from a fixed list — fails; remove the deck without moving
+row 7's canonical count pin, and `coverage_matrix_metadata_test` fails. Neither
+catches the other's omission. The remaining six go quietly stale, which is why
+this is a written checklist rather than a grep.
 
 | # | Artefact | The retirement pass | If left behind |
 |---|---|---|---|
 | 1 | `tools/xray/testbeds/freehand_views/` — `core.cljs` and `index.html` | delete the tree | dead source under a build id that is also going |
 | 2 | the `:testbeds/freehand-views` build in `implementation/shadow-cljs.edn` | delete the build map | a build compiling a deleted tree |
 | 3 | its port-8036 `:dev-http` entry in `implementation/shadow-cljs.edn` | delete the entry, freeing the 803x slot | a served root that no longer exists |
-| 4 | the `freehand-views populated Views roster` scenario and its `STAGED_SURFACES` entry in `tools/xray/testbeds/feature_matrix/scenarios.cjs` | delete both | **reds the PR smoke gate** against a panel that is gone |
+| 4 | the `freehand-views populated Views roster` scenario and its `STAGED_SURFACES` entry in `tools/xray/testbeds/feature_matrix/scenarios.cjs` | delete both | **RED — one of the two.** The PR-smoke run is derived from these entries rather than from a fixed list, so leaving them behind while the staged source and build go reds the smoke gate against a panel that is gone |
 | 5 | the `DEV_HTTP` entry and the port-band comment in `implementation/scripts/dev-testbed.cjs` | delete both | the launcher advertises a URL for a build id shadow-cljs no longer knows — silently, because the drift guard in `dev-testbed.test.cjs` runs shadow-cljs → `DEV_HTTP` and never the reverse |
 | 6 | the build→URL row in `implementation/README.md` | delete the row | a documented testbed nobody can start |
-| 7 | the canonical covered-row pin in `coverage_matrix_metadata_test.clj` | drop it by one and rewrite its `12 -> 13` note | **RED, and the only one.** This scenario is the sole claimant of the `Mounted view reads (Freehand tool door, rf2-7gth0)` row, so the count moves the moment it goes |
+| 7 | the canonical covered-row pin in `coverage_matrix_metadata_test.clj` | drop it by one and rewrite its `12 -> 13` note | **RED — one of the two.** This scenario is the sole claimant of the `Mounted view reads (Freehand tool door, rf2-7gth0)` row, so removing the deck without dropping the pin fails `coverage_matrix_metadata_test` the moment it goes |
 | 8 | the PR-smoke enumeration in `.github/workflows/test.yml` | drop the deck from the named list: 5 scenarios → 4, 4 staged surfaces → 3, 4 bundles → 3, and 12 → 11 in the nightly sweep | a comment naming a scenario that no longer exists |
 
 Beyond the eight, three re-reads rather than removals. The dated aggregate
