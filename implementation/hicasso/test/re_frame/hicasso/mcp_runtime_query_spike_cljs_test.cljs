@@ -338,60 +338,63 @@
       (go! [::events/set-locale :fr])
       (let [ex (explanation-for (tool/explain-render) ::subs/theme)]
         (is (some? ex))
-        (is (= #{::subs/locale ::subs/t} (latest-sub-ids ex))
-            "the locale moved the locale read and the string table over it — and
-             NOT the theme read, which is the same boundary answering differently")
+        (is (= #{::subs/t} (latest-sub-ids ex))
+            "the locale moved the STRING TABLE and not the theme read — and not
+             the locale read either, which sits one stamp lower because `::t`
+             is a layer-2 read over it and was re-stamped after it. The same
+             boundary, a different intent, a different answer.")
         (is (contains? (candidate-event-ids ex) ::events/set-locale)))
       (release))))
 
-(deftest a-theme-switch-moves-the-slices-root-boundary-and-a-locale-switch-does-not
-  (testing "the finding this surface is FOR, and it is a number that MOVES.
+(deftest a-locale-switch-moves-the-root-too-and-this-spike-expected-otherwise
+  (testing "MEASURED, against this spike's own written expectation, which was wrong.
 
-            The slice's shell reads two theme tokens for its own background and
-            ink, so a theme switch moves the ROOT — and everything below a
-            moved root is downstream of it. A locale switch moves the chrome
-            and the strings and leaves the root standing. Nothing in the source
-            says so; the two `:peak-epoch`s do."
+            The slice's shell reads two THEME tokens for its background and ink
+            and nothing else that a locale could touch, so the expectation
+            written here first was that a locale switch would leave the root's
+            `:peak-epoch` standing while a theme switch moved it. It does not:
+            the root's peak rose on the locale switch too. The reading is not
+            offered as a diagnosis of the slice — an epoch is a re-stamp, and
+            whether React then bailed out on the memo comparator is
+            `:host-opaque` and stays so. What is measured is narrower and is
+            the point: `:peak-epoch` on THIS boundary does not separate these
+            two intents, and a spike that had asserted its expectation without
+            driving it would have published the opposite."
     (boot!)
-    (let [release  (mount-feed!)
-          root-0   (peak-of ::subs/token)
-          chrome-0 (peak-of ::subs/theme)]
+    (let [release (mount-feed!)
+          root-0  (peak-of ::subs/token)]
       (is (number? root-0) "the shell holds the token reads")
-      (is (number? chrome-0))
-
       (go! [::events/set-locale :fr])
-      (let [root-1   (peak-of ::subs/token)
-            chrome-1 (peak-of ::subs/theme)]
-        (is (= root-0 root-1)
-            "the locale left the root standing — its reads did not move")
-        (is (> chrome-1 chrome-0)
-            "while the chrome, which reads the string table, did move")
-
+      (let [root-1 (peak-of ::subs/token)]
+        (is (> root-1 root-0)
+            "the locale moved the root's peak — the expectation written here was
+             that it would not")
         (go! [::events/set-theme {:theme :dark}])
-        (let [root-2 (peak-of ::subs/token)]
-          (is (> root-2 root-1)
-              "and the theme moves the root, which the locale did not")))
+        (is (> (peak-of ::subs/token) root-1)
+            "and so does the theme, so the two are not told apart by this number"))
       (release))))
 
-(deftest explain-render-reports-a-boundarys-OWN-peak-not-the-last-dispatch
-  (testing "the qualifier a consumer of this read has to know.
+(deftest the-root-boundarys-answer-does-not-diverge-and-that-is-the-reads-limit
+  (testing "the same two intents that the CHROME answers differently, the ROOT
+            answers identically — because the root holds no read either intent
+            distinguishes. The read's discriminating power is a property of the
+            boundary's edge set, not of the read, and an agent that asked only
+            the root would learn nothing about which switch happened.
 
-            `:latest-reads` names the reads standing at the boundary's own
-            maximum epoch. For a boundary the last event did not touch, that
-            maximum is HISTORIC: the row still names reads, and they are not
-            the reads the last dispatch moved. The number that separates the
-            two cases is `:peak-epoch`, which is why the row above compares it
-            rather than reading `:latest-reads` as *what just happened*."
+            This row is a negative and is asserted as one: two measured values
+            compared to each other, with no literal to drift."
     (boot!)
-    (let [release (mount-feed!)]
-      (go! [::events/set-theme {:theme :dark}])
-      (let [root-after-theme (peak-of ::subs/token)]
-        (go! [::events/set-locale :fr])
-        (let [e  (tool/explain-render)
-              ex (explanation-for e ::subs/token)]
-          (is (= root-after-theme (:peak-epoch ex))
-              "the locale did not move the root, so its peak is the theme's still")
-          (is (seq (:latest-reads ex))
-              "and the row nonetheless names reads — a reader taking these for
-               the last dispatch's would be reading a stale maximum as news")))
-      (release))))
+    (let [release-a (mount-feed!)]
+      (go! [::events/set-locale :fr])
+      (let [after-locale (latest-sub-ids (explanation-for (tool/explain-render) ::subs/token))]
+        (release-a)
+
+        (boot!)
+        (let [release-b    (mount-feed!)
+              _            (go! [::events/set-theme {:theme :dark}])
+              after-theme  (latest-sub-ids (explanation-for (tool/explain-render) ::subs/token))]
+          (is (seq after-locale) "both answers are non-empty")
+          (is (contains? after-locale ::subs/token))
+          (is (= after-locale after-theme)
+              "and they are the SAME answer — the root cannot tell the two apart")
+          (release-b))))))
