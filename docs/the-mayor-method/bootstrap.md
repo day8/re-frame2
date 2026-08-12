@@ -349,7 +349,7 @@ of a drain; the binding rule is hot-zone parallelism, not strict same-surface.
 **Set up loops.** If they don't exist already, create:
 - 60m — reread this file + siblings; reassert posture to operator
 - 60m — worktree hygiene (worker worktrees, origin orphan branches, stale tracking refs)
-- 30m — cluster review (3+ same-surface beads → one PR; 8–12 sweet spot)
+- 30m — cluster review (3+ same-surface beads → one PR; ~3–6 sweet spot)
 - 30m — merge PRs (green on the whole criterion; no clause has an `--admin` bypass)
 - 15m — bead dispatch pass (filter out decisions/EPICs/release-coupled/v1.x/hot-zone)
 
