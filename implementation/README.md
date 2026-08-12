@@ -207,6 +207,21 @@ implementation/
     src/re_frame/ssr/ring.clj      Ring handler wrapper + :rf.server/* cookie/header glue.
     test/re_frame/                 JVM Ring-adapter tests.
 
+  ssr-node/                  The bounded Node/React SSR service (rf2-hic-056). NOT a Clojure
+                             artefact and NOT on any classpath or shadow build: plain Node,
+                             node: builtins only, no deps.edn and no npm dependency. The JVM
+                             owns the request, Node owns the React render, and this bounds
+                             the crossing — per-request state isolation via immutable
+                             snapshots, a fail-closed request allowlist, one in-flight render
+                             per isolate, timeout with hard termination, and a pre-registered
+                             latency envelope.
+    README.md                The contract, the protocol, the envelope, and deployment.
+    src/protocol.cjs         Message shapes + the fail-closed validator. No transport in it.
+    src/{isolate,pool}.cjs   One worker thread per isolate; admission, deadline, terminate.
+    src/service.cjs          renderFrames (the primitive) + renderToString (the wrapper).
+    src/http.cjs             One transport over the protocol: POST /render, GET /health.
+    test/                    node:test suites, run by test/run.cjs. No build, no browser.
+
   test-quiet/                day8/re-frame2-test-quiet — quiet-on-success cljs.test /
                              clojure.test reporter shared across the test runners (rf2-try1x).
     deps.edn                 No runtime deps; a test-tooling library.
