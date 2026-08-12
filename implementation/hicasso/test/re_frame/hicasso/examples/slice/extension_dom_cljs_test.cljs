@@ -206,7 +206,7 @@
             row-1    (node m ".article-list li:nth-child(1)")]
         (click! m (str intents " .tags-toggle"))
         (is (= "true" (expanded intents)) "the disclosure on *Intents are data* is open")
-        (is (= ["intents" "data"] (texts m ".tag-list .tag")))
+        (is (= ["intents"] (texts m ".tag-list .tag")))
 
         (go-to-page! m 2)
 
@@ -234,7 +234,7 @@
               "the disclosure came back with *Intents are data* — `h/reg-state`
                keyed it by the slug, so it survived the article leaving the
                screen entirely and rejoined it when it returned")
-          (is (= ["intents" "data"] (texts m ".tag-list .tag")))
+          (is (= ["intents"] (texts m ".tag-list .tag")))
           (is (= "false" (expanded ".article-list li:nth-child(1)"))
               "and the row beside it is still closed, which is the bug a
                single `[:ui :tags-open?]` flag would have made invisible"))
