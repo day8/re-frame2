@@ -2,7 +2,7 @@
 
 **Verdict: DO NOT ADOPT. The recipe stands.** A pull is a coarse read wearing a declarative face: it lands on the coarse side of the fine/coarse trade by construction, and the only mechanism that would move it to the fine side is the per-leaf ledger the spike is forbidden to build.
 
-The pre-registration below was written and committed before a single number was taken — `dd41c7ad6c` on this branch, off `origin/main` at `3deaf2890a`, with this line reading *PRE-REGISTERED, NOT YET MEASURED* and the verdict section empty. That ordering is a fact in the history rather than a claim in the prose.
+The pre-registration below was written and committed before a single number was taken. It is **the first commit on this page's branch** — *pre-register the pull-shaped-reads comparator before measuring*, touching this file and nothing else, with this line reading *PRE-REGISTERED, NOT YET MEASURED* and the verdict section empty. The comparator arrives in the second commit and the readings in the third. That ordering is a fact in the history rather than a claim in the prose, and it is cited by position rather than by hash because a rebase or a squash rewrites a hash and does not rewrite an order.
 
 Owned by `rf2-hic-058`. The rule this record discharges is [specification §11](specification.md#11-innovation-portfolio)'s portfolio row:
 
@@ -148,4 +148,4 @@ Written 2026-08-12 for `rf2-hic-058`, under the operator ruling `rf2-xpq9` of th
 
 **Figures, and their tree.** `G1`–`G7` are new readings taken by the comparator named above and pinned by it; they are **bench readings of this spike**, not package budget rows, and no row is added to [budgets.md](budgets.md). The `1.25×` ceiling in the pre-registration is borrowed from `budgets.md` §4's `S6` cold-mount *proposal*, which is a proposal there and is borrowed as one here — nothing in this record ratifies it.
 
-**Pre-registration.** Commit `dd41c7ad6c` on `worker/pull-hic058`, branched from `origin/main` at `3deaf2890a`.
+**Pre-registration.** The first commit on `worker/pull-hic058`, which touches this file alone and leaves the verdict section empty. Named by position rather than by hash, because the hash does not survive a rebase and the position does.
