@@ -285,7 +285,7 @@ Completeness does not mean every feature belongs in core. It means every recurri
 | Code splitting | Route/module boundary | Small `React.lazy` bridge for Hicasso's boundary ABI; Hiccup-aware Suspense/error host | Load, fallback, error, retry, HMR |
 | Multiple frames and roots | Shared frame context with isolated ownership | Explicit independent root only when needed | Same public id reincarnation, two roots, teardown |
 | Suspense and Activity | React-owned lifecycle | Declared host boundary when necessary | Suspend/retry; hide/reveal releases and reacquires reads |
-| SSR and hydration | Every public-surface inventory id follows the canonical Render or Client-only policy | Optional Node service for a named caller; its operational contract remains separate from surface semantics | Every inventory id is green in the [canonical SSR/hydration matrix](lanes/react-compatibility-notes.md#public-surface-ssrhydration-matrix) |
+| SSR and hydration | Every public-surface inventory id follows the canonical Render or Client-only policy | Optional Node service, built in v0 — the *"for a named caller"* gate this cell carried is **REMOVED** (amended 2026-08-12 by operator ruling, Mike in session 17:36 AUSEST, `rf2-xpq9`; *optional* now describes packaging only). Its operational contract remains separate from surface semantics | Every inventory id is green in the [canonical SSR/hydration matrix](lanes/react-compatibility-notes.md#public-surface-ssrhydration-matrix) |
 | Accessibility | Semantic Hiccup and native controls | Structural a11y assertions plus browser focus tests | Names, roles, keyboard, virtualized/overlay focus |
 | i18n and theming | Ordinary data, classes, CSS variables, context through hosts | Recipes; no adapter subsystem | Runtime locale/theme change |
 | Testing | Pure data and supported semantic harness | Mounted DOM and browser tiers | Positive and sabotage controls at every tier |
@@ -450,7 +450,7 @@ In priority order:
 4. presence/motion posture and focus intent;
 5. routing and async-resource recipes;
 6. migration reporter, shadow comparison, and only then safe codemod transforms;
-7. deliver the bounded Node/React SSR service contract when a named caller activates it, using immutable request snapshots, allowlisted state, build identity, bounded isolate concurrency, hard termination, and a pre-registered caller latency envelope;
+7. deliver the bounded Node/React SSR service contract when a named caller activates it (**that condition is removed — see the amendment above**), using immutable request snapshots, allowlisted state, build identity, bounded isolate concurrency, hard termination, and a pre-registered caller latency envelope;
 8. selected left-field spikes that meet their decision criteria.
 
 Each optional namespace proves zero reachable production code when absent. No optional feature changes the boundary shell.
@@ -489,7 +489,9 @@ Hicasso is ready to be the native re-frame2 adapter when all of the following ar
 - Two pilot applications ship substantial screens without bespoke support.
 - No primary documentation, production path, or live developer-tool consumer depends on the experimental re-frame.ui or Freehand public surfaces; any retained compatibility fixture is named and isolated.
 
-Client v0 does not wait for an unused production SSR deployment, but the hydration contract and React-server compatibility tests are mandatory. The bounded Node service ships when a named caller exists.
+Client v0 does not wait for an unused production SSR deployment, but the hydration contract and React-server compatibility tests are mandatory. **The bounded Node service is itself a v0 deliverable, built and witnessed to the spec Phase 5 item 7 states.**
+
+> *Amended 2026-08-12 by operator ruling (Mike, in session, 17:36 AUSEST; `rf2-xpq9`).* The sentence this replaces read **"The bounded Node service ships when a named caller exists"**, and the ruling **REMOVES** that condition — every Phase 5 item is v0 scope, `rf2-hic-056` is awake and its `[DORMANT]` marker is lifted. This is the definition of done, so the change is load-bearing rather than editorial: v0 is not complete until the service is built. **What does not move**: building it is the obligation, deploying it for a live consumer is not, which is why the first clause of this paragraph stands unchanged and why the surface row above still requires every inventoried surface to pass its policy with the service absent.
 
 ## Supporting specifications
 

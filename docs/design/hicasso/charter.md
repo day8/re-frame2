@@ -248,12 +248,29 @@ the v0 scope paragraph above and the HD-020 addendum in
 21. Production build identity: `:advanced` changes cost, never semantics; the
     staged-stale case is a CI witness for any asynchronous-host variant.
 
-**Named goal — demand-driven resource reads** (post-v0; decided at design time so
-v0 doesn't preclude it): a mounted read as the causal owner of ensure-demand;
+**Named goal — demand-driven resource reads** (adoption post-v0; decided at design
+time so v0 doesn't preclude it): a mounted read as the causal owner of ensure-demand;
 release on unmount/param-shift/conditional-false; debounce/supersession as
 declaration policy; ensures post-commit; render pure; demand ≠ retention. Both a
 differentiator no comparable system has and the only clean home for typeahead-class
 async.
+
+*Amended 2026-08-12 by operator ruling (Mike, in session, 17:36 AUSEST; `rf2-xpq9`)
+— **partially**, and the halves come apart cleanly. The **verdict** is v0: a
+decision-shaped Phase 5 item completes when its spike has run and its
+pre-registered verdict has been made, so `rf2-hic-050` was owed inside v0 rather
+than after it. **Adoption keeps its own criteria** — the ones frozen in
+[`product/resource-demand-criteria.md`](product/resource-demand-criteria.md)
+before any data existed — and a ruled STOP completes the item just as a ruled
+adopt would, because completion is the verdict and never forced adoption. That
+verdict has since been made and it is **STOP**
+([`product/resource-demand-verdict.md`](product/resource-demand-verdict.md)): four
+criteria met, two ambiguous, and ambiguity resolves to STOP by the frozen rule, so
+`rf2-hic-054`'s async-resource recipes stand as the answer. So the "post-v0" above
+now qualifies adoption only, and nothing here is outstanding: the goal is recorded
+as decided at design time, the decision has been taken on its own terms, and the
+design constraint the sentence exists to state — that v0 must not preclude this
+shape — still binds.*
 
 ## What the fitness harness supplies
 

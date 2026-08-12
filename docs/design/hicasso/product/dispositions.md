@@ -66,7 +66,7 @@ the answer itself. The refusals that stand alone are catalogued in
 | Code splitting | Core (small `React.lazy` boundary-ABI bridge) | Hiccup-aware Suspense/error host | No late-bound view-id registry | Claimed | 7; [`completeness-audit.md`](lanes/completeness-audit.md) |
 | Multiple frames and roots | Core (shared frame context with isolated ownership) | Explicit independent root when isolation requires one | An independent root is an isolation choice, never a performance tier | Claimed | [Rung 5](specification.md#rung-5--native-screen); 7 |
 | Suspense and Activity | Host escape (React-owned lifecycle behind a declared host) | — | No Activity DSL; compatibility only | Claimed | 7; [Activity witness](lanes/react-compatibility-notes.md#activity-lifecycle-witness) |
-| SSR and hydration | Core (per-surface policy — section [2](#2-public-surface-ssrhydration-dispositions) of this document) | Optional Node service for a named caller | No JVM twin, no second renderer, no hydration-free inference | Claimed | 7; [8](specification.md#8-modern-react-compatibility); [Language 8](lanes/design-laws.md#language-and-interop) |
+| SSR and hydration | Core (per-surface policy — section [2](#2-public-surface-ssrhydration-dispositions) of this document) | Optional Node service, built in v0 — its *"for a named caller"* gate is REMOVED (amended 2026-08-12 by operator ruling, Mike in session 17:36 AUSEST, `rf2-xpq9`) | No JVM twin, no second renderer, no hydration-free inference | Claimed — `rf2-hic-056` | 7; [8](specification.md#8-modern-react-compatibility); [Language 8](lanes/design-laws.md#language-and-interop) |
 | Accessibility | Core (semantic Hiccup and native controls) | Structural a11y assertions plus browser focus tests | No accessibility subsystem | Claimed — `rf2-hic-049` | 7 |
 | i18n and theming | Recipe (ordinary data, classes, CSS variables, context through hosts) | — | No adapter subsystem; parts registries and tree rewriting deferred | Claimed — `rf2-hic-025` | 7; [`use-cases.md`](lanes/use-cases.md) |
 | Testing | Core developer product (the supported test namespace, L0–L4) | Mounted DOM and browser tiers | No shallow renderer, no fake hooks runtime, no retired test renderer | Claimed — `rf2-hic-020` | [9](specification.md#9-testing-as-a-product-surface) |
@@ -209,11 +209,18 @@ the surfaces someone remembered.
 | HS-36 | Supported test namespace | 9 | Development-only; absent from production and server bundles; proves its own erasure |
 | HS-37 | Xray and Pair evidence projection | 10 | Development-only; versioned, privacy-projected, loss-accounted; no production sentinels |
 | HS-38 | clj-kondo exports and optional dev schemas | [editor ergonomics](lanes/ergonomics-api.md#editor-and-diagnostic-ergonomics) | Development-only; no production cost; no whole-program analysis implied |
-| HS-39 | Bounded Node/React SSR service | [Phase 5](specification.md#phase-5--decide-differentiators-and-add-high-value-optional-products) | Caller-gated deployable service, not a view surface; its operational contract is separate from every surface policy above |
+| HS-39 | Bounded Node/React SSR service | [Phase 5](specification.md#phase-5--decide-differentiators-and-add-high-value-optional-products) | Deployable service, not a view surface; **v0 scope** since the 2026-08-12 ruling removed its caller gate (see the note below); its operational contract is separate from every surface policy above |
 
 HS-39 is the only genuinely optional part of the server story. Its absence changes nothing in
 [2.1](#21-surface-inventory-and-dispositions): a client-only application still owes every surface a server policy and a
 hydration contract.
+
+*Amended 2026-08-12 by operator ruling (Mike, in session, 17:36 AUSEST; `rf2-xpq9`). HS-39's disposition read
+**"Caller-gated deployable service"** and that gate is **REMOVED** — every Phase 5 item is v0 scope, so the service is
+built in v0 to its own spec and `rf2-hic-056`'s `[DORMANT]` marker is lifted. **The paragraph above does not move**, and
+the distinction is the reason: `optional` here has always meant packaged separately and deployable or not, never held
+back from v0, so a client-only application still owes every surface a server policy and a hydration contract, and
+HS-39's absence at deployment still changes nothing in [2.1](#21-surface-inventory-and-dispositions).*
 
 ### 2.3 Per-control and DOM-conformance dispositions
 

@@ -173,8 +173,12 @@ the existing hydrated-controlled-input witness already asserts, and the
 
 **3.7 Scope.** The single prop **only**. No generation fencing, no commit/cancel
 intents, no `:control` addressing, no controller record, no acknowledgement signal,
-no per-element opt-outs, no caret-policy knobs, no second reserved key. The post-v0
-ladder **consumes** this trigger; it never extends the prop.
+no per-element opt-outs, no caret-policy knobs, no second reserved key. The
+ladder **consumes** this trigger; it never extends the prop — and it is **no longer
+post-v0**: the operator ruled `re-frame.hicasso.forms` into V0 scope on 2026-08-12
+(`rf2-sh56`; `rf2-xpq9` ruled the rest of Phase 5 the same day) and
+`forms/buffered-field` has shipped on exactly this trigger. The fence in this
+paragraph is unaffected — what shipped consumes the prop and extends nothing here.
 
 ---
 
@@ -419,7 +423,12 @@ the ladder.
 4. **A misspelled bare `:revision` is silent**, and post-vrvv9 it is silent *and*
    lossy on a namespaced value (§6.3).
 5. **No reset acknowledgement.** A caller cannot observe that the reset landed.
-   The ladder's completion protocol is post-v0.
+   The ladder's completion protocol is **no longer post-v0** — amended 2026-08-12,
+   the operator having ruled `re-frame.hicasso.forms` into V0 scope (`rf2-sh56`;
+   `rf2-xpq9` ruled the rest of Phase 5 the same day), and `forms/buffered-field`
+   ships a commit/cancel protocol on this trigger. **The loss above still stands**:
+   that protocol answers for the *draft*, and no caller can yet observe that a
+   revision-driven reset landed.
 6. **Chromium-only composition evidence**, which is the harness's standing limit
    and covers the new rows too.
 
