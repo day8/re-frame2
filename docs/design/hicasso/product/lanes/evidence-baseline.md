@@ -66,7 +66,7 @@ Representative bulk evidence remains unresolved while the comparator is instrume
 - Prove retaining-host callback identity and retirement.
 - Adjudicate the underlying subscription substrate before ABI freeze.
 - Publish editor/grid per-keystroke mechanics and qualified bulk evidence; publish warm-allocation evidence only if its instrument qualifies and a product claim is sought.
-- Complete the core server/hydration contract independently of deployment demand; turn the Node spike into a bounded service only for a named caller.
+- Complete the core server/hydration contract independently of deployment demand; turn the Node spike into a bounded service, built in v0 — its *"only for a named caller"* condition is REMOVED (amended 2026-08-12 by operator ruling, Mike in session 17:36 AUSEST, `rf2-xpq9`).
 - Complete every row of the canonical native-tier checklist; partial element, hook, server, dependency or performance parity is not a substitute.
 - Move live Xray/Story/Pair consumers to the adapter-neutral Hicasso evidence provider before disposing of experimental donor tool surfaces.
 
