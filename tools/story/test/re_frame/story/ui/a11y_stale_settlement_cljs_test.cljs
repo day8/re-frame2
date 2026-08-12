@@ -181,10 +181,18 @@
                         served to :rf.assert/a11y as a verdict")
                    (is (= :idle (a11y/status-for frame-id))
                        "a frame with no slot reads :idle, NOT :done")
-                   (done)))
+                   nil))
+          ;; Reports; it does NOT finish. `done` hands `cljs.test/run-block` a
+          ;; continuation that runs the WHOLE remainder of the run
+          ;; synchronously, so a rejection handler downstream of the step that
+          ;; finished the row claims whatever a LATER namespace throws, prints
+          ;; it against this row's label, and fires `done` a second time
+          ;; (rf2-e8kc).
           (.catch (fn [e]
                     (is false (str "settling after teardown threw: " e))
-                    (done)))))))
+                    nil))
+          ;; The single `done`, with nothing after it.
+          (.then (fn [_] (done)))))))
 
 (deftest stale-settlement-does-not-clobber-the-replacement-run
   (testing "THE OTHER WAY TO LOSE THE SLOT: run A parks on its scan, a

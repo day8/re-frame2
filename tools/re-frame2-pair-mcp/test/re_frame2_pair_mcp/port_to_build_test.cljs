@@ -198,6 +198,20 @@
               (let [edn (tu/extract-edn result)]
                 (is (true? (:ok? edn)))
                 (is (= :my-app (:build-id edn)) "explicit build wins over port"))
-              (done)))
-          (.finally (fn [] (set! probe/resolve-build-by-port orig)))
-          (.then (fn [_] (done)))))))
+              nil))
+          ;; Reports; it does NOT finish. `done` hands `cljs.test/run-block` a
+          ;; continuation that runs the WHOLE remainder of the run
+          ;; synchronously, so anything downstream of the step that finished
+          ;; the row claims a LATER namespace's throw as this row's and fires
+          ;; `done` a second time (rf2-e8kc). Here the second `done` was
+          ;; unconditional — the trailing `.then` ran it on every green pass —
+          ;; while a REJECTION reached neither, because `.finally` re-throws
+          ;; and the row simply timed out with no diagnostic at all.
+          (.catch (fn [e]
+                    (is false (str "explicit-build discovery rejected: " e))
+                    nil))
+          ;; The stub restore, and the single `done` with nothing after it.
+          ;; Both arms reach this step, which is what `.finally` was for.
+          (.then (fn [_]
+                   (set! probe/resolve-build-by-port orig)
+                   (done)))))))
