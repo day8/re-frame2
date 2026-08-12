@@ -325,6 +325,12 @@
         (send! frame [::events/submit])
         (let [second-args (last @!requests)]
           (is (= 2 (count @!requests)) "two writes under one instance")
+          (is (not= (:on-success first-args) (:on-success second-args))
+              "and the runtime addressed them apart — the two reply targets
+               carry different correlation, which is what the fence reads.
+               Without this line the row below could be green because the
+               replays were indistinguishable rather than because one was
+               refused")
           (reply-ok! frame second-args {:ok true})
           (is (= "grace" (get-in (app-db-of frame) [:ticket :assignee])))
           (testing "the older reply lands afterwards and changes nothing"
