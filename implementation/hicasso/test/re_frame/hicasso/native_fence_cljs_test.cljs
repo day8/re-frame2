@@ -77,7 +77,14 @@
 
 (n/defcomponent abi-probe
   "Reports what the ABI actually handed it, so the one-props-map claim
-  is measured rather than asserted in prose."
+  is measured rather than asserted in prose.
+
+  `{:server :render}` because [[render-native!]] is the server renderer
+  and the policy is now READ (rf2-hic-046): a Client-only island's body
+  does not run there. The ABI is the same under either policy — the gate
+  forwards its own props object untouched — so the declaration buys the
+  instrument its body back and changes nothing this row is about."
+  {:server :render}
   [^js props]
   (n/$ :span nil
        (str "map?=" (map? props)
@@ -86,7 +93,8 @@
 
 (n/defcomponent hooked
   "Ordinary React hooks, reached by direct interop — no wrapper, no
-  Hicasso hook library."
+  Hicasso hook library. `{:server :render}` for [[abi-probe]]'s reason."
+  {:server :render}
   [^js _props]
   (let [[n' _] (react/useState 41)]
     (n/$ :output nil (str (inc n')))))
@@ -189,16 +197,15 @@
             author never claimed"
     (is (= "client-only" (.-server (n/marker probe)))))
 
-  (testing "and an explicit `{:server :render}` is RECORDED — and recorded
-            is the whole of what this row claims (rf2-u9lk). **The policy
-            is not yet consulted**: nothing in this tier branches on the
-            field, because `adversarial-risks.md` defers native-surface
-            risks to Phase 3 and the server half of the declaration goes
-            with them. When a server path arrives, the row that covers it
-            asserts the EFFECT — bytes emitted or withheld — and this one
-            keeps its narrower subject. Narrowing caught: ignoring the
-            declaration map entirely, which would pass the default row
-            above"
+  (testing "and an explicit `{:server :render}` is RECORDED — and the
+            recording is the whole of what THIS row claims. The EFFECT —
+            bytes emitted or withheld — is
+            `re-frame.hicasso.native-ssr-dom-cljs-test`'s subject since
+            rf2-hic-046 made the field decide it; this row keeps the
+            narrower one, because a marker a tool reads and a policy a
+            renderer honours are two claims and only one of them is about
+            data. Narrowing caught: ignoring the declaration map
+            entirely, which would pass the default row above"
     (is (= "render" (.-server (n/marker server-rendered)))))
 
   (testing "a plain function carries no marker, which is what makes the
@@ -245,9 +252,10 @@
            (:rf.error/id (refusal #(n/declared-server "app/x" {:server nil}))))))
 
   (testing "and `defhost`'s sibling `:fallback` has no counterpart here,
-            as a value or as a key. A fallback is markup a GATE component
-            renders in the crossing's place, and a native component has no
-            gate: it is its own element type"
+            as a value or as a key. Both doors gate the Client-only arm
+            the same way; what differs is the authoring site — a native
+            island is reached from hiccup, so markup for its region is
+            written where it renders rather than declared"
     (is (= :rf.error/hicasso-native-bad-server-policy
            (:rf.error/id (refusal #(n/declared-server "app/x"
                                                       {:server {:fallback [:div]}}))))))
