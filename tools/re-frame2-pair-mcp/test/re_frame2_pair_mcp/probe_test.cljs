@@ -283,14 +283,19 @@
   reason + hint pattern. Centralises the deeply-nested Promise chain
   shape so each rung test reads as data."
   [conn expected-reason hint-pattern done extra-assertions]
+  ;; The rejection arm IS this helper's success path, so the two handlers are
+  ;; SIBLINGS of one two-arg `.then` — exactly one of them runs — and the single
+  ;; `done` sits in a trailing step with nothing after it. A `.catch` downstream
+  ;; of a `done` would claim whatever a LATER namespace throws as this rung's
+  ;; failure and fire `done` a second time (rf2-53uz).
   (-> (probe/ensure-runtime! conn :app)
-      (.then  (fn [_] (is false "must reject") (done)))
-      (.catch (fn [err]
-                (let [data (ex-data err)]
-                  (is (= expected-reason (:reason data)))
-                  (is (re-find hint-pattern (:hint data)))
-                  (when extra-assertions (extra-assertions data))
-                  (done))))))
+      (.then (fn [_] (is false "must reject"))
+             (fn [err]
+               (let [data (ex-data err)]
+                 (is (= expected-reason (:reason data)))
+                 (is (re-find hint-pattern (:hint data)))
+                 (when extra-assertions (extra-assertions data)))))
+      (.then (fn [_] (done)))))
 
 (deftest diagnose-rung-nrepl-unreachable
   (testing "JVM eval returns garbage (not \"1\") → :nrepl-unreachable"

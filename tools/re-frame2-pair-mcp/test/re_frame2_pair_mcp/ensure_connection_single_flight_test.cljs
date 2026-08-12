@@ -61,9 +61,9 @@
                      (is (identical? conn (aget rs 1)) "caller 2 got the SAME conn")
                      (is (true? (:discovered? (server/session-state-snapshot))))
                      (is (nil? (:transition (server/session-state-snapshot)))
-                         "the transition slot is cleared after settle")
-                     (done)))
-            (.catch (fn [e] (is false (str "unexpected reject: " (.-message e))) (done))))))))
+                         "the transition slot is cleared after settle")))
+            (.catch (fn [e] (is false (str "unexpected reject: " (.-message e))) nil))
+            (.then (fn [_] (done))))))))
 
 (deftest concurrent-port-change-calls-replace-endpoint-exactly-once
   (testing "two simultaneous cached-port-change calls close the old conn ONCE and publish ONE replacement"
@@ -91,10 +91,12 @@
                        (is (= 7002 (:port (server/session-state-snapshot)))
                            "session records the new port")
                        (is (nil? (:transition (server/session-state-snapshot)))
-                           "the transition slot is cleared after settle")
-                       (restore!) (done)))
-              (.catch (fn [e] (restore!)
-                        (is false (str "unexpected reject: " (.-message e))) (done)))))))))
+                           "the transition slot is cleared after settle")))
+              (.catch (fn [e]
+                        (is false (str "unexpected reject: " (.-message e))) nil))
+              ;; `restore!` is the same idempotent `set!` on both arms, so it
+              ;; moves to the single trailing step, still ahead of `done`.
+              (.then (fn [_] (restore!) (done)))))))))
 
 (deftest concurrent-failed-discovery-rejects-all-then-retries
   (testing "a shared discovery failure rejects every waiter, clears the slot, and a later call retries successfully"
@@ -123,16 +125,19 @@
                                    (swap! calls inc)
                                    (server/mark-discovered-for-tests! conn)
                                    (js/Promise.resolve :ok))]
+                       ;; RETURNED into the outer chain, so the retry is awaited
+                       ;; by the single trailing `done` instead of finishing the
+                       ;; row itself while two `.catch`es are still downstream.
                        (-> (server/ensure-connection! {} ok-fn)
                            (.then (fn [c]
                                     (is (= 2 @calls) "discovery RE-RAN on the retry")
                                     (is (identical? conn c) "the retry resolved to the fresh conn")
-                                    (is (true? (:discovered? (server/session-state-snapshot))))
-                                    (done)))
+                                    (is (true? (:discovered? (server/session-state-snapshot))))))
                            (.catch (fn [e2]
                                      (is false (str "retry must succeed: " (.-message e2)))
-                                     (done)))))))
-            (.catch (fn [e] (is false (str "unexpected reject: " (.-message e))) (done))))))))
+                                     nil))))))
+            (.catch (fn [e] (is false (str "unexpected reject: " (.-message e))) nil))
+            (.then (fn [_] (done))))))))
 
 (deftest fast-path-needs-no-transition
   (testing "when the cached port-file still reads the same port, ensure-connection! returns the cached conn with no transition"
@@ -146,7 +151,7 @@
             (.then (fn [resolved]
                      (is (identical? conn resolved) "the cached conn is reused")
                      (is (nil? (:transition (server/session-state-snapshot)))
-                         "the fast path never opened a transition")
-                     (restore!) (done)))
-            (.catch (fn [e] (restore!)
-                      (is false (str "fast path must not reject: " (.-message e))) (done))))))))
+                         "the fast path never opened a transition")))
+            (.catch (fn [e]
+                      (is false (str "fast path must not reject: " (.-message e))) nil))
+            (.then (fn [_] (restore!) (done))))))))

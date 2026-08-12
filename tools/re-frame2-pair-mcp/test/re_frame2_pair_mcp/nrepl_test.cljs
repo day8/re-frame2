@@ -463,18 +463,19 @@
           ;; Synchronously — before the .then microtask writes — drop the
           ;; socket exactly as a racing close! would.
           (swap! conn assoc :socket nil)
+          ;; The rejection arm IS this row's success path, so both handlers are
+          ;; siblings of one two-arg `.then` and the single `done` trails them.
           (-> p
               (.then (fn [_]
-                       (is false "send-op! must REJECT when the socket is nil at write time")
-                       (done)))
-              (.catch (fn [err]
-                        (is (= "nREPL socket dropped before write — retry to reconnect"
-                               (.-message err))
-                            "structured retry-to-reconnect message, not the native NPE")
-                        (is (zero? @writes) "no write attempted against a nil socket")
-                        (is (= {} (:pending @conn))
-                            "the just-registered id is dissoc'd — no pending leak")
-                        (done)))))))))
+                       (is false "send-op! must REJECT when the socket is nil at write time"))
+                     (fn [err]
+                       (is (= "nREPL socket dropped before write — retry to reconnect"
+                              (.-message err))
+                           "structured retry-to-reconnect message, not the native NPE")
+                       (is (zero? @writes) "no write attempted against a nil socket")
+                       (is (= {} (:pending @conn))
+                           "the just-registered id is dissoc'd — no pending leak")))
+              (.then (fn [_] (done)))))))))
 
 (deftest send-op!-live-socket-writes-normally
   (testing "with a live socket present at write time, send-op! writes the encoded op"
@@ -1020,10 +1021,12 @@
               (is (= {:step-deck :examples/step-deck} (:build-alias @conn))
                   "the forgiving-resolution alias survives the reopen too")
               (is (= #{:examples/step-deck} (:probed-builds @conn))
-                  "the probe cache survives — the runtime marker outlives a socket hiccup")
-              (restore!)
-              (done)))
-          (.catch (fn [e] (restore!) (is false (str "unexpected reject: " (.-message e))) (done)))))))
+                  "the probe cache survives — the runtime marker outlives a socket hiccup")))
+          (.catch (fn [e] (is false (str "unexpected reject: " (.-message e))) nil))
+          ;; `restore!` is the same idempotent `set!` on both arms, so it moves
+          ;; to the single trailing step: written once, still run once per path,
+          ;; and still INSIDE the step that calls `done` rather than after it.
+          (.then (fn [_] (restore!) (done)))))))
 
 (deftest connect!-reopen-resets-framing-buffer-but-keeps-caches
   ;; The reopen still does its transport job: a stale partial frame left in
@@ -1046,10 +1049,9 @@
               (is (zero? (.-length (:buf @conn)))
                   "the framing buffer is reset on reopen (fresh socket, fresh stream)")
               (is (= :examples/step-deck (:resolved-build-id @conn))
-                  "the build-id cache is preserved alongside the buffer reset")
-              (restore!)
-              (done)))
-          (.catch (fn [e] (restore!) (is false (str "unexpected reject: " (.-message e))) (done)))))))
+                  "the build-id cache is preserved alongside the buffer reset")))
+          (.catch (fn [e] (is false (str "unexpected reject: " (.-message e))) nil))
+          (.then (fn [_] (restore!) (done)))))))
 
 (deftest connect!-fast-path-leaves-caches-untouched
   ;; When the socket is already open + healthy, `connect!` short-circuits
@@ -1108,10 +1110,9 @@
           (.then
             (fn [_]
               (is (nil? (:resolved-build-id @conn))
-                  "post-close reopen carries NO stale build — l9ixp preserved")
-              (restore!)
-              (done)))
-          (.catch (fn [e] (restore!) (is false (str "unexpected reject: " (.-message e))) (done)))))))
+                  "post-close reopen carries NO stale build — l9ixp preserved")))
+          (.catch (fn [e] (is false (str "unexpected reject: " (.-message e))) nil))
+          (.then (fn [_] (restore!) (done)))))))
 
 (deftest fresh-conn-for-new-port-starts-with-empty-caches
   ;; The port-change path (the common shape of a different-build restart):
@@ -1206,9 +1207,9 @@
                    (is (identical? conn (aget results 1)) "caller 2 resolved to the SAME conn")
                    (is (some? (:socket @conn)) "exactly one socket published")
                    (is (false? (:closed? @conn)) "the conn is live")
-                   (is (nil? (:connecting @conn)) "the in-flight slot is cleared on publish")
-                   (restore!) (done)))
-          (.catch (fn [e] (restore!) (is false (str "unexpected reject: " (.-message e))) (done)))))))
+                   (is (nil? (:connecting @conn)) "the in-flight slot is cleared on publish")))
+          (.catch (fn [e] (is false (str "unexpected reject: " (.-message e))) nil))
+          (.then (fn [_] (restore!) (done)))))))
 
 (deftest concurrent-send-ops-multiplex-over-one-socket
   ;; Two simultaneous `send-op!` calls share one connect, then register
@@ -1239,9 +1240,9 @@
                    (js/Promise.all #js [p1 p2])))
           (.then (fn [^js rs]
                    (is (= 2 (.-length rs)) "both ops resolved")
-                   (is (= {} (:pending @conn)) "pending drained on resolution")
-                   (restore!) (done)))
-          (.catch (fn [e] (restore!) (is false (str "unexpected reject: " (.-message e))) (done)))))))
+                   (is (= {} (:pending @conn)) "pending drained on resolution")))
+          (.catch (fn [e] (is false (str "unexpected reject: " (.-message e))) nil))
+          (.then (fn [_] (restore!) (done)))))))
 
 (deftest superseded-socket-callbacks-cannot-mutate-current-generation
   ;; A losing/stale socket's data/error/close must be inert once a newer
@@ -1275,9 +1276,9 @@
                      (is (zero? (.-length (:buf @conn)))
                          "a stale gen1 data chunk never enters the live framing buffer")
                      (is (identical? gen2-sock (:socket @conn))
-                         "the live socket is untouched by stale callbacks"))
-                   (restore!) (done)))
-          (.catch (fn [e] (restore!) (is false (str "unexpected reject: " (.-message e))) (done)))))))
+                         "the live socket is untouched by stale callbacks"))))
+          (.catch (fn [e] (is false (str "unexpected reject: " (.-message e))) nil))
+          (.then (fn [_] (restore!) (done)))))))
 
 (deftest stale-generation-partial-frame-never-concatenated
   ;; Bytes from two socket generations must never concatenate into one
@@ -1313,9 +1314,9 @@
                      (is (nil? @got*)
                          "a stale gen1 tail cannot concatenate onto gen2 to fake a frame")
                      (is (zero? (.-length (:buf @conn)))
-                         "and it never entered the live buffer"))
-                   (restore!) (done)))
-          (.catch (fn [e] (restore!) (is false (str "unexpected reject: " (.-message e))) (done)))))))
+                         "and it never entered the live buffer"))))
+          (.catch (fn [e] (is false (str "unexpected reject: " (.-message e))) nil))
+          (.then (fn [_] (restore!) (done)))))))
 
 (deftest connect!-rejection-clears-in-flight-slot-and-next-call-retries
   ;; A failed connect rejects the waiter, clears the in-flight slot, and the
@@ -1343,10 +1344,10 @@
                      (fire-cb! (second @sockets*) "connect")
                      (-> p2
                          (.then (fn [_]
-                                  (is (false? (:closed? @conn)) "the retry connected")
-                                  (restore!) (done)))
-                         (.catch (fn [e2] (restore!)
-                                   (is false (str "retry rejected: " (.-message e2))) (done)))))))))))
+                                  (is (false? (:closed? @conn)) "the retry connected")))
+                         (.catch (fn [e2]
+                                   (is false (str "retry rejected: " (.-message e2))) nil))
+                         (.then (fn [_] (restore!) (done)))))))))))
 
 (deftest close!-during-in-flight-connect-settles-waiter-and-orphans-candidate
   ;; Operator teardown mid-connect: the conn ends closed, the in-flight

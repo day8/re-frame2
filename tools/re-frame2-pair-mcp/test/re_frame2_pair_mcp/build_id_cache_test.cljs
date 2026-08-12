@@ -446,10 +446,12 @@
 
 (deftest resolve-build-rejects-with-candidates-when-no-target-and-many-run
   (async done
-    ;; NB restore `probe/running-builds` INLINE before calling `done` —
-    ;; a `.finally`-scoped restore fires AFTER `done` advances to the next
+    ;; NB restore `probe/running-builds` INLINE before calling `done` — a
+    ;; `.finally`-scoped restore fires AFTER `done` advances to the next
     ;; test and would leak the multi-build stub into a neighbour (the
-    ;; cross-test stub race the orient/invoke suites document).
+    ;; cross-test stub race the orient/invoke suites document). Both arms
+    ;; restored identically, so the restore now sits in the single trailing
+    ;; step, still ahead of the `done` in that same step.
     (let [orig probe/running-builds
           restore! (fn [] (set! probe/running-builds orig))
           conn (fresh-conn)]
@@ -457,20 +459,19 @@
       ;; (explicit? false). Two builds run → ambiguous.
       (set! probe/running-builds
             (fn [_] (js/Promise.resolve [:examples/step-deck :testbeds/panel-gallery])))
+      ;; The rejection arm IS this row's success path, so both handlers are
+      ;; siblings of one two-arg `.then`, with one trailing `done`.
       (-> (probe/resolve-build! conn :app false)
           (.then (fn [_]
-                   (restore!)
-                   (is false "must reject on an ambiguous target")
-                   (done)))
-          (.catch (fn [err]
-                    (restore!)
-                    (let [data (ex-data err)]
-                      (is (= :no-runtime-for-build (:reason data))
-                          "structured reason, not a host failure")
-                      (is (= [:examples/step-deck :testbeds/panel-gallery]
-                             (:running-builds data))
-                          "the error lists the candidate builds"))
-                    (done)))))))
+                   (is false "must reject on an ambiguous target"))
+                 (fn [err]
+                   (let [data (ex-data err)]
+                     (is (= :no-runtime-for-build (:reason data))
+                         "structured reason, not a host failure")
+                     (is (= [:examples/step-deck :testbeds/panel-gallery]
+                            (:running-builds data))
+                         "the error lists the candidate builds"))))
+          (.then (fn [_] (restore!) (done)))))))
 
 (deftest resolve-build-honours-cached-session-target-over-ambiguity
   ;; A session-sticky target (set by a prior discover-app) is treated as
@@ -489,9 +490,9 @@
         (-> (probe/resolve-build! conn bid explicit?)
             (.then (fn [resolved]
                      (is (= :examples/step-deck resolved)
-                         "the sticky session target wins — no ambiguous-target error")
-                     (done)))
-            (.catch (fn [_] (is false "must not reject when a session target is cached") (done))))))))
+                         "the sticky session target wins — no ambiguous-target error")))
+            (.catch (fn [_] (is false "must not reject when a session target is cached") nil))
+            (.then (fn [_] (done))))))))
 
 (deftest auto-select-single-build-returns-pair
   ;; Unit-pin the probe helper directly: exactly-one → [build true];

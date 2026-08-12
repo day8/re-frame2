@@ -84,9 +84,9 @@
                  (is (false? (:discovered? snap))
                      "discovery was NOT run — the refusal short-circuited before ensure-connection!")
                  (is (nil? (:discovery-error snap))
-                     "no discovery attempt recorded — connection step never reached"))
-               (done)))
-      (.catch (fn [e] (is false (str "handle-call rejected: " (.-message e))) (done)))))
+                     "no discovery attempt recorded — connection step never reached"))))
+      (.catch (fn [e] (is false (str "handle-call rejected: " (.-message e))) nil))
+      (.then (fn [_] (done)))))
 
 (deftest restore-epoch-refused-before-connection
   (async done
@@ -131,6 +131,6 @@
                    (is (= reason-token (j/get sc "reason"))
                        "structuredContent :reason keeps its fully-qualified token")
                    (is (= false (j/get sc "ok?"))
-                       ":ok? false round-trips through the structured slot"))
-                 (done)))
-        (.catch (fn [e] (is false (str "handle-call rejected: " (.-message e))) (done))))))
+                       ":ok? false round-trips through the structured slot"))))
+        (.catch (fn [e] (is false (str "handle-call rejected: " (.-message e))) nil))
+        (.then (fn [_] (done))))))

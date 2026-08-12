@@ -335,9 +335,15 @@
           (.then (fn [_] (raw-state/signal-runtime! nil :app)))
           (.then (fn [_]
                    (is (= 3 @calls)
-                       "three sequential signals ⇒ three configure round-trips (no permanent per-build skip)")
-                   (done)))
-          (.catch (fn [_] (done)))))))
+                       "three sequential signals ⇒ three configure round-trips (no permanent per-build skip)")))
+          ;; `signal-runtime!` swallows its own failures, so this arm cannot
+          ;; fire — but it must still REPORT rather than pass the row silently,
+          ;; and it must sit UPSTREAM of the single trailing `done`, the shape
+          ;; the sibling row below already uses.
+          (.catch (fn [e]
+                    (is false (str "signal-runtime! must not reject: " (.-message e)))
+                    nil))
+          (.then (fn [_] (done)))))))
 
 (deftest signal-runtime-dedups-concurrent-in-flight
   ;; Two CONCURRENT signals for the same build (issued before the first

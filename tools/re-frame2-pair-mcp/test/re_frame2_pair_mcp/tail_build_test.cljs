@@ -93,9 +93,9 @@
                                (is (true? (:ok? edn)))
                                (is (false? (:soft? edn)))
                                (is (= {:initial 0 :final 1} (:probe-values edn))
-                                   "success envelope carries both ends of the comparison"))
-                             (done))))))
-            (.catch (fn [e] (is false (str "rejected: " (.-message e))) (done))))))))
+                                   "success envelope carries both ends of the comparison")))))))
+            (.catch (fn [e] (is false (str "rejected: " (.-message e))) nil))
+            (.then (fn [_] (done))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Probe never changes — timeout envelope carries :probe-values with
@@ -127,9 +127,9 @@
                                (is (string? (:note edn)))
                                (is (re-find #"probe form returns the same value"
                                             (:note edn))
-                                   "new hint distinguishes value-stuck from compile-error"))
-                             (done))))))
-            (.catch (fn [e] (is false (str "rejected: " (.-message e))) (done))))))))
+                                   "new hint distinguishes value-stuck from compile-error")))))))
+            (.catch (fn [e] (is false (str "rejected: " (.-message e))) nil))
+            (.then (fn [_] (done))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Probe raises on initial eval — :probe-errored envelope.
@@ -154,9 +154,9 @@
                                  "errored initial eval is its own reason, not :timed-out")
                              (is (re-find #"zorp" (:probe-error edn))
                                  "underlying nREPL error message rides on :probe-error")
-                             (is (string? (:note edn))))
-                           (done))))))
-          (.catch (fn [e] (is false (str "rejected: " (.-message e))) (done)))))))
+                             (is (string? (:note edn)))))))))
+          (.catch (fn [e] (is false (str "rejected: " (.-message e))) nil))
+          (.then (fn [_] (done)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; `:wait-ms` is validated as a positive-millisecond integer
@@ -185,9 +185,9 @@
                              (is (= :invalid-numeric-arg (:reason edn)))
                              (is (= "wait-ms" (:arg edn)))
                              (is (not= :probe-errored (:reason edn))
-                                 "validation runs BEFORE the nREPL probe eval"))
-                           (done))))))
-          (.catch (fn [e] (is false (str "rejected: " (.-message e))) (done)))))))
+                                 "validation runs BEFORE the nREPL probe eval")))))))
+          (.catch (fn [e] (is false (str "rejected: " (.-message e))) nil))
+          (.then (fn [_] (done)))))))
 
 (deftest negative-wait-ms-errors-honestly
   (testing "a negative :wait-ms (immediate timeout / negative setTimeout) is rejected"
@@ -197,6 +197,6 @@
                    (is (tu/error? result))
                    (let [edn (tu/extract-edn result)]
                      (is (= :invalid-numeric-arg (:reason edn)))
-                     (is (= "wait-ms" (:arg edn))))
-                   (done)))
-          (.catch (fn [e] (is false (str "rejected: " (.-message e))) (done)))))))
+                     (is (= "wait-ms" (:arg edn))))))
+          (.catch (fn [e] (is false (str "rejected: " (.-message e))) nil))
+          (.then (fn [_] (done)))))))

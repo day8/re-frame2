@@ -135,17 +135,20 @@
     (-> (with-stubbed-cljs-eval!
           {:ex "class clojure.lang.ExceptionInfo" :err "Unable to resolve symbol: foo"}
           (fn [] (nrepl/cljs-eval-value (fresh-conn) :app "foo")))
+        ;; The rejection arm IS this row's success path, so the two handlers are
+        ;; SIBLINGS of one two-arg `.then` and the single `done` trails them. A
+        ;; `.catch` after a `done` would claim a LATER namespace's throw as this
+        ;; row's failure and fire `done` a second time (rf2-53uz).
         (.then (fn [_]
-                 (is false "an :ex response MUST reject, not resolve")
-                 (done)))
-        (.catch (fn [err]
-                  (is (instance? js/Error err))
-                  (let [m (.-message err)]
-                    (is (re-find #"nREPL eval error" m) "structured eval-error prefix")
-                    (is (re-find #"ExceptionInfo" m) ":ex text carried into the message")
-                    (is (re-find #"Unable to resolve symbol" m)
-                        ":err detail appended when present"))
-                  (done))))))
+                 (is false "an :ex response MUST reject, not resolve"))
+               (fn [err]
+                 (is (instance? js/Error err))
+                 (let [m (.-message err)]
+                   (is (re-find #"nREPL eval error" m) "structured eval-error prefix")
+                   (is (re-find #"ExceptionInfo" m) ":ex text carried into the message")
+                   (is (re-find #"Unable to resolve symbol" m)
+                       ":err detail appended when present"))))
+        (.then (fn [_] (done))))))
 
 (deftest ex-without-err-still-rejects
   ;; :ex present but :err blank — the message omits the " — <err>" suffix
@@ -154,13 +157,12 @@
     (-> (with-stubbed-cljs-eval! {:ex "boom" :err ""}
           (fn [] (nrepl/cljs-eval-value (fresh-conn) :app "form")))
         (.then (fn [_]
-                 (is false "an :ex response MUST reject even with blank :err")
-                 (done)))
-        (.catch (fn [err]
-                  (let [m (.-message err)]
-                    (is (re-find #"nREPL eval error: boom" m))
-                    (is (not (re-find #" — " m)) "no err-suffix when :err is blank"))
-                  (done))))))
+                 (is false "an :ex response MUST reject even with blank :err"))
+               (fn [err]
+                 (let [m (.-message err)]
+                   (is (re-find #"nREPL eval error: boom" m))
+                   (is (not (re-find #" — " m)) "no err-suffix when :err is blank"))))
+        (.then (fn [_] (done))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Inner :err map → reject. When the OUTER EDN parses to a map carrying
@@ -176,17 +178,16 @@
           {:value "{:err \"Cannot infer target type\"}"}
           (fn [] (nrepl/cljs-eval-value (fresh-conn) :app "form")))
         (.then (fn [_]
-                 (is false "an outer map with :err MUST reject")
-                 (done)))
-        (.catch (fn [err]
-                  (is (re-find #"cljs eval compile error/warning: Cannot infer target type"
-                               (.-message err))
-                      "inner :err surfaced as a distinct cljs-eval compile-error message")
-                  (is (= :rf.error/eval-cljs-compile-error (:reason (ex-data err)))
-                      "rejection carries the structured compile-error reason")
-                  (is (= "Cannot infer target type" (:err (ex-data err)))
-                      ":err text rides on the ex-data verbatim")
-                  (done))))))
+                 (is false "an outer map with :err MUST reject"))
+               (fn [err]
+                 (is (re-find #"cljs eval compile error/warning: Cannot infer target type"
+                              (.-message err))
+                     "inner :err surfaced as a distinct cljs-eval compile-error message")
+                 (is (= :rf.error/eval-cljs-compile-error (:reason (ex-data err)))
+                     "rejection carries the structured compile-error reason")
+                 (is (= "Cannot infer target type" (:err (ex-data err)))
+                     ":err text rides on the ex-data verbatim")))
+        (.then (fn [_] (done))))))
 
 ;; ---------------------------------------------------------------------------
 ;; An UNRESOLVED SYMBOL is the headline case. shadow emits an
@@ -208,20 +209,19 @@
           (fn [] (nrepl/cljs-eval-value (fresh-conn) :app "re-frame.core/frame-db")))
         (.then (fn [v]
                  (is false (str "an unresolved symbol MUST reject, never resolve "
-                                "(got " (pr-str v) ", the silent-nil bug)"))
-                 (done)))
-        (.catch (fn [err]
-                  (is (instance? js/Error err))
-                  (is (re-find #"Use of undeclared Var re-frame.core/frame-db"
-                               (.-message err))
-                      "the analyzer warning text is carried into the rejection")
-                  (let [data (ex-data err)]
-                    (is (= :rf.error/eval-cljs-compile-error (:reason data))
-                        "structured compile-error reason")
-                    (is (re-find #"undeclared Var" (:err data))
-                        ":err text rides on the ex-data")
-                    (is (string? (:hint data)) "a corrective hint is offered"))
-                  (done))))))
+                                "(got " (pr-str v) ", the silent-nil bug)")))
+               (fn [err]
+                 (is (instance? js/Error err))
+                 (is (re-find #"Use of undeclared Var re-frame.core/frame-db"
+                              (.-message err))
+                     "the analyzer warning text is carried into the rejection")
+                 (let [data (ex-data err)]
+                   (is (= :rf.error/eval-cljs-compile-error (:reason data))
+                       "structured compile-error reason")
+                   (is (re-find #"undeclared Var" (:err data))
+                       ":err text rides on the ex-data")
+                   (is (string? (:hint data)) "a corrective hint is offered"))))
+        (.then (fn [_] (done))))))
 
 (deftest clean-results-with-blank-err-still-resolves-value
   ;; A clean eval leaves :err blank ("") — the :err branch must NOT fire
@@ -328,8 +328,7 @@
           {:ex "thrown" :err "detail" :value "{:results [\"42\"] :ns user}"}
           (fn [] (nrepl/cljs-eval-value (fresh-conn) :app "form")))
         (.then (fn [_]
-                 (is false ":ex must win over a present :value")
-                 (done)))
-        (.catch (fn [err]
-                  (is (re-find #"nREPL eval error: thrown" (.-message err)))
-                  (done))))))
+                 (is false ":ex must win over a present :value"))
+               (fn [err]
+                 (is (re-find #"nREPL eval error: thrown" (.-message err)))))
+        (.then (fn [_] (done))))))

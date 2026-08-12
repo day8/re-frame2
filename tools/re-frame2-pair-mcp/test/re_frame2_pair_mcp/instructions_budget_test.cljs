@@ -227,11 +227,11 @@
                    (when (pos? (or hint 0))
                      (is (<= (js/Math.abs (- hint tokens))
                              (* hint-tolerance-fraction tokens))
-                         (hint-drift-message hint tokens))))
-                 (done)))
+                         (hint-drift-message hint tokens))))))
         (.catch (fn [e]
                   (is false (str tool-name " handler rejected: " (.-message e)))
-                  (done))))))
+                  nil))
+        (.then (fn [_] (done))))))
 
 (deftest instructions-response-fits-the-wire-token-budget
   (async done
@@ -265,8 +265,8 @@
                    ;; softer of the two failures.
                    (let [reserve (js/Math.floor (* authoring-reserve-fraction budget))]
                      (is (<= tokens reserve)
-                         (over-reserve-message tokens budget reserve))))
-                 (done)))
+                         (over-reserve-message tokens budget reserve))))))
         (.catch (fn [e]
                   (is false (str tool-name " handler rejected: " (.-message e)))
-                  (done))))))
+                  nil))
+        (.then (fn [_] (done))))))

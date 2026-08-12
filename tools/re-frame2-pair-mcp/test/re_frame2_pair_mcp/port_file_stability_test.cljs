@@ -67,13 +67,14 @@
                      (is (true? (:discovered? (server/session-state-snapshot)))
                          "session stays discovered (no forced rediscovery)")
                      (is (= explicit-pf (:port-file (server/session-state-snapshot)))
-                         "the cached port-file is the exact explicit path, unchanged")
-                     (restore!)
-                     (done)))
+                         "the cached port-file is the exact explicit path, unchanged")))
             (.catch (fn [e]
                       (is false (str "ensure-connection! must NOT reject: " (.-message e)))
-                      (restore!)
-                      (done))))))))
+                      nil))
+            ;; `restore!` is the same idempotent `set!` on both arms, so it
+            ;; moves to the single trailing step — still ahead of `done`, which
+            ;; is what keeps the stub from leaking into the next test.
+            (.then (fn [_] (restore!) (done))))))))
 
 (deftest cached-probe-winning-candidate-stays-on-connection
   (testing "a winning HTTP-probe candidate (target/shadow-cljs/nrepl.port) is reused when unchanged (rf2-ww877w)"
@@ -92,13 +93,11 @@
                      (is (= conn resolved-conn)
                          "cached conn reused — the winning candidate path re-read fine")
                      (is (= winning-pf (:port-file (server/session-state-snapshot)))
-                         "the cached port-file is the winning candidate, not a derived one")
-                     (restore!)
-                     (done)))
+                         "the cached port-file is the winning candidate, not a derived one")))
             (.catch (fn [e]
                       (is false (str "ensure-connection! must NOT reject: " (.-message e)))
-                      (restore!)
-                      (done))))))))
+                      nil))
+            (.then (fn [_] (restore!) (done))))))))
 
 (deftest cached-port-file-genuine-disappearance-still-rediscovers
   (testing "when the cached (exact) port-file genuinely vanishes, ensure-connection! still rediscovers — the fix doesn't mask real shutdowns"
@@ -119,10 +118,8 @@
         (-> (server/ensure-connection! {} discover-fn)
             (.then (fn [_]
                      (is (true? @redisc?)
-                         "a genuine vanished port-file STILL forces rediscovery (no false reuse)")
-                     (restore!)
-                     (done)))
+                         "a genuine vanished port-file STILL forces rediscovery (no false reuse)")))
             (.catch (fn [e]
                       (is false (str "rediscovery should succeed here: " (.-message e)))
-                      (restore!)
-                      (done))))))))
+                      nil))
+            (.then (fn [_] (restore!) (done))))))))

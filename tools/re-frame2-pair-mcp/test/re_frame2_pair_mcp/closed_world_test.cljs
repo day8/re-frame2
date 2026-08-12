@@ -78,9 +78,9 @@
                    (is (false? (:discovered? snap))
                        "discovery was NOT run — dispatched before ensure-connection!")
                    (is (nil? (:discovery-error snap))
-                       "no discovery attempt recorded — connection step never reached"))
-                 (done)))
-        (.catch (fn [e] (is false (str "handle-call rejected: " (.-message e))) (done))))))
+                       "no discovery attempt recorded — connection step never reached"))))
+        (.catch (fn [e] (is false (str "handle-call rejected: " (.-message e))) nil))
+        (.then (fn [_] (done))))))
 
 (deftest stream-controls-answered-before-connection
   (async done
@@ -98,6 +98,6 @@
                  (let [snap (server/session-state-snapshot)]
                    (is (false? (:discovered? snap))
                        "discovery was NOT run — dispatched before ensure-connection!")
-                   (is (nil? (:discovery-error snap))))
-                 (done)))
-        (.catch (fn [e] (is false (str "handle-call rejected: " (.-message e))) (done))))))
+                   (is (nil? (:discovery-error snap))))))
+        (.catch (fn [e] (is false (str "handle-call rejected: " (.-message e))) nil))
+        (.then (fn [_] (done))))))
