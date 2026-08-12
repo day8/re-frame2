@@ -124,11 +124,19 @@
         (let [{:keys [props] expected :text flips :flips} (:mount root-008)
               container (js/document.createElement "div")
               flip-evs  (atom [])
+              root*     (atom nil)
               k         (listen! (:flip-operation (:hydrate root-008)) flip-evs)]
           (.appendChild js/document.body container)
           (-> (act #(v/mount [views/two-sites props] container))
               (.then
                 (fn [mounted]
+                  ;; RETAINED, not merely destructured. The timer below settles
+                  ;; AFTER the mount resolved, so from here on there IS a live
+                  ;; root — and the rejection handler, which is the arm a throw
+                  ;; in those assertions now takes, cannot see this fulfilment
+                  ;; value. Holding it here is what lets the teardown run on
+                  ;; both paths (audit of #7942/#7968).
+                  (reset! root* mounted)
                   ;; `settle` is a bare timer, so what it carries has to be
                   ;; AWAITED or it runs off the end of the chain. Returned as a
                   ;; promise these assertions stay UPSTREAM of the rejection
@@ -148,10 +156,6 @@
                                 (str "a non-hydrating mount never flips. Saw: " (pr-str @flip-evs)))
                             (is (false? (root/hydrated? mounted))
                                 "and it is not a hydration")
-                            ;; Success-only: `mounted` is what the mount
-                            ;; resolved with, and the rejection arm never had a
-                            ;; root to unmount.
-                            (v/unmount! mounted)
                             (resolve nil)
                             (catch :default e (reject e)))))))))
               ;; Reports and RELEASES; it never finishes (rf2-o0n1). `done` runs
@@ -164,8 +168,17 @@
                         (trace-tooling/unregister-listener! k)
                         (is false (str "mount rejected: " e))
                         nil))
-              ;; Shared teardown, hoisted onto the single trailing step.
-              (.then (fn [_] (.remove container) (reset-all!) (done)))))))))
+              ;; Shared teardown, hoisted onto the single trailing step: written
+              ;; once, run exactly once per path. The unmount reads the RETAINED
+              ;; root rather than a fulfilment value, so the row cannot leave a
+              ;; live root standing into the next namespace when its own
+              ;; assertions throw; `some->` no-ops on the one path that never
+              ;; had a root, which is the mount rejecting.
+              (.then (fn [_]
+                       (some-> @root* v/unmount!)
+                       (.remove container)
+                       (reset-all!)
+                       (done)))))))))
 
 ;; ===========================================================================
 ;; A hydrating root adopts the fallbacks, then flips ONCE
