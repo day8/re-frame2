@@ -4,11 +4,24 @@
 > per-read K3 record [`budgets.md`](budgets.md) and the
 > [decision brief](decision-brief.md) both name and neither takes. It discharges
 > `rf2-hic-070`. The **decider is Mike Thompson, acting as re-frame2 product
-> operator**; `rf2-hic-085` records what the sitting of 2026-08-27 rules and
-> fills the effective-revision field in [§9](#9-the-record). It follows the rule
+> operator**; `rf2-hic-085` records what that decider rules and fills the
+> effective-revision field in [§9](#9-the-record). It follows the rule
 > `rf2-hic-003` set for the sibling records: the drafted disposition is operative
-> now so that nothing depends on tracker-only state, and the sitting's ruling
+> now so that nothing depends on tracker-only state, and the decider's ruling
 > then **re-pins this record rather than re-framing it**.
+>
+> **The forum changed on 2026-08-13, and only the forum.** This record was
+> written to be re-pinned at the sitting of 2026-08-27; there is no sitting. The
+> operator ruled the P2 fork *graduate, as a success* directly in chat on
+> 2026-08-13 at 04:57 AUSEST, pre-empting the 2026-08-25 packet freeze and that
+> sitting ([`decisions.md` HD-029](../decisions.md#hd-029--the-p2-fork-hicasso-graduates-as-a-success);
+> the kill-table dispositions at graduation are in
+> [validation.md](../validation.md#the-kill-table-at-graduation--the-p2-ruling-of-2026-08-13),
+> where K3's *disposition owed explicitly* is discharged by this page). **No
+> figure, scoreboard, verdict or rule below moves**, and the §9
+> effective-revision field stays unfilled: a re-pin is a ruling on K3, the
+> ruling of 2026-08-13 did not give one, and it is now owed by an operator
+> ruling rather than by a meeting on the calendar.
 
 K3 asks one question — *is per-boundary heap worse than Reagent with no paper
 path to the floor?* — and the per-read half of it is answered by three different
@@ -363,7 +376,7 @@ The fields any governance change owes under the
 | Regression rule | The 10% same-witness per-read rule, made executable in [§8](#8-the-10-same-witness-per-read-regression-rule) |
 | Decider | Mike Thompson, acting as re-frame2 product operator |
 | Evidence owner | [`budgets.md`](budgets.md) for S1–S7, [`lanes/evidence-baseline.md`](lanes/evidence-baseline.md#pinned-economic-evidence) for the pinned values, [`substrate-decision.md`](substrate-decision.md) for which column ships |
-| Effective revision | *(left blank — `rf2-hic-085` fills this after the sitting)* |
+| Effective revision | *(left blank — `rf2-hic-085` fills it. The sitting it was to be filled at was pre-empted on 2026-08-13, so it now awaits an operator ruling on K3 rather than a date; see the status note at the top)* |
 | Reopen conditions | [§10](#10-reopen-and-revert) |
 | Revert condition | [§10](#10-reopen-and-revert) |
 
