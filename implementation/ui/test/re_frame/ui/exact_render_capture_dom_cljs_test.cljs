@@ -33,9 +33,15 @@
     (catch :default e
       (js/Promise.reject e))))
 
-(defn- unexpected! [done label e]
+(defn- report-failure!
+  "Name the rejection and RELEASE the chain — never finish it (rf2-fyba).
+  `cljs.test`'s `done` runs the whole remainder of the run synchronously, so a
+  rejection handler that calls `done` must sit UPSTREAM of the single trailing
+  step that does; otherwise it claims a later namespace's throw as this row's
+  and fires `done` a second time. Returns nil so the chain resolves onward."
+  [label e]
   (is false (str label ": " e))
-  (done))
+  nil)
 
 (defn- observed-component [props]
   (let [renders (unchecked-get props "renders")]
@@ -168,16 +174,16 @@
                (act-promise #(ui/unmount! root))))
             (.then
              (fn []
-               (.remove container)
+               ;; These three read framework bookkeeping, not the DOM, so they are
+               ;; unaffected by `container` being detached in the trailing step.
                (is (= cells-base (reactive/current-live-cells))
                    "unmount restores the live-cell baseline")
                (is (= roots-base (client/live-root-ids))
                    "unmount restores the public-root baseline")
                (is (nil? (get @(:sub-cache (frame/frame frame-id)) [::a]))
-                   "unmount releases A's final observation owner")
-               (done)))
+                   "unmount releases A's final observation owner")))
             (.catch
              (fn [e]
                (try (ui/unmount! root) (catch :default _ nil))
-               (.remove container)
-               (unexpected! done "exact-capture browser proof rejected" e))))))))
+               (report-failure! "exact-capture browser proof rejected" e)))
+            (.then (fn [_] (.remove container) (done))))))))

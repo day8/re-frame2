@@ -174,17 +174,21 @@
                        (.querySelector container "[data-hmr-parent]")))
                    "the stable memo shell delegates to the current comparator")))
             (.then (fn [] (act-promise #(.unmount root))))
-            (.then
-             (fn []
-               (set! (.-error js/console) original-error)
-               (.remove container)
-               (done)))
+            ;; Reports and releases; it never finishes (rf2-fyba). `done` runs the
+            ;; whole remainder of the run synchronously, so a `.catch` downstream
+            ;; of it claims a later namespace's throw as this row's and fires
+            ;; `done` twice. The defensive unmount stays here because the success
+            ;; path already unmounted above; the teardown both paths share sits in
+            ;; the single trailing step below.
             (.catch
              (fn [e]
-               (set! (.-error js/console) original-error)
                (try (.unmount root) (catch :default _ nil))
-               (.remove container)
                (is false (str "same-signature browser proof rejected: " e))
+               nil))
+            (.then
+             (fn [_]
+               (set! (.-error js/console) original-error)
+               (.remove container)
                (done))))))))
 
 (defn- effectful-body [version probe events extra-hook?]
@@ -247,17 +251,15 @@
                  (is (empty? @warnings)
                      "the incompatible hook order produced no React warning"))))
             (.then (fn [] (act-promise #(.unmount root))))
-            (.then
-             (fn []
-               (set! (.-error js/console) original-error)
-               (.remove container)
-               (done)))
             (.catch
              (fn [e]
-               (set! (.-error js/console) original-error)
                (try (.unmount root) (catch :default _ nil))
-               (.remove container)
                (is false (str "incompatible-signature browser proof rejected: " e))
+               nil))
+            (.then
+             (fn [_]
+               (set! (.-error js/console) original-error)
+               (.remove container)
                (done))))))))
 
 (deftest stale-equal-deps-render-cannot-own-before-fresh-revision
@@ -318,10 +320,9 @@
                (is (= 1 (:ref-count (cache-entry)))
                    "only the fresh revision owns the dependency")))
             (.then (fn [] (act-promise #(.unmount root))))
-            (.then (fn [] (.remove container) (done)))
             (.catch
              (fn [e]
                (try (.unmount root) (catch :default _ nil))
-               (.remove container)
                (is false (str "stale-revision browser proof rejected: " e))
-               (done))))))))
+               nil))
+            (.then (fn [_] (.remove container) (done))))))))

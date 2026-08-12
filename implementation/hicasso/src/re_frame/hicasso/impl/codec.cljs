@@ -3737,6 +3737,36 @@
         (keyword s)
         (keyword (str/replace s #"[A-Z]" #(str "-" (str/lower-case %)))))))
 
+(defn- outward-children
+  "React's `children` slot, in the CONTAINER [[realize-children]] hands a
+  hiccup body: a vector, or nil when there are none.
+
+  React's slot is not one shape but three — absent for no children, the
+  child ITSELF for one, a JavaScript array for several — and that shape
+  is React's calling convention rather than a value an author asked for.
+  Copied through unchanged it would make `:children` mean something
+  different depending on how many the parent wrote, so
+  `(into [:ul] (:children props))` would work at two children and throw
+  at one. One spelling has to mean one thing, and the thing it already
+  means on the hiccup side is a vector.
+
+  The members are not touched: each child crosses by identity, exactly
+  as every other prop value does, and nothing here walks INTO one. So a
+  nested array — JSX's `<ul>{head}{rows}</ul>` — stays a single member
+  rather than splicing, which is the boundary this normalisation stops
+  at on purpose: React flattens it at render, so it renders correctly as
+  a member, and flattening it here would be the second level of walk
+  that [[outward-props]] refuses everywhere else.
+
+  An EMPTY array answers nil, so a parent whose dynamic list came back
+  empty leaves `:children` absent rather than present-and-empty —
+  [[realize-children]]'s own answer for `(for [x []] …)`, and the
+  difference a body sees as `(when-some [cs (:children props)] …)`."
+  [c]
+  (if (array? c)
+    (when (pos? (alength c)) (vec c))
+    [c]))
+
 (defn- outward-props
   "A React props object, decoded into the ordinary ClojureScript props map
   a boundary body destructures. Shallow, by identity, own properties
@@ -3747,12 +3777,18 @@
 
   React's children arrive at the `children` slot and therefore land at
   `:children`, which is where [[boundary-element]] puts a hiccup body's
-  children too — one spelling, whichever side of the bridge filled it."
+  children too — one spelling, whichever side of the bridge filled it,
+  and by [[outward-children]] one SHAPE as well."
   [^js js-props]
   (if (nil? js-props)
     {}
     (persistent!
-      (reduce (fn [m s] (assoc! m (prop-key s) (unchecked-get js-props s)))
+      (reduce (fn [m s]
+                (if (identical? "children" s)
+                  (if-some [cs (outward-children (unchecked-get js-props s))]
+                    (assoc! m :children cs)
+                    m)
+                  (assoc! m (prop-key s) (unchecked-get js-props s))))
               (transient {})
               (js/Object.keys js-props)))))
 
@@ -3766,7 +3802,8 @@
       ;; on the React side: <ArticleCard articleId={7} />
 
   The parent's props arrive as the view's ordinary props map
-  ([[prop-key]]), React's children arrive at `:children`, and values
+  ([[prop-key]]), React's children arrive at `:children` as the same
+  vector a hiccup caller's would ([[outward-children]]), and values
   cross by identity. Called ONCE, at top level, beside the view it
   bridges: it allocates a component, so minting one inside a render would
   hand React a fresh element type on every pass and remount the subtree —

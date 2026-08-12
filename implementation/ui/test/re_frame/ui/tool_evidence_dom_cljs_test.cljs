@@ -181,13 +181,16 @@
 
                  :else
                  (is true (str "SKIP GC-dependent assertions: " error)))
-               (is (true? (evidence/uninstall! ::cycle-proof)))
-               (done)))
+               (is (true? (evidence/uninstall! ::cycle-proof)))))
+            ;; Reports and releases; it never finishes (rf2-fyba). `force-release!`
+            ;; stays failure-only: the success path asserts the orderly `uninstall!`
+            ;; above, and forcing after that would mask a leak rather than clean up.
             (.catch
              (fn [e]
                (evidence/force-release!)
                (is false (str "unexpected rejection: " e))
-               (done))))))))
+               nil))
+            (.then (fn [_] (done))))))))
 
 (deftest a-real-invalidation-flows-through-the-flush-into-the-projection
   (when (browser?)
@@ -239,15 +242,15 @@
                  (is (= [] (evidence/projection))))
                (testing "uninstall releases the registration"
                  (is (true? (evidence/uninstall! ::xray-panel)))
-                 (is (nil? (evidence/installed-owner))))
-               (rf/destroy-frame! f)
-               (done)))
+                 (is (nil? (evidence/installed-owner))))))
             (.catch
              (fn [e]
                (evidence/force-release!)
-               (rf/destroy-frame! f)
                (is false (str "unexpected rejection: " e))
-               (done))))))))
+               nil))
+            ;; Frame teardown is what both paths shared, so it rides the single
+            ;; trailing step and `done` is the last thing this row does.
+            (.then (fn [_] (rf/destroy-frame! f) (done))))))))
 
 (deftest ordinary-unmount-churn-is-bounded-under-one-live-browser-root
   (when (browser?)
@@ -343,13 +346,11 @@
              (fn []
                (is (true? (evidence/uninstall! ::xray-panel)))
                (is (= [] (evidence/projection))
-                   "tool uninstall immediately drops the Activity-retained row")
-               (rf/destroy-frame! f)
-               (done)))
+                   "tool uninstall immediately drops the Activity-retained row")))
             (.catch
              (fn [e]
                (js-delete js/globalThis gc-request-key)
                (evidence/force-release!)
-               (rf/destroy-frame! f)
                (is false (str "unexpected rejection: " e "\n" (.-stack e)))
-               (done))))))))))
+               nil))
+            (.then (fn [_] (rf/destroy-frame! f) (done))))))))))

@@ -335,9 +335,9 @@
                          ":body-binary carries the native Blob from `.blob()`")
                      (is (nil? (:body-text result))
                          "the lossy `.text()` string is NOT read for a `:blob` decode")
-                     (is (true? (:ok? result)))
-                     (done)))
-            (.catch (fn [e] (is false (str "unexpected reject: " e)) (done))))))))
+                     (is (true? (:ok? result)))))
+            (.catch (fn [e] (is false (str "unexpected reject: " e)) nil))
+            (.then (fn [_] (done))))))))
 
 (deftest array-buffer-and-form-data-read-native-bodies
   (testing "rf2-5zj6t — `:array-buffer` reads via `.arrayBuffer()` and
@@ -361,9 +361,9 @@
             (.then (fn [result]
                      (is (identical? fd (:body-binary result))
                          ":form-data rides the native FormData")
-                     (is (nil? (:body-text result)))
-                     (done)))
-            (.catch (fn [e] (is false (str "unexpected reject: " e)) (done))))))))
+                     (is (nil? (:body-text result)))))
+            (.catch (fn [e] (is false (str "unexpected reject: " e)) nil))
+            (.then (fn [_] (done))))))))
 
 (deftest text-and-auto-text-still-read-body-text
   (testing "rf2-5zj6t — non-binary decodes (`:text`, `:json`, omitted/`:auto`
@@ -379,9 +379,9 @@
                      (is (= "{\"ok\":true}" (:body-text result))
                          ":auto over application/json reads `.text()`")
                      (is (nil? (:body-binary result))
-                         "no binary body is read for a text/JSON decode")
-                     (done)))
-            (.catch (fn [e] (is false (str "unexpected reject: " e)) (done))))))))
+                         "no binary body is read for a text/JSON decode")))
+            (.catch (fn [e] (is false (str "unexpected reject: " e)) nil))
+            (.then (fn [_] (done))))))))
 
 (deftest non-2xx-binary-decode-still-reads-text
   (testing "rf2-5zj6t — a non-OK response (e.g. 404) ALWAYS reads `.text()`
@@ -398,9 +398,9 @@
                      (is (= "Not Found" (:body-text result))
                          "a 404 reads `.text()` even when `:decode :blob`")
                      (is (nil? (:body-binary result)))
-                     (is (false? (:ok? result)))
-                     (done)))
-            (.catch (fn [e] (is false (str "unexpected reject: " e)) (done))))))))
+                     (is (false? (:ok? result)))))
+            (.catch (fn [e] (is false (str "unexpected reject: " e)) nil))
+            (.then (fn [_] (done))))))))
 
 ;; ---- rf2-ee38b.7 — `:timeout-ms 0` is the opt-out, not a near-instant abort ----
 
@@ -451,9 +451,9 @@
                             :internal-controller (js/AbortController.)}))
             (.then (fn [_]
                      (is (= "error" (aget @captured-init "redirect"))
-                         ":redirect is name-stringified into the Fetch init")
-                     (done)))
-            (.catch (fn [e] (is false (str "unexpected reject: " e)) (done))))))))
+                         ":redirect is name-stringified into the Fetch init")))
+            (.catch (fn [e] (is false (str "unexpected reject: " e)) nil))
+            (.then (fn [_] (done))))))))
 
 ;; ---- rf2-rznrz — CLJS multi-valued request headers -----------------------
 
@@ -487,9 +487,9 @@
                        (is (not (re-find #"\[" (.get h "X-Multi")))
                            "no serialised-vector bracket leaked onto the wire value")
                        (is (= "solo" (.get h "X-One"))
-                           "a scalar header value is a single appended value"))
-                     (done)))
-            (.catch (fn [e] (is false (str "unexpected reject: " e)) (done))))))))
+                           "a scalar header value is a single appended value"))))
+            (.catch (fn [e] (is false (str "unexpected reject: " e)) nil))
+            (.then (fn [_] (done))))))))
 
 ;; ---- rf2-f5pguu — invalid request headers stay on the managed path -------
 ;;
@@ -710,12 +710,12 @@
             (.then (fn [result]
                      (is (= "{\"ok\":true}" (:body-text result))
                          ":timeout-ms 0 must NOT abort — the deferred fetch resolves normally")
-                     (is (true? (:ok? result)))
-                     (done)))
+                     (is (true? (:ok? result)))))
             (.catch (fn [e]
                       (is false (str "rf2-ee38b.7 regression — :timeout-ms 0 "
                                      "armed a near-instant abort and rejected: " e))
-                      (done))))))))
+                      nil))
+            (.then (fn [_] (done))))))))
 
 ;; ---- rf2-4zldh — `:timeout-ms` bounds the BODY read, not just headers ----
 ;;
@@ -764,11 +764,18 @@
                             :decode     :json
                             :timeout-ms 40
                             :internal-controller (js/AbortController.)}))
+            ;; The REJECTION is this row's success path, so the two handlers are
+            ;; SIBLINGS of one two-arg `.then` rather than a `.catch` downstream
+            ;; of a `.then` (rf2-fyba). Downstream, the fulfilment arm's `(done)`
+            ;; would run the whole remainder of the run synchronously and any
+            ;; foreign throw out there would unwind into the `.catch`, which
+            ;; would assert this row's timeout claims against a stranger's error
+            ;; and fire `done` a second time. Exactly one arm runs; the single
+            ;; trailing `done` is the only one.
             (.then (fn [result]
                      (is false (str "rf2-4zldh regression — a stalled body "
-                                    "read RESOLVED instead of timing out: " (pr-str result)))
-                     (done)))
-            (.catch (fn [err]
+                                    "read RESOLVED instead of timing out: " (pr-str result))))
+                   (fn [err]
                       (is (true? @read-fired)
                           "the body reader was reached (headers resolved) before the timeout fired")
                       (let [data (ex-data err)]
@@ -794,8 +801,8 @@
                         (is (>= (:elapsed-ms data) (- (:limit-ms data) elapsed-jitter-ms))
                             (str ":elapsed-ms (measured) is within " elapsed-jitter-ms
                                  "ms below :limit-ms — measured, JVM-parity semantics,"
-                                 " jitter-tolerant")))
-                      (done))))))))
+                                 " jitter-tolerant")))))
+            (.then (fn [_] (done))))))))
 
 (deftest cljs-timeout-stalled-body-finalises-as-timeout-and-clears-registry
   (testing "rf2-4zldh — driven through the full `:rf.http/managed` pipeline,
@@ -842,13 +849,15 @@
                        (is (= :rf.http/timeout (get-in reply [:error :kind]))
                            "a stalled body read finalises as the canonical :rf.http/timeout failure"))
                      (is (empty? (registry/in-flight-snapshot))
-                         "the in-flight registry is cleared — the slow-loris handle is not pinned")
-                     (set! (.-fetch js/globalThis) orig)
-                     (done)))
+                         "the in-flight registry is cleared — the slow-loris handle is not pinned")))
             (.catch (fn [e]
-                      (set! (.-fetch js/globalThis) orig)
                       (is false (str "rf2-4zldh — unexpected: " e))
-                      (done))))))))
+                      nil))
+            ;; Teardown rides the single trailing step, so it runs on both paths
+            ;; exactly once and `done` is the last thing this row does (rf2-fyba).
+            (.then (fn [_]
+                     (set! (.-fetch js/globalThis) orig)
+                     (done))))))))
 
 ;; ---- rf2-wj8vv — the retry backoff window is cancellable (CLJS) -----------
 ;;
@@ -951,13 +960,11 @@
                      (is (= 1 @fetch-count)
                          "the retry MUST NOT fetch after an abort issued during the backoff window")
                      (is (= 1 (count @replies))
-                         "exactly one reply — the cancelled retry never produced a second outcome")
-                     (restore)
-                     (done)))
+                         "exactly one reply — the cancelled retry never produced a second outcome")))
             (.catch (fn [e]
-                      (restore)
                       (is false (str "rf2-wj8vv — unexpected: " e))
-                      (done))))))))
+                      nil))
+            (.then (fn [_] (restore) (done))))))))
 
 ;; ---- rf2-j538f7.8 — frame destroy aborts + suppresses managed HTTP (CLJS) --
 ;;
@@ -1024,13 +1031,11 @@
                      (is (= 1 @fetch-count)
                          "the retry MUST NOT fetch after the owning frame is destroyed")
                      (is (empty? @replies)
-                         "frame destroy SUPPRESSES the reply — nothing delivered into the destroyed frame")
-                     (restore)
-                     (done)))
+                         "frame destroy SUPPRESSES the reply — nothing delivered into the destroyed frame")))
             (.catch (fn [e]
-                      (restore)
                       (is false (str "rf2-j538f7.8 — unexpected: " e))
-                      (done))))))))
+                      nil))
+            (.then (fn [_] (restore) (done))))))))
 
 ;; ---- rf2-065xo — managed body-prep failure delivery (CLJS) ----------------
 ;;
@@ -1096,13 +1101,11 @@
                        (is (= :request-prep (get-in reply [:error :stage]))
                            "the :stage discriminator marks this as a request-preparation failure"))
                      (is (empty? (registry/in-flight-snapshot))
-                         "the in-flight registry is cleared — the failed-prep request is not pinned")
-                     (restore)
-                     (done)))
+                         "the in-flight registry is cleared — the failed-prep request is not pinned")))
             (.catch (fn [e]
-                      (restore)
                       (is false (str "rf2-065xo — unexpected: " e))
-                      (done))))))))
+                      nil))
+            (.then (fn [_] (restore) (done))))))))
 
 (deftest cljs-unencodable-body-delivers-managed-transport-failure
   (testing "rf2-065xo — a non-serialisable body (circular ref → JSON.stringify throws) delivers ONE :on-failure reply with :rf.http/transport"
@@ -1144,13 +1147,11 @@
                        (is (= :rf.http/transport (get-in reply [:error :kind]))
                            "an encode failure surfaces as the managed :rf.http/transport category")
                        (is (= :request-prep (get-in reply [:error :stage]))))
-                     (is (empty? (registry/in-flight-snapshot)))
-                     (restore)
-                     (done)))
+                     (is (empty? (registry/in-flight-snapshot)))))
             (.catch (fn [e]
-                      (restore)
                       (is false (str "rf2-065xo — unexpected: " e))
-                      (done))))))))
+                      nil))
+            (.then (fn [_] (restore) (done))))))))
 
 (deftest cljs-throwing-body-thunk-retries-when-configured
   (testing "rf2-065xo — with `:retry {:on #{:rf.http/transport} …}` a throwing body thunk RETRIES (re-invoking the thunk per attempt) then finally fails :rf.http/transport"
@@ -1194,13 +1195,11 @@
                      (let [reply (first @replies)]
                        (is (= :rf.http/transport (get-in reply [:error :kind]))
                            "the final reply carries the :rf.http/transport prep-failure category"))
-                     (is (empty? (registry/in-flight-snapshot)))
-                     (restore)
-                     (done)))
+                     (is (empty? (registry/in-flight-snapshot)))))
             (.catch (fn [e]
-                      (restore)
                       (is false (str "rf2-065xo — unexpected: " e))
-                      (done))))))))
+                      nil))
+            (.then (fn [_] (restore) (done))))))))
 
 ;; ---- rf2-3fc89f.9 — lifecycle-owned external AbortSignal cancellation ------
 ;;
@@ -1378,10 +1377,9 @@
                            "the external signal flips the same precedence cell → :rf.http/aborted")
                        (is (= :user (get-in reply [:error :reason]))))
                      (is (empty? (registry/in-flight-snapshot))
-                         "the live-fetch handle is cleared")
-                     (restore)
-                     (done)))
-            (.catch (fn [e] (restore) (is false (str "rf2-3fc89f.9 — unexpected: " e)) (done))))))))
+                         "the live-fetch handle is cleared")))
+            (.catch (fn [e] (is false (str "rf2-3fc89f.9 — unexpected: " e)) nil))
+            (.then (fn [_] (restore) (done))))))))
 
 (deftest cljs-external-abort-during-backoff-cancels-retry-and-does-not-reinvoke-thunk
   (testing "rf2-3fc89f.9 acceptance 3 — an external signal that fires while the
@@ -1451,13 +1449,13 @@
                      (is (= 1 @thunk-calls)
                          "the per-attempt body thunk MUST NOT be re-invoked after cancellation")
                      (is (= 1 (count @replies))
-                         "exactly one reply — the cancelled retry produced no second outcome")
-                     (set! (.-fetch js/globalThis) orig)
-                     (done)))
+                         "exactly one reply — the cancelled retry produced no second outcome")))
             (.catch (fn [e]
-                      (set! (.-fetch js/globalThis) orig)
                       (is false (str "rf2-3fc89f.9 — unexpected: " e))
-                      (done))))))))
+                      nil))
+            (.then (fn [_]
+                     (set! (.-fetch js/globalThis) orig)
+                     (done))))))))
 
 (deftest cljs-already-aborted-signal-short-circuits-attempt-setup
   (testing "rf2-3fc89f.9 acceptance 3 — a request whose `:abort-signal` is
@@ -1498,10 +1496,9 @@
                        (is (= :user (get-in reply [:error :reason]))))
                      (is (= 0 @thunk-calls)
                          "the body thunk was NEVER invoked — attempt setup short-circuited")
-                     (is (empty? (registry/in-flight-snapshot)))
-                     (restore)
-                     (done)))
-            (.catch (fn [e] (restore) (is false (str "rf2-3fc89f.9 — unexpected: " e)) (done))))))))
+                     (is (empty? (registry/in-flight-snapshot)))))
+            (.catch (fn [e] (is false (str "rf2-3fc89f.9 — unexpected: " e)) nil))
+            (.then (fn [_] (restore) (done))))))))
 
 (deftest cljs-external-abort-racing-supersede-suppression-authoritative
   (testing "rf2-3fc89f.9 acceptance 4 — when a same-id supersede WINS the race,
@@ -1547,10 +1544,9 @@
             (.then (fn [_] (next-macrotask)))
             (.then (fn [_]
                      (is (empty? @replies-1)
-                         "the superseded request delivered NO app reply — supersede suppression is authoritative even though the external signal fired")
-                     (restore)
-                     (done)))
-            (.catch (fn [e] (restore) (is false (str "rf2-3fc89f.9 — unexpected: " e)) (done))))))))
+                         "the superseded request delivered NO app reply — supersede suppression is authoritative even though the external signal fired")))
+            (.catch (fn [e] (is false (str "rf2-3fc89f.9 — unexpected: " e)) nil))
+            (.then (fn [_] (restore) (done))))))))
 
 (deftest cljs-external-abort-racing-managed-abort-single-outcome
   (testing "rf2-3fc89f.9 acceptance 4 — an external signal and a
@@ -1594,10 +1590,9 @@
                          "exactly one terminal outcome despite two cancellation sources")
                      (is (= :cancelled (:status (first @replies))))
                      (is (= :user (get-in (first @replies) [:error :reason])))
-                     (is (empty? (registry/in-flight-snapshot)))
-                     (restore)
-                     (done)))
-            (.catch (fn [e] (restore) (is false (str "rf2-3fc89f.9 — unexpected: " e)) (done))))))))
+                     (is (empty? (registry/in-flight-snapshot)))))
+            (.catch (fn [e] (is false (str "rf2-3fc89f.9 — unexpected: " e)) nil))
+            (.then (fn [_] (restore) (done))))))))
 
 (deftest cljs-external-abort-listener-detached-on-natural-success-and-failure
   (testing "rf2-3fc89f.9 acceptance 5 — after a NATURAL success and a natural
@@ -1644,10 +1639,10 @@
                      (is (= :error (:status (first @replies))))
                      (is (= :rf.http/http-5xx (get-in (first @replies) [:error :kind])))
                      (is (= 0 (listener-count))
-                         "the failure terminal also detached — a shared signal retains no completed-attempt listeners")
-                     (set! (.-fetch js/globalThis) orig)
-                     (done)))
+                         "the failure terminal also detached — a shared signal retains no completed-attempt listeners")))
             (.catch (fn [e]
-                      (set! (.-fetch js/globalThis) orig)
                       (is false (str "rf2-3fc89f.9 — unexpected: " e))
-                      (done))))))))
+                      nil))
+            (.then (fn [_]
+                     (set! (.-fetch js/globalThis) orig)
+                     (done))))))))

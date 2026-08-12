@@ -44,8 +44,9 @@
  * rehearsal, and the run reports itself as a rehearsal rather than a result.
  *
  * `--inject` is the witness proper. It additionally brings each browser
- * window to the foreground, requests the Japanese input locale for it,
- * VERIFIES that the request took, and then types.
+ * window to the foreground, puts its IME into a state the checks can
+ * actually measure — Japanese locale, OPEN, native reading mode — VERIFIES
+ * each of those three, and then types.
  *
  * ========================= WHY THE IME IS VERIFIED ========================
  *
@@ -55,9 +56,34 @@
  * So the request is never trusted: `IMESTATE` reads the input locale of the
  * BROWSER WINDOW'S OWN THREAD afterwards, and if it is not `0x0411` the run
  * stops and asks the operator to switch with Win+Space rather than typing
- * seven ASCII letters into a text box and calling it a composition. That
- * failure mode is not hypothetical — it is the most likely explanation of
- * the operator observation this witness exists to resolve (see check 5).
+ * seven ASCII letters into a text box and calling it a composition.
+ *
+ * That is not hypothetical, and on 2026-08-12 it happened one notch along
+ * from where it was expected. The first armed run seized the foreground on
+ * all three engines and delivered both the romaji and the ESC — and still
+ * decided nothing: `langid 0x0411`, `japanese: true`, and `open: 0`
+ * everywhere. The locale had switched; the IME had ignored
+ * `IMC_SETOPENSTATUS` and stayed shut, so the romaji went in as ASCII and
+ * all 24 checks returned INCONCLUSIVE about the rig.
+ *
+ * `engageIme` below is the answer, and it uses the door the keystrokes
+ * already came through: `SendInput` reached that IME when IMM32 did not, so
+ * a closed IME is opened by sending its OWN toggle key (`kanji`, 半角/全角)
+ * through `KEYS`. Nothing about that is trusted either — `IMESTATE` is
+ * re-read, `open: 1` is REQUIRED before a single plan is driven, the
+ * reading mode's NATIVE bit is required with it, and an engine that will
+ * not go there is refused rather than measured.
+ *
+ * ====================== AND WHY DELIVERY IS VERIFIED ======================
+ *
+ * The same run turned up a SECOND rig failure wearing the first one's
+ * clothes: WebKit received zero keystrokes for five of the eight checks
+ * (`settledIn=0`, the ESC uncounted) and then came alive. "The keys never
+ * arrived" and "the IME was closed" both end in a field full of nothing,
+ * and no line of that output told them apart. So `probeDelivery` sends one
+ * key and reads it back off the page before each plan is driven, and a
+ * check whose probe never lands says KEYS ARE NOT ARRIVING in those words
+ * instead of borrowing the IME's excuse.
  */
 
 const fs = require('fs');
@@ -93,6 +119,21 @@ const MOUNT_TIMEOUT_MS = 60000;
 // it goes idle.
 const ARM_FIRE_TIMEOUT_MS = 9000;
 const ALL_ENGINES = ['chromium', 'firefox', 'webkit'];
+
+// 半角/全角 — the IME's own open/close toggle, sent through `KEYS` and so
+// through `SendInput`. See "WHY THE IME IS VERIFIED" above: this is the path
+// that demonstrably delivered keystrokes to the very IME that ignored
+// `IMC_SETOPENSTATUS`.
+const IME_TOGGLE_KEY = 'kanji';
+// A toggle is handled by the IME's UI thread; the IMM32 query answers from
+// the same place. Read too soon and the answer is the state before the key.
+const IME_SETTLE_MS = 500;
+// The delivery probe's key. Escape, for two reasons: the 2026-08-12 run
+// PROVED it reaches the page, and with no field focused it mutates nothing —
+// no text, no caret, no focus. Its keydown is read off the observer and then
+// erased by the check's own `resetEvents`, so no verdict ever sees it.
+const PROBE_KEY = 'escape';
+const PROBE_SETTLE_MS = 150;
 
 // ---------------------------------------------------------------------------
 // Arguments
@@ -780,6 +821,115 @@ function worst(verdicts) {
 }
 
 // ---------------------------------------------------------------------------
+// Getting the rig into a state worth measuring — and refusing when it will
+// not go there. Both of these run BEFORE anything a verdict reads, and
+// neither one may end in a shrug: an engine that cannot be engaged aborts,
+// and a check whose keys are not arriving is not driven.
+// ---------------------------------------------------------------------------
+
+/**
+ * Require the window's IME to be OPEN and in a native reading mode, opening
+ * it by its own toggle key when `IMEON`'s IMM32 request left it shut.
+ *
+ * The toggle is sent at most twice, and the second only after a re-read still
+ * says closed — it TOGGLES, so a blind pair would close whatever the first
+ * one opened. `state` is the reading `IMEON` already produced; every reading
+ * after that is taken fresh, because the whole point is that this IME does
+ * not do what it is told.
+ *
+ * Throws with the state in the message when the IME will not engage. That
+ * abort is the deliverable: the alternative is typing romaji into a closed
+ * IME and reporting eight INCONCLUSIVEs that look like an engine result.
+ */
+async function engageIme({ driver, hwnd, engine, keyDelayMs, state }) {
+  let ime = state;
+  for (let attempt = 1; ime.open !== 1 && attempt <= 2; attempt += 1) {
+    console.log(`> IME reports open=${ime.open}; sending ${IME_TOGGLE_KEY} ` +
+      `(半角/全角) through SendInput — attempt ${attempt} of 2`);
+    await driver.require('KEYS', hwnd, IME_TOGGLE_KEY, keyDelayMs);
+    await sleep(IME_SETTLE_MS);
+    ime = await driver.require('IMESTATE', hwnd);
+    console.log(`> IME after toggle: ${JSON.stringify(ime)}`);
+  }
+  if (ime.open !== 1) {
+    throw new Error(
+      `the ${engine} window's IME WILL NOT OPEN. Its input locale is ` +
+      `${ime.langid} (japanese=${ime.japanese}) and it holds the foreground ` +
+      `(isForeground=${ime.isForeground}), but IMC_GETOPENSTATUS still reads ` +
+      `open=${ime.open} after IMEON and two ${IME_TOGGLE_KEY} (半角/全角) ` +
+      'keystrokes. A closed IME turns the romaji below into seven plain ' +
+      'ASCII letters and every check into an INCONCLUSIVE about this rig, ' +
+      'which is what the run of 2026-08-12 produced. Nothing was typed for ' +
+      'this engine. Open the IME for that window by hand — click into the ' +
+      'page and press 半角/全角, or pick ひらがな in the language bar — and ' +
+      're-run.');
+  }
+  if (!ime.native) {
+    console.log(`> IME is open but conversion=${ime.conversion} carries no ` +
+      'NATIVE bit; re-asserting Hiragana');
+    ime = await driver.require('IMECONV', hwnd);
+    console.log(`> IME after conversion re-assert: ${JSON.stringify(ime)}`);
+  }
+  if (!ime.native) {
+    throw new Error(
+      `the ${engine} window's IME is OPEN but NOT IN A NATIVE READING MODE: ` +
+      `IMC_GETCONVERSIONMODE reads ${ime.conversion}, which carries no ` +
+      'IME_CMODE_NATIVE bit, and an explicit Hiragana re-assert did not ' +
+      'change that. In alphanumeric mode the romaji below is typed straight ' +
+      'through and no composition starts, so the checks would measure ASCII. ' +
+      '(Firefox read conversion=0 on 2026-08-12.) Nothing was typed for this ' +
+      'engine. Set that window\'s IME to ひらがな by hand and re-run.');
+  }
+  return ime;
+}
+
+/**
+ * Prove keystrokes are ARRIVING at this page before a plan is driven.
+ *
+ * Three outcomes, and the middle one is the reason this exists:
+ *
+ *   `true`  — the driver sent it and the page saw it.
+ *   `false` — the driver sent it and the page saw NOTHING. Keys are not
+ *             arriving; the check is not driven and says so in its own
+ *             words, rather than reporting the IME's excuse for a fault
+ *             that has nothing to do with the IME.
+ *   `null`  — the driver REFUSED to send it, unarmed. That is the rehearsal,
+ *             and it is a constructional fact reported by the driver rather
+ *             than an assertion this function talked itself into; an armed
+ *             run cannot reach it, and treats it as an error if it does.
+ *
+ * The observer is reset before the probe and the check resets it again, so
+ * the probe's own keydown is never in evidence any verdict reads.
+ */
+async function probeDelivery({ page, driver, hwnd, keyDelayMs, inject }) {
+  const observing = await W.resetEvents(page);
+  if (!observing) {
+    // Neither a delivery fault nor an IME one: there is nothing on the page
+    // to read arrival WITH. Conflating it with "no keys arrived" is the exact
+    // mistake this probe was added to stop making.
+    throw new Error('the page observer is not installed, so key arrival ' +
+      'cannot be read; no delivery claim is possible for this check');
+  }
+  const r = await driver.send('KEYS', hwnd, PROBE_KEY, keyDelayMs);
+  if (r.status === 'REFUSED') {
+    if (inject) {
+      throw new Error('the delivery probe was REFUSED by a driver this run ' +
+        `started ARMED: ${JSON.stringify(r.payload)}`);
+    }
+    return { delivered: null, detail: 'REFUSED by the unarmed driver (rehearsal)' };
+  }
+  if (r.status !== 'OK') {
+    return { delivered: false, detail: `the driver could not send it: ${JSON.stringify(r.payload)}` };
+  }
+  await sleep(PROBE_SETTLE_MS);
+  const keydowns = (await W.readEvents(page)).filter((e) => e.type === 'keydown').length;
+  return {
+    delivered: keydowns > 0,
+    detail: `driver sent ${r.payload.sent}, page saw ${keydowns} keydown(s)`,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // One engine
 // ---------------------------------------------------------------------------
 
@@ -840,6 +990,14 @@ async function driveEngine(engine, baseUrl, driver, args) {
           'install the Japanese IME first — Settings > Time & Language > ' +
           'Language & region > Add a language > 日本語.');
       }
+      // The locale switching is not the same thing as the IME opening, and
+      // 2026-08-12 is the run that proved it: 0x0411 on all three engines,
+      // shut on all three.
+      imeState = await engageIme({
+        driver, hwnd, engine, keyDelayMs: args.keyDelayMs, state: imeState,
+      });
+      console.log(`> IME ENGAGED: open=${imeState.open} ` +
+        `conversion=${imeState.conversion} native=${imeState.native}`);
     } else {
       imeState = await driver.require('IMESTATE', hwnd);
       console.log(`> IME (read-only, rehearsal): ${JSON.stringify(imeState)}`);
@@ -863,7 +1021,24 @@ async function driveEngine(engine, baseUrl, driver, args) {
       const label = `check ${check.n} — ${check.title}`;
       let out;
       try {
-        out = await RUNNERS[check.id]({ page, keys, reload, pageErrors, engine });
+        const probe = await probeDelivery({
+          page, driver, hwnd, keyDelayMs: args.keyDelayMs, inject,
+        });
+        console.log(`> probe ${PROBE_KEY}: ${probe.detail}`);
+        if (probe.delivered === false) {
+          out = {
+            verdict: W.INCONCLUSIVE,
+            why: `KEYS ARE NOT ARRIVING at the ${engine} window: a single ` +
+              `${PROBE_KEY} sent immediately before this check reached the ` +
+              `page as no keydown at all (${probe.detail}). The plan was NOT ` +
+              'driven. This says nothing about the IME and nothing about the ' +
+              'engine — it is a transport failure between SendInput and the ' +
+              'page, and it is a rig result, not a runtime result.',
+            readback: `probe=${PROBE_KEY} ${probe.detail}`,
+          };
+        } else {
+          out = await RUNNERS[check.id]({ page, keys, reload, pageErrors, engine });
+        }
       } catch (err) {
         out = { verdict: W.INCONCLUSIVE, why: `the check could not be driven: ${err.message}` };
       }
@@ -1044,7 +1219,11 @@ async function main() {
   }
 }
 
-module.exports = { runMutationTeeth, parseArgs, worst, RUNNERS };
+// `engageIme` and `probeDelivery` are exported for the same reason `worst`
+// and `RUNNERS` are: they take their driver and their page as arguments, so
+// their REFUSALS can be forced and read back without an interactive desktop —
+// which is the only place the armed run they guard can ever happen.
+module.exports = { runMutationTeeth, parseArgs, worst, RUNNERS, engageIme, probeDelivery };
 
 if (require.main === module) {
   main().then((code) => process.exit(code)).catch((error) => {
