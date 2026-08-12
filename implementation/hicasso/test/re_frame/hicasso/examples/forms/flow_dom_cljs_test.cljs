@@ -29,6 +29,19 @@
   end would re-render the field, re-commit the element and re-assert the
   model — and the revision would test green while doing nothing.
 
+  ## The two rows that WAIT, and what waiting costs if it fails
+
+  The last two rows wait on a bounded `poll-until`, because a submission
+  leaves on the async dispatch queue and no React flush can help. A
+  bounded poll can REJECT, and a chain carrying only a fulfillment
+  handler loses two things when it does: `done` is never called, so the
+  row hangs rather than fails, and the mount is never taken down, so it
+  is still standing when the next row reads the page. Both go through
+  [[finish-after]], which reports the rejection and tears down on either
+  arm — and
+  [[a-poll-that-never-settles-still-takes-its-mount-down]] arranges a
+  rejection on purpose to prove it.
+
   ## Browser lane
 
   Every row needs a real document and a real React DOM. `:node-test`
@@ -135,6 +148,35 @@
   "Tear down, assert this mount left nothing behind, and end the row."
   [m done]
   (-> (hm/unmount! m) (hm/assert-clean!) (.then done)))
+
+(defn- report-rejection!
+  "The default reporter: a rejected wait is this row's failure, said in
+  `cljs.test`'s own voice and carrying the label the poll was given."
+  [e]
+  (is false (str "the flow never settled: " (or (ex-message e) (str e)) " "
+                 (pr-str (ex-data e))))
+  nil)
+
+(defn- finish-after
+  "End the row when `p` settles — reporting a rejected `p` rather than
+  letting it hang the run, and tearing the mount down on BOTH arms.
+
+  `poll-until`'s own docstring names this shape: the rejection handler
+  sits UPSTREAM of the single trailing step that calls `done`, and the
+  teardown both paths share lives in that step, where it is written once
+  and still runs once per path. A chain with only a fulfillment handler
+  loses both halves at once — `done` is never called, so the row hangs,
+  and the live mount is never unmounted, so it is still standing when the
+  next row takes its readings.
+
+  `report!` is the seam
+  [[a-poll-that-never-settles-still-takes-its-mount-down]] uses to watch
+  a rejection go past without the control itself going red."
+  ([p m done] (finish-after p m done report-rejection!))
+  ([p m done report!]
+   (-> p
+       (.catch report!)
+       (.then (fn [_] (finish m done))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Recipe 1 — the buffered field, driven
@@ -323,8 +365,8 @@
               {:label "the dispatch queue to reach a marker enqueued after the submit"})
             (.then (fn [_]
                      (is (= [] @!requests)
-                         "and nothing was asked of the server")
-                     (finish m done))))))))
+                         "and nothing was asked of the server")))
+            (finish-after m done))))))
 
 (deftest a-valid-submission-goes-busy-from-the-writes-own-status
   (async done
@@ -359,5 +401,57 @@
                 (is (= "" (.-value (node m "#ticket-assignee")))
                     "the reply landed at the named event and blanked the form —
                      there is no completion callback anywhere in this
-                     application")
-                (finish m done))))))))
+                     application")))
+            (finish-after m done))))))
+
+;; ---------------------------------------------------------------------------
+;; The control — what the two rows above are protected FROM
+;; ---------------------------------------------------------------------------
+
+(deftest a-poll-that-never-settles-still-takes-its-mount-down
+  ;; The sabotage control for [[finish-after]]. Both rows above wait on a
+  ;; bounded poll, and a poll can reject; this row arranges the rejection
+  ;; deliberately and reads what the page is left holding.
+  ;;
+  ;; The reading is `hm/census` — the page-wide one — and not a successor
+  ;; mount's own `assert-clean!`, which would be the WRONG instrument and
+  ;; quietly so. A successor takes its baseline after the stranded mount
+  ;; exists, so the strand sits in its baseline and in its final reading
+  ;; alike and subtracts to nothing; `leaked` also removes every facade
+  ;; frame as a peer. A stranded mount is therefore invisible to the very
+  ;; assertion a reader would expect to catch it, and visible here.
+  (async done
+    (if-not (browser?)
+      (do (skip! "a real mount to strand") (done))
+      (let [before    (hm/census)
+            m         (mount-screen!)
+            !reported (atom nil)]
+        (is (not= before (hm/census)) "the mount is up and the page shows it")
+        (-> (test-support/poll-until
+              (constantly false)
+              {:label "a condition arranged never to hold" :timeout-ms 50 :interval-ms 5})
+            (finish-after
+              m
+              ;; `finish` ends at `(.then done)` on `assert-clean!`, so the
+              ;; row's last step is handed the residue REPORT — the three
+              ;; facts below are read from the instrument rather than
+              ;; inferred from the row having got this far.
+              (fn [report]
+                (is (= :rf.error/poll-until-timeout
+                       (:rf.error/id (ex-data @!reported)))
+                    "the rejection was reported UPSTREAM of the trailing step
+                     — with only a fulfillment handler it would have gone
+                     nowhere, and this row would have timed out instead of
+                     failing")
+                (is (false? (:still-mounted? report))
+                    "the teardown ran on the REJECTED arm: that is the half a
+                     `.then`-only chain drops")
+                (is (true? (:clean? report)))
+                (is (zero? (:standing report))
+                    "and no facade mount is left standing")
+                (is (= before (hm/census))
+                    "so the page a following row opens on is the page this
+                     row found — nothing retained, no residue to be charged
+                     to whoever runs next")
+                (done))
+              (fn [e] (reset! !reported e))))))))
