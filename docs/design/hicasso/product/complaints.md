@@ -92,28 +92,28 @@ rowed in the Hicasso section, and is the single live id without the
 
 | Complaint | Raised when you | Taught in |
 |---|---|---|
-| `:rf.error/hicasso-bad-head` | put something outside the closed head set in hiccup head position | ch02, ch06, ch15 |
+| `:rf.error/hicasso-bad-head` | put something outside the closed head set in hiccup head position | ch02, ch06, ch16 |
 | `:rf.error/hicasso-boundary-bad-on-error` | gave `h/boundary` an `:on-error` that is neither an intent vector nor a function, so nothing could fire it | — |
 | `:rf.error/hicasso-boundary-unknown-prop` | wrote a key outside `h/boundary`'s closed roster — a misspelled `:on-error` is an error boundary that reports nothing | — |
-| `:rf.error/hicasso-deferred-read-at-boundary` | let an unforced `delay` reach a boundary's props | ch02, ch14, ch15 |
+| `:rf.error/hicasso-deferred-read-at-boundary` | let an unforced `delay` reach a boundary's props | ch02, ch15, ch16 |
 | `:rf.error/hicasso-dispatch-in-render-position` | dispatched from a render callback while it was running | ch03, ch09 |
 | `:rf.error/hicasso-empty-vector` | wrote `[]` where hiccup was expected | — |
 | `:rf.error/hicasso-frame-outside-boundary` | asked for the frame with no Hicasso render extent in scope | — |
 | `:rf.error/hicasso-generation-fence-exhausted` | wrote to app-db from a body, on four consecutive runs | — |
 | `:rf.error/hicasso-host-bad-options` | gave a `defhost` declaration options that are not a map — usually a docstring written after the component instead of before it | — |
 | `:rf.error/hicasso-host-bad-slots` | declared a `defhost` `:slots` that is not a set of ordinary prop names — a non-set, an entry that names no prop, `key`/`ref`, a name the crossing can never emit (`__proto__`, `prototype`, `constructor`), one slot spelled twice, or a position that is also a declared callback | — |
-| `:rf.error/hicasso-host-bad-ssr-policy` | gave a `defhost` a `:server` value outside the two it admits, or a `:fallback` the policy beside it cannot carry | ch09, ch17 |
+| `:rf.error/hicasso-host-bad-ssr-policy` | gave a `defhost` a `:server` value outside the two it admits, or a `:fallback` the policy beside it cannot carry | ch09, ch18 |
 | `:rf.error/hicasso-host-callback-slot-collision` | declared two spellings of one callback slot on a `defhost` | — |
 | `:rf.error/hicasso-host-extra-form` | wrote a form after `defhost`'s options map — a second options map is not merged, it is discarded | — |
-| `:rf.error/hicasso-host-fallback-boundary-head` | put a `defview` or `defhost` head inside a declared fallback | ch09, ch17 |
+| `:rf.error/hicasso-host-fallback-boundary-head` | put a `defview` or `defhost` head inside a declared fallback | ch09, ch18 |
 | `:rf.error/hicasso-host-no-component` | declared a `defhost` over `nil` | — |
 | `:rf.error/hicasso-host-structural-callback` | declared a `defhost` callback contract at a position no contract can reach — `key`/`ref`, which carry no contract, or a name the crossing can never emit (`__proto__`, `prototype`, `constructor`) | — |
-| `:rf.error/hicasso-host-unclaimed-callback` | wrote the one callback form at a `defhost` position no callback contract claims — one nothing claims at all, or one declared a ReactNode slot, where markup lowers and there is no contract to give a function | ch09, ch15 |
-| `:rf.error/hicasso-host-undeclared-callback` | sent an intent to a `defhost` prop the declaration does not name | ch09, ch19 |
-| `:rf.error/hicasso-host-unknown-option` | gave a `defhost` declaration an option outside its roster `#{:callbacks :slots :server :fallback}` — the retired `:ssr` spelling included | ch09, ch17 |
+| `:rf.error/hicasso-host-unclaimed-callback` | wrote the one callback form at a `defhost` position no callback contract claims — one nothing claims at all, or one declared a ReactNode slot, where markup lowers and there is no contract to give a function | ch03, ch09, ch16 |
+| `:rf.error/hicasso-host-undeclared-callback` | sent an intent to a `defhost` prop the declaration does not name | ch09, ch20 |
+| `:rf.error/hicasso-host-unknown-option` | gave a `defhost` declaration an option outside its roster `#{:callbacks :slots :server :fallback}` — the retired `:ssr` spelling included | ch09, ch18 |
 | `:rf.error/hicasso-intent-at-a-non-event-contract` | put an intent at a position declared `:handler` or `:render` | ch03, ch09 |
 | `:rf.error/hicasso-intent-needs-the-event` | wrote an event-reading intent at a value-first foreign callback | ch03, ch09 |
-| `:rf.error/hicasso-intent-outside-boundary` | lowered or fired an intent with no frame-locked dispatch bound | ch15, ch16 |
+| `:rf.error/hicasso-intent-outside-boundary` | lowered or fired an intent with no frame-locked dispatch bound | ch16, ch17 |
 | `:rf.error/hicasso-malformed-navigate` | wrote the navigate decorator outside its closed grammar | ch07 |
 | `:rf.error/hicasso-malformed-prevent` | wrapped something other than exactly one intent vector in the prevent decorator | ch03 |
 | `:rf.error/hicasso-merge-not-a-map` | forwarded a non-map at the attribute-remainder key | — |
@@ -127,7 +127,7 @@ rowed in the Hicasso section, and is the single live id without the
 | `:rf.error/hicasso-portal-no-target` | gave `h/portal` a `:target` that is not a DOM container — usually a lookup that answered nothing | — |
 | `:rf.error/hicasso-presence-child-not-hiccup` | gave a presence boundary a child that is not a hiccup vector | — |
 | `:rf.error/hicasso-presence-child-unkeyed` | gave a presence child no `:key` | — |
-| `:rf.error/hicasso-presence-override-on-a-view` | wrote a phase-attribute override on a view head | ch11 |
+| `:rf.error/hicasso-presence-override-on-a-view` | wrote a phase-attribute override on a view head | ch12 |
 | `:rf.error/hicasso-presence-override-out-of-reach` | wrote a phase-attribute override where no presence tray can apply it — deeper than a tray's direct child, forwarded through a `:&` remainder, or under no tray at all | — |
 | `:rf.error/hicasso-presence-timeout-required` | left a presence boundary's timeout absent or not positive | — |
 | `:rf.error/hicasso-raw-no-component` | handed the raw escape `nil` in component position | ch09 |
@@ -135,7 +135,7 @@ rowed in the Hicasso section, and is the single live id without the
 | `:rf.error/hicasso-ref-vector-reserved` | put a vector at the canonical `ref` slot | — |
 | `:rf.error/hicasso-refusal-incomplete` | (framework-internal) minted a refusal missing one of the four required slots | — |
 | `:rf.error/hicasso-revision-from-remainder` | let a forwarded attribute map introduce the reset trigger | — |
-| `:rf.error/hicasso-revision-not-controlled` | put the reset trigger on something that is not a controlled text field | ch04, ch05, ch15 |
+| `:rf.error/hicasso-revision-not-controlled` | put the reset trigger on something that is not a controlled text field | ch04, ch05, ch16 |
 | `:rf.error/hicasso-route-link-bad-on-click` | gave a route link an `:on-click` outside the route-click roster | — |
 | `:rf.error/hicasso-route-link-outside-boundary` | rendered a route link with no ambient frame | — |
 | `:rf.error/hicasso-route-link-prefetch-declined` | wrote `:prefetch` on a route link (declined outright in v0) | — |
@@ -143,7 +143,7 @@ rowed in the Hicasso section, and is the single live id without the
 | `:rf.error/hicasso-state-bad-key` | used an instance key outside the accepted set (`nil` included) | — |
 | `:rf.error/hicasso-state-bad-option` | passed non-map options, or an option outside the roster, at registration | — |
 | `:rf.error/hicasso-state-redefined` | re-registered a concern with a different default | — |
-| `:rf.error/hicasso-sub-outside-render` | read a subscription outside a boundary body | ch02, ch14, ch15 |
+| `:rf.error/hicasso-sub-outside-render` | read a subscription outside a boundary body | ch02, ch15, ch16 |
 | `:rf.error/hicasso-true-child` | let `true` reach child position | ch02 |
 | `:rf.error/hicasso-unknown-callback-contract` | named a callback contract outside `:event` / `:handler` / `:render` | — |
 | `:rf.error/no-frame-prop` | mounted a frame-fed boundary with no frame in its props | — |
@@ -160,10 +160,10 @@ rowed in the Hicasso section, and is the single live id without the
 | `:rf.error/hicasso-test-not-a-native-form` | gave an L1 projection a form whose head is not a tag keyword | — |
 | `:rf.error/hicasso-test-not-a-render-form` | gave an L2 `tree` something other than a hiccup form | — |
 | `:rf.error/hicasso-test-not-an-intent` | gave the L1 marker materializer something other than an intent vector | — |
-| `:rf.error/hicasso-test-plain-fn-head` | put a plain function in a hiccup head inside an L2 tree | ch15 |
+| `:rf.error/hicasso-test-plain-fn-head` | put a plain function in a hiccup head inside an L2 tree | ch16 |
 | `:rf.error/hicasso-test-position-is-not-a-handler` | fired at a position that lowers to something other than a function | — |
 | `:rf.error/hicasso-test-react-is-opaque` | let a raw React element reach the L2 semantic tree | — |
-| `:rf.error/no-frame-context` | (corpus-owned) rendered a Hicasso boundary whose React context carries no frame | ch03, ch09, ch10, ch17, ch19 |
+| `:rf.error/no-frame-context` | (corpus-owned) rendered a Hicasso boundary whose React context carries no frame | ch03, ch09, ch10, ch18, ch20 |
 | `:rf.error/routing-artefact-missing` | (corpus-owned) rendered a route link with routing absent | ch07 |
 | `:rf.error/ui-tree-malformed` | (corpus-owned) let a value outside the structural-tree grammar reach an L2 tree or a projection | — |
 
