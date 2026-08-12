@@ -6,9 +6,9 @@ Hicasso is the selected native re-frame2 view adapter. Its default is interprete
 
 This living product specification defines what Hicasso should become, how it is judged, and the work required to ship it. The companion [decision brief](decision-brief.md) owns the forensic scoreboard, the selected-direction record, the scoped amendment, the K3 disposition, and the kill rules; this document assumes that direction and turns it into a product contract.
 
-> **Decision:** Hicasso is the selected product direction; Phase 0 prepares its measured capability price for explicit ratification without treating the registered gate as passed or silently reopening adapter selection.  
+> **Decision:** Hicasso is the selected product direction, and the measured capability price Phase 0 prepared has been explicitly ratified — by operator ruling of 2026-08-13, not by a sitting — without the registered gate being treated as passed or adapter selection silently reopened.  
 > **Current state:** the implementation is a benchmark prototype, not an installable product.  
-> **Authority of this document:** normative product target, proposed budgets, and action specification; the decision brief owns selected-direction and sitting decisions, while the evidence baseline owns adjudicated measurements. API spellings remain provisional until their named witnesses pass.
+> **Authority of this document:** normative product target, proposed budgets, and action specification; the decision brief owns selected-direction and ruling-level decisions, while the evidence baseline owns adjudicated measurements. API spellings remain provisional until their named witnesses pass.
 
 The intended outcome is not “the fastest adapter on every synthetic row.” It is the best overall re-frame2 adapter:
 
@@ -224,15 +224,15 @@ Diagnostics may recommend a boundary and scaffold a comparison. They never rewri
 
 ## 6. Performance contract
 
-“Good enough” is a product contract, not a euphemism. Unless already registered, the initial budgets below are proposals until Mike Thompson, acting as re-frame2 product operator, ratifies them against named low- and mid-tier reference hardware in Phase 0. The K1 ceiling has the additional sitting rule below.
+“Good enough” is a product contract, not a euphemism. Unless already registered, the initial budgets below are proposals until Mike Thompson, acting as re-frame2 product operator, ratifies them against named low- and mid-tier reference hardware in Phase 0. The K1 ceiling has the additional ratification rule below, and it is the one budget here that has already been through it.
 
-The registered `1.10x` K1 gate is a decisive miss, not a pass; the exact record is fixed in the [evidence baseline](lanes/evidence-baseline.md#pinned-economic-evidence) and decision brief. The `1.25x` cold-mount ceiling below is a **proposal**, not an operative budget. Phase 0 prepares the scoped price-acceptance record for the 2026-08-27 sitting, where the re-frame2 product operator, Mike Thompson, is the decider. Until ratification, the registered criterion remains the only adjudicated K1 line and `1.25x` cannot mark a result green.
+The registered `1.10x` K1 gate is a decisive miss, not a pass; the exact record is fixed in the [evidence baseline](lanes/evidence-baseline.md#pinned-economic-evidence) and decision brief. **The miss stands as published and nothing below recolours it.** The `1.25x` cold-mount ceiling is **ratified and operative from 2026-08-13** — the scoped price-acceptance record Phase 0 prepared was ratified by the re-frame2 product operator, Mike Thompson, ruling the P2 fork *graduate, as a success* in chat on that date, which pre-empted the 2026-08-27 sitting it had been held for. Acceptance of a price is not a pass: **the registered criterion remains the only adjudicated K1 line, K1 stays recorded MISSED, and no evidence row may cite the accepted ceiling to mark K1 green.** The operative status, the fields and the frozen comparison rule that reads a future row against `1.25x` live in [`k1-price-acceptance.md`](k1-price-acceptance.md); the ruling is [`decisions.md` HD-029](../decisions.md#hd-029--the-p2-fork-hicasso-graduates-as-a-success).
 
-The proposed record names the frozen registered criterion, purchased use cases, accepted ceiling, native escape, effective revision, evidence owner, reopen conditions, and revert condition. It lapses if the purchased ambient-read capability or the native escape fails its named witness, if the canonical K1 row exceeds the accepted ceiling, or if the witness/estimator changes materially without re-ratification. Rejection at the sitting leaves the registered gate and its consequences in force.
+That record names the frozen registered criterion, purchased use cases, accepted ceiling, native escape, effective revision, evidence owner, reopen conditions, and revert condition. It lapses if the purchased ambient-read capability or the native escape fails its named witness, if the canonical K1 row exceeds the accepted ceiling, or if the witness/estimator changes materially without re-ratification. On lapse the registered gate and its consequences resume immediately as the only adjudicated K1 line; ratification by ruling did not put the record beyond lapse, and its reopen conditions are unchanged and live.
 
 The registered read-free boundary-shell paper-fail budget remains `1 KB` retained per boundary on each canonical segment. Phase 0 must freeze its byte-exact interpretation before the next product run; the current pinned row is red under either 1,000 B or 1,024 B, and the [baseline owns its values and evidence](lanes/evidence-baseline.md#pinned-economic-evidence). Phase 1 first attempts remediation through the collector-substrate adjudication.
 
-If Phase 1 cannot meet the frozen line without breaking a higher-order law, a separate prospective re-registration or scoped acceptance—decided by the same product operator before the runtime ABI freezes—must name the reason, ceiling, effective revision, reopen conditions, and revert trigger. The K1 sitting does not pre-authorize that later decision, and a relative regression allowance cannot recolour the red shell row.
+If Phase 1 cannot meet the frozen line without breaking a higher-order law, a separate prospective re-registration or scoped acceptance—decided by the same product operator before the runtime ABI freezes—must name the reason, ceiling, effective revision, reopen conditions, and revert trigger. The K1 ratification does not pre-authorize that later decision, and a relative regression allowance cannot recolour the red shell row.
 
 Deterministic correctness, residue, scaling-shape, and production-erasure gates block ordinary changes. Noisy clock/heap distributions are adjudicated in pinned, interleaved evidence runs rather than converted into flaky PR thresholds. Every instrument states its estimand and exercised population, includes a positive control or sabotage that can make it fail, and refuses to publish when its own quality checks fail.
 
@@ -250,7 +250,7 @@ For the four-field editor and controlled grid, publish the mechanical per-keystr
 ### Comparative and regression budgets
 
 - The pinned ordinary-Hicasso benchmark does not regress more than 5% on the same witness and instrument.
-- Subject to the named ratification above, cold mount has an initial ceiling of 1.25x equivalent direct UIx on the agreed representative witness. Read topology and capability differences remain reported alongside the ratio.
+- Under the ratification recorded above, cold mount has an initial ceiling of 1.25x equivalent direct UIx on the agreed representative witness, read against a future canonical row only by the record's own frozen comparison rule. It does not displace the registered `1.10x` line or recolour the published miss. Read topology and capability differences remain reported alongside the ratio.
 - After topology tuning, representative broad updates target no worse than 1.25x the best relevant supported adapter. A sustained result beyond 1.5x triggers local-island analysis rather than a global redesign.
 - The read-free boundary shell meets the frozen byte-exact `1 KB` line or carries the separately ratified disposition described above. It is not governed by a “baseline plus 10%” rule.
 - Per-read retained cost is governed by the three-scoreboard K3 disposition and also may not regress more than 10% on the same pinned witness. Retained cost stays linear in boundaries/reads and teardown leaves no residue.
@@ -373,7 +373,7 @@ The programme proceeds in vertical slices. Testing and Xray land with the behavi
 Deliver:
 
 - a one-page invariant/capability ledger and provisional facade;
-- the [K1 price-acceptance proposal specified in section 6](#6-performance-contract), drafted for the named sitting and made operative only if its named decider ratifies it;
+- the [K1 price-acceptance record specified in section 6](#6-performance-contract), drafted for a sitting and made operative when its named decider ratified it by ruling on 2026-08-13;
 - the section 6 read-free-shell disposition, including the frozen byte-exact `1 KB` line and Phase 1 remediation gate;
 - an explicit K3 disposition that preserves the governed Reagent viability row, the UIx-parent architecture row, and author preference as three non-substitutable scoreboards;
 - the living requirements mine, with every surface mapped to a job, home, owner, and witness;
@@ -384,7 +384,7 @@ Deliver:
 - one public facade, optional-namespace reachability checks, and no benchmark-only aliases;
 - stable error shape and source-coordinate capture in `defview`/`defhost`.
 
-Exit when a clean consumer can compile and run a minimal view without benchmark-tree imports, no provisional option selects an execution mode, the sitting has ratified or rejected the K1 proposal with consequences recorded, and the shell breach has an operative remediation gate rather than a relative-baseline waiver. Exact names are not frozen ahead of the application witnesses.
+Exit when a clean consumer can compile and run a minimal view without benchmark-tree imports, no provisional option selects an execution mode, the named decider has ratified or rejected the K1 record with consequences recorded — **ratified by ruling on 2026-08-13**, so this clause is satisfied — and the shell breach has an operative remediation gate rather than a relative-baseline waiver. Exact names are not frozen ahead of the application witnesses.
 
 ### Phase 1 — make the reactive kernel trustworthy
 

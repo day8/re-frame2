@@ -5,7 +5,7 @@ This baseline records the current product facts that constrain implementation. Q
 ## Product state
 
 - Hicasso is the selected native adapter design.
-- The proposed `1.25x` K1 product ceiling is not operative. Phase 0 prepares its scoped record for operator ratification at the 2026-08-27 sitting; the registered `1.10x` gate remains the only adjudicated line until then.
+- The `1.25x` K1 product ceiling is **ratified and operative from 2026-08-13**, by operator ruling rather than by the 2026-08-27 sitting its scoped record was held for. **It changes no measurement here**: the registered `1.10x` gate remains the only adjudicated K1 line, the cold-mount row below is still a decisive miss against it, and no row may cite the accepted ceiling to mark K1 green. The operative status is [`k1-price-acceptance.md`](../k1-price-acceptance.md)'s.
 - The implementation is the `implementation/hicasso` artefact (`day8/re-frame2-hicasso`); the benchmark tree's `re-frame.bench.hicasso.arm1.*` is the frozen prototype it was moved from, and the two diverge permanently by design. **Every heap row in this baseline is measured on the package as of 2026-08-12**; rows sourced elsewhere say so.
 - Public names are provisional until the ordinary application and host/hot-path witnesses pass.
 - The interpreted React-function-component path is the ordinary product path. An explicitly native element/component surface is the local escape; compiled Hiccup, own-renderer and second-emitter paths are outside the design.
@@ -27,7 +27,7 @@ The proposed Hicasso-native namespace is not demonstrated value yet. It remains 
 
 | Axis | Current baseline | Evidence anchor | Product implication |
 |---|---|---|---|
-| Cold mount | `1.1718x [1.1263–1.2190]`, n=8; `1.1976x [1.1504–1.2468]`, n=6 against direct UIx-on-subs on the final K1 estimator | [`rf2-diaud`; `clock-emvod` / `clock-w3yxd`](../../studio/rows-re-adjudicated-on-the-corrected-clock.md) | The registered `1.10x` gate is missed; `1.25x` is only a proposed scoped amendment pending its named ratification |
+| Cold mount | `1.1718x [1.1263–1.2190]`, n=8; `1.1976x [1.1504–1.2468]`, n=6 against direct UIx-on-subs on the final K1 estimator | [`rf2-diaud`; `clock-emvod` / `clock-w3yxd`](../../studio/rows-re-adjudicated-on-the-corrected-clock.md) | The registered `1.10x` gate is missed; the `1.25x` scoped amendment is ratified and operative from 2026-08-13, and it prices that miss rather than clearing it |
 | Interpreted lowering | At or below stock Reagent on the measured walk rows | [`rf2-2rtt6.63`](../../studio/our-walk-against-reagents.md) | Do not assume Hiccup interpretation is the dominant pressure |
 | Narrow update | Workload-specific parity/win evidence | [Corrected-clock rows](../../studio/rows-re-adjudicated-on-the-corrected-clock.md) | Require changed-work scaling; make no universal “narrow is faster” claim |
 | Broad update | Governed Hicasso/Reagent intervals remain instrument-limited; no general magnitude | [`rf2-vp0j7` evidence lineage](../../studio/bulk-broad-re-taken.md) | Do not optimize from a refused or non-governed comparator |
@@ -45,7 +45,9 @@ On the named large-template mount evidence, no identified admissible lever clear
 
 ### K1 price proposal
 
-The baseline remains a decisive miss against the registered K1 gate. The [primary performance contract](../specification.md#6-performance-contract) owns the proposed ceiling, named decider, sitting, effective-revision, reopen and revert rules. Its status is pending; no evidence row may use the proposal to mark K1 green.
+The baseline remains a decisive miss against the registered K1 gate. The [primary performance contract](../specification.md#6-performance-contract) owns the ceiling, named decider, ratification rule, effective-revision, reopen and revert rules; [`k1-price-acceptance.md`](../k1-price-acceptance.md) is the operative status. That status is **RATIFIED and operative from 2026-08-13**, by operator ruling rather than by the pre-empted 2026-08-27 sitting — and it moves nothing in this lane: **no evidence row may use the accepted ceiling to mark K1 green**, and the miss above is quoted as published.
+
+(The heading above keeps the word *proposal* only because it is the anchor a sibling record links to; the status it names is ratified.)
 
 ### Read-free boundary shell
 
