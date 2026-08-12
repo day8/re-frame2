@@ -690,15 +690,18 @@ criterion asks, and that remains the general rule; for K1 it is superseded by th
 operator's [selection of Hicasso](product/decision-brief.md) together with the
 scoped price-acceptance amendment, the **operative default**, whose record is
 [`product/k1-price-acceptance.md`](product/k1-price-acceptance.md) (`rf2-hic-003`):
-a [`1.25×` product ceiling](product/k1-price-acceptance.md#5-the-proposed-ceiling)
+a [`1.25×` product ceiling](product/k1-price-acceptance.md#5-the-ratified-ceiling)
 read by a frozen comparison rule, carrying this very ruling as the first of its
 [reconsideration triggers](product/k1-price-acceptance.md#71-reopen-conditions).
-That ceiling is **proposed, not operative** — it is ratified at the 2026-08-27
-sitting and may mark no result green before then, and **the published miss is not
-recoloured by any of this**. **Nothing in the criterion moved:** the row's text is
-as registered, the `1.10×` gate is untouched, and K2, K3, K4, K6 and K7 are
-unaffected. The sitting's K1 line is this annotated row plus ratification of the
-amendment; no tripped-criterion surprise remains. The clock page's
+That ceiling is **ratified and operative from 2026-08-13** — by the operator's P2
+graduation ruling rather than at the 2026-08-27 sitting it was held for, recorded
+in the [graduation section below](#the-kill-table-at-graduation--the-p2-ruling-of-2026-08-13)
+— and it **may mark no result green**, then or since: acceptance of a price is not
+a pass, and **the published miss is not recoloured by any of this**. **Nothing in
+the criterion moved:** the row's text is as registered, the `1.10×` gate is
+untouched, and K2, K3, K4, K6 and K7 are unaffected. The K1 line the sitting was
+booked to take is this annotated row plus ratification of the amendment, and the
+ruling took it; no tripped-criterion surprise remains. The clock page's
 [§8](studio/the-candidates-clock.md#8-what-this-hands-the-programme) carries the
 same record.
 
