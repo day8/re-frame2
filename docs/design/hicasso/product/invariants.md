@@ -82,6 +82,7 @@ The prototype-to-product disposition prunes rather than adds ([decision brief](d
 | `subscribe-once` | Internal until a caller proves `sub` inadequate | [§4](specification.md#4-target-programming-model) · [ledger 4](naming-ledger.md) |
 | presence | Moves to its optional motion namespace | [§7](specification.md#7-complete-use-case-coverage) · [ledger 5](naming-ledger.md) |
 | route-link | Moves to its optional routing-integration namespace | [§7](specification.md#7-complete-use-case-coverage) · [ledger 6](naming-ledger.md) |
+| root lifecycle: the prototype's `root!`, and `hydrate-root!` | Become `h/mount!` and `h/hydrate!` — the spellings section 3 carries, ratified provisional until the naming sitting; `h/render!` and `h/unmount!` were promoted from impl under their existing names and are renamed by nothing. **Half landed**: the facade's roster today is `root!` / `render!` / `unmount!`, and the hydrating door ships only as `impl.mount/hydrate-root!`, not re-exported | [§4](specification.md#4-target-programming-model) · [ledger 13](naming-ledger.md) |
 | the two missing conversions | `h/as-element` and the outward bridge — a native React parent rendering a minted Hicasso view under the shared frame — are genuinely absent and are added | [decision brief](decision-brief.md#part-ii--review-hicasso-against-the-goal) · [§4.3](specification.md#43-host-interop) |
 
 ## 6. Names freeze on witnesses
