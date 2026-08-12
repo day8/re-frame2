@@ -114,8 +114,26 @@
   behind it in any layout table. `ScanFor` therefore asks the target
   window's own layout first, falls back to this thread's, and puts a LITERAL
   `0x29` under the IME toggle beneath both, which is the only one of the
-  three that can answer for it. `KEYS` reports the scans it sent, so a zero
-  can never again be invisible.
+  three that can answer for it.
+
+  BUT THE LITERAL WAS NEVER DELIVERED AS THE KEY'S IDENTITY, and merged-PR
+  audit #7956 is right about it. `SendKey` writes `wScan` but sets neither
+  `KEYEVENTF_SCANCODE` (0x0008) nor anything else in `dwFlags` on the
+  key-down. Microsoft's `KEYBDINPUT` contract is explicit — "If specified,
+  wScan identifies the key and wVk is ignored" — so WITHOUT that flag the
+  input is defined in terms of `wVk`, and the calculated `0x29` is carried
+  rather than used to name the key.
+  <https://learn.microsoft.com/en-us/windows/win32/api/winuser/ns-winuser-keybdinput>
+
+  So `KEYS` and `RESOLVE` report the scan this driver CALCULATED, not one it
+  can prove `SendInput` delivered. A zero is still never invisible, which is
+  what those lines were added for. The flag is deliberately NOT set now: no
+  armed run is sanctioned (see the scripted-witness doc §11), so selecting
+  scan-code mode would change the identity of EVERY key this driver sends —
+  romaji included — with no run permitted that could witness the change. An
+  unwitnessable behaviour change to an artefact retained as a record is worse
+  than an accurate account of what it does, so the account is corrected here
+  instead.
 #>
 
 [CmdletBinding()]
@@ -332,6 +350,11 @@ public static class Rf2Ime
   /// question for the ordinary keys, whose scan codes DO differ between
   /// layouts, and a zero surviving all three is a real answer that `KEYS`
   /// reports rather than hides.
+  ///
+  /// WHAT THIS DOES NOT ESTABLISH: that the answer reached the target as the
+  /// key's identity. `SendKey` does not set `KEYEVENTF_SCANCODE`, so the
+  /// keystroke is defined by `wVk` and this scan rides along beside it. The
+  /// number below is the one CALCULATED; see the header.
   public static ushort ScanFor(ushort vk, IntPtr hwnd)
   {
     long hkl = LayoutOf(hwnd);
@@ -348,6 +371,13 @@ public static class Rf2Ime
   /// PARAMETER rather than something computed here: the only correct answer
   /// depends on the window being typed into, which this function is not
   /// told, and a witness has to be able to print what it actually sent.
+  ///
+  /// `dwFlags` deliberately does NOT carry `KEYEVENTF_SCANCODE` (0x0008).
+  /// Under that flag `wScan` would identify the key and `wVk` would be
+  /// IGNORED — for every key here, not just the toggle — and no armed run is
+  /// sanctioned that could witness the difference. So the input is defined by
+  /// `wVk`, `wScan` rides beside it, and nothing in this file may be read as
+  /// proof that a literal physical scan was delivered. See the header.
   public static uint SendKey(ushort vk, ushort scan)
   {
     INPUT[] two = new INPUT[2];
@@ -473,9 +503,11 @@ while ($null -ne ($line = [Console]::In.ReadLine())) {
         # The window handle is OPTIONAL, because which scan code a key carries
         # is a question about the layout of the thread that owns the window
         # and the preflight asks this before any window is found. Given one,
-        # the answer is what `KEYS` would actually send — which is how the
-        # REHEARSAL can show the 半角/全角 toggle carrying a non-zero scan
-        # without sending a single keystroke.
+        # the answer is the scan `KEYS` would CALCULATE and pass to `SendKey`
+        # — which is how the REHEARSAL can show the 半角/全角 toggle resolving
+        # to a non-zero scan without sending a single keystroke. It is not a
+        # claim that the scan identifies the key on the wire: `SendKey` sets
+        # no `KEYEVENTF_SCANCODE`, so `wVk` does that. See `ScanFor`.
         $h = if ($parts.Length -gt 3) { [IntPtr][int64]$parts[3] } else { [IntPtr]::Zero }
         Reply $id 'OK' ([ordered]@{
           tokens = ($tokens -join ',')
@@ -523,7 +555,9 @@ while ($null -ne ($line = [Console]::In.ReadLine())) {
           $vks = @($tokens | ForEach-Object { Resolve-Vk $_ })
           # Resolved against the TARGET window's layout, once, before the
           # first key goes out — see `ScanFor`. Reported below, because the
-          # zero that stopped the IME toggle working was invisible.
+          # zero that stopped the IME toggle working was invisible. The
+          # report says what was CALCULATED and handed to `SendKey`, not what
+          # arrived: absent `KEYEVENTF_SCANCODE` the key is named by `wVk`.
           $scans = @($vks | ForEach-Object { [Rf2Ime]::ScanFor($_, $h) })
           $sent = 0
           for ($i = 0; $i -lt $vks.Count; $i++) {
