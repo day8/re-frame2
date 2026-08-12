@@ -59,6 +59,7 @@ const STATUS = {
 const statusFor = (code) => STATUS[code] ?? 500;
 
 function sendRefusal(res, refusal, requestId) {
+  if (res.destroyed || res.writableEnded) return;
   if (res.headersSent) {
     // Nothing left to say in-band — see the header's torn-response note.
     res.destroy();
@@ -73,24 +74,52 @@ function sendRefusal(res, refusal, requestId) {
   res.end(body);
 }
 
+/**
+ * Read the request body under a ceiling.
+ *
+ * OVER THE CEILING, THE BYTES ARE DISCARDED BUT THE REQUEST IS STILL
+ * DRAINED. Destroying the socket the moment the ceiling is crossed is the
+ * obvious move and it is wrong: the caller is still writing, so it never
+ * reads the 413 and sees a broken connection instead — a transport fault
+ * where the service meant to give a diagnosable refusal. Measured, not
+ * theorised; the first version of this function did exactly that and the
+ * witness came back with `UND_ERR_SOCKET` in place of a status code.
+ *
+ * Draining is bounded rather than unbounded: memory is freed at the
+ * ceiling, and a body still going at sixteen times it is past any
+ * plausible caller mistake, so that one really does get the socket shut.
+ */
 function readBody(req, maxBytes) {
   return new Promise((resolve, reject) => {
     const parts = [];
+    const hardCap = maxBytes * 16;
     let bytes = 0;
+    let over = false;
+    const tooLarge = () =>
+      new Refusal(CODE.REQUEST_TOO_LARGE, `request body exceeds ${maxBytes} bytes`, {
+        ceiling: maxBytes,
+        bytes,
+      });
+
     req.on('data', (c) => {
       bytes += c.length;
       if (bytes > maxBytes) {
-        reject(
-          new Refusal(CODE.REQUEST_TOO_LARGE, `request body exceeds ${maxBytes} bytes`, {
-            ceiling: maxBytes,
-          }),
-        );
-        req.destroy();
+        if (!over) {
+          over = true;
+          parts.length = 0;
+        }
+        if (bytes > hardCap) {
+          req.destroy();
+          reject(tooLarge());
+        }
         return;
       }
       parts.push(c);
     });
-    req.on('end', () => resolve(Buffer.concat(parts).toString('utf8')));
+    req.on('end', () => {
+      if (over) reject(tooLarge());
+      else resolve(Buffer.concat(parts).toString('utf8'));
+    });
     req.on('error', (e) => reject(new Refusal(CODE.MALFORMED_REQUEST, e.message, {})));
   });
 }
@@ -123,9 +152,11 @@ async function handleRender(service, req, res, { maxRequestBytes, streamingDefau
       if (frame.type === 'chunk') {
         if (streaming) {
           if (!res.headersSent) {
+            // No `content-length`, so node frames the response as chunked
+            // on its own. Declaring the encoding by hand as well is one
+            // more place for the two to disagree.
             res.writeHead(200, {
               'content-type': 'text/html; charset=utf-8',
-              'transfer-encoding': 'chunked',
               'x-rf-ssr-build': service.buildId,
               ...(requestId ? { 'x-rf-ssr-request': requestId } : {}),
             });
@@ -147,7 +178,6 @@ async function handleRender(service, req, res, { maxRequestBytes, streamingDefau
             'x-rf-ssr-build': service.buildId,
           });
         }
-        res.addTrailers?.({ 'x-rf-ssr-render-ms': String(frame.renderMs) });
         res.end();
       } else {
         const body = buffered.join('');
