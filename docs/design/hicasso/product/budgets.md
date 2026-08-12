@@ -259,7 +259,7 @@ and the allocation row has no publishable claim to re-pin.
 | S3 | Per-read retained, Hicasso vs Reagent | `1,417` vs `948 B/read` | as S1 | **package figure**; K3 scoreboard (a) — dispositioned by [`rf2-hic-070`](k3-disposition.md#3-scoreboard-a--governed-viability-against-the-best-shipped-path) |
 | S4 | Per-read retained, Hicasso vs UIx | `2,115` vs `2,980 B/read` | as S1 | **package figure**; K3 scoreboard (b) — dispositioned by [`rf2-hic-070`](k3-disposition.md#4-scoreboard-b--architecture-progress-against-the-uix-parent) |
 | S5 | Teardown, retained **bytes** | indistinguishable from zero — all ten candidate rungs' bands straddle 0 | as S1 | **package figure** |
-| S6 | Cold mount vs direct UIx-on-subs | `1.1718x` [1.1263–1.2190] n=8; `1.1976x` [1.1504–1.2468] n=6 | final K1 estimator | **bench-tree figure** — registered `1.10x` gate missed; `1.25x` is a *proposal* only |
+| S6 | Cold mount vs direct UIx-on-subs | `1.1718x` [1.1263–1.2190] n=8; `1.1976x` [1.1504–1.2468] n=6 | final K1 estimator | **bench-tree figure** — registered `1.10x` gate missed; `1.25x` is the *accepted price* for that miss (ratified 2026-08-13), never a line this row is judged on |
 | S7 | Warm allocation | no publishable claim | allocation instrument | **bench-tree** — no fitted series clears the quality floor |
 
 The run's evidence, its controls and its full provenance are
@@ -281,10 +281,13 @@ cause are exactly what a measurement window may not run.
 artefact of the prototype — it survives the move to the package essentially
 unchanged, at `1,100` and `1,095 B` against `1,103` and `1,097 B`.
 
-**S6 carries a standing prohibition.** The `1.25x` cold-mount ceiling is a
-proposal pending the operator's sitting. Until ratification the registered
-`1.10x` line is the only adjudicated one, and **no evidence row may use the
-proposal to mark K1 green.**
+**S6 carries a standing prohibition, and ratification did not lift it.** The
+`1.25x` cold-mount ceiling was ratified and made operative on 2026-08-13 by
+operator ruling rather than by the sitting it was held for
+([`k1-price-acceptance.md`](k1-price-acceptance.md)). It prices S6's miss; it
+does not clear it. The registered `1.10x` line is still the only adjudicated
+one, S6 stays `BREACH` against it, and **no evidence row may use the accepted
+ceiling to mark K1 green.**
 
 ### The §6 user-visible budgets
 
@@ -312,7 +315,7 @@ and its verdict is recorded there.
 | # | Rule | Disposition |
 |---|---|---|
 | C1 | Pinned ordinary-Hicasso benchmark does not regress > 5% on same witness and instrument | same-instrument regression **blocks** until the benchmark owner validates the instrument and the adapter owner fixes or reverts |
-| C2 | Cold mount ≤ 1.25x direct UIx (subject to ratification) | proposal only; `1.10x` registered line stands |
+| C2 | Cold mount ≤ 1.25x direct UIx (ratified 2026-08-13) | accepted price, not a gate; the `1.10x` registered line stands and C2 is judged on it |
 | C3 | Broad updates ≤ 1.25x best relevant adapter after topology tuning | 1.25–1.5x is a **warning band**: attribute cause, one bounded topology pass, test a local island |
 | C4 | Sustained > 1.5x | cannot graduate as ordinary Hicasso until fixed or deliberately classified a native-host use case |
 | C5 | R=0 shell meets the frozen byte-exact `1,024 B` line | **not** governed by baseline-plus-10%; see §5 |
@@ -753,12 +756,16 @@ points here, and here is what each is waiting on.
   "the same instrument" names nothing, and a comparison against it would be
   un-attributable in exactly the way §6 describes. The re-pin is `rf2-hic-071`'s
   along with the gate it enables.
-- **The cold-mount line is missed and its replacement is unratified.** `S6` and
-  `C2` are red against the registered `1.10x`. The `1.25x` figure is a proposal
-  pending the operator's sitting, so it is not written in either row's line
-  cell, and the gate refuses to let it be: §4's standing prohibition — no
-  evidence row may use the proposal to mark K1 green — is held as a pin on
-  those two rows rather than as a sentence nobody re-reads.
+- **The cold-mount line is missed, and the price accepted for it is not a
+  second line.** `S6` and `C2` are red against the registered `1.10x`. The
+  `1.25x` figure was ratified on 2026-08-13 by operator ruling rather than by a
+  sitting, and it is still not written in either row's line cell, because an
+  accepted price is not a gate: the gate refuses to let it be, and §4's
+  standing prohibition — no evidence row may use the accepted ceiling to mark
+  K1 green — is held as a pin on those two rows rather than as a sentence
+  nobody re-reads. No line here is re-pinned by that ratification: the
+  [correction ledger](correction-ledger.md) reopens a budget line only when a
+  ceiling *changes*, and this one did not move.
 - **`S7` has no publishable claim to pin.** No fitted allocation series clears
   the quality floor. This is a property of the readings rather than of the
   rig, so it is `UNPINNED` rather than `UNRESOLVED`: nothing crossed a line,
