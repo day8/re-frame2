@@ -22,7 +22,8 @@
     "test:stdin-eof-shutdown": "node test/stdin-eof-shutdown.cjs",
     "test:post-merge-hook": "node test/post-merge-hook-test.cjs",
     "test:roots-discovery-live": "node test/roots-discovery-live.js",
-    "test:live-e2e-fixture": "node test/live-e2e-fixture.cjs"
+    "test:live-e2e-fixture": "node test/live-e2e-fixture.cjs",
+    "test:live-hicasso-wire": "node test/live-hicasso-wire.cjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
