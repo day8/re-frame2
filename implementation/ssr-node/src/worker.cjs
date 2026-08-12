@@ -53,7 +53,9 @@ let busy = false;
 
 function boot() {
   try {
-    // eslint-disable-next-line import/no-dynamic-require
+    // A dynamic require, and necessarily so: the whole design is that the
+    // service loads an application's bundle it was pointed at rather than
+    // one it was compiled against.
     mod = validateModule(require(workerData.modulePath), workerData.modulePath);
     if (typeof mod.boot === 'function') mod.boot();
   } catch (err) {

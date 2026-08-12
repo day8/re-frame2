@@ -92,6 +92,30 @@ const SKIP_EXT = new Set([
   '.eot', '.zip', '.gz', '.pdf', '.jar', '.class', '.wasm',
 ]);
 
+/**
+ * DOCUMENTATION IS OUT OF SCOPE — the code finally matching the stated
+ * scope above, rather than an exception being carved out under pressure.
+ *
+ * A Markdown file cannot be required, compiled, or put on a source path,
+ * so it is not a way this package could reach a client artefact. Naming
+ * the package in prose is what prose is for.
+ *
+ * The argument is not merely that it is harmless. `implementation/
+ * README.md` is REQUIRED to name this directory: `scripts/
+ * check_readme_inventories.py` (rf2-198k3) reds when a directory appears
+ * under `implementation/` without a line in that README's layout map, and
+ * it did exactly that when this package landed. A scan that then reds on
+ * the line the other gate demands is not a strict scan, it is two repo
+ * invariants pulling against each other — and the one that has to give is
+ * the one whose own header already said documentation was not its
+ * subject.
+ *
+ * The exclusion is by EXTENSION and not by path, so it cannot quietly
+ * cover a source file; the control row below puts the same text in a
+ * `.cjs` and requires it to be found.
+ */
+const DOC_EXT = new Set(['.md', '.markdown']);
+
 /** Tracked files under `roots`, relative to `cwd`. */
 function trackedFiles(cwd, roots) {
   const out = execFileSync('git', ['ls-files', '-z', '--', ...roots], {
@@ -110,7 +134,8 @@ function scanForReferences(cwd, files, needles, excludePrefix) {
   const hits = [];
   for (const rel of files) {
     if (excludePrefix && rel.startsWith(excludePrefix)) continue;
-    if (SKIP_EXT.has(path.extname(rel).toLowerCase())) continue;
+    const ext = path.extname(rel).toLowerCase();
+    if (SKIP_EXT.has(ext) || DOC_EXT.has(ext)) continue;
     const abs = path.join(cwd, rel);
     let stat;
     try {
@@ -181,6 +206,28 @@ test('no client-building tree references this package', () => {
       .map((h) => `  ${h.file}:${h.line} (${h.needle})`)
       .join('\n')}`,
   );
+});
+
+test('the layout map DOES name the package, as the README ratchet requires', () => {
+  // The counterpart to excluding documentation: the exclusion is only
+  // legitimate because the naming is an obligation somewhere else. If this
+  // row ever went red, `check_readme_inventories.py` would be red too.
+  const readme = fs.readFileSync(path.join(REPO_ROOT, 'implementation', 'README.md'), 'utf8');
+  const needle = REFERENCES[0];
+  needle.lastIndex = 0;
+  assert.strictEqual(needle.test(readme), true, 'the layout map must carry an ssr-node entry');
+});
+
+test('CONTROL — the documentation exclusion is by EXTENSION, not a hole in the matcher', () => {
+  const body = 'see implementation/ssr-node/src/service.cjs\n';
+  const dir = scratch({ 'notes.md': body, 'boot.cjs': body });
+  try {
+    const hits = scanForReferences(dir, ['notes.md', 'boot.cjs'], REFERENCES, null);
+    assert.strictEqual(hits.length, 1, 'exactly one of the two must be found');
+    assert.strictEqual(hits[0].file, 'boot.cjs', 'and it must be the source file');
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test('CONTROL — the reference scan finds a planted reference', () => {
