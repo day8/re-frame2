@@ -676,13 +676,24 @@
         (do (skip! ":node-test has no DOM") (done))
         (do
           (same-snapshot!)
-          (let [{:keys [html]} (server!)]
+          (let [{:keys [html]} (server!)
+                survivor*      (atom nil)]
             (-> (hydrate-and-adopt! html)
+                ;; RETAINED, not carried forward as a pair. The awaited timer
+                ;; below settles long after this root exists, so a throw in
+                ;; those assertions takes the rejection arm — which cannot see
+                ;; any fulfilment value. Holding the survivor here is what lets
+                ;; its release run on both paths (audit of #7942/#7968), and it
+                ;; is why the second adoption no longer needs a nested chain to
+                ;; thread the first one through.
                 (.then (fn [survivor]
-                         (-> (hydrate-and-adopt! html)
-                             (.then (fn [doomed] [survivor doomed])))))
+                         (reset! survivor* survivor)
+                         (hydrate-and-adopt! html)))
                 (.then
-                  (fn [[survivor doomed]]
+                  (fn [doomed]
+                    ;; The doomed root's teardown is the ACT UNDER TEST, not
+                    ;; cleanup: what follows reads what it left behind. It stays
+                    ;; exactly here.
                     (mount/unmount! (:handle doomed))
                     ;; The reaper's horizon is a MACROTASK, and the row has to
                     ;; AWAIT it rather than let a bare timer carry the
@@ -702,7 +713,6 @@
                               (is (pos? (:cell-refs (rt/residue)))
                                   "and it is visible as held references, which is
                                    the quantity X5 asserts to be zero")
-                              (mount/release! (:handle survivor))
                               (resolve nil)
                               (catch :default e (reject e))))
                           reaper-horizon-ms)))))
@@ -711,4 +721,12 @@
                 ;; `.catch` downstream of it would claim a later namespace's
                 ;; throw as this row's and fire `done` a second time.
                 (.catch (fn [e] (is false (str "the X5 mutation proof threw: " e)) nil))
-                (.then (fn [_] (done))))))))))
+                ;; The survivor's release is hoisted onto the single trailing
+                ;; step: written once, run exactly once per path, and AFTER the
+                ;; residue reading it would otherwise erase. `release!` is
+                ;; idempotent and `some->` no-ops when the first adoption is the
+                ;; thing that rejected — so the row cannot hand a live adopted
+                ;; screen to the namespace after it.
+                (.then (fn [_]
+                         (some-> @survivor* :handle mount/release!)
+                         (done))))))))))
