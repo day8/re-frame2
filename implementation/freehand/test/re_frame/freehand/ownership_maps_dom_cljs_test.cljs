@@ -471,9 +471,18 @@
                        (is (= (:after-reclamation behavior-010) (absence))
                            "FH-BEHAVIOR-010 — zero maps, zero listeners, zero
                             overlays, zero roots, and both substrate books empty")
-                       (released! "FH-BEHAVIOR-010 — after the ordinary teardown")
-                       (done)))
-              (.catch (fn [e] (is false (str "case rejected: " e)) (done)))))))))
+                       (released! "FH-BEHAVIOR-010 — after the ordinary teardown")))
+              ;; Reports and RELEASES; it never finishes (rf2-o0n1). `done` runs
+              ;; the whole remainder of the run synchronously, so a `.catch`
+              ;; downstream of it would claim a later namespace's throw as this
+              ;; row's and fire `done` a second time.
+              ;;
+              ;; Nothing is hoisted onto the trailing step: the node removal and
+              ;; the two residue readings are the SUCCESS arm's, and a second
+              ;; failure attributed to the leak rule would bury the one that
+              ;; actually happened.
+              (.catch (fn [e] (is false (str "case rejected: " e)) nil))
+              (.then (fn [_] (done)))))))))
 
 ;; ===========================================================================
 ;; 2 — the reclamation orders, all three, through the ONE path
@@ -591,6 +600,8 @@
                        (is (= (:after-reclamation behavior-010) (absence))
                            "FH-BEHAVIOR-010 — and the same absence as every other route,
                             reached one task later than the substrate's")
-                       (released! "FH-BEHAVIOR-010 — after the deferred release")
-                       (done)))
-              (.catch (fn [e] (is false (str "case rejected: " e)) (done)))))))))
+                       (released! "FH-BEHAVIOR-010 — after the deferred release")))
+              ;; Reports and RELEASES, as above; nothing to hoist for the same
+              ;; reason.
+              (.catch (fn [e] (is false (str "case rejected: " e)) nil))
+              (.then (fn [_] (done)))))))))

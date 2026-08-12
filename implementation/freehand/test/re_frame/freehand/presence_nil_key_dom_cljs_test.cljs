@@ -175,13 +175,15 @@
               (.then (fn [_]
                        (is (nil? (chip-el container))
                            "and the timeout removes it terminally")
-                       (is (= 0 (presence/pending-count)) "leaving nothing pending")
-                       (teardown! container root)
-                       (done)))
-              (.catch (fn [e]
-                        (is false (str "mount rejected: " e))
-                        (teardown! container root)
-                        (done)))))))))
+                       (is (= 0 (presence/pending-count)) "leaving nothing pending")))
+              ;; Reports and RELEASES; it never finishes (rf2-o0n1). `done` runs
+              ;; the whole remainder of the run synchronously, so a `.catch`
+              ;; downstream of it would claim a later namespace's throw as this
+              ;; row's and fire `done` a second time.
+              (.catch (fn [e] (is false (str "mount rejected: " e)) nil))
+              ;; Both arms tore down identically, so the teardown rides the
+              ;; single trailing step: written once, run once per path.
+              (.then (fn [_] (teardown! container root) (done)))))))))
 
 (deftest a-nil-keyed-literal-element-child-is-retained-too
   (testing "The literal-element path is a presence citizen on the same
@@ -203,13 +205,11 @@
                        (is (= 1 (presence/pending-count)) "its exit is scheduled")
                        (act #(presence/flush-presence!))))
               (.then (fn [_]
-                       (is (nil? (chip-el container)) "and the timeout removes it")
-                       (teardown! container root)
-                       (done)))
-              (.catch (fn [e]
-                        (is false (str "mount rejected: " e))
-                        (teardown! container root)
-                        (done)))))))))
+                       (is (nil? (chip-el container)) "and the timeout removes it")))
+              ;; Reports and RELEASES, as above.
+              (.catch (fn [e] (is false (str "mount rejected: " e)) nil))
+              ;; Shared teardown, hoisted onto the single trailing step.
+              (.then (fn [_] (teardown! container root) (done)))))))))
 
 (deftest duplicate-nil-keys-collide-in-the-string-coerced-domain
   (testing "\"null\" is an ordinary identity, so two explicit-nil-key
@@ -227,10 +227,8 @@
                        (is (= 1 (.-length (.querySelectorAll container ".chip")))
                            "one child owns the \"null\" identity, not two")
                        (is (= "first" (.getAttribute (chip-el container) "data-label"))
-                           "and it is the FIRST claimant in document order")
-                       (teardown! container root)
-                       (done)))
-              (.catch (fn [e]
-                        (is false (str "mount rejected: " e))
-                        (teardown! container root)
-                        (done)))))))))
+                           "and it is the FIRST claimant in document order")))
+              ;; Reports and RELEASES, as above.
+              (.catch (fn [e] (is false (str "mount rejected: " e)) nil))
+              ;; Shared teardown, hoisted onto the single trailing step.
+              (.then (fn [_] (teardown! container root) (done)))))))))

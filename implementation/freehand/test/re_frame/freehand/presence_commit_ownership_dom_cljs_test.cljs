@@ -218,13 +218,15 @@
                        (is (nil? (marker-el container "b"))
                            "b's own exit still removes it terminally")
                        (is (some? (marker-el container "a")) "a is untouched throughout")
-                       (is (= 0 (presence/pending-count)) "every exit fired exactly once")
-                       (teardown! container root)
-                       (done)))
-              (.catch (fn [e]
-                        (is false (str "mount rejected: " e))
-                        (teardown! container root)
-                        (done)))))))))
+                       (is (= 0 (presence/pending-count)) "every exit fired exactly once")))
+              ;; Reports and RELEASES; it never finishes (rf2-o0n1). `done` runs
+              ;; the whole remainder of the run synchronously, so a `.catch`
+              ;; downstream of it would claim a later namespace's throw as this
+              ;; row's and fire `done` a second time.
+              (.catch (fn [e] (is false (str "mount rejected: " e)) nil))
+              ;; Both arms tore down identically, so the teardown rides the
+              ;; single trailing step: written once, run once per path.
+              (.then (fn [_] (teardown! container root) (done)))))))))
 
 ;; ===========================================================================
 ;; A COMMITTED render still owns its elements
@@ -268,10 +270,8 @@
                        (is (= "re-entered-b" (label-of container "b"))
                            "with the element the re-entry supplied")
                        (is (= 0 (presence/pending-count))
-                           "and cancels the pending exit")
-                       (teardown! container root)
-                       (done)))
-              (.catch (fn [e]
-                        (is false (str "mount rejected: " e))
-                        (teardown! container root)
-                        (done)))))))))
+                           "and cancels the pending exit")))
+              ;; Reports and RELEASES, as above.
+              (.catch (fn [e] (is false (str "mount rejected: " e)) nil))
+              ;; Shared teardown, hoisted onto the single trailing step.
+              (.then (fn [_] (teardown! container root) (done)))))))))
