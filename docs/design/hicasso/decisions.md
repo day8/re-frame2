@@ -1190,8 +1190,25 @@ candidate second call site appears. The composition value path reopens on
 > rather than obligation. A value change under an unchanged revision continues
 > the draft. Equal-but-fresh revisions are inert. The design record is
 > `docs/design/hicasso/studio/revision-prop-spec.md`; the single prop is the
-> whole scope, and the post-v0 buffered ladder **consumes** this trigger rather
+> whole scope, and the buffered ladder **consumes** this trigger rather
 > than extending it.
+>
+> **Amended 2026-08-12 (operator ruling): the buffered ladder is no longer
+> post-v0 (`rf2-sh56`).** Mike ruled the forms module into V0 scope, with
+> `draft-guide/05-forms.md` standing as its draft spec — for this feature only,
+> overriding `specification.md` §7's second-caller extraction gate; the gate
+> stands everywhere else. `re-frame.hicasso.forms/buffered-field` shipped
+> against this addendum's sentence unchanged: it **consumes** `::h/revision`
+> and extends nothing. The caller supplies the revision, the field forwards it
+> to the element, and the module's own use of it is an eligibility rule over
+> its `app-db` record — a draft is rendered while the revision it was written
+> under still matches, and is ineligible the moment it does not. No second
+> reset vocabulary, no new prop at the element, and no diagnostic id: the
+> chapter says the module's failures are behavioural rather than separately
+> named runtime errors, and the two refusals its surface can reach —
+> `:rf.error/hicasso-state-bad-key` and
+> `:rf.error/hicasso-revision-not-controlled` — were already shipped and
+> already catalogued.
 >
 > **The `flushSync` count is unchanged, and the audit statement is the
 > mechanism clause rather than a tally.** The reset adds no call site. Its
