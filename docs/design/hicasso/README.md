@@ -8,9 +8,9 @@ by [EP-0038](../../EP/EP-0038-the-hicasso-view-layer-programme.md).
 | Document | Contents |
 |---|---|
 | [charter.md](charter.md) | Product identity, evidence base, goals, constraints, use-case roster, known losses |
-| [decisions.md](decisions.md) | HD-001…HD-028 — every design decision, resolved, with rationale and reopen conditions |
+| [decisions.md](decisions.md) | HD-001…HD-029 — every design decision, resolved, with rationale and reopen conditions; HD-029 is the P2 fork ruling of 2026-08-13, *Hicasso graduates, as a success* |
 | [hd-002-adjudication.md](hd-002-adjudication.md) | HD-002's correctness/cost gates, adjudicated and still binding — the tripwire, the boundary, ownership, and the hypotheses under test. Written before the operator's 2026-07-31 ergonomics ruling ([decisions.md](decisions.md) HD-002) and stands as written per that ruling; read it alongside HD-002, not in place of it |
-| [production-server-arm.md](production-server-arm.md) | Ruling prep for the P2 sitting (`rf2-2rtt6.88`): the JVM structural walk and the Node sidecar priced against each other from the X1–X5 spike corpus, with what is measured and what is not. **No verdict** — the arm is the operator's to choose |
+| [production-server-arm.md](production-server-arm.md) | Ruling prep for the P2 fork (`rf2-2rtt6.88`) — written for the 2026-08-27 sitting that the 2026-08-13 graduation ruling pre-empted, and the page says so: the JVM structural walk and the Node sidecar priced against each other from the X1–X5 spike corpus, with what is measured and what is not. **No verdict** — the arm is the operator's to choose |
 | [allocation-instrument-rework.md](allocation-instrument-rework.md) | Design brief for `rf2-2rtt6.140`: the boundary-proportional write and the in-window collection witness, with their validity witnesses, the disposition of every test the change supersedes, and the option held in reserve. **No code** — written before the implementation |
 | [architecture.md](architecture.md) | The architecture space, the one live arm (and the withdrawn second), the shared front half, inside-React feasibility, the sub-read mechanism ladder |
 | [validation.md](validation.md) | The bar, the budgets, the P0→P1→P2 plan, witnesses, tournament and measurement discipline, kill criteria |
