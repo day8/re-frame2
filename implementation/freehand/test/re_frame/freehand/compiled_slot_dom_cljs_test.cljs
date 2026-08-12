@@ -136,18 +136,27 @@
 
 (defn- mounted!
   "Mount `form` into a fresh host node, run `check` against the container,
-  and tear the root down whatever happens."
+  and tear the root down whatever happens.
+
+  The rejection handler sits UPSTREAM of the step that calls `done`, and the
+  single `done` sits at the tail with nothing after it (rf2-o0n1). `done` runs
+  the whole remainder of the run synchronously, so a `.catch` downstream of it
+  would claim a later namespace's throw as this row's failure and fire `done` a
+  second time."
   [form check done]
   (let [container (host-node!)]
     (-> (act #(v/mount form container))
         (.then (fn [m]
                  (check container)
-                 (unmount! container m)
-                 (done)))
+                 ;; ASYMMETRIC, so it stays put: `m` is what the mount resolved
+                 ;; with, and the rejection arm never had a root to unmount —
+                 ;; it can only detach the host node, which it does below.
+                 (unmount! container m)))
         (.catch (fn [e]
                   (is false (str "compiled slot mount rejected: " e))
                   (.remove container)
-                  (done))))))
+                  nil))
+        (.then (fn [_] (done))))))
 
 (deftest an-inline-render-fn-renders-its-content-in-the-dom
   (testing "The render-fn's body is lowered by the SAME emitter that

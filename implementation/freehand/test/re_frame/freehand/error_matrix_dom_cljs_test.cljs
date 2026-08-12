@@ -195,12 +195,12 @@
                        (ms/outlines-agree? (ms/q ci "#fallback") (ms/q cc "#fallback")
                                            "contained fallback")
                        (is (= "contained" (ms/text-of ci "#fallback"))
-                           "non-vacuous: the fallback really is on screen")
-                       (ms/destroy-root! ci ri)
-                       (ms/destroy-root! cc rc)
-                       (done)))
-              (.catch (fn [e]
-                        (is false (str "a boundary mount rejected: " e))
-                        (ms/destroy-root! ci ri)
-                        (ms/destroy-root! cc rc)
-                        (done)))))))))
+                           "non-vacuous: the fallback really is on screen")))
+              ;; Reports and RELEASES; it never finishes (rf2-o0n1). `done` runs
+              ;; the whole remainder of the run synchronously, so a `.catch`
+              ;; downstream of it would claim a later namespace's throw as this
+              ;; row's and fire `done` a second time.
+              (.catch (fn [e] (is false (str "a boundary mount rejected: " e)) nil))
+              ;; Both arms tore both roots down, identically, so the teardown
+              ;; rides the single trailing step: written once, run once per path.
+              (.then (fn [_] (ms/destroy-root! ci ri) (ms/destroy-root! cc rc) (done)))))))))

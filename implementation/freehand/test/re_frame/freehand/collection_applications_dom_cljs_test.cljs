@@ -113,9 +113,19 @@
                     [["every row node in the document"
                       #(.-length (.querySelectorAll js/document "[data-part='row']"))]
                      ["every controlled cell in the document"
-                      #(.-length (.querySelectorAll js/document "input.acme-grid-cell"))]])
-                  (done)))
+                      #(.-length (.querySelectorAll js/document "input.acme-grid-cell"))]])))
+              ;; Reports and RELEASES; it never finishes (rf2-o0n1). `done` runs
+              ;; the whole remainder of the run synchronously, so a `.catch`
+              ;; downstream of it would claim a later namespace's throw as this
+              ;; row's and fire `done` a second time.
+              ;;
+              ;; The teardown is NOT hoisted onto the trailing step, and cannot
+              ;; be: the success arm's `ms/residue-clean!` has to read the
+              ;; document AFTER `ms/destroy-root!`, and it is success-only
+              ;; because a second failure attributed to the leak rule would bury
+              ;; the one that actually happened.
               (.catch (fn [e]
                         (is false (str "the editing-grid mount rejected: " e))
                         (ms/destroy-root! container root)
-                        (done)))))))))
+                        nil))
+              (.then (fn [_] (done)))))))))

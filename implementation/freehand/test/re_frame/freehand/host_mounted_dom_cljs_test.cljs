@@ -422,11 +422,16 @@
                          whatever owns the frame now"))
                   (is (= 0 (:live-panels @ledger))
                       "and the registered component's own cleanup ran")
-                  (released! "FH-REACT-007 — after the mounted crossing unmounts")
-                  (done)))
-              (.catch (fn [e]
-                        (is false (str "mount rejected: " e))
-                        (done)))))))))
+                  ;; Success-only, and deliberately: a residue reading taken
+                  ;; after a failure would bury the failure that actually
+                  ;; happened under a second one about the leak rule.
+                  (released! "FH-REACT-007 — after the mounted crossing unmounts")))
+              ;; Reports and RELEASES; it never finishes (rf2-o0n1). `done` runs
+              ;; the whole remainder of the run synchronously, so a `.catch`
+              ;; downstream of it would claim a later namespace's throw as this
+              ;; row's and fire `done` a second time.
+              (.catch (fn [e] (is false (str "mount rejected: " e)) nil))
+              (.then (fn [_] (done)))))))))
 
 (deftest d022-a-hosts-callback-does-not-fire-into-its-successor
   (testing "D022 acceptance 1, the retirement half that unmount alone cannot
@@ -471,14 +476,14 @@
                                  ;; successor — are read here, which is what
                                  ;; the ledger buys: a remount that tore down
                                  ;; only the second would red on the first.
-                                 (released! "FH-REACT-007 — after the remount unmounts")
-                                 (done)))
-                        (.catch (fn [e]
-                                  (is false (str "remount rejected: " e))
-                                  (done)))))))
-              (.catch (fn [e]
-                        (is false (str "mount rejected: " e))
-                        (done)))))))))
+                                 (released! "FH-REACT-007 — after the remount unmounts")))
+                        ;; The inner chain keeps its OWN diagnostic but finishes
+                        ;; nothing; it is returned into the outer chain, whose
+                        ;; trailing step owns the row's one `done`.
+                        (.catch (fn [e] (is false (str "remount rejected: " e)) nil))))))
+              ;; Reports and RELEASES, as above.
+              (.catch (fn [e] (is false (str "mount rejected: " e)) nil))
+              (.then (fn [_] (done)))))))))
 
 ;; ===========================================================================
 ;; D022 acceptance 4 — the value/callback witness, through the same verb
@@ -514,11 +519,11 @@
                        re-frame event")
                   (ms/act #(teardown! container mounted))))
               (.then (fn [_]
-                       (released! "FH-REACT-007 — after the chart unmounts")
-                       (done)))
-              (.catch (fn [e]
-                        (is false (str "mount rejected: " e))
-                        (done)))))))))
+                       ;; Success-only, as above.
+                       (released! "FH-REACT-007 — after the chart unmounts")))
+              ;; Reports and RELEASES, as above.
+              (.catch (fn [e] (is false (str "mount rejected: " e)) nil))
+              (.then (fn [_] (done)))))))))
 
 ;; ===========================================================================
 ;; The key-set law, browser half — a `:map-props` adapter answers the

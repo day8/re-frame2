@@ -129,26 +129,43 @@
           (-> (act #(v/mount [views/two-sites props] container))
               (.then
                 (fn [mounted]
-                  (settle
-                    (fn []
-                      (trace-tooling/unregister-listener! k)
-                      (doseq [[selector t] expected]
-                        (is (= t (text container selector))
-                            (str selector " shows its CLIENT subtree on the first render")))
-                      (is (= flips (count @flip-evs))
-                          (str "a non-hydrating mount never flips. Saw: " (pr-str @flip-evs)))
-                      (is (false? (root/hydrated? mounted))
-                          "and it is not a hydration")
-                      (v/unmount! mounted)
-                      (.remove container)
-                      (reset-all!)
-                      (done)))))
+                  ;; `settle` is a bare timer, so what it carries has to be
+                  ;; AWAITED or it runs off the end of the chain. Returned as a
+                  ;; promise these assertions stay UPSTREAM of the rejection
+                  ;; handler below — the single `done` sits at the tail with
+                  ;; nothing after it — and a throw in here reaches this row's
+                  ;; own diagnostic instead of hanging the lane (rf2-o0n1).
+                  (js/Promise.
+                    (fn [resolve reject]
+                      (settle
+                        (fn []
+                          (try
+                            (trace-tooling/unregister-listener! k)
+                            (doseq [[selector t] expected]
+                              (is (= t (text container selector))
+                                  (str selector " shows its CLIENT subtree on the first render")))
+                            (is (= flips (count @flip-evs))
+                                (str "a non-hydrating mount never flips. Saw: " (pr-str @flip-evs)))
+                            (is (false? (root/hydrated? mounted))
+                                "and it is not a hydration")
+                            ;; Success-only: `mounted` is what the mount
+                            ;; resolved with, and the rejection arm never had a
+                            ;; root to unmount.
+                            (v/unmount! mounted)
+                            (resolve nil)
+                            (catch :default e (reject e)))))))))
+              ;; Reports and RELEASES; it never finishes (rf2-o0n1). `done` runs
+              ;; the whole remainder of the run synchronously, so a `.catch`
+              ;; downstream of it would claim a later namespace's throw as this
+              ;; row's and fire `done` a second time. The unregister is written
+              ;; on both arms rather than hoisted: the success arm has to drop
+              ;; the listener BEFORE it counts what the listener collected.
               (.catch (fn [e]
                         (trace-tooling/unregister-listener! k)
                         (is false (str "mount rejected: " e))
-                        (.remove container)
-                        (reset-all!)
-                        (done)))))))))
+                        nil))
+              ;; Shared teardown, hoisted onto the single trailing step.
+              (.then (fn [_] (.remove container) (reset-all!) (done)))))))))
 
 ;; ===========================================================================
 ;; A hydrating root adopts the fallbacks, then flips ONCE

@@ -156,11 +156,13 @@
                      (is (false? fallback?)
                          "so the boundary's fallback is not on screen")
                      (is (= inherited-names keys)
-                         "and every poison-keyed row rendered, in order")
-                     (done)))
-            (.catch (fn [e]
-                      (is false (str "the poison-keyed mount rejected: " e))
-                      (done))))))))
+                         "and every poison-keyed row rendered, in order")))
+            ;; Reports and RELEASES; it never finishes (rf2-o0n1). `done` runs
+            ;; the whole remainder of the run synchronously, so a `.catch`
+            ;; downstream of it would claim a later namespace's throw as this
+            ;; row's and fire `done` a second time.
+            (.catch (fn [e] (is false (str "the poison-keyed mount rejected: " e)) nil))
+            (.then (fn [_] (done))))))))
 
 ;; ===========================================================================
 ;; A repeat of one is still a duplicate
@@ -216,11 +218,10 @@
             (.then (fn [{:keys [keys error]}]
                      (is (nil? error)
                          "non-vacuous: keys that differ AFTER coercion do not collide")
-                     (is (= ["1" "2" "3"] keys) "and all three rendered")
-                     (done)))
-            (.catch (fn [e]
-                      (is false (str "the coercion sweep rejected: " e))
-                      (done))))))))
+                     (is (= ["1" "2" "3"] keys) "and all three rendered")))
+            ;; Reports and RELEASES, as above.
+            (.catch (fn [e] (is false (str "the coercion sweep rejected: " e)) nil))
+            (.then (fn [_] (done))))))))
 
 ;; ===========================================================================
 ;; The two tiers agree, row for row (runs on every host)
