@@ -1012,12 +1012,17 @@ and its port-8036 `:dev-http` entry (both in top-level
 `implementation/shadow-cljs.edn`), and the PR-smoke `freehand-views populated
 Views roster` scenario in `tools/xray/testbeds/feature_matrix/scenarios.cjs`
 together with its `STAGED_SURFACES` entry. Four more name the deck by build id
-or by scenario name from outside it, and exactly one of the eight reds a gate;
-the other seven fail silent, which is why
-[`017-Test-Coverage-Matrix.md`](017-Test-Coverage-Matrix.md) carries the whole
-checklist as part of the deck's own record rather than leaving it to a grep. A
-pass that takes the two sections and the `deps.edn` coordinate but leaves the
-deck behind reds the PR gate on a scenario whose panel no longer exists.
+or by scenario name from outside it. TWO of the eight red a gate, and they catch
+different omissions: leave the scenario and its `STAGED_SURFACES` entry standing
+while the staged source and build go, and the PR-smoke run — derived from those
+entries rather than from a fixed list — fails; remove the deck without moving
+the canonical covered-row count pin, and `coverage_matrix_metadata_test` fails.
+Neither catches the other's omission. The remaining six go quietly stale, which
+is why [`017-Test-Coverage-Matrix.md`](017-Test-Coverage-Matrix.md) carries the
+whole checklist as part of the deck's own record rather than leaving it to a
+grep. A pass that takes the two sections and the `deps.edn` coordinate but
+leaves the deck behind reds the PR gate on a scenario whose panel no longer
+exists.
 
 ### §3.5 Queries
 
