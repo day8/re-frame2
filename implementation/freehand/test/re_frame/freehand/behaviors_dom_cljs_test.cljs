@@ -181,13 +181,21 @@
                            "the COMMITTED render connects, exactly once")
                        (is (= 1 (behaviors/connection-count)))
                        (is (= #{:probe/one} (behaviors/target-ids))
-                           "and claims the semantic id the use site declared")
-                       (ms/destroy-root! container root)
-                       (done)))
+                           "and claims the semantic id the use site declared")))
+              ;; Reports and releases; it never finishes (rf2-fyba). `cljs.test`
+              ;; hands `done` a continuation that runs the WHOLE REMAINDER of the
+              ;; run synchronously, so a `.catch` downstream of it claims whatever
+              ;; a later namespace throws as this row's failure, prints it against
+              ;; this row's label, and fires `done` a SECOND time — re-forcing
+              ;; `run-block`'s unrealized delay and re-running that namespace.
+              ;; `ms/destroy-root!` is what both arms duplicated, so it rides the
+              ;; single trailing step: written once, still run once per path.
               (.catch (fn [e]
                         (is false (str "mount rejected: " e))
-                        (ms/destroy-root! container root)
-                        (done)))))))))
+                        nil))
+              (.then (fn [_]
+                       (ms/destroy-root! container root)
+                       (done)))))))))
 
 (deftest fh-behavior-004-update-observes-movement-not-renders
   (testing "Per FH-BEHAVIOR-004: `:update` runs when the committed config
@@ -218,13 +226,15 @@
                          (is (= (:prev-config (:moved fh-004)) prev-config)
                              "with the previous config alongside the new one")
                          (is (= (:memory (:moved fh-004)) memory)
-                             "and the private memory :connect returned"))
-                       (ms/destroy-root! container root)
-                       (done)))
+                             "and the private memory :connect returned"))))
+              ;; Reports and releases; it never finishes (rf2-fyba). The teardown
+              ;; both arms duplicated rides the single trailing step.
               (.catch (fn [e]
                         (is false (str "mount rejected: " e))
-                        (ms/destroy-root! container root)
-                        (done)))))))))
+                        nil))
+              (.then (fn [_]
+                       (ms/destroy-root! container root)
+                       (done)))))))))
 
 (deftest fh-behavior-004-layout-timing-runs-before-passive
   (testing "Per FH-BEHAVIOR-004: `:timing :layout` means the work is complete
@@ -245,13 +255,15 @@
                        (let [{:keys [attribute value]} (:layout fh-004)]
                          (is (= value (attr container ".node[data-id='layout']" attribute))
                              "and the layout behavior's DOM write is on its node"))
-                       (is (= 2 (behaviors/connection-count)))
-                       (ms/destroy-root! container root)
-                       (done)))
+                       (is (= 2 (behaviors/connection-count)))))
+              ;; Reports and releases; it never finishes (rf2-fyba). The teardown
+              ;; both arms duplicated rides the single trailing step.
               (.catch (fn [e]
                         (is false (str "mount rejected: " e))
-                        (ms/destroy-root! container root)
-                        (done)))))))))
+                        nil))
+              (.then (fn [_]
+                       (ms/destroy-root! container root)
+                       (done)))))))))
 
 ;; ===========================================================================
 ;; FH-BEHAVIOR-005 — cleanup is TOTAL, and it is asserted as an ABSENCE
@@ -305,11 +317,14 @@
                        ;; BOTH roots — the control and the behaving one —
                        ;; are read here, which is what the shared ledger
                        ;; buys over a per-suite teardown.
-                       (released! "FH-BEHAVIOR-005 — after the last unmount")
-                       (done)))
+                       (released! "FH-BEHAVIOR-005 — after the last unmount")))
+              ;; Reports and releases; it never finishes (rf2-fyba). Nothing to
+              ;; hoist here — both roots were already torn down upstream, inside
+              ;; the chain, which is what the residue read above depends on.
               (.catch (fn [e]
                         (is false (str "mount rejected: " e))
-                        (done)))))))))
+                        nil))
+              (.then (fn [_] (done)))))))))
 
 (deftest fh-behavior-005-a-layout-behavior-releases-exactly-once-too
   (testing "Per FH-BEHAVIOR-005: both timing arms are installed on every
@@ -332,11 +347,13 @@
                          (is (= connections (behaviors/connection-count)))
                          (is (= (set targets) (behaviors/target-ids)))
                          (is (= lifecycle (bv/ops))))
-                       (released! "FH-BEHAVIOR-005 — after the layout arm releases")
-                       (done)))
+                       (released! "FH-BEHAVIOR-005 — after the layout arm releases")))
+              ;; Reports and releases; it never finishes (rf2-fyba). Teardown
+              ;; already ran upstream, so nothing rides the trailing step but `done`.
               (.catch (fn [e]
                         (is false (str "mount rejected: " e))
-                        (done)))))))))
+                        nil))
+              (.then (fn [_] (done)))))))))
 
 (deftest fh-behavior-005-a-partial-teardown-leaves-the-survivor-alone
   (testing "Per FH-BEHAVIOR-005: a release names the exact generation it
@@ -362,11 +379,13 @@
                        (ms/act #(ms/destroy-root! container root))))
               (.then (fn [_]
                        (is (zero? (behaviors/connection-count)))
-                       (released! "FH-BEHAVIOR-005 — after the survivor's own unmount")
-                       (done)))
+                       (released! "FH-BEHAVIOR-005 — after the survivor's own unmount")))
+              ;; Reports and releases; it never finishes (rf2-fyba). Teardown
+              ;; already ran upstream, so nothing rides the trailing step but `done`.
               (.catch (fn [e]
                         (is false (str "mount rejected: " e))
-                        (done)))))))))
+                        nil))
+              (.then (fn [_] (done)))))))))
 
 ;; ===========================================================================
 ;; FH-BEHAVIOR-006 — the bounded command channel
@@ -402,13 +421,15 @@
                                        (:attribute untouched)))
                            "and the live DECOY was untouched")
                        (is (= :probe/one (:target (last @bv/transcript)))
-                           "the context carried the target it was addressed by")
-                       (ms/destroy-root! container root)
-                       (done)))
+                           "the context carried the target it was addressed by")))
+              ;; Reports and releases; it never finishes (rf2-fyba). The teardown
+              ;; both arms duplicated rides the single trailing step.
               (.catch (fn [e]
                         (is false (str "mount rejected: " e))
-                        (ms/destroy-root! container root)
-                        (done)))))))))
+                        nil))
+              (.then (fn [_]
+                       (ms/destroy-root! container root)
+                       (done)))))))))
 
 (deftest fh-behavior-006-a-command-does-not-cross-into-another-frame
   (testing "Per FH-BEHAVIOR-006: a connection is committed under the frame its
@@ -460,13 +481,15 @@
                                        (:attribute untouched)))
                            "and the other frame's node was not touched")
                        (is (= lifecycle (bv/ops))
-                           "no host work ran at all")
-                       (ms/destroy-root! container root)
-                       (done)))
+                           "no host work ran at all")))
+              ;; Reports and releases; it never finishes (rf2-fyba). The teardown
+              ;; both arms duplicated rides the single trailing step.
               (.catch (fn [e]
                         (is false (str "mount rejected: " e))
-                        (ms/destroy-root! container root)
-                        (done)))))))))
+                        nil))
+              (.then (fn [_]
+                       (ms/destroy-root! container root)
+                       (done)))))))))
 
 (deftest fh-behavior-006-one-target-per-frame-is-not-ambiguous
   (testing "Per FH-BEHAVIOR-006: uniqueness is a claim about ONE frame. Two
@@ -504,15 +527,17 @@
                                       (:attribute marked)))
                              note))
                        (is (= lifecycle (bv/ops))
-                           "each command ran exactly once, and neither was refused")
-                       (ms/destroy-root! container-a root-a)
-                       (ms/destroy-root! container-b root-b)
-                       (done)))
+                           "each command ran exactly once, and neither was refused")))
+              ;; Reports and releases; it never finishes (rf2-fyba). BOTH teardowns
+              ;; were duplicated across the two arms, so both ride the single
+              ;; trailing step.
               (.catch (fn [e]
                         (is false (str "mount rejected: " e))
-                        (ms/destroy-root! container-a root-a)
-                        (ms/destroy-root! container-b root-b)
-                        (done)))))))))
+                        nil))
+              (.then (fn [_]
+                       (ms/destroy-root! container-a root-a)
+                       (ms/destroy-root! container-b root-b)
+                       (done)))))))))
 
 (deftest fh-behavior-006-every-other-outcome-is-a-visible-refusal
   (testing "Per FH-BEHAVIOR-006: an absent target, an ambiguous target, an
@@ -542,13 +567,14 @@
                                    (step (rest remaining)))))
                       (js/Promise.resolve :done)))]
           (-> (step (:refusals fh-006))
-              (.then (fn [_]
-                       (ms/destroy-root! container root)
-                       (done)))
+              ;; Reports and releases; it never finishes (rf2-fyba). The teardown
+              ;; both arms duplicated rides the single trailing step.
               (.catch (fn [e]
                         (is false (str "mount rejected: " e))
-                        (ms/destroy-root! container root)
-                        (done))))))))))
+                        nil))
+              (.then (fn [_]
+                       (ms/destroy-root! container root)
+                       (done))))))))))
 
 (deftest fh-behavior-006-a-command-is-refused-after-teardown-never-queued
   (testing "Per FH-BEHAVIOR-006: once the connection is released, the same
@@ -574,11 +600,13 @@
                        (is (= outcome (conf/caught-id
                                         #(behaviors/command! frame-id command)))
                            "and is refused the moment the connection is gone")
-                       (is (zero? (behaviors/connection-count)))
-                       (done)))
+                       (is (zero? (behaviors/connection-count)))))
+              ;; Reports and releases; it never finishes (rf2-fyba). Teardown
+              ;; already ran upstream, so nothing rides the trailing step but `done`.
               (.catch (fn [e]
                         (is false (str "mount rejected: " e))
-                        (done)))))))))
+                        nil))
+              (.then (fn [_] (done)))))))))
 
 (deftest fh-behavior-006-an-outward-context-is-fenced-to-its-generation
   (testing "Per FH-BEHAVIOR-006: a behavior's `:dispatch` is fenced to the
@@ -602,11 +630,13 @@
                        (ms/act #(ms/destroy-root! container root))))
               (.then (fn [_]
                        (is (= after-teardown (@bv/last-dispatch event))
-                           "and inert the moment the connection is released")
-                       (done)))
+                           "and inert the moment the connection is released")))
+              ;; Reports and releases; it never finishes (rf2-fyba). Teardown
+              ;; already ran upstream, so nothing rides the trailing step but `done`.
               (.catch (fn [e]
                         (is false (str "mount rejected: " e))
-                        (done)))))))))
+                        nil))
+              (.then (fn [_] (done)))))))))
 
 (deftest the-command-channel-is-a-registered-effect
   (testing "Per FH-BEHAVIOR-006: the channel is an ordinary re-frame effect,
@@ -673,12 +703,18 @@
                               the claim two void returns used to erase")
                          (is (= mutations @(:calls released))
                              "both void mutators ran against that SAME instance"))
-                       (is (zero? (behaviors/connection-count)))
-                       (done)))
+                       (is (zero? (behaviors/connection-count)))))
+              ;; Reports and releases; it never finishes (rf2-fyba). The teardown
+              ;; here is ASYMMETRIC and stays put: the success path already tore
+              ;; the root down upstream — the `:disconnect` assertions above depend
+              ;; on it having run — so this is the failure arm's own defensive
+              ;; cleanup for a rejection that arrived before that point. Hoisting
+              ;; it would destroy the root twice on the success path.
               (.catch (fn [e]
                         (is false (str "mount rejected: " e))
                         (ms/destroy-root! container root)
-                        (done)))))))))
+                        nil))
+              (.then (fn [_] (done)))))))))
 
 ;; ===========================================================================
 ;; FH-BEHAVIOR-008 — the tool plane: two read-only projections
@@ -745,13 +781,15 @@
                          (is (= 2 (count rows)))
                          (is (= (sort (map :generation rows)) (map :generation rows))
                              "projected oldest first, by the generation that ordered them")
-                         (is (= [:probe/one :probe/two] (mapv :target rows))))
-                       (ms/destroy-root! container root)
-                       (done)))
+                         (is (= [:probe/one :probe/two] (mapv :target rows))))))
+              ;; Reports and releases; it never finishes (rf2-fyba). The teardown
+              ;; both arms duplicated rides the single trailing step.
               (.catch (fn [e]
                         (is false (str "mount rejected: " e))
-                        (ms/destroy-root! container root)
-                        (done)))))))))
+                        nil))
+              (.then (fn [_]
+                       (ms/destroy-root! container root)
+                       (done)))))))))
 
 (deftest fh-behavior-008-the-command-log-records-what-was-asked-and-decided
   (testing "Per FH-BEHAVIOR-008: the command-traffic projection records what
@@ -799,13 +837,15 @@
                                  (is (not (contains? got :generation))
                                      (str note " — and no generation"))))
                            (is (every? (set present) (keys got))
-                               (str note " — the key roster is closed"))))
-                       (ms/destroy-root! container root)
-                       (done)))
+                               (str note " — the key roster is closed"))))))
+              ;; Reports and releases; it never finishes (rf2-fyba). The teardown
+              ;; both arms duplicated rides the single trailing step.
               (.catch (fn [e]
                         (is false (str "mount rejected: " e))
-                        (ms/destroy-root! container root)
-                        (done)))))))))
+                        nil))
+              (.then (fn [_]
+                       (ms/destroy-root! container root)
+                       (done)))))))))
 
 (deftest fh-behavior-008-the-command-log-is-a-bounded-window
   (testing "Per FH-BEHAVIOR-008: the traffic window is BOUNDED — an
@@ -831,10 +871,12 @@
                          (is (= behaviors/command-log-limit (count rows))
                              "the window holds the limit and no more")
                          (is (every? #(= :delivered (:outcome %)) rows)
-                             "and the OLDEST rows were the ones dropped"))
-                       (ms/destroy-root! container root)
-                       (done)))
+                             "and the OLDEST rows were the ones dropped"))))
+              ;; Reports and releases; it never finishes (rf2-fyba). The teardown
+              ;; both arms duplicated rides the single trailing step.
               (.catch (fn [e]
                         (is false (str "mount rejected: " e))
-                        (ms/destroy-root! container root)
-                        (done)))))))))
+                        nil))
+              (.then (fn [_]
+                       (ms/destroy-root! container root)
+                       (done)))))))))
