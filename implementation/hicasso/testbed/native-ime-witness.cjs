@@ -65,6 +65,19 @@
  * and intents-arrived count per field), read back through the DOM, because
  * that is what the ruling names and what a browser shell with no devtools
  * can show.
+ *
+ * ## Why the decisive edges are read TWICE
+ *
+ * The observer accumulates, so one reading taken at the end of a check is an
+ * aggregate over everything the check did — and an aggregate cannot say WHICH
+ * keystroke produced it. Audit #7896 found that gap load-bearing under three
+ * verdicts: an exchange the candidate-window Space had already closed ticked a
+ * no-op Enter, and a check whose whole subject is "mid-composition" could tick
+ * with no composition anywhere near the edge. So every decisive edge here is
+ * bracketed — evidence read immediately before the keystroke and immediately
+ * after it — and the verdict names the transition between the two rather than
+ * the total. `exchangeIsOpen` and `closedAcross` are that discipline in two
+ * lines each.
  */
 
 // The seeds the testbed starts every field at (`hicasso_testbed.core/seed`).
@@ -208,11 +221,57 @@ function compositionWasReal(ev) {
   return ev.compositionstart > 0 && (ev.compositionupdate > 0 || ev.composingInputs > 0);
 }
 
+/**
+ * Was an exchange OPEN at the instant this reading was taken? `compositionstart`
+ * outnumbering `compositionend` is the discriminator, and it is the one an
+ * aggregate reading cannot supply: `compositionWasReal` says a composition
+ * happened SOMEWHERE in the check, and "somewhere" is not "immediately before
+ * the keystroke under test". Audit #7896 found three checks resting their whole
+ * verdict on that difference, which is why the decisive edges below are read
+ * from a PAIR of evidence snapshots rather than from one taken at the end.
+ */
+function exchangeIsOpen(ev) {
+  return compositionWasReal(ev) && ev.compositionstart > ev.compositionend;
+}
+
+/**
+ * Did an exchange CLOSE across one edge? `before` and `after` are two
+ * `compositionEvidence` readings taken either side of a SINGLE keystroke, so
+ * one more `compositionend` after than before is that keystroke's own doing and
+ * nothing else's. This is what pins a verdict to its transition instead of to
+ * the sequence that contained it.
+ */
+function closedAcross(before, after) {
+  return after.compositionend > before.compositionend;
+}
+
 const NO_COMPOSITION =
   'no composition ever started on this field, so nothing about the ' +
   'composition carve-out was exercised. The IME was not engaged for this ' +
   'window: the romaji went in as plain ASCII. This is a rig result, not a ' +
   'runtime result — do not read it as a pass or a defect.';
+
+/**
+ * The premise an aggregate reading could not tell apart from a met one: a
+ * composition DID happen, but it was already closed when the edge arrived, so
+ * the edge acted on nothing and the field's end state is not its doing.
+ */
+const closedBeforeEdge = (edge, ev) =>
+  `a composition did happen on this field, but none was OPEN immediately ` +
+  `before the ${edge}: ${ev.compositionstart} start(s) against ` +
+  `${ev.compositionend} close(s) at that instant. The ${edge} therefore had ` +
+  `no exchange to act on, and what the field shows afterwards is not ` +
+  `evidence about it. This is a rig result, not a runtime result — do not ` +
+  `read it as a pass or a defect.`;
+
+/** The other half: an exchange was open at the edge and the edge did not close it. */
+const edgeDidNotClose = (edge, before, after) =>
+  `an exchange was open at the ${edge} and was STILL open after it ` +
+  `(${before.compositionend} -> ${after.compositionend} close(s)): the ` +
+  `${edge} never reached the composition — the IME most likely ate the key — ` +
+  `so the reading after it is a mid-exchange reading rather than a ${edge} ` +
+  `result. This is a rig result, not a runtime result — do not read it as a ` +
+  `pass or a defect.`;
 
 // ---------------------------------------------------------------------------
 // The verdict functions. PURE, and unit-tested by the runner's teeth, because
@@ -226,10 +285,18 @@ const INCONCLUSIVE = 'INCONCLUSIVE';
 /**
  * Check 5 — ESC abort mid-composition, and the resolution of the operator's
  * 2026-08-11 observation. `before` / `after` are `{ value, committed, edits }`
- * read either side of the Escape keystroke.
+ * read either side of the Escape keystroke; `evBefore` / `evAfter` are the
+ * event evidence read at those SAME two instants.
+ *
+ * Both pairs are needed and neither is sufficient. The cells say what the field
+ * did; only the two event readings say that the ESC is what did it. A single
+ * aggregate reading taken after the sequence proves a composition happened —
+ * not that one was open when ESC arrived, and not that ESC closed it (#7896).
+ * So this verdict is gated on three premises before it decides anything: a real
+ * exchange, OPEN at the ESC, CLOSED across it.
  */
-function abortVerdict({ before, after, evidence, seed }) {
-  if (!compositionWasReal(evidence)) {
+function abortVerdict({ before, after, evBefore, evAfter, seed }) {
+  if (!compositionWasReal(evAfter)) {
     return {
       verdict: INCONCLUSIVE,
       why: `${NO_COMPOSITION} It is also the FIRST of the two readings of the ` +
@@ -237,6 +304,12 @@ function abortVerdict({ before, after, evidence, seed }) {
         'nothing was discarded"): with no exchange open there was nothing to ' +
         'discard, and the draft staying is correct conduct.',
     };
+  }
+  if (!exchangeIsOpen(evBefore)) {
+    return { verdict: INCONCLUSIVE, why: closedBeforeEdge('ESC', evBefore) };
+  }
+  if (!closedAcross(evBefore, evAfter)) {
+    return { verdict: INCONCLUSIVE, why: edgeDidNotClose('ESC', evBefore, evAfter) };
   }
   if (after.edits < before.edits) {
     return {
@@ -249,19 +322,24 @@ function abortVerdict({ before, after, evidence, seed }) {
   if (after.value === seed && after.committed === prStr(seed)) {
     return {
       verdict: TICK,
-      why: `a real exchange was aborted (${evidence.compositionstart} start(s), ` +
-        `${evidence.composingInputs} composing input(s)) and the field returned ` +
-        `to its committed value ${prStr(seed)} with no fragment left behind.`,
+      why: `an exchange that was OPEN at the ESC (${evBefore.compositionstart} ` +
+        `start(s), ${evBefore.composingInputs} composing input(s), ` +
+        `${evBefore.compositionend} close(s)) closed ACROSS it ` +
+        `(${evAfter.compositionend} close(s)), and the field returned to its ` +
+        `committed value ${prStr(seed)} with no fragment left behind.`,
     };
   }
   if (after.value === before.value) {
     return {
       verdict: CROSS,
       why: 'REPRODUCES THE OPERATOR OBSERVATION OF 2026-08-11, and refutes the ' +
-        `benign reading of it: a real composition WAS open (${evidence.compositionstart} ` +
-        `start(s), ${evidence.composingInputs} composing input(s)) and ESC ` +
-        `discarded nothing — the field still shows ${JSON.stringify(after.value)}. ` +
-        'File this as a bead with the engine name on it.',
+        'benign reading of it: a real composition was OPEN at the ESC ' +
+        `(${evBefore.compositionstart} start(s), ${evBefore.composingInputs} ` +
+        `composing input(s)) and the ESC CLOSED it ` +
+        `(${evBefore.compositionend} -> ${evAfter.compositionend} close(s)) — ` +
+        `yet it discarded nothing: the field still shows ` +
+        `${JSON.stringify(after.value)}. File this as a bead with the engine ` +
+        'name on it.',
     };
   }
   return {
@@ -413,11 +491,22 @@ function commitEchoVerdict({ after, evidence, expected, policy }) {
  * decided here, and they are decided separately, because an engine that
  * delivers one settling `input` at the close is a divergence to record with
  * its name on it rather than an implementation defect.
+ *
+ * The close under test is the ENTER'S, and saying so takes two evidence
+ * readings. The Space that opens the candidate window can itself close an
+ * exchange, and an aggregate `compositionend > 0` cannot tell that close from
+ * the one this check is about — so a no-op Enter that ended nothing ticked on
+ * the Space's transition (#7896). The premises are therefore the same three as
+ * check 5, around the Enter: a real exchange, OPEN at the Enter, CLOSED across
+ * it. Only then is the arrivals delta attributable to the close.
  */
-function commitAddsNoIntentVerdict({ before, after, evidence }) {
-  if (!compositionWasReal(evidence)) return { verdict: INCONCLUSIVE, why: NO_COMPOSITION };
-  if (evidence.compositionend === 0) {
-    return { verdict: INCONCLUSIVE, why: 'the composition never closed.' };
+function commitAddsNoIntentVerdict({ before, after, evBefore, evAfter }) {
+  if (!compositionWasReal(evAfter)) return { verdict: INCONCLUSIVE, why: NO_COMPOSITION };
+  if (!exchangeIsOpen(evBefore)) {
+    return { verdict: INCONCLUSIVE, why: closedBeforeEdge('Enter', evBefore) };
+  }
+  if (!closedAcross(evBefore, evAfter)) {
+    return { verdict: INCONCLUSIVE, why: edgeDidNotClose('Enter', evBefore, evAfter) };
   }
   const delta = after.edits - before.edits;
   const doubled = after.value.length > 0
@@ -433,8 +522,10 @@ function commitAddsNoIntentVerdict({ before, after, evidence }) {
   if (delta === 0) {
     return {
       verdict: TICK,
-      why: `arrivals were unchanged across the close (${after.edits}); the ` +
-        'commit converged the field without dispatching an intent of its own.',
+      why: `the Enter closed an exchange that was open at it ` +
+        `(${evBefore.compositionend} -> ${evAfter.compositionend} close(s)) and ` +
+        `arrivals were unchanged across that close (${after.edits}); the commit ` +
+        'converged the field without dispatching an intent of its own.',
     };
   }
   return {
@@ -484,9 +575,21 @@ function revisionDefersVerdict({ duringDraft, afterFire, evidence, seed, armedFi
   };
 }
 
-/** Check 8 — blur and unmount mid-composition strand nothing and throw nothing. */
-function teardownVerdict({ afterBlur, afterUnmount, evidence, seed, pageErrors }) {
-  if (!compositionWasReal(evidence)) return { verdict: INCONCLUSIVE, why: NO_COMPOSITION };
+/**
+ * Check 8 — blur and unmount mid-composition strand nothing and throw nothing.
+ *
+ * TWO PHASES, TWO PIECES OF EVIDENCE. The check blurs a live composition, then
+ * RELOADS and composes again before the armed unmount fires, so the second
+ * teardown is a different exchange on a different page instance. Passing only
+ * the blur phase's evidence made the unmount half unfalsifiable: real evidence
+ * from the blur, a fired unmount and NO composition at all in the second phase
+ * returned a tick (#7896). So `evBlur` and `evUnmount` are separate parameters,
+ * and the unmount half must show its own exchange, live when the node went.
+ */
+function teardownVerdict({ afterBlur, afterUnmount, evBlur, evUnmount, seed, pageErrors }) {
+  if (!compositionWasReal(evBlur)) {
+    return { verdict: INCONCLUSIVE, why: `BLUR PHASE: ${NO_COMPOSITION}` };
+  }
   if (pageErrors.length > 0) {
     return {
       verdict: CROSS,
@@ -501,6 +604,19 @@ function teardownVerdict({ afterBlur, afterUnmount, evidence, seed, pageErrors }
         `${prStr(seed)}, so a draft was stranded.`,
     };
   }
+  if (!exchangeIsOpen(evUnmount)) {
+    return {
+      verdict: INCONCLUSIVE,
+      why: 'UNMOUNT PHASE: no exchange was open on the node when the armed ' +
+        `unmount fired (${evUnmount.compositionstart} start(s), ` +
+        `${evUnmount.compositionend} close(s), ${evUnmount.composingInputs} ` +
+        'composing input(s) in that phase). The blur phase happened on a page ' +
+        'this one reloaded away, so its evidence says nothing here: a node ' +
+        'removed with no live composition under it is not the mid-composition ' +
+        'teardown this check claims. This is a rig result, not a runtime ' +
+        'result — do not read it as a pass or a defect.',
+    };
+  }
   if (!afterUnmount.gone) {
     return {
       verdict: INCONCLUSIVE,
@@ -510,8 +626,11 @@ function teardownVerdict({ afterBlur, afterUnmount, evidence, seed, pageErrors }
   }
   return {
     verdict: TICK,
-    why: 'blur returned the field to its committed value and the mid-composition ' +
-      'unmount removed the node without stranding a draft or throwing.',
+    why: 'blur returned the field to its committed value, and a SECOND exchange ' +
+      `open on the node (${evUnmount.compositionstart} start(s), ` +
+      `${evUnmount.composingInputs} composing input(s), ` +
+      `${evUnmount.compositionend} close(s)) was still live when the armed ` +
+      'unmount removed it — without stranding a draft or throwing.',
   };
 }
 
@@ -648,10 +767,12 @@ module.exports = {
   caretVerdict,
   commitAddsNoIntentVerdict,
   commitEchoVerdict,
+  closedAcross,
   compositionEvidence,
   compositionWasReal,
   dispositionCell,
   draftVisibleVerdict,
+  exchangeIsOpen,
   pageObserver,
   prStr,
   readEvents,
