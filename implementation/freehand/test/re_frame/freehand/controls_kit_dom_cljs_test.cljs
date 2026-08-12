@@ -238,37 +238,49 @@
   [pred label]
   (test-support/poll-until pred {:label label :timeout-ms 2000 :interval-ms 5}))
 
-(defn- finish!
-  "The terminal step of every row here: tear the mount down through the
-  shared lifecycle, assert that NOTHING it created survived, and end the
-  async test.
+(defn- teardown-clean!
+  "The SUCCESS arm's last act: tear the mount down through the shared
+  lifecycle, and assert that NOTHING it created survived.
 
   The residue assertion is what earns the row's claim rather than asserting
   it. It runs AFTER teardown, over the facade's own books — every root this
   test created, and what each left behind — so a root that failed to
   unmount reds HERE instead of contaminating the next suite in the process.
 
-  It OWNS the `done` call, the way `mount-support`'s `run-async` and
-  `each-mode` own theirs: a row that ends here must NOT call `done` itself.
-  Five did, once this replaced a `teardown!` that left `done` to the caller,
-  and nothing went red — `cljs.test` guards `run-block` with a `realized?`
-  delay, so the second call degrades to a console warning rather than
-  corrupting async state (rf2-0ke4x). A duplicate is therefore invisible to
-  the browser gate and has to be kept out by this rule instead."
-  [container root done]
+  It does NOT end the row. The single `done` sits at the TAIL of the chain
+  with nothing after it, and this is one of the two steps that tail waits
+  on; [[report-failure!]] is the other, and says why they cannot be the
+  same step."
+  [container root]
   (ms/destroy-root! container root)
-  (ms/residue-clean! "FH-CTRL-018 — after teardown")
-  (done))
+  (ms/residue-clean! "FH-CTRL-018 — after teardown"))
 
-(defn- fail-and-finish!
-  "The rejection path. It tears down — a rejected row must not leak its root
-  either — but reads no residue: a second failure attributed to the leak
-  rule would bury the one that actually happened."
-  [container root done]
+(defn- report-failure!
+  "The REJECTION arm: record the rejection against this row, tear the mount
+  down — a rejected row must not leak its root either — and deliberately do
+  NOT end the row. The chain's single trailing `done` does that.
+
+  It reads no residue, and that asymmetry against [[teardown-clean!]] is
+  load-bearing: a second failure attributed to the leak rule would bury the
+  one that actually happened. It is also why the teardown stays written in
+  both arms instead of riding the shared trailing step — the two arms do
+  different amounts of work, so there is nothing here to hoist.
+
+  **A rejection handler may not sit downstream of the step that calls
+  `done`.** [[re-frame.freehand.mount-support/each-mode]] carries the
+  long-form account (rf2-qpns): `run-block` hands `done` a continuation
+  that runs the whole remainder of the run synchronously, so a `.catch` out
+  past it claims a LATER namespace's throw as this row's failure and fires
+  `done` a second time.
+
+  This file read as ZERO to the campaign's scanner, which looks for a chain
+  step containing a literal `(done)`. Both arms took `done` through a
+  helper, so no step here held one (rf2-29ua)."
+  [container root]
   (fn [e]
     (is false (str "the browser step rejected: " e))
     (ms/destroy-root! container root)
-    (done)))
+    nil))
 
 ;; ===========================================================================
 ;; FH-CTRL-018 — typing, the caret, the composing Enter, and the reset
@@ -303,8 +315,9 @@
                         "non-vacuous: the typing really moved the value")
                     (is (= (count value-after-typing) (first (caret field)))
                         "with the caret at the end, where the user left it")
-                    (finish! container root done))))
-              (.catch (fail-and-finish! container root done))))))))
+                    (teardown-clean! container root))))
+              (.catch (report-failure! container root))
+              (.then (fn [_] (done)))))))))
 
 (deftest fh-ctrl-018-a-mid-string-insert-leaves-the-caret-where-the-user-put-it
   (testing "Per FH-CTRL-018: the caret is placed INSIDE the text and one
@@ -334,8 +347,9 @@
                          to the start would also produce")
                     (is (not= (count value-after-insert) caret-after-insert)
                         "nor the position a reset to the END would produce")
-                    (finish! container root done))))
-              (.catch (fail-and-finish! container root done))))))))
+                    (teardown-clean! container root))))
+              (.catch (report-failure! container root))
+              (.then (fn [_] (done)))))))))
 
 (deftest fh-ctrl-018-a-blur-commits-the-draft
   (testing "Per FH-CTRL-018: the blur commits the draft the user could see.
@@ -362,15 +376,18 @@
                         "non-vacuous: there really is a draft to commit")
                     (is (= 0 (commits)) "and nothing has committed yet")
                     (.blur field)
+                    ;; The nested chain is RETURNED into the outer one, so its
+                    ;; rejections reach the outer `.catch` and it needs none of
+                    ;; its own — one rejection handler and one `done` per row.
                     (-> (settled #(= commits-after-plain-enter (commits)) "the blur commits")
                         (.then (fn [_]
                                  (is (= commits-after-plain-enter (commits))
                                      "the blur committed")
                                  (is (= committed-value (committed))
                                      "carrying the draft the user could see")
-                                 (finish! container root done)))
-                        (.catch (fail-and-finish! container root done))))))
-              (.catch (fail-and-finish! container root done))))))))
+                                 (teardown-clean! container root)))))))
+              (.catch (report-failure! container root))
+              (.then (fn [_] (done)))))))))
 
 (defn- exactly-one-commit-attempt!
   "Press a composing Enter carrying `composing-press`'s scalars, then a
@@ -435,9 +452,9 @@
                       (is (not= commits-after-composing-enter
                                 commits-after-plain-enter)
                           "non-vacuous: the fixture's two answers really differ")
-                      (finish! container root done)))
-                  (.catch (fail-and-finish! container root done))))))
-        (.catch (fail-and-finish! container root done)))))
+                      (teardown-clean! container root)))))))
+        (.catch (report-failure! container root))
+        (.then (fn [_] (done))))))
 
 (deftest fh-ctrl-018-a-composing-enter-commits-nothing-in-a-real-browser
   (testing "Per FH-CTRL-018: an Enter carrying the STANDARD `isComposing`
@@ -533,6 +550,6 @@
                                 "the commit that follows carries the restored value")
                             (is (not= value-after-insert (committed))
                                 "non-vacuous: it is not the draft the caller refused")
-                            (finish! container root done)))
-                        (.catch (fail-and-finish! container root done))))))
-              (.catch (fail-and-finish! container root done))))))))
+                            (teardown-clean! container root)))))))
+              (.catch (report-failure! container root))
+              (.then (fn [_] (done)))))))))

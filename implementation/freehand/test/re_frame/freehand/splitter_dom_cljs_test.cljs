@@ -229,10 +229,9 @@
   []
   (-> (ms/tick!) (.then (fn [_] (ms/tick!)))))
 
-(defn- finish!
-  "The terminal step of every row here: tear the mount down through the
-  shared lifecycle, assert that NOTHING it created survived, and end the
-  async test.
+(defn- teardown-clean!
+  "The SUCCESS arm's last act: tear the mount down through the shared
+  lifecycle, and assert that NOTHING it created survived.
 
   The residue assertion is what earns the record's `:residue :none`
   rather than asserting it. It runs AFTER teardown, over the facade's own
@@ -240,22 +239,43 @@
   root that failed to unmount reds HERE instead of contaminating the next
   suite in the process.
 
-  It OWNS the `done` call: a row that ends here must NOT call `done`
-  itself."
-  [container root done]
+  It does NOT end the row. The single `done` sits at the TAIL of the
+  chain with nothing after it, and this is one of the two steps that tail
+  waits on; [[report-failure!]] is the other, and says why they cannot be
+  the same step."
+  [container root]
   (ms/destroy-root! container root)
-  (ms/residue-clean! "FH-CTRL-019 — after teardown")
-  (done))
+  (ms/residue-clean! "FH-CTRL-019 — after teardown"))
 
-(defn- fail-and-finish!
-  "The rejection path. It tears down — a rejected row must not leak its
-  root either — but reads no residue: a second failure attributed to the
-  leak rule would bury the one that actually happened."
-  [container root done]
+(defn- report-failure!
+  "The REJECTION arm: record the rejection against this row, tear the
+  mount down — a rejected row must not leak its root either — and
+  deliberately do NOT end the row. The chain's single trailing `done`
+  does that.
+
+  It reads no residue, and that asymmetry against [[teardown-clean!]] is
+  load-bearing: a second failure attributed to the leak rule would bury
+  the one that actually happened. It is also why the teardown stays
+  written in both arms instead of riding the shared trailing step — the
+  two arms do different amounts of work, so there is nothing here to
+  hoist.
+
+  **A rejection handler may not sit downstream of the step that calls
+  `done`.** [[re-frame.freehand.mount-support/each-mode]] carries the
+  long-form account (rf2-qpns): `run-block` hands `done` a continuation
+  that runs the whole remainder of the run synchronously, so a `.catch`
+  out past it claims a LATER namespace's throw as this row's failure and
+  fires `done` a second time.
+
+  One of these per row, on the OUTERMOST chain. Every nested chain here
+  is returned into its parent, so a rejection anywhere inside reaches
+  this handler without a handler of its own — which is what keeps the
+  count at one rejection handler and one `done` per row (rf2-29ua)."
+  [container root]
   (fn [e]
     (is false (str "the browser step rejected: " e))
     (ms/destroy-root! container root)
-    (done)))
+    nil))
 
 ;; ===========================================================================
 ;; THE ROW: a drag and a keystroke leave app-db identical
@@ -344,10 +364,9 @@
                                        WHOLE gesture, and that is the one asymmetry")
                                   (is (= 1 (counter ::commits))
                                       "and exactly one commit reached the domain")
-                                  (finish! container root done))))
-                            (.catch (fail-and-finish! container root done))))))
-                  (.catch (fail-and-finish! container root done))))))
-        (.catch (fail-and-finish! container root done)))))
+                                  (teardown-clean! container root))))))))))))
+        (.catch (report-failure! container root))
+        (.then (fn [_] (done))))))
 
 (deftest fh-ctrl-019-a-drag-and-a-keystroke-leave-app-db-identical
   (testing "Per FH-CTRL-019: the accessibility claim, walked. A real
@@ -425,9 +444,9 @@
                                 "still no previews, after the whole gesture")
                             (is (not= baseline parity-at)
                                 "non-vacuous: the commit really moved the split")
-                            (finish! container root done)))
-                        (.catch (fail-and-finish! container root done))))))
-              (.catch (fail-and-finish! container root done))))))))
+                            (teardown-clean! container root)))))))
+              (.catch (report-failure! container root))
+              (.then (fn [_] (done)))))))))
 
 ;; ===========================================================================
 ;; The ending nobody asked for, and the offer behind it
@@ -498,9 +517,9 @@
                                            be visibly wrong here")
                                       (is (= 0 (counter ::commits))
                                           "and a cancelled gesture committed nothing")
-                                      (finish! container root done)))))))
-                        (.catch (fail-and-finish! container root done))))))
-              (.catch (fail-and-finish! container root done))))))))
+                                      (teardown-clean! container root)))))))))))
+              (.catch (report-failure! container root))
+              (.then (fn [_] (done)))))))))
 
 ;; ===========================================================================
 ;; The bound, under a real pointer
@@ -558,6 +577,6 @@
                                              (.getAttribute sep "aria-valuenow"))
                                           "and the screen reader is told the clamped
                                            value, not the pointer's")
-                                      (finish! container root done)))))))
-                        (.catch (fail-and-finish! container root done))))))
-              (.catch (fail-and-finish! container root done))))))))
+                                      (teardown-clean! container root)))))))))))
+              (.catch (report-failure! container root))
+              (.then (fn [_] (done)))))))))
