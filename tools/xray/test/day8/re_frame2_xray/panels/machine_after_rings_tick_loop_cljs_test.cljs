@@ -125,13 +125,13 @@
                       the two internal reads did NOT hit
                       :rf.error/no-frame-context (pre-fix this slot stayed
                       nil forever: the throw happened before dispatch, and
-                      the catch swallowed it silently every iteration)")
-                 (done)))
+                      the catch swallowed it silently every iteration)")))
         (.catch (fn [e]
                   (is false
                       (str "tick-loop! never dispatched :rf.xray/timer-tick "
                            "onto :rf/xray — " (.-message e)))
-                  (done))))))
+                  nil))
+        (.then (fn [_] (done))))))
 
 ;; ---- rf2-e64drj — the rAF loop is MOUNT-gated, not only DATA-gated --------
 ;;

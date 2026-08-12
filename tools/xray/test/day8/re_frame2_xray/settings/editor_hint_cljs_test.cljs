@@ -104,6 +104,6 @@
                          "the Settings popup is open")
                      (is (= :general (:settings-active-tab db))
                          "Settings opens on the General tab — the editor
-                          picker's home"))
-                   (done)))
-          (.catch (fn [e] (is false (.-message e)) (done)))))))
+                          picker's home"))))
+          (.catch (fn [e] (is false (.-message e)) nil))
+          (.then (fn [_] (done)))))))

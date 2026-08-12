@@ -309,12 +309,16 @@
                   (is (pos? non-transparent-px)
                       "the PNG raster has drawn (non-transparent) content —
                        the node boxes + the active-state glow, not a blank
-                       transparent edge layer")
-                  (finish)
-                  (done)))
+                       transparent edge layer")))
               (.catch
                 (fn [e]
                   (is false (str "chart-as-png! rejected: " e))
+                  nil))
+              ;; `finish` is shared and symmetric — both arms unmounted and
+              ;; removed the host — so it belongs here, written once and still
+              ;; run once per path, ahead of the single trailing `done`.
+              (.then
+                (fn [_]
                   (finish)
                   (done)))))
         ;; skip (no DOM / no act)
