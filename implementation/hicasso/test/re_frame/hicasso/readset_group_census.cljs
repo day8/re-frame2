@@ -133,6 +133,7 @@
         shared    (filterv #(<= 2 (:boundaries %)) claimed)
         shareable (reduce + 0 (map :memberships shared))
         paying    (filterv #(pos? (:saving %)) claimed)
+        non-losing (filterv #(<= 0 (:saving %)) claimed)
         cell-side (:cell-refs (inventory/stats))]
     {:entries                (count rs)
      :claimed                (count claimed)
@@ -147,9 +148,19 @@
      :shareable              shareable
      :shareable-fraction     (if (pos? m) (/ (double shareable) m) 0.0)
      :paying-entries         (count paying)
+     ;; Entries that would not LOSE — `saving ≥ 0`, so break-even
+     ;; included. `:paying-entries` alone would tolerate a `B = R = 2`
+     ;; entry, which saves nothing and is still the shape a scheme would
+     ;; be built for.
+     :non-losing-entries     (count non-losing)
      :paying-saving          (reduce + 0 (map :saving paying))
      :max-boundaries         (reduce max 0 (map :boundaries rs))
      :max-reads              (reduce max 0 (map :reads rs))
+     ;; The whole census in one legible value: how many claimed entries
+     ;; sit at each `[B R]`. It is what makes a pooled figure readable as
+     ;; a shape rather than believed as a total, and it is the row a
+     ;; reader checks the identity against by hand.
+     :shape                  (frequencies (map (juxt :boundaries :reads) claimed))
      :landmark               {:entry-side m
                               :cell-side  cell-side
                               :divergence (- m cell-side)}}))
@@ -175,7 +186,8 @@
               (or acc {:entries 0 :claimed 0 :unclaimed 0 :duplicate-read-entries 0
                        :read-free-entries 0 :memberships 0 :grouped 0
                        :shared-entries 0 :shareable 0 :paying-entries 0
-                       :paying-saving 0 :apps 0 :divergence 0})
+                       :non-losing-entries 0 :paying-saving 0 :apps 0
+                       :divergence 0})
               {:entries                (:entries rpt)
                :claimed                (:claimed rpt)
                :unclaimed              (:unclaimed rpt)
@@ -186,6 +198,7 @@
                :shared-entries         (:shared-entries rpt)
                :shareable              (:shareable rpt)
                :paying-entries         (:paying-entries rpt)
+               :non-losing-entries     (:non-losing-entries rpt)
                :paying-saving          (:paying-saving rpt)
                :divergence             (:divergence (:landmark rpt))
                :apps                   1}))
