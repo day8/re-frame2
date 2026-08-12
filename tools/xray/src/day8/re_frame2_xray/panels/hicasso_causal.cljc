@@ -190,7 +190,7 @@
       {:id :subs-recomputed :ordinal 2 :label "subscriptions recomputed"
        :seam "the bundle's `:subs` trace events, keyed `:rf.sub/id`"
        :basis :observation
-       :evidenced? (or (seq named) (zero? unnamed))
+       :evidenced? (boolean (or (seq named) (zero? unnamed)))
        ;; An empty roster with no unnamed runs is a genuine survey result:
        ;; this dispatch recomputed nothing. An empty roster WITH unnamed
        ;; runs is not — work happened and joins to no subscription — so the
