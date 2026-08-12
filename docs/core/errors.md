@@ -267,9 +267,9 @@ you'll meet first; the rest read the same way once you have the rhythm.
 
 ### A dispatch with no frame in scope
 
-*You wrote a quick `(rf/dispatch [:cart/add-item {:id 7}])` at the REPL, or in a
-`setTimeout` callback, or in a promise `.then` — and instead of a run you got an
-error.* Nearly everyone trips on this once.
+*You wrote a quick `(rf/dispatch [:cart/add-item {:id 7}])` at the REPL, in a
+`setTimeout` callback, in a promise `.then` — or in a button's `:on-click` — and
+instead of a run you got an error.* Nearly everyone trips on this once.
 
 [`dispatch`](glossary.md#dispatch) and
 [`subscribe`](glossary.md#subscribe--derive) resolve their target
@@ -283,9 +283,18 @@ The fix is always the same: **carry the frame** across the async gap — capture
 `:frame` at fx-handler entry and pass it explicitly on the deferred dispatch
 (`{:frame frame}` in the opts), exactly as [Effects](effects.md) showed.
 `capture-frame` is the same move for app code, and [Frames](frames.md) is the
-pattern's canonical home. In a [view](glossary.md#view) you're already under the
-[frame-provider](glossary.md#frame-provider), so you rarely think about it; at the
-REPL or in a test, `with-frame` / `with-new-frame` pin the scope.
+pattern's canonical home. At the REPL or in a test, `with-frame` /
+`with-new-frame` pin the scope.
+
+Being inside a [view](glossary.md#view) does **not** exempt you, and this is where
+the error is met most often. A view renders under the
+[frame-provider](glossary.md#frame-provider), but its `:on-*` handler runs on a
+fresh stack *after* that render committed — so an `:on-click` is a deferred
+callback like any other, and a fully-qualified `#(rf/dispatch [:cart/add-item])`
+inside one raises. What survives the boundary is the frame captured at render
+time: reach for the `dispatch` / `subscribe` that [`reg-view`](views.md) injects,
+which are exactly that capture. [Views](views.md#the-trap-a-callback-that-fires-after-render-has-no-frame)
+has the WRONG / RIGHT pair.
 
 ### A handler throws
 
