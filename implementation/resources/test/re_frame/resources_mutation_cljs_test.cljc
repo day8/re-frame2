@@ -310,7 +310,7 @@
               "the refusal NAMES the mutation id the caller typed")
           (is (= :fix-registration (:recovery data))
               "and carries the catalogued recovery disposition"))
-        (is (str/includes? (ex-message (:exception rec)) ":m/nope")
+        (is (str/includes? (str (some-> (:exception rec) ex-message)) ":m/nope")
             "the human message names the id too")))))
 
 (deftest execute-registered-under-another-kind-still-refuses
