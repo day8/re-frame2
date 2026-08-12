@@ -5651,17 +5651,63 @@ jobs:
       - name: Set up Babashka
         # rf2-9sgj8 — resilient Babashka install (same setup-clojure curl-35 /
         # socket-hang-up flake class as the Clojure CLI installs above).
-        # Reuses the repo's clj-kondo curl-retry idiom (lint.yml) + a 3x backoff
+        # Reuses the repo's clj-kondo curl-retry idiom (lint.yml) + a backoff
         # loop; the bb installer pulls from raw.githubusercontent.com, which
         # 429s under rate limiting — hence --retry-all-errors (lint.yml note).
+        #
+        # rf2-gfvy — this was a line-for-line copy of the three-attempt loop
+        # that rf2-xsfr replaced in `.github/scripts/install-clojure-cli.sh`,
+        # and it carried both of that loop's defects:
+        #
+        #   * A ~2 MINUTE ENVELOPE (10s/20s/30s of backoff plus each attempt's
+        #     own `--retry 5 --retry-delay 3`) against github.com 5xx storms
+        #     measured at 1m48s on 2026-08-13 — it would have lost by seconds.
+        #     It also slept 30s after the FINAL attempt, wasting half a minute
+        #     to change nothing.
+        #
+        #   * AN UNGUARDED FALL-THROUGH to `bb --version` on exhaustion. On a
+        #     runner where nothing installed that dies `bb: command not found`,
+        #     exit 127 — which stops the job proceeding on a half-installed
+        #     toolchain, as intended, but reports a red step INDISTINGUISHABLE
+        #     from the structural tests below having failed.
+        #
+        # This step has no measured instances of its own (the job runs only on
+        # changed skill paths), but it fetches from the same hosts on the day
+        # its two siblings lost, so it takes the same repair: six attempts with
+        # a jittered 20s/40s/60s/80s/100s backoff — roughly seven minutes, about
+        # 3.5x the longest storm observed — and an explicit `::error` annotation
+        # in place of the fall-through, so "the gate failed" and "the gate never
+        # ran" are distinguishable without opening the raw log. The exit status
+        # stays a plain 1, as it is in `install-clojure-cli.sh` and
+        # `resolve-clojure-deps.sh`: the annotation is the machine-readable
+        # carrier the checks API exposes, and a bespoke code would be a second
+        # convention with no consumer. The jitter term comes over unchanged from
+        # the sibling — it costs nothing in a loop body, unlike inside a curl
+        # flag list, which is why the clj-kondo step in lint.yml does without
+        # it. The title carries no comma: `,` separates properties in GitHub's
+        # workflow-command grammar, so a comma inside one truncates the title.
+        #
+        # NOT extracted to `.github/scripts/install-babashka.sh`. The Clojure
+        # CLI extraction (rf2-e7ja9) paid for itself by collapsing ~59 copies of
+        # one policy; bb has exactly ONE call site, and a new file plus its
+        # shellcheck-roster and mirror-test obligations to own a single caller
+        # is not a trade worth making.
         run: |
           set -euo pipefail
-          for attempt in 1 2 3; do
+          attempts=6
+          attempt=0
+          while [ "$attempt" -lt "$attempts" ]; do
+            attempt=$((attempt + 1))
             curl -fsSL --retry 5 --retry-all-errors --retry-delay 3 -o /tmp/bb-install \
               https://raw.githubusercontent.com/babashka/babashka/master/install \
               && sudo bash /tmp/bb-install && break
-            echo "Babashka install attempt ${attempt}/3 failed; retrying in $((attempt * 10))s"
-            sleep "$((attempt * 10))"
+            if [ "$attempt" -ge "$attempts" ]; then
+              echo "::error title=Babashka install failed — CI infrastructure — not this diff::Downloading and running the official Babashka installer failed ${attempts} times over roughly seven minutes. NO GATE RAN IN THIS JOB: this step provisions bb, so the skills structural tests that would have exercised this change never started, and this red says nothing whatever about the diff. The usual cause is a raw.githubusercontent.com 429 under rate limiting or a github.com 5xx storm (rf2-9sgj8; six such losses on 2026-08-13, rf2-xsfr and rf2-gfvy); the URL fetched is a literal constant in .github/workflows/test.yml, so no change can affect it UNLESS this PR edits that step, in which case read it first. Otherwise re-run the job."
+              exit 1
+            fi
+            delay=$((attempt * 20 + RANDOM % 10))
+            echo "Babashka install attempt ${attempt}/${attempts} failed; retrying in ${delay}s"
+            sleep "$delay"
           done
           bb --version
 

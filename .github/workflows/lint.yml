@@ -258,12 +258,56 @@ jobs:
         # placement where the retry policy covers the download that fails,
         # and it drops this step from two network hops to one.
         #
-        # `--retry 5 --retry-all-errors --retry-delay 3` retries transient
-        # failures with a 3s base backoff — the SSL-connect drop above, and
-        # the CDN HTTP-429 that `-f` alone treats as fatal (rf2-cq0s2j; cost
-        # a fix-worker cycle on #5304). GNU curl on ubuntu-24.04 runners
-        # supports `--retry-all-errors` (since 7.71). `-f` additionally means
-        # an error page can never be mistaken for an archive.
+        # `--retry-all-errors` is what makes the retry cover the failures that
+        # actually occur here — the SSL-connect drop above, and the CDN HTTP-429
+        # that `-f` alone treats as fatal (rf2-cq0s2j; cost a fix-worker cycle
+        # on #5304). GNU curl on ubuntu-24.04 runners supports it (since 7.71).
+        # `-f` additionally means an error page can never be mistaken for an
+        # archive.
+        #
+        # THE ENVELOPE (rf2-gfvy). The first cut was `--retry 5 --retry-delay 3`
+        # — about FIFTEEN SECONDS of cover, and it lost twice on 2026-08-13
+        # against github.com 5xx storms. #8009 logged five 503s, which is
+        # exactly curl's five retries and therefore every request this step was
+        # willing to make; job 94263477384 logged four and died `exit code 56`,
+        # curl's own receive-error number. `-f` means the step dies AT the curl
+        # rather than falling through to a missing binary, so the mask is
+        # milder than the one rf2-xsfr fixed one toolchain over — but the red
+        # still aggregates into `Lint required` and reads as a lint failure,
+        # and no exit-code handling can substitute for simply covering the
+        # storm. 24 retries at a 15s delay is six minutes of backoff, hard-
+        # capped at seven by `--retry-max-time`, which is the same envelope
+        # `.github/scripts/install-clojure-cli.sh` now carries and roughly
+        # 3.5x the longest storm measured (1m48s, #8017). The healthy path is
+        # untouched: the first attempt succeeds and none of it costs anything.
+        #
+        # NO OUTER LOOP, AND NO JITTER, both deliberately. An outer `for` loop
+        # is what the sibling installer uses, but it cannot go here: this step's
+        # body is read by `scripts/check_fast_pr_gap.py`, which classifies a
+        # step as SETUP rather than as a gate only when EVERY command line
+        # matches one of its `SETUP_PATTERNS` — so an added loop line, or a
+        # separate `echo ::error` line, would make the gap map report this job
+        # as an UNRUN GATE, a fail-open in the very map that exists to find
+        # them. Widening flags on the existing `curl` line preserves the
+        # classification, and the `|| { … }` below is appended to that SAME
+        # logical line behind the backslash continuations for the same reason.
+        # The sibling's jitter term is not carried over either: it exists there
+        # because ~59 jobs install the Clojure CLI concurrently within a single
+        # run and would arrive as one herd; clj-kondo has ONE call site, so a
+        # literal delay a reader can multiply out is worth more than thinning a
+        # herd of one.
+        #
+        # ON EXHAUSTION THE STEP SAYS SO. `-f` alone reds the step with curl's
+        # own number — 56 here, 22 for a plain HTTP error, and it varies with
+        # the transfer's failure mode, which is precisely why the annotation is
+        # NOT keyed on an exit code. `|| { echo "::error title=…"; exit 1; }`
+        # fires whatever curl returned, surfaces on the PR's checks page, and
+        # makes "the lint gate failed" and "the lint gate never ran"
+        # distinguishable without opening the raw log. Same idiom, and the same
+        # plain `exit 1`, as `install-clojure-cli.sh` and
+        # `resolve-clojure-deps.sh` (rf2-xsfr, rf2-vm036). The title carries no
+        # comma: `,` separates properties in GitHub's workflow-command grammar,
+        # so a comma inside one truncates the rendered title.
         #
         # The URL is written out in full — platform triple and version pin
         # literal, no shell interpolation — so that the string in this file is
@@ -280,9 +324,10 @@ jobs:
         # one this step exists to stop. `/usr/local/bin` is on $PATH and is
         # where the upstream script installed too, so nothing downstream moves.
         run: |
-          curl -fsSL --retry 5 --retry-all-errors --retry-delay 3 \
+          curl -fsSL --retry 24 --retry-all-errors --retry-delay 15 --retry-max-time 420 \
             -o /tmp/clj-kondo.zip \
-            https://github.com/clj-kondo/clj-kondo/releases/download/v2026.04.15/clj-kondo-2026.04.15-linux-static-amd64.zip
+            https://github.com/clj-kondo/clj-kondo/releases/download/v2026.04.15/clj-kondo-2026.04.15-linux-static-amd64.zip \
+            || { echo "::error title=clj-kondo install failed — CI infrastructure — not this diff::Downloading the pinned clj-kondo release archive failed for roughly seven minutes of retries. NO LINT RAN IN THIS JOB: this step provisions the linter, so the clj-kondo gate never started and this red says nothing whatever about the diff. The usual cause is a github.com 5xx storm on the release download (two PRs on 2026-08-13, rf2-gfvy; four more on the Clojure CLI the same day, rf2-xsfr); the URL fetched is a literal constant in .github/workflows/lint.yml, so no change can affect it UNLESS this PR edits that step, in which case read it first. Otherwise re-run the job."; exit 1; }
           unzip -qq -o /tmp/clj-kondo.zip clj-kondo -d /tmp
           sudo install -m 0755 /tmp/clj-kondo /usr/local/bin/clj-kondo
           clj-kondo --version
