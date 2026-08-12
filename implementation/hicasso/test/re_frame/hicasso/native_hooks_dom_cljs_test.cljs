@@ -192,6 +192,34 @@
 
 (defn- readers-of [sub-key] (inventory/cell-readers sub-key))
 
+(defonce ^:private !minted
+  ;; Every root a row has minted through `mount-live!`, oldest first.
+  ;; Emptied by `release-minted!` on the row's single trailing step.
+  ;; `defonce` takes no docstring, hence the comment.
+  (atom []))
+
+(defn- release-minted!
+  "Release every root this row minted, and forget them. Rides the single
+  trailing step, which BOTH arms reach, so the teardown is written once
+  and runs once per path; `mount/release!` is idempotent, so a row whose
+  success path already tore its root down pays nothing here — and the
+  `teardown!` assertions below stay exactly where they are, because they
+  are the act under test rather than a cleanup.
+
+  **Why the rejection arm cannot do this itself (rf2-fqof).**
+  [[mount-live!]] mints its root SYNCHRONOUSLY and hands it over only
+  once the wait succeeds, so a rejection reaches the arm with a live root
+  the arm has no name for — the wait's own deadline is one such path, and
+  a throw anywhere in the row body above is another. Reporting and
+  finishing there leaves a mounted React root and its container standing
+  in the document for the NEXT namespace to inherit, which is the very
+  contamination the rf2-fyba campaign is about, arriving by a second
+  door (rf2-o0n1)."
+  []
+  (run! mount/release! @!minted)
+  (reset! !minted [])
+  nil)
+
 (defn- mount-live!
   "Mount `hiccup` under `frame-kw` and return only once `sub-key` has
   exactly `readers` readers — which is to say, once every holder in the
@@ -208,10 +236,15 @@
   because a tree may hold the key more than once — the shared-entry row
   mounts a boundary and an island on one key deliberately — and a wait
   that stopped at the first arrival would let the second commit land
-  underneath the assertions."
+  underneath the assertions.
+
+  Enrols the root in [[!minted]] the instant it exists, because from that
+  instant until [[release-minted!]] runs there is a live root on the page
+  and this promise is the only thing that could ever name it."
   [frame-kw hiccup sub-key readers]
   (let [container (mount/fresh-container!)
         handle    (mount/root! container frame-kw hiccup)]
+    (swap! !minted conj handle)
     (-> (support/wait-until! #(= readers (count (readers-of sub-key))))
         (.then (fn [subscribed?]
                  (when-not subscribed?
@@ -223,8 +256,9 @@
 (defn- skip! [why] (is true (str "a native-hook claim needs a real React DOM — " why)))
 
 (defn- report-failure!
-  "Reports a rejection against `label`, releasing `handle` when this row's
-  rejection arm has one; it does NOT finish the row.
+  "Reports a rejection against `label`; it does NOT finish the row, and it
+  does not tear anything down — [[release-minted!]] on the trailing step
+  owns that, for both arms and for roots this one could never name.
 
   `done` hands `cljs.test/run-block` a continuation that runs the WHOLE
   remainder of the run synchronously, so a `.catch` sitting downstream of the
@@ -234,18 +268,18 @@
   `run-browser-tests.cjs` promotes to a fatal console match (rf2-e8kc). Every
   chain below therefore reports here and finishes on a single trailing step,
   with nothing after it."
-  [label handle]
+  [label]
   (fn [e]
     (is false (str label " — " (.-message e)
                    " | residue " (pr-str (inventory/residue))))
-    (when handle (mount/release! handle))
     nil))
 
-;; Teardown is NOT hoisted onto those trailing steps anywhere in this file,
-;; and the reason is one reason: in the success arm it IS the assertion —
-;; `(is (= support/released (teardown! handle)))` — while the rejection arm
-;; never had the handle at all, because `mount-live!` resolves WITH it. The
-;; two arms were never writing the same release, so there is nothing to hoist.
+;; The success arm's `(is (= support/released (teardown! handle)))` is an
+;; ASSERTION under test and stays where it is — what rides the trailing step
+;; is [[release-minted!]], which is idempotent and therefore costs that
+;; assertion nothing. What it buys is the arm that has no handle at all: a
+;; rejection arriving before the row ever received one used to report and
+;; finish with a live React root standing in the document (rf2-fqof).
 
 (defn- teardown!
   "Unmount, read the census while it is still exact, then finish the
@@ -322,9 +356,11 @@
                 (testing "teardown releases every membership the mount took"
                   (is (= support/released (teardown! handle))))
                 nil))
-            (.catch (report-failure! "W1 mounted read" nil))
-            ;; The single `done`, with nothing after it.
-            (.then (fn [_] (done))))))))
+            (.catch (report-failure! "W1 mounted read"))
+            ;; The single trailing step, which BOTH arms reach: this row's
+            ;; roots go down first, and the single `done` is the last act,
+            ;; with nothing after it.
+            (.then (fn [_] (release-minted!) (done))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; W2. A write wakes its readers and nobody else
@@ -366,9 +402,11 @@
                 (exercised! :hooks/selective-wake)
                 (is (= support/released (teardown! handle)))
                 nil))
-            (.catch (report-failure! "W2 selective wake" nil))
-            ;; The single `done`, with nothing after it.
-            (.then (fn [_] (done))))))))
+            (.catch (report-failure! "W2 selective wake"))
+            ;; The single trailing step, which BOTH arms reach: this row's
+            ;; roots go down first, and the single `done` is the last act,
+            ;; with nothing after it.
+            (.then (fn [_] (release-minted!) (done))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; W3. THE characteristic failure: a re-render that changed no read
@@ -435,9 +473,11 @@
                   (exercised! :hooks/no-resubscribe)
                   (is (= support/released (teardown! handle)))
                   nil)))
-            (.catch (report-failure! "W3 no re-subscribe" nil))
-            ;; The single `done`, with nothing after it.
-            (.then (fn [_] (done))))))))
+            (.catch (report-failure! "W3 no re-subscribe"))
+            ;; The single trailing step, which BOTH arms reach: this row's
+            ;; roots go down first, and the single `done` is the last act,
+            ;; with nothing after it.
+            (.then (fn [_] (release-minted!) (done))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; W4. StrictMode's double mount, and exact teardown
@@ -493,9 +533,11 @@
                                        :edges 0 :entries 0}
                                       (inventory/residue))))
                              nil)))))
-            (.catch (report-failure! "W4 StrictMode" nil))
-            ;; The single `done`, with nothing after it.
-            (.then (fn [_] (done))))))))
+            (.catch (report-failure! "W4 StrictMode"))
+            ;; The single trailing step, which BOTH arms reach: this row's
+            ;; roots go down first, and the single `done` is the last act,
+            ;; with nothing after it.
+            (.then (fn [_] (release-minted!) (done))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; W5. Frames are isolated contexts — on this side of the fence too
@@ -543,9 +585,11 @@
                   (is (= support/released (teardown! b)))
                   (mount/release! (assoc a :root nil))
                   nil)))
-            (.catch (report-failure! "W5 frame isolation" nil))
-            ;; The single `done`, with nothing after it.
-            (.then (fn [_] (done))))))))
+            (.catch (report-failure! "W5 frame isolation"))
+            ;; The single trailing step, which BOTH arms reach: this row's
+            ;; roots go down first, and the single `done` is the last act,
+            ;; with nothing after it.
+            (.then (fn [_] (release-minted!) (done))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; W6. `use-frame`, both halves of the incarnation rule
@@ -638,24 +682,18 @@
                             (exercised! :hooks/incarnation)
                             (is (= support/released (teardown! handle)))
                             nil))
-                        ;; The inner chain now finishes NOTHING — it is
-                        ;; returned into the outer one below, whose single
-                        ;; trailing step is this row's only exit. Its own
-                        ;; diagnostic is kept rather than folded into the
-                        ;; outer one, because only this arm can say the
-                        ;; reincarnation never landed.
-                        ;;
-                        ;; Its `handle` release stays here rather than riding
-                        ;; the tail: the success arm's `teardown!` is an
-                        ;; ASSERTION under test — the census must read
-                        ;; `support/released` — so the failure arm does
-                        ;; strictly less, not the same thing.
-                        (.catch (report-failure! "W6 incarnation" handle)))))))
-            (.catch (report-failure! "W6 incarnation" nil))
-            ;; The single `done`, on the single trailing step, with nothing
-            ;; after it. Both of the inner chain's arms reach it, because the
-            ;; inner chain is returned into this one.
-            (.then (fn [_] (done))))))))
+                        ;; The inner chain finishes NOTHING and tears nothing
+                        ;; down — it is returned into the outer one below,
+                        ;; whose single trailing step is this row's only exit
+                        ;; and the only teardown. Its own diagnostic is kept
+                        ;; rather than folded into the outer one, because only
+                        ;; this arm can say the reincarnation never landed.
+                        (.catch (report-failure! "W6 incarnation")))))))
+            (.catch (report-failure! "W6 incarnation"))
+            ;; The single trailing step, which BOTH arms reach — including
+            ;; both of the inner chain's, because the inner chain is returned
+            ;; into this one. Roots down first, `done` last, nothing after it.
+            (.then (fn [_] (release-minted!) (done))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; W7. The external-store ceiling, measured
@@ -696,9 +734,11 @@
                 (exercised! :hooks/transition)
                 (is (= support/released (teardown! handle)))
                 nil))
-            (.catch (report-failure! "W7 transition" nil))
-            ;; The single `done`, with nothing after it.
-            (.then (fn [_] (done))))))))
+            (.catch (report-failure! "W7 transition"))
+            ;; The single trailing step, which BOTH arms reach: this row's
+            ;; roots go down first, and the single `done` is the last act,
+            ;; with nothing after it.
+            (.then (fn [_] (release-minted!) (done))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; The roster

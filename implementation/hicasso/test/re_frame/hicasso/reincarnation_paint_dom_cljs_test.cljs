@@ -143,6 +143,32 @@
   [pred label]
   (test-support/poll-until pred {:label label :timeout-ms 4000}))
 
+(defonce ^:private !minted
+  ;; Every root a row has minted through `mount-live!`, oldest first.
+  ;; Emptied by `release-minted!` on the row's single trailing step.
+  ;; `defonce` takes no docstring, hence the comment.
+  (atom []))
+
+(defn- release-minted!
+  "Release every root this row minted, and forget them. Rides the single
+  trailing step, which BOTH arms reach, so the teardown is written once
+  and runs once per path; `mount/release!` is idempotent, so a row whose
+  success path already tore its root down pays nothing here.
+
+  **Why the rejection arms cannot do this themselves (rf2-fqof).**
+  [[mount-live!]] mints its root SYNCHRONOUSLY and hands it over only
+  once the polls succeed, so the OUTER arm below — the one that reports
+  with no handle at all — is reachable with a live root on the page: its
+  own poll can time out, and a throw anywhere in the body above the inner
+  chain unwinds straight past it. Reporting and finishing there leaves a
+  mounted React root and its container standing in the document for the
+  NEXT namespace to inherit, which is the very contamination rf2-d3tc's
+  repair is about, arriving by a second door (rf2-o0n1)."
+  []
+  (run! mount/release! @!minted)
+  (reset! !minted [])
+  nil)
+
 (defn- mount-live!
   "Mount, and return only once the boundary is provably SUBSCRIBED.
 
@@ -153,10 +179,15 @@
   runtime that never corrected anything. The wait is therefore a write
   round-trip, exactly as `kernel_commit_owns_dom_cljs_test`'s
   `prove-live!` is: dispatch, and poll until the boundary repaints. Only
-  a live subscription can produce that repaint."
+  a live subscription can produce that repaint.
+
+  Enrols the root in [[!minted]] the instant it exists, because from that
+  instant until [[release-minted!]] runs there is a live root on the page
+  and this promise is the only thing that could ever name it."
   []
   (let [container (mount/fresh-container!)
         handle    (mount/root! container frame-id [who-line {}])]
+    (swap! !minted conj handle)
     (-> (poll #(= "A" (text handle)) "the predecessor's value is committed")
         (.then (fn [_]
                  (mount/dispatch! handle [:reinc-paint/seed "A-live"])
@@ -178,8 +209,12 @@
   (js/Promise. (fn [resolve] (js/setTimeout (fn [] (resolve (f))) 30))))
 
 (defn- report-failure!
-  "Record `label` against THIS row, release its root, and DELIBERATELY
-  DO NOT finish the row — the chain's single trailing `done` does that.
+  "Record `label` against THIS row and DELIBERATELY DO NOT finish it —
+  the chain's single trailing step does that, and owns the teardown too
+  ([[release-minted!]]), so this handler reads the DOM for its diagnostic
+  and releases nothing. `handle` is therefore a witness here rather than
+  a possession: an arm that has one can say what was on screen, and an
+  arm that has none is no longer an arm that strands a root.
 
   **A rejection handler may not sit downstream of the `.then` that calls
   `done` (rf2-d3tc).** `cljs.test/run-block` hands `done` a continuation
@@ -205,7 +240,6 @@
     (is false (str label " — " (.-message e)
                    " | DOM was " (pr-str (when handle (text handle)))
                    " | residue " (pr-str (dissoc (inventory/residue) :entries))))
-    (when handle (mount/release! handle))
     nil))
 
 ;; ---------------------------------------------------------------------------
@@ -282,7 +316,9 @@
                                  (fn [_] (mount/release! handle) nil))))
                       (.catch (report-failure! "W1 paint-order witness" handle))))))
             (.catch (report-failure! "W1 paint-order witness" nil))
-            (.then (fn [_] (done))))))))
+            ;; The single trailing step, which BOTH arms reach: this row's
+            ;; roots go down first, and the single `done` is the last act.
+            (.then (fn [_] (release-minted!) (done))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; W1's sabotage — Evidence law 3
@@ -342,7 +378,9 @@
                                (fn [_] (mount/release! handle) nil))))
                     (.catch (report-failure! "W1 sabotage control" handle)))))
             (.catch (report-failure! "W1 sabotage control" nil))
-            (.then (fn [_] (done))))))))
+            ;; The single trailing step, which BOTH arms reach: this row's
+            ;; roots go down first, and the single `done` is the last act.
+            (.then (fn [_] (release-minted!) (done))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; W2. The staged render→commit gap — the bead's point 4
@@ -424,7 +462,9 @@
                   (.then (inventory/quiesced!)
                          (fn [_] (mount/release! handle) nil))))
               (.catch (report-failure! "W2 staged-gap witness" handle))
-              (.then (fn [_] (done)))))))))
+              ;; The single trailing step, which BOTH arms reach: this row's
+              ;; roots go down first, and the single `done` is the last act.
+              (.then (fn [_] (release-minted!) (done)))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; The population, asserted rather than described
