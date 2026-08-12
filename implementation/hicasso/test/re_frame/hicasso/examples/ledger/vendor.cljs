@@ -111,6 +111,7 @@
         pinned      (.-pinnedIndex props)
         render-row  (.-renderRow props)
         on-window   (.-onWindow props)
+        viewport    (react/useRef nil)
         st          (react/useState 0)
         scroll-top  (aget st 0)
         set-scroll! (aget st 1)
@@ -119,6 +120,25 @@
                                   :viewport-height (.-viewportHeight props)
                                   :overscan        (.-overscan props)
                                   :total           total})]
+    ;; THE SCROLL LISTENER IS A PLAIN DOM ONE, and deliberately not an
+    ;; `onScroll` prop.
+    ;;
+    ;; `@tanstack/react-virtual` does the same thing, through its
+    ;; `observeElementOffset` option, and for the same reason: a
+    ;; virtualizer wants the platform's own scroll notifications, on the
+    ;; element it owns, without React's synthetic event system between it
+    ;; and them. It also happens to be the version a test can drive — the
+    ;; first two runs of `virtualized-dom-cljs-test` set `scrollTop`,
+    ;; dispatched a real `scroll` event, watched the assertion on
+    ;; `scrollTop` pass, and then found the window unmoved, because React
+    ;; never delivered the event to an `onScroll` prop.
+    (react/useEffect
+      (fn []
+        (let [^js node (.-current viewport)
+              listener (fn [_] (set-scroll! (.-scrollTop node)))]
+          (.addEventListener node "scroll" listener)
+          (fn [] (.removeEventListener node "scroll" listener))))
+      #js [])
     (react/useEffect
       (fn []
         (when on-window (on-window from to))
@@ -131,7 +151,7 @@
            ;; `role="row"`, and these two divs sit between them; without
            ;; this the rows are no longer the grid's rows.
            :role      "presentation"
-           :onScroll  (fn [^js e] (set-scroll! (.. e -currentTarget -scrollTop)))
+           :ref       viewport
            :style     #js {:height (.-viewportHeight props) :overflowY "auto"}}
       (react/createElement
         "div"
