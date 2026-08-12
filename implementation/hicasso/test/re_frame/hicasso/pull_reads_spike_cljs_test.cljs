@@ -383,7 +383,7 @@
   arm's figures. Everything a churn row needs, in one place, so no row
   can accidentally read a tally another row left behind."
   [^Screen screen event-v]
-  (reset-tallies! )
+  (reset-tallies!)
   (rf/with-frame (:frame-id screen) (rf/dispatch-sync event-v))
   (read-screen! screen)
   (zipmap tally-keys (map reading tally-keys)))
