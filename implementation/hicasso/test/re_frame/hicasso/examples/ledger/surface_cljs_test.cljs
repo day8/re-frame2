@@ -124,13 +124,21 @@
 
 (deftest the-vendor-knows-nothing-about-us
   (let [edges (set (get graph vendor-ns))]
-    (is (= #{"react"} edges)
-        "the virtualizer's whole dependency set. `react` and nothing else
-         — no public door, no core, no native tier, no test kit — which is
-         what makes it evidence about `h/defhost` rather than about a
-         component written to suit it. A name here is either an npm
-         package the stand-in legitimately needs, or the moment this
-         screen stopped proving what it claims to prove.")))
+    (is (= [] (filterv #(str/starts-with? % "re-frame.") (vec edges)))
+        "THE CLAIM. Not one edge onto anything of ours — no public door, no
+         core, no native tier, no test kit — which is what makes the
+         virtualizer evidence about `h/defhost` rather than a component
+         written to suit it. It could be lifted out of this repository
+         into an npm package without changing a character, and that is
+         exactly what a consumer needs to believe before believing a
+         declaration is all their own virtualizer will need.")
+    (is (= #{"shadow.js.shim.module$react"} edges)
+        "and its whole dependency set is React. The spelling is
+         shadow-cljs's: a string require — `[\"react\" :as react]` — is
+         recorded by the analyzer under the module shim namespace it
+         mints, not under the package name. Pinned rather than pattern-
+         matched, because a SECOND npm package arriving here is a fact
+         about the stand-in worth reviewing.")))
 
 ;; ---------------------------------------------------------------------------
 ;; The fence
