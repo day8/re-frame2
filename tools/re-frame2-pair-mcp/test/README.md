@@ -14,6 +14,7 @@ integration scripts.
 | Does the compiled `out/server.js` complete an MCP handshake and surface the documented tool descriptors? | **JS** — `stdio-roundtrip.js` |
 | Does the persistent nREPL socket survive multiple ops on one server process without leaking / hanging? | **JS** — `live-nrepl.js` |
 | Do connect / dispatch / trace / hot-reload work end-to-end against a live browser-hosted fixture, through the real MCP boundary? | **JS** — `live-e2e-fixture.cjs` |
+| Do the three Hicasso evidence-door tools return a schema-matched, non-empty, value-free projection when actually run against a live Hicasso application? | **JS** — `live-hicasso-wire.cjs` |
 | Does closing stdin (EOF) retire the session — close the persistent nREPL socket and exit 0 — with no out-of-band kill? | **JS** — `stdin-eof-shutdown.cjs` |
 
 If a regression would only be visible **after** the CLJS compiles to
@@ -144,6 +145,40 @@ Run with: `npm run test:live-e2e-fixture` (after `npm run build` and booting
 the fixture; `RE_FRAME2_PAIR_FIXTURE_URL` / `SHADOW_CLJS_NREPL_PORT`
 override discovery).
 
+#### `live-hicasso-wire.cjs` — the Hicasso evidence door, actually run (rf2-hic-059)
+
+The one witness in this tree that executes a Pair tool against a real
+Hicasso provider. `hicasso_tool_test.cljs` stubs the eval with canned
+envelopes and `hicasso_wire_test.cljs` compares emitted strings with the
+provider's source; both are static seam checks, and neither had ever sent
+the emitted form, compiled it, evaluated it in a runtime, or carried a
+result back through the schema gate.
+
+This one does. It boots the `rf2-hic-025` slice application through its
+own `-main` over `eval-cljs`, then calls `read-mounted-boundaries`,
+`read-read-attribution` and `explain-render` as MCP tools, asserting per
+read that the envelope is `:ok? true` stamped with the schema this build
+consumes, that it names the slice's own frame and its `::subs/draft`
+read, and — the point of the file — that it does **not** carry the
+secret seeded into that draft. Non-vacuity comes first: `read-sub`, the
+same server on the same socket, returns the secret, so the absence rows
+are about the door rather than about an empty runtime.
+
+Requires a browser build carrying the `re-frame2-pair.runtime` preload
+whose classpath can reach `re-frame.hicasso.tool` and the slice — the
+implementation tree is one:
+
+```
+cd implementation
+npx shadow-cljs watch hicasso/hmr-testbed \
+  --config-merge '{:devtools {:preloads [re-frame2-pair.runtime]}}'
+```
+
+SOFT-SKIPS (exit 0, `SKIP` banner) when the server bundle, the page, the
+nREPL port file or Playwright is absent. Run with:
+`npm run test:live-hicasso-wire` (`RF2_HICASSO_WIRE_URL` /
+`SHADOW_CLJS_NREPL_PORT` override discovery).
+
 #### `stdin-eof-shutdown.cjs` — EOF lifecycle contract (rf2-j538f7.32)
 
 The self-contained lifecycle grader. Spawns `out/server.js` and drives it
@@ -209,7 +244,8 @@ Is the regression visible in CLJS source?
             ├── concerns the stdio handshake / tool catalogue?   → stdio-roundtrip.js
             ├── concerns the stdin-EOF shutdown lifecycle?        → stdin-eof-shutdown.cjs
             ├── concerns the live nREPL socket?                   → live-nrepl.js
-            └── concerns an end-to-end flow against a live app?   → live-e2e-fixture.cjs
+            ├── concerns an end-to-end flow against a live app?   → live-e2e-fixture.cjs
+            └── concerns the Hicasso door against a live app?     → live-hicasso-wire.cjs
 ```
 
 ## Why this layout is unusual
