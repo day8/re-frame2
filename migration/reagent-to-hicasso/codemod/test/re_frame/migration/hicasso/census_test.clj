@@ -16,7 +16,17 @@
   * `(atom nil)` — `clojure.core`'s — sat one line above the `rdc/render`
     that is the genuine finding in the SSR examples, and both were
     reported. `:unresolved-alias` now needs a qualified head, because the
-    thing that could not be bound is an ALIAS."
+    thing that could not be bound is an ALIAS.
+
+  **What `unresolved` MEANS here changed with rf2-m4hm**, and these tests
+  are where that is pinned. `#?(:cljs [reagent.core :as r])` used to be
+  the archetypal unbindable require; `ns-context` now reads it
+  structurally, so it RESOLVES and its call sites get their real classes.
+  The class did not become decorative — it moved to the population that is
+  genuinely unbindable, of which the vendored copy below is the honest
+  example. A tool that started GUESSING that copy was `reagent.core`
+  would be a worse tool than the blind one, so both directions are
+  asserted."
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
             [re-frame.migration.hicasso.census :as census]
@@ -72,9 +82,12 @@
 ;; ---------------------------------------------------------------------------
 
 (def ^:private conditional-require
-  "The only legal way to require Reagent from a `.cljc` file — and the
-  shape `ns-context` binds nothing for. `examples/capabilities/ssr/`
-  carries three real ones."
+  "The only legal way to require Reagent from a `.cljc` file.
+  `examples/capabilities/ssr/` carries three real ones.
+
+  This was the archetypal UNBINDABLE require until rf2-m4hm taught
+  `ns-context` to read require clauses through reader-conditional nodes.
+  It now resolves, and the assertions below say so."
   (str "(ns app.ssr\n"
        "  (:require [re-frame.core :as rf]\n"
        "            #?(:cljs [reagent.dom.client :as rdc])))\n"
@@ -83,21 +96,108 @@
        "\n"
        "#?(:cljs (defn mount! [] (rdc/render @react-root [:div])))\n"))
 
+(def ^:private vendored-require
+  "A namespace that SPELLS a Reagent name without being Reagent's.
+
+  re-frame-10x ships its dependencies inlined under a private prefix, so
+  `names-reagent?` — which reads the `ns` form's text — says yes while
+  `ns-context` correctly binds nothing, because only the exact roster
+  binds. This is the population `:unresolved-reagent-require` exists for
+  now that the reader-conditional shape resolves, and the tool must keep
+  REPORTING it rather than guessing that `r` is `reagent.core`."
+  (str "(ns app.panel\n"
+       "  (:require [day8.re-frame-10x.inlined-deps.reagent.v1v2v0.reagent.core :as r]))\n"
+       "\n"
+       "(defonce state (atom nil))\n"
+       "\n"
+       "(defn panel [] (r/atom {}))\n"))
+
 (deftest an-unbindable-require-is-reported
-  (let [{:keys [entries unresolved?]} (census/scan conditional-require "app/ssr.cljc")]
+  (let [{:keys [entries unresolved?]} (census/scan vendored-require "app/panel.cljs")]
     (is (true? unresolved?))
     (is (= [:unresolved-reagent-require :unresolved-alias] (mapv :class entries)))
     (testing "the require is reported at the `ns` form, where the fix goes"
       (is (= 1 (:line (first entries)))))
     (testing "and the call that could not be bound names the symbol it could not bind"
-      (is (= {:api "render" :symbol "rdc/render"} (:detail (second entries)))))
+      (is (= {:api "atom" :symbol "r/atom"} (:detail (second entries)))))
     (testing "the note says the whole tool family is blind here, not just the census"
       (is (str/includes? (:note (first entries)) "PARTIALLY BLIND")))))
 
 (deftest the-unqualified-core-call-beside-it-is-not-reported
-  (testing "`(atom nil)` on line 5 is `clojure.core`'s. An alias is what could not
+  (testing "`(atom nil)` on line 4 is `clojure.core`'s. An alias is what could not
             be bound, so a call with no alias is not evidence of it."
-    (is (not-any? #(= 5 (:line %)) (:entries (census/scan conditional-require "app/ssr.cljc"))))))
+    (is (not-any? #(= 4 (:line %)) (:entries (census/scan vendored-require "app/panel.cljs"))))))
+
+;; ---------------------------------------------------------------------------
+;; A require behind a reader conditional RESOLVES (rf2-m4hm)
+;; ---------------------------------------------------------------------------
+
+(deftest a-reader-conditional-require-binds
+  (testing "the non-splicing shape — `ns-context` used to sexpr the whole `ns`
+            form, which throws on a reader-conditional node, so EVERY alias
+            came back empty and the file's real findings were reported only as
+            `:unresolved-alias`"
+    (let [{:keys [entries reagent? unresolved?]} (census/scan conditional-require "app/ssr.cljc")]
+      (is (true? reagent?))
+      (is (false? unresolved?) "resolved, not merely reported")
+      (is (= [:root-mount] (mapv :class entries))
+          "the class the call actually has, not the fallback")
+      (is (= {:api "render"} (:detail (first entries))))))
+
+  (testing "the splicing shape — `#?@` carries a COLLECTION of specs where `#?`
+            carries one, so its branch value is lifted a level"
+    (let [src (str "(ns app.ssr\n"
+                   "  (:require #?@(:cljs [[reagent.core :as r]])))\n"
+                   "\n"
+                   "(defn v [] (r/atom 1))\n")]
+      (is (= [:local-reactive-cell] (classes src "app/ssr.cljc")))))
+
+  (testing "a conditional wrapping the whole `(:require …)` clause, not one spec"
+    (let [src (str "(ns app.ssr\n"
+                   "  #?(:cljs (:require [reagent.core :as r])))\n"
+                   "\n"
+                   "(defn v [] (r/atom 1))\n")]
+      (is (= [:local-reactive-cell] (classes src "app/ssr.cljc")))))
+
+  (testing "`:refer` through a conditional binds the referred names too"
+    (let [src (str "(ns app.ssr\n"
+                   "  (:require #?(:cljs [reagent.core :refer [partial]])))\n"
+                   "\n"
+                   "(defn v [] (partial f 1))\n")]
+      (is (= [:reagent-partial] (classes src "app/ssr.cljc"))))))
+
+(deftest one-resolving-require-does-not-vouch-for-another
+  (testing "MERGED-PR AUDIT #7979's edge. An ordinary Reagent require beside a
+            conditional one left the alias UNION non-empty, so `unresolved?` was
+            false and the conditional half's call sites vanished with NO
+            diagnostic — neither `:unresolved-reagent-require` nor
+            `:unresolved-alias`. That is why the repair reads spec by spec
+            rather than retrying the whole form when the alias set comes back
+            empty: here it never was empty."
+    (let [src (str "(ns app.mixed\n"
+                   "  (:require [reagent.core :as r]\n"
+                   "            #?(:cljs [reagent.dom.client :as rdc])))\n"
+                   "\n"
+                   "(defn v [] (r/atom 1))\n"
+                   "(defn m [] (rdc/render nil nil))\n")
+          {:keys [entries unresolved?]} (census/scan src "app/mixed.cljc")]
+      (is (false? unresolved?))
+      (is (= [:local-reactive-cell :root-mount] (mapv :class entries))
+          "BOTH requires' call sites are named, not just the ordinary one")
+      (is (= [5 6] (mapv :line entries))))))
+
+(deftest a-conditional-that-is-not-reagents-binds-nothing
+  (testing "seeing THROUGH a reader conditional is only correct if it also
+            declines to bind — a fix that read every branch as Reagent's would
+            report a file with no Reagent in it"
+    (let [src (str "(ns app.util\n"
+                   "  (:require #?(:cljs [clojure.string :as str])))\n"
+                   "\n"
+                   "(defn v [] (str/atom 1))\n")
+          {:keys [entries reagent? unresolved?]} (census/scan src "app/util.cljc")]
+      (is (false? reagent?))
+      (is (false? unresolved?))
+      (is (= [] entries)))))
 
 (deftest an-ns-form-under-metadata-is-still-the-ns-form
   (testing "`^:cljstyle/ignore (ns …)` is ordinary. Reading it as `nil` binds
@@ -125,8 +225,17 @@
             `ns-form?` matches at the meta node and at the list inside it"
     (let [src (str "^:cljstyle/ignore\n"
                    "(ns app.graph\n"
-                   "  (:require #?(:cljs [reagent.core :as r])))\n")]
-      (is (= [:unresolved-reagent-require] (classes src "app/graph.cljc"))))))
+                   "  (:require [day8.re-frame-10x.inlined-deps.reagent.v1v2v0.reagent.core\n"
+                   "             :as r]))\n")]
+      (is (= [:unresolved-reagent-require] (classes src "app/graph.cljc")))))
+  (testing "a conditional require under that same metadata resolves — the
+            metadata path and the conditional path compose"
+    (let [src (str "^:cljstyle/ignore\n"
+                   "(ns app.graph\n"
+                   "  (:require #?(:cljs [reagent.core :as r])))\n"
+                   "\n"
+                   "(def graph-ref-map (r/atom {}))\n")]
+      (is (= [:local-reactive-cell] (classes src "app/graph.cljc"))))))
 
 ;; ---------------------------------------------------------------------------
 ;; A legal population comes back CLEAN
@@ -197,11 +306,13 @@
   (is (= (census/scan form-2 "app/counter.cljs")
          (census/scan form-2 "app/counter.cljs")))
   (is (= (census/scan conditional-require "app/ssr.cljc")
-         (census/scan conditional-require "app/ssr.cljc"))))
+         (census/scan conditional-require "app/ssr.cljc")))
+  (is (= (census/scan vendored-require "app/panel.cljs")
+         (census/scan vendored-require "app/panel.cljs"))))
 
 (deftest the-summary-names-every-bucket-including-the-empty-ones
   (let [built (census/build [(census/scan form-2 "app/counter.cljs")
-                             (census/scan conditional-require "app/ssr.cljc")
+                             (census/scan vendored-require "app/panel.cljs")
                              (census/scan "(ns a)\n(defn f [] [:div])\n" "app/plain.cljs")])
         s     (:summary built)]
     (is (= (set census/verdicts) (set (keys (:by-verdict s))))

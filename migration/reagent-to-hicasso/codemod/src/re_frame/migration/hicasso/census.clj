@@ -40,21 +40,29 @@
   ## The law this file exists to obey
 
   **What cannot be resolved is REPORTED, never skipped.** [[ns-context]]
-  answers `#{}` for a require the reader cannot read, and the common one
-  is not exotic — `#?(:cljs [reagent.core :as r])` is the ONLY legal way
-  to require Reagent from a `.cljc` file. Before this namespace, such a
-  file was silently a file with no Reagent in it: every `r/atom`,
+  answers `#{}` for a require it cannot resolve. Such a file would
+  otherwise be silently a file with no Reagent in it: every `r/atom`,
   `r/as-element` and `(r/partial …)` in it invisible, W4 and W5 dead, and
   the report non-empty enough (the `:>` head needs no alias) that nobody
   would suspect a hole. That is a census that cannot fail, which is a
   census that cannot be believed.
 
-  It is now `:unresolved-reagent-require`, at the `ns` form's own line, and
+  It is `:unresolved-reagent-require`, at the `ns` form's own line, and
   every roster-named call in such a file is `:unresolved-alias` with the
-  symbol it could not bind. The FIXER's blindness is unchanged and
-  deliberate — a fixer that starts rewriting `.cljc` files it previously
-  could not see is a behaviour change, and this is a reporter — so the
-  census's job is to make the hole loud, not to paper over it.
+  symbol it could not bind.
+
+  **The population that class names has SHRUNK, and deliberately.** The
+  original one was `#?(:cljs [reagent.core :as r])` — the only legal way
+  to require Reagent from a `.cljc` file, and so the commonest unbindable
+  require there was. rf2-m4hm taught [[ns-context]] to read require
+  clauses structurally, through the reader-conditional node, so that shape
+  now BINDS: its call sites get their real classes and the fixer sees the
+  file. What remains is the genuinely undecidable — chiefly a namespace
+  that spells a Reagent name without being Reagent's, such as
+  re-frame-10x's vendored
+  `day8.re-frame-10x.inlined-deps.reagent.v1v2v0.reagent.core`. The tool
+  reports those and does not guess at them; guessing would be a worse
+  tool than the blind one.
 
   ## What it does not guess
 
@@ -194,12 +202,14 @@
 
    :unresolved-reagent-require
    (str "This file's `ns` form NAMES a Reagent namespace, and the reader could not bind a "
-        "single symbol to it — a reader-conditional require (`#?(:cljs [reagent.core :as r])`), "
-        "the only legal way to require Reagent from a `.cljc` file, is the usual cause. EVERY "
-        "TOOL IN THIS FAMILY IS PARTIALLY BLIND IN THIS FILE: `r/partial` is not wrapped (W4), "
-        "`(r/adapt-react-class …)` is not respelled (W5), and Reagent API inside a crossing is "
-        "not named. Read this file by hand, or move the require out of the reader conditional "
-        "and re-run.")
+        "single symbol to it. The usual cause is a namespace that SPELLS a Reagent name "
+        "without being Reagent's — a vendored or inlined copy such as "
+        "`day8.re-frame-10x.inlined-deps.reagent.v1v2v0.reagent.core`, or a submodule outside "
+        "the roster. EVERY TOOL IN THIS FAMILY IS PARTIALLY BLIND IN THIS FILE: `r/partial` is "
+        "not wrapped (W4), `(r/adapt-react-class …)` is not respelled (W5), and Reagent API "
+        "inside a crossing is not named. Read this file by hand. The tool will not guess that "
+        "such a copy is `reagent.core`: a wrong binding rewrites working code, which is worse "
+        "than naming what it cannot resolve.")
 
    :unresolved-alias
    (str "A call whose NAME is on the Reagent roster, in a file whose Reagent require the reader "

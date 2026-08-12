@@ -1,0 +1,101 @@
+[{:line 18,
+  :col 3,
+  :class :cljc-site,
+  :action :refused,
+  :head "Btn",
+  :detail {},
+  :note
+  "This crossing is in a `.cljc` file. `[:>]` is a ClojureScript-only node — the JVM side of this file has no React to cross into — so check that this branch is reader-conditioned to `:cljs`."}
+ {:line 18,
+  :col 3,
+  :class :partial-wrapper,
+  :action :rewrote,
+  :head "Btn",
+  :detail
+  {:prop ":on-pick",
+   :was "(r/partial handler @cart)",
+   :now
+   "(let [f__rf2 handler a0__rf2 @cart] (fn [& args__rf2] (apply f__rf2 a0__rf2 args__rf2)))",
+   :captured ["@cart"]},
+  :note
+  "Reagent's `convert-prop-value` ends with an `ifn?` arm that wrapped a `PartialFn` in `(fn [& args] (apply x args))`. Hicasso has no such arm, so the object would have crossed opaque and this handler would have stopped firing with nothing thrown. The wrapper is Reagent's own, transcribed — return-transparent, so whatever it returned before it returns now. The `let` is not decoration: `r/partial` evaluated the callee and every argument ONCE when the prop was built, and the `let` is what keeps that true instead of re-evaluating them on every invocation."}
+ {:line 22,
+  :col 3,
+  :class :cljc-site,
+  :action :refused,
+  :head "Foo",
+  :detail {},
+  :note
+  "This crossing is in a `.cljc` file. `[:>]` is a ClojureScript-only node — the JVM side of this file has no React to cross into — so check that this branch is reader-conditioned to `:cljs`."}
+ {:line 22,
+  :col 3,
+  :class :adapt-react-class-head,
+  :action :rewrote,
+  :head "Foo",
+  :detail {:head "Foo"},
+  :note
+  "`vec-to-elem` sent a `NativeWrapper` head and a `[:> C …]` head to the SAME `native-element`, with the props slot at a different index — two spellings of one path. Respelled as `[:> …]`, which is the form Hicasso accepts; left alone it is a head Hicasso answers with `:rf.error/hicasso-bad-head`."}
+ {:line 22,
+  :col 3,
+  :class :named-value,
+  :action :rewrote,
+  :head "Foo",
+  :detail {:prop ":variant", :was ":big", :now "big"},
+  :note
+  "Reagent named every keyword and symbol prop value; Hicasso keeps them whole except at HTML-attribute slots. The string is a fixpoint on both walks."}
+ {:line 25,
+  :col 3,
+  :class :cljc-site,
+  :action :refused,
+  :head "Grid",
+  :detail {},
+  :note
+  "This crossing is in a `.cljc` file. `[:>]` is a ClojureScript-only node — the JVM side of this file has no React to cross into — so check that this branch is reader-conditioned to `:cljs`."}
+ {:line 25,
+  :col 3,
+  :class :as-element-island,
+  :action :refused,
+  :head "Grid",
+  :detail {},
+  :note
+  "An `r/as-element` inside a callback body at this site. Port it by hand: the closure runs when the library calls it, OUTSIDE the owner's render window, so swapping Reagent's lowering for Hicasso's is not a text substitution."}
+ {:line 28,
+  :col 3,
+  :class :cljc-site,
+  :action :refused,
+  :head "C",
+  :detail {},
+  :note
+  "This crossing is in a `.cljc` file. `[:>]` is a ClojureScript-only node — the JVM side of this file has no React to cross into — so check that this branch is reader-conditioned to `:cljs`."}
+ {:line 28,
+  :col 3,
+  :class :reagent-api-residue,
+  :action :refused,
+  :head "C",
+  :detail {},
+  :note
+  "Reagent API — `r/atom`, `r/cursor`, `r/track`, a form-2 or form-3 shape — inside this site. That is outside this tool's fence entirely; it is named here so you are not surprised by it later."}
+ {:line 28,
+  :col 3,
+  :class :computed-value,
+  :action :refused,
+  :head "C",
+  :detail {:props [":value"]},
+  :note
+  "These prop values are computed, so the tool cannot see what crosses. Three things a computed value may silently be, each of which diverges: a KEYWORD or symbol (Reagent named it, Hicasso keeps it whole), a NESTED MAP (Reagent camelCased its keys, Hicasso does not), or a non-fn `IFn` such as an `r/partial` reached through a symbol (Reagent wrapped it, Hicasso passes it opaque and the handler stops firing). Check each by hand."}
+ {:line 32,
+  :col 3,
+  :class :cljc-site,
+  :action :refused,
+  :head "Btn",
+  :detail {},
+  :note
+  "This crossing is in a `.cljc` file. `[:>]` is a ClojureScript-only node — the JVM side of this file has no React to cross into — so check that this branch is reader-conditioned to `:cljs`."}
+ {:line 32,
+  :col 3,
+  :class :computed-value,
+  :action :refused,
+  :head "Btn",
+  :detail {:props [":on-pick"]},
+  :note
+  "These prop values are computed, so the tool cannot see what crosses. Three things a computed value may silently be, each of which diverges: a KEYWORD or symbol (Reagent named it, Hicasso keeps it whole), a NESTED MAP (Reagent camelCased its keys, Hicasso does not), or a non-fn `IFn` such as an `r/partial` reached through a symbol (Reagent wrapped it, Hicasso passes it opaque and the handler stops firing). Check each by hand."}]

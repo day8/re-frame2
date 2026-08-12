@@ -311,12 +311,15 @@
   reader was able to make of the form?
 
   [[ns-context]] answers the stronger question (which local symbols are
-  bound to it) and answers `#{}` for a require the reader cannot resolve:
-  `#?(:cljs [reagent.core :as r])` is the common one, and it is the only
-  legal way to require Reagent from a `.cljc` file. The two answers
-  disagreeing is precisely the state a census must REPORT rather than
-  read as \"no Reagent here\" — see
-  [[re-frame.migration.hicasso.census/scan]].
+  bound to it) and answers `#{}` for a require it cannot resolve. Since
+  rf2-m4hm that no longer includes the reader-conditional shape
+  `#?(:cljs [reagent.core :as r])`, which is read structurally; what
+  remains is chiefly a namespace that SPELLS a Reagent name without being
+  Reagent's — re-frame-10x's vendored
+  `day8.re-frame-10x.inlined-deps.reagent.v1v2v0.reagent.core` — and the
+  prefix-list shape below. The two answers disagreeing is precisely the
+  state a census must REPORT rather than read as \"no Reagent here\" —
+  see [[re-frame.migration.hicasso.census/scan]].
 
   Read off the TEXT of the `ns` form's CLAUSES, against the
   `reagent-namespaces` roster, so it is blind to nothing the reader is
@@ -343,6 +346,57 @@
            s       (apply str (map n/string clauses))]
        (some #(str/includes? s (str %)) reagent-namespaces)))))
 
+(defn- reader-conditional-node?
+  "Is this node a reader conditional — `#?(…)` or `#?@(…)`?
+
+  A `:reader-macro` node whose first element is the `?` or `?@` token. Any
+  OTHER reader macro (a tagged literal, `#'var`) is not one, and is left
+  alone."
+  [node]
+  (and (= :reader-macro (n/tag node))
+       (contains? #{"?" "?@"} (some-> (element-at node 0) n/string))))
+
+(defn- conditional-values
+  "Every BRANCH VALUE of a reader conditional, from every feature.
+
+  The body is a list of alternating feature keyword and value, so the
+  values are the odd positions. A splicing `#?@` branch holds a COLLECTION
+  of values where a plain `#?` branch holds one, so its elements are
+  lifted a level — that is the whole difference between the two shapes.
+
+  **Every feature, not the `:cljs` one.** The tool reads source text; it
+  does not resolve a platform, and it has no business deciding which
+  branch a consumer's build will take. Reading all of them is also the
+  conservative direction for this tool specifically: the answer feeds
+  [[reagent-call?]], and a symbol bound to Reagent under ANY feature is a
+  symbol whose call sites a migrator must see."
+  [node]
+  (let [values (->> (element-at node 1) elements (drop 1) (take-nth 2))]
+    (if (= "?@" (n/string (element-at node 0)))
+      (mapcat elements values)
+      values)))
+
+(defn- through-conditionals
+  "`nodes`, with every reader conditional replaced by its branch values.
+  Everything else passes through untouched."
+  [nodes]
+  (mapcat #(if (reader-conditional-node? %) (conditional-values %) [%]) nodes))
+
+(defn- require-specs
+  "Every require SPEC node in this `ns` form, as nodes.
+
+  Reader conditionals are seen through at BOTH levels — a conditional
+  wrapping the whole `(:require …)` clause, and the far commoner one
+  wrapping a single spec inside it."
+  [ns-form]
+  (->> (elements ns-form)
+       through-conditionals
+       (filter #(and (list-node? %)
+                     (contains? #{:require :require-macros}
+                                (sexpr-safe (element-at % 0)))))
+       (mapcat #(rest (elements %)))
+       through-conditionals))
+
 (defn ns-context
   "Read a file's `ns` form and answer which symbols name Reagent's API.
 
@@ -352,25 +406,49 @@
   literal call through a symbol this map resolves. A bare `partial` is
   `clojure.core/partial` — which IS a function, so the donor never wrapped
   it — unless the `ns` form referred Reagent's, so the referred set is
-  read rather than assumed."
+  read rather than assumed.
+
+  **Read SPEC BY SPEC, never as one `sexpr` of the whole form**, and that
+  is the entire reason [[require-specs]] exists. `sexpr` throws on a
+  reader-conditional node, so reading the form entire answered
+  `::unreadable` for the WHOLE `ns` — hence `#{}` for every alias — the
+  moment any one require sat behind a `#?`. And
+
+      (ns app.ssr (:require #?(:cljs [reagent.dom.client :as rdc])))
+
+  is the ONLY legal way to require Reagent from a `.cljc` file. So W4 and
+  W5 were dead in every such file, every Reagent API in them went unnamed,
+  and nothing looked wrong because a `:>` head needs no alias and kept the
+  report non-empty. A spec node on its own is ordinary data and reads
+  fine; only the conditional WRAPPER was ever unreadable (rf2-m4hm).
+
+  The mixed file is why this is read per spec rather than fixed with a
+  fallback: one ordinary require beside one conditional require left the
+  alias set non-empty, so a whole-form retry would have found nothing to
+  retry while the conditional half stayed invisible.
+
+  **A namespace that merely SPELLS `reagent.core` is not Reagent's.** Only
+  the exact roster in `reagent-namespaces` binds, so re-frame-10x's
+  vendored `day8.re-frame-10x.inlined-deps.reagent.v1v2v0.reagent.core`
+  still binds NOTHING and is still reported unresolved by the census. That
+  is a different case and the tool must not guess at it."
   [root-node]
-  (let [ns-form (ns-form-node root-node)
-        form    (some-> ns-form sexpr-safe)
-        reqs    (when (seq? form)
-                  (->> form
-                       (filter #(and (seq? %) (contains? #{:require :require-macros} (first %))))
-                       (mapcat rest)))]
-    (reduce
-     (fn [acc spec]
-       (let [spec (if (symbol? spec) [spec] spec)]
-         (if (and (sequential? spec) (contains? reagent-namespaces (first spec)))
-           (let [opts (apply hash-map (rest spec))]
-             (cond-> (update acc :aliases conj (first spec))
-               (:as opts)    (update :aliases conj (:as opts))
-               (:refer opts) (update :referred into (:refer opts))))
-           acc)))
-     {:aliases #{} :referred #{}}
-     reqs)))
+  (reduce
+   (fn [acc spec]
+     (let [spec (if (symbol? spec) [spec] spec)]
+       (if (and (sequential? spec) (contains? reagent-namespaces (first spec)))
+         ;; Pairwise rather than `(apply hash-map …)`, and `:refer` taken
+         ;; only when it is a collection: this reads source nobody in this
+         ;; repository wrote, and a lone trailing option or `:refer :all`
+         ;; must leave the tool answering less, never throwing.
+         (let [opts (into {} (comp (partition-all 2) (filter #(= 2 (count %))) (map vec))
+                          (rest spec))]
+           (cond-> (update acc :aliases conj (first spec))
+             (symbol? (:as opts))          (update :aliases conj (:as opts))
+             (sequential? (:refer opts))   (update :referred into (:refer opts))))
+         acc)))
+   {:aliases #{} :referred #{}}
+   (map sexpr-safe (some-> (ns-form-node root-node) require-specs))))
 
 (defn reagent-call?
   "Is `node` a literal call to Reagent's `sym`, through an alias this
