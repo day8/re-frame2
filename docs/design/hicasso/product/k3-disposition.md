@@ -123,7 +123,10 @@ Two contrasts exist in the package run, and **they are not the same estimand**:
 `a-i` is quoted from [`budgets.md` §4](budgets.md), which also records that the
 re-pin deepened it from `1.3492×`. **`a-ii`'s ratio is computed here**, from the
 two package figures in [§2](#2-the-figures-this-record-disposes-and-the-tree-each-was-taken-on)
-and from nothing else; on the run's unrounded fits it reads `≈2.232×`. The two
+and from nothing else: `2,115 / 948 = 2.231×` on the rounded figures. It is
+written `≈2.23×` above rather than to four places because this page does not
+hold the unrounded fits those two figures came out of, and the ratios it quotes
+from `budgets.md` show that the last digits move when it does. The two
 rows stand in an exact arithmetical relation rather than a modelled one —
 `a-ii = a-i × the spine premium`, because `(1,417/948) × (2,115/1,417) =
 2,115/948` — which is why the premium `rf2-hic-018` carried explicitly is
@@ -190,9 +193,12 @@ otherwise have to reconstruct them. First, **this row is like-for-like after
 so the two columns differ in view layer alone. Second, the shipped column clears
 the registered **UIx material-cost red-zone** of `2,935 B/read` [2,852–3,055]
 outright — `[2,109–2,118]` is wholly below the band's lower edge, so the verdict
-is robust to the 45 B by which this instrument's own UIx donor (`2,980`) reads
-above the published line, a difference the ladder records as a `+1.6%`
-reproduction inside the band.
+is robust to the 45 B by which this instrument's own UIx donor (`2,980`
+[2,979–2,981]) reads above the published line. That gap is not drift: the ladder
+took the same quantity against the same gate and recorded `2,981 B` [2,979–2,986]
+against `2,935` [2,852–3,055] as a **`+1.6%` reproduction, inside the band** —
+the donors being where the record says they are, on the box the candidate was
+measured on.
 
 Combining the two registered lines gives the row's full registered verdict, in
 the register's own words: **"UIx-rule cleared, K3 open until a path down is
@@ -318,7 +324,7 @@ executable by the bead that owns its enforcement:
 | Profile | **P-DEV-1 only.** `CI-RUNNER-A` may never source this row — [`budgets.md` §1](budgets.md) |
 | Governed baseline | The **shipped column**: `2,115 B/read` [2,109–2,118] (S4's Hicasso figure) |
 | Tracked, not gated | The ratom column, `1,417 B/read` [1,416–1,417] (S3's Hicasso figure). It is published and its movement is reported, but a regression on an arm that does not ship is not a product regression |
-| Trip point | `+10%` of the governed baseline — a reading above **`2,327 B/read`** (computed here from the baseline) trips it |
+| Trip point | `+10%` of the governed baseline is **`2,326.5 B/read`** — computed here as `1.10 × 2,115`, and stated to the half-byte because rounding it up would hand back a byte of allowance the rule did not grant. A reading above it trips |
 | Band reading | A confidence band that **crosses** the trip point is **UNRESOLVED, not a pass** — the same reading the operator froze for the `1,024 B` shell line on 2026-08-12, adopted here by analogy and overturnable with it |
 | What a breach does | It is **not** a blocking PR gate: [`budgets.md` §7](budgets.md) keeps the distributional family out of flaky PR thresholds. It blocks on the pinned interleaved evidence run until the benchmark owner validates the instrument and the adapter owner fixes or reverts |
 | Enforcement home | **`rf2-hic-071`**, with the early framework at `rf2-hic-089`. This record states the rule; it does not build the gate |
