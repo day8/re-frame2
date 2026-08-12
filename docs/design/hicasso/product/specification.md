@@ -445,7 +445,7 @@ Exit when every row in section 7 points to running evidence, an installable opti
 In priority order:
 
 1. decide the committed-read resource-demand spike from the typeahead witness;
-2. forms recipes and a buffered-draft helper after its second consumer;
+2. forms recipes and a buffered-draft helper after its second consumer — **the second-consumer condition is REMOVED and the item is delivered: operator ruling (Mike, in session, 2026-08-12; `rf2-sh56`) put the optional `re-frame.hicasso.forms` module in V0 scope with [`../draft-guide/05-forms.md`](../draft-guide/05-forms.md) standing as its draft spec, and `forms/buffered-field` has shipped. For this feature only that overrides the §7 second-caller extraction gate; the gate stands everywhere else**;
 3. anchored popover and modal on native top-layer primitives;
 4. presence/motion posture and focus intent;
 5. routing and async-resource recipes;
