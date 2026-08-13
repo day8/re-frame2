@@ -72,7 +72,7 @@ Inside that one macrostep, the runtime:
 5. repeats until no `:always` is enabled and no raised event remains;
 6. commits the final snapshot once.
 
-The loop is bounded. The default depth limit is 16. A runaway `:always` or `:raise` cycle raises `:rf.error/machine-always-depth-exceeded` and aborts the macrostep atomically; the previous snapshot remains visible.
+The loop is bounded. The default depth limit is 16. A runaway cycle raises `:rf.error/machine-always-depth-exceeded` (eventless) or `:rf.error/machine-raise-depth-exceeded` (`:raise`) and aborts the macrostep atomically; the previous snapshot remains visible.
 
 ## `:always` rules
 
@@ -291,7 +291,8 @@ Readable shorthands such as `"5s"` or `"10ms"` are not accepted, nor are subscri
 | --- | --- | --- |
 | Registration throws `:rf.error/machine-always-self-loop` | `:always` targets its own declaring state | Use a targetless `:always` with an action that flips the guard, or target a different state |
 | Macrostep fails `:rf.error/machine-always-depth-exceeded` | Eventless loop did not settle within 16 steps | Break the cycle; a targetless drain-until-false is the safe loop |
-| Registration throws `:rf.error/machine-bad-choice` | `:choice` is a function, empty, or missing a default | Declarative non-empty vector with an unguarded last candidate |
+| Registration throws `:rf.error/machine-bad-choice` | `:choice` is a function, empty, or otherwise not a candidate vector | Declarative non-empty vector of candidate maps |
+| Registration throws `:rf.error/machine-choice-no-default` | Every `:choice` candidate is guarded | End the vector with an unguarded candidate |
 | A choice or `:always` candidate read `nil` where the payload should be | An eventless step runs with no event | Read the payload on the event-driven transition and store it in `:data` |
 | A retry limit trips one failure early after the count moved into a choice | The entering action already incremented the count the choice's guard reads | Compare against the post-action number |
 | Timer fired but the snapshot did not move | Guard was false at expiry, or the state had already been left | Expected. A late timer is stale; a false guard discards that firing |

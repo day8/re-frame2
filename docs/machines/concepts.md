@@ -31,6 +31,7 @@ A table has five everyday parts:
 Resting leaves such as `:authed` keep the snapshot around so a view can still
 render them. They are **not** `:final?` — that flag destroys the machine
 ([Final states](#final-states)).
+
 ## Register and drive
 
 <a id="register-and-drive"></a>
@@ -150,7 +151,11 @@ self-transition. Click into the cell and press **`Ctrl-Enter`**
 | `:tags` | Runtime-projected union of active states' tags |
 
 `[:rf/machine id]` is `nil` until the first event. A view that renders earlier
-should fall back to the definition's `:initial` and `:data`.
+should fall back to the definition's `:initial` and `:data`. To boot a
+singleton eagerly instead, dispatch the reserved start marker at startup:
+`(rf/dispatch [:auth.login/flow [:rf.machine/start]])`. It runs the initial
+entry — `:entry` actions fire, `:after` timers arm — and stops; it never
+matches an `:on` transition.
 
 Do not build views that switch on detailed `:state` shapes unless the exact
 state is the product decision. For "busy", "read-only", "connected", use

@@ -289,7 +289,7 @@ Project the snapshot. Ask **tags** for shared intent. The credential draft is or
   (let [state @(subscribe [:auth.login/state])
         error @(subscribe [:auth.login/error])
         draft @(subscribe [:auth.login/draft])
-        busy? @(rf/subscribe [:rf.machine/has-tag? :auth.login/flow :auth/busy])]
+        busy? @(subscribe [:rf.machine/has-tag? :auth.login/flow :auth/busy])]
     (case state
       nil          [:button {:on-click #(dispatch [:login/submit draft])}
                     "Sign in"]          ;; singleton snapshot is nil until first dispatch
