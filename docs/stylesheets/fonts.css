@@ -1,26 +1,17 @@
 @import url("https://fonts.googleapis.com/css2?family=Source+Code+Pro:ital,wght@0,400;0,600;1,400&display=swap");
 
-/* Body type: Gorton when the reader has it installed, else Routed Gothic
-   (SIL OFL monoline engraving sans — same pantograph family).
-   Gorton Digital itself is non-commercial and is not vendored. */
+/* Gorton Digital Regular, generated from drdnar/GortonDigital.
+   Free for non-commercial use. See assets/fonts/LICENSE.md. */
 
 @font-face {
-  font-family: "Routed Gothic";
-  src: url("../assets/fonts/routed-gothic.ttf") format("truetype");
+  font-family: "Gorton Digital";
+  src: url("../assets/fonts/GortonDigital-Regular.otf") format("opentype");
   font-weight: 400;
   font-style: normal;
   font-display: swap;
 }
 
-@font-face {
-  font-family: "Routed Gothic";
-  src: url("../assets/fonts/routed-gothic-italic.ttf") format("truetype");
-  font-weight: 400;
-  font-style: italic;
-  font-display: swap;
-}
-
 :root {
-  --md-text-font: "Gorton Digital", "Gorton", "Routed Gothic";
+  --md-text-font: "Gorton Digital";
   --md-code-font: "Source Code Pro";
 }
