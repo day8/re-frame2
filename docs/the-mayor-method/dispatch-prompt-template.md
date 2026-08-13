@@ -403,6 +403,23 @@ A skipped gate needs a one-line reason in the change body. A silent skip fails r
 Paste this section verbatim too, on the same footing as the boundary block. The gate menu settles *which*
 gate runs; only this settles *how*.
 
+**This section is scoped the way the third sentence is, and for the same reason.** Part of what follows
+presupposes a gate the brief actually has: the wedge-recovery paragraph assumes one heavy enough that two
+cannot coexist, and the planted-fault half of the tree-verification rule, the scoped-plant paragraph and the
+restore-hashing cautions all assume a gate you can plant a fault in. A prose-only brief — a comment truth-up, a
+documentation correction, a governance-record edit — has neither, so for it those parts describe nothing it can
+do. **The rest is unconditional for any dispatch that runs anything at all**, and is pasted verbatim whatever
+the deliverable: the detach-and-poll sanction, the never-pipe rule, the capture-your-own-exit-code rule, and the
+artefact-naming rule. A one-line documentation edit still runs a link validator, and all four bite on it.
+
+**Say what a brief with no plantable gate does instead, or that gets improvised too** — and here the
+improvisation was measured on the *enforcing* side, where five dispatches in one session carried five different
+lengths of this one block, nobody having decided to drop anything. The wording is already settled under
+*Quality gates — which gate* above: where a surface has no automated coverage the brief says so, and the worker
+verifies it by hand and reports what it checked and the counts in the change body. Point at that rather than
+restating it, and **scope the block rather than shortening it** — dropping the sanction along with the parts
+that do not apply is the same failure by a shorter road.
+
 **Detaching a long gate is CORRECT; ending the turn afterwards is the defect.** Where a harness hard-kills a
 foreground command well below what the full gate needs, "foreground, to completion" is not on offer however
 the brief is worded. Foreground a gate that fits inside the ceiling; **detach one that does not, then poll
