@@ -1084,10 +1084,24 @@
   MOUNTED, through the `:p0/write-page` event (rf2-2rtt6.140), which is
   the same `dispatch-sync` through the same pipeline and signal graph as
   the bulk clock arms' `:p0/write-all` and differs only in rebuilding the
-  grid at the mounted page's own width — or `\"control\"` (a dropped
-  `.slice` of predicted size) or `\"idle\"` (nothing at all, which prices
-  the sampler's own footprint as a constant sitting inside every other
-  figure).
+  grid at the mounted page's own width — or `\"write-all\"`, THE SAME
+  WINDOW driving `:p0/write-all` instead (rf2-gxrr) — or `\"control\"` (a
+  dropped `.slice` of predicted size) or `\"idle\"` (nothing at all, which
+  prices the sampler's own footprint as a constant sitting inside every
+  other figure).
+
+  `\"write-all\"` IS THE MEASUREMENT SWITCH, AND IT IS NOT THE DEFAULT.
+  Validity witness V1 (`allocation-instrument-rework.md`:256) measures each
+  page under BOTH writes, and `F_old` is its control: \"it says the rig has
+  not moved under the instrument, and it is the only way the two writes can
+  be compared like for like\" (:260-263). Until rf2-gxrr the allocation
+  window could not drive `write-all!` at all, so V1 was unrunnable on the
+  shipped instrument. The two kinds share ONE branch below and differ in the
+  event alone — the tick, the drain, the sampling and the read-back are
+  literally the same code — because a control that differed anywhere else
+  would not be a control. Every published allocation row is `\"write\"`;
+  `\"write-all\"` reaches this door only when the driver's `P0_ALLOC_WRITE`
+  switch names it, and the row records which one it drove.
 
   `drain` is `\"reagent\"` for Reagent's own documented synchronous render
   drain, and anything else for the empty `flushSync` a
@@ -1100,7 +1114,8 @@
   [n kind drain]
   (let [n       (long n)
         ^js buf @alloc-samples
-        write?  (= kind "write")
+        all?    (= kind "write-all")
+        write?  (or (= kind "write") all?)
         ctl?    (= kind "control")
         reagent? (= drain "reagent")]
     (aset buf 0 (mem))
@@ -1108,7 +1123,9 @@
       (aset buf (inc (* 2 i)) (mem))
       (cond
         write? (do (vswap! alloc-tick inc)
-                   (arms/write-page! @alloc-tick)
+                   (if all?
+                     (arms/write-all! @alloc-tick)
+                     (arms/write-page! @alloc-tick))
                    (if reagent?
                      (react-dom/flushSync (fn [] (r/flush)))
                      (react-dom/flushSync (fn [] nil))))

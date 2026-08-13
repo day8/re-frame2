@@ -53,6 +53,9 @@ const {
   ladderPlan,
   allocArmSizing,
   ALLOC_MIN_WRITES,
+  ALLOC_WRITE_SPECS,
+  ALLOC_PLAN_SHAPES,
+  allocPlanArms,
 } = require('./p0_run.cjs');
 
 const tests = [];
@@ -726,8 +729,13 @@ test('the driver exits on THIS function and does not re-derive the verdict', () 
   has(/const refusedWindows = allocRefusedWindows\(out\.alloc\);/, 'the alloc gate calls it');
   has(/if \(refusedWindows\.length > 0\) \{/, 'and its result is what pushes a failure');
   has(/DO NOT WIDEN THE TOLERANCE/, 'naming the repair, not the dial');
+  // The nine this file drives, in order. The trailing `};` came off in
+  // rf2-gxrr: it made the pin a CLOSED list, which was never its content —
+  // "so this file can drive it" is a claim about what is exported, not about
+  // nothing else ever being. The measurement surface's own exports are pinned
+  // in their own test below.
   has(
-    /module\.exports = \{\s*ladderStructuralFailures,\s*allocSteps,\s*allocRefusedWindows,\s*ALLOC_LEG_TOLERANCE,\s*ALLOC_FALL_THRESHOLD_B,\s*ladderPlan,\s*allocArmSizing,\s*ALLOC_MIN_WRITES,\s*ALLOC_ARM,\s*\};/,
+    /module\.exports = \{\s*ladderStructuralFailures,\s*allocSteps,\s*allocRefusedWindows,\s*ALLOC_LEG_TOLERANCE,\s*ALLOC_FALL_THRESHOLD_B,\s*ladderPlan,\s*allocArmSizing,\s*ALLOC_MIN_WRITES,\s*ALLOC_ARM,/,
     'so this file can drive it'
   );
   has(/if \(out\.alloc\.fallsInMeasuredWindows > 0\) \{/, 'and the falling-step gate still exits');
@@ -768,6 +776,27 @@ function armUnderEnv(env) {
   const r = spawnSync(
     process.execPath,
     ['-e', 'process.stdout.write(JSON.stringify(require(process.argv[1]).ALLOC_ARM))', DRIVER],
+    { env: { ...process.env, ...env }, encoding: 'utf8' }
+  );
+  assert.strictEqual(r.status, 0, `requiring the driver must not throw: ${r.stderr}`);
+  return JSON.parse(r.stdout);
+}
+
+// ANY module constant, as a fresh process with `env` set derives it — the
+// generalisation of `armUnderEnv`, and for the same reason: configuration is
+// read exactly once, at require, so an env route can only be pinned from
+// outside the process. `undefined` comes back as `null`, which is what an
+// unknown switch resolves to and how a mistyped one is told apart from a
+// defaulted one.
+function constUnderEnv(name, env) {
+  const r = spawnSync(
+    process.execPath,
+    [
+      '-e',
+      'process.stdout.write(JSON.stringify(require(process.argv[1])[process.argv[2]] ?? null))',
+      DRIVER,
+      name,
+    ],
     { env: { ...process.env, ...env }, encoding: 'utf8' }
   );
   assert.strictEqual(r.status, 0, `requiring the driver must not throw: ${r.stderr}`);
@@ -974,8 +1003,38 @@ test('the RETENTION ladder is not moved by any of this', () => {
   const HEAP = fs.readFileSync(path.join(__dirname, 'p0_heap.cljs'), 'utf8');
   const ARMS = fs.readFileSync(path.join(__dirname, 'p0_arms.cljs'), 'utf8');
   const FIXTURE = fs.readFileSync(path.join(__dirname, 'p0_fixture.cljc'), 'utf8');
-  assert.match(HEAP, /\(arms\/write-page! @alloc-tick\)/, 'the alloc window drives write-page!');
-  assert.doesNotMatch(HEAP, /\(arms\/write-all! /, 'and never write-all!');
+  // AMENDED, NOT DELETED (rf2-gxrr). The absolute `doesNotMatch` on
+  // `write-all!` was this pin's SHAPE; criterion 6's row separation is its
+  // CONTENT — "a reader of any row can tell from the row which write
+  // produced it" — and V1 re-measures `F_old` as its control, which a window
+  // with no route to `write-all!` at all cannot do. So the pin moves from
+  // ABSENCE to REACHABILITY, which is strictly more than absence asked:
+  // `write-page!` is the DEFAULT arm, `write-all!` is the else-arm of a test
+  // on one NAMED kind, there is exactly one such call in the namespace, and
+  // both kinds run the SAME window so the control differs in the event
+  // alone. The clock/bulk pin below is untouched, and the record now names
+  // the write it drove — which absence could not ask for, because there was
+  // only ever one write to name.
+  assert.match(
+    HEAP,
+    /\(if all\?\s+\(arms\/write-all! @alloc-tick\)\s+\(arms\/write-page! @alloc-tick\)\)/,
+    "write-page! is the alloc window's DEFAULT arm and write-all! the else-arm"
+  );
+  assert.strictEqual(
+    (HEAP.match(/\(arms\/write-all! /g) || []).length,
+    1,
+    'and write-all! is reachable from exactly ONE place in this namespace'
+  );
+  assert.match(
+    HEAP,
+    /all\?\s+\(= kind "write-all"\)/,
+    'gated on a NAMED measurement kind — nothing ambient, nothing derived'
+  );
+  assert.match(
+    HEAP,
+    /write\?\s+\(or \(= kind "write"\) all\?\)/,
+    'and both kinds are ONE window: the control differs in the event and nothing else'
+  );
   assert.match(
     HEAP,
     /\(\[segment-id\] \(prepare! segment-id per-root\)\)/,
@@ -1054,6 +1113,148 @@ test('the window is the FLOOR and the page is STATED — neither is derived', ()
     'the page is stated or it is not derivable'
   );
   lacks(/const ALLOC_CELLS = Number\(\s*process\.env\.P0_ALLOC_CELLS \|\|/, 'never defaulted');
+});
+
+// ===========================================================================
+// THE MEASUREMENT SURFACE (rf2-gxrr) — the two switches V1 and V3 are
+// configured through
+// ===========================================================================
+//
+// PR #7702 landed the artefacts V1–V4 judge; what it did not land is the
+// surface that lets V1 and V3 be RUN, and the granted measurement window for
+// rf2-2rtt6.140 refused before a browser was launched because neither shape
+// could be configured. These pins are over the SURFACE, not over any figure:
+// the tables and the plan filter are exported so this file DRIVES the shipped
+// code rather than reading its source and hoping, and the env routes are
+// derived in a fresh process because configuration is read once, at require.
+//
+// NOTHING HERE MEASURES ANYTHING, and nothing here moves a gate. The pins
+// that hold `ALLOC_MIN_WRITES` at 6, the page mandatory and the fall
+// threshold where the probes read it are above, untouched.
+
+test('THE WRITE SELECTOR — `page` is the DEFAULT and `all` is a NAMED switch', () => {
+  assert.deepStrictEqual(Object.keys(ALLOC_WRITE_SPECS), ['page', 'all'], 'two writes, no more');
+  assert.strictEqual(ALLOC_WRITE_SPECS.page.kind, 'write', "the default is the page's own width");
+  assert.strictEqual(ALLOC_WRITE_SPECS.page.event, ':p0/write-page');
+  assert.strictEqual(ALLOC_WRITE_SPECS.all.kind, 'write-all', "and V1's control is the bulk write");
+  assert.strictEqual(ALLOC_WRITE_SPECS.all.event, ':p0/write-all');
+
+  // THE ENV ROUTE, as the shipped derivation performs it.
+  assert.strictEqual(constUnderEnv('ALLOC_WRITE', { P0_ALLOC_WRITE: '' }), 'page');
+  assert.deepStrictEqual(
+    constUnderEnv('ALLOC_WRITE_SPEC', { P0_ALLOC_WRITE: '' }),
+    ALLOC_WRITE_SPECS.page,
+    'an unset switch takes the page write — the one every published row is under'
+  );
+  assert.deepStrictEqual(
+    constUnderEnv('ALLOC_WRITE_SPEC', { P0_ALLOC_WRITE: 'all' }),
+    ALLOC_WRITE_SPECS.all,
+    "and V1's control is reachable by naming it"
+  );
+  // A MISTYPED SWITCH RESOLVES TO NOTHING rather than silently falling back
+  // to the default. Silence there would publish a row under a configuration
+  // nobody asked for, and the record would name a write the operator did not
+  // select — the one failure a measurement instrument may not have.
+  assert.strictEqual(constUnderEnv('ALLOC_WRITE_SPEC', { P0_ALLOC_WRITE: 'pge' }), null);
+  has(/unknown P0_ALLOC_WRITE/, 'and the preflight refuses it BY NAME, before a browser');
+});
+
+test('THE PLAN SELECTOR — `full` is the DEFAULT; the others SUBTRACT arms', () => {
+  assert.deepStrictEqual(Object.keys(ALLOC_PLAN_SHAPES), ['full', 'floor', 'controls']);
+  assert.deepStrictEqual(ALLOC_PLAN_SHAPES.full, { arms: true, rungs: true, fits: true });
+  assert.deepStrictEqual(ALLOC_PLAN_SHAPES.floor, { arms: true, rungs: false, fits: false });
+  assert.deepStrictEqual(ALLOC_PLAN_SHAPES.controls, { arms: false, rungs: false, fits: false });
+
+  assert.strictEqual(constUnderEnv('ALLOC_PLAN', { P0_ALLOC_PLAN: '' }), 'full');
+  assert.deepStrictEqual(
+    constUnderEnv('ALLOC_PLAN_SHAPE', { P0_ALLOC_PLAN: '' }),
+    ALLOC_PLAN_SHAPES.full,
+    'an unset switch is the published run, unchanged in every particular'
+  );
+  assert.deepStrictEqual(
+    constUnderEnv('ALLOC_PLAN_SHAPE', { P0_ALLOC_PLAN: 'controls' }),
+    ALLOC_PLAN_SHAPES.controls,
+    "V3's controls-only mode is reachable by naming it"
+  );
+  assert.deepStrictEqual(
+    constUnderEnv('ALLOC_PLAN_SHAPE', { P0_ALLOC_PLAN: 'floor' }),
+    ALLOC_PLAN_SHAPES.floor,
+    "and V1's floor-only mode is the same switch's middle setting, not a second mechanism"
+  );
+  assert.strictEqual(constUnderEnv('ALLOC_PLAN_SHAPE', { P0_ALLOC_PLAN: 'contols' }), null);
+  has(/unknown P0_ALLOC_PLAN/, 'and the preflight refuses a mistyped plan BY NAME');
+});
+
+test('the narrow plans SUBTRACT arms — they add none, move none and reorder none', () => {
+  const full = ladderPlan({ list: 300, grid: 6 }, 4);
+
+  // NOT VACUOUS: the full plan is the floor plus every rung on both
+  // substrates, on both segments — 1 + 2 x 5.
+  assert.strictEqual(full.length, 2);
+  for (const seg of full) {
+    assert.deepStrictEqual(
+      [...new Set(seg.arms.map((a) => a.rung))],
+      ['floor', 'R0', 'R1', 'R3', 'R7', 'R20'],
+      'the full plan carries the floor and every rung'
+    );
+    assert.strictEqual(seg.arms.length, 11, 'floor + 2 substrates x 5 rungs');
+  }
+  // `full` is the shipped plan ITSELF, not a copy that happens to look alike.
+  assert.strictEqual(allocPlanArms(full, ALLOC_PLAN_SHAPES.full), full);
+
+  const floor = allocPlanArms(full, ALLOC_PLAN_SHAPES.floor);
+  assert.deepStrictEqual(
+    floor.map((s) => s.segment),
+    full.map((s) => s.segment),
+    'the same segments in the same order — round parity still alternates them'
+  );
+  assert.deepStrictEqual(
+    floor.map((s) => s.arms.map((a) => a.rung)),
+    [['floor'], ['floor']],
+    'and the floor alone: no rung, no candidate'
+  );
+  // The floor arms are the SAME OBJECTS the full plan carries — same page,
+  // same opts, same key. A floor read under `floor` is the floor read under
+  // `full`, or the narrow plan would be a second instrument rather than a
+  // narrower run of the one instrument.
+  for (const [i, s] of floor.entries()) {
+    assert.strictEqual(s.arms[0], full[i].arms.find((a) => a.rung === 'floor'));
+  }
+
+  assert.deepStrictEqual(
+    allocPlanArms(full, ALLOC_PLAN_SHAPES.controls),
+    [],
+    'and controls-only mounts nothing at all — V3 asks for no arms'
+  );
+});
+
+test('the DRIVER honours both switches — the write, the plan, and the record', () => {
+  // The wiring, so the pins above cannot drift off the thing that runs.
+  has(
+    /window\.P0H\.allocWindow\(n, k, d\),\s*\[ALLOC_WRITES, drain, ALLOC_WRITE_SPEC\.kind\]/,
+    'the measured window drives the SELECTED write, not a literal'
+  );
+  has(
+    /const plan = allocPlanArms\(ladderPlan\(perRoot, ROOTS\), ALLOC_PLAN_SHAPE\);/,
+    'and the plan is the shipped ladder plan narrowed by the shape'
+  );
+  has(
+    /for \(const \{ segment \} of ALLOC_PLAN_SHAPE\.fits \? plan : \[\]\)/,
+    'a plan with no rungs fits nothing'
+  );
+  // THE ROW NAMES ITS OWN WRITE — criterion 6's separation, which a
+  // hard-coded string satisfied only because there was one write to name and
+  // would have gone on naming it after the selector landed.
+  has(/writeSelector: ALLOC_WRITE,/, 'the record carries the switch');
+  has(
+    /write: `\$\{ALLOC_WRITE_SPEC\.event\} — \$\{ALLOC_WRITE_SPEC\.note\}`,/,
+    'and the write it actually drove'
+  );
+  has(/plan: \{ name: ALLOC_PLAN, \.\.\.ALLOC_PLAN_SHAPE \},/, 'and the plan it ran');
+  lacks(
+    /write: ':p0\/write-page — the grid is rebuilt at the width the mounted page reads',/,
+    'the record may no longer hard-code one write for every run'
+  );
 });
 
 // ===========================================================================

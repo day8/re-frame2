@@ -949,11 +949,16 @@ async function ladderRow(chromium) {
 // did land the sum is a slight UNDER-estimate, bounded by one leg per
 // collection, and the collection count is published beside every figure.
 //
-// WHAT IS BEING WRITTEN. One `dispatch-sync` of `:p0/write-all` — the same
-// event the bulk clock arms drive — through the event pipeline and the
-// signal graph, followed by the substrate's own drain. Every boundary
-// re-renders and every boundary's READ SET IS UNCHANGED, which is the
-// steady state HD-002's cost law is stated over.
+// WHAT IS BEING WRITTEN. One `dispatch-sync` of `:p0/write-page` — through
+// the same event pipeline and signal graph as the bulk clock arms'
+// `:p0/write-all`, differing only in rebuilding the grid at the mounted
+// page's own width (rf2-2rtt6.140) — followed by the substrate's own drain.
+// Every boundary re-renders and every boundary's READ SET IS UNCHANGED,
+// which is the steady state HD-002's cost law is stated over.
+//
+// `P0_ALLOC_WRITE=all` drives `:p0/write-all` in the same window instead,
+// for V1's `F_old` control (rf2-gxrr). It is not a default and no published
+// row is taken under it; see THE MEASUREMENT SURFACE below.
 //
 // WHY THE DONORS RIDE ALONG. A warm re-render at R reads allocates R query
 // vectors in the arm's own body, R subscription recomputations and a React
@@ -1263,6 +1268,106 @@ function allocArmSizing({ writes, roots, cells }) {
 
 const ALLOC_ARM = allocArmSizing({ writes: ALLOC_WRITES, roots: ROOTS, cells: ALLOC_CELLS });
 
+// ---------------------------------------------------------------------------
+// THE MEASUREMENT SURFACE (rf2-gxrr) — the two switches the validity
+// witnesses are configured through, and nothing else
+// ---------------------------------------------------------------------------
+//
+// PR #7702 landed the artefacts V1-V4 judge and said honestly that neither had
+// been executed against a real page. What it did not land, and did not claim
+// to, is the surface that lets V1 and V3 be RUN: the granted measurement
+// window for rf2-2rtt6.140 refused before a browser was launched because
+// neither shape could be configured on the shipped instrument.
+//
+// NOTHING HERE IS A GATE, A BAND OR A THRESHOLD. `ALLOC_MIN_WRITES` stays 6,
+// `ALLOC_FALL_THRESHOLD_B` stays 600,000, `ALLOC_LEG_TOLERANCE` stays the
+// uncalibrated placeholder V3 exists to replace, and the preflight refusals
+// above bite on every mode below exactly as they bite today. What changes is
+// that the instrument can be configured into the shapes its own design brief
+// specifies — and only those shapes.
+//
+// --- THE WRITE (V1's control, and V2's comparison) -------------------------
+//
+// V1 measures each page "under `:p0/write-all` and under `:p0/write-page`"
+// (allocation-instrument-rework.md:256). `F_old` is not decoration: it is
+// V1's CONTROL — "it says the rig has not moved under the instrument, and it
+// is the only way the two writes can be compared like for like" (:260-263) —
+// and criterion 6 turns on it (:631). `arms/write-all!` has been a public
+// door since rf2-2rtt6.76 and the clock, bulk, fan-out and retention rows all
+// drive it; what was missing was any route to it FROM THE ALLOCATION WINDOW.
+//
+// `page` IS THE DEFAULT AND EVERY PUBLISHED ROW IS TAKEN UNDER IT. `all` is
+// reachable only by naming it here, the record carries which one was driven,
+// and the summary prints it beside the page — criterion 6's separation is
+// that a reader of any row can tell FROM THE ROW which write produced it, and
+// a row that names its own write satisfies that more strongly than a row that
+// could only ever have had one.
+const ALLOC_WRITE_SPECS = {
+  page: {
+    kind: 'write',
+    event: ':p0/write-page',
+    note: 'the grid is rebuilt at the width the mounted page reads — one cell per boundary',
+  },
+  all: {
+    kind: 'write-all',
+    event: ':p0/write-all',
+    note:
+      "the grid is rebuilt at the fixture's fixed `cells-n` whatever is mounted — V1's F_old " +
+      'control, flat in B by construction',
+  },
+};
+const ALLOC_WRITE = process.env.P0_ALLOC_WRITE || 'page';
+// `undefined` for an unknown switch, and the preflight refuses on it BY NAME
+// rather than this line throwing: requiring this module must never drive it
+// (`p0_ladder_structural.test.cjs` requires it on every PR), so the refusal
+// belongs where every other one already is — before a browser is launched.
+const ALLOC_WRITE_SPEC = ALLOC_WRITE_SPECS[ALLOC_WRITE];
+
+// --- THE PLAN (V3's controls-only, and V1's floor-only) --------------------
+//
+// V3 is "the controls only, at both D values, six rounds, six writes a
+// window — the row's existing control path ... No arms, no browser page
+// beyond the one the controls already need" (:443-445). `--only alloc` had
+// exactly one shape: preflight, then the controls AND the full ladder plan
+// (floor + 4 rungs x 2 substrates x 2 segments) every round. Harvesting V3's
+// 18 control windows meant riding ~108 ladder-arm windows, and criterion 5
+// freezes every allocation window that is not V1-V4 — which is why this is a
+// mode and not a workaround.
+//
+// V1's "floor arm only — no ladder rungs, no fits, no candidate" (:253) is
+// the same switch's middle setting rather than a second mechanism, exactly as
+// rf2-gxrr directs: it is survivable without new code, but only by paying the
+// whole ladder at each of three pages to obtain one arm.
+//
+// `full` IS THE DEFAULT AND IS TODAY'S RUN, unchanged in every particular.
+// The narrower plans SUBTRACT arms; they add none, move none and reorder
+// none, so a floor read under `floor` is the same floor, mounted on the same
+// page, in the same round parity, as a floor read under `full`.
+const ALLOC_PLAN_SHAPES = {
+  full: { arms: true, rungs: true, fits: true },
+  floor: { arms: true, rungs: false, fits: false },
+  controls: { arms: false, rungs: false, fits: false },
+};
+const ALLOC_PLAN = process.env.P0_ALLOC_PLAN || 'full';
+const ALLOC_PLAN_SHAPE = ALLOC_PLAN_SHAPES[ALLOC_PLAN];
+
+// The plan a shape admits, as a PURE FUNCTION of the full plan and the shape
+// — the same reason `allocArmSizing` and `allocSteps` are pure: it needs
+// neither a release build nor a Chromium, so the pin can DRIVE it rather than
+// read the source and hope.
+//
+// `ladderPlan` itself is untouched. It is what the same-arms-on-both-pages
+// pin adjudicates, and a mode that reached inside it would be a second
+// instrument rather than a narrower run of the one instrument.
+function allocPlanArms(plan, shape) {
+  if (!shape.arms) return [];
+  if (shape.rungs) return plan;
+  return plan.map(({ segment, arms }) => ({
+    segment,
+    arms: arms.filter((a) => a.rung === 'floor'),
+  }));
+}
+
 // The median of a window's work legs. The MEDIAN and not the mean, because
 // the first leg of a window is the one most likely to sit high and a mean
 // would let it drag the cohort toward whichever leg is the outlier.
@@ -1402,6 +1507,31 @@ async function allocRow(chromium) {
         ALLOC_ARM.refusals.map((r) => `  - ${r}`).join('\n')
     );
   }
+  // THE TWO SWITCHES, REFUSED HERE FOR THE SAME REASON AND IN THE SAME PLACE
+  // (rf2-gxrr). A mistyped switch would otherwise fall back to its default
+  // silently, and the run would publish a row under a configuration nobody
+  // asked for — the one failure a measurement instrument may not have, since
+  // the record would name the write it drove and the operator would read the
+  // one they meant. Refused BY NAME, before a browser is launched, exactly as
+  // the arm above.
+  //
+  // The arm preflight bites under EVERY plan, controls-only included, and
+  // that is deliberate: the no-arms route out of a refused page is a mode
+  // with a name on it, not a page of zero boundaries. V3 states its page like
+  // any other run, and the averaging floor still holds its six writes.
+  if (ALLOC_WRITE_SPEC === undefined) {
+    throw new Error(
+      `unknown P0_ALLOC_WRITE ${JSON.stringify(ALLOC_WRITE)} — the allocation window drives ` +
+        `one of ${Object.keys(ALLOC_WRITE_SPECS).join(' | ')}, and \`page\` is the default ` +
+        'every published row is taken under'
+    );
+  }
+  if (ALLOC_PLAN_SHAPE === undefined) {
+    throw new Error(
+      `unknown P0_ALLOC_PLAN ${JSON.stringify(ALLOC_PLAN)} — the allocation row runs one of ` +
+        `${Object.keys(ALLOC_PLAN_SHAPES).join(' | ')}, and \`full\` is the default`
+    );
+  }
   const { browser, page, watch } = await newPage(chromium, '?mode=heap');
   await watch.race('window.P0_READY === true || window.P0_ERROR', {
     timeoutMs: 180000,
@@ -1434,7 +1564,9 @@ async function allocRow(chromium) {
   const published = await page.evaluate(() => window.P0H.boundariesPerRoot);
   const perRoot = { ...published, grid: ALLOC_CELLS };
   const B = ALLOC_ARM.boundaries;
-  const plan = ladderPlan(perRoot, ROOTS);
+  // The full plan, then whatever this run's plan shape admits of it
+  // (rf2-gxrr). `full` returns it untouched.
+  const plan = allocPlanArms(ladderPlan(perRoot, ROOTS), ALLOC_PLAN_SHAPE);
   const { gc, read } = await makeReaders(page);
 
   // --- the precise-memory flag, PROVED rather than trusted --------------
@@ -1496,6 +1628,14 @@ async function allocRow(chromium) {
       // BEFORE `make-frame`, and a parameter that is never ambient cannot be
       // set in the wrong order relative to seeding. Every OTHER row passes
       // nothing and seeds at `fx/cells-n`, so no published figure moves.
+      //
+      // UNDER `P0_ALLOC_WRITE=all` THE SEEDED WIDTH IS STILL B and only the
+      // write differs (rf2-gxrr): `:p0/write-all` rebuilds `cells-n` of them
+      // whatever is mounted, which is precisely why V1 expects `F_old` flat
+      // in B. The mounted boundaries read cells 0..(B/roots − 1), so a page
+      // wider than `cells-n` would have its tail read `nil` — the warm-write
+      // read-back below is that guard, and V1's pages (B ∈ {4, 24, 96}) sit
+      // an order of magnitude inside it.
       await page.evaluate(([s, gw]) => window.P0H.prepare(s, gw), [segment, B]);
       const drain = segment === 'reagent-subs' ? 'reagent' : 'react';
       const order = await page.evaluate(
@@ -1528,15 +1668,15 @@ async function allocRow(chromium) {
         await page.evaluate(([dd, n]) => window.P0H.allocPrepare(dd, n), [0, ALLOC_WRITES]);
         for (let w = 0; w < ALLOC_WARMUPS; w++) {
           await page.evaluate(
-            ([n, d]) => window.P0H.allocWindow(n, 'write', d),
-            [ALLOC_WRITES, drain]
+            ([n, d, k]) => window.P0H.allocWindow(n, k, d),
+            [ALLOC_WRITES, drain, ALLOC_WRITE_SPEC.kind]
           );
         }
         await gc();
         const pre = await read();
         const win = await page.evaluate(
-          ([n, d]) => window.P0H.allocWindow(n, 'write', d),
-          [ALLOC_WRITES, drain]
+          ([n, d, k]) => window.P0H.allocWindow(n, k, d),
+          [ALLOC_WRITES, drain, ALLOC_WRITE_SPEC.kind]
         );
         const post = await read();
         await page.evaluate(() => window.P0H.release());
@@ -1573,8 +1713,15 @@ async function allocRow(chromium) {
   }
 
   // --- the fits, through the LADDER's rule, with the page still open ----
+  //
+  // A fit is over the RUNGS, so a plan that carries none has nothing to fit
+  // and says so by carrying an empty `allocFits` (rf2-gxrr). It does not
+  // fabricate a fit from the floor alone, and the summary prints no fitted
+  // line — V1 and V3 both state "no fits" in their configurations, and a
+  // line fitted through one point would be the instrument answering a
+  // question it was not asked.
   const fits = { perRound: {}, mean: {} };
-  for (const { segment } of plan) {
+  for (const { segment } of ALLOC_PLAN_SHAPE.fits ? plan : []) {
     for (const sub of LADDER_SUBSTRATES[segment]) {
       const id = `${segment}|${sub}`;
       const rungsOf = (r) =>
@@ -1613,7 +1760,13 @@ async function allocRow(chromium) {
     preciseMemory: precise,
     controlDoubles: { d1: ALLOC_D, d2: ALLOC_D2 },
     controlSlack: ALLOC_CONTROL_SLACK,
-    write: ':p0/write-page — the grid is rebuilt at the width the mounted page reads',
+    // WHICH WRITE, AND WHICH PLAN, THIS ROW WAS TAKEN UNDER (rf2-gxrr).
+    // Criterion 6's separation is that a reader of any row can tell FROM THE
+    // ROW which write produced it; a hard-coded string could only ever have
+    // named one, and would have gone on naming it after the selector landed.
+    writeSelector: ALLOC_WRITE,
+    write: `${ALLOC_WRITE_SPEC.event} — ${ALLOC_WRITE_SPEC.note}`,
+    plan: { name: ALLOC_PLAN, ...ALLOC_PLAN_SHAPE },
     instrument:
       'in-page performance.memory.usedJSHeapSize sampled at every leg boundary, ' +
       'rising steps accumulated separately from falling ones; --enable-precise-memory-info. ' +
@@ -1661,16 +1814,35 @@ function summariseAlloc(row, refused) {
     `;;   may be substituted, so P0_ALLOC_CELLS is mandatory. The published ${publishedB}-boundary`
   );
   console.log(';;   witness is what this row is NOT.');
+  // THE WRITE AND THE PLAN THIS RUN WAS CONFIGURED INTO (rf2-gxrr), printed
+  // from the record rather than asserted from a literal. `page` and `full`
+  // are the defaults every published row is taken under; anything else is a
+  // validity witness saying so on its own face.
+  console.log(`;;   THE WRITE IS \`${row.write}\`.`);
+  if (row.writeSelector === 'page') {
+    console.log(
+      `;;   It rebuilds the grid at ${B} cells — one per mounted boundary. \`:p0/write-all\``
+    );
+    console.log(
+      ';;   rebuilt 300 whatever was mounted, and that fixed cost was 57% of the retired budget'
+    );
+    console.log(';;   before a single boundary had been measured.');
+  } else {
+    console.log(
+      ';;   THIS IS V1\'s F_old CONTROL, NOT A PUBLISHED ROW — the fixed 300-cell rebuild, which'
+    );
+    console.log(
+      `;;   is flat in B by construction and is the only way the two writes can be compared like`
+    );
+    console.log(';;   for like. Selected by P0_ALLOC_WRITE=all; the default is `page`.');
+  }
+  console.log(';;   The clock, bulk, fan-out and retention rows drive `:p0/write-all` unchanged,');
+  console.log(';;   at the published width, whatever this switch says.');
   console.log(
-    `;;   THE WRITE IS \`:p0/write-page\`, which rebuilds the grid at ${B} cells — one per mounted`
+    `;;   THE PLAN IS \`${row.plan.name}\` — ` +
+      `${row.plan.arms ? (row.plan.rungs ? 'controls, floor and every rung' : 'controls and the floor arm only') : 'the controls only, no arm mounted'}` +
+      `${row.plan.fits ? ', fitted' : ', no fit'}.`
   );
-  console.log(
-    ";;   boundary. `:p0/write-all` rebuilt 300 whatever was mounted, and that fixed cost was"
-  );
-  console.log(
-    ';;   57% of the retired budget before a single boundary had been measured. The clock and'
-  );
-  console.log(';;   bulk rows still drive `:p0/write-all`, unchanged, at the published width.');
 
   // --- the controls, adjudicated ----------------------------------------
   console.log(';;');
@@ -1790,7 +1962,18 @@ function summariseAlloc(row, refused) {
   for (const d of row.verification.detail || []) console.log(`;;   UNVERIFIED ${d}`);
 
   // --- the rows ----------------------------------------------------------
-  for (const segment of Object.keys(LADDER_SUBSTRATES)) {
+  //
+  // ONLY WHAT WAS MOUNTED (rf2-gxrr). A controls-only plan prints no arm
+  // table and a floor-only plan prints no rung, because a table of absent
+  // arms invites a reader to take absence for zero — which on this row is
+  // the very answer HD-002 predicts.
+  if (!row.plan.arms) {
+    console.log(';;');
+    console.log(';; ---- NO ARM WAS MOUNTED: this run is the CONTROL PATH ONLY ----');
+    console.log(';;   The three controls above are the whole measurement. Nothing below this');
+    console.log(';;   line is a statement about any substrate.');
+  }
+  for (const segment of row.plan.arms ? Object.keys(LADDER_SUBSTRATES) : []) {
     console.log(';;');
     console.log(`;; ---- ${segment} ----`);
     console.log(
@@ -1803,7 +1986,7 @@ function summariseAlloc(row, refused) {
       `;; floor              — ${(n0(fl.mean) + ' [' + n0(fl.min) + '–' + n0(fl.max) + ']').padStart(30)}` +
         `${n0(flw.mean).padStart(15)}   (no subscription: the WRITE's own cost)`
     );
-    for (const sub of LADDER_SUBSTRATES[segment]) {
+    for (const sub of row.plan.rungs ? LADDER_SUBSTRATES[segment] : []) {
       for (const R of LADDER_RUNGS) {
         const key = `${segment}|lad/${sub}#R${R}`;
         const s = stat(row.perRound.map((r) => r.arms[key].perBoundaryPerWrite));
@@ -1820,6 +2003,36 @@ function summariseAlloc(row, refused) {
   }
 
   // --- the fitted lines ---------------------------------------------------
+  //
+  // A fit is over the RUNGS (rf2-gxrr). A plan that carries none has nothing
+  // to regress and prints nothing to regress it from — lifted out whole
+  // rather than guarded in place, so the published `full` run's output is
+  // unchanged to the byte and the narrow plans simply do not reach it.
+  if (row.plan.fits) {
+    summariseAllocFits(row);
+  } else {
+    console.log(';;');
+    console.log(';; ==== NO FITTED LINE: THIS PLAN CARRIES NO RUNGS ====');
+    console.log(
+      `;;   \`${row.plan.name}\` mounts no 1/3/7/20 rung, so there is no slope to fit and none is`
+    );
+    console.log(';;   reported. V1 and V3 both state "no fits" in their own configurations, and');
+    console.log(';;   a line through one point would be the instrument answering a question it');
+    console.log(';;   was not asked.');
+  }
+
+  console.log(';;');
+  console.log(';; ==== ARM-ORDER NOTE (alloc) ====');
+  console.log(';;   This row mounts each arm and keeps it for the whole window, so it produces');
+  console.log(";;   no mount/release sample stream for `order-guard`'s phase test. Segment order");
+  console.log(';;   still alternates by round parity and slot order is still the guard\'s, so the');
+  console.log(';;   ranges below are across BOTH orders — but the guard itself does not');
+  console.log(';;   adjudicate this row and no figure here claims its verdict.');
+}
+
+// The fitted lines and HD-002's own question — the tail of `summariseAlloc`,
+// which runs only under a plan that carried rungs (rf2-gxrr).
+function summariseAllocFits(row) {
   console.log(';;');
   console.log(';; ==== THE FITTED LINES —  y = intercept + slope·R,  over 1/3/7/20 ONLY ====');
   console.log(';;   y is bytes ALLOCATED per boundary per warm write. The slope is what one');
@@ -1870,13 +2083,6 @@ function summariseAlloc(row, refused) {
         `${n0(hc - dn)} B/read of EXCESS steady-state allocation`
     );
   }
-  console.log(';;');
-  console.log(';; ==== ARM-ORDER NOTE (alloc) ====');
-  console.log(';;   This row mounts each arm and keeps it for the whole window, so it produces');
-  console.log(";;   no mount/release sample stream for `order-guard`'s phase test. Segment order");
-  console.log(';;   still alternates by round parity and slot order is still the guard\'s, so the');
-  console.log(';;   ranges below are across BOTH orders — but the guard itself does not');
-  console.log(';;   adjudicate this row and no figure here claims its verdict.');
 }
 
 // The candidate's structural claim, as numbers the run exits on. The
@@ -2329,6 +2535,17 @@ module.exports = {
   allocArmSizing,
   ALLOC_MIN_WRITES,
   ALLOC_ARM,
+  // The measurement surface (rf2-gxrr), exported so the structural pin can
+  // DRIVE it rather than read its source: the tables as values, the plan
+  // filter as a pure function, and the two resolved selections so the env
+  // route can be pinned from outside the process exactly as `ALLOC_ARM` is.
+  ALLOC_WRITE_SPECS,
+  ALLOC_WRITE,
+  ALLOC_WRITE_SPEC,
+  ALLOC_PLAN_SHAPES,
+  ALLOC_PLAN,
+  ALLOC_PLAN_SHAPE,
+  allocPlanArms,
 };
 
 if (require.main === module) (async () => {
