@@ -72,17 +72,31 @@ const REPO_ROOT = path.resolve(__dirname, '..', '..');
 const { test, run } = createPolicyTestSuite('navigation-ceiling-policy');
 
 /*
- * Every Playwright navigation API that accepts `{ timeout }` and silently
- * defaults it. `goBack` / `goForward` / `waitForNavigation` have no call in the
- * repo today; they are listed because they are the same defect wearing a
- * different name, and the point of a sweep is to be there first.
+ * Every Playwright API that accepts `{ timeout }` and silently defaults it to
+ * 30s. `goBack` / `goForward` / `waitForNavigation` have no call in the repo
+ * today; they are listed because they are the same defect wearing a different
+ * name, and the point of a sweep is to be there first.
+ *
+ * `waitForSelector` IS THAT ARGUMENT COMING BACK (rf2-vinj). It is not a
+ * navigation, so the sweep did not police it, and the file's name still says
+ * navigation because that is what the six original sites were. But the defect
+ * this suite exists to remove was never "a navigation with no ceiling" — it is
+ * "an anonymous 30s that no lane knob can reach, whose failure line reads like
+ * the lane's own timeout so the fix reached for is a bigger lane timeout,
+ * which cannot move it". A bare element-wait is that, exactly, and unlike the
+ * three hypothetical names above it has actually cost a run: a webkit mount
+ * after a re-navigation in `hicasso/testbed/spec.cjs`, two lines under a
+ * `goto` that carried the ceiling correctly. Three call sites were bare when
+ * this was added and all three were fixed in the same change; the sweep is
+ * what stops a fourth.
  *
  * The lookbehind demands a RECEIVER (`page.goto(`, `dev.goto(`), which is what
  * separates a call from the string literal `'.goto('` that a sibling policy
  * suite scans with. `\s*` inside it tolerates a receiver left on the previous
  * line.
  */
-const NAV_METHODS = ['goto', 'reload', 'goBack', 'goForward', 'waitForNavigation'];
+const NAV_METHODS = ['goto', 'reload', 'goBack', 'goForward', 'waitForNavigation',
+  'waitForSelector'];
 const NAV_CALL_RE = new RegExp(
   `(?<=[\\w$\\)\\]]\\s*)\\.(${NAV_METHODS.join('|')})\\s*\\(`,
   'g',

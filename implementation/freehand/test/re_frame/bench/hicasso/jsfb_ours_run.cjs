@@ -623,7 +623,9 @@ async function main() {
     for (const arm of ARMS) {
       const p = await browser.newPage();
       await p.goto(url(arm), { waitUntil: 'load', timeout: NAV_TIMEOUT_MS });
-      await p.waitForSelector('#run');
+      // The navigation's own ceiling, not Playwright's anonymous 30s: this
+      // wait is the same page load as the goto above it (rf2-vinj).
+      await p.waitForSelector('#run', { timeout: NAV_TIMEOUT_MS });
       await click(p, '#run');
       await expectRows(p, 1000);
       html[arm] = await p.$eval('#main', canonicalise);
