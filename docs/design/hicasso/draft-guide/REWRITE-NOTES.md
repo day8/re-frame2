@@ -127,7 +127,7 @@ implementation confirmation:
 - `re-frame.hicasso.server` and the `server/render` option map
 - `ht/tree`, its `{:subs ...}` fixture shape, and tree helper names
 - mounted-facade helper names and exact handle shape
-- `ht/shadow!` and its config/result maps
+- `hm/shadow!` and its config/result maps
 - `defhost :slots`
 - `h/portal {:target ...}`
 - `h/as-component`
