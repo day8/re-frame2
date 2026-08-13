@@ -52,6 +52,37 @@ every per-element claim):
 | prop values | 1,003 strings, 71 intent vectors, 1 nil |
 | children | 567 strings, 71 seqs, 69 numbers |
 
+> **THIS CENSUS IS THE MEASURED PAGE'S, AND THE PAGE HAS CHANGED SINCE
+> (2026-08-14, `rf2-y1jkm`).** The table above is correct for the trees these
+> rows were taken on — `card.cljs` is blob `d197bf0d6d` at both `7885a7c148`
+> (before) and `8ccd9f4b41` (after), and both resolve locally. It is **not**
+> the page `main` builds today. `645c77630d` (`rf2-2rtt6.54`, 2026-08-02
+> 17:46 AUSEST, landed after both measured commits) migrated the card's three
+> anchors onto `route-link`, which emits its class as a **declared** `:class`
+> passthrough and an `:on-click [::h/navigate …]` intent vector on a bare
+> `[:a]` head. Across 69 cards that is 207 of each, and the shorthand
+> population falls by the same 207:
+>
+> | population | measured (card blob `d197bf0d6d`) | `main` today |
+> |---|---|---|
+> | native elements | 1,202 | 1,202 |
+> | no attribute map | 567 | 567 |
+> | `.class` shorthand | 924 | **717** |
+> | declared `:class` | 71 | **278** |
+> | `on-click` | 71 | **278** |
+> | props total | 1,075 | **1,489** |
+> | prop values | 1,003 str / 71 vec / 1 nil | **1,210 str / 278 vec / 1 nil** |
+> | canonical DOM bytes | 58,474 | 58,474 |
+>
+> **The DOM is byte-identical either way**, which is exactly why the twin
+> parity gate cannot see this: parity compares canonical DOM, and a class
+> moving from tag shorthand to declared prop — and a handler that renders no
+> attribute at all — are invisible there. So **every per-element share below
+> is quoted against populations `main` no longer has**, and the two phases
+> most affected are the two the narrative turns on: the shorthand population
+> shrank 22%, and intent lowering's population grew 3.9×. A re-take at
+> `main` is a different subject, not a correction — see §7.
+
 **The attribution** (pre-optimisation build; ms per whole-page walk, p50 over
 60 samples; phase deltas are `local − ablation`, i.e. floors on each phase,
 quoted against the local copy — the copy read 0.93× the shipping walk in the
@@ -170,6 +201,29 @@ own frozen copy of the pre-change walk, prop-name cache included):
 copy's measured 0.93× fidelity offset in the pre-change run). Diagnostic
 clock; the published question is §4's.
 
+> **THAT RATIO IS WITHDRAWN TO A FLOOR, AND IT CANNOT BE RE-TAKEN
+> (2026-08-14, `rf2-y1jkm` acceptance criteria 1–2).** The merged-PR #7383
+> audit found the `local` arm reaching into `codec/convert-prop-value` at
+> `walk-value` — the very function the candidate reordered — so the OLD arm
+> had already absorbed half the candidate and the run above **understates**
+> the reduction. PR #7636 (`4674839a4a`) froze it properly
+> (`local-convert-prop-value` + its own `local-nested-map->js`), and
+> `walk_profile_baseline_cljs_test` now fails if either arm re-enters a
+> shipping helper. So 38.8% is a lower bound on what the candidate bought,
+> not the figure.
+>
+> **The corrected figure is unreachable, for two independent reasons, and the
+> honest answer is to withdraw rather than restate.** First, **no commit in
+> history carries both**: the measured codec is blob `5a0b04733a`
+> (`a3ffe8380e`), the clean baseline landed at `4674839a4a` where the codec is
+> already `378de06fdc` — six codec commits later — and `main` is
+> `cb2fd4a071`, six further on. Splicing the instrument fix onto the measured
+> tree would build the arm at measurement time with no red-then-green proof on
+> the spliced tree, which is the uncertified instrument. Second, even that
+> tree would be **the wrong subject**: the acceptance page's hiccup changed at
+> `645c77630d` (§1's note), so a re-take prices a different page.
+> §7 records what a re-take at `main` actually does say.
+
 ## 3. Correctness — witnesses and the mutation ledger
 
 The full witness suite: **12,333 tests / 61,728 assertions, 0 failures, 0
@@ -275,7 +329,7 @@ attempt-1 refusal was the build's own heat decaying).
 
 | | |
 |---|---|
-| **Producing commit** | `8ccd9f4b41` on `worker/walkopt-y1jkm`, working tree clean — the stamped blobs are the commit's. **Authored, and rebase-merged, so this SHA is on no branch and will not resolve in a fresh clone**; it landed on main as **`a3ffe8380e`** (same patch — identical `git patch-id --stable`), with the blob it contributed unchanged. The landed SHA is the one to check out; it sits on a later base, so it carries the change rather than the whole measured tree |
+| **Producing commit** | `8ccd9f4b41` on `worker/walkopt-y1jkm`, working tree clean — the stamped blobs are the commit's. **Authored, and rebase-merged, so this SHA is on no branch and will not resolve in a fresh clone**; it landed on main as **`a3ffe8380e`** (same patch — identical `git patch-id --stable`), with the blob it contributed unchanged. The landed SHA is the one to check out; it sits on a later base, so it carries the change rather than the whole measured tree. **That caveat has a concrete instance, found 2026-08-14**: `a3ffe8380e`'s later base already contained `645c77630d`, so its `card.cljs` is blob `07458921f7` — the post-`route-link` card — while the measured tree's is `d197bf0d6d`. Both `8ccd9f4b41` and `7885a7c148` still resolve in this clone and are the trees to read for the page; the landed SHAs carry the intervention only. The before/after blob equality §4 asserts is **unaffected** — `card` is `d197bf0d6d` at both measured commits, so these rows are the same page on both sides, which is what they claim |
 | **Reproduction** | `node implementation/freehand/test/re_frame/bench/hicasso/shapes/census_clock_run.cjs` (datasets redirected via `C56CLOCK_DATA_DIR` to `data/censusclock-y1jkm/` so the `rf2-2rtt6.56` before-datasets stay intact) |
 | **Build** | `:hicasso-bench` (`--config-merge` entry swap), `:advanced`, `goog.DEBUG false`, cache cleared per `rf2-2rtt6.20`; 0 warnings |
 | **Runtime** | `HeadlessChrome/147.0.7727.15` (Windows NT 10.0 x64), node `v24.13.0`, hardware-concurrency 24, device-memory 32 |
@@ -323,3 +377,102 @@ PR rebases over this cleanly (or vice versa).
   the bead's candidate list names, and it is a cache *at* the codec of the
   kind the bead pre-classifies as in scope.
 - Examples/testbeds: untouched. `.beads` untouched.
+
+## 7. The 2026-08-14 re-take — a new baseline, not a correction
+
+Acceptance criterion 2 asked for the interleaved diagnostic re-run with the
+baseline clean. **The run was taken and every control passed; what it cannot
+be is a correction of §1 or §2**, for the two reasons those sections now
+carry. It is recorded here as the lane's current-tip baseline so the next
+optimisation has something to move.
+
+**Provenance.** `origin/main` at `c8634a0824`, worktree clean apart from this
+page. `node …/hicasso/run.cjs` with
+`HICASSO_INIT_FN=re-frame.bench.hicasso.walk-profile-app/-main`, exit `0`,
+one run, window 2026-08-14 00:49:41 – 00:50:36 AUSEST. Build `:hicasso-bench`
+`:advanced`, `goog.DEBUG false`, cache cleared per `rf2-2rtt6.20`, 0 warnings.
+`HeadlessChrome/147.0.7727.15`. Design 6 rounds × (4 warmup + 10 samples),
+8 whole-page walks per timing window, 60 samples per arm.
+
+**Controls, every one of them.** Arm-order guard self-test 12/12 `ok`;
+**twin parity OK** — 1,202 elements, 58,474 canonical bytes, identical to
+`lt/page`; **arm-order guard VERDICT: reportable** — every one of the ten arms
+`[ok]` on both the by-predecessor and the by-phase contrast at 10% tolerance.
+Box: `\System\Processor Queue Length` read **0.000** on every sample before,
+during and after (CPU 4–16%, and the one 38% sample is the `:advanced` build,
+not a measured phase). Each ablation moved in the direction its construction
+predicts, with no inversions — the two arms that do *more* work than `local`
+(`parse-raw`, `no-propless`) both read above it.
+
+**What this instrument does NOT carry: a positive control.**
+`walk_profile_app` never calls `lane/control-verdict` and never sets
+`HICASSO_CONTROL_FAILED`, so `run.cjs`'s control exit path is dead for this
+arm. That is a property of the rig, not of this run — it was equally true of
+the §1 and §2 figures — and it was **not** repaired here, because building an
+instrument mid-window is what the measurement discipline forbids. Filed as
+its own bead. Until it exists, read every figure below as guarded against
+*ordering* and *page fidelity* but not against *the instrument having signal*.
+
+| arm | ms/walk p50 [min – max] | ns/element |
+|---|---|---|
+| `ship-lazy` (mount-billed: walk + lazy tail) | 1.6500 [1.3750 – 2.3750] | 1,373 |
+| `ship` | 0.5500 [0.4500 – 0.9000] | 458 |
+| `local` (frozen prop-name + prop-value) | 0.7125 [0.5875 – 1.2750] | 593 |
+| `no-create` | 0.6000 [0.4500 – 0.7625] | 499 |
+| `no-props` | 0.2625 [0.1875 – 0.6750] | 218 |
+| `no-lower` | 0.5750 [0.5000 – 0.8125] | 478 |
+| `no-value` | 0.6250 [0.5250 – 0.8500] | 520 |
+| `no-fold` | 0.6875 [0.5250 – 0.9625] | 572 |
+| `parse-raw` | 1.0000 [0.7625 – 1.7250] | 832 |
+| `no-propless` | 0.7313 [0.5750 – 1.1875] | 608 |
+
+Phase deltas (`local − ablation`; floors, stubs as the namespace docstring
+states). Copy fidelity `local/ship` = **1.2955** — an A/B ratio, not a
+fidelity check near 1.0, for the reason `local-convert-prop-value`'s docstring
+gives:
+
+| phase | delta ms/walk | ns/element | % of `ship` |
+|---|---|---|---|
+| the lazy body tail | 1.1000 | 915 | 200.0% |
+| whole prop pipeline (`convert-props`) | 0.4500 | 374 | 81.8% |
+| intent lowering | 0.1375 | 114 | **25.0%** |
+| `React.createElement` | 0.1125 | 94 | 20.5% |
+| value conversion | 0.0875 | 73 | 15.9% |
+| shorthand fold | 0.0250 | 21 | 4.5% |
+
+Benefits (arms that do *more* work than `local`): the tag cache is worth
+0.2875 ms/walk; the propless short-circuit 0.0188 ms/walk.
+
+Micro, ns/op over the page's own literal roster: `cached-parse` hit 18.0 vs
+149.8 fresh; `cached-prop-name` 9.4; `event-prop?` regex 19.0; reserved-set
+lookup 16.8 vs 4.9 as three `===` compares; `convert-prop-value` 332.7;
+`createElement` minimal 44.4.
+
+**Reading it honestly.**
+
+- **Intent lowering is now the second-largest phase, at 25.0% of `ship`
+  against §1's 2.7% — and that is the page, not a regression.** Its
+  population went from 71 intent vectors to 278 (§1's note); the absolute
+  delta went 0.044 → 0.1375 ms, a 3.1× rise against a 3.9× rise in
+  population. The `convert-prop-value` micro row corroborates
+  independently: 169.9 → 332.7 ns/op on a roster whose vector share went
+  6.6% → 18.7%, and a vector is the one input that takes the `clj->js`
+  branch. Two instruments, one cause.
+- **`ship`/`local` reads 0.772 — a 22.8% reduction — where §2 published
+  38.8%.** This is **not** evidence the candidate bought less than claimed,
+  and must not be read as a restatement: `local` is frozen only in its
+  prop-name and prop-value paths, `ship` here is twelve commits past the
+  measured codec, and the page underneath both has changed. It is today's
+  number for today's tree, and it is the first one taken with the baseline
+  provably clean.
+- **What is safe to carry forward** is the shape, which both runs agree on:
+  the prop pipeline dominates the walk (81.8% of `ship` here, 67.5% there),
+  the propless short-circuit is worth little on its own, and the tag cache
+  is worth several times what the fold is.
+
+**Not concluded.** No corrected candidate-attributable old/new figure (§2);
+no re-take of §1's attribution table, whose `:shorthand-merge`/`:no-short`
+arms were deleted by `rf2-2rtt6.36`/`rf2-2rtt6.70` and cannot be re-run at
+all; no claim about whether the acceptance row would now pass 1.10× — that is
+§4's clock, untouched here, and its rows and verdicts stand exactly as
+published.
