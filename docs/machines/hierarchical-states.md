@@ -1,61 +1,70 @@
-# Hierarchical states
+# 5. Hierarchical states
 
-A flat machine has one active state at a time. A hierarchical machine lets a
-state contain its own child states.
+<a id="hierarchical-states"></a>
 
-Use hierarchy when several states form a sub-flow or share a lifecycle — every
-authenticated screen handles `:logout` the same way, or checkout is a nested
-flow inside shopping.
+The [first machine](tutorial.md) is flat. Login sits next to "which screen
+after login?" Those share a session. Nest them.
+
+A hierarchical machine lets a state contain its own child states. The parent
+holds what the children share. The children hold what differs.
 
 ## A compound state
 
 A state with `:states` is a compound state. It must declare `:initial`.
 
+Wrap the login leaves in `:unauthenticated`, and put the signed-in screens
+under `:authenticated`:
+
 ```clojure
-(rf/defmachine shop
+(rf/defmachine session
   {:initial :unauthenticated
+   :data    {:attempts 0 :error nil}
 
    :states
    {:unauthenticated
-    {:on {:login [:authenticated]}}
+    {:initial :idle
+     :states
+     {:idle
+      {:on {:auth.login/submit {:target :submitting
+                                :guard  :form-valid?
+                                :action :clear-error}}}
+      :submitting
+      {:tags  #{:auth/busy}
+       :on    {:auth.login/success {:target [:authenticated]
+                                    :action :store-session}
+               :auth.login/failure :error-shown}}
+      :error-shown
+      {:on {:auth.login/dismiss :idle}}
+      :locked-out
+      {:tags #{:auth/locked}
+       :meta {:terminal? true}}}}
 
     :authenticated
     {:initial :dashboard
-     :tags    #{:auth/logged-in}
-     :on      {:logout [:unauthenticated]}  ;; inherited by descendants
-
+     :tags    #{:auth/authed}
+     :on      {:auth.logout [:unauthenticated]}  ;; inherited by descendants
      :states
-     {:dashboard
-      {:on {:open-settings :settings
-            :open-cart     :cart}}
+     {:dashboard {:on {:open-settings :settings}}
+      :settings  {:on {:close :dashboard}}}}}}})
 
-      :settings
-      {:on {:close :dashboard}}
-
-      :cart
-      {:initial :browsing
-       :on      {:close :dashboard}
-       :states
-       {:browsing  {:on {:checkout :paying}}
-        :paying    {:on {:success :confirmed
-                         :failure :browsing}}
-        :confirmed {}}}}}}})
-
-(rf/reg-machine :shop shop)
+(rf/reg-machine :auth.login/flow session)
 ```
 
 Entering `:authenticated` does not stop at the parent. The machine follows the
-`:initial` chain to `[:authenticated :dashboard]`.
+`:initial` chain to `[:authenticated :dashboard]`. Success uses a vector
+target so it leaves `:unauthenticated` entirely.
+
+This is still a **singleton**. The id did not change. Only the table grew.
 
 ## The snapshot state becomes a path
 
 A hierarchical snapshot uses a vector path from the root to the active leaf:
 
 ```clojure
-@(rf/subscribe [:rf/machine :shop])
-;; => {:state [:authenticated :cart :paying]
+@(rf/subscribe [:rf/machine :auth.login/flow])
+;; => {:state [:authenticated :settings]
 ;;     :data  {...}
-;;     :tags  #{:auth/logged-in}}
+;;     :tags  #{:auth/authed}}
 ```
 
 A flat root state is treated as a one-element path internally, but flat machines
@@ -66,7 +75,7 @@ Avoid matching long paths in views. Put `:tags` on states and ask semantic
 questions:
 
 ```clojure
-(when @(rf/subscribe [:rf.machine/has-tag? :shop :auth/logged-in])
+(when @(rf/subscribe [:rf.machine/has-tag? :auth.login/flow :auth/authed])
   [account-menu])
 ```
 
@@ -112,9 +121,10 @@ A target can be a keyword or a vector.
 | `:settings` | sibling of the state that declares the transition |
 | `[:authenticated :settings]` | absolute path from the root |
 
-Use vector targets for cross-level jumps. They are unambiguous. In the shop
-machine, `:open-settings :settings` is a sibling of `:dashboard`;
-`:login [:authenticated]` is an absolute path from the root.
+Use vector targets for cross-level jumps. They are unambiguous. In the
+session machine, `:open-settings :settings` is a sibling of `:dashboard`;
+`:auth.login/success {:target [:authenticated]}` is an absolute path from
+the root.
 
 A keyword target is resolved relative to the declaring state's parent, not the
 currently active leaf. That is a static rule. A target that names a compound
@@ -131,11 +141,11 @@ That gives two useful patterns:
 
 ```clojure
 :authenticated
-{:on {:logout :unauthenticated}     ;; factored to parent
+{:on {:auth.logout [:unauthenticated]}  ;; factored to parent
  :states
  {:dashboard {}
   :settings  {}
-  :modal     {:on {:logout {}}}}}    ;; child consumes and blocks logout
+  :modal     {:on {:auth.logout {}}}}}  ;; child consumes and blocks logout
 ```
 
 - A parent can factor common transitions.
@@ -169,15 +179,18 @@ as handled.
 Moving from one path to another fires exits and entries along the least common
 compound ancestor.
 
-From `[:authenticated :cart :paying]` to `[:authenticated :dashboard]`, the
-least common active ancestor is `:authenticated`.
+From `[:authenticated :settings]` to `[:unauthenticated :idle]`, the least
+common active ancestor is the root.
 
 The cascade is:
 
-1. exit `:paying`;
-2. exit `:cart`;
+1. exit `:settings`;
+2. exit `:authenticated`;
 3. run the transition action;
-4. enter `:dashboard`.
+4. enter `:unauthenticated`, then `:idle`.
+
+A move from `[:authenticated :settings]` to `[:authenticated :dashboard]`
+does not exit `:authenticated`.
 
 The ancestor that remains active is not exited or re-entered.
 
@@ -241,6 +254,6 @@ child's root-level `:final?` is how it reports back — see
 | `reg-machine` throws `:rf.error/machine-compound-state-missing-initial` | A `:states` map with no `:initial` | Name the child to enter when the compound is targeted |
 | `reg-machine` throws `:rf.error/machine-unresolved-target` | A keyword target that is not a sibling of the declaring state | Use a vector path for a cross-level jump |
 | Landed in the wrong leaf | The target named a compound, so `:initial` cascaded | Target the leaf with a vector path |
-| `:logout` does nothing in one child | That child declares `:logout {}` or `:logout nil` | Remove the key to inherit; keep it only to block |
+| `:auth.logout` does nothing in one child | That child declares `:auth.logout {}` or `:auth.logout nil` | Remove the key to inherit; keep it only to block |
 | View broke after reshaping the tree | The view matched a long `:state` path | Ask a tag: `@(rf/subscribe [:rf.machine/has-tag? id tag])` |
 | Machine vanished after the "last screen" | A root-level `:final?` auto-destroys | Omit `:final?` on a resting leaf |

@@ -1,14 +1,13 @@
-# The model
+# 2. The table
 
+<a id="concepts"></a>
+<a id="the-model"></a>
 <a id="state-machines"></a>
 
-This page is the **flat machine model** — a single-level transition table, how
-you register and drive it, and the contracts guards and actions live under.
-Nested states, parallel regions, history, and actors grow the same grammar;
-each has its own page.
-
-To *build* a login machine step by step (guard → action → HTTP → view → test),
-use the [tutorial](tutorial.md).
+The [first machine](tutorial.md) filled the slots. This page is the rest of
+the **flat table** contract — registration, the snapshot, transition forms,
+encapsulation, self-transitions, finals, schemas, and `:raise`. It does not
+rebuild the login walk-through.
 
 !!! note "Where should this value live?"
 
@@ -19,64 +18,9 @@ use the [tutorial](tutorial.md).
 
 <a id="a-machine-at-a-glance"></a>
 <a id="the-same-flow-as-a-transition-table"></a>
-
-You already write state machines: a `:status` keyword in app-db plus informal
-rules in handlers about what may follow what. A machine writes those rules down
-as **one value** — a transition table — so you can read, test, and change the
-flow in one place.
+<a id="the-idea"></a>
 
 A table has five everyday parts:
-
-```clojure
-;; cf. examples/capabilities/machines/state_machine_walkthrough/
-(rf/defmachine login-flow
-  {:initial :idle
-   :data    {:attempts 0 :error nil}
-
-   :guards
-   {:form-valid?
-    (fn [{[_ creds] :event}]
-      (and (seq (:email creds)) (seq (:password creds))))
-    :under-retry-limit
-    (fn [{data :data}]
-      (< (:attempts data) 2))}          ;; three attempts; see Guards
-
-   :actions
-   {:clear-error
-    (fn [_] {:data {:error nil}})
-    :record-error
-    (fn [{data :data [_ {:keys [error]}] :event}]
-      {:data (-> data
-                 (update :attempts inc)
-                 (assoc  :error (or (:message error) "Login failed.")))})
-    :store-session
-    (fn [{[_ {:keys [value]}] :event}]
-      {:fx [[:dispatch [:auth.session/store {:token (:token value)}]]]})}
-
-   :states
-   {:idle
-    {:on {:auth.login/submit {:target :submitting
-                              :guard  :form-valid?
-                              :action :clear-error}}}
-
-    :submitting
-    {:tags #{:auth/busy}
-     :on   {:auth.login/success {:target :authed :action :store-session}
-            :auth.login/failure [{:target :error-shown
-                                  :guard  :under-retry-limit
-                                  :action :record-error}
-                                 {:target :locked-out
-                                  :action :record-error}]}}
-
-    :error-shown
-    {:on {:auth.login/dismiss {:target :idle}
-          :auth.login/submit  {:target :submitting
-                               :guard  :form-valid?
-                               :action :clear-error}}}
-
-    :authed     {:meta {:terminal? true}}
-    :locked-out {:meta {:terminal? true}}}})
-```
 
 - `:initial` — where the machine starts.
 - `:data` — private working memory.
@@ -84,10 +28,9 @@ A table has five everyday parts:
 - `:actions` — return `{:data … :fx …}`; they never perform side effects.
 - `:states` — the nodes and their outgoing transitions.
 
-`:authed` and `:locked-out` are resting leaves. They keep the snapshot around
-so a view can still render them. They are **not** `:final?` — that flag
-destroys the machine ([Final states](#final-states)).
-
+Resting leaves such as `:authed` keep the snapshot around so a view can still
+render them. They are **not** `:final?` — that flag destroys the machine
+([Final states](#final-states)).
 ## Register and drive
 
 <a id="register-and-drive"></a>
@@ -115,33 +58,44 @@ Avoid `(def m {…})` then `(reg-machine :id m)`. The macro never sees the
 literal, so source stamps are empty and dev warns
 `:rf.warning/machine-source-unstamped`.
 
-**Dispatch** addresses the machine id; the *inner* vector is the machine event:
+You drive the machine with `dispatch`, not `send`. The outer vector is a
+re-frame2 **event** whose id is the machine id. The second element is the
+**trigger** the table matches:
 
 ```clojure
 (rf/dispatch [:auth.login/flow [:auth.login/submit credentials]])
 ```
+
+`:auth.login/submit` is the `:on` key. `credentials` is payload, read from
+`:event` in a guard or action. The [landing page](index.md#first-class-support)
+introduces this split; the [first machine](tutorial.md) drives it.
 
 **Subscribe** with the framework sub — there is no function sugar:
 
 ```clojure
 @(rf/subscribe [:rf/machine :auth.login/flow])
 ;; => {:state :submitting :data {:attempts 0 :error nil} :tags #{:auth/busy}}
-;;    nil before the first event
+;;    nil before the first event — this is a singleton
 ```
 
 The snapshot lives in [runtime-db](../core/glossary.md#runtime-db), so undo,
 time-travel, and SSR hydration work without extra wiring.
 
+A singleton is the registered id. A spawned actor is a second live instance
+of a type, with an allocated id — [Actors](actors.md).
+
 !!! note "Async composes"
 
     Point managed HTTP replies at the machine:
-    `:on-success [:auth.login/flow [:auth.login/success]]` (outer id, inner
-    event). The reply is *appended* into the inner event. Full walk-through in
-    the [tutorial](tutorial.md#step-4--talk-to-a-real-server).
+    `:on-success [:auth.login/flow [:auth.login/success]]` (outer event id,
+    inner trigger). The reply is *appended* onto the trigger. Full
+    walk-through in the [first machine](tutorial.md#step-4--talk-to-a-real-server).
 
 ## See one run
 
-Click into the cell and press **`Ctrl-Enter`** (**`Cmd-Enter`** on macOS):
+A tiny clickable machine, not the login flow. Use it to feel a
+self-transition. Click into the cell and press **`Ctrl-Enter`**
+(**`Cmd-Enter`** on macOS):
 
 ```cljs-rf2
 (require '[re-frame.core :as rf])
@@ -296,15 +250,8 @@ Return **descriptions**, the same idea as `reg-event`:
 ```
 
 Require `[re-frame.http.managed]` wherever `:rf.http/managed` appears, or the
-effect is `:rf.error/no-such-fx`. `:on-success` / `:on-failure` are one
-element short on purpose — managed HTTP **appends** the reply envelope:
-
-```clojure
-[:auth.login/success {:status :ok    :value {:token "…"} …}]
-[:auth.login/failure {:status :error :error {:message "…"} …}]
-```
-
-`:record-error` reads `:error`. `:store-session` reads `:value`.
+effect is `:rf.error/no-such-fx`. The reply envelope and the one-element-short
+target shape are in the [first machine](tutorial.md#step-4--talk-to-a-real-server).
 
 ### The effect map `{:data :fx}`
 
@@ -483,37 +430,11 @@ reaches runtime-db (`:where :machine-data`).
 
 <a id="testing-transitions-are-pure-function-calls"></a>
 
-The table is a value. Drive it with no frame, no browser, no network:
-
-```clojure
-(ns app.login-test
-  (:require [clojure.test :refer [deftest is]]
-            [re-frame.machines :as machines]
-            [re-frame.machines.result :as result]
-            [app.login :refer [login-flow]]))
-
-(deftest login-flow-test
-  (let [r (machines/machine-transition
-            login-flow
-            {:state :idle :data {:attempts 0 :error nil}}
-            [:auth.login/submit {:email "a@b.com" :password "secret"}])]
-    (is (result/ok? r))
-    (is (= :submitting (:state (result/snap r)))))
-
-  ;; Two failures already recorded; the third is terminal.
-  (let [r (machines/machine-transition
-            login-flow
-            {:state :submitting :data {:attempts 2 :error nil}}
-            [:auth.login/failure {:error {:message "bad creds"}}])]
-    (is (result/ok? r))
-    (is (= :locked-out (:state (result/snap r))))
-    (is (= 3 (get-in (result/snap r) [:data :attempts])))
-    (is (= "bad creds" (get-in (result/snap r) [:data :error])))))
-```
-
-Discriminate with `result/ok?` / `result/fail?`; read the next snapshot and
-the emitted effects with `result/snap` / `result/fx`. More, including Xray:
-[Inspecting and testing](inspecting-machines.md).
+The table is a value. `(machines/machine-transition definition snapshot trigger)`
+returns the next snapshot and the effects the action described. The
+[first machine](tutorial.md#step-6--test-it-a-transition-is-a-pure-function)
+has the login cases. [Inspecting and testing](inspecting-machines.md) is the
+full surface.
 
 ## Troubleshooting
 
@@ -525,23 +446,14 @@ the emitted effects with `result/snap` / `result/fx`. More, including Xray:
 | Action fails `:rf.error/machine-action-wrote-db` | Returned `:db` | Update the snapshot via `:data`; write app-db through a named event in `:fx` |
 | Dispatch does nothing | Current state has no matching `:on` | Expected no-op (`:rf.machine.event/unhandled-no-op`). Bad names fail at registration |
 | `:rf.error/no-such-fx` on `:rf.http/managed` | HTTP artefact not loaded | Require `[re-frame.http.managed]` |
+| External dispatch of a private event is refused | Id is in `:internal-events` | Raise it from an action, or drop it from the set |
+| Macrostep fails `:rf.error/machine-always-depth-exceeded` or `-raise-depth-exceeded` | Eventless / `:raise` loop did not settle | Break the cycle; default bound is 16 |
 
-## When the table grows
+## Raise and internal events
 
+<a id="when-the-table-grows"></a>
 <a id="when-the-machine-grows"></a>
 <a id="tags-and-timers"></a>
-
-Same model, more keys — each page assumes this one:
-
-| Need | Page |
-| --- | --- |
-| Label intent so views don't enumerate states | [Tags](tags.md) — `@(rf/subscribe [:rf.machine/has-tag? id :auth/busy])` |
-| Moves the table takes without a user event | [Automatic transitions](automatic-transitions.md) (`:after` / `:always` / choice / timeout) |
-| Nested sub-flows | [Hierarchical states](hierarchical-states.md) |
-| Independent axes at once | [Parallel regions](parallel-states.md) |
-| Resume mid-compound | [History](history.md) |
-| Per-request / worker children | [Actors](actors.md) |
-| Prove the table / watch live | [Inspecting and testing](inspecting-machines.md) |
 
 **`:raise`** in an action's `:fx` re-enters *this* machine atomically before
 commit. **`:internal-events`** is the set of event ids that external
@@ -556,17 +468,10 @@ no-op.
 
 <a id="when-to-reach-for-a-machine--and-when-not"></a>
 
-**Yes:** named mutually exclusive stages; legal and illegal events;
-timers, cancellation, retries, or cleanup; the flow is easier to draw than
-to describe; tests should assert `(state, event) → next state + effects`.
+Use a machine when named mutually exclusive stages are the load-bearing
+concept: legal and illegal triggers, timers, cancellation, retries, or
+cleanup; the flow is easier to draw than to describe; tests should assert
+`(state, trigger) → next state + effects`.
 
-**No:**
-
-| Situation | Prefer |
-| --- | --- |
-| A counter, list, or form field | app-db + events |
-| A two-state flag | a keyword or boolean |
-| Server cache lifecycle | [resources](../resources/concepts.md) |
-| A fixed sequence of operations | chained events |
-
-Named states are the concept — not named operations.
+The [landing page](index.md#when-not-to-use-a-machine) has the when-not
+table.

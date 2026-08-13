@@ -288,25 +288,22 @@ nav:
     - "re-frame.ui.test (donor)": api/re-frame.ui.test.md
 
   - Machines:
-    # Landing routes; tutorial first (build), then the flat model, then
-    # growth features in order of dependency, then operate / migrate.
+    # Section label IS the landing page (navigation.indexes). Flat list —
+    # titles match each page H1. Numbered pages grow one login machine.
+    # Examples / migrate / glossary stay unnumbered.
     - machines/index.md
-    - "Tutorial: login machine": machines/tutorial.md
-    - "The model": machines/concepts.md
-    - "Growing the table":
-      # Tags and automatic transitions work on flat machines (tutorial uses both).
-      # Hierarchy / parallel / history / actors build on the flat model next.
-      - "Tags": machines/tags.md
-      - "Automatic transitions": machines/automatic-transitions.md
-      - "Hierarchical states": machines/hierarchical-states.md
-      - "Parallel regions": machines/parallel-states.md
-      - "History": machines/history.md
-      - "Actors": machines/actors.md
-    - "Operating":
-      - "Inspecting and testing": machines/inspecting-machines.md
-      - "Examples": machines/examples.md
-    - "Coming from XState": machines/coming-from-xstate.md
-    - "Glossary": machines/glossary.md
+    - "1. First machine": machines/tutorial.md
+    - "2. The table": machines/concepts.md
+    - "3. Tags": machines/tags.md
+    - "4. Automatic transitions": machines/automatic-transitions.md
+    - "5. Hierarchical states": machines/hierarchical-states.md
+    - "6. Parallel regions": machines/parallel-states.md
+    - "7. History": machines/history.md
+    - "8. Actors": machines/actors.md
+    - "9. Inspecting and testing": machines/inspecting-machines.md
+    - Examples: machines/examples.md
+    - Coming from XState: machines/coming-from-xstate.md
+    - Glossary: machines/glossary.md
 
   - Resources:
     # Landing → tutorial (build) → model → recipes / test → examples → migrate.

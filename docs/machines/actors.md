@@ -1,19 +1,63 @@
-# Actors: spawning child machines
+# 8. Actors
 
-A machine can start another machine and bind that child's lifetime to a state.
+<a id="actors"></a>
+<a id="actors-spawning-child-machines"></a>
 
-The child is a live machine instance with its own snapshot. re-frame2 calls that
-instance an **actor**. Use one when work should start on state entry and be
-cleaned up on every exit path: a request protocol, a websocket, a worker, a
-cancellable job, a sub-flow that reports a result.
+Every machine so far has been a **singleton**: one `reg-machine` id, one live
+instance. `[:rf/machine :auth.login/flow]` is that instance, or `nil` before
+the first event.
 
-Assumes the [flat model](concepts.md). Child completion often uses
+A **spawned** actor is another live instance of a machine **type**, created
+at run time. It gets an allocated id (`:auth/request#0`). Use one when you
+need many concurrent instances, or a child whose lifetime is bound to a
+parent state.
+
+The spec heading says "dynamic actors." That is an adjective for spawned
+instances, not a third kind. This guide says **singleton** and **spawned**.
+
+Login stays the singleton. The HTTP request becomes a spawned child: it
+starts when `:submitting` is entered and is destroyed on every exit.
+
+Assumes the [flat table](concepts.md). Child completion often uses
 [final states](concepts.md#final-states).
 
 ## State-bound spawn
 
 Put `:spawn` on a state node. Entering the state creates the child. Leaving the
 state — by any transition — destroys it.
+
+The singleton login machine spawns a request actor on `:submitting`:
+
+```clojure
+(rf/reg-machine :auth/request
+  {:initial :running
+   :data    {}
+   :states
+   {:running
+    {:entry :issue-request
+     :on    {:server-ok {:target :done
+                         :action :keep-token}
+             :server-err :failed}}
+    :done   {:final? true :output-key :token}
+    :failed {:final? true :error? true}}})
+
+:submitting
+{:tags  #{:auth/busy}
+ :spawn {:machine-id :auth/request
+         :data       (fn [{:keys [event]}]
+                       {:credentials (second event)})
+         :on-done    (fn [{:keys [data result]}]
+                       (assoc data :token result))
+         :on-error   {:target :error-shown}}
+ :on    {:auth.login/cancel :idle}}
+```
+
+`:auth.login/flow` is still the singleton. `:auth/request` is the **type**.
+Each visit to `:submitting` allocates a new spawned id. Leaving
+`:submitting` — success, error, cancel, timeout — destroys that actor.
+
+A larger shipped case binds one socket actor to a parent that spans several
+children:
 
 ```clojure
 ;; cf. examples/patterns/websocket

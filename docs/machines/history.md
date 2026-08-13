@@ -1,14 +1,14 @@
-# History states
+# 7. History
 
-A history state lets a [compound](hierarchical-states.md) remember where it was
-when you left it.
+<a id="history"></a>
+<a id="history-states"></a>
 
-Use it to resume where you left off:
+The [session machine](hierarchical-states.md) forgets which signed-in screen
+you were on. Logout lands on `:unauthenticated`. The next success always
+opens `:dashboard`, even if you left from `:settings`.
 
-- a media player resumes mid-track
-- a wizard returns to the last step
-- a settings panel reopens on the same tab
-- a nested editor returns to the last active mode
+A history state lets a [compound](hierarchical-states.md) remember where it
+was when you left it.
 
 History is only for compound states. If the remembered thing is a flat value,
 store it in [`:data`](glossary.md#data).
@@ -21,59 +21,64 @@ The machine never occupies it. A transition targets it, and the runtime resolves
 that target to a real child. The [snapshot](glossary.md#snapshot)'s `:state`
 records the resolved leaf — never the pseudo-state.
 
-## Example: media player
+## Example: last signed-in screen
 
 ```clojure
-(rf/reg-machine :media/player
-  {:initial :tray
+(rf/reg-machine :auth.login/flow
+  {:initial :unauthenticated
 
    :states
-   {:tray
-    {:on {:insert [:player :hist]}}
+   {:unauthenticated
+    {:initial :idle
+     :states
+     {:idle
+      {:on {:auth.login/submit :submitting}}
+      :submitting
+      {:on {:auth.login/success [:authenticated :hist]
+            :auth.login/failure :error-shown}}
+      :error-shown
+      {:on {:auth.login/dismiss :idle}}}}
 
-    :player
-    {:initial :stopped
-     :on      {:eject :tray}
+    :authenticated
+    {:initial :dashboard
+     :on      {:auth.logout [:unauthenticated]}
 
      :states
      {:hist
       {:type :history
        :deep? true
-       :default-target :stopped}
+       :default-target :dashboard}
 
-      :stopped
-      {:on {:play [:player :playing]}}
+      :dashboard
+      {:on {:open-settings :settings}}
 
-      :playing
-      {:initial :at-start
-       :on      {:pause [:player :paused]
-                 :stop  [:player :stopped]}
-       :states
-       {:at-start  {:on {:seek :mid-track}}
-        :mid-track {}}}
-
-      :paused
-      {:on {:resume [:player :playing]}}}}}})
+      :settings
+      {:on {:close :dashboard}}}}}})
 ```
 
-Drive it with `dispatch-sync` so each line has settled before the next. Read it
-with the ordinary machine subscription:
+Drive it with `dispatch-sync` so each line has settled before the next:
 
 ```clojure
-(rf/dispatch-sync [:media/player [:insert]]) ;; [:player :stopped]
-(rf/dispatch-sync [:media/player [:play]])   ;; [:player :playing :at-start]
-(rf/dispatch-sync [:media/player [:seek]])   ;; [:player :playing :mid-track]
-(rf/dispatch-sync [:media/player [:eject]])  ;; :tray, recording :player
-(rf/dispatch-sync [:media/player [:insert]]) ;; restores [:player :playing :mid-track]
+(rf/dispatch-sync [:auth.login/flow [:auth.login/submit]])
+(rf/dispatch-sync [:auth.login/flow [:auth.login/success]])
+;; => [:authenticated :dashboard]
+(rf/dispatch-sync [:auth.login/flow [:open-settings]])
+;; => [:authenticated :settings]
+(rf/dispatch-sync [:auth.login/flow [:auth.logout]])
+;; => [:unauthenticated :idle], recording :authenticated
+(rf/dispatch-sync [:auth.login/flow [:auth.login/submit]])
+(rf/dispatch-sync [:auth.login/flow [:auth.login/success]])
+;; => restores [:authenticated :settings]
 
-@(rf/subscribe [:rf/machine :media/player])
-;; => {:state      [:player :playing :mid-track]
+@(rf/subscribe [:rf/machine :auth.login/flow])
+;; => {:state      [:authenticated :settings]
 ;;     :data       {}
-;;     :rf/history {[:player] [:player :playing :mid-track]}}
+;;     :rf/history {[:authenticated] [:authenticated :settings]}}
 ```
 
-The target `[:player :hist]` means "enter `:player` through its history
-pseudo-state."
+The target `[:authenticated :hist]` means "enter `:authenticated` through
+its history pseudo-state." First login has no recording, so
+`:default-target` opens `:dashboard`.
 
 ## The keys
 
@@ -81,7 +86,7 @@ pseudo-state."
 :hist
 {:type :history
  :deep? true
- :default-target :stopped}
+ :default-target :dashboard}
 ```
 
 | Key | Meaning |
@@ -100,28 +105,25 @@ vector for an absolute path.
 
 ## Shallow vs deep
 
-Suppose the player leaves from:
-
-```clojure
-[:player :playing :mid-track]
-```
+Suppose you leave `:authenticated` from `:settings`.
 
 Deep history records the full leaf path:
 
 ```clojure
-:rf/history {[:player] [:player :playing :mid-track]}
+:rf/history {[:authenticated] [:authenticated :settings]}
 ```
 
-Restoring returns to `[:player :playing :mid-track]`.
+Restoring returns to `[:authenticated :settings]`.
 
 Shallow history records only the direct child of the owning compound:
 
 ```clojure
-:rf/history {[:player] :playing}
+:rf/history {[:authenticated] :settings}
 ```
 
-Restoring enters `:playing` and then follows `:playing`'s `:initial`, landing at
-`[:player :playing :at-start]`.
+If `:settings` were itself a compound, restoring would enter `:settings`
+and then follow its `:initial`. For a leaf, deep and shallow land in the
+same place.
 
 Use deep when the precise nested position matters. Use shallow when only the
 top-level branch matters.
@@ -130,11 +132,12 @@ top-level branch matters.
 
 History records when the owning compound is actually exited.
 
-In the example, `:eject` leaves `:player` for `:tray`, so the runtime records
-`:player`'s last configuration.
+In the example, `:auth.logout` leaves `:authenticated` for
+`:unauthenticated`, so the runtime records `:authenticated`'s last
+configuration.
 
-A transition between children of `:player` does not record history, because
-`:player` was never exited. It remained the
+A transition between `:dashboard` and `:settings` does not record history,
+because `:authenticated` was never exited. It remained the
 [least common ancestor](hierarchical-states.md#entryexit-cascading-along-the-lca).
 
 If history is not sticking, check that the transition leaves the compound that
@@ -160,9 +163,9 @@ not a separate transition mechanism.
 History recordings live in a runtime-owned snapshot slot:
 
 ```clojure
-{:state      [:player :stopped]
+{:state      [:authenticated :dashboard]
  :data       {...}
- :rf/history {[:player] [:player :playing :mid-track]}}
+ :rf/history {[:authenticated] [:authenticated :settings]}}
 ```
 
 The key is the compound's declaration path. The value is either a full path for
@@ -189,7 +192,7 @@ history in one region leaves the others alone.
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| History never restores; always hits default | Owning compound never left (sibling moves keep it as LCA) | Give the compound an off-state outside it (the `:tray` pattern) |
+| History never restores; always hits default | Owning compound never left (sibling moves keep it as LCA) | Give the compound an off-state outside it (`:unauthenticated` next to `:authenticated`) |
 | View `case`s on `:hist` | Pseudo-state is never in `:state` | Transition to `:hist` resolves to a real leaf — case on that |
 | Registration error at root / bare parallel | History needs an enclosing compound | Nest under a compound with `:states` + `:initial`. Error: `:rf.error/machine-history-misplaced` |
 | Two history children under one compound | At most one history node per compound | Use one node; deep vs shallow is `:deep?`. Error: `:rf.error/machine-history-duplicate` |

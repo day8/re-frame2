@@ -1,4 +1,6 @@
-# Machines glossary
+# Glossary
+
+<a id="machines-glossary"></a>
 
 One term, short definition, tiny code when the spelling matters. *See* points
 at the teaching page.
@@ -15,7 +17,7 @@ named states and transitions.
 (rf/reg-machine :auth.login/flow login-flow)
 ```
 
-See [The model](concepts.md).
+See [The table](concepts.md).
 
 ### **transition table**
 
@@ -41,8 +43,9 @@ It lives in [runtime-db](../core/glossary.md#runtime-db). Read it with
 @(rf/subscribe [:rf/machine :auth.login/flow])
 ```
 
-`nil` until the first event. `:state` is a keyword, a path vector, or a
-region map.
+`nil` until the first event on a **singleton**. A spawned actor has a
+snapshot from the moment it is spawned. `:state` is a keyword, a path
+vector, or a region map.
 
 See [The snapshot](concepts.md#the-snapshot).
 
@@ -58,9 +61,20 @@ See [The idea](concepts.md#the-idea).
 
 One named mode of a machine, such as `:idle`, `:submitting`, or `:authed`.
 
+### **trigger**
+
+The thing that can fire a transition. A dispatched trigger is the inner
+vector, such as `[:auth.login/submit credentials]`. A timer expiry (`:after`)
+and a guard that became true (`:always`) are triggers too.
+
+Do not call the inner vector an "event." In re-frame2, the **event** is the
+outer vector whose id is the machine id.
+
+See [Native to re-frame2](index.md#first-class-support).
+
 ### **transition**
 
-A move from one state to another, usually in response to an event under a
+A move from one state to another, usually in response to a trigger under a
 state's `:on` map.
 
 ### **guard**
@@ -102,7 +116,7 @@ See [The effect map](concepts.md#the-effect-map-data-fx).
 ### **compound state**
 
 A state with nested `:states` and its own `:initial`. The snapshot's `:state`
-becomes a vector path, such as `[:authenticated :cart :paying]`.
+becomes a vector path, such as `[:authenticated :settings]`.
 
 See [Hierarchical states](hierarchical-states.md).
 
@@ -239,10 +253,25 @@ See [Automatic transitions](automatic-transitions.md).
 
 ## Actors and composition
 
+### **singleton**
+
+A machine registered with `reg-machine`. One id, one live instance. The
+snapshot is `nil` until the first event. Login is a singleton.
+
+See [Actors](actors.md).
+
+### **spawned actor**
+
+A live instance created at run time with `:spawn` or `[:rf.machine/spawn …]`.
+It has an allocated id such as `:auth/request#0`. The spec heading says
+"dynamic actors"; that is an adjective, not a third kind.
+
+See [Actors](actors.md).
+
 ### **actor**
 
-A live machine instance. A singleton machine and a spawned child are both
-actors. Liveness is the presence of a snapshot in runtime-db.
+A live machine instance. A singleton and a spawned child are both actors.
+Liveness is the presence of a snapshot in runtime-db.
 
 See [Actors](actors.md).
 
@@ -292,14 +321,14 @@ the macrostep commits.
 {:fx [[:raise [:check-complete]]]}
 ```
 
-See [When the table grows](concepts.md#when-the-table-grows).
+See [Raise and internal events](concepts.md#when-the-table-grows).
 
 ### **:internal-events**
 
 A top-level set of event ids that may be raised internally but are refused
 when dispatched from outside the machine.
 
-See [When the table grows](concepts.md#when-the-table-grows).
+See [Raise and internal events](concepts.md#when-the-table-grows).
 
 ## Runtime terms
 

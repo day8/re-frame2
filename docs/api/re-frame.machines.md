@@ -227,7 +227,7 @@ The framework-registered subscription vectors and reserved effect tuples that ad
   ```clojure
   [:rf/machine machine-id]
   ```
-- **Description**: The canonical machine read. Returns a reaction whose value is the snapshot `{:state :data}` (plus framework-managed `:tags`), or `nil` if the machine is not yet initialised. The [machines model](../machines/concepts.md#register-and-drive) walks through subscribing to a snapshot and chaining named projections off it.
+- **Description**: The canonical machine read. Returns a reaction whose value is the snapshot `{:state :data}` (plus framework-managed `:tags`), or `nil` if the machine is not yet initialised. [The table](../machines/concepts.md#register-and-drive) walks through subscribing to a snapshot and chaining named projections off it.
 - **Example**:
   ```clojure
   (let [{:keys [state data]} @(rf/subscribe [:rf/machine :auth.login/flow])]
@@ -306,7 +306,7 @@ The framework-registered subscription vectors and reserved effect tuples that ad
 | `:output-key` | Requires `:final?`. Designates the child's `:data` slot reported back via the parent's `:on-done`. |
 | `:on-done` (spawn-spec key) | `(fn [{:keys [data result]}] new-data)` on the parent's `:spawn` map. Fires synchronously when the spawned child enters a `:final?` state. `result` is the child's `:data` slot named by the final state's `:output-key` (or `nil`). |
 
-See [Final states](../machines/concepts.md#final-states) in the machines model guide.
+See [Final states](../machines/concepts.md#final-states) in [The table](../machines/concepts.md).
 
 ### `[:rf.machine/dispatch-to-system [system-id event]]`
 
@@ -570,6 +570,6 @@ The registration-time and `:data`-schema-boundary validators. The three `:data` 
 
 - [re-frame.core.md](re-frame.core.md) — `reg-machine` / `defmachine` / `machine-has-tag?` are reached on the `re-frame.core` facade; `dispatch` / `subscribe` / `reg-event` drive and read a machine.
 - [re-frame.schemas.md](re-frame.schemas.md) — machines declare schemas for their `:data` slot the same way ordinary handlers do; the `validate-*-data!` validators gate them.
-- [Machines concept guide](../machines/concepts.md) — the narrative walkthrough: the transition table, guards, actions, tags, `:after`, final states, and when to reach for a machine. The v1 transition-table grammar covers a specific subset of Statechart capabilities: sequencing, `:after` timers, internal-vs-external transitions, guards, action lists, hierarchical states, parallel regions, and final-state semantics. The guide covers the exact subset and its rationale.
-- [Machines glossary](../machines/glossary.md) — the surface vocabulary in one place.
+- [The table](../machines/concepts.md) — the flat-table contract: guards, actions, encapsulation, finals, schemas. The numbered Machines pages grow one login machine through tags, automatic transitions, hierarchy, parallel regions, history, and actors.
+- [Glossary](../machines/glossary.md) — the surface vocabulary in one place.
 - [Coming from XState](../machines/coming-from-xstate.md) — the v6 parity delta for XState users.

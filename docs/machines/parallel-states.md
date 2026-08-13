@@ -1,15 +1,20 @@
-# Parallel regions
+# 6. Parallel regions
 
-Sometimes one feature has several independent state axes active at the same time.
+<a id="parallel-regions"></a>
+<a id="parallel-states"></a>
 
-A todos page might be:
+The session machine so far has one active leaf. A login **page** often has
+two independent axes at once:
 
-- in a data state: `:nothing | :loading | :empty | :some | :error`;
-- in a form state: `:neutral | :valid | :invalid`;
-- in a mode state: `:active | :archived`.
+- the form: editing, valid, or invalid;
+- the submit flow: idle, submitting, authed, or error.
 
-Those axes are orthogonal. A flat machine would have to name the cross-product.
-Parallel regions keep the axes separate.
+Those axes are orthogonal. A flat machine would have to name the
+cross-product (`:idle-and-invalid`, `:submitting-and-valid`, …). Parallel
+regions keep the axes separate.
+
+The [Nine States example](../../examples/patterns/nine_states) is the same
+idea with three axes. This page teaches it on the login page first.
 
 ## When to use parallel regions
 
@@ -30,53 +35,48 @@ There is no per-region `:data`. A parallel machine has one shared `:data` map.
 A parallel machine has `:type :parallel` and `:regions` at the root.
 
 ```clojure
-;; cf. examples/patterns/nine_states
-(rf/defmachine nine-states
+(rf/defmachine login-page
   {:type :parallel
-   :data {:items [] :error nil}
+   :data {:attempts 0 :error nil}
 
    :guards
-   {:empty? (fn [{data :data}]
-              (zero? (count (:items data))))}
-
-   :actions
-   {:set-items (fn [{data :data [_ {:keys [items]}] :event}]
-                 {:data (assoc data :items (vec items))})}
+   {:form-valid?
+    (fn [{:keys [tags]}]
+      (contains? tags :form/valid))}
 
    :regions
-   {:data
-    {:initial :nothing
+   {:form
+    {:initial :editing
      :states
-     {:nothing   {:tags #{:data/nothing}
-                  :on   {:fetch-started :loading}}
-      :loading   {:tags #{:data/loading}
-                  :on   {:fetch-succeeded {:target :resolving
-                                           :action :set-items}
-                         :fetch-failed    :error}}
-      :resolving {:always [{:guard :empty? :target :empty}
-                           {:target :some}]}
-      :empty     {:tags #{:data/empty}}
-      :some      {:tags #{:data/some}}
-      :error     {:tags #{:data/error}}}}
+     {:editing {:tags #{:form/editing}
+                :on   {:form/valid   :valid
+                       :form/invalid :invalid}}
+      :valid   {:tags #{:form/valid}
+                :on   {:form/invalid :invalid}}
+      :invalid {:tags #{:form/invalid}
+                :on   {:form/valid :valid}}}}
 
-    :form
-    {:initial :neutral
+    :auth
+    {:initial :idle
      :states
-     {:neutral {:tags #{:form/neutral}
-                :on   {:submit-valid   :valid
-                       :submit-invalid :invalid}}
-      :valid   {:tags #{:form/valid}}
-      :invalid {:tags #{:form/invalid}}}}
+     {:idle
+      {:on {:auth.login/submit {:target :submitting
+                                :guard  :form-valid?}}}
+      :submitting
+      {:tags #{:auth/busy}
+       :on   {:auth.login/success :authed
+              :auth.login/failure :error-shown}}
+      :authed      {:tags #{:auth/authed}}
+      :error-shown {:on {:auth.login/dismiss :idle}}}}}}})
 
-    :mode
-    {:initial :active
-     :states
-     {:active   {:tags #{:mode/active}
-                 :on   {:archive :archived}}
-      :archived {:tags #{:mode/archived :mode/read-only}}}}}})
-
-(rf/reg-machine :ui/nine-states nine-states)
+(rf/reg-machine :auth.login/flow login-page)
 ```
+
+Still one **singleton**. The form region does not know the auth region's
+state names. Submit reads `:form/valid` off the tag union.
+
+The [Nine States example](../../examples/patterns/nine_states) is the same
+shape with a third `:mode` region.
 
 Each region body looks like a small machine: it has `:initial` and `:states`.
 
@@ -87,12 +87,11 @@ the root has both, or if a region is missing its own `:initial`.
 ## The snapshot state is a region map
 
 ```clojure
-@(rf/subscribe [:rf/machine :ui/nine-states])
-;; => {:state {:data :loading
-;;             :form :neutral
-;;             :mode :active}
-;;     :data  {:items [] :error nil}
-;;     :tags  #{:data/loading :form/neutral :mode/active}}
+@(rf/subscribe [:rf/machine :auth.login/flow])
+;; => {:state {:form :valid
+;;             :auth :submitting}
+;;     :data  {:attempts 0 :error nil}
+;;     :tags  #{:form/valid :auth/busy}}
 ```
 
 A compound region contributes a path as its region value:
@@ -123,9 +122,9 @@ For each region:
 - otherwise that region stays where it is.
 
 ```clojure
-(rf/dispatch-sync [:ui/nine-states [:fetch-started]])
-;; only the :data region handles it
-;; {:data :loading, :form :neutral, :mode :active}
+(rf/dispatch-sync [:auth.login/flow [:form/valid]])
+;; only the :form region handles it
+;; {:form :valid, :auth :idle}
 ```
 
 If several regions handle the same event, their actions run in region
@@ -264,11 +263,11 @@ The snapshot's `:tags` is the union of every active state in every region.
 That lets a view ask one question without knowing which region owns the tag:
 
 ```clojure
-@(rf/subscribe [:rf.machine/has-tag? :ui/nine-states :mode/read-only])
+@(rf/subscribe [:rf.machine/has-tag? :auth.login/flow :auth/busy])
 ```
 
 It also lets you build a single render-priority table across all axes. See
-[State tags](tags.md#collapsing-many-states-into-one-render-decision).
+[Tags](tags.md#collapsing-many-states-into-one-render-decision).
 
 ## Limitations
 
@@ -278,3 +277,13 @@ may not itself declare `:type :parallel`. Registration throws
 
 If you find yourself wanting nested parallel, flatten the axes into one
 parallel root or split the feature into several machines.
+
+## Troubleshooting
+
+| Symptom | Cause | Fix |
+| --- | --- | --- |
+| Registration throws `:rf.error/machine-parallel-bad-shape` | Root also has `:initial` / `:states`, or a region lacks `:initial` | `:type :parallel` uses `:regions` only; every region declares `:initial` |
+| Registration throws `:rf.error/machine-parallel-root-on-bad-target` | Root `:on` used a bare keyword target | Region-qualify: `[:left :two]` or `[[:left :two] [:right :two]]` |
+| Registration throws `:rf.error/machine-parallel-nested-not-supported` | A region itself declares `:type :parallel` | Flatten the axes, or split into separate machines |
+| Shared `:data` incremented twice on one event | Two regions handled the same event and both wrote | Put the write in one region, or on a root `:on` |
+| Guard cannot see a sibling's same-event move | Selection is frozen for the round | Use `:raise`, or a later `:always` round |
