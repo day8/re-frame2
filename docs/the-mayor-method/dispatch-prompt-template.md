@@ -67,17 +67,18 @@ and the loser can READ the survivor and take a PR body with plausible structure
 and the wrong subject for its own — or a gate exit code belonging to another
 worker's run, which reads as a clean pass and fails the merge decision open. The
 attempt number closes the same hole from the other side, which the worktree
-suffix cannot reach because both writers are YOU: a gate the harness kills at the
-ten-minute cap can survive that kill and write its `.log` and `.exit` after your
-restarted run has started using them. One worker shipped `exit 0` that way with
-18 real failures underneath it. Confirm a scratch file is your own — and your
-current attempt's — before believing it, and confirm each gate read YOUR worktree
-before believing its colour — by whichever of two routes that gate affords. The
-shell gates print `gate root: <path>` as their first line; check it names your
+suffix cannot reach because both writers are YOU: the harness's ten-minute cap
+kills the SHELL, not what it spawned, and the orphan keeps writing to the `.log`
+and `.exit` your restarted run is already using. A NUL hole or two summary lines
+in one log is the tell. One worker shipped `exit 0` that way with 18 real
+failures underneath it. Confirm a scratch file is your own — and your current
+attempt's — before believing it, and confirm each gate read YOUR worktree before
+believing its colour — by whichever of two routes that gate affords. The shell
+gates print `gate root: <path>` as their first line; check it names your
 worktree. A gate that prints no banner (no `scripts/check_*.py` does) is
 discriminated by the red from a fault you planted, which exists only in your
-tree. That worktree check,
-not this naming rule, is what has actually caught both observed collisions.
+tree. That worktree check, not this naming rule, is what has actually caught
+both observed collisions.
 
 If you create a `node_modules` symlink/junction in your worktree, remove the
 LINK (never its target) before you report done: a later `git worktree remove`
@@ -314,16 +315,24 @@ none of them is obvious from the gate command itself.
   beginning mid-word.
 
   **The worktree suffix cannot close the second mechanism, because there both
-  writers are the same worktree.** `worker/trusted-il7b` ran `test:cljs` in the
-  foreground; the harness SIGTERM'd it at the ten-minute cap; the run *survived
-  the kill* and later wrote to the same `.log` and the same `.exit` the restarted
-  run was using — leaving `exit 0` sitting beside 18 real failures. The suffix
-  was present and correct throughout and made no difference. Expect this one
-  more often than the peer collision, not less: detaching a long gate is the
-  sanctioned path (foreground dies at ten minutes, the spine needs about
+  writers are the same worktree.** A process the harness could not kill goes on
+  writing to an inherited descriptor after its replacement has started: the
+  ten-minute cap kills the *shell*, and what that shell spawned survives holding
+  the same open `.log` and `.exit`. It writes at *its* offset while the restart
+  writes from zero, so the artefact is not cleanly clobbered but spliced — the
+  tell is a NUL hole in the log and **two summary lines** where there should be
+  one. Measured twice independently on 2026-08-13: `worker/trusted-il7b` was left
+  with `exit 0` sitting beside 18 real failures, and `worker/tense-cluster`
+  (#8060) found an orphaned `node out/node-test.js` reporting `2 failures, 0
+  errors` from a run that had already been killed. The worktree suffix was
+  present and correct in both, and made no difference to either. Expect this
+  route more often than the peer collision, not less: detaching a long gate is
+  the sanctioned path (foreground dies at ten minutes, the spine needs about
   twenty-five), so kill-and-restart is routine rather than exceptional. A fresh
-  number per attempt is what sends the survivor's write somewhere you will never
-  quote.
+  number per attempt sends the orphan's write somewhere you will never quote.
+  It is belt to the capture rule's braces rather than a replacement for it —
+  `tense-cluster` was saved by quoting its own shell's captured code instead of
+  the log, and that is precisely what the capture rule is for.
 
   The exit code a PR body quotes is exactly the artefact both collisions
   corrupt, and by either route it reads as a clean pass — so this is the merge
@@ -515,7 +524,7 @@ reports everything.
 - Same-file races between concurrent workers → enumerate in-flight surfaces.
 - Edits leaking into the mayor checkout (esp. silent new-file leaks) → boundary block + post-write both-trees check.
 - Cross-worktree contamination via `git stash` → no-stash rule (stashes are repo-global).
-- A peer silently overwriting a worker's scratch file, or a killed gate outliving the run that replaced it and overwriting *that* — either way the loser reads the survivor as its own, including a gate exit code belonging to a different run, which merges on a green nobody earned → scratch files and gate artefacts named for BOTH the worktree and the attempt, plus the `gate root:` check, which is the half of that pair observed to actually catch it.
+- A peer silently overwriting a worker's scratch file, or an orphaned child of a killed gate writing over the run that replaced it — either way a worker reads the survivor as its own, including a gate exit code belonging to a different run, which merges on a green nobody earned → scratch files and gate artefacts named for BOTH the worktree and the attempt, plus the `gate root:` check, which is the half of that pair observed to actually catch it.
 - Worktree cleanup deleting *through* a `node_modules` link into the shared tree it points at → the worker unlinks before reporting done, and the cleanup path disarms before removing.
 - "Green locally" merged into a red CI gate → gate the transitive surface; merge on CI, not the hand-off; a real failure gets a fix-worker, never `--admin`.
 - A passing synthetic test that routes around the real bug → reproduce the actual failing path.
