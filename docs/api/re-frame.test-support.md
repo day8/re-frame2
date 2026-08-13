@@ -71,7 +71,7 @@ The fixture primitives follow one pattern: snapshot the registrar before the tes
   | `:clear-kinds` | Collection of registrar kinds cleared after the snapshot capture and before the body (the snapshot restores them on the way out). |
   | `:clear-app-schemas?` | Boolean; clear the schemas artefact's per-frame side-table for the test's duration. |
   | `:ambient-frame` | Frame id bound as the body's ambient scope when an adapter is installed. Default `:rf/default`; pass `nil` to opt out (for tests that create their own top-level frames). |
-  | `:async?` | Boolean, default `false`. Selects the return shape: `false` returns the synchronous fn-form fixture; `true` returns a `cljs.test` map-form fixture `{:before … :after …}`, **required** for suites with `(async done …)` tests. |
+  | `:async?` | Boolean, default `false`. Declares the suite **async-capable**; the return shape that delivers it is chosen per host. On CLJS you get a `cljs.test` map-form fixture `{:before … :after …}`, **required** for suites with `(async done …)` tests. On the JVM the option is inert and you always get the fn-form — `clojure.test` has no async tests, and no map-fixture support at all (it *invokes* a fixture, and a Clojure map is `IFn`, so a map fixture would silently skip every test body). |
 - **Example**:
   ```clojure
   (use-fixtures :each
@@ -81,6 +81,10 @@ The fixture primitives follow one pattern: snapshot the registrar before the tes
   (use-fixtures :each
     (ts/make-reset-runtime-fixture {:adapter plain-atom/adapter :async? true}))
   ```
+
+  A `.cljc` suite whose CLJS rows are async writes the same plain `:async? true`
+  — no reader conditional at the call site, because the factory already picks
+  the map on CLJS and the fn-form on the JVM.
 
 ## Bundle co-load hygiene
 
