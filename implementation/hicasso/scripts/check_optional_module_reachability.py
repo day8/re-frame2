@@ -247,6 +247,16 @@ def strip_inert(text):
     offsets, and the walk resumes at the END of each inert form — a live
     form sitting beside a discarded one still counts, which is what stops
     this narrowing from becoming a false RED of its own.
+
+    This function and [[form_end]] are DELIBERATELY duplicated from
+    check_example_fence_coverage.py rather than shared (rf2-t9t0).  The
+    copies are NOT identical and must not be naively merged: [[code_only]]
+    has already blanked every character literal before these run, so both
+    copies here drop the `\\` branches that script's pair needs.  Sharing
+    would mean a flag argument on a twenty-line pure function, and these
+    six checkers are deliberately self-contained single files with no
+    cross-imports — `self_test` and `main` are duplicated six times over
+    for the same reason.
     """
     chars = list(text)
     i, n = 0, len(text)

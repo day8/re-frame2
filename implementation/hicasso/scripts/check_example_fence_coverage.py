@@ -199,6 +199,16 @@ def strip_inert(text):
     Blanking preserves length and newlines so the surviving text keeps its
     offsets, and the walk resumes at the END of each inert form — a live
     claim sitting beside a disabled one still counts.
+
+    This function and [[form_end]] are DELIBERATELY duplicated in
+    check_optional_module_reachability.py rather than shared (rf2-t9t0).
+    The copies are NOT identical and must not be naively merged: that
+    script runs its pair after a `code_only` pass has already blanked
+    every character literal, so its copies drop the `\\` branches these
+    two need.  Sharing would mean a flag argument on a twenty-line pure
+    function, and these six checkers are deliberately self-contained
+    single files with no cross-imports — `self_test` and `main` are
+    duplicated six times over for the same reason.
     """
     chars = list(text)
     i, n = 0, len(text)
