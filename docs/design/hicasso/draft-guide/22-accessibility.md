@@ -84,7 +84,9 @@ invalid state. Read the fact once and use it for both behaviour and ARIA:
 
 The same pattern appears elsewhere in the guide:
 
-- `:aria-expanded` and `:aria-activedescendant` on the dropdown;
+- `:aria-expanded`, `:aria-activedescendant`, and `:aria-selected` on the
+  dropdown — the last two read different facts, the keyboard's transient
+  position and the committed value;
 - `:aria-current "page"` on the active route link;
 - `:aria-busy` on a resource-backed suggestion list;
 - `:inert` and `:aria-hidden` on an exiting presence node.
@@ -126,7 +128,7 @@ Focus movement has specific owners:
 | --- | --- | --- |
 | Route change | Focus a keyed `main` region with `:tab-index -1` and `preventScroll` | [Routing and navigation](07-routing-and-navigation.md) |
 | Overlay open and close | Apply `:auto-focus`, use the platform trap, restore the opener | [Overlays and focus](13-overlays-and-focus.md) |
-| Menu or listbox navigation | Keep DOM focus on the trigger and move `:aria-activedescendant` | [Overlays and focus](13-overlays-and-focus.md) |
+| Menu or listbox navigation | Keep DOM focus on the trigger and move `:aria-activedescendant` from a `combobox` that `:aria-controls` the list, leaving `:aria-selected` on the committed value | [Overlays and focus](13-overlays-and-focus.md) |
 | Exit animation | Add `:inert` and `:aria-hidden` during unmounting | [Motion and presence](12-motion-and-presence.md) |
 | Virtualised collection | Decide how keyboard users reach items that do not exist in the DOM and verify it in a browser | [Lists and collections](06-lists-and-collections.md) |
 
