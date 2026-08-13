@@ -56,11 +56,9 @@ No body here has a group worth declaring: the largest read set is three, and `to
 
 That is a datum rather than a finding, and it is the same datum twice: two ordinary applications, one grouped read between them. Consistent with the operator's standing ruling that grouped `use-subs` sits below the ergonomics bar.
 
-### 5. `::h/revision` and the counter the author has to invent — BOUNDED, from the other side
+### 5. Neither application needed a counter — the bound was right, the boundary was not (rf2-36bd)
 
-The slice's report says the *most ordinary* use of the reset law — a **Discard changes** button — needs bookkeeping the application must add. The Todo class contains the most ordinary reset there is, **Escape cancels an edit**, and it needs no counter and no revision at all.
-
-The difference is not the domain, it is whether the field survives its own reset:
+**The datum this report contributed stands; the explanation it gave for it does not.** The Todo class contains the most ordinary reset there is, **Escape cancels an edit**, and it needs no counter and no revision at all:
 
 ```clojure
 ;; Escape removes the draft; a nil draft is what makes the editor absent,
@@ -68,7 +66,15 @@ The difference is not the domain, it is whether the field survives its own reset
 :on-key-down {"Escape" [::h/clear db/draft id]}
 ```
 
-The slice's editor is always on the page, so a discard hands a still-mounted field the value it is already showing, React's own value diff sees nothing to do, and the revision is what re-baselines it. **`::h/revision` is the reset door for a field that outlives the reset**, and finding 5's scope is that narrower statement. The guide row it asks for should say which of the two shapes it is about, because *most* resets in the corpus are probably the unmounting kind and would be taught a counter they do not need.
+What this report then concluded was that the difference is **whether the field survives its own reset** — that the slice's editor is always on the page, so its discard hands a still-mounted field the value it is already showing and the revision is what re-baselines it. It closed: *`::h/revision` is the reset door for a field that outlives the reset*.
+
+That boundary was measured and it is in the wrong place. The slice's counter was deleted and its browser lane did not move (1474 tests, 9154 assertions, captured exit 0, identical to the control), so the slice's field **outlives its reset and still needs nothing**. The counter has since come out of the slice and its own finding 5 is withdrawn.
+
+The line that survives the measurement is drawn elsewhere. `impl/codec`'s `revision-key` states that the whole of a revision's delivery is that its change **re-runs the body**, and React marks the resulting host update on props-object identity — so **any** re-render re-asserts the model over the DOM, drifted or not. Unmounting is therefore just one member of a larger class: every reset that moves *something the body reads* gets the re-assert for free, and an unmount is only the most emphatic way to move it.
+
+**`::h/revision` is the door for a reset that leaves every other read the body makes `=`.** That is a much smaller population than either report supposed — a normalising or refusing field whose typed value lands back on the value the model already holds, or a DOM drifted by a route React never saw and re-asserted by a control that changes no other state.
+
+So the two reports agree after all, and they agree on the opposite of what the slice's report first asked for: **neither of these two ordinary applications needed a counter.** The guide row should give an author the test rather than the counter — *if your reset leaves every value your body reads equal, you need `::h/revision`; if it moves any of them, React's own commit has already done it* — because on the evidence of both applications, most authors reading it will not need one.
 
 ### 6. Two clicks on one page settle differently — CONFIRMED, and it is not about servers
 
