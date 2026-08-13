@@ -37,8 +37,9 @@
                      `:rf.fx/handled`, `:rf.fx/override-applied`,
                      `:rf.fx/skipped-on-platform`)
     5. `:sub`      — `:op-type :rf.sub` (`:operation :rf.sub/run` recompute,
-                     `:rf.sub/skip` memo-hit, or `:rf.sub/create` first-time
-                     signal-graph build)
+                     `:rf.sub/skip` memo-hit, `:rf.sub/create` first-time
+                     signal-graph build, or `:rf.sub/dispose` cache-slot
+                     eviction)
     6. `:render`   — `:op-type :rf.view` + `:operation :rf.view/render`
 
   Events whose op-type/operation pair doesn't fit any bucket flow
@@ -69,8 +70,9 @@
 
 (def ^:private sub-op-types
   "Op-types that classify as the fifth domino — subscription work.
-  `:rf.sub/run` is the recompute path; `:rf.sub/create` is the first-time
-  signal-graph build."
+  `:rf.sub/run` is the recompute path; `:rf.sub/skip` is the memo-hit;
+  `:rf.sub/create` is the first-time signal-graph build; `:rf.sub/dispose`
+  is a cache-slot eviction. All four land in the `:subs` slot."
   #{:rf.sub})
 
 (defn domino-bucket
@@ -311,6 +313,7 @@
        :effects     [<trace-event> ...]       ;; :op-type :rf.fx
        :subs        [<trace-event> ...]       ;; :rf.sub/run + :rf.sub/skip
                                               ;;   + :rf.sub/create
+                                              ;;   + :rf.sub/dispose
        :renders     [<trace-event> ...]       ;; :rf.view/render
        :other       [<trace-event> ...]}      ;; everything else
                                               ;;   (errors, warnings,
