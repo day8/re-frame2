@@ -24,7 +24,20 @@
   it is the one that goes red when the application quietly grows a
   dependency: a fence cannot see a new PUBLIC door being reached for,
   and the facade freeze at rf2-hic-026 wants to know about that more
-  than about anything else in this file."
+  than about anything else in this file.
+
+  ## And the population is asked for too (rf2-ccuw)
+
+  Both claims are only worth the set of namespaces they are made over,
+  and that set used to be typed here — twice, as a roster literal and as
+  the macro's argument. A predicate over a hand-written population
+  covers a namespace minted tomorrow only if somebody remembers to type
+  it, which is the reviewer problem this file opens by rejecting.
+
+  So [[app-namespaces]] is read off the package DIRECTORY and [[graph]]
+  off the ANALYZER, and [[the-graph-is-populated]] compares them. A file
+  in the package the analyzer never saw is the difference, and it names
+  itself."
   (:require [cljs.test :refer-macros [deftest is testing]]
             [clojure.string :as str]
             ;; Required so the analyzer has analysed them when the macro
@@ -39,26 +52,20 @@
   (:require-macros [re-frame.hicasso.examples.require-graph :as rg]))
 
 (def ^:private app-namespaces
-  "Every namespace this APPLICATION is made of. The test suites are
-  deliberately absent: a test may reach past a door the application may
-  not, which is the whole reason the two are held to different rules."
-  ["re-frame.hicasso.examples.todo.app"
-   "re-frame.hicasso.examples.todo.db"
-   "re-frame.hicasso.examples.todo.events"
-   "re-frame.hicasso.examples.todo.routes"
-   "re-frame.hicasso.examples.todo.subs"
-   "re-frame.hicasso.examples.todo.views"])
+  "Every namespace this APPLICATION is made of, read off the package
+  directory at macro-expansion time rather than typed. The test suites
+  are deliberately absent: a test may reach past a door the application
+  may not, which is the whole reason the two are held to different rules
+  — and the exclusion is the build's own `cljs-test$`, not a second rule
+  kept in step by hand."
+  (rg/emit-application-namespaces re-frame.hicasso.examples.todo))
 
 (def ^:private graph
   "`{namespace [dependency …]}` for the application's namespaces, read
-  off the analyzer at macro-expansion time."
-  (rg/emit-dependency-graph
-    '[re-frame.hicasso.examples.todo.app
-      re-frame.hicasso.examples.todo.db
-      re-frame.hicasso.examples.todo.events
-      re-frame.hicasso.examples.todo.routes
-      re-frame.hicasso.examples.todo.subs
-      re-frame.hicasso.examples.todo.views]))
+  off the analyzer at macro-expansion time. Same population, other
+  instrument: a namespace the analyzer never saw is absent here and
+  present in [[app-namespaces]]."
+  (rg/emit-dependency-graph re-frame.hicasso.examples.todo))
 
 (def ^:private own?
   "Is this dependency one of the application's own namespaces?"
@@ -78,10 +85,16 @@
 
 (deftest the-graph-is-populated
   (testing "the analyzer answered for every application namespace"
+    ;; Two instruments over one population: the DIRECTORY on the left,
+    ;; the ANALYZER on the right. A namespace the analyzer never saw is
+    ;; absent on the right and fenced by nothing — every check below
+    ;; would pass over it VACUOUSLY — so the two are compared first, and
+    ;; `=` prints the file to open.
     (is (= (set app-namespaces) (set (keys graph)))
-        "a namespace the analyzer has not analysed answers an empty edge
-         set, and an empty edge set passes every check below VACUOUSLY —
-         so the roster and the graph's key set are compared first"))
+        "a source file under `examples/todo/` is not on this namespace's
+         `:require` list, so the analyzer has no record of it and its
+         imports are fenced by nothing. Add it to the `ns` form above, or
+         take the file out of the package"))
 
   (testing "the reads that matter are present"
     ;; Positive controls, because a fence over an empty graph is green

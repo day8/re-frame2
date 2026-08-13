@@ -38,21 +38,18 @@
   (:require-macros [re-frame.hicasso.examples.require-graph :as rg]))
 
 (def ^:private app-namespaces
-  "Every namespace the recipes' APPLICATION is made of. Its suites are
-  deliberately absent: a test may reach past a door the application may
-  not — the mounted suite reaches the test kit — which is the whole
-  reason the two are held to different rules."
-  ["re-frame.hicasso.examples.forms.db"
-   "re-frame.hicasso.examples.forms.events"
-   "re-frame.hicasso.examples.forms.subs"
-   "re-frame.hicasso.examples.forms.views"])
+  "Every namespace the recipes' APPLICATION is made of, read off the
+  package directory at macro-expansion time rather than typed (rf2-ccuw).
+  Its suites are deliberately absent: a test may reach past a door the
+  application may not — the mounted suite reaches the test kit — which is
+  the whole reason the two are held to different rules, and the exclusion
+  is the build's own `cljs-test$`."
+  (rg/emit-application-namespaces re-frame.hicasso.examples.forms))
 
 (def ^:private graph
-  (rg/emit-dependency-graph
-    '[re-frame.hicasso.examples.forms.db
-      re-frame.hicasso.examples.forms.events
-      re-frame.hicasso.examples.forms.subs
-      re-frame.hicasso.examples.forms.views]))
+  "Same population, other instrument: a namespace the analyzer never saw
+  is absent here and present in [[app-namespaces]]."
+  (rg/emit-dependency-graph re-frame.hicasso.examples.forms))
 
 (def ^:private own? (set app-namespaces))
 
@@ -70,10 +67,14 @@
 
 (deftest the-graph-is-populated
   (testing "the analyzer answered for every application namespace"
+    ;; The DIRECTORY on the left, the ANALYZER on the right. A namespace
+    ;; the analyzer never saw is absent on the right and fenced by
+    ;; nothing — every check below would pass over it vacuously.
     (is (= (set app-namespaces) (set (keys graph)))
-        "a namespace the analyzer has not analysed answers an EMPTY edge
-         set, and an empty edge set passes every check below vacuously —
-         so the roster and the graph's key set are compared first"))
+        "a source file under `examples/forms/` is not on this namespace's
+         `:require` list, so the analyzer has no record of it and its
+         imports are fenced by nothing. Add it to the `ns` form above, or
+         take the file out of the package"))
   (testing "the reads that matter are present"
     (is (some #{"re-frame.hicasso"} (get graph "re-frame.hicasso.examples.forms.views"))
         "views depends on the public door")
