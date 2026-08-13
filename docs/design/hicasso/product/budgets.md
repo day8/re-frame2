@@ -123,9 +123,11 @@ had to be taken later, alone, in a window of its own.
 
 ## 3. Deterministic rows, pinned on the moved package
 
-These are pinned **on `implementation/hicasso`** — the moved package itself,
-not a donor — at commit `0c0aa22898`, through the supported test-kit facade
-`re-frame.hicasso.test.mounted`. No `impl/` reach-through is involved.
+`D1`–`D25` are pinned **on `implementation/hicasso`** — the moved package
+itself, not a donor — at commit `0c0aa22898`, through the supported test-kit
+facade `re-frame.hicasso.test.mounted`. No `impl/` reach-through is involved.
+**`D26` is the one row in this section taken on the bench tree**, and the note
+below it says why that is the only place it can be taken.
 
 The instrument for body counts is [`hm/bodies-run`][kit], which is page-wide,
 handle-free, and takes its reading as a delta on the runtime's monotone
@@ -152,6 +154,16 @@ it exists to make assertable.
 | D14 | Wrappers between the element type React reconciles and the author's own function, declared island | **0** | `three_way_parity_cljs_test` | the `:client-only` default answers a gate instead; UIx's route answers a generated component |
 | D15 | Slots on the props object React carries, and they are the author's own | **1** | as D14 | UIx's route also reads 1 — but the slot is `argv`, which the author never wrote |
 | D16 | Unwrapping hops per render, per component, native and handwritten React | **0** | as D14 | the UIx route reads 1 — the `argv` carrier being opened |
+| D17 | Subscription recomputations per keystroke, four-field editor | **10** | `per_keystroke_dom_cljs_test` | D20 — a refused keystroke reads 0 |
+| D18 | Subscription recomputations per keystroke, grid 5×5 | **31** | as D17 | D19 — the same measurement at 10×10 reads 111 |
+| D19 | Subscription recomputations per keystroke, grid 10×10 | **111** | as D17 | D18 — quartering the grid moves it to 31 |
+| D20 | Subscription recomputations for a *refused* keystroke | **0** | as D17 | D19 — an accepted keystroke reads 111 |
+| D21 | Glass writes (`value` property) for an *accepted* keystroke | **0** | as D17 | D22 — a refused keystroke reads 1 |
+| D22 | Glass writes for a *refused* keystroke | **1** | as D17 | D21 — an accepted keystroke reads 0 |
+| D23 | DOM mutation records per keystroke, editor | **7** | as D17 | D25 — a refusal reads 3 |
+| D24 | DOM mutation records per keystroke, grid | **8** | as D17 | D23 — the editor reads 7; the grid's extra one is the row total's text node |
+| D25 | DOM mutation records for a *refused* keystroke | **3** | as D17 | D23 — an accepted keystroke reads 7 |
+| D26 | Rows of markup built for a one-row write, fine topology | **1** at `B` = 100, 300 and 1,000 | `topo/census_dom_cljs_test` | the coarse arm builds `B` — 100, 300, 1,000 |
 
 **These figures are cited, not re-derived.** D1–D8 were established by the two
 witness apps that landed on `main` ahead of this page; re-deriving them here
@@ -264,6 +276,83 @@ section rather than §4. And **they are the deterministic half of C7 only**: the
 say there is no interposed work, never how long a render takes, so C7 stays
 `UNPINNED` and its clock half remains `rf2-hic-071`'s, along with the ladder re-pin
 and the package-resident clock instrument that half needs.
+
+**On D17–D25 — the per-keystroke census (`rf2-hic-045`).** These are the
+remaining five stages of one keystroke, counted on the two public-package
+witness applications and published in
+[`per-keystroke.md`](per-keystroke.md). They are registered here rather than
+left on that page because they are the only figures in the corpus that **scale
+with the mounted page**, and this section is where a reader finds out which
+budgets do. Their instrument is not `hm/bodies-run`: a counting wrapper on the
+registrar's `:handler-fn` reads the subscriptions, a spy on the `value`
+property setter of the input prototypes reads the glass, and a
+`MutationObserver` over the container reads the commit — each installed around
+the mount and removed in a `finally`, each named in that page's §1.1.
+
+**Two of these nine rows are readings of a LINEAR quantity, and the ledger says
+so rather than implying a flat one.** `D18` and `D19` are the same estimand at
+two mount sizes: subscription recomputations go `31 → 111` as the grid goes
+`5×5 → 10×10`, following `rows × cols + rows + 1`. **The mount size is part of
+the registered line**, and the pair is registered rather than a single figure
+precisely so that neither can be read as a ceiling that holds at another size.
+`D17`'s `10` is likewise the editor's ten live layer-1 cells and not a
+constant: change the page and the figure changes with it, which is the point.
+The other seven — the refused keystroke's `0`, the two glass writes and the
+three mutation-record counts — are flat, and `D24` against `D23` is what makes
+that assertable rather than assumed. **What makes all nine gateable on a hosted
+runner is that they are integers on monotone counters, not that they are
+small**; a linear figure taken at a stated size reads the same on a loaded box
+exactly as a flat one does.
+
+**The contrast these rows exist to keep visible.** One keystroke in the
+hundred-cell grid runs **111 subscription bodies to run 2 view bodies**
+(`D19` against `D2`). The read topology buys narrow *notification* — which is
+what `D1`/`D2` measure and what keeps the page from re-rendering — and it does
+not buy narrow *recomputation*. Registering only the flat half of that would
+have made the ledger say something the census does not.
+
+**On D26 — the second counter `U5`'s estimand was missing (`rf2-mwr2`).**
+`rf2-hic-036`'s topology tournament measured a coarse view-model arm that
+**rebuilds all `B` rows for a one-row change and runs exactly one boundary
+body**, because it does its `B` rows *inside* that body. Read against `U5`'s
+registered estimand — boundary bodies run — that arm **passes**, at every row
+count, untunably: the very behaviour `U5`'s English forbids. `D3`/`D4` do not
+already cover it. They catch a coarse shape because *their* witness keeps
+per-cell boundaries to count; a coarse shape with no boundaries beneath the
+family has nothing for that instrument to see.
+
+**The repair is a second counter, not a wider line.** `U5`'s registered line is
+untouched and no threshold moves. What changes is that the claim is now decided
+on **two** instruments — bodies run (`D1`–`D4`) *and* rows of markup built
+(`D26`) — and [§9's gate](#9-the-budget-line-reconciliation-ledger) refuses a
+row that states a scaling claim and names only one. The counter was already
+built and already cross-checked when this row was registered: the tournament
+increments `:markup` inside the single shared `row-markup` fn every arm calls,
+and its census agrees with `arm1.runtime/body-runs` — two instruments sharing
+no traversal — on all 48 cells.
+
+**`D26` is a `bench-tree` figure, and that is the honest population rather than
+a convenience.** The tournament's four arms are written on
+`re-frame.bench.hicasso.arm1`, the prototype runtime, whose own docstring
+places it *"off every production source path"*; the package ships one topology
+and cannot mount four. So the subject is the bench tree, and this column names
+the subject. **The package's own witness reaches the same limit from the other
+side and already records it**: `scaling_dom_cljs_test`'s
+`the-coarse-shape-with-scalar-props-is-INVISIBLE-to-this-instrument` reads `2`
+at 25 cells and at 100 for a coarse shape whose props are plain values, and
+says in terms that *"this gate CANNOT distinguish the two shapes"* while that
+shape allocates `N` elements and compares `N` props maps per keystroke. Two
+witnesses, two populations, one hole — and `D26` is the counter that closes it.
+
+**`D26`'s own figure is flat and its control is linear**, which is the way
+round a scaling row should read: the fine topology builds **one** row of markup
+for a one-row write at `B` = 100, 300 and 1,000, and the coarse arm builds `B`
+— a factor of a thousand at the largest size, on an exact integer counter with
+no interval attached because none is needed. The chunked arm builds `k` = 25
+and the windowed arm builds 1; both are recorded
+[on the tournament page](topology-tournament.md#22-the-rung-2-teaching-table--rows-of-markup-built)
+and neither is registered here, because a stated arm constant is a setting and
+not a result.
 
 **On D9.** This is teardown residue in **counters and objects**, which is a
 deterministic reading the package can make. It is *not* S5, the teardown row
@@ -395,11 +484,22 @@ single-profile limitation.
 | U2 | Ordinary discrete interactions reach next paint within 50 ms p95 / 100 ms p99 | latency to next paint | distributional |
 | U3 | Broad application operations within 100 ms p95 unless classified background | operation latency | distributional |
 | U4 | Dragging/animation stay inside frame budget | per-frame latency | distributional |
-| U5 | Narrow-update body work scales with changed rows, not all mounted rows | boundary bodies run | **deterministic** — pinned as D1–D4 |
+| U5 | Narrow-update body work scales with changed rows, not all mounted rows | boundary bodies run **and rows of markup built** | **deterministic** — pinned as D1–D4 and D26 |
 | U6 | Teardown residue is zero after quiescence | residue counters / retained bytes | **split** — D9 deterministic, S5 distributional |
 
 U5 and the deterministic half of U6 are pinned on the package today. U1–U4 are
 not, and cannot be until a package-resident clock instrument exists.
+
+**`U5`'s estimand carries two counters as of 2026-08-14 (`rf2-mwr2`), and its
+line is unchanged.** Registered on bodies alone it read `PASS` on a coarse
+view-model arm that rebuilds all `B` rows for a one-row change, because that
+arm does its `B` rows inside one body — the exact behaviour the *Budget* column
+above forbids. Adding `D26`'s rows-of-markup counter beside `D1`–`D4`'s bodies
+is what closes that, and it is a **second counter and not a wider line**: no
+threshold moved, and a coarse arm that is genuinely cheap still passes both.
+The measurement, the four-arm table and the hole's shape are
+[§3's `D26` note](#3-deterministic-rows-pinned-on-the-moved-package) and
+[the tournament's §2.5](topology-tournament.md#25-u5-and-an-instrument-gap-in-it-that-this-tournament-exposed).
 
 ### The comparative and regression rules
 
@@ -722,7 +822,7 @@ and no figure may be scaled from one onto the other.
 
 | Family | Enforcement home |
 |---|---|
-| Deterministic rows D1–D16 | ordinary blocking PR gates; framework in `rf2-hic-089`, full gates in `rf2-hic-071` |
+| Deterministic rows D1–D26 | ordinary blocking PR gates; framework in `rf2-hic-089`, full gates in `rf2-hic-071` |
 | Distributional rows S1–S8, U1–U4 | pinned interleaved evidence runs on P-DEV-1; never converted into flaky PR thresholds |
 | Shell breach disposition | `rf2-0xx2` |
 | K3 per-read record | `rf2-hic-070` — [`k3-disposition.md`](k3-disposition.md), whose §8 makes the 10% same-witness per-read rule executable for `rf2-hic-071` |
@@ -849,6 +949,23 @@ that exists and runs in the first lane; a distributional row may never name the
 first lane at all. *Authority* is the bead that owns the row's disposition
 today. *Disposition* is a link that must resolve to a section naming the row.
 
+**[Amended 2026-08-14, `rf2-mwr2`.] A row that claims work SCALES has to name
+two counters, and the gate refuses one.** `U5` was registered on boundary
+bodies alone, and read `MET` on a coarse view-model arm that rebuilds every
+mounted row for a one-row change — it does its rows *inside* one body, so the
+instrument counts 1 and reports a pass on the behaviour the line forbids. That
+is a **fail-open**: not a row recorded wrongly, but a row that could not be
+recorded wrongly, because its estimand cannot see the failure. So the gate now
+holds a rule of its own for this shape. A registered line stating that work
+scales with changed rows must name a companion ledger row carrying a **second,
+different** work counter; that companion must itself be deterministic, in the
+`PR gate` lane, with a witness file that exists; and the scaling row's *Current
+value* must name it, so a reader following the row reaches both readings. `U5`'s
+companion is `D26`. **Nothing here widens a line** — no threshold moved, and a
+coarse topology that is genuinely cheap passes on both counters. What the rule
+removes is the option of registering a scaling claim that only one instrument
+is asked about.
+
 **[Amended 2026-08-13.]** *Authority* is read in **two modes**, and which one
 applies follows the state of the **disposition**, not the state of the bead.
 While a live transition remains to be made — the `UNPINNED` rows waiting on
@@ -890,6 +1007,16 @@ it reads the cell for **shape, not for life**, and says so in its own output.
 | D14 | 0 wrappers between the element type React reconciles and the author's own function, declared island | 0 — the type is `identical?` to the function, on the native and handwritten-React routes alike; UIx's is a generated component | package | `MET` | `implementation/hicasso/test/re_frame/hicasso/three_way_parity_cljs_test.cljs` (PR gate) | `rf2-hic-034` | — |
 | D15 | 1 slot on the props object React carries, and it is the author's own | 1 — `label`, the name the call site wrote; UIx also reads 1, and it is the `argv` carrier | package | `MET` | `implementation/hicasso/test/re_frame/hicasso/three_way_parity_cljs_test.cljs` (PR gate) | `rf2-hic-034` | — |
 | D16 | 0 unwrapping hops per render, per component, native and handwritten React | 0 — the UIx route reads 1, opening `argv` | package | `MET` | `implementation/hicasso/test/re_frame/hicasso/three_way_parity_cljs_test.cljs` (PR gate) | `rf2-hic-034` | — |
+| D17 | 10 subscription recomputations per keystroke, four-field editor | 10 — `::field` 4, `::committed` 4, `::revision` 1, `::dirty?` 1; one of the ten computes a new value | package | `MET` | `implementation/hicasso/test/re_frame/hicasso/examples/per_keystroke_dom_cljs_test.cljs` (PR gate) | `rf2-hic-045` | — |
+| D18 | 31 subscription recomputations per keystroke, grid at 5×5 — a LINEAR quantity at a stated mount size | 31 — `::cell` 25, `::row-total` 5, `::dimensions` 1 | package | `MET` | `implementation/hicasso/test/re_frame/hicasso/examples/per_keystroke_dom_cljs_test.cljs` (PR gate) | `rf2-hic-045` | — |
+| D19 | 111 subscription recomputations per keystroke, grid at 10×10 — a LINEAR quantity at a stated mount size | 111 — `::cell` 100, `::row-total` 10, `::dimensions` 1; 109 of them compute what they computed last time | package | `MET` | `implementation/hicasso/test/re_frame/hicasso/examples/per_keystroke_dom_cljs_test.cljs` (PR gate) | `rf2-hic-045` | — |
+| D20 | 0 subscription recomputations for a refused keystroke | 0 — the event writes no address, so nothing is invalidated | package | `MET` | `implementation/hicasso/test/re_frame/hicasso/examples/per_keystroke_dom_cljs_test.cljs` (PR gate) | `rf2-hic-045` | — |
+| D21 | 0 glass writes for an accepted keystroke | 0 — the character is already on the glass and the model took it unchanged | package | `MET` | `implementation/hicasso/test/re_frame/hicasso/examples/per_keystroke_dom_cljs_test.cljs` (PR gate) | `rf2-hic-045` | — |
+| D22 | 1 glass write for a refused keystroke | 1 — the committed value going back over the character the model would not take; also this instrument's own positive control | package | `MET` | `implementation/hicasso/test/re_frame/hicasso/examples/per_keystroke_dom_cljs_test.cljs` (PR gate) | `rf2-hic-045` | — |
+| D23 | 7 DOM mutation records per keystroke, editor | 7 — `name` ×4, `type` ×2, `value` ×1; four of them React's churn on an attribute the application never wrote | package | `MET` | `implementation/hicasso/test/re_frame/hicasso/examples/per_keystroke_dom_cljs_test.cljs` (PR gate) | `rf2-hic-045` | — |
+| D24 | 8 DOM mutation records per keystroke, grid | 8 — the editor's seven plus one `characterData` on the row total's text node | package | `MET` | `implementation/hicasso/test/re_frame/hicasso/examples/per_keystroke_dom_cljs_test.cljs` (PR gate) | `rf2-hic-045` | — |
+| D25 | 3 DOM mutation records for a refused keystroke | 3 — `name`/`type`/`name` with no `value` write; the attribution that makes D23's other four the commit's | package | `MET` | `implementation/hicasso/test/re_frame/hicasso/examples/per_keystroke_dom_cljs_test.cljs` (PR gate) | `rf2-hic-045` | — |
+| D26 | 1 row of markup built for a one-row write under a fine topology, at every row count | 1 at B = 100, 300 and 1,000 — the coarse arm builds B, the chunked k=25, the windowed 1 | bench-tree | `MET` | `implementation/freehand/test/re_frame/bench/hicasso/topo/census_dom_cljs_test.cljs` (PR gate) | `rf2-mwr2` | — |
 | S1 | 1,024 B, R=0 shell, Reagent segment | 1,100 B [1,091–1,107] | package | `BREACH` | P0 heap ladder, package candidate arm (P-DEV-1 evidence run) | `rf2-0xx2` | [substrate-decision §5.2](substrate-decision.md#52-the-read-free-boundary-shell--the-disposition); scoped acceptance 2026-08-13, [§5](budgets.md#5-the-read-free-boundary-shell-the-byte-exact-line-now-frozen-at-1024-b) — ceiling unchanged at 1,024 B, accepted to 1,107 B |
 | S2 | 1,024 B, R=0 shell, UIx segment | 1,095 B [1,087–1,101] | package | `BREACH` | P0 heap ladder, package candidate arm (P-DEV-1 evidence run) | `rf2-0xx2` | [substrate-decision §5.2](substrate-decision.md#52-the-read-free-boundary-shell--the-disposition); scoped acceptance 2026-08-13, [§5](budgets.md#5-the-read-free-boundary-shell-the-byte-exact-line-now-frozen-at-1024-b) — ceiling unchanged at 1,024 B, accepted to 1,101 B |
 | S3 | ≤ 10% regression on the same pinned witness | 1,417 vs Reagent 948 per read | package | `UNRESOLVED` | P0 heap ladder, package candidate arm (P-DEV-1 evidence run) | `rf2-hic-071` | [substrate-decision §6](substrate-decision.md#6-what-this-page-does-not-decide) |
@@ -902,7 +1029,7 @@ it reads the cell for **shape, not for life**, and says so in its own output.
 | U2 | ≤ 50 ms p95 and ≤ 100 ms p99 to next paint | — | — | `UNPINNED` | — (none) | `rf2-hic-071` | [§9.2](budgets.md#92-what-each-not-green-row-is-waiting-on) |
 | U3 | ≤ 100 ms p95 for broad operations | — | — | `UNPINNED` | — (none) | `rf2-hic-071` | [§9.2](budgets.md#92-what-each-not-green-row-is-waiting-on) |
 | U4 | dragging and animation inside the frame budget | — | — | `UNPINNED` | — (none) | `rf2-hic-071` | [§9.2](budgets.md#92-what-each-not-green-row-is-waiting-on) |
-| U5 | body work scales with changed rows, not mounted rows | 2 at 25 cells and at 100 | package | `MET` | `implementation/hicasso/test/re_frame/hicasso/examples/grid/scaling_dom_cljs_test.cljs` (PR gate) | `rf2-hic-089` | — |
+| U5 | body work scales with changed rows, not mounted rows | 2 bodies at 25 cells and at 100, and — on the second counter D26 — 1 row of markup for a one-row write where a coarse arm rebuilds every row | package | `MET` | `implementation/hicasso/test/re_frame/hicasso/examples/grid/scaling_dom_cljs_test.cljs` (PR gate) | `rf2-hic-089` | — |
 | U6 | teardown residue zero after quiescence | zero counters (D9); bytes indistinguishable from 0 (S5) | package | `MET` | `implementation/hicasso/test_kit/src/re_frame/hicasso/test/mounted.cljs` (PR gate) | `rf2-hic-089` | — |
 | C1 | ≤ 5% regression on the same witness and instrument | — | — | `UNPINNED` | — (none) | `rf2-hic-071` | [§9.2](budgets.md#92-what-each-not-green-row-is-waiting-on) |
 | C2 | 1.10x cold mount, the registered line | see S6 | bench-tree | `BREACH` | final K1 estimator (P-DEV-1 evidence run) | `rf2-hic-085` | [§9.2](budgets.md#92-what-each-not-green-row-is-waiting-on) |
@@ -916,7 +1043,7 @@ it reads the cell for **shape, not for life**, and says so in its own output.
 
 <!-- rf2-hic-089: end-ledger -->
 
-Thirty-nine rows: the sixteen deterministic figures of §3, the eight distributional
+Forty-nine rows: the twenty-six deterministic figures of §3, the eight distributional
 rows and six user-visible budgets of §4, the eight comparative rules §4 now
 gives ids to, and one row registered off this page — **I9**, the two-hook
 ceiling frozen by
