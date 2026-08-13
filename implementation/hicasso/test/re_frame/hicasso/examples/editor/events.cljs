@@ -56,12 +56,25 @@
 
   [[::discard]] bumps `:revision` with `(fnil inc 0)`, which is
   rf2-hic-025's finding 5. What this application adds is the measurement
-  the report could not make: `editor.flow-dom-cljs-test`
-  §the-discard-row states, at its own assertion, which of the four fields
-  can drift far enough for the bump to be load-bearing and which cannot.
-  The `fnil` is not optional in either case — the seed carries no
-  `:revision` key, so a first discard on a plain `inc` is a
-  `nil` arithmetic error rather than a reset."
+  the report could not make, and it took two attempts to get one
+  (rf2-5h9k).
+  `editor.flow-dom-cljs-test/what-the-revision-bump-is-actually-load-bearing-FOR`
+  names the one state in which the bump is the only thing that repairs a
+  field — a value written onto the glass by something that fired no
+  change event, so nothing converged it — and that row REDS BY NAME when
+  the `update` below is deleted.
+
+  A keystroke's own divergence is not that state, and the row that
+  assumed it was stayed green with the counter gone: `impl.controlled`
+  converges a field in the turn that typed into it, so a reset row built
+  on typing re-reads a value that has been on screen since before the
+  reset. Which is also the useful sentence for a consumer: `::h/revision`
+  is not what makes a normalising field echo — it is what re-baselines a
+  field the application never heard from.
+
+  The `fnil` is a second and smaller claim. The seed carries no
+  `:revision` key, so a first discard on a plain `inc` is a `nil`
+  arithmetic error rather than a reset."
   (:require [clojure.string :as str]
             [re-frame.core :as rf]))
 
