@@ -1,6 +1,13 @@
-# Automatic transitions
+# 4. Automatic transitions
 
-Most transitions wait for an event. Some transitions are driven by the machine itself:
+<a id="automatic-transitions"></a>
+
+The [first machine](tutorial.md) already uses one automatic form: `:after`
+on `:submitting` cancels if the server stalls. This page is the rest of the
+family.
+
+Most transitions wait for a trigger from `dispatch`. Some triggers are
+produced by the machine itself:
 
 - a guard becomes true;
 - a decision node resolves immediately;
@@ -20,33 +27,35 @@ re-frame2 has four authoring forms for this, built on two engines.
 
 `:always` is checked after a state is entered and after transitions that remain in, or land in, that state.
 
+Login can skip the form when a session token is already in `:data`:
+
 ```clojure
-(rf/reg-machine :quiz
-  {:initial :asking
-   :data    {:correct 0}
+:guards
+{:has-session?
+ (fn [{data :data}]
+   (some? (:token data)))}
 
-   :guards
-   {:enough? (fn [{data :data}]
-               (>= (:correct data) 10))}
-
-   :actions
-   {:count-correct (fn [{data :data}]
-                     {:data {:correct (inc (:correct data))}})}
-
-   :states
-   {:asking
-    {:always [{:guard :enough?
-               :target :winner}]
-     :on     {:answer-correct {:action :count-correct}
-              :answer-wrong   :loser}}
-
-    :winner {}
-    :loser  {}}})
+:idle
+{:always [{:guard  :has-session?
+           :target :authed}]
+ :on     {:auth.login/submit {:target :submitting
+                              :guard  :form-valid?
+                              :action :clear-error}}}
 ```
 
-The `:answer-correct` transition has no `:target`, so it updates `:data` while staying in `:asking`. Then `:always` is checked. If the count has reached ten, the machine moves to `:winner` in the same macrostep.
+Birth lands on `:idle`. If `:data` already has a token (hydration, a restore
+event), `:always` moves to `:authed` in the same macrostep. External
+observers see the settled result, not the hop through `:idle`.
 
-External observers see the settled result, not each internal microstep.
+The same form works as a counter that trips a threshold. A targetless
+`:on` updates `:data`; then `:always` is checked:
+
+```clojure
+:asking
+{:always [{:guard :enough? :target :winner}]
+ :on     {:answer-correct {:action :count-correct}
+          :answer-wrong   :loser}}
+```
 
 ## Run to completion
 
@@ -92,6 +101,22 @@ An `:always` transition may not target its own declaring state. That shape eithe
 
 A choice state is a named decision node. The machine enters it and immediately leaves through the first passing candidate.
 
+The first machine's failure candidate list can be written as a choice instead:
+
+```clojure
+:submitting
+{:on {:auth.login/failure {:target :decide-failure
+                           :action :record-error}}}
+
+:decide-failure
+{:type   :choice
+ :choice [{:guard  :under-retry-limit
+           :target :error-shown}
+          {:target :locked-out}]}
+```
+
+A smaller decision node looks the same:
+
 ```clojure
 :checking
 {:type   :choice
@@ -113,7 +138,7 @@ Choice rules:
 
 `:after` maps a delay to a transition. Entering the state arms the timer. Leaving the state cancels it.
 
-The [login tutorial](tutorial.md#step-4--talk-to-a-real-server) uses an 8-second `:after` as a server deadline. The same key works for any wall-clock wait:
+The [first machine](tutorial.md#step-4--talk-to-a-real-server) uses an 8-second `:after` as a server deadline. The same key works for any wall-clock wait:
 
 ```clojure
 (rf/reg-machine :boot
@@ -248,3 +273,14 @@ Positive integer milliseconds.
 An ISO-8601 duration string.
 
 Readable shorthands such as `"5s"` or `"10ms"` are not accepted, nor are subscription vectors or delay functions. A bad duration fails at registration with `:rf.error/machine-bad-timeout-duration`. Use integer milliseconds or ISO-8601.
+
+## Troubleshooting
+
+| Symptom | Cause | Fix |
+| --- | --- | --- |
+| Registration throws `:rf.error/machine-always-self-loop` | `:always` targets its own declaring state | Use a targetless `:always` with an action that flips the guard, or target a different state |
+| Macrostep fails `:rf.error/machine-always-depth-exceeded` | Eventless loop did not settle within 16 steps | Break the cycle; a targetless drain-until-false is the safe loop |
+| Registration throws `:rf.error/machine-bad-choice` | `:choice` is a function, empty, or missing a default | Declarative non-empty vector with an unguarded last candidate |
+| Timer fired but the snapshot did not move | Guard was false at expiry, or the state had already been left | Expected. A late timer is stale; a false guard discards that firing |
+| Registration throws `:rf.error/machine-bad-timeout-duration` | `"5s"` shorthand, or a non-positive / malformed duration | Integer milliseconds or ISO-8601 (`"PT5S"`) |
+| Registration throws `:rf.error/spawn-timeout-ms-removed` | `:timeout-ms` on a spawn spec | Use `:timeout` + `:on-timeout`, or `:after` on the parent state |

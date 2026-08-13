@@ -1,4 +1,7 @@
-# Inspecting and testing machines
+# 9. Inspecting and testing
+
+<a id="inspecting-and-testing"></a>
+<a id="inspecting-and-testing-machines"></a>
 
 Machines are ordinary re-frame2 state and ordinary re-frame2 events.
 
@@ -22,7 +25,7 @@ The primary read is the framework subscription. There is no named-read-sugar fun
 ;;     :tags  #{:auth/busy}}
 ```
 
-The [snapshot](glossary.md#snapshot) is `nil` before the first event addressed to a singleton machine.
+The [snapshot](glossary.md#snapshot) is `nil` before the first event addressed to a **singleton**. A spawned actor's snapshot exists from the moment it is spawned.
 
 For views, prefer projection subscriptions:
 
@@ -117,10 +120,10 @@ In development this can include captured source, file, line, and handler functio
 A transition table is a value. A transition is a pure function of:
 
 ```clojure
-(definition, snapshot, event)
+(definition, snapshot, trigger)
 ```
 
-Import `login-flow` from the tutorial's [`defmachine`](tutorial.md#the-complete-machine) value and call it directly:
+Import `login-flow` from the [first machine](tutorial.md#the-complete-machine) and call it directly:
 
 ```clojure
 (ns app.login-test
@@ -170,7 +173,7 @@ If a machine is already registered and you want its registered definition, use m
 (machines/machine-transition
   (machines/machine-meta :auth.login/flow)
   snapshot
-  event)
+  trigger)
 ```
 
 Most tests should import the transition table value directly. Use registered metadata when the registration itself is part of what you are testing.
@@ -190,3 +193,12 @@ Keep most tests at the first level. It is fast, deterministic, and does not requ
 A throwing guard or action becomes a failure result at the pure testing surface. It does not escape as an exception from the test call: `(result/fail? r)` is true and `(result/info r)` carries the diagnostic.
 
 At runtime, the same failure aborts the macrostep atomically. The previous snapshot remains visible. The error is reported as `:rf.error/machine-action-exception` (a thrown guard does not fall through to the next candidate).
+
+## Troubleshooting
+
+| Symptom | Cause | Fix |
+| --- | --- | --- |
+| `[:rf/machine id]` is `nil` | No event has addressed that singleton yet | Dispatch first, or fall back to the definition's `:initial` |
+| `machine-transition` is unresolved | Required from `re-frame.machines`, not `rf/` | `(:require [re-frame.machines :as machines])` |
+| Guard threw and a later candidate did not run | Thrown guards abort the macrostep | Fix the guard; do not rely on fall-through after a throw |
+| Test expected `:rf.http/managed` and got none | `:entry` did not run, or the table under test is not the `defmachine` value | Import `login-flow`; start from `:idle` so `:submitting` entry fires |

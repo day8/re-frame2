@@ -1,6 +1,10 @@
-# Tutorial: build a login machine
+# 1. First machine
 
-This tutorial builds one login flow, adding one idea at a time.
+<a id="tutorial"></a>
+<a id="tutorial-build-a-login-machine"></a>
+
+This page builds one **singleton** login machine — one registered id, one live
+instance. Later pages grow that same flow.
 
 By the end you will have:
 
@@ -13,7 +17,7 @@ By the end you will have:
 
 The example is small on purpose. The goal is the shape, not a production auth system.
 
-**Prerequisites.** [Core introduction](../core/introduction.md) (events, app-db, effects). Vocabulary for later pages: [The model](concepts.md).
+**Prerequisites.** [Core introduction](../core/introduction.md) (events, app-db, effects).
 
 ## Step 0 — turn machines on
 
@@ -59,18 +63,27 @@ A machine is a map. It names an initial state, some private `:data`, and the sta
 
 Targets here are bare keywords. The next two steps turn those into maps, then into candidate vectors.
 
-`reg-machine` is machine-shaped `reg-event`. The machine id is the event id you dispatch to; the **inner** vector is the machine event:
+You do not `send` to the machine. You `dispatch`, as you would to any handler.
 
 ```clojure
 (rf/dispatch [:auth.login/flow [:auth.login/submit {:email "a@b.com" :password "x"}]])
 ```
+
+The outer vector is a re-frame2 **event**. `:auth.login/flow` is the event id.
+It is also the machine id you registered, so the handler that runs is the table.
+This id is a **singleton**: one live instance. The snapshot is `nil` until
+this first dispatch.
+
+`[:auth.login/submit {…}]` is the **trigger** — the thing the table matches.
+`:auth.login/submit` is the `:on` key. The map is payload; a guard or action
+reads it from `:event`.
 
 Read the live [snapshot](glossary.md#snapshot):
 
 ```clojure
 @(rf/subscribe [:rf/machine :auth.login/flow])
 ;; => {:state :submitting :data {:attempts 0 :error nil}}
-;;    nil before the first event — the machine boots on first dispatch
+;;    nil before the first event — a singleton boots on first dispatch
 ```
 
 ## Step 2 — add a guard
@@ -193,7 +206,7 @@ Add actions for clearing an old error, recording a failed attempt, and storing a
 !!! note "`:data` merges"
 
     `{:data {:error nil}}` changes only `:error`. It does not replace the whole map.
-    Details: [The model → effect map](concepts.md#the-effect-map-data-fx).
+    Details: [The table → effect map](concepts.md#the-effect-map-data-fx).
 
 ```clojure
 (rf/dispatch-sync [:auth.login/flow [:auth.login/failure {:error {:message "nope"}}]])
@@ -245,7 +258,7 @@ Managed HTTP is its own artefact. Require `[re-frame.http.managed]` at boot (it 
 
 The timeout uses the **same guarded candidate list** as failure (an `:after` value takes the same shape as an `:on` clause), so the third stall — or the third failure — records its error and locks out.
 
-`:on-success [:auth.login/flow [:auth.login/success]]` is written one element short on purpose. The outer vector routes to the machine; the inner event is what the machine handles. Managed HTTP **appends** the reply envelope onto that inner event:
+`:on-success [:auth.login/flow [:auth.login/success]]` is written one element short on purpose. The outer vector is the event that addresses the singleton. The inner vector is the trigger the table handles. Managed HTTP **appends** the reply envelope onto that inner vector:
 
 ```clojure
 [:auth.login/success {:status :ok    :value {:token "…"} …}]
@@ -281,7 +294,7 @@ Project the snapshot. Ask **tags** for shared intent. The credential draft is or
         busy? @(rf/subscribe [:rf.machine/has-tag? :auth.login/flow :auth/busy])]
     (case state
       nil          [:button {:on-click #(dispatch [:login/submit draft])}
-                    "Sign in"]          ;; before the first machine event
+                    "Sign in"]          ;; singleton snapshot is nil until first dispatch
       :idle        [:button {:disabled busy?
                              :on-click #(dispatch [:login/submit draft])}
                     "Sign in"]
@@ -334,6 +347,16 @@ A transition is a pure function of *(definition, snapshot, event)*. No browser, 
 ```
 
 Discriminate with `result/ok?`. Read the next snapshot and the effects vector with `result/snap` and `result/fx`. More on Result accessors and Xray: [Inspecting and testing](inspecting-machines.md).
+
+## Troubleshooting
+
+| Symptom | Cause | Fix |
+| --- | --- | --- |
+| First `reg-machine` throws `:rf.error/machines-artefact-missing` | `[re-frame.machines]` not required | Require it once at boot |
+| `:rf.error/no-such-fx` on `:rf.http/managed` | HTTP artefact not loaded | Require `[re-frame.http.managed]` |
+| Submit stays on `:idle` | `:form-valid?` saw empty credentials | Put email and password on the event |
+| Snapshot is `nil` | No event has addressed the machine yet | Dispatch first, or fall back to `:initial` in the view |
+| Third failure does not lock out | Guard compared the post-action count, or lockout skipped `:record-error` | Guard sees pre-action `:attempts`; use `(< n 2)` and record on the default candidate |
 
 ## The complete machine
 
@@ -426,4 +449,4 @@ Everything above in one registration — the form you copy into a real app:
     {:fx [[:dispatch [:auth.login/flow [:auth.login/submit credentials]]]]}))
 ```
 
-When a flat table is no longer enough — nested checkout under auth, parallel form axes, spawned workers — open [The model](concepts.md) for vocabulary, then the matching growth page.
+This is the complete singleton. Later pages grow the same flow.

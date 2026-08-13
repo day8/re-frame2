@@ -1,45 +1,33 @@
-# State tags
+# 3. Tags
+
+<a id="tags"></a>
+<a id="state-tags"></a>
+
+The [first machine](tutorial.md) already put `#{:auth/busy}` on `:submitting`
+so the view could ask "busy?" without naming that state. This page is that
+idea as a contract.
 
 A view often does not care which exact state a machine is in. It cares about a
-semantic question:
+semantic question: is this flow busy? read-only? terminal?
 
-- is this flow busy?
-- is this screen read-only?
-- is this state terminal?
-- should the root view render loading, empty, error, or content?
-
-A **[state tag](glossary.md#state-tag)** is a label on a state that answers those
-questions without forcing the view to enumerate state names.
+A **[state tag](glossary.md#state-tag)** is a label on a state that answers
+those questions without forcing the view to enumerate state names.
 
 ## Declare tags on states
 
+Start from the login table. Tag the states the view actually asks about:
+
 ```clojure
-(rf/reg-machine :todos/loader
-  {:initial :idle
-   :states
-   {:idle
-    {:on {:fetch :loading}}
-
-    :loading
-    {:tags #{:data/in-flight}
-     :on   {:ok :ready
-            :fail :retrying}}
-
-    :retrying
-    {:tags #{:data/in-flight}
-     :on   {:ok :ready
-            :give-up :error}}
-
-    :ready
-    {:tags #{:data/ready}}
-
-    :error
-    {:tags #{:data/error}}}})
+:submitting  {:tags #{:auth/busy}   …}
+:authed      {:tags #{:auth/authed}
+              :meta {:terminal? true}}
+:locked-out  {:tags #{:auth/locked :auth/terminal}
+              :meta {:terminal? true}}
 ```
 
-Both `:loading` and `:retrying` advertise `:data/in-flight`. A third in-flight
-state later is one more `:tags` entry; the view that asks for that tag does not
-change.
+If login later grows a second in-flight state (refreshing a token, restoring
+a session), put `#{:auth/busy}` on that state too. The view that asks for the
+tag does not change.
 
 `:tags` is a **set of keywords** on a state node. A vector or a lone keyword is
 rejected at registration with `:rf.error/machine-bad-tags`.
@@ -71,10 +59,10 @@ The runtime unions the tags on every active state and writes the result onto the
 [snapshot](glossary.md#snapshot):
 
 ```clojure
-@(rf/subscribe [:rf/machine :todos/loader])
-;; => {:state :retrying
+@(rf/subscribe [:rf/machine :auth.login/flow])
+;; => {:state :submitting
 ;;     :data  {...}
-;;     :tags  #{:data/in-flight}}
+;;     :tags  #{:auth/busy}}
 ```
 
 How the union is computed depends on the machine's shape:
@@ -96,15 +84,14 @@ projection of `:state`. When no active state declares tags, the runtime
 The query is this subscription:
 
 ```clojure
-@(rf/subscribe [:rf.machine/has-tag? :todos/loader :data/in-flight])
+@(rf/subscribe [:rf.machine/has-tag? :auth.login/flow :auth/busy])
 ;; => true or false
 ```
 
 ```clojure
-(rf/reg-view spinner-or-list []
-  (if @(rf/subscribe [:rf.machine/has-tag? :todos/loader :data/in-flight])
-    [spinner]
-    [todo-list]))
+(rf/reg-view sign-in-button []
+  (let [busy? @(rf/subscribe [:rf.machine/has-tag? :auth.login/flow :auth/busy])]
+    [:button {:disabled busy?} "Sign in"]))
 ```
 
 It returns `false` for an unknown or not-yet-initialised machine. The sub is
@@ -117,13 +104,15 @@ vector. The membership question is `[:rf.machine/has-tag? machine-id tag]`.
 Need the whole set? Read the snapshot:
 
 ```clojure
-(:tags @(rf/subscribe [:rf/machine :todos/loader]))
-;; => #{:data/in-flight}
+(:tags @(rf/subscribe [:rf/machine :auth.login/flow]))
+;; => #{:auth/busy}
 ```
 
 Use that form for selectors and render-priority tables.
 
-## Collapsing many states into one render decision
+<a id="collapsing-many-states-into-one-render-decision"></a>
+
+## Advanced: collapsing many states into one render decision
 
 Several tags can be live at once in a [parallel](parallel-states.md) machine, but
 a page can render only one main view.

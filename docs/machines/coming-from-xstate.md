@@ -168,19 +168,24 @@ XState event objects commonly look like:
 { type: "SUBMIT", credentials }
 ```
 
-re-frame2 machine events are vectors:
+XState's `{ type: "SUBMIT", credentials }` is one event object. re-frame2
+writes that same object as a **trigger** vector:
 
 ```clojure
 [:auth.login/submit credentials]
 ```
 
-Dispatch wraps the machine event in the outer re-frame2 event:
+You do not `send` that vector to an actor. You `dispatch` it *inside* a
+normal re-frame2 **event** whose id is the machine id:
 
 ```clojure
 (rf/dispatch [:auth.login/flow [:auth.login/submit credentials]])
 ```
 
-The outer id chooses the machine. The inner event is what the machine sees.
+`:auth.login/flow` is the handler id — the same id you passed to
+`reg-machine`. That id is a **singleton**. `[:auth.login/submit credentials]`
+is the trigger the table matches against `:on`. The first keyword is the
+`:on` key; the rest is payload.
 
 ## Reading the snapshot
 
@@ -262,7 +267,9 @@ The child is destroyed automatically when the parent leaves `:authenticating`.
 transition.
 
 `spawn` is the same lifecycle idea as `invoke`, renamed because a child actor
-exists while the state is active.
+exists while the state is active. The parent registered with `reg-machine` is
+the **singleton**. Each `:spawn` creates a **spawned** instance of a type.
+The spec heading says "dynamic actors"; this guide uses those two words.
 
 ## Completion is event-shaped
 

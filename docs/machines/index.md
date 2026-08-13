@@ -2,20 +2,77 @@
 
 <a id="theyre-everywhere"></a>
 
-Some state is not a number in app-db — it is **which named stage you are in**,
-and what may legally move it. Login is idle, then submitting, then authed or
-error or locked-out. A websocket is connecting, open, reconnecting, closed.
-Those flows usually hide as enums and booleans scattered across handlers.
+A single-page app is full of finite state machines. Most of them are never
+written down.
 
-<a id="first-class-support"></a>
+The session is anonymous, submitting, authed, or locked out. An HTTP request
+is idle, in flight, succeeded, or failed. A dropdown is closed, open, or
+disabled. Same shape at every scale: a handful of named stages, and a smaller
+set of events that may leave each one.
 
-A **machine** makes that shape explicit: one data table of states and
-transitions, driven by ordinary `dispatch`, read by ordinary `subscribe`,
-living in the same [frame](../core/frames.md) as the rest of re-frame2.
+What you usually write instead is a pile of booleans and a `cond` in every
+handler — `:loading?`, `:error?`, `:open?`, `:disabled?`. The machine is still
+there. It is just poorly specified. Each handler re-decides what is legal. A
+new stage means another `if`. Two flags combine into a state nobody named
+(`:loading?` true and `:error?` true). An event that should be impossible
+gets through.
+
+A **machine** is that process written as one table: the stages, and which
+triggers may leave them.
+
+```clojure
+{:initial :closed
+ :states  {:closed   {:on {:open :open}}
+           :open     {:on {:close :closed
+                           :pick  :closed}}
+           :disabled {}}}
+```
+
+From `:closed`, only `:open` moves you. From `:disabled`, nothing does. You
+cannot open a disabled dropdown by forgetting a branch — the branch is not
+there.
+
+The same table shape covers a login flow or a request. Only the names change.
 
 **Prerequisites.** The [Core introduction](../core/introduction.md) — events,
 app-db, subscriptions, effects. Machines plug into those; they do not replace
-them. This page says when a machine fits and shows the smallest working form.
+them.
+
+## Why nest states
+
+A flat list is enough for one process. Some stages are really a *cluster*.
+`:connecting`, `:authenticating`, and `:connected` all share one live socket.
+Every authenticated screen should honour `:logout` the same way. Checkout is
+a sub-flow with its own start and end, inside a larger shopping flow.
+
+A **hierarchical** machine lets a state contain child states. The parent holds
+what the children share. The children hold what differs. Common transitions
+live once, on the parent; a child can override or block them.
+
+```clojure
+:authenticated
+{:initial :dashboard
+ :on      {:logout :unauthenticated}   ;; every child inherits this
+ :states  {:dashboard {}
+           :settings  {}
+           :cart      {:initial :browsing
+                       :states  {:browsing {}
+                                 :paying   {}}}}}
+```
+
+Entering `:authenticated` lands on `:dashboard`. `:logout` works from any
+child. Moving from `:browsing` to `:paying` does not leave `:authenticated`.
+[Hierarchical states](hierarchical-states.md) is the grammar.
+
+## Native to re-frame2
+
+<a id="first-class-support"></a>
+<a id="deeply-integrated"></a>
+
+re-frame2 does not add a second runtime. Other chart libraries give you an
+actor: you start it and `send` it messages. re-frame2 already has that job —
+events go on one queue via `dispatch`. So a machine is not a new object. It is
+an event handler. The id you register is the event id you dispatch to.
 
 ```clojure
 (:require [re-frame.core :as rf]
@@ -36,20 +93,43 @@ them. This page says when a machine fits and shows the smallest working form.
 ;; => {:state :submitting :data {}}
 ```
 
-The outer id routes to the machine. The inner vector is the event the table
-handles.
+Look at the `dispatch` line. You `dispatch`. You do not `send`.
 
-<a id="deeply-integrated"></a>
+The outer vector is a re-frame2 **event**. `:auth.login/flow` is a normal
+event id — the same slot as `:todo/add`. You registered that id with
+`reg-machine`, so the handler that runs is the table.
 
-`reg-machine` is sugar over `reg-event`. There is one event system — you
-`dispatch`, you do not `send` — and one state model: the snapshot rides
-[runtime-db](../core/glossary.md#runtime-db), so undo, Xray, SSR, and tests
-share the same pipeline as the rest of the app.
+The second element is a **trigger**. In a statechart, a trigger is the thing
+that can fire a transition. Here it is another vector: `[:auth.login/submit]`.
+The table matches the first keyword against the current state's `:on` map.
+Anything after that keyword is payload.
 
-A keyword in app-db is enough for two stages. Use a machine when the table is
-the source of truth — which events are legal where, and what happens next.
+Not every trigger comes from `dispatch`. A timer expiry and a guard that
+became true are triggers too — [Automatic transitions](automatic-transitions.md).
+
+`reg-machine` is sugar over `reg-event`: same registry, same `dispatch`. Read
+the live value with an ordinary `subscribe`. That value — the snapshot — lives
+in [runtime-db](../core/glossary.md#runtime-db), the framework half of the
+frame, so undo, Xray, SSR, and tests see it the way they see any other event's
+result.
+
+`:auth.login/flow` is a **singleton**: one registered id, one live instance.
+The snapshot is `nil` until the first event. A **spawned** actor is a second
+live instance of a type, created at run time with an allocated id. Login is a
+singleton. An in-flight request protocol is often spawned. The spec heading
+says "dynamic actors" for the second kind; that is an adjective, not a third
+kind. This guide says **singleton** and **spawned**.
+[Actors](actors.md) is the full treatment.
+
+Already using XState? [Coming from XState](coming-from-xstate.md) is the
+translation.
 
 ## When *not* to use a machine
+
+<a id="when-not-to-use-a-machine"></a>
+
+A two-state flag is already a tiny machine. Leave it as a boolean. Write a
+table when the stages multiply, or when illegal combinations start appearing.
 
 | Situation | Prefer |
 |---|---|
@@ -62,6 +142,3 @@ Reach for a machine when **named stages and legal transitions** are the thing
 you are modelling — not when the thing is a value or a network cache.
 [Where should this value live?](../core/where-state-lives.md) has the full
 decision table.
-
-Already using XState? [Coming from XState](coming-from-xstate.md) is the
-translation.
