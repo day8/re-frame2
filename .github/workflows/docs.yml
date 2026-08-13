@@ -163,7 +163,23 @@ jobs:
             echo "Non-PR event (${GITHUB_EVENT_NAME}): running MkDocs build unconditionally."
             exit 0
           fi
-          git fetch --no-tags --depth=100 origin "${GITHUB_BASE_REF}" >/dev/null 2>&1 || true
+          # Fetch the base branch BY NAME, with no depth cap (rf2-ihfw). Two
+          # things make that the right shape. First, this fetch is load-bearing
+          # even under the `fetch-depth: 0` checkout above: a pull_request
+          # checkout fetches `+<sha>:refs/remotes/pull/N/merge` and never
+          # creates refs/remotes/origin/<base>, so this is what puts that name
+          # in scope for the three-dot diff below — and it costs almost nothing,
+          # because the objects are already local from that checkout.
+          # Second, a `--depth` cap here would not merely fetch too little, it
+          # would DESTROY history: `git fetch --depth=N` converts a COMPLETE
+          # clone into a shallow one, grafting the base branch at N and
+          # discarding exactly what `fetch-depth: 0` just paid for. A merge base
+          # past that graft then dies `fatal: no merge base` (measured: exit
+          # 128). That fails CLOSED — the diff below is unswallowed, so the job
+          # reds rather than misclassifying the PR as docs-irrelevant — but a
+          # spurious red on a long-lived branch is still worth not having.
+          # `provenance-pins` below fetches this same base the same uncapped way.
+          git fetch --no-tags origin "${GITHUB_BASE_REF}" >/dev/null 2>&1 || true
           files="$(git diff --name-only "origin/${GITHUB_BASE_REF}...HEAD")"
           docs_surface=false
           while IFS= read -r file; do
