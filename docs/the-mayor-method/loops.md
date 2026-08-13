@@ -488,15 +488,25 @@ Look for items marked in-progress. If no live worker holds one, it may be strand
 **Discriminate before acting** — a long-running worker and a stranded one look identical from
 outside, and both readings went wrong in a single day here, in opposite directions.
 
-1. **Has the commit count on that item's branch moved since the last tick?** A moved count
-   says alive. This is the cheap, reliable discriminator, and it works precisely because every
-   brief demands commit-and-push-as-you-go. An unmoved count says *nothing* on its own.
+1. **Has the *tip revision* on that item's branch changed since the last tick?** Record the
+   revision id, not a count of changes — **a count survives a rebase unchanged**, and rebasing
+   onto a moved trunk is what a briefed worker does constantly, so a count fails on the common
+   case rather than an edge one. The timestamps split the same way: a rebase replays the
+   *authored* time and rewrites only the *committed* one, so two honest readers can call one
+   change forty-three minutes old and seventy-five seconds old and neither be misreading.
+   Reading the count and the authored time together, a healthy worker here was called unchanged
+   for two consecutive ticks — it had rebased two minutes before the second read and had
+   committed all of its assigned work. A changed id says alive everywhere a count does, plus
+   that case; an unchanged id still says *nothing* on its own, which is what saved that worker,
+   because the next step is to ask rather than to reap. **Ask the remote for the tip** rather
+   than refreshing first and reading what the refresh left behind — the shared fetch-head trap
+   under *After each merge* is on this read path too, and there it is silent.
 2. **Is there a live task to message?** Try messaging first — resuming beats redispatching,
    because the worker's context is still there. **The commonest strand by far is a worker that
    detached a long gate and then ended its turn**, waiting for a completion event that nothing
    sends. Seven such incidents happened in one day; every one recovered intact the moment
    somebody asked for a status.
-3. **Only when there is no live task and no commit movement:** push any existing commits on the
+3. **Only when there is no live task and no movement in the tip:** push any existing commits on the
    branch — pure durability — then set the item back to open with a note saying what was found
    and what was salvaged, and redispatch.
 
