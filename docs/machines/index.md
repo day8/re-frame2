@@ -113,13 +113,12 @@ frame, so undo, Xray, SSR, and tests see it the way they see any other event's
 result.
 
 `:auth.login/flow` is a **singleton**: one registered id, one live instance
-per frame. The snapshot sits in that frame's runtime-db, so a second frame
-running the same app runs its own login machine, independently.
-The snapshot is `nil` until the first event. A **spawned** actor is a second
-live instance of a type, created at run time with an allocated id. Login is a
-singleton. An in-flight request protocol is often spawned. The spec heading
-says "dynamic actors" for the second kind; that is an adjective, not a third
-kind. This guide says **singleton** and **spawned**.
+per frame. The snapshot sits in that frame's runtime-db and is `nil` until the
+first event; a second frame running the same app runs its own login machine. A
+**spawned** actor is a second live instance of a type, created at run time with
+an allocated id. Login is a singleton. An in-flight request protocol is often
+spawned. The spec heading says "dynamic actors" for the second kind; that is an
+adjective, not a third kind. This guide says **singleton** and **spawned**.
 [Actors](actors.md) is the full treatment.
 
 Already using XState? [Coming from XState](coming-from-xstate.md) is the
