@@ -330,11 +330,17 @@ A spawned actor is destroyed when:
 
 Destroy releases exactly three framework-managed kinds:
 
-- in-flight `:rf.http/managed` requests this actor issued (the reply arrives
-  with `:status :cancelled` and an `:error` of
-  `{:kind :rf.http/aborted :reason :actor-destroyed}`);
+- in-flight `:rf.http/managed` requests this actor issued;
 - this actor's armed `:after` timers;
 - `:rf.resource/*` owners this actor holds.
+
+The request is always aborted, but a reply is not always delivered. A reply
+addressed to an ordinary event dispatches with `:status :cancelled` and an
+`:error` of `{:kind :rf.http/aborted :reason :actor-destroyed}`. A reply
+addressed back to the actor being destroyed — the `[(:rf/self-id data) …]`
+shape `:auth/request` uses above — is never dispatched. The runtime classifies
+it `:status :stale` and records a `:rf.http/stale-suppressed` trace row
+carrying `:rf.reply/stale-reason :rf.http/actor-destroyed-target-obsolete`.
 
 Anything else — a raw `js/WebSocket`, a `setInterval`, a Worker — you close
 yourself in the child's `:exit`. That action runs on every destroy path:
@@ -452,4 +458,5 @@ N separate `:spawn`s, not a non-cancelling join.
 | `:join :all` rejected | missing `:on-all-complete` | Give `:on-all-complete` an event vector |
 | `:join :any` rejected | missing `:on-some-complete` | Give `:on-some-complete` an event vector |
 | Socket / interval / Worker still open after destroy | not a framework-managed resource | Close it in the child's `:exit` |
+| A self-addressed `:on-failure` never fires when the actor is destroyed | the reply target names the actor being torn down, so it is obsolete | Expect no reply — it is suppressed as `:status :stale`. Clean up in the child's `:exit`, or address the reply to an event outside the actor |
 | Children torn down (or respawned) on a progress event | the parent's `:on` had a `:target` | Omit `:target` so the transition is internal |
