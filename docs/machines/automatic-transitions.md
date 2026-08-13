@@ -6,13 +6,13 @@ The [first machine](tutorial.md) already uses one automatic form: `:after`
 on `:submitting` cancels if the server stalls. This page is the rest of the
 family.
 
-Most transitions wait for a trigger from `dispatch`. Some triggers are
-produced by the machine itself:
+Most transitions wait for a trigger from `dispatch`. Four triggers come from
+the machine itself:
 
-- a guard becomes true;
-- a decision node resolves immediately;
-- a delay expires;
-- a deadline is missed.
+- an eventless step whose guard passes;
+- a decision node resolving on entry;
+- a delay expiring;
+- a deadline being missed.
 
 re-frame2 has four authoring forms for this, built on two engines.
 
@@ -26,6 +26,8 @@ re-frame2 has four authoring forms for this, built on two engines.
 ## Eventless `:always`
 
 `:always` is checked after a state is entered and after transitions that remain in, or land in, that state.
+
+Those points and no others. Nothing watches the guard in between, so a `:data` change that arrives outside a macrostep — a spawned child's [`:on-done` fold](actors.md#when-a-child-finishes), say — does not move the machine on its own. The next event does.
 
 Login can skip the form when a session token is already in `:data`:
 
@@ -97,23 +99,32 @@ This is the safe "loop until done" pattern. The action changes `:data`; once the
 
 An `:always` transition may not target its own declaring state. That shape either loops forever or does nothing useful, so `reg-machine` throws `:rf.error/machine-always-self-loop`.
 
+An `:always` step runs with no event, so its guards and actions receive `:event` as `nil`. Anything that reads a trigger payload belongs on the event-driven transition; put the result in `:data` and let the `:always` guard read that.
+
 ## Choice states
 
 A choice state is a named decision node. The machine enters it and immediately leaves through the first passing candidate.
 
-The first machine's failure candidate list can be written as a choice instead:
+The first machine's failure candidate list can be written as a choice instead. `:record-error` stays on the way in, where it can still read the failure message off the event, so the choice reads the *incremented* `:attempts`:
 
 ```clojure
+:guards
+{:retries-left?
+ (fn [{data :data}]
+   (< (:attempts data) 3))}
+
 :submitting
 {:on {:auth.login/failure {:target :decide-failure
                            :action :record-error}}}
 
 :decide-failure
 {:type   :choice
- :choice [{:guard  :under-retry-limit
+ :choice [{:guard  :retries-left?
            :target :error-shown}
           {:target :locked-out}]}
 ```
+
+The tutorial's `:under-retry-limit` guard is `(< (:attempts data) 2)` because it runs *before* `:record-error`. `:retries-left?` runs after, so it compares against 3. Both lock out on the third failure.
 
 A smaller decision node looks the same:
 
@@ -281,6 +292,8 @@ Readable shorthands such as `"5s"` or `"10ms"` are not accepted, nor are subscri
 | Registration throws `:rf.error/machine-always-self-loop` | `:always` targets its own declaring state | Use a targetless `:always` with an action that flips the guard, or target a different state |
 | Macrostep fails `:rf.error/machine-always-depth-exceeded` | Eventless loop did not settle within 16 steps | Break the cycle; a targetless drain-until-false is the safe loop |
 | Registration throws `:rf.error/machine-bad-choice` | `:choice` is a function, empty, or missing a default | Declarative non-empty vector with an unguarded last candidate |
+| A choice or `:always` candidate read `nil` where the payload should be | An eventless step runs with no event | Read the payload on the event-driven transition and store it in `:data` |
+| A retry limit trips one failure early after the count moved into a choice | The entering action already incremented the count the choice's guard reads | Compare against the post-action number |
 | Timer fired but the snapshot did not move | Guard was false at expiry, or the state had already been left | Expected. A late timer is stale; a false guard discards that firing |
 | Registration throws `:rf.error/machine-bad-timeout-duration` | `"5s"` shorthand, or a non-positive / malformed duration | Integer milliseconds or ISO-8601 (`"PT5S"`) |
 | Registration throws `:rf.error/spawn-timeout-ms-removed` | `:timeout-ms` on a spawn spec | Use `:timeout` + `:on-timeout`, or `:after` on the parent state |
