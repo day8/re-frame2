@@ -184,7 +184,7 @@ relying on CI"). A silent skip fails review.
 
 ### How a gate is run, not just which one
 
-Five rules about the mechanics. Each is here because it cost real hours, and
+Seven rules about the mechanics. Each is here because it cost real hours, and
 none of them is obvious from the gate command itself.
 
 - **Detaching a long gate is CORRECT; ending the turn afterwards is the defect.**
@@ -347,6 +347,27 @@ none of them is obvious from the gate command itself.
   `git worktree remove` refuses the tree from then on. Nine worktrees
   accumulated exactly that way before anyone worked out why they would not reap.
   Cheapest fix is to not create the residue.
+
+- **Re-run the gates on the final base after every rebase.** A pre-rebase green
+  is evidence about a tree that no longer exists, and under a saturated wave the
+  trunk moves under a worker routinely rather than rarely. Nothing warns you: the
+  rebase reports success, and the old log still says exit 0. PR #8080's worker
+  rebased four times past eleven landings, and re-running the gates on the final
+  base *changed the artefact* rather than merely reconfirming it — fixes for three
+  of its own five findings had merged in the interval, so the governance record it
+  was about to publish carried a membership count **false of `main`**. A false
+  count in a record like that is not caught later; it is cited later.
+
+- **Diff against `origin/main` before you push, and read that diff for what you
+  would REVERT.** Not for conflicts — git reports those itself, and a clean rebase
+  is exactly the case this rule is for. The question the diff answers is whether
+  your push undoes something a sibling landed while you worked, which git will
+  not raise and no gate covers: a revert of a merged change is well-formed, it
+  compiles, and it passes every check the tree has. In a shared document a stale
+  copy of one region reapplies as a silent deletion of everything that landed in
+  it since. One worker's first push would have reverted a concurrent rewrite of a
+  shared ledger; it caught that by reading the diff before reporting, and by
+  nothing else.
 
 ### Briefing a correction — sweep every carrier
 
