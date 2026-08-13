@@ -116,6 +116,16 @@
      per-prop regex), the reserved-name set lookup vs a primitive
      comparison chain, `cached-parse` hit vs `parse-tag` fresh,
      `convert-prop-value` over the page's own values, `createElement`.
+  5. POSITIVE CONTROL — whether the instrument saw a change its own
+     arithmetic predicts, adjudicated per round and printed pass or fail.
+     [[tag-cache-floor-row]] prices `parse-raw`'s extra parses out of
+     table 4 and requires the arms table to show at least that much;
+     [[lazy-tail-direction-row]] requires the one by-construction
+     ordering whose margin is big enough to assert. A failure sets
+     `window.HICASSO_CONTROL_FAILED` and `run.cjs` exits 1 (rf2-1huc —
+     before it, that exit path was dead for this arm, so tables 1-4 were
+     guarded against ordering and page fidelity but not against the
+     instrument having signal at all).
 
   Owner bead: rf2-y1jkm. Driver: `run.cjs` with
   HICASSO_INIT_FN=re-frame.bench.hicasso.walk-profile-app/-main."
@@ -720,6 +730,157 @@
          "  (" (fmt (* 1e6 (/ d elements)) 0) " ns/el, "
          (fmt (* 100 (/ d ship-p50)) 1) "% of ship)")))
 
+;; ---------------------------------------------------------------------------
+;; The positive control (rf2-1huc)
+;; ---------------------------------------------------------------------------
+;;
+;; Until rf2-1huc this arm had none, so `run.cjs`'s `HICASSO_CONTROL_FAILED`
+;; exit path was dead here: the run was guarded against ORDERING
+;; (`lane/guard!`, exit 2) and against PAGE FIDELITY ([[parity!]], fatal) but
+;; not against the instrument HAVING SIGNAL AT ALL. A run whose ablations had
+;; stopped biting would still print a full table and exit 0.
+
+(defn- round-p50
+  "Arm `id`'s p50 in ms per WALK inside ONE round.
+
+  [[arm-rows]] pools every round before summarising, which is the right
+  fold for a reported figure and the wrong one for a control: pooling is
+  exactly how a good round vouches for a bad one."
+  [round id]
+  (:p50 (lane/summarise (mapv #(/ % walks-per-sample) (get round id)))))
+
+(defn- per-round-delta
+  "`hi` minus `lo` in ms per walk, one number per round."
+  [readings hi lo]
+  (mapv (fn [r] (- (round-p50 r hi) (round-p50 r lo))) readings))
+
+(def ^:private control-slack
+  "How far BELOW its predicted floor the tag-cache delta may sit and still
+  count as the instrument having seen what it predicts.
+
+  Wider than the arithmetic's own error because the claim is `THE
+  INSTRUMENT HAS SIGNAL`, not `THE MODEL IS EXACT`; narrow enough that an
+  instrument reading near zero — the failure this exists to catch —
+  cannot clear it. Measured headroom is a factor of ~2 (see
+  [[tag-cache-floor-row]]), so the bar sits far from both edges."
+  0.25)
+
+(defn tag-cache-floor-row
+  "THE CONTROL: `parse-raw` must cost at least what the page's own tag
+  parses cost, as this run's OWN micro table prices them.
+
+  `parse-raw` differs from `local` at exactly one site — [[walk-parse]]
+  calls `codec/parse-tag` fresh where `local` calls `codec/cached-parse`
+  — and it does so once per native element. The MICRO table times both
+  primitives over [[collect-roster]]'s tags, which is that same
+  population, element for element. So the extra work `parse-raw` does per
+  walk is predicted, before its clock is read, as
+
+      n-tags x (parse-tag-fresh - cached-parse-hit)
+
+  ## Why a FLOOR and not a band
+
+  The bead's candidate was `lane/control-verdict` — a two-sided band
+  around this prediction. Costed rather than assumed, it does not hold:
+  the micro loop is the CHEAPEST possible arrangement of the same calls
+  (one warm array, one call site, no allocation surviving the loop),
+  while in the walk each fresh parse allocates an object the element then
+  keeps. The walk-embedded cost is therefore bounded BELOW by the micro
+  cost and not estimated by it, and it measures about twice it — 2.11x on
+  this bead's calibration run, 1.81x on the 2026-08-14 re-take. A
+  two-sided +/-slack band wide enough to contain 2x has its LOWER edge
+  below zero, which is a control that cannot fail. One-sided is what the
+  arithmetic actually supports, so one-sided is what this asserts.
+
+  The population equality is checked rather than assumed: a roster that
+  is not the walk's parse population makes the prediction per-tag over
+  the wrong tags, and the number would still look plausible.
+
+  ## Why EVERY ROUND and not an overlap
+
+  `lane/control-verdict` passes a control whose measured range merely
+  OVERLAPS the band, and its own docstring records that as a KNOWN DEFECT
+  against `hd8-rows/positive-control!`'s every-round-inside rule, needing
+  an operator ruling because tightening it re-adjudicates a published
+  row. This control is NEW, so it has no published row to re-adjudicate
+  and inherits none of that: it takes the stricter rule from birth, the
+  way `hd8-rows` did and for the reason `hd8-rows` gives — a control
+  whose worst round is wrong has caught something."
+  [readings census ^js tags micro]
+  (let [m       (into {} micro)
+        fresh   (:parse-tag-fresh m)
+        hit     (:cached-parse-hit m)
+        n-tags  (.-length tags)
+        parses  (:native census)
+        floor   (/ (* n-tags (- fresh hit)) 1e6)
+        bar     (* floor (- 1.0 control-slack))
+        deltas  (per-round-delta readings :parse-raw :local)
+        worst   (apply min deltas)
+        same?   (= n-tags parses)]
+    {:row        :tag-cache-floor
+     :predicted  (lane/round4 floor)
+     :bar        (lane/round4 bar)
+     :slack      control-slack
+     :population {:micro-roster n-tags :walk-parses parses}
+     :per-round  (mapv lane/round4 deltas)
+     :worst      (lane/round4 worst)
+     :ok?        (and same? (>= worst bar))
+     :why        (cond
+                   (not same?)
+                   (str "the micro roster holds " n-tags " tags but the walk parses "
+                        parses " — the prediction is per-tag over the roster, so a "
+                        "roster that is not the walk's parse population prices the "
+                        "wrong thing and no figure in this run is reportable")
+
+                   (>= worst bar)
+                   (str n-tags " parses x " (fmt (- fresh hit) 1) " ns fresh-minus-cached "
+                        "= floor " (fmt floor 4) " ms/walk, bar " (fmt bar 4)
+                        " at -" (fmt (* 100 control-slack) 0) "%; worst round "
+                        (fmt worst 4) " — every round clears it")
+
+                   :else
+                   (str n-tags " parses x " (fmt (- fresh hit) 1) " ns fresh-minus-cached "
+                        "= floor " (fmt floor 4) " ms/walk, bar " (fmt bar 4)
+                        "; worst round " (fmt worst 4) " is BELOW it. The walk cannot "
+                        "see the cost of work it is demonstrably doing, so no phase "
+                        "delta in this run is reportable"))}))
+
+(defn lazy-tail-direction-row
+  "The other prediction that needs no clock to state: `ship-lazy` walks
+  the same page as `ship` and realizes the body's lazy tail INSIDE the
+  window as well, so it does strictly more work, so it must read higher —
+  in every round, not on the pooled median.
+
+  `no-propless` is the third arm that does more work by construction and
+  it is deliberately NOT asserted here. There is no arithmetic that
+  predicts what the propless short-circuit is worth, so the only
+  available rule is a bare direction test on a margin measured at ~5% of
+  `local` — inside the arm-order guard's own 10% tolerance. A refusal
+  that fires on noise is not a control, and this instrument would rather
+  carry two checks that bite than three of which one cries."
+  [readings]
+  (let [deltas (per-round-delta readings :ship-lazy :ship)
+        worst  (apply min deltas)]
+    {:row       :lazy-tail-direction
+     :per-round (mapv lane/round4 deltas)
+     :worst     (lane/round4 worst)
+     :ok?       (pos? worst)
+     :why       (if (pos? worst)
+                  (str "ship-lazy above ship in all " (count deltas)
+                       " rounds, worst margin " (fmt worst 4) " ms/walk")
+                  (str "ship-lazy did NOT read above ship in every round (worst "
+                       (fmt worst 4) " ms/walk) — the lazy arm does strictly more "
+                       "work than the eager one by construction, so an inversion "
+                       "means the window is not pricing the walk"))}))
+
+(defn- control-report!
+  "Print every control row, passing or not. A control quoted only when it
+  passes is not a control."
+  [rows]
+  (js/console.log ";; ==== POSITIVE CONTROL (does this instrument see a change it predicts?) ====")
+  (doseq [{:keys [row ok? why]} rows]
+    (js/console.log (str ";;   " (name row) ": " (if ok? "ok" "FAILED") " — " why))))
+
 (defn ^:export -main []
   (rf/init! uix-adapter/adapter)
   (lane/leave-act-environment!)
@@ -745,7 +906,12 @@
                   gv   (lane/guard! samples "walk-profile arms (in-page ms, diagnostic)")
                   ship (:p50 (get rows :ship))
                   local (:p50 (get rows :local))
-                  micro (micro-table roster)]
+                  micro (micro-table roster)
+                  ;; AFTER the micro table, because the control's prediction
+                  ;; is made out of it — this run's own per-tag prices, not a
+                  ;; constant carried from a previous one.
+                  control [(tag-cache-floor-row readings cs (:tags roster) micro)
+                           (lazy-tail-direction-row readings)]]
               (lane/record! :walk-profile-census cs)
               (lane/record! :walk-profile-arms
                             (into {} (map (fn [[k v]] [k (-> v (update :min lane/round4)
@@ -753,6 +919,7 @@
                                                              (update :p50 lane/round4))])) rows))
               (lane/record! :walk-profile-micro
                             (into {} (map (fn [[k v]] [k (lane/round4 v)])) micro))
+              (lane/record! :walk-profile-control control)
               (js/console.log ";; ==== WALK PROFILE (ms per whole-page walk; diagnostic in-page clock) ====")
               (js/console.log (str ";;   elements " elements
                                    "  walks/sample " walks-per-sample
@@ -783,8 +950,13 @@
               (js/console.log ";; ==== MICRO (ns/op over the page's own literal roster) ====")
               (doseq [[k v] micro]
                 (js/console.log (str ";;   " (name k) ": " (fmt v 1) " ns")))
+              (control-report! control)
               (when (:refuse? gv)
                 (set! (.-HICASSO_GUARD_REFUSED js/window) true))
+              ;; `run.cjs` turns this into exit 1. Until rf2-1huc nothing in
+              ;; this file ever set it, so that exit was unreachable here.
+              (when-not (every? :ok? control)
+                (set! (.-HICASSO_CONTROL_FAILED js/window) true))
               (lane/done!)))))
       (.catch (fn [e]
                 (lane/fail! (or (some-> e .-message) (str e)))
