@@ -207,17 +207,32 @@ The equality D10–D13 could only assert in markup therefore holds in the
 document as well.
 
 **Half of §6's obligation is REFUSED, at source, and the refusal is not a
-scheduling problem.** Specification §6 asks for a pinned interleaved run on
-BOTH named reference profiles. The CI-RUNNER-A half cannot be published here
+scheduling problem.** Specification §6 asked for a pinned interleaved run on
+both named reference profiles. The CI-RUNNER-A half cannot be published here
 under this page's own rules: §1 registers that profile class for *correctness
 gates and same-run relative drift only* and states that a hosted runner **may
 never source a distributional product budget**, and §9's gate mechanises it —
 the lane vocabulary a distributional row is allowed to name carries no
 CI-RUNNER-A value at all, by construction. `S8` is therefore a single-profile
 P-DEV-1 figure like every other distributional row on this page, and it
-inherits §1's single-profile limitation whole. Reconciling §6's wording with
-§1's rule is a ruling rather than a measurement, and it stays open on
-`rf2-5yn9`.
+inherits §1's single-profile limitation whole.
+
+**That refusal is RATIFIED, and the obligation is DISCHARGED P-DEV-1-only**
+(Ruling 1, 2026-08-13, `rf2-5yn9`). Reconciling §6's wording with §1's rule was
+a ruling rather than a measurement, and here it is: **a distributional clock
+obligation runs over all registered *physical* distributional profiles — today
+exactly `P-DEV-1`.** The CI-RUNNER-A half is closed by refusal on the two
+grounds above, neither of which more machine time would move. Reading a hosted
+run as same-run relative drift was considered and rejected: §9's lane
+vocabulary has nowhere to put such a number, so it could never enter the
+ledger, shared silicon would yield a band that decides nothing, and the
+precedent would owe every distributional row a CI shadow reading. Funding a
+second physical machine is an operator hardware decision, and `S8` did not
+change its urgency. **If a second physical distributional profile ever
+registers, this ruling reopens automatically** on §1's standing invitation —
+and [specification §6](specification.md#6-performance-contract) now states the
+obligation in these terms, so the contradiction that forced the ruling cannot
+resurface.
 
 **On D14–D16 — the island band's structural half (`rf2-hic-034`).** These read the
 construction cost of a native island as a structural fact rather than as a clock,
@@ -280,7 +295,7 @@ and the allocation row has no publishable claim to re-pin.
 | S5 | Teardown, retained **bytes** | indistinguishable from zero — all ten candidate rungs' bands straddle 0 | as S1 | **package figure** |
 | S6 | Cold mount vs direct UIx-on-subs | `1.1718x` [1.1263–1.2190] n=8; `1.1976x` [1.1504–1.2468] n=6 | final K1 estimator | **bench-tree figure** — registered `1.10x` gate missed; `1.25x` is the *accepted price* for that miss (ratified 2026-08-13), never a line this row is judged on |
 | S7 | Warm allocation | no publishable claim | allocation instrument | **bench-tree** — no fitted series clears the quality floor |
-| S8 | Direct-return escape (Rung 3): mount time against the same page written as hiccup | `0.770x` [0.646–0.842] over 10 rounds in 2 runs — **23.0% of mount time recovered** [15.8–35.4%] | P0 lane direct-return clock arm | **package figure** — the band excludes 1.0 in both runs, and it CROSSES C8's 20% line |
+| S8 | Direct-return escape (Rung 3): mount time against the same page written as hiccup | `0.7418x`, per-round escapes [0.6458–0.8409] over run 1's five rounds — **25.8% of mount time recovered** [15.9–35.4%]. Run 2 is excluded: its positive control refuses under the strict rule | P0 lane direct-return clock arm | **package figure** — an observed range, not a confidence interval; it excludes 1.0 and it CROSSES C8's 20% line |
 
 The run's evidence, its controls and its full provenance are
 [on the ladder's studio page](../studio/reads-per-boundary-heap-ladder.md#the-package-itself-priced-on-this-rung-at-last-rf2-fe0l);
@@ -319,18 +334,20 @@ ceiling to mark K1 green.**
 does not by itself clear C8.** The witness is `direct_return_cljs_test`'s pair —
 one page written twice, same props, same two ambient reads, same data — at 200
 boundaries, mounted inside one `flushSync` window. The escape recovers
-`23.0%` of the mount, band `[15.8–35.4%]`, and the band excludes 1.0 in both
-runs, so it is a real effect rather than a null. Read against
+`25.8%` of the mount, per-round escapes running `[15.9–35.4%]`, and that range
+excludes 1.0, so it is a real effect rather than a null. Read against
 [C8](#the-comparative-and-regression-rules) it decides nothing on its own:
 
-- **`≥ 20% recovered`** — the point estimate clears the line and **the band
-  crosses it**. Under the rule the operator adopted with §5's freeze, a
-  confidence band that crosses a line is UNRESOLVED and not a pass. So is this
-  one, and §9's gate is what holds it there.
-- **`≥ 2 ms p95`** — MISSED, and not narrowly. The saving is `0.45 ms` on a
-  200-boundary mount, about `2.2 µs` per boundary, so a single commit would
-  have to construct on the order of **900 boundaries** before the escape saved
-  2 ms. Whole pages of that size exist; a hot re-render is rarely one.
+- **`≥ 20% recovered`** — the point estimate clears the line and **the range
+  crosses it**. Under the rule the operator adopted with §5's freeze, an
+  interval that crosses a line is UNRESOLVED and not a pass. So is this one,
+  and §9's gate is what holds it there.
+- **`≥ 2 ms p95`** — **UNASSESSED at this witness.** The instrument records six
+  samples per round, reduces each round to a `p50`, and publishes the min and
+  max across those round medians. **It never computes a `p95` at all**, and a
+  threshold nothing was measured against cannot be met or missed. Assessing
+  this disjunct needs an instrument that reports a `p95`, and building one is a
+  rig change with its own window rather than a reading of this one.
 - **converting a failed user-visible budget** — NOT ASSESSABLE. U1–U4 are
   `UNPINNED` on the package, so there is no failed budget available to convert.
 
@@ -338,21 +355,33 @@ runs, so it is a real effect rather than a null. Read against
 acting on.** C8 is a rule about *an escape at a site* — an island missing its
 threshold is simplified or removed — so one witness at one size cannot pass or
 fail it corpus-wide, and S8 does not try to. What S8 gives is the price an
-author measures their own site against: past roughly 900 boundaries in one
-commit the escape is worth 2 ms; below that it is worth about a quarter of the
-mount, and the author has to decide whether a quarter of *their* mount is a
-number their users can feel. **The escape's other prices are not on the clock
-at all** and both are already recorded: it leaves the L2 assertion tier, and it
-gives up controlled-input repair and intent lowering inside the returned
-element (§3's D10–D13 note, and the pair's own source).
+author measures their own site against: at this size the escape is worth about
+a quarter of the mount, and the author has to decide whether a quarter of
+*their* mount is a number their users can feel. **No per-boundary rate and no
+break-even boundary count are published, and one witness is why.** A single
+200-boundary reading fixes no scaling law — dividing it out would assume the
+per-boundary cost is linear, which nothing here establishes — so an author with
+a differently sized site measures it rather than extrapolating from this row.
+**The escape's other prices are not on the clock at all** and both are already
+recorded: it leaves the L2 assertion tier, and it gives up controlled-input
+repair and intent lowering inside the returned element (§3's D10–D13 note, and
+the pair's own source).
 
-**S8 is one witness, and its band is what a second run bought.** Two runs were
-taken back to back on the same binary with nothing changed between them, and
-they read `0.742x` `[0.646–0.841]` and `0.798x` `[0.691–0.842]`. The published
-row pools all ten rounds rather than quoting the better run. On both runs the
-arm-order guard returned `reportable`, the positive control saw the `2.00x` its
-own arithmetic predicts, and every one of the 225 measured mounts was read back
-out of the document at its own far end.
+**S8 is one witness, one run, and the estimand is narrower than a band.** What
+the row publishes is the **min and max across five per-round readings, each of
+them the `p50` of that round's six samples — an observed range, not a
+confidence interval** — and nothing on this page may read it as one. Two runs
+were taken back to back on the same binary with nothing changed
+between them, reading `0.7418x` `[0.6458–0.8409]` and `0.7982x`
+`[0.6909–0.8421]`. **Only run 1 is published.** Run 2's positive control
+predicted `4.000` with a ±25% band of `[3.000–5.000]` and its rounds reach
+`5.150`, so it refuses under the strict every-round-inside rule —
+`lane/control-verdict`'s own docstring names its overlap `:ok?` rule the lane's
+known defect and the strict rule the right one, and an ensemble whose control
+refuses cannot contribute to a published figure. On run 1 the arm-order guard
+returned `reportable`, the positive control predicted `4.500` and measured
+`4.300` `[3.950–4.950]` — every round inside `[3.375–5.625]` — and all 225 of
+its measured mounts were read back out of the document at their own far end.
 
 ### The §6 user-visible budgets
 
@@ -867,7 +896,7 @@ it reads the cell for **shape, not for life**, and says so in its own output.
 | S5 | teardown retained indistinguishable from 0 | indistinguishable from 0; all ten rungs' bands straddle it | package | `MET` | P0 heap ladder, package candidate arm (P-DEV-1 evidence run) | `rf2-hic-089` | — |
 | S6 | 1.10x cold mount against direct UIx-on-subs | 1.1718x [1.1263–1.2190] n=8; 1.1976x [1.1504–1.2468] n=6 | bench-tree | `BREACH` | final K1 estimator (P-DEV-1 evidence run) | `rf2-hic-085` | [§9.2](budgets.md#92-what-each-not-green-row-is-waiting-on) |
 | S7 | warm allocation, a fitted series clearing the quality floor | no publishable claim | bench-tree | `UNPINNED` | — (none) | `rf2-hic-071` | [§9.2](budgets.md#92-what-each-not-green-row-is-waiting-on) |
-| S8 | C8's first disjunct: an escape recovers ≥ 20% | `0.770x` [0.646–0.842] — 23.0% recovered [15.8–35.4%]; 0.45 ms on a 200-boundary mount | package | `UNRESOLVED` | P0 lane direct-return clock arm (P-DEV-1 evidence run) | `rf2-5yn9` | [§9.2](budgets.md#92-what-each-not-green-row-is-waiting-on) |
+| S8 | C8's first disjunct: an escape recovers ≥ 20% | `0.7418x` [0.6458–0.8409] — 25.8% recovered [15.9–35.4%], run 1 alone, on a 200-boundary mount; an observed range across per-round `p50`s | package | `UNRESOLVED` | P0 lane direct-return clock arm (P-DEV-1 evidence run) | `rf2-5yn9` | [§9.2](budgets.md#92-what-each-not-green-row-is-waiting-on) |
 | U1 | echo within one 60 Hz frame at p95 | — | — | `UNPINNED` | — (none) | `rf2-hic-071` | [§9.2](budgets.md#92-what-each-not-green-row-is-waiting-on) |
 | U2 | ≤ 50 ms p95 and ≤ 100 ms p99 to next paint | — | — | `UNPINNED` | — (none) | `rf2-hic-071` | [§9.2](budgets.md#92-what-each-not-green-row-is-waiting-on) |
 | U3 | ≤ 100 ms p95 for broad operations | — | — | `UNPINNED` | — (none) | `rf2-hic-071` | [§9.2](budgets.md#92-what-each-not-green-row-is-waiting-on) |
@@ -974,22 +1003,54 @@ other mode.
   and the consequence is written down rather than worked around: `rf2-hic-085`
   stays open while this record stands, and closing it would leave both rows
   pointing at nobody.
-- **`S8`'s band crosses C8's own line, which is what `UNRESOLVED` is for.** The
-  reading is not thin and the rig is not the problem: two runs on one binary,
-  the arm-order guard `reportable` on both, the positive control seeing its
-  predicted `2.00x` on both, 225 of 225 measured mounts read back at their far
-  end, and a mounted-DOM fairness gate that agreed and was driven to disagree on
-  purpose. What the band does is straddle `20%` — `23.0%` recovered, `[15.8–35.4%]`
-  — so the first of C8's three disjuncts is neither met nor missed, exactly the
-  case §5's freeze ruling created this status for. **Narrowing it is a
-  measurement and widening the line is forbidden**: more rounds on the same
-  instrument would settle it, and that is `rf2-5yn9`'s to schedule as its own
-  window rather than something to fold into this one. Two further things are
-  needed before C8 itself can move off `UNPINNED`, and neither is a reading: a
-  ruling on what population C8 is stated over — it governs *an escape at a
-  site*, so a single witness cannot pass it corpus-wide — and the reconciliation
-  of §6's *both reference profiles* against §1's prohibition on a hosted runner
-  sourcing a distributional figure, recorded in §3.
+- **`S8`'s range crosses C8's own line, which is what `UNRESOLVED` is for.** The
+  reading is not thin and the rig is not the problem: the arm-order guard
+  returned `reportable`, the positive control saw the doubling its own
+  arithmetic predicts, 225 of 225 measured mounts were read back at their far
+  end, and a mounted-DOM fairness gate agreed and was driven to disagree on
+  purpose. What the range does is straddle `20%` — `25.8%` recovered,
+  `[15.9–35.4%]` — so the first of C8's three disjuncts is neither met nor
+  missed, exactly the case §5's freeze ruling created this status for.
+  **[Amended 2026-08-13.]** Three corrections to how this row was first
+  published, none of which moves its status. The figure is **run 1 alone**,
+  because run 2's positive control predicted `4.000` against a ±25% band of
+  `[3.000–5.000]` and its rounds reach `5.150` — a refusal under the strict
+  every-round-inside rule that `lane/control-verdict`'s own docstring says is
+  the right one — and a pooled figure that includes a control-refused ensemble
+  is not a published figure. The interval is an **observed range across
+  per-round `p50`s, not a confidence interval**, and §4 now says so where the
+  row is stated. And C8's `≥ 2 ms p95` disjunct is **UNASSESSED at this
+  witness** rather than missed: the instrument computes no `p95`, so the
+  per-boundary rate and the break-even boundary count first published beside
+  this row are **withdrawn** — one 200-boundary witness fixes no scaling law.
+  **Narrowing the range is a measurement and widening the line is forbidden**,
+  and the re-run is not scheduled: under the site-level reading below nothing
+  turns on whether the corpus-wide recovery is 18% or 26%. Buy one only when a
+  real site adjudication under `rf2-hic-071` genuinely turns on the `20%`
+  disjunct, when a user-visible `p95` claim is being made, or when a second
+  physical profile exists — never to force a pass. The *Authority* cell keeps
+  `rf2-5yn9` on [§9.1](#91-how-to-read-a-row)'s settled mode: the disposition
+  has been taken, and what remains is a condition rather than a live transition.
+- **[Ruling 1, 2026-08-13, `rf2-5yn9`.] The profile obligation is DISCHARGED
+  P-DEV-1-only.** A distributional clock obligation runs over **all registered
+  *physical* distributional profiles — today exactly `P-DEV-1`**; the
+  CI-RUNNER-A half is closed by refusal, ratified, on §1's prohibition and §9's
+  lane vocabulary rather than for want of machine time. It **reopens
+  automatically if a second physical profile ever registers**. The reasoning is
+  in [§3](#3-deterministic-rows-pinned-on-the-moved-package), and
+  [specification §6](specification.md#6-performance-contract) now states the
+  obligation in those terms, so the *both reference profiles* wording this row
+  was waiting on is gone at its source rather than annotated here.
+- **[Ruling 2, 2026-08-13, `rf2-5yn9`.] `C8` is adjudicated per landed escape
+  site**, with authority `rf2-hic-071` — every landed escape carries its own
+  measured benefit, and one below `20%` / `2 ms` / a budget flip is removed by
+  that gate's acceptance. *"Simplify or remove"* is a site action, so **`S8` is
+  the mechanism's published reference price that a site adjudication cites**,
+  never a corpus-wide pass, fail, or veto. Rung 3 is retained on that reading:
+  `codec/as-element` has had a total `:react-element` arm since `rf2-hic-030`,
+  so removing the escape would *add* a rejection branch around otherwise-total
+  handling — machinery, where C8 exists to prevent it. `C8` stays `UNPINNED`
+  until a real site supplies its population.
 - **`S7` has no publishable claim to pin.** No fitted allocation series clears
   the quality floor. This is a property of the readings rather than of the
   rig, so it is `UNPINNED` rather than `UNRESOLVED`: nothing crossed a line,
@@ -997,7 +1058,10 @@ other mode.
 - **`C8` has no population yet; `C7` now has one.** The native-island rule
   and the escape-benefit rule are both stated over landed escapes and islands,
   and the apps that would carry them are `rf2-hic-034`, `rf2-hic-047` and
-  `rf2-hic-045`. `rf2-hic-034` has landed, bringing `C7` its population and the
+  `rf2-hic-045`. What *kind* of population `C8` is waiting for is no longer an
+  open question — Ruling 2 above settles it as one adjudication per landed
+  escape site — but the sites themselves have not landed, so the row stays
+  `UNPINNED`. `rf2-hic-034` has landed, bringing `C7` its population and the
   deterministic half of its band — D14–D16 above, the structural question a
   hosted runner is allowed to decide. `C7` stays `UNPINNED` for the other half
   only: no package-resident clock instrument exists to take the reading, the 5%
