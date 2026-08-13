@@ -54,26 +54,20 @@
   (:require-macros [re-frame.hicasso.examples.require-graph :as rg]))
 
 (def ^:private app-namespaces
-  "Every namespace this APPLICATION is made of. The test suites are
-  deliberately absent: a test may reach past a door the application may
-  not — `demand-dom-cljs-test` mounts through the test kit and wraps the
-  screen in `React.StrictMode` — which is the whole reason the two are
-  held to different rules."
-  ["re-frame.hicasso.examples.typeahead.app"
-   "re-frame.hicasso.examples.typeahead.db"
-   "re-frame.hicasso.examples.typeahead.events"
-   "re-frame.hicasso.examples.typeahead.service"
-   "re-frame.hicasso.examples.typeahead.subs"
-   "re-frame.hicasso.examples.typeahead.views"])
+  "Every namespace this APPLICATION is made of, read off the package
+  directory at macro-expansion time rather than typed (rf2-ccuw). The
+  test suites are deliberately absent: a test may reach past a door the
+  application may not — `demand-dom-cljs-test` mounts through the test
+  kit and wraps the screen in `React.StrictMode` — which is the whole
+  reason the two are held to different rules, and the exclusion is the
+  build's own `cljs-test$`. `census.clj` is a JVM macro namespace and no
+  part of the compiled application, so no ClojureScript walk sees it."
+  (rg/emit-application-namespaces re-frame.hicasso.examples.typeahead))
 
 (def ^:private graph
-  (rg/emit-dependency-graph
-    '[re-frame.hicasso.examples.typeahead.app
-      re-frame.hicasso.examples.typeahead.db
-      re-frame.hicasso.examples.typeahead.events
-      re-frame.hicasso.examples.typeahead.service
-      re-frame.hicasso.examples.typeahead.subs
-      re-frame.hicasso.examples.typeahead.views]))
+  "Same population, other instrument: a namespace the analyzer never saw
+  is absent here and present in [[app-namespaces]]."
+  (rg/emit-dependency-graph re-frame.hicasso.examples.typeahead))
 
 (def ^:private own? (set app-namespaces))
 
@@ -91,10 +85,14 @@
 
 (deftest the-graph-is-populated
   (testing "the analyzer answered for every application namespace"
+    ;; The DIRECTORY on the left, the ANALYZER on the right. A namespace
+    ;; the analyzer never saw is absent on the right and fenced by
+    ;; nothing — every check below would pass over it VACUOUSLY.
     (is (= (set app-namespaces) (set (keys graph)))
-        "a namespace the analyzer has not analysed answers an empty edge
-         set, and an empty edge set passes every check below VACUOUSLY —
-         so the roster and the graph's key set are compared first"))
+        "a source file under `examples/typeahead/` is not on this
+         namespace's `:require` list, so the analyzer has no record of it
+         and its imports are fenced by nothing. Add it to the `ns` form
+         above, or take the file out of the package"))
 
   (testing "the reads that matter are present"
     (is (some #{"re-frame.hicasso"} (get graph "re-frame.hicasso.examples.typeahead.views"))

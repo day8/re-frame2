@@ -44,26 +44,30 @@
   any other."
   "re-frame.hicasso.examples.ledger.vendor")
 
+(def ^:private package-namespaces
+  "Every ClojureScript namespace under `examples/ledger/`, read off the
+  package directory at macro-expansion time rather than typed (rf2-ccuw).
+  Test suites are deliberately absent — a test may reach past a door the
+  application may not, which is the whole reason the two are held to
+  different rules, and the exclusion is the build's own `cljs-test$`."
+  (rg/emit-application-namespaces re-frame.hicasso.examples.ledger))
+
 (def ^:private app-namespaces
-  "Every namespace the APPLICATION is made of. Its test suites are
-  deliberately absent — a test may reach past a door the application may
-  not, which is the whole reason the two are held to different rules."
-  ["re-frame.hicasso.examples.ledger.app"
-   "re-frame.hicasso.examples.ledger.events"
-   "re-frame.hicasso.examples.ledger.subs"
-   "re-frame.hicasso.examples.ledger.views"])
+  "The package MINUS the vendor: the namespaces the application itself is
+  made of. The one subtraction is spelled out above, and it is the only
+  name this file still holds by hand — everything else arrives from the
+  directory, so a namespace added to the ledger tomorrow is fenced the
+  day it lands."
+  (vec (remove #{vendor-ns} package-namespaces)))
 
 (def ^:private graph
   "`{namespace [dependency …]}`, read off the analyzer at
   macro-expansion time. The vendor is included so that its OWN edges can
   be asserted; it is excluded from `app-namespaces` so that the
-  application's edge onto it is counted as foreign."
-  (rg/emit-dependency-graph
-    '[re-frame.hicasso.examples.ledger.app
-      re-frame.hicasso.examples.ledger.events
-      re-frame.hicasso.examples.ledger.subs
-      re-frame.hicasso.examples.ledger.vendor
-      re-frame.hicasso.examples.ledger.views]))
+  application's edge onto it is counted as foreign. Same population as
+  [[package-namespaces]], other instrument: a namespace the analyzer
+  never saw is absent here and present there."
+  (rg/emit-dependency-graph re-frame.hicasso.examples.ledger))
 
 (def ^:private own? (set app-namespaces))
 
@@ -84,10 +88,19 @@
 
 (deftest the-graph-is-populated
   (testing "the analyzer answered for every namespace asked about"
-    (is (= (conj (set app-namespaces) vendor-ns) (set (keys graph)))
-        "a namespace the analyzer has not analysed answers an empty edge
-         set, and an empty edge set passes every check below VACUOUSLY —
-         so the roster and the graph's key set are compared first"))
+    ;; The DIRECTORY on the left, the ANALYZER on the right. A namespace
+    ;; the analyzer never saw is absent on the right and fenced by
+    ;; nothing — every check below would pass over it VACUOUSLY.
+    (is (= (set package-namespaces) (set (keys graph)))
+        "a source file under `examples/ledger/` is not on this namespace's
+         `:require` list, so the analyzer has no record of it and its
+         imports are fenced by nothing. Add it to the `ns` form above, or
+         take the file out of the package")
+
+    (is (some #{vendor-ns} package-namespaces)
+        "the vendor is the one name this file subtracts by hand, and a
+         subtraction of a name that is no longer there would quietly stop
+         subtracting anything"))
 
   (testing "the reads that matter are present"
     ;; Positive controls, because a fence over an empty graph is green
