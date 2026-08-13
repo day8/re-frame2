@@ -1590,6 +1590,31 @@ function allocRefusedWindows(row) {
   return out;
 }
 
+// How many DISTINCT arm windows carry at least one refusal — the numerator
+// `windows refused: N of M` needs (rf2-xxeq).
+//
+// THE DEFECT. `allocRefusedWindows` above returns one entry per refusal REASON,
+// and a window with two deviant legs contributes two of them, while the
+// denominator counts WINDOWS. Every V1 run therefore printed a line of the
+// shape `windows refused: 17 of 12` — 17, 14, 13, 14, 16, 13 against a
+// twelve-window floor-only plan — which is not a possible ratio.
+//
+// Nothing was mis-gated: the exit keys off the reason list being non-empty,
+// which is correct under either count, and no published figure moved. But a
+// row whose entire purpose is to be believed may not print an impossible
+// ratio beside its figures, and a reader who took "17 windows were refused"
+// at face value would conclude the run measured more windows than it did.
+//
+// The reason list is unchanged and is still printed underneath, in full: this
+// names the two quantities apart rather than dropping either.
+function allocRefusedWindowCount(row) {
+  let n = 0;
+  for (const r of row.perRound || []) {
+    for (const a of Object.values(r.arms || {})) if (!a.certified) n++;
+  }
+  return n;
+}
+
 async function allocRow(chromium) {
   // THE PREFLIGHT REFUSAL, before a browser is launched and a byte is
   // measured. It refuses only on grounds it can defend WITHOUT a sizing model
@@ -2076,7 +2101,12 @@ function summariseAlloc(row, refused) {
       .map((x) => x.legWorstDeviation)
       .filter((x) => typeof x === 'number')
   );
-  row.refusedWindows = refused.length;
+  // TWO QUANTITIES, NAMED APART (rf2-xxeq). `refusedWindows` is windows and is
+  // what the denominator below is comparable to; `refusalReasons` is the length
+  // of the list printed underneath, which is what the exit code keys off.
+  const refusedCount = allocRefusedWindowCount(row);
+  row.refusedWindows = refusedCount;
+  row.refusalReasons = refused.length;
   console.log(
     `;;   leg tolerance τ = ${(row.legTolerance * 100).toFixed(0)}% of the window's own leg ` +
       'MEDIAN, two-sided. The legs of a window are W repetitions of ONE'
@@ -2127,7 +2157,8 @@ function summariseAlloc(row, refused) {
   }
 
   console.log(
-    `;;   windows refused: ${refused.length} of ${wins}` +
+    `;;   windows refused: ${refusedCount} of ${wins}, ${refused.length} refusal reason` +
+      `${refused.length === 1 ? '' : 's'} in all (a window can fail on more than one leg)` +
       (deviations.length
         ? `  (worst leg deviation observed ${(Math.max(...deviations.map(Math.abs)) * 100).toFixed(1)}%)`
         : '')
@@ -2708,6 +2739,10 @@ module.exports = {
   ladderStructuralFailures,
   allocSteps,
   allocRefusedWindows,
+  // The window count behind the summary's numerator (rf2-xxeq), pure and
+  // exported for `allocRefusedWindows`'s reason: the pin can DRIVE the ratio
+  // rather than assert that it is possible.
+  allocRefusedWindowCount,
   ALLOC_LEG_TOLERANCE,
   ALLOC_FALL_THRESHOLD_B,
   ladderPlan,

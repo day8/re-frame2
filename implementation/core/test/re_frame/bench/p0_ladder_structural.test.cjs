@@ -48,6 +48,7 @@ const {
   ladderStructuralFailures,
   allocSteps,
   allocRefusedWindows,
+  allocRefusedWindowCount,
   ALLOC_LEG_TOLERANCE,
   ALLOC_FALL_THRESHOLD_B,
   ladderPlan,
@@ -895,6 +896,71 @@ test('every REFUSED window is named, on every round, with its reason', () => {
   assert.ok(fails.some((f) => f.startsWith('round 2 ')));
 });
 
+test('THE RATIO IS POSSIBLE — refusal REASONS are not counted against WINDOWS', () => {
+  // rf2-xxeq. Every V1 run printed `windows refused: 17 of 12` — and 14, 13,
+  // 14, 16, 13 — because the numerator was `allocRefusedWindows(...).length`,
+  // one entry per refusal REASON, while the denominator counted WINDOWS. A
+  // window with two deviant legs contributed two.
+  //
+  // CONSTRUCTED, not asserted: this window has THREE legs outside tolerance
+  // against a cohort of five, so it yields three reasons and is one window.
+  const THREE_BAD = stream([20000, 20000, 0, 60000, 0]);
+  const three = allocSteps(THREE_BAD);
+  assert.strictEqual(three.certified, false);
+  assert.strictEqual(three.refusals.length, 3, 'one window, three deviant legs');
+
+  const row = allocRowWith(
+    { 'reagent-subs|lad/hicasso#R7': THREE_BAD, 'reagent-subs|lad/reagent#R7': SMALL },
+    2
+  );
+  const reasons = allocRefusedWindows(row);
+  const windows = allocRefusedWindowCount(row);
+  const measured = row.perRound.reduce((a, r) => a + Object.keys(r.arms).length, 0);
+
+  assert.strictEqual(reasons.length, 6, 'three reasons x two rounds — the old numerator');
+  assert.strictEqual(windows, 2, 'and TWO windows were refused, one per round');
+  assert.strictEqual(measured, 4);
+  // THE DEFECT, as arithmetic rather than as an anecdote: the old numerator
+  // overran its own denominator on exactly this row.
+  assert.ok(reasons.length > measured, 'reasons against windows is what printed "17 of 12"');
+  assert.ok(windows <= measured, 'and a window count never can');
+
+  // The two are told apart on the row itself, and the summary prints both.
+  // Two segments x two rounds = four floor windows, every one carrying the
+  // same three deviant legs: four windows, twelve reasons.
+  const refusedFloor = Object.fromEntries(
+    ['reagent-subs', 'uix-subs'].map((seg) => [
+      `${seg}|grid/floor`,
+      {
+        segment: seg,
+        arm: 'grid/floor',
+        rung: 'floor',
+        reads: 0,
+        boundaries: 24,
+        ...three,
+        primeLegs: [26044],
+        primeExcess: 6788,
+        perWrite: 5000,
+        perBoundaryPerWrite: 208,
+      },
+    ])
+  );
+  const { row: summarised, out } = allocSummaryFor('floor', refusedFloor);
+  assert.strictEqual(summarised.refusedWindows, 4, 'the record carries WINDOWS under that name');
+  assert.strictEqual(summarised.refusalReasons, 12, 'and reasons under theirs');
+  assert.match(out, /windows refused: 4 of 4, 12 refusal reasons in all/);
+  assert.ok(
+    summarised.refusedWindows <= 4,
+    'the numerator can no longer overrun the denominator it is printed against'
+  );
+  // And the reason list itself is untouched — naming the counts apart drops
+  // neither.
+  assert.strictEqual((out.match(/^;;   REFUSED /gm) || []).length, 12);
+  // A row with nothing wrong reads 0 of N, and singular/plural is not a bug.
+  assert.strictEqual(allocRefusedWindowCount({ perRound: [] }), 0);
+  assert.strictEqual(allocRefusedWindowCount(allocRowWith({ ok: SMALL })), 0);
+});
+
 // --- the wiring, so this pin cannot drift off the thing that exits ---------
 
 test('the driver exits on THIS function and does not re-derive the verdict', () => {
@@ -907,7 +973,7 @@ test('the driver exits on THIS function and does not re-derive the verdict', () 
   // nothing else ever being. The measurement surface's own exports are pinned
   // in their own test below.
   has(
-    /module\.exports = \{\s*ladderStructuralFailures,\s*allocSteps,\s*allocRefusedWindows,\s*ALLOC_LEG_TOLERANCE,\s*ALLOC_FALL_THRESHOLD_B,\s*ladderPlan,\s*allocArmSizing,\s*ALLOC_MIN_WRITES,\s*ALLOC_ARM,/,
+    /module\.exports = \{\s*ladderStructuralFailures,\s*allocSteps,\s*allocRefusedWindows,(\s*\/\/[^\n]*\n)*\s*allocRefusedWindowCount,\s*ALLOC_LEG_TOLERANCE,\s*ALLOC_FALL_THRESHOLD_B,\s*ladderPlan,\s*allocArmSizing,\s*ALLOC_MIN_WRITES,\s*ALLOC_ARM,/,
     'so this file can drive it'
   );
   has(/if \(out\.alloc\.fallsInMeasuredWindows > 0\) \{/, 'and the falling-step gate still exits');
@@ -1449,7 +1515,11 @@ function allocSummaryFor(planName, arms = {}) {
   const real = console.log;
   console.log = (s) => lines.push(String(s));
   try {
-    summariseAlloc(row, []);
+    // The row's OWN refusals, derived by the shipped function rather than
+    // handed in empty (rf2-xxeq): the summary's numerator and the list under
+    // it are two different counts of the same row, and a fixture that passed
+    // `[]` could not tell them apart.
+    summariseAlloc(row, allocRefusedWindows(row));
   } finally {
     console.log = real;
   }
