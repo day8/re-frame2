@@ -56,6 +56,7 @@ const {
   ALLOC_WRITE_SPECS,
   ALLOC_PLAN_SHAPES,
   allocPlanArms,
+  summariseAlloc,
 } = require('./p0_run.cjs');
 
 const tests = [];
@@ -1226,6 +1227,96 @@ test('the narrow plans SUBTRACT arms — they add none, move none and reorder no
     [],
     'and controls-only mounts nothing at all — V3 asks for no arms'
   );
+});
+
+// --- and the SUMMARY SURVIVES A NARROWED PLAN ------------------------------
+//
+// A mode that collects V3's controls and then throws in the row's own table
+// reader has not delivered V3. `summariseAlloc` is driven here on a synthetic
+// row per plan shape, with `console.log` captured — hermetic, no browser, no
+// build, exactly as every other pin in this file.
+
+// The fields `summariseAlloc` reads, and no more. `arms` is what the plan
+// shape decides, so it is the parameter.
+function allocSummaryFor(planName, arms = {}) {
+  const ctl = (perIter) => ({ perIter, ...allocSteps(stream([20000, 20000, 20000, 20000])) });
+  const row = {
+    roots: 4,
+    boundaries: 24,
+    perRoot: { grid: 6 },
+    publishedPerRoot: { grid: 300 },
+    arm: { cells: 6, roots: 4, boundaries: 24, writes: 6 },
+    writes: 6,
+    warmups: 3,
+    rounds: 2,
+    writeSelector: 'page',
+    write: ':p0/write-page — a synthetic row, measured against nothing',
+    plan: { name: planName, ...ALLOC_PLAN_SHAPES[planName] },
+    controlDoubles: { d1: 1000, d2: 400 },
+    controlSlack: 0.75,
+    fallThresholdB: 600000,
+    legTolerance: ALLOC_LEG_TOLERANCE,
+    verification: { unverified: 0, detail: [] },
+    perRound: [1, 2].map((round) => ({
+      round,
+      controls: { idle: ctl(32), ctl1: ctl(8000), ctl2: ctl(3200) },
+      arms,
+    })),
+    allocFits: { perRound: {}, mean: {} },
+  };
+  const lines = [];
+  const real = console.log;
+  console.log = (s) => lines.push(String(s));
+  try {
+    summariseAlloc(row, []);
+  } finally {
+    console.log = real;
+  }
+  return { row, out: lines.join('\n') };
+}
+
+const FLOOR_ARMS = () =>
+  Object.fromEntries(
+    ['reagent-subs', 'uix-subs'].map((seg) => [
+      `${seg}|grid/floor`,
+      {
+        segment: seg,
+        arm: 'grid/floor',
+        rung: 'floor',
+        reads: 0,
+        boundaries: 24,
+        ...allocSteps(stream([5000, 5000, 5000, 5000])),
+        perWrite: 5000,
+        perBoundaryPerWrite: 208,
+      },
+    ])
+  );
+
+test("V3's CONTROLS-ONLY summary RUNS, and states absence rather than zero", () => {
+  const { row, out } = allocSummaryFor('controls');
+  assert.match(out, /NO ARM WAS MOUNTED/, 'absence is stated, not left to be read as zero');
+  assert.match(out, /NO FITTED LINE/, 'and no slope is reported');
+  assert.doesNotMatch(out, /THE FITTED LINES/);
+  assert.doesNotMatch(out, /---- reagent-subs ----/, 'no arm table at all');
+  assert.match(out, /THE PLAN IS `controls`/, 'and the row names the plan it ran');
+  // The controls THEMSELVES are still adjudicated — V3 is a statement about
+  // exactly those windows, so a controls-only run that skipped its own
+  // verdict would have collected nothing worth having.
+  assert.strictEqual(row.controlVerdict.ok, true, 'the positive control still decides');
+  assert.strictEqual(row.fallsInMeasuredWindows, 0);
+  assert.match(out, /control D=1000: predicted 8000 B/);
+});
+
+test("V1's FLOOR-ONLY summary RUNS, prints the floor, and prints no rung", () => {
+  const { out } = allocSummaryFor('floor', FLOOR_ARMS());
+  // NOT VACUOUS: this plan DOES mount an arm, so the two modes are told apart
+  // by the summary and not merely by the shape table.
+  assert.doesNotMatch(out, /NO ARM WAS MOUNTED/);
+  assert.match(out, /---- reagent-subs ----/, 'the arm table is printed');
+  assert.match(out, /;; floor /, 'and the floor is in it');
+  assert.doesNotMatch(out, /hicasso\s+\d/, 'but no rung row is');
+  assert.match(out, /NO FITTED LINE/, 'and nothing is regressed through one arm');
+  assert.match(out, /THE PLAN IS `floor`/);
 });
 
 test('the DRIVER honours both switches — the write, the plan, and the record', () => {
