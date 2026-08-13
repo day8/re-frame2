@@ -120,12 +120,42 @@ git -C "$r" add implementation/core/src/re_frame/core.cljc   # staged, not commi
 assert "B staged core code → runtime" "PLAN docs=false jvm=true node=true" "$(plan "$r")"
 
 # ---- Case C: unstaged docs change (tracked, modified, not staged) → docs ----
+#
+# The subject here is the GIT STATE — that a tracked file modified but not
+# staged is gathered into the change set at all — and the path is only a
+# vehicle for it.  It used to be `spec/006.md`, and rf2-61ar retired that
+# choice: the classifier now arms `implementation_jvm` for `spec/*`, because
+# eleven spec documents are slurped and asserted on by suites in six artefacts
+# and a prose-only edit to one used to skip the lane pinning it.  So a spec
+# path is no longer inert here, and `jvm=false` stopped being a statement about
+# the git state.  A markdown page under `docs/guide/` carries the same docs
+# surface (`is_doc_surface_path` matches any `*.md`) and no runtime arm, which
+# is what this case needs.  Keep it that way: an exemplar for a git-state case
+# must be prose NO suite reads — see the roster in
+# `.github/scripts/report-changed-surfaces.sh` before choosing another.
 r="$tmp_root/unstaged-docs"; mkrepo "$r"
-mkdir -p "$r/spec"; printf '# a\n' > "$r/spec/006.md"
-git -C "$r" add spec/006.md; git -C "$r" commit -q -m addmd
+mkdir -p "$r/docs/guide"; printf '# a\n' > "$r/docs/guide/unstaged.md"
+git -C "$r" add docs/guide/unstaged.md; git -C "$r" commit -q -m addmd
 git -C "$r" update-ref refs/remotes/origin/main HEAD
-printf '# a\nmore\n' > "$r/spec/006.md"                       # unstaged modify
+printf '# a\nmore\n' > "$r/docs/guide/unstaged.md"            # unstaged modify
 assert "C unstaged docs → docs only" "PLAN docs=true jvm=false node=false" "$(plan "$r")"
+
+# ---- Case C1: unstaged PINNED prose → docs AND the JVM tier (rf2-61ar) ----
+#
+# The other half of the case above, and the reason it had to move rather than
+# simply have its expectation flipped.  Case C proves an unstaged edit reaches
+# the change set; this one proves the spine's tiering still agrees with CI's
+# once it gets there — a spec page arms the JVM tier locally exactly as
+# `implementation_jvm` arms it in test.yml.  Without this, retargeting case C
+# would have silently deleted the only local evidence that the widening
+# reaches the spine at all.
+r="$tmp_root/unstaged-pinned-prose"; mkrepo "$r"
+mkdir -p "$r/spec"; printf '# a\n' > "$r/spec/006-ReactiveSubstrate.md"
+git -C "$r" add spec/006-ReactiveSubstrate.md; git -C "$r" commit -q -m addmd
+git -C "$r" update-ref refs/remotes/origin/main HEAD
+printf '# a\nmore\n' > "$r/spec/006-ReactiveSubstrate.md"     # unstaged modify
+assert "C1 unstaged pinned spec prose → docs + JVM tier" \
+  "PLAN docs=true jvm=true node=false" "$(plan "$r")"
 
 # ---- Case D: untracked docs file → docs ----
 r="$tmp_root/untracked-docs"; mkrepo "$r"
