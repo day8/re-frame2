@@ -368,9 +368,10 @@ repair and intent lowering inside the returned element (§3's D10–D13 note, an
 the pair's own source).
 
 **S8 is one witness, one run, and the estimand is narrower than a band.** What
-the row publishes is the **min and max across five per-round readings, each of
-them the `p50` of that round's six samples — an observed range, not a
-confidence interval** — and nothing on this page may read it as one. Two runs
+the row publishes is the **min and max across five per-round readings — each of
+them a ratio between that round's floor-normalised `p50`s, and each `p50` the
+median of six samples. That is an observed range, not a confidence interval**,
+and nothing on this page may read it as one. Two runs
 were taken back to back on the same binary with nothing changed
 between them, reading `0.7418x` `[0.6458–0.8409]` and `0.7982x`
 `[0.6909–0.8421]`. **Only run 1 is published.** Run 2's positive control
@@ -896,7 +897,7 @@ it reads the cell for **shape, not for life**, and says so in its own output.
 | S5 | teardown retained indistinguishable from 0 | indistinguishable from 0; all ten rungs' bands straddle it | package | `MET` | P0 heap ladder, package candidate arm (P-DEV-1 evidence run) | `rf2-hic-089` | — |
 | S6 | 1.10x cold mount against direct UIx-on-subs | 1.1718x [1.1263–1.2190] n=8; 1.1976x [1.1504–1.2468] n=6 | bench-tree | `BREACH` | final K1 estimator (P-DEV-1 evidence run) | `rf2-hic-085` | [§9.2](budgets.md#92-what-each-not-green-row-is-waiting-on) |
 | S7 | warm allocation, a fitted series clearing the quality floor | no publishable claim | bench-tree | `UNPINNED` | — (none) | `rf2-hic-071` | [§9.2](budgets.md#92-what-each-not-green-row-is-waiting-on) |
-| S8 | C8's first disjunct: an escape recovers ≥ 20% | `0.7418x` [0.6458–0.8409] — 25.8% recovered [15.9–35.4%], run 1 alone, on a 200-boundary mount; an observed range across per-round `p50`s | package | `UNRESOLVED` | P0 lane direct-return clock arm (P-DEV-1 evidence run) | `rf2-5yn9` | [§9.2](budgets.md#92-what-each-not-green-row-is-waiting-on) |
+| S8 | C8's first disjunct: an escape recovers ≥ 20% | `0.7418x` [0.6458–0.8409] — 25.8% recovered [15.9–35.4%], run 1 alone, on a 200-boundary mount; an observed range across per-round ratios, not a confidence interval | package | `UNRESOLVED` | P0 lane direct-return clock arm (P-DEV-1 evidence run) | `rf2-5yn9` | [§9.2](budgets.md#92-what-each-not-green-row-is-waiting-on) |
 | U1 | echo within one 60 Hz frame at p95 | — | — | `UNPINNED` | — (none) | `rf2-hic-071` | [§9.2](budgets.md#92-what-each-not-green-row-is-waiting-on) |
 | U2 | ≤ 50 ms p95 and ≤ 100 ms p99 to next paint | — | — | `UNPINNED` | — (none) | `rf2-hic-071` | [§9.2](budgets.md#92-what-each-not-green-row-is-waiting-on) |
 | U3 | ≤ 100 ms p95 for broad operations | — | — | `UNPINNED` | — (none) | `rf2-hic-071` | [§9.2](budgets.md#92-what-each-not-green-row-is-waiting-on) |
@@ -1018,7 +1019,7 @@ other mode.
   every-round-inside rule that `lane/control-verdict`'s own docstring says is
   the right one — and a pooled figure that includes a control-refused ensemble
   is not a published figure. The interval is an **observed range across
-  per-round `p50`s, not a confidence interval**, and §4 now says so where the
+  per-round ratios, not a confidence interval**, and §4 now says so where the
   row is stated. And C8's `≥ 2 ms p95` disjunct is **UNASSESSED at this
   witness** rather than missed: the instrument computes no `p95`, so the
   per-boundary rate and the break-even boundary count first published beside
