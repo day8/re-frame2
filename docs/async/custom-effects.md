@@ -7,8 +7,6 @@ API** (promise SDK, callback, IndexedDB, worker) so its result is a named reply
 Same continuation *style* as HTTP — not the managed extras (retry, abort, stale
 suppression, HTTP failure kinds) unless you build them.
 
-**Prerequisites.** [Effects](../core/effects.md); ideally the [HTTP tutorial](tutorial.md).
-
 !!! note "The one rule"
 
     An [event handler](../core/effects.md) is pure — no `.then`, no `await`. The **`fx`

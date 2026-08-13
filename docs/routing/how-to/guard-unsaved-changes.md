@@ -5,9 +5,8 @@ unsaved changes"** before leaving an editor.
 
 Shape: `:can-leave` boolean sub (`true` = leave is fine) → `false` parks the attempt
 in `[:rf/pending-navigation]` → dialog dispatches `:rf.route/continue` or
-`:rf.route/cancel`. Data all the way; tests with zero DOM.
-
-**Prerequisites.** [The model → Blocking](../concepts.md#blocking-a-navigation).
+`:rf.route/cancel`. Data all the way; tests with zero DOM. The
+[blocking contract](../concepts.md#blocking-a-navigation) is the model.
 
 ## 1. Write the "is it safe to leave?" sub
 

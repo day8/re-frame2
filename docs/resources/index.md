@@ -40,8 +40,8 @@ leak boundary. Views *read* — they never fetch.
 ;; => {:status :loading …}  then  {:status :loaded :data …}
 ```
 
-**Prerequisites.** The [Core introduction](../core/introduction.md). Resources plug into
-events, app-db, and effects; they do not replace them. The transport underneath is
+Resources plug into [events](../core/introduction.md), app-db, and effects.
+They do not replace them. The transport underneath is
 [managed HTTP](../async/index.md) (`:rf.http/managed`).
 
 ## Three lanes

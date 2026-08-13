@@ -4,7 +4,6 @@ Build a three-page app — **home**, **articles list**, **article detail** — t
 per-page activation work, a 404, the Back button, and a shared layout. One idea the whole way: the
 URL is application state (read via a sub, change via dispatch).
 
-**Prerequisites.** [Core introduction](../core/introduction.md) (events, app-db, views).
 Vocabulary after this walk-through: [The model](concepts.md). From React Router:
 [the mapping](coming-from-react-router.md).
 

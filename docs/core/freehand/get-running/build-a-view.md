@@ -1,10 +1,8 @@
 # Build a view
 
 A working Freehand screen, one idea at a time: subscription as a value, handler as
-data, controlled field, mount. Not a tour of every option.
-
-**Prerequisites:** basic re-frame2 events, subscriptions, and frames, plus a
-project that [depends on Freehand](install.md).
+data, controlled field, mount. Not a tour of every option. The project
+[depends on Freehand](install.md).
 
 One namespace:
 

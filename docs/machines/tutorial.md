@@ -17,8 +17,6 @@ By the end you will have:
 
 The example is small on purpose. The goal is the shape, not a production auth system.
 
-**Prerequisites.** [Core introduction](../core/introduction.md) (events, app-db, effects).
-
 ## Step 0 — turn machines on
 
 Machines are an optional artefact. Require the namespace once from a boot or feature namespace:

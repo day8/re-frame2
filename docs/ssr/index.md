@@ -18,8 +18,8 @@ in the browser; only genuinely one-sided code is fenced with `:platforms`.
 (ssr/hydrate! {:frame :app :render-tree-fn (fn [] ((rf/view :app/root)))})
 ```
 
-**Prerequisites.** [Core introduction](../core/introduction.md) — events, app-db, views,
-frames. SSR plugs into those; it does not replace them.
+SSR plugs into [events](../core/introduction.md), app-db, views, and frames.
+It does not replace them.
 
 ## When *not* to use SSR
 

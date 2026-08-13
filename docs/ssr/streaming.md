@@ -6,9 +6,7 @@ is one job: **ship a shell on the first byte, then stream slow regions in**.
 React 18 / Next.js `loading.js` use `<Suspense>`; re-frame2 uses one component.
 Runnable tree:
 [`examples/capabilities/ssr/ssr_streaming/`](../../examples/capabilities/ssr/ssr_streaming).
-
-**Prerequisites.** [The model](concepts.md) and the
-[Ring adapter](tutorial.md#step-7--swap-in-the-ring-adapter).
+The Ring adapter is in the [tutorial](tutorial.md#step-7--swap-in-the-ring-adapter).
 
 !!! note "Don't reach for streaming by default"
 
