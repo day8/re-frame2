@@ -228,19 +228,21 @@
 ;; is bought for "focus cannot Tab outside it", which the guide promises
 ;; and rf2-hic-052 owns, so the two edges are closed here.
 ;;
-;; This is a WRAP AT TWO EDGES and not a focus manager. It computes no
-;; order, tracks no state, and does not run for any key but Tab: between
-;; the edges the engine moves focus exactly as it always did.
+;; This is a WRAP AT TWO EDGES and not a focus manager. It tracks no
+;; state, holds no listener while idle, and does not run for any key but
+;; Tab: between the edges the engine moves focus exactly as it always
+;; did. It does have to know which control IS each edge, and that much
+;; order it derives on the press — see [[sequential-tab-stops]], which
+;; states its own boundary because a half-model that did not is what
+;; the audit of #8071 found here.
 
 (def ^:private tab-stop-selector
   "Everything the engine could make a tab stop of, as a selector.
 
-  A superset on purpose. It is filtered down by [[tab-stop?]] asking the
-  properties the engine itself decides tabbability by, and the two are
-  used only to recognise the panel's FIRST and LAST stop. A candidate
-  this misses therefore costs a wrap that does not fire — the engine's
-  own conduct, unchanged — and never a wrap that fires at the wrong
-  place, because the set can only be too large."
+  A superset on purpose, narrowed by [[tab-stop?]] and then ORDERED by
+  [[sequential-tab-stops]]. On its own it answers *which elements are
+  candidates*, which is not the same question as *where Tab goes*, and
+  the gap between the two is what the audit of #8071 measured."
   (str "a[href],area[href],button,input,select,textarea,summary,"
        "iframe,object,embed,audio[controls],video[controls],"
        "[contenteditable],[tabindex]"))
@@ -248,17 +250,106 @@
 (defn- tab-stop?
   "Would Tab stop here? Disabled elements take no focus, a negative
   `tabIndex` is reachable only programmatically, and an element with no
-  client rect is not rendered at all — `display:none`, `hidden`, or
-  inside a closed `<details>`."
+  client rect is not rendered at all — `display:none` or `hidden`."
   [^js el]
   (and (not (.-disabled el))
        (not (neg? (.-tabIndex el)))
        (pos? (.-length (.getClientRects el)))))
 
-(defn- tab-stops
-  "`panel`'s own tab stops, in document order."
+(defn- radio-group-of
+  "The radio group `el` belongs to, or nil when it belongs to none.
+
+  HTML groups radio buttons by FORM OWNER **and** NAME together, and a
+  radio with an empty name is in no group at all. Both halves measured
+  rather than read: two same-named groups inside two `<form>`s keep one
+  stop each, and two unnamed radios side by side are two stops."
+  [^js el]
+  (when (and (.matches el "input[type='radio']")
+             (not= "" (.-name el)))
+    [(.-form el) (.-name el)]))
+
+(defn- one-stop-per-radio-group
+  "`stops` with every named radio group collapsed to the single element
+  the engine actually sequences to.
+
+  **A radio group is one tab stop, not one per button** — the checked
+  member, or the first focusable member when none is checked. Measured in
+  this repo's Chromium over a modal holding
+  `[unchecked r1, checked r2, ok]`: Tab visits `r2` and `ok` and never
+  `r1`.
+
+  The choice is made over elements [[tab-stop?]] has ALREADY kept, which
+  is what makes the two degenerate cases fall out rather than need
+  rules: a checked-but-disabled member is gone before the vote, so the
+  first surviving member takes the slot, and a group whose members are
+  all disabled contributes no stop at all. Both measured."
+  [stops]
+  (let [chosen (into {}
+                     (for [[group members] (group-by radio-group-of stops)
+                           :when (some? group)]
+                       [group (or (first (filter #(.-checked ^js %) members))
+                                  (first members))]))]
+    (filterv (fn [el]
+               (if-some [group (radio-group-of el)]
+                 (identical? el (get chosen group))
+                 true))
+             stops)))
+
+(defn- sequential-tab-stops
+  "`panel`'s tab stops IN THE ORDER TAB VISITS THEM.
+
+  ## What this models, and what it does not
+
+  It models the two places sequential order departs from document order
+  inside an ordinary panel, both of which the audit of #8071 measured
+  choosing the wrong edge:
+
+  - a named radio group is ONE stop ([[one-stop-per-radio-group]]);
+  - a positive `tabindex` sorts ahead of every `tabindex=0`, ascending,
+    with document order inside each bucket.
+
+  **It is not the platform's focus algorithm and does not try to be.**
+  Four things the engine skips are still counted here, and they are
+  named rather than half-modelled: an element inside an `inert`
+  subtree, a control inside a `disabled` `<fieldset>`, a control under
+  `visibility:hidden`, and the contents of a closed `<details>`. (That
+  last one also retires a claim this file used to make: content inside a
+  closed `<details>` DOES report client rects in Chromium, so
+  [[tab-stop?]] never filtered it.) Shadow roots, `delegatesFocus` and
+  scrollable-overflow focusability are outside the set entirely.
+
+  ## Why that boundary is safe where the radio group was not
+
+  A surplus candidate costs a WRAP THAT DOES NOT FIRE when it cannot
+  take focus, and a WRAP THAT LANDS WRONG when it can — and
+  [[wrap-tab!]] only takes the default action away once the landing is
+  confirmed, so the first of those degrades to exactly the engine's own
+  conduct. Measured with `.focus()` on each: inert, disabled-fieldset,
+  `visibility:hidden` and closed-`<details>` contents ALL refuse focus,
+  while an unchecked radio in a checked group ACCEPTS it. That is the
+  whole reason the radio group was a wrong landing rather than a missed
+  wrap, and the reason the four above are not this bead's defect one
+  level further in.
+
+  A group whose checked member sits OUTSIDE `panel` needs no rule: this
+  handler is the modal's alone, so everything outside the panel is
+  inert, cannot be the group's stop, and the engine falls to the first
+  focusable member inside — which is what scanning only `panel` already
+  computes. Measured."
   [^js panel]
-  (filterv tab-stop? (array-seq (.querySelectorAll panel tab-stop-selector))))
+  (->> (array-seq (.querySelectorAll panel tab-stop-selector))
+       (filterv tab-stop?)
+       (one-stop-per-radio-group)
+       ;; Document order is the tie-break INSIDE a tabindex bucket, so it
+       ;; is carried explicitly rather than left to `sort-by` being
+       ;; stable: the rule is the point, and a sort that quietly stopped
+       ;; being stable would surface as a flaky wrap rather than as a
+       ;; failure anyone could read.
+       (map-indexed (fn [i ^js el]
+                      (let [t (.-tabIndex el)]
+                        [(if (pos? t) t js/Infinity) i el])))
+       (sort-by (fn [[bucket i _]] [bucket i]))
+       (mapv peek)))
 
 (defn- wrap-tab!
   "Tab off the panel's last stop lands on its first; Shift+Tab off its
@@ -275,12 +366,18 @@
   A press a control inside the panel has already claimed is left alone:
   the native event's `defaultPrevented` is read rather than the synthetic
   event's copy, which React takes at construction and which a child's
-  `preventDefault` during the same dispatch would not update."
+  `preventDefault` during the same dispatch would not update.
+
+  **First and last are read off SEQUENTIAL order, not document order.**
+  They are different lists — a radio group is three elements and one
+  stop — and taking the second for the first is how this handler came to
+  send Tab from a modal's last control onto an unchecked radio, and
+  Shift+Tab from its checked one onto `<body>`."
   [^js e]
   (when (and (= "Tab" (.-key e))
              (not (.. e -nativeEvent -defaultPrevented)))
     (let [^js panel (.-currentTarget e)
-          stops     (tab-stops panel)]
+          stops     (sequential-tab-stops panel)]
       (when (seq stops)
         (let [back? (.-shiftKey e)
               edge  (if back? (first stops) (peek stops))
