@@ -13,6 +13,18 @@ is recorded on
 every figure it predicts is a prediction, and the witness this page specifies is
 what will decide whether the predictions were right.
 
+**V1, V2 and V3 have since been run** — 2026-08-14, results at
+[the write half's floor is the pipeline](studio/the-write-halfs-floor-is-the-pipeline.md).
+The headline for a reader of this page: the largest thing this brief could not
+settle is now measured, and it went the way the brief feared. `F₀`, the event
+pipeline, is over 90% of `F`; the 300-cell rebuild this brief's write half
+removes is 1.1 – 1.9 KB per write. `F_old` came back flat in B as its control
+requires, but V1's and V2's criteria are **unassessed rather than answered** —
+a fixed ≈ 7 KB first-leg excess refuses every floor window at every page size
+under both writes, so `arm − floor` has no certified floor to subtract. The
+R = 20 rung refused at six writes exactly as `rf2-qomo` predicted. Read that page
+beside this one; nothing here has been rewritten to match it.
+
 The ruling's own fence is part of the work: **bounded — no statistics research
 project.** Two artefacts, four validity witnesses, a stated disposition for
 every test the change supersedes, and one option explicitly held in reserve
