@@ -73,6 +73,7 @@
             [re-frame.hicasso.impl.mount :as mount]
             [re-frame.hicasso.roots-frames-support :as sup]
             [re-frame.hicasso.test.mounted :as hm]
+            [re-frame.routing :as routing]
             [re-frame.test-support :as test-support]))
 
 ;; ---------------------------------------------------------------------------
@@ -125,6 +126,57 @@
      [:span.done (str (boolean (:done? todo)))]
      [:button.toggle {:on-click [::toggle id]} "toggle"]]))
 
+;; ---------------------------------------------------------------------------
+;; Two routes and a link between them — W7's page
+;; ---------------------------------------------------------------------------
+;;
+;; Registered here rather than borrowed from a witness application, because
+;; what W7 needs is the router's ASYNC door and nothing else: an application
+;; would bring a seed, a shell and a dozen assertions this file has no claim
+;; on, and the smallest page that leaves work enqueued is two routes and one
+;; anchor.
+;;
+;; The paths carry a leading segment of their own (TESTING.md, *Every app in
+;; the shared node test bundle namespaces its URL paths*). Route ids are
+;; namespaced keywords and cannot collide; route PATHS are plain strings in a
+;; process-global registrar, and `npm run test:cljs` loads a dozen
+;; applications into one process, where the first registration of a path wins
+;; every URL forever.
+;;
+;; And registration is a FUNCTION as well as a load-time effect, for the
+;; reason `examples/todo/routes.cljs` records: `re-frame.test-support`'s reset
+;; fixture restores the registrar to a baseline captured when the
+;; `use-fixtures` FORM is evaluated, so a route registered above it is rolled
+;; back before the first row runs. `reg-sub` and `reg-event` survive; routes
+;; do not.
+
+(def ^:private here ::here)
+(def ^:private there ::there)
+
+(defn- register-routes!
+  "Register this file's two routes. Idempotent for an unchanged
+  registration, so calling it from the fixture as well as at load costs
+  nothing."
+  []
+  (routing/reg-route here  {:doc "W7's first page."}  "/hicasso-test-kit-mounted")
+  (routing/reg-route there {:doc "W7's second page."} "/hicasso-test-kit-mounted/there")
+  nil)
+
+(register-routes!)
+
+(h/defview two-pages
+  "The smallest page that can leave work ENQUEUED: an `h/route-link` and a
+  reading of where the router thinks we are.
+
+  Nothing here calls `preventDefault` — `re-frame.routing/activate-link!`
+  is what claims the click, and if it did not, this page would navigate
+  the test runner away."
+  [_]
+  (let [id (h/sub [:rf.route/id])]
+    [:div.pages
+     (h/route-link {:to there :class "to-there"} "go there")
+     [:span.where (if (= there id) "there" "here")]]))
+
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture
     {:adapter uix-adapter/adapter
@@ -139,7 +191,10 @@
      :async?        true
      :init-fn       (fn []
                       (sup/leave-act-environment!)
-                      (collector/reset-runtime!))}))
+                      (collector/reset-runtime!)
+                      ;; The reset rolled the registrar back past the
+                      ;; load-time registration above — see that comment.
+                      (register-routes!))}))
 
 ;; ---------------------------------------------------------------------------
 ;; Reading the page
@@ -636,3 +691,137 @@
                        (is (some? (some #(re-find #"early update" %) @reported))
                            (str "got " (pr-str @reported))))
                      (done))))))))
+
+;; ---------------------------------------------------------------------------
+;; W7 — settle-until!: the door for work the router has merely ENQUEUED
+;; ---------------------------------------------------------------------------
+;;
+;; A door that WAITS has two failure modes, and a witness driving only the
+;; first proves the door RETURNS rather than that it waits. Both are driven
+;; here: it must return when the condition becomes true, and it must fail at
+;; the deadline when the condition never does.
+;;
+;; The positive row carries its own CONTROL rather than describing one. The
+;; navigation is asserted still-unlanded after `settle!` and landed after
+;; `settle-until!` — the same reading, two lines apart, one door between them
+;; — so the row goes red if `settle!` ever became sufficient, which is the
+;; only way a reader can tell this door from decoration.
+;;
+;; What is NOT re-driven here is `poll-until`'s retry, deadline and error
+;; matrix: this door COMPOSES that poll and copies none of it (commit
+;; 88b20f1d22 deleted exactly such a duplicate), and `test_support_test` is
+;; that contract's authority. What W7b asserts is the composition — that the
+;; canonical rejection reaches THIS door's caller unchanged.
+
+(defn- routed
+  "One mount of [[two-pages]], opened on the first route."
+  []
+  (hm/mount! [two-pages {}]
+             {:initial-events [[:rf.route/navigate {:to here}]]}))
+
+(defn- route-id-of
+  "Where the ROUTER thinks the mount is — read from the frame, never off
+  the page. That distinction is the whole of why the door ends in a
+  flush: app-db moves when the drained handlers run, and React's commit
+  for the store notification may still be pending at that instant."
+  [m]
+  (rf/subscribe-once [:rf.route/id] {:frame (:frame m)}))
+
+(deftest l3-settle-until-lands-work-the-router-merely-enqueued
+  (if-not (mount/browser?)
+    (sup/skip! ":node-test has no React DOM")
+    (async done
+      (let [m (routed)]
+        (is (= here (route-id-of m)) "premise: the page opened on the first route")
+        (is (= "here" (text-at m ".where")))
+        (is (= "/hicasso-test-kit-mounted/there"
+               (.getAttribute (node-at m ".to-there") "href"))
+            "premise: the link is routing's own, so clicking it is a real
+             route-link click rather than a dispatch dressed as one")
+
+        ;; The real event, through React's own event system, with routing's
+        ;; own `activate-link!` deciding.
+        (.click (node-at m ".to-there"))
+
+        (testing "THE CONTROL, and the red this door repairs. `settle!` is an
+                  empty flushSync, and a route-link's navigate ends in
+                  `router/dispatch!` — the ASYNC door — so the drain rides
+                  `interop/next-tick`, a next-turn TASK, and at this line
+                  nothing has reached React for the flush to commit. Neither
+                  app-db nor the page has moved"
+          (hm/settle! m)
+          (is (= here (route-id-of m))
+              "the navigation is enqueued, not landed")
+          (is (= "here" (text-at m ".where"))))
+
+        (-> (hm/settle-until! m #(= there (route-id-of m))
+                              {:label "the route-link's navigate to drain"})
+            (.then
+              (fn [answered]
+                (testing "and after the door, the same two readings have both
+                          moved — which is the claim, since the condition is
+                          read off the FRAME and the assertion off the PAGE:
+                          the poll answers the first and the trailing flush is
+                          what makes the second safe on the next line"
+                  (is (= there (route-id-of m)))
+                  (is (= "there" (text-at m ".where"))))
+
+                (testing "it answers the handle it was given, unchanged, so
+                          the door threads like every other one here"
+                  (is (identical? m answered))
+                  (is (= (:frame m) (:frame answered))))))
+            (.catch (fn [e]
+                      (is false (str "settle-until! never settled: "
+                                     (or (ex-message e) (str e)) " "
+                                     (pr-str (ex-data e))))
+                      nil))
+            (.then (fn [_]
+                     (-> (hm/unmount! m)
+                         (hm/assert-clean!)
+                         (.then (fn [report]
+                                  (is (true? (:clean? report)))
+                                  (done)))))))))))
+
+(deftest l3-settle-until-fails-at-its-deadline-rather-than-hanging
+  (if-not (mount/browser?)
+    (sup/skip! ":node-test has no React DOM")
+    (async done
+      (let [m (routed)]
+        ;; THE SABOTAGE: a condition that cannot ever hold, and nothing
+        ;; clicked, so no navigation is even enqueued. The only way out of
+        ;; this row is the deadline — which is what makes it a witness for
+        ;; the WAITING rather than for the returning.
+        (-> (hm/settle-until! m (constantly false)
+                              {:timeout-ms 50
+                               :interval-ms 5
+                               :label "a condition that never holds"})
+            (.then (fn [answered]
+                     (is false (str "settle-until! resolved with "
+                                    (pr-str answered)
+                                    " for a condition that never holds")))
+                   (fn [e]
+                     (testing "it REJECTS at the deadline, carrying
+                               `poll-until`'s own canonical refusal
+                               unchanged — same id, same `:elapsed-ms`, same
+                               `:label` naming the assertion site. This door
+                               mints no id of its own and wraps none of the
+                               poll's, which is what *composes* means here"
+                       (is (instance? ExceptionInfo e))
+                       (let [data (ex-data e)]
+                         (is (= :rf.error/poll-until-timeout (:rf.error/id data)))
+                         (is (= "a condition that never holds" (:label data)))
+                         (is (number? (:elapsed-ms data)))))
+
+                     (testing "and it rejects rather than throwing on the
+                               caller's own stack: a synchronous throw out of
+                               a promise-returning door lands outside every
+                               `.catch` attached to it and HANGS the async
+                               test instead of failing it — this row reaching
+                               its handler at all is that claim"
+                       (is true "the rejection reached a handler"))))
+            (.then (fn [_]
+                     (-> (hm/unmount! m)
+                         (hm/assert-clean!)
+                         (.then (fn [report]
+                                  (is (true? (:clean? report)))
+                                  (done)))))))))))
