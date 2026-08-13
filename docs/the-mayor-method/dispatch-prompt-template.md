@@ -403,20 +403,36 @@ A skipped gate needs a one-line reason in the change body. A silent skip fails r
 Paste this section verbatim too, on the same footing as the boundary block. The gate menu settles *which*
 gate runs; only this settles *how*.
 
-**This section is scoped the way the third sentence is, and for the same reason.** Part of what follows
-presupposes a gate the brief actually has: the wedge-recovery paragraph assumes one heavy enough that two
-cannot coexist, and the planted-fault half of the tree-verification rule, the scoped-plant paragraph and the
-restore-hashing cautions all assume a gate you can plant a fault in. A prose-only brief — a comment truth-up, a
-documentation correction, a governance-record edit — has neither, so for it those parts describe nothing it can
-do. **The rest is unconditional for any dispatch that runs anything at all**, and is pasted verbatim whatever
-the deliverable: the detach-and-poll sanction, the never-pipe rule, the capture-your-own-exit-code rule, and the
+**This section is scoped, and the axis is the NOMINATED GATE'S CAPABILITIES — not prose versus code.** Read each
+part against the gate the brief actually names. The wedge-recovery paragraph assumes a *heavyweight* gate, one
+heavy enough that two cannot coexist on the machine; a cheap checker never wedges, and for it that paragraph
+describes nothing. The planted-fault half of the tree-verification rule, the scoped-plant paragraph and the
+restore-hashing cautions assume something far more common: a gate in which a safe, bounded, DISCRIMINATING fault
+can be planted at a line the worker is already editing, proving that the nominated gate reaches the edited
+surface. **Wherever such a plant exists those parts apply and are pasted** — emphatically including the cheap
+validators that run over a documentation edit, which red on a single broken link target and go green again on
+restore. **A cheap prose gate is a *plantable* gate; what it is not is a *heavyweight* one**, and those are two
+different questions.
+
+**That axis is a correction, and the evidence for it came from the dispatch that carried the old one.** An
+earlier version scoped by the shape of the deliverable, calling a documentation correction ungateable and then
+acknowledging four lines later that the same edit runs a link validator — while the worker carrying it had
+already planted a broken link target, watched the validator red on exactly that worktree-only fault, restored,
+and hashed the restore against the committed object. Read literally, that rule would have stripped the
+planted-fault and restore-hash clauses from precisely the brief where they did the work.
+
+**The rest is unconditional for any dispatch that runs anything at all**, and is pasted verbatim whatever the
+deliverable: the detach-and-poll sanction, the never-pipe rule, the capture-your-own-exit-code rule, and the
 artefact-naming rule. A one-line documentation edit still runs a link validator, and all four bite on it.
 
-**Say what a brief with no plantable gate does instead, or that gets improvised too** — and here the
-improvisation was measured on the *enforcing* side, where five dispatches in one session carried five different
-lengths of this one block, nobody having decided to drop anything. The wording is already settled under
-*Quality gates — which gate* above: where a surface has no automated coverage the brief says so, and the worker
-verifies it by hand and reports what it checked and the counts in the change body. Point at that rather than
+**Say what a brief whose gate affords no plant does instead, or that gets improvised too** — the improvisation
+was measured on the *enforcing* side, where five dispatches in one session carried five different lengths of
+this one block, nobody having decided to drop anything. Two cases, and they are not the same. Where NO automated
+gate covers the surface, the wording is already settled under *Quality gates — which gate* above: the brief says
+so, and the worker verifies it by hand and reports what it checked and the counts in the change body. Where a
+gate DOES cover the surface but affords no safe discriminating plant, that gate still runs and the unconditional
+four still bite; what lapses is only the planted-fault route to proving which tree was read, so the brief
+nominates the root-banner route instead and the worker says which one it used. Point at that rather than
 restating it, and **scope the block rather than shortening it** — dropping the sanction along with the parts
 that do not apply is the same failure by a shorter road.
 
