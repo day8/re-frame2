@@ -74,7 +74,7 @@ The committed event corpus, restricted to what is reachable on the feed route. C
 | `::digest-arrived` | `:digest` | 2 | 2 — `digest` 2/5, `digest-body` 1/1 |
 | navigate `?page=2` | `:rf.route/query` | 2 | 2 — `feed-page` 1/2, `pager` 1/5 (and 3 rows replaced) |
 
-**The population is unweighted, and that is a limitation rather than a choice.** Six event kinds, each counted once. The committed evidence carries no interaction frequencies, and §7.3 below shows that the weighting decides one of the three quantities outright.
+**The population is unweighted, and that is a limitation rather than a choice.** Six event kinds, each counted once. The committed evidence carries no interaction frequencies, and [§3.3](#33-the-finding-that-conditions-everything-below) shows that the weighting decides one of the three quantities outright.
 
 ## 1. Membership savings
 
