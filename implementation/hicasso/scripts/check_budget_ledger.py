@@ -183,11 +183,15 @@ EXTRA_ROWS = {
 # same terms: `rf2-hic-033` and `rf2-hic-034` took them on
 # `implementation/hicasso` and §3's heading is what they landed under.  An
 # unpinned row is the hole this constant exists to close, so a new row is
-# pinned as it lands rather than later.
+# pinned as it lands rather than later.  `S8` — the direct-return escape's
+# clock, `rf2-5yn9` — is pinned `package` on that rule: the instrument that
+# read it lives in the bench tree, as the P0 heap ladder behind S1–S5 does,
+# but the SUBJECT is `implementation/hicasso`, and this column names the
+# subject rather than the instrument's address.
 POPULATION_PIN = dict(
     [("D%d" % n, "package") for n in range(1, 17)]
     + [("S%d" % n, "package") for n in range(1, 6)]
-    + [("S6", "bench-tree"), ("S7", "bench-tree")]
+    + [("S6", "bench-tree"), ("S7", "bench-tree"), ("S8", "package")]
     + [("U%d" % n, "—") for n in range(1, 5)]
     + [("U5", "package"), ("U6", "package")]
     + [("C1", "—"), ("C2", "bench-tree"), ("C3", "—"), ("C4", "—"),
