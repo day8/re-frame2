@@ -500,13 +500,21 @@ gates on the final base *changed the artefact* rather than merely reconfirming i
 findings had merged in the interval, so the governance record it was about to publish carried a membership count
 **false of the trunk**. A false count in a record like that is not caught later; it is cited later.
 
-**Diff against the trunk before you push, and read that diff for what you would REVERT.** Not for conflicts —
-version control reports those itself, and a clean rebase is exactly the case this rule is for. The question the diff
-answers is whether your push undoes something a sibling landed while you worked, which nothing will raise and no gate
-covers: a revert of a merged change is well-formed, it compiles, and it passes every check the tree has. In a shared
-document, a stale copy of one region reapplies as a silent deletion of everything that landed in it since. One
-worker's first push would have reverted a concurrent rewrite of a shared ledger; it caught that by reading the diff
-before reporting, and by nothing else.
+**Diff your branch against its MERGE BASE before you push, and read that diff for what you would REVERT.** Not for
+conflicts — version control reports those itself, and a clean rebase is exactly the case this rule is for. The
+question the diff answers is whether your push undoes something a sibling landed while you worked, which nothing will
+raise and no gate covers: a revert of a merged change is well-formed, it compiles, and it passes every check the tree
+has. In a shared document, a stale copy of one region reapplies as a silent deletion of everything that landed in it
+since. One worker's first push would have reverted a concurrent rewrite of a shared ledger; it caught that by reading
+the diff before reporting, and by nothing else.
+
+**The base is half that instruction, and the wrong base defeats it.** Compare against the point your branch left the
+trunk, never against the trunk's current tip. A tip comparison also carries everything the *trunk* gained while you
+worked, which is not what this step asks: it buries the one hunk that matters under siblings' unrelated work, and it
+degrades worst exactly when the trunk has moved most — which is when this read is most needed. One worker, following
+a tip-shaped wording, read several hundred kilobytes of content none of which was its own. In the dominant toolchain
+the merge-base comparison is the three-dot form, `<TRUNK>...HEAD`; plain `<TRUNK>` is the two-dot one that produced
+that noise.
 
 ---
 
