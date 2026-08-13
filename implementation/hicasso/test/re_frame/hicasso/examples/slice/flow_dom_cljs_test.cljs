@@ -40,8 +40,10 @@
   re-frame2 application arrives through a router drain.**
 
   So the rows below wait on the CONDITION rather than on a duration:
-  `re-frame.test-support/poll-until`, which is the supported door for
-  exactly this and returns a promise that composes with `async done`.
+  `hm/settle-until!`, the facade's door for the enqueued kind — a
+  bounded `re-frame.test-support/poll-until` with the flush this file
+  used to pair by hand — returning a promise that composes with
+  `async done`.
 
   ## Why there is no virtual clock here, although the facade offers one
 
@@ -139,19 +141,6 @@
 
 (defn- app-db [m] (rf/app-db-value (:frame m)))
 
-(defn- drained
-  "Wait for `pred` to hold, then flush React and answer a promise of the
-  handle — the ROUTER-DRAIN counterpart of `hm/settle!`, for the two
-  places a click leaves work merely enqueued (see the namespace
-  docstring §TWO CLICKS).
-
-  A bounded condition poll rather than a sleep: it returns as soon as the
-  reply lands, and fails at a deadline with `:rf.error/poll-until-timeout`
-  naming the label rather than hanging the run."
-  [m pred label]
-  (-> (test-support/poll-until pred {:label label})
-      (.then (fn [_] (hm/settle! m)))))
-
 (defn- mount-app!
   "The whole application, on its own root and its own frame, seeded and
   pointed at a route. `:initial-events` drain to fixed point before the
@@ -213,9 +202,9 @@
         ;; own `activate-link!` deciding. Nothing here calls preventDefault
         ;; — if the click were not claimed, this page would navigate away.
         (.click (node m ".article-list li:nth-child(2) .article-link"))
-        (-> (drained m
-                     #(= routes/article (read-sub m [:rf.route/id]))
-                     "the route-link's navigate to drain")
+        (-> (hm/settle-until! m
+                              #(= routes/article (read-sub m [:rf.route/id]))
+                              {:label "the route-link's navigate to drain"})
             (.then (fn [_]
                      (is (= {:slug "intents"} (read-sub m [:rf.route/params])))
                      (is (= "Intents are data" (text m ".article-title")))
@@ -289,9 +278,9 @@
 (defn- replied
   "Wait for the save region of `slug` to leave `:saving`."
   [m slug]
-  (drained m
-           #(not= :saving (:status (read-sub m [::subs/save-state slug])))
-           (str "the stand-in server's reply for " slug)))
+  (hm/settle-until! m
+                    #(not= :saving (:status (read-sub m [::subs/save-state slug])))
+                    {:label (str "the stand-in server's reply for " slug)}))
 
 (deftest a-save-the-server-refuses-shows-its-reason-and-keeps-the-draft
   (if-not (browser?)
