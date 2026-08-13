@@ -317,8 +317,10 @@ above.
 
 Every figure above was taken on `P-DEV-1`
 ([budgets §1](budgets.md#1-the-named-reference-profiles)) by the browser lane,
-`npm run test:browser`, from [the census suite][census], on a branch based on
-`52275d7b19b3de2bdc48708e46e4102104c3199d` — which is on `main`.
+`npm run test:browser`, from [the census suite][census]. Runs 1–7 were taken on
+a branch based on `52275d7b19b3de2bdc48708e46e4102104c3199d`; the branch was then
+rebased onto `b44c5e854cae93a2a6ec520f1667f1da56c19e8b` and **run 8 re-took every
+figure on that base without one of them moving**. Both are on `main`.
 
 **The quiet box was verified and was not load-bearing.** `Get-Counter
 '\System\Processor Queue Length'` read `0` on every sample before, during and
@@ -337,12 +339,25 @@ needed a quiet box are the ones §6 refuses.
 | 5 | the measured figures | `0` | 1,491 / 9,334, 0 failures |
 | 6 | **sabotage** — P7's `111` inverted to `112` | `1` | captured red naming the line, below |
 | 7 | restored, plus the per-subscription attributions | `0` | 1,491 / 9,337, 0 failures |
+| 8 | **re-taken after rebasing onto `b44c5e854c`** | `0` | 1,502 / 9,508, 0 failures — no figure moved |
+
+The node lane (`npm run test:cljs`) was run on the same tree and returns `0` at
+13,875 tests / 70,108 assertions. It is not where these figures come from — every
+row here is `browser?`-guarded and skips there — but it is where a namespace that
+touched `HTMLInputElement` at load time would have taken the whole lane down with
+it, which is a defect this census had and fixed.
 
 **The assertion arithmetic is what proves the rows ran rather than skipped.** The
-census's rows are `browser?`-guarded and degrade to stated skips off the browser
-lane, so a green aggregate alone would not distinguish *ran and passed* from
-*skipped*. Run 1 to run 5 is `+2` tests and `+23` assertions, which is exactly
-the twenty-three assertions the two new `deftest`s contain.
+census's rows degrade to stated skips off the browser lane, so a green aggregate
+alone would not distinguish *ran and passed* from *skipped*. Run 1 to run 5 is
+`+2` tests and `+23` assertions, exactly the assertions the two new `deftest`s
+then contained; run 7 added three per-subscription attributions for `+26`.
+
+**Run 8's arithmetic is checkable against a figure this page did not produce.**
+`rf2-hic-036`'s tournament landed on `main` between run 7 and the rebase, and
+[its own §2.1](topology-tournament.md) publishes the lane at **1,500 tests /
+9,482 assertions** on that base. Run 8 reads 1,502 / 9,508 — the same `+2` and
+`+26`, arrived at from a control another worker measured.
 
 **Run 6 is the sabotage control, and it is why run 5 and run 7 mean anything.**
 Inverting one figure produced a captured failure naming it:
@@ -361,8 +376,11 @@ That report does two jobs, and the second is the more useful. It proves the row
 bound values, `(not (= 112 111))` and the breakdown beside it **independently
 witness the figure and its attribution** from the failure path, without the
 passing assertion being the thing that reports them. The file was restored and
-its content hash (`git hash-object`) matched its pre-sabotage value exactly:
-`7197902f6ed8054daf627122a993eb22ae24ed33`.
+its content hash (`git hash-object`, not a byte digest — this checkout
+translates line endings) matched its pre-sabotage value exactly, at
+`7197902f6ed8054daf627122a993eb22ae24ed33`. That hash pins the file **as it
+stood between runs 5 and 6**; it has had one commit since, the `delay` in the
+node-lane fix above, and run 8 is the reading that covers the file as it ships.
 
 ### What would falsify this page
 
@@ -402,3 +420,10 @@ everything, and this one published a good deal.
 - **Nothing about composition, IME or the caret.** A keystroke here is a scripted
   `input` event on a settled field. Composition exchanges are `rf2-hic-040`'s
   cross-browser matrix and are not this census's subject.
+- **Nothing that can be read across to the topology tournament**, which landed
+  while this census was being taken. [`topology-tournament.md`](topology-tournament.md)
+  also has an `edit` operation and also counts work per keystroke, and the two
+  sets of figures are **not** comparable: its arms vary *boundary placement* on
+  the bench tree's arm-1 runtime, which its own §2.1 states, while every figure
+  here is `implementation/hicasso` with the topology held fixed. Neither page
+  re-derives the other and neither may be quoted for the other's population.
