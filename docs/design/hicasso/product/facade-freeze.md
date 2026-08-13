@@ -4,8 +4,9 @@
 event id, on the evidence of two independent applications.** Every law below is transcribed
 from [`specification.md` §4](specification.md#4-target-programming-model) and
 [`lanes/ergonomics-api.md`](lanes/ergonomics-api.md), which pre-resolved them; this page applies
-them and adds none. **One law could not be applied** — [§4](#4-the-one-law-that-could-not-be-applied) —
-and that is the whole of what this freeze leaves open.
+them and adds none. **Fourteen of fourteen laws are frozen.** One of them had to be amended before it
+could be applied — [§4](#4-the-one-law-that-was-amended) — and that amendment is the whole of what
+this freeze changed rather than transcribed.
 
 **No name is frozen or changed here.** [`specification.md` §4](specification.md#4-target-programming-model)
 opens by saying so — *"These names are a provisional facade"* — and the naming ledger's own header
@@ -24,7 +25,7 @@ The evidence this freeze reads is reported, not restated, in
 > `defview`'s docstring carrying the Enter/Escape key-map example and naming the central composition
 > gate. The three now read in the past tense and keep the finding, because a record that AGED is not a
 > record that was WRONG. Nothing else moves —
-> [§4](#4-the-one-law-that-could-not-be-applied) already reads the landed fix and what it reports that
+> [§4](#4-the-one-law-that-was-amended) already reads the landed fix and what it reports that
 > fix published is unchanged, and [`correction-ledger.md`](correction-ledger.md) carries the closure
 > evidence clause by clause.
 
@@ -127,7 +128,7 @@ accounted for and no part of it is a finding:
 | Marker | Status |
 |---|---|
 | `::h/value`, `::h/checked` | the two an ordinary application writes. Both witnesses, at every controlled element. **Ordinary.** |
-| `::h/prevent` | frozen, and reached by neither witness — [§4](#4-the-one-law-that-could-not-be-applied) is why. |
+| `::h/prevent` | **frozen**: prevention is explicit via `::h/prevent` at every position except `:on-submit`, whose data spelling auto-prevents (operator ruling `rf2-j6fn`, 2026-08-13 — [§4](#4-the-one-law-that-was-amended)). [`specification.md` §4.1](specification.md#41-events), [`lanes/ergonomics-api.md`](lanes/ergonomics-api.md) and the door docstring now say the same thing in the same words. Reached by neither witness, which is a fact about their populations — see below. |
 | `::h/revision` | frozen as a law and reached by neither witness. Its population is a reset that leaves every other read the body makes `=` — see [§5](#5-what-is-not-in-the-ordinary-surface). |
 | `::h/navigate` | framework-minted by `route-link`, never author-written. Already rowed as a reserved-vocabulary addition the brief's list omits — [`naming-ledger.md`](naming-ledger.md) row 35. |
 | `::h/mounting`, `::h/unmounting` | the **motion module's** vocabulary. They stay on the door's marker list because moving a namespace is not renumbering its keywords ([`naming-ledger.md`](naming-ledger.md) row 31). Not ordinary — neither application reached them. |
@@ -140,9 +141,10 @@ applications is a fact about their populations rather than a case for shrinking 
 `::h/prevent` is reached the moment an anchor acts as a button, and `::h/revision` the moment a field
 rejects or normalises what is typed.
 
-## 4. The one law that could not be applied
+## 4. The one law that was amended
 
-**Explicit prevention.** Both pre-resolved sources say the same thing in the same words:
+**Explicit prevention.** Both pre-resolved sources said the same thing in the same words — quoted
+here as they stood before 2026-08-13, because both have since been amended:
 
 - [`specification.md` §4.1](specification.md#41-events): *"Explicit prevention is uniform rather than
   special-cased for submit."*
@@ -156,17 +158,39 @@ to-do* is `{:on-submit [::events/add]}` with no key test, no `preventDefault` an
 (`authoring-report-todo.md` N5, recorded as a positive).
 
 A freeze that is *deterministic application of pre-resolved dispositions* cannot apply a disposition
-the code contradicts, and cannot amend a published normative sentence to make it fit. So this row is
-**open**, filed as `rf2-j6fn` and rowed in [`correction-ledger.md`](correction-ledger.md). It has since
-got wider rather than narrower: `rf2-lu0s`'s fix put the exemption on the **door** too — `defview`'s
-docstring now tells authors that `:on-submit` "is the only position that prevents by default" — so
-three published surfaces now say two different things. The
-checkpoint's recommendation is recorded there and is evidence, not a ruling: keep the auto-prevent
-and amend both sentences, because the asymmetry is principled — a modifier-click on a real link must
-still open a tab, so a click needs the explicit opt-in and a submit has no such counterpart.
+the code contradicts, and cannot amend a published normative sentence to make it fit. So this row was
+filed **open** as `rf2-j6fn` and rowed in [`correction-ledger.md`](correction-ledger.md), and it got
+wider rather than narrower: `rf2-lu0s`'s fix put the exemption on the **door** too — `defview`'s
+docstring tells authors that `:on-submit` "is the only position that prevents by default" — so three
+published surfaces said two different things. The checkpoint's recommendation was recorded there as
+evidence, not a ruling: keep the auto-prevent and amend both sentences.
 
-**Nothing else in [§2](#2-the-frozen-laws) is held on this.** It is one row, and the other thirteen
-are applied.
+> **Amended 2026-08-13 by operator ruling on `rf2-j6fn`.** The ruling took that recommendation. The
+> auto-prevent is **law** and the two dispositions were the sentences that were wrong, so they were
+> amended rather than the runtime. **Nothing in the runtime moved** — `prevent-by-default?` and every
+> behaviour around it ship exactly as they did.
+>
+> The frozen law, in one sentence: **prevention is explicit via `::h/prevent` at every position
+> except `:on-submit`, whose data spelling auto-prevents; a callback — `h/fn` or a plain function —
+> always owns its own event and is never auto-prevented; and no second auto-preventing position may
+> be added.**
+>
+> The asymmetry is principled, which is why it stops at one position. A prevented submit forecloses
+> no browser affordance, where a modifier-click on a real link must still open a tab — so a click
+> keeps the explicit opt-in and a submit has no such counterpart. *Uniform* would have cost every
+> ordinary form a marker to buy consistency with a case that does not exist: neither witness
+> application wrote `::h/prevent` once. An allow-default marker, options map, warning or config
+> switch was weighed and **rejected** — the rare real submission already opts out through the
+> function escape, and HD-026 had already rejected the allow-default companion.
+>
+> Amended in the same sweep, all to these words: `specification.md` §4.1,
+> [`lanes/ergonomics-api.md`](lanes/ergonomics-api.md),
+> [`lanes/design-laws.md`](lanes/design-laws.md) law 4, [`invariants.md`](invariants.md) I10,
+> [`lanes/corpus-insights.md`](lanes/corpus-insights.md) (annotated, not rewritten — it is a dated
+> corpus record), the draft guide, and [`README.md`](README.md). The door already said it.
+
+**The freeze leaves nothing open.** This was the one row that was held, and with it amended and
+applied, **fourteen of fourteen** laws are frozen.
 
 ## 5. What is NOT in the ordinary surface
 

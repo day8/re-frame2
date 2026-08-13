@@ -155,7 +155,7 @@ Ordinary `defn` helpers inline into their caller and donate any synchronous read
 
 ### 4.1 Events
 
-Literal vectors are the common path. Explicit prevention is uniform rather than special-cased for submit. `h/handler` has one meaning everywhere; ordinary `fn` is reserved for real callbacks, render props, and imperative APIs. Generated intent callbacks may be fresh per render. A narrow stable-event primitive is admitted only if a realistic retaining host demonstrates a material problem and the solution is safe across abandonment, frame reincarnation, and teardown.
+Literal vectors are the common path. Prevention is explicit everywhere except `:on-submit`, whose data spelling auto-prevents by deliberate law: a prevented submit forecloses no browser affordance the way a prevented click forecloses a modifier-click, and the rare real submission opts out through the function escape, which owns its event. `h/handler` has one meaning everywhere; ordinary `fn` is reserved for real callbacks, render props, and imperative APIs. Generated intent callbacks may be fresh per render. A narrow stable-event primitive is admitted only if a realistic retaining host demonstrates a material problem and the solution is safe across abandonment, frame reincarnation, and teardown.
 
 Keyboard maps apply only to keyboard props and must make IME composition behavior explicit. The framework should not hide the DOM event when a host API genuinely requires it; that is the function escape.
 

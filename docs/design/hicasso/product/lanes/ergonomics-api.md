@@ -95,7 +95,7 @@ State ownership is explicit: durable and application-visible ephemera live at ad
 
 ## Surface boundaries and exclusions
 
-- Prevention is explicit everywhere; there is no submit-only auto-prevention.
+- Prevention is explicit at every position except `:on-submit`, whose data spelling auto-prevents as the census-weighted default; no second auto-preventing position may be added, and a callback always owns its own event.
 - Callback contracts use literal intents, `h/handler`, and ordinary functions rather than a positional taxonomy.
 - Attribute forwarding uses an owned-wins pure merge recipe; a public helper exists only if repeated code warrants it.
 - Keep key maps restricted to keyboard event props.

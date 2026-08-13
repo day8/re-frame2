@@ -245,7 +245,7 @@ instance's status as data:
 ```clojure
 (h/defview editor-form []
   (let [save (h/sub [:rf/mutation {:instance save-instance}])]
-    [:form {:on-submit [::h/prevent [:todo.editor/submit]]}
+    [:form {:on-submit [:todo.editor/submit]}
      (when (:error? save)
        [:ul.error-messages
         [:li "Save failed — check the fields and try again."]])
@@ -292,7 +292,7 @@ runtime errors. Underlying controlled elements still use errors such as
 | A late async acceptance overwrites newer work | The settle event wrote without a revision/supersession fence | Settle value and revision together; apply the mutation's supersession policy |
 | An old draft reappears after later navigation | Draft state is durable and no causal owner cleared it | Clear it on route entry, successful save, explicit cancel, or another domain end event |
 | Submit remains disabled after a failed request | The mutation instance still records failure | Clear or retry the instance with `[:rf.mutation/clear {:instance …}]` at the intended lifecycle point |
-| The form submits and the browser reloads | Submit intent was not wrapped | Use `[::h/prevent [:todo.editor/submit]]`; Hicasso does not auto-prevent |
+| The form submits and the browser reloads | `:on-submit` holds an `h/fn` or a plain function — a callback owns its own event and is never auto-prevented | Call `.preventDefault` in the callback, or use the data spelling `[:todo.editor/submit]`, which auto-prevents |
 
 ## When not to use the forms module
 
