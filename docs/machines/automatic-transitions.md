@@ -1,274 +1,250 @@
 # Automatic transitions
 
-Not every move is a user click. This page is the grammar for transitions the
-**table** takes on its own: eventless `:always`, choice nodes, delayed `:after`,
-and named timeouts.
+Most transitions wait for an event. Some transitions are driven by the machine itself:
 
-You already met `:after` on the [login tutorial](tutorial.md#step-4--talk-to-a-real-server)
-(8s server deadline). The same keys work on **flat** machines
-([the model](concepts.md)) and nest inside
-[hierarchical](hierarchical-states.md) / [parallel](parallel-states.md) states.
+- a guard becomes true;
+- a decision node resolves immediately;
+- a delay expires;
+- a deadline is missed.
 
-Most [transitions](glossary.md#transition) wait for the world — a click, an HTTP
-reply, a hand-rolled timer. An **automatic transition** is one the
-[machine](glossary.md#machine) takes *on its own*: when a condition holds or a
-deadline passes, the [snapshot](glossary.md#snapshot) moves. Without them you re-
-invent the same brittle pattern — `setTimeout` plus a cancel flag, or a synthetic
-`dispatch` from every place that could enable the next step. Each of those is one
-declarative key on a state node.
+re-frame2 has four authoring forms for this, built on two engines.
 
-Four authoring grammars, **two engines**:
-
-| You want… | Reach for | Fires when |
+| Intent | Form | Engine |
 |---|---|---|
-| "the instant condition X holds, go to Y" | `:always` | a guard turns true, re-checked after every transition into the state |
-| "a decision node that routes on entry and never lingers" | `:type :choice` | entry — first guard-passing candidate wins |
-| "after N ms in this state, do Z" | `:after` | a wall-clock delay measured from state entry elapses |
-| "this state (or its child) must finish in time" | `:timeout` / `:on-timeout` | a fixed deadline from entry passes |
+| "Whenever this condition holds, move." | `:always` | guard-driven microstep loop |
+| "Enter a decision node and immediately route." | `:type :choice` + `:choice` | desugars to `:always` |
+| "After N ms in this state, move." | `:after` | wall-clock timer |
+| "This state or child must finish in time." | `:timeout` + `:on-timeout` | desugars to `:after` |
 
-!!! note "Four grammars, two engines"
+## Eventless `:always`
 
-    `:type :choice` **desugars to `:always`**; `:timeout` / `:on-timeout`
-    **desugars to `:after`**. Guard-driven microstep loop vs wall-clock timer. The
-    extra grammars *name intent* so tools and diagrams can read it.
-
-Assumes [the model](concepts.md#register-and-drive): `reg-machine`, table as data,
-[guard](glossary.md#guard) → boolean, [action](glossary.md#action) →
-`{:data … :fx …}` (`:data` merged), snapshot `{:state … :data … :tags …}`. New to
-that? [Guards and actions](concepts.md#guards-and-actions) first.
-
-## Eventless `:always` — fire the instant a condition holds
-
-`:always` is a state-node key holding a vector of guarded transitions. It is checked **after entry** — and after *any* transition that lands in the state — and the first guard that passes fires immediately, no event required. It answers "the snapshot just changed; if X is now true, move on" without you hand-raising a synthetic event from every action that could enable X.
-
-Here is the canonical shape — a quiz that ends the moment enough answers are correct:
+`:always` is checked after a state is entered and after transitions that remain in, or land in, that state.
 
 ```clojure
 (rf/reg-machine :quiz
   {:initial :asking
-   :data    {:correct-count 0}
-   :guards  {:enough-correct? (fn [{:keys [data]}] (>= (:correct-count data) 10))}
-   :actions {:count-correct   (fn [{:keys [data]}]
-                                {:data {:correct-count (inc (:correct-count data))}})}
+   :data    {:correct 0}
+
+   :guards
+   {:enough? (fn [{data :data}]
+               (>= (:correct data) 10))}
+
+   :actions
+   {:count-correct (fn [{data :data}]
+                     {:data {:correct (inc (:correct data))}})}
+
    :states
-   {:asking {:always [{:guard :enough-correct? :target :winner}]
-             :on     {:answer-correct {:action :count-correct}   ;; no :target — stays :asking
-                      :answer-wrong   {:target :loser}}}
+   {:asking
+    {:always [{:guard :enough?
+               :target :winner}]
+     :on     {:answer-correct {:action :count-correct}
+              :answer-wrong   :loser}}
+
     :winner {}
     :loser  {}}})
 ```
 
-When you `(rf/dispatch [:quiz [:answer-correct]])`, two things happen inside **one** machine event:
+The `:answer-correct` transition has no `:target`, so it updates `:data` while staying in `:asking`. Then `:always` is checked. If the count has reached ten, the machine moves to `:winner` in the same macrostep.
 
-1. `:asking`'s `:answer-correct` transition runs `:count-correct`, which bumps `:correct-count`. There is no `:target`, so this is an internal transition — the snapshot stays at `:asking`.
-2. The runtime immediately re-checks `:asking`'s `:always`. If `:correct-count` has now reached 10, `:enough-correct?` is true and the machine transitions to `:winner`.
+External observers see the settled result, not each internal microstep.
 
-External observers see `:asking → :winner` in one step. The "answer counted, still asking" intermediate state is **invisible** — exactly the property `:always` exists to provide.
+## Run to completion
 
-### Settle, then commit once
+A machine processes one event to a stable configuration before the next event is observed.
 
-`:always` extends the event [pipeline](../core/run-to-completion.md): after the
-triggering transition, a **microstep loop** keeps taking enabled `:always`
-transitions (and draining any [`:raise`](../api/re-frame.machines.md)d internal
-events) until a **fixed point** — no `:always` matches, no raised event pending.
-Only then does the snapshot commit **once, atomically**, with the accumulated `:fx`.
+Inside that one macrostep, the runtime:
 
-That is statechart **macrostep** semantics: observers see the *settled* result.
-Time-travel, [Xray](../core/observability.md), and undo see one committed
-transition; inner microsteps ride the trace stream for tools.
+1. takes the event-driven transition;
+2. applies exit/action/entry effects;
+3. checks `:always`;
+4. drains any `:raise`d internal events;
+5. repeats until no `:always` is enabled and no raised event remains;
+6. commits the final snapshot once.
 
-!!! note "It runs at birth, too"
+The loop is bounded. The default depth limit is 16. A runaway `:always` or `:raise` cycle raises `:rf.error/machine-always-depth-exceeded` and aborts the macrostep atomically; the previous snapshot remains visible.
 
-    The same settle loop runs when the machine first starts. If the [`:initial`](concepts.md#register-and-drive) state cascades into a leaf whose `:always` guard already holds, that transition is taken *before* the birth commit — so a transient initial state is settled past, unobserved, on start. (This is also why `:always` lives on a state node, never on the root: the root's cascade entry-point is `:initial`.)
+## `:always` rules
 
-### Ordering, depth, and self-loops
-
-A few rules keep the loop well-behaved — and keep your typos loud at registration time, not on the unlucky dispatch:
-
-- **`:always` settles before the next raised event.** If an action both `:raise`s an event `R` and lands in a state whose `:always` is enabled, the `:always` is taken **first**; `R` is then handled in the post-`:always` state. Raised events otherwise drain FIFO. (This matches SCXML exactly.)
-- **Bounded depth.** The loop is capped (default **16** microsteps, configurable per machine via `:always-depth-limit`). A non-converging cycle trips `:rf.error/machine-always-depth-exceeded` and **fails the whole macrostep** — the snapshot is never written, so the transition rolls back atomically. It is a failure, not a silent no-op, so a runaway cycle is distinguishable from an ordinary guard-blocked decline.
-- **No self-target.** An `:always` whose `:target` resolves to its own declaring state is **rejected at `reg-machine` time** (`:rf.error/machine-always-self-loop`) — guarded or not. An eventless transition back into the state you just entered either loops to the depth limit or is a no-op; either way the author meant something else.
-
-!!! note "Looping until a condition clears"
-
-    The legitimate "keep going while there's work" shape is a **targetless** guarded `:always` with an `:action` — `{:guard :more? :action :drain-one}`. Its action flips the guard false and the loop settles. That is *not* a self-loop (there's no `:target`), so it's allowed.
-
-### `:always` in the wild
-
-The [WebSocket example](../../examples/patterns/websocket/README.md) uses `:always` for two distinct jobs on two different states:
+`:always` takes a candidate vector:
 
 ```clojure
-:reconnecting
-{:always [{:guard :max-retries-exceeded? :target :failed}]   ;; out of retries → give up
- :after  {…}                                                  ;; otherwise back off and retry
- :on     {…}}
-
-:connected
-{:entry  :flush-queue-and-resubscribe
- :always [{:guard :has-queued-messages? :action :flush-queue}]  ;; drain the offline queue on entry
- :on     {…}}}
+:resolving
+{:always [{:guard :empty?    :target :empty}
+          {:guard :too-many? :target :too-many}
+          {:target :some}]}
 ```
 
-`:reconnecting` carries **both** `:always` and `:after` — they're independent state-node slots and coexist freely. And `:connected`'s `:always` is the targetless-action form: its `:flush-queue` action clears the queue, the guard goes false, and the microstep loop settles — no extra state needed.
+The first candidate whose guard passes wins. Include an unguarded default when the state must always resolve.
 
-`:always` is **not** a substitute for `:after`: `:always` fires on guard *truth*, `:after` fires on elapsed *time*.
-
-## `:type :choice` — a decision node that never lingers
-
-A **choice state** is a routing node: enter it, walk its guarded candidates in order, take the first whose guard passes, and leave — all within the same macrostep, no event needed. It's how you draw "decide which way to go" as an explicit node on the chart.
+An `:always` transition may be targetless:
 
 ```clojure
-(rf/reg-machine :submission
-  {:initial :idle
-   :data    {}
-   :guards  {:valid? (fn [{:keys [data]}] (boolean (:form-ok? data)))}
-   :states
-   {:idle     {:on {:submit :checking}}
-    :checking {:type   :choice
-               :choice [{:guard :valid? :target :accepted}
-                        {:target :rejected}]}     ;; unguarded final = the default / else branch
-    :accepted {}
-    :rejected {}}})
+:draining
+{:always [{:guard :has-more?
+           :action :drain-one}]}
 ```
 
-Dispatching `[:submission [:submit]]` enters `:checking`, which resolves **immediately**: if `:valid?` passes the machine settles at `:accepted`, otherwise it falls through to the default `:rejected`. External observers never see `:checking` — it's a transient routing node. (A choice state may also be the machine's `:initial` state, in which case it resolves at birth.)
+This is the safe "loop until done" pattern. The action changes `:data`; once the guard becomes false, the loop settles.
 
-Under the hood, `:type :choice` / `:choice` **desugars to an ordinary state with an `:always` slot** carrying the same candidate vector. The candidate walk, first-guard-pass select, and macrostep settle are all the `:always` machinery you just met — reused, not reinvented. `:choice` exists to *name the intent* so a visualiser renders a decision diamond and validation gives a clearer grammar.
+An `:always` transition may not target its own declaring state. That shape either loops forever or does nothing useful, so `reg-machine` throws `:rf.error/machine-always-self-loop`.
 
-### Divergence: a declarative array, not a `choice` function
+## Choice states
 
-re-frame2 requires a choice node's routing to be a **declarative guarded-candidate array** `[{:guard … :target …}]`, never a function — a function may never be the edge. The edge topology stays *data*, so diagrams, model tests, conformance fixtures, and AI tools can read the routing without executing it. A function-valued `:choice` fails loud at registration with `:rf.error/machine-bad-choice`.
+A choice state is a named decision node. The machine enters it and immediately leaves through the first passing candidate.
 
-### What the runtime checks
+```clojure
+:checking
+{:type   :choice
+ :choice [{:guard :valid? :target :accepted}
+          {:target :rejected}]}
+```
 
-`reg-machine` validates the choice grammar on the raw spec, so a mistake is caught before the machine ever runs:
+It is equivalent in behaviour to an `:always` decision, but it communicates intent to readers and diagram tools.
 
-- `:type :choice` and `:choice` **require each other** — one without the other is meaningless.
-- The `:choice` value **must be a non-empty vector of candidate maps** (not a fn, keyword, or empty vector).
-- The vector **must include an unguarded default** candidate. Without one, a `:checking` entered with every guard failing would have nowhere to go — a stuck transient node. A present default is the only static guarantee the state always resolves.
-- A choice state **only routes** — it may not also declare `:entry`, `:on`, `:after`, `:timeout`, `:spawn`, and so on. (So a choice state can never carry a `:timeout`; the two named-intent grammars don't combine.)
-- A candidate targeting the choice state's own state is a self-loop and is rejected, exactly as for `:always`.
+Choice rules:
 
-## Delayed `:after` — transition after a wall-clock delay
+- `:type :choice` and `:choice` must appear together.
+- `:choice` is a non-empty vector of transition candidates.
+- The vector must include an unguarded default.
+- A choice state only routes; it does not also declare `:on`, `:entry`, `:after`, `:spawn`, and so on.
+- The topology stays data. A function-valued `:choice` fails at registration with `:rf.error/machine-bad-choice`.
 
-`:after` is a state-node key mapping a **delay** to a transition. Entering the state arms every timer; leaving the state cancels them. On expiry, the matching transition fires (subject to its guard). It replaces the `dispatch-later`-plus-cancel-flag pattern that sits behind most timeout, debounce, and reconnect bugs.
+## Delayed `:after`
 
-The simplest case — a splash screen that dismisses itself after three seconds, or sooner if the user skips:
+`:after` maps a delay to a transition. Entering the state arms the timer. Leaving the state cancels it.
+
+The [login tutorial](tutorial.md#step-4--talk-to-a-real-server) uses an 8-second `:after` as a server deadline. The same key works for any wall-clock wait:
 
 ```clojure
 (rf/reg-machine :boot
   {:initial :splash
    :states
-   {:splash {:after {3000 :main}        ;; 3000 ms → :main
-             :on    {:skip :main}}       ;; …or the user clicks "skip"
-    :main   {:on {:restart :splash}}}})
+   {:splash {:after {3000 :main}
+             :on    {:skip :main}}
+    :main   {}}})
 ```
 
-`{3000 :main}` is sugar for `{3000 {:target :main}}` — the delay's value uses the **same** transition grammar as an `:on` clause.
-
-### What goes in the `:after` map
-
-Each entry is `<delay> → <transition>`. Both halves take several forms.
-
-**The delay (the key) — three forms:**
-
-- **Integer milliseconds** — `{30000 :timeout}`. The common fixed delay. (Note: a literal `:after` delay is **integer ms only** — not an ISO-8601 string, and *never* the `"5s"` shorthand. ISO-8601 durations belong to `:timeout`, below; the `"5s"` shorthand re-frame2 rejects everywhere.)
-- **A [subscription](../core/subscriptions.md) vector** — `[:sub-id & args]`, resolved like any `subscribe`. The canonical form for an **app-state-derived** delay (a user preference, a feature-flag config). It *re-resolves* when its value changes (see below).
-- **A function** — `(fn [{:keys [snapshot]}] ms)`, called **once** at state entry. The escape valve for a delay computed from the machine's own `:data`.
-
-!!! note "Watch the shape"
-
-    Guards and actions receive `:data` at the top level of their context map; an `:after` delay-fn instead receives `{:keys [snapshot]}` and reaches *inside* it — `(-> snapshot :data :retry-count)`. The snapshot is the familiar `{:state … :data … :tags …}` value.
-
-**The transition (the value) — identical to an `:on` clause:** a bare keyword (sugar for `{:target kw}`), a full transition map `{:guard … :target … :action … :meta …}`, or a first-guard-pass-wins candidate vector. If a `:guard` is present and false at expiry, the transition is **suppressed** — the timer is "fired and discarded", the snapshot is unchanged, a `:rf.machine.timer/fired` trace records `:fired? false`, and *other in-flight timers keep running*.
+The transition value uses the same grammar as `:on`:
 
 ```clojure
-;; All three delay forms, on one state node:
-{:loading
- {:after {30000                        {:target :timeout :guard :no-progress?}   ;; literal ms
-          [:sub :timeout-config :slow] {:target :warn :action :log-slow}          ;; subscription
-          (fn [{:keys [snapshot]}] (* 1000 (-> snapshot :data :retry-count)))
-                                       :retry}                                     ;; local fn
-  :on    {:loaded :ready
-          :failed :error}}}
+:loading
+{:after {30000 {:target :timeout
+                :guard  :still-loading?
+                :action :record-timeout}}
+ :on    {:loaded :ready
+         :failed :error}}
 ```
 
-### One timer per entry, counted from entry
+If the guard is false when the timer fires, the timer is discarded and the snapshot does not move.
 
-Every `:after` timer counts independently from the moment the machine **enters the state**. A state with `{:after {5000 :warn 30000 :timeout}}` arms *both* timers at entry, concurrently — the 5 s timer is not chained off the 30 s one. Re-entering the state restarts every timer fresh; there's no preserved "elapsed-so-far".
+## Delay forms
 
-A state can have several triggers racing at once — multiple `:after` timers, the state's `:on` events, an `:always`, a [spawned](glossary.md#spawn) child completing. **Whichever fires first wins**; the resulting state exit cancels the rest as part of the normal exit cascade.
+An `:after` delay can be:
 
-!!! note "A same-tick tie has no document-order guarantee"
+```clojure
+30000
+```
 
-    When two `:after` timers with different delays happen to fire in the same scheduler tick, the order they reach the router is the *host scheduler's* order — not document order. SCXML resolves simultaneously-enabled transitions by document order; re-frame2 `:after` timers are real host-clock deferred events, so it's "first valid timer to arrive wins; the transition makes the rest stale." Don't rely on declaration order to break a same-tick `:after` tie.
+A positive integer, in milliseconds. Not an ISO-8601 string — those belong to `:timeout` below.
 
-### No cancel flag: epoch-based staleness
+```clojure
+[:settings/login-timeout-ms]
+```
 
-re-frame2 ships **no `:cancel-dispatch-later` fx**, and you never write one. That's safe — and the headline reason to prefer `:after` over hand-rolled timers.
+A subscription vector. The delay re-resolves while the state is active. If the subscription value changes, the timer restarts from now.
 
-Every scheduled timer carries an **epoch** — a per-state-entry counter — captured when it's armed. Leaving the state advances that state's epoch. When a timer eventually fires, the runtime compares the carried epoch against the state's current one:
+```clojure
+(fn [{:keys [snapshot]}]
+  (* 1000 (-> snapshot :data :retry-count)))
+```
 
-- **Match** → the state is still the one that armed this timer; fire the transition.
-- **Mismatch** → the state was exited (or re-entered, arming a fresh timer); **silently drop it** and emit a `:rf.machine.timer/stale-after` trace.
+A function, evaluated once when the state is entered. It does not re-resolve. Delay functions receive `{:snapshot …}`, not the usual guard/action context (`{:data :event :state :meta}`).
 
-So a timer armed on an earlier visit can never "wander in" and fire against a state you've since left. There's nothing to remember and nothing to clean up: the epoch makes a late timer self-cancelling. The epoch is tracked **per scheduling node** (the declaring state's path), so a parent's long `:after` survives a leaf-to-sibling transition underneath it, while the exited leaf's timers go stale — a parent's 30 s hard-timeout ticks happily alongside a child's 5 s progress timeout.
+## Timer staleness
 
-### Delays that track app state
+You do not cancel `:after` timers yourself.
 
-A **subscription-vector** delay re-resolves while it's in flight. If the underlying sub value changes, the runtime cancels the current timer and **restarts from now** with the freshly-resolved delay (it does *not* extend or shorten the running timer — restart-from-now keeps the countdown always reflecting the current value). The epoch mechanism backstops the cancellation, and a paired `:rf.machine.timer/cancelled` (`:reason :on-resolution`) → `:rf.machine.timer/scheduled` shows up on the trace stream.
+Every timer carries the state-entry epoch that armed it. When it fires, the runtime checks whether that epoch is still current. If the state has been exited or re-entered, the timer is stale and ignored.
 
-A **function** delay does **not** re-resolve — it's computed once at entry. If you need a `:data`-derived delay that re-resolves on change, use the subscription form (over a sub that reads the machine's `:data`) and pay the subscription cost; the fn form is the cheap "compute once at entry" valve.
+This avoids the usual `setTimeout` plus cancel-flag bug. A late timer from a previous visit cannot move the current state.
 
-### Worked example: exponential backoff
+## Several timers can race
 
-The WebSocket example's `:reconnecting` state computes its backoff from the retry count, using the function-delay form:
+```clojure
+:loading
+{:after {5000  :slow-warning
+         30000 :timeout}
+ :on    {:loaded :ready}}
+```
+
+Both timers count from state entry. If `:loaded` arrives before either, leaving the state cancels both. If the 5 second timer fires, it takes its transition; if that transition exits the state, the 30 second timer is cancelled.
+
+Do not rely on declaration order to break a same-tick tie. Host scheduling decides which timer event arrives first.
+
+## Exponential backoff
 
 ```clojure
 :reconnecting
-{:tags   #{:websocket/reconnecting}
- :always [{:guard :max-retries-exceeded? :target :failed}]
- :after  {(fn [{:keys [snapshot]}]
-            (let [{:keys [retries base-ms max-backoff-ms]} (:data snapshot)]
-              (min (* base-ms (Math/pow 2 retries)) max-backoff-ms)))
-          {:target :active}}                       ;; …wait, then retry the connection
- :on     {:ws/connect {:target :active :action :record-and-reset}
-          …}}
+{:after {(fn [{:keys [snapshot]}]
+           (let [{:keys [retries base-ms max-backoff-ms]} (:data snapshot)]
+             (min (* base-ms (Math/pow 2 retries)) max-backoff-ms)))
+         {:target :connecting}}   ;; cf. examples/patterns/websocket
+ :on    {:give-up :failed}}
 ```
 
-Each visit to `:reconnecting` reads the *current* `:retries` and waits longer than the last (200 ms, 400, 800, … capped at `max-backoff-ms`). The `:always` short-circuits straight to `:failed` once retries are exhausted. And because leaving `:reconnecting` cancels the timer via the epoch mechanism, a backoff armed on an earlier visit can never fire late — no flag, no cleanup. See [`connection.cljs`](../../examples/patterns/websocket/README.md) for the whole machine.
+Each visit to `:reconnecting` computes a fresh delay from the current snapshot.
 
-### The clock, SSR, and what `:after` is *not*
+For recurring timers, re-enter the state. There is no separate recurring-timer primitive.
 
-`:after` timers go through `re-frame.interop` (`now-ms`, `schedule-after!`, `cancel-scheduled!`) — `setTimeout`/`clearTimeout` on CLJS, a `ScheduledExecutorService` on the JVM. There's no framework-level clock-config API; tests swap the interop layer with the usual fixture patterns. Under SSR, `:after` **no-ops** — the server renders the current `:state` statically and the client re-arms timers after hydration.
+## SSR
 
-`:after` deliberately does **not** include: recurring timers (re-enter the state to re-arm), calendar/wall-clock-time scheduling (it's relative to *entry*, not "9 AM tomorrow"), or pause/resume (transition out and back in).
+On the server, `:after` does not run wall-clock timers. The server renders the current state. The client re-arms timers after hydration.
 
-## `:timeout` / `:on-timeout` — a named deadline
+Design SSR-visible states so they are meaningful without depending on a timer firing server-side.
 
-A state — or a [`:spawn`](glossary.md#spawn) spec — may declare a `:timeout` duration plus an `:on-timeout` transition. It names a single fact: "this state (or its spawned child) must finish before this time." It reads more clearly than a bare `:after` entry when the intent really is a deadline.
+## `:timeout` and `:on-timeout`
+
+Use `:timeout` when the intent is a deadline.
 
 ```clojure
-{:states
- {:waiting
-  {:timeout    "PT5S"                       ;; ISO-8601: 5 seconds
-   :on-timeout {:target :timed-out}}
-
-  :loading
-  {:spawn {:machine-id :fetch-user          ;; spawn a child machine
-           :timeout    "PT10S"              ;; the child must finish within 10 s…
-           :on-timeout {:target :timed-out}}}}}  ;; …or we bail
+:waiting
+{:timeout    "PT5S"
+ :on-timeout {:target :timed-out}}
 ```
 
-`:timeout` **requires** `:on-timeout` (and vice versa); a lone one of either is a registration error. The pair **desugars to an `:after` entry** keyed by the resolved-ms duration — so entering the state arms it, leaving cancels it, and all the `:after` epoch/staleness/trace machinery drives it unchanged. For a spawn timeout, the timer is anchored to the spawn-bearing state's entry, so it bounds the child's whole lifetime (across any internal retries); when it fires, the exit cascade tears the child down.
+The pair lowers onto the same timer mechanism as `:after`.
 
-`:timeout` and `:after` express different intent and **may coexist** on one state node. (A `:final?` state can't declare a `:timeout` — final means final.)
+It also works on a [spawn](glossary.md#spawn) spec:
 
-### Duration grammar: integer-ms or ISO-8601
+```clojure
+:authenticating
+{:spawn {:machine-id :auth/request
+         :timeout    "PT10S"
+         :on-timeout {:target :auth-failed}}}
+```
 
-A `:timeout` duration is **exactly one of**:
+`:timeout` on a spawn spec is valid. The retired `:timeout-ms` slot is not — `reg-machine` throws `:rf.error/spawn-timeout-ms-removed`.
 
-- a **positive integer** — literal milliseconds (`5000`); or
-- an **ISO-8601 duration string** — `"PT5S"`, `"PT2M"`, `"PT1H30M"`, `"PT0.5S"`, `"P1D"`, … (the `PnYnMnWnDTnHnMnS` form; case-insensitive; fractional seconds allowed).
+When the timeout fires, the parent state exits, and the spawned child is destroyed as part of the normal exit cascade.
 
-A readable shorthand like `"5s"` / `"10ms"` is **not** accepted: such a string — or any other malformed duration (a non-positive integer, a fn, a vector, the bare `"P"`) — fails **loud** at registration with `:rf.error/machine-bad-timeout-duration`. And unlike `:after`, a `:timeout` admits **no** subscription-vector or fn dynamic delays — a timeout is a fixed wall-clock deadline. The integer-ms-or-ISO-8601 rule is the single duration grammar; the shorthand string is rejected on purpose.
+`:timeout` requires `:on-timeout`, and `:on-timeout` requires `:timeout`.
+
+## Timeout durations
+
+A timeout duration is one of:
+
+```clojure
+5000
+```
+
+Positive integer milliseconds.
+
+```clojure
+"PT5S"
+"PT1H30M"
+"PT0.5S"
+```
+
+An ISO-8601 duration string.
+
+Readable shorthands such as `"5s"` or `"10ms"` are not accepted, nor are subscription vectors or delay functions. A bad duration fails at registration with `:rf.error/machine-bad-timeout-duration`. Use integer milliseconds or ISO-8601.
