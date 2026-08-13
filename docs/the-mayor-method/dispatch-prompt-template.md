@@ -59,17 +59,24 @@ worktrees, cross-contaminating them. Commit to your branch instead.
 
 Concurrent workers SHARE one session scratchpad directory — its path carries the
 SESSION id, not your worktree — so name every scratch file you write outside your
-worktree FOR that worktree: `pr-body-<worktree>.md`, `gate-fastpr-<worktree>.log`,
-`gate-fastpr-<worktree>.exit`, never the bare names. A generic name is silently
-overwritten by a peer: nothing errors, and the loser can READ the survivor and
-take a PR body with plausible structure and the wrong subject for its own — or a
-gate exit code belonging to another worker's run, which reads as a clean pass and
-fails the merge decision open. Confirm a scratch file is your own before
-believing it, and confirm each gate read YOUR worktree before believing its
-colour — by whichever of two routes that gate affords. The shell gates print
-`gate root: <path>` as their first line; check it names your worktree. A gate
-that prints no banner (no `scripts/check_*.py` does) is discriminated by the red
-from a fault you planted, which exists only in your tree. That worktree check,
+worktree FOR that worktree, and every gate artefact for the ATTEMPT that wrote it
+as well: `pr-body-<worktree>.md`, `gate-fastpr-<worktree>-1.log`,
+`gate-fastpr-<worktree>-1.exit`, never the bare names, and bump that number on
+every re-run. A generic name is silently overwritten by a peer: nothing errors,
+and the loser can READ the survivor and take a PR body with plausible structure
+and the wrong subject for its own — or a gate exit code belonging to another
+worker's run, which reads as a clean pass and fails the merge decision open. The
+attempt number closes the same hole from the other side, which the worktree
+suffix cannot reach because both writers are YOU: a gate the harness kills at the
+ten-minute cap can survive that kill and write its `.log` and `.exit` after your
+restarted run has started using them. One worker shipped `exit 0` that way with
+18 real failures underneath it. Confirm a scratch file is your own — and your
+current attempt's — before believing it, and confirm each gate read YOUR worktree
+before believing its colour — by whichever of two routes that gate affords. The
+shell gates print `gate root: <path>` as their first line; check it names your
+worktree. A gate that prints no banner (no `scripts/check_*.py` does) is
+discriminated by the red from a fault you planted, which exists only in your
+tree. That worktree check,
 not this naming rule, is what has actually caught both observed collisions.
 
 If you create a `node_modules` symlink/junction in your worktree, remove the
@@ -287,22 +294,39 @@ none of them is obvious from the gate command itself.
   rather than closing it, because it is genuine evidence for a narrower claim than
   the worker needs.
 - **Put *every* gate artefact where git ignores it, and name each one FOR your
-  worktree** — the log and the exit-code file both. `*.log`, `*.exit` and
-  `*-exit.txt` are all ignored, and the `-<worktree>` suffix is what stops a
-  sibling worker writing those same two files:
+  worktree AND for the attempt that wrote it** — the log and the exit-code file
+  both. `*.log`, `*.exit` and `*-exit.txt` are all ignored; the `-<worktree>`
+  suffix is what stops a *sibling worker* writing those same two files, and the
+  trailing attempt number is what stops *you* writing them twice:
 
   ```bash
-  sh <ASSIGNED_WORKTREE>/scripts/test-fast-pr.sh > gate-fastpr-<worktree>.log 2>&1; echo "$?" > gate-fastpr-<worktree>.exit
+  sh <ASSIGNED_WORKTREE>/scripts/test-fast-pr.sh > gate-fastpr-<worktree>-1.log 2>&1; echo "$?" > gate-fastpr-<worktree>-1.exit
   ```
 
-  **The suffix is not tidiness — a bare name fails the gate OPEN.** The
+  Bump that number on every re-run — `-2`, `-3` — and never write to one twice.
+
+  **Neither half is tidiness; a name missing either fails the gate OPEN.** The
   scratchpad path carries the SESSION id, not the worktree, so every worker in a
   wave shares one directory. On 2026-08-12 two of six workers in a single wave
   wrote `gate-fastpr.exit` there; one then read a `0` a peer's run had already
   left while its own spine was still running (`ps -ef` showed its pid alive),
   and found its log interleaved by two writers at independent offsets, one line
-  beginning mid-word. The exit code a PR body quotes is exactly the artefact
-  that collision corrupts, and it reads as a clean pass — so this is the merge
+  beginning mid-word.
+
+  **The worktree suffix cannot close the second mechanism, because there both
+  writers are the same worktree.** `worker/trusted-il7b` ran `test:cljs` in the
+  foreground; the harness SIGTERM'd it at the ten-minute cap; the run *survived
+  the kill* and later wrote to the same `.log` and the same `.exit` the restarted
+  run was using — leaving `exit 0` sitting beside 18 real failures. The suffix
+  was present and correct throughout and made no difference. Expect this one
+  more often than the peer collision, not less: detaching a long gate is the
+  sanctioned path (foreground dies at ten minutes, the spine needs about
+  twenty-five), so kill-and-restart is routine rather than exceptional. A fresh
+  number per attempt is what sends the survivor's write somewhere you will never
+  quote.
+
+  The exit code a PR body quotes is exactly the artefact both collisions
+  corrupt, and by either route it reads as a clean pass — so this is the merge
   decision failing open, not a housekeeping slip. The boundary block above
   carries the same rule, and an example here that dropped the suffix is what let
   two workers obey the document and still collide — which is why the two have to
@@ -491,7 +515,7 @@ reports everything.
 - Same-file races between concurrent workers → enumerate in-flight surfaces.
 - Edits leaking into the mayor checkout (esp. silent new-file leaks) → boundary block + post-write both-trees check.
 - Cross-worktree contamination via `git stash` → no-stash rule (stashes are repo-global).
-- A peer silently overwriting a worker's scratch file, or the loser reading the survivor as its own — including a gate exit code belonging to another worker's run, which merges on a green nobody earned → worktree-named scratch files AND gate artefacts, plus the `gate root:` check, which is the half of that pair observed to actually catch it.
+- A peer silently overwriting a worker's scratch file, or a killed gate outliving the run that replaced it and overwriting *that* — either way the loser reads the survivor as its own, including a gate exit code belonging to a different run, which merges on a green nobody earned → scratch files and gate artefacts named for BOTH the worktree and the attempt, plus the `gate root:` check, which is the half of that pair observed to actually catch it.
 - Worktree cleanup deleting *through* a `node_modules` link into the shared tree it points at → the worker unlinks before reporting done, and the cleanup path disarms before removing.
 - "Green locally" merged into a red CI gate → gate the transitive surface; merge on CI, not the hand-off; a real failure gets a fix-worker, never `--admin`.
 - A passing synthetic test that routes around the real bug → reproduce the actual failing path.
