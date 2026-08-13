@@ -287,6 +287,14 @@
           {:app/main (repeat 5 (bundle 1 :e [(sub-ev :a 0.05)]))}]
          [(boundary [[:app/main :a]])
           {:app/main [(bundle 1 :e [(sub-ev :a 0.05)])]}]
+         ;; The memo-only arm (rf2-hic-037, audit #8027): retained
+         ;; activity, no recompute. It is in the space because the claim
+         ;; below is about EVERY classification the classifier emits, and
+         ;; an arm missing from here would be an arm the refusal was never
+         ;; asserted over. Its own semantics live in
+         ;; `hicasso-skip-semantics-cljs-test`.
+         [(boundary [[:app/main :a]])
+          {:app/main [(bundle 1 :e [(sub-ev :a nil :rf.sub/skip)])]}]
          [(boundary [[:app/main :a]]) {:app/main []}]
          [(boundary []) {:app/main []}]
          [(boundary [[:app/main :a] [:app/b :c]])
