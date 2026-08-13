@@ -122,9 +122,17 @@
   ;; THREE refusal classes, because the capture is not handler-specific: a
   ;; throwing handler, the rf2-04tx effect-map-envelope refusal, and a
   ;; completely unregistered event id. Deliberately NOT asserting that nothing
-  ;; is PRINTED: whether a dev build should ship a default console sink is the
-  ;; open half of rf2-fu75, and a test pinning the absence of one would
-  ;; pre-decide a question left to the operator.
+  ;; is PRINTED — the reason being the SETTLED rule now, not an open question.
+  ;; rf2-fu75 / PR #8108 ruled it: an UNOWNED promoted error DOES additionally
+  ;; reach `console.error` in a dev build — but only on a browser host, and
+  ;; only while the `:errors` listener registry is EMPTY
+  ;; (`error-emit/report-unowned-error!`). Registering ANY `:errors` listener
+  ;; takes corpus-wide ownership and silences the fallback for every category,
+  ;; which is precisely what the recorder below does. So nothing this witness
+  ;; raises is unowned, and this node lane has no `js/document` to print from
+  ;; either — two independent reasons there is no fallback here for such an
+  ;; assertion to observe. Whether some suite SHOULD pin that printing is a
+  ;; separate call, and nobody has made it.
   (let [seen     (atom [])
         settled! (fn [event]
                    ;; ::returned iff the dispatch returned normally; the
