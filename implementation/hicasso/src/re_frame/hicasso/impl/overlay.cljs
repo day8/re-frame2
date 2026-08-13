@@ -281,11 +281,34 @@
     (pos? (.-length (.getClientRects el)))))
 
 (defn- tab-stop?
-  "Would Tab stop here? Disabled elements take no focus, a negative
-  `tabIndex` is reachable only programmatically, and an element the
-  engine does not render is reachable by nothing — see [[rendered?]]."
+  "Would Tab stop here? Four ways the answer is no, and each is asked of
+  the engine in the form the engine itself uses.
+
+  **`:disabled` the pseudo-class, and not the `.disabled` property.** The
+  IDL property reflects the element's OWN attribute, so a control inside
+  a `<fieldset disabled>` reports `disabled: false` while the engine
+  refuses it focus — measured. The pseudo-class is the EFFECTIVE state,
+  which makes it a strictly wider reading of the same question rather
+  than a second rule beside it: it still matches a plainly `disabled`
+  control, and it gets the fieldset's own carve-out right for free.
+  Controls in a disabled fieldset's FIRST `<legend>` stay enabled, and
+  they are real stops; walking up to `fieldset[disabled]` by hand would
+  have dropped them, and a candidate set too SMALL aims the wrap at the
+  wrong control, which [[rendered?]] explains is the worse failure.
+
+  **`inert` is read as the attribute, because there is no pseudo-class
+  for it** — `matches(':inert')` throws `SyntaxError` in this repo's
+  Chromium, measured rather than assumed. `closest` is what makes the
+  reading INHERITED, which is the shape inertness actually has: the
+  attribute goes on the region, and every control under it stops being a
+  stop.
+
+  The other two doors are unchanged: a negative `tabIndex` is reachable
+  only programmatically, and an element the engine does not render is
+  reachable by nothing — see [[rendered?]]."
   [^js el]
-  (and (not (.-disabled el))
+  (and (not (.matches el ":disabled"))
+       (nil? (.closest el "[inert]"))
        (not (neg? (.-tabIndex el)))
        (rendered? el)))
 
@@ -342,49 +365,57 @@
     with document order inside each bucket.
 
   **It is not the platform's focus algorithm and does not try to be.**
-  Two things the engine skips are still counted here, and they are named
-  rather than half-modelled: an element inside an `inert` subtree, and a
-  control inside a `disabled` `<fieldset>`. Shadow roots,
-  `delegatesFocus` and scrollable-overflow focusability are outside the
-  set entirely.
+  Shadow roots, `delegatesFocus` and scrollable-overflow focusability
+  are outside the set entirely, and a control the engine skips for any
+  reason not listed on [[tab-stop?]] is still counted here.
 
-  Two more used to be on that list and are now filtered, by
-  [[rendered?]] asking `checkVisibility` instead of reading client
-  rects: `visibility:hidden`, and the contents of a closed `<details>`
-  (whose UA `content-visibility:hidden` the bare call already answers).
-  A `content-visibility:hidden` subtree goes with them, which was not on
-  the list at all. All measured.
+  ## The four effective non-stops, and why counting them was a defect
 
-  ## Why one of those four was a defect after all, and why the two left are not
+  Four ways an element can be a candidate this scan finds and a stop the
+  engine never visits were named on this function across two beads:
+  `visibility:hidden`, the contents of a closed `<details>`, an `inert`
+  subtree, and a `disabled` `<fieldset>`. All four are now excluded —
+  the first two by [[rendered?]] asking `checkVisibility` instead of
+  reading client rects, the last two by [[tab-stop?]] asking `:disabled`
+  and `[inert]` — and the argument that kept them is worth keeping too,
+  because it was half right and the half that failed is instructive.
 
   A surplus candidate costs a WRAP THAT DOES NOT FIRE when it cannot
   take focus, and a WRAP THAT LANDS WRONG when it can — and
   [[wrap-tab!]] only takes the default action away once the landing is
-  confirmed, so the first of those degrades to exactly the engine's own
-  conduct. Measured with `.focus()` on each: inert, disabled-fieldset,
-  `visibility:hidden` and closed-`<details>` contents ALL refuse focus,
-  while an unchecked radio in a checked group ACCEPTS it. That is the
-  whole reason the radio group was a wrong landing rather than a missed
-  wrap.
+  confirmed, so the first of those looked like it degraded to exactly
+  the engine's own conduct. Measured with `.focus()` on each: all four
+  refuse focus, while an unchecked radio in a checked group ACCEPTS it.
+  That is the whole reason the radio group was a wrong landing rather
+  than a missed wrap.
 
-  **But a missed wrap is not free at the LAST candidate**, and rf2-5lzq
-  measured the difference the `.focus()` reading could not show. A
-  trailing `visibility:hidden` control — a conditionally-hidden final
-  button, ordinary markup — becomes `peek`, so Tab off the real last
-  control matches no edge, the handler declines, and the engine's own
-  end-of-scope step puts `document.activeElement` on `<body>`: the leak
-  this whole handler exists to close, by a fourth route. `refuses focus`
-  and `costs nothing` are different claims and only the first was ever
-  measured. [[a-real-tab-wraps-past-a-trailing-hidden-control]] holds
-  the second.
+  **But a missed wrap is not free at the LAST candidate.** There the
+  surplus is what `peek` returns, so Tab off the real last control
+  matches no edge, the handler declines, and the engine's own
+  end-of-scope step puts `document.activeElement` on `<body>` — the leak
+  this whole handler exists to close, reached by a fourth route.
+  Shift+Tab off the first stop fails the same way from the other end:
+  the wrap AIMS at the surplus, `.focus()` declines, `preventDefault` is
+  correctly withheld, and withholding it is what lets focus out.
+  `refuses focus` and `costs nothing` are different claims and only the
+  first was ever measured.
 
-  The two still counted keep the old argument, now stated as the
-  narrower thing it is: they cost a missed wrap, and they are left
-  because no measured markup puts either of them LAST in a modal.
-  Whichever does earns the fix rather than a rule written ahead of it —
-  and for the `<fieldset>` the remedy is already measured, `:disabled`
-  as a pseudo-class matching the effective state that the `.disabled`
-  property above does not.
+  rf2-5lzq measured that for `visibility:hidden` and then argued the
+  remaining two were safe because *no measured markup puts either of
+  them LAST in a modal*. **That claim was false, and it was contradicted
+  by evidence the same bead already held.** Both had been appended after
+  a modal's real final control in a raw `<dialog>`, both stayed in the
+  computed vector, and trusted Tab off the real last control reached
+  `<body>`. It is also ordinary markup rather than exotic: a wizard step
+  the user has not arrived at is an `inert` region, and a form section a
+  prior answer has not unlocked is a `disabled` `<fieldset>`, and either
+  is naturally written after the buttons that lead to it. The claim was
+  never a measurement — it was an absence of one — and it is recorded
+  here because the mistake was reasoning about a population from a
+  survey nobody had run.
+  [[a-real-tab-wraps-past-a-trailing-inert-region]] and
+  [[a-real-tab-wraps-past-a-trailing-disabled-fieldset]] are that survey,
+  and they red on the predicate that shipped without it.
 
   A group whose checked member sits OUTSIDE `panel` needs no rule: this
   handler is the modal's alone, so everything outside the panel is
@@ -412,16 +443,22 @@
 
   **The engine confirms the landing before the default action is taken
   away.** `HTMLElement.focus()` on an element that cannot be focused —
-  inert because a nested modal is open above it, or inside a `disabled`
-  `<fieldset>` — is a no-op that leaves `activeElement` where it was, so
-  the move is attempted first and `preventDefault` follows only if it
-  took. A wrap that could not land therefore degrades to exactly the
-  engine's own conduct rather than to a Tab that does nothing.
+  inert because a nested modal is open above it, which carries no
+  attribute for [[tab-stop?]] to read — is a no-op that leaves
+  `activeElement` where it was, so the move is attempted first and
+  `preventDefault` follows only if it took. A wrap that could not land
+  therefore degrades to exactly the engine's own conduct rather than to
+  a Tab that does nothing.
 
-  That confirmation is a floor and not a licence to feed this a loose
-  candidate set: it saves a wrap that lands nowhere, and cannot save one
-  aimed at the wrong CONTROL. [[sequential-tab-stops]] states which
-  candidates are still surplus and why each is affordable.
+  **That confirmation is a floor, and reading it as a licence to feed
+  this a loose candidate set is the mistake this handler made twice.**
+  It saves a wrap aimed at nothing. It cannot save one aimed at the
+  wrong CONTROL — and it cannot save the case where a surplus candidate
+  is never aimed at at all, because the surplus DISPLACED THE EDGE and
+  the press off the real edge matches nothing. The second is the subtler
+  one and cost two beads: the failure happens one step before the
+  landing this confirmation guards, so no amount of care here reaches
+  it. [[sequential-tab-stops]] carries that account.
 
   A press a control inside the panel has already claimed is left alone:
   the native event's `defaultPrevented` is read rather than the synthetic

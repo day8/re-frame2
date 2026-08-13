@@ -187,6 +187,40 @@ none of it ran.* **`:runs` stays 0**: the skip is classified as observed activit
 without being promoted to a run, because making the arithmetic work by
 reclassifying the event would be the same lie one layer down.
 
+#### The operation is classified BEFORE the identity
+
+Sharing a predicate is not enough if a consumer can answer before consulting
+it. The advisor's timing fold tested `(nil? sid)` **first**, so identity loss
+short-circuited the operation question entirely and every untagged `:subs`
+event became a real unnamed RUN — while link 2, which filters on operation
+first, read the same events correctly. The two views therefore still disagreed,
+on exactly the path where identity is absent (audit #8063, reproduced on the
+merge):
+
+| Untagged event | The advisor said | Link 2 said |
+|---|---|---|
+| `:rf.sub/skip` | `:unnamed-runs 1`, `:by-read {}` | `:holds []`, `:skipped {:count 1 :sub-ids []}` |
+| `:rf.sub/dispose` | `:unnamed-runs 1` | no recompute and no skip |
+
+**What an event IS does not depend on whether it carried a tag**, so the tag
+cannot be the outer question. The fold classifies the operation first and
+handles identity loss INSIDE each arm, where it means a different thing in
+each:
+
+| Operation | With an `:rf.sub/id` | Without one |
+|---|---|---|
+| `:rf.sub/run` / `:rf.sub/create` | priced on `[frame-id sub-id]` | `:unnamed-runs` — uncorrelated WORK |
+| `:rf.sub/skip` | `:memo-hits` on that read edge | `:unnamed-skips` — an uncorrelated OBSERVATION |
+| `:rf.sub/dispose` | dropped: an eviction is not work | dropped, for the same reason |
+
+`:unnamed-skips` is a second window-level field rather than a second number
+inside `:unnamed-runs`, and it carries its own `:unnamed-skip-loss`
+`:uncorrelated` account. A reader deciding what to do next needs to know
+whether the untagged half of a window was work or the ABSENCE of work, which is
+exactly the distinction the old ordering collapsed — and it is link 2's
+`:skipped {:count …}` over an empty `:sub-ids`, stated on the advisor's side of
+the same window.
+
 Three thresholds, each with its reason attached rather than a taste:
 
 | Constant | Value | Why |
@@ -361,7 +395,7 @@ bead: no new sentinel, no new evidence machinery, and no code under
 |---|---|---|
 | `…panels.hicasso-advisor-cljs-test` | node + JVM | the timing fold (untimed ≠ zero; a memo hit is not work; an unnamed run is `:uncorrelated`, never dropped; the per-frame scope); the top-3 against a HAND profile whose frequency order deliberately inverts its time order; the fallback axis says `NOT by time`; the five classifications, each driven from a real window; `:cap` and `:host-opaque` are two remedies in two sentences; **the native refusal as a property over the classifier's whole output**, with the ladder's non-vacuity control beside it; the refusal names a non-Xray authority per candidate |
 | `…panels.hicasso-causal-cljs-test` | node (reactive substrate) | the seven links on a REAL interaction through the real commit seam and the real router; links 1–4 evidenced and 5–7 host-opaque with three distinct authorities; the 2→3 join `:uncorrelated` while the 1→2 join is `:evidenced`; **four mutation rows, each with its positive control**; the loss chips reach the page under distinct testids and change between two genuinely different window states; the advisor answers on the running app and still refuses the ladder; advice and slice come from ONE turn |
-| `…panels.hicasso-skip-semantics-cljs-test` | node + JVM | **both public results, off ONE window** — a skip-only window is `:memo-hits-only` / `:host-opaque` with `:runs` 0, routed to measure-first and never to the retention knob, while the same window's slice holds `[]` recomputes and one `:skipped`; a bundle carrying all four `:rf.sub` operations gives the advisor's recompute COUNT and the slice's recompute ROSTER the same reading; the three unattributed states are pairwise distinct and exactly one names `:rf.trace/events-retained`; an untagged RUN beside a tagged skip still degrades to `:unknown` with a `:dropped` of 1 |
+| `…panels.hicasso-skip-semantics-cljs-test` | node + JVM | **both public results, off ONE window** — a skip-only window is `:memo-hits-only` / `:host-opaque` with `:runs` 0, routed to measure-first and never to the retention knob, while the same window's slice holds `[]` recomputes and one `:skipped`; a bundle carrying all four `:rf.sub` operations gives the advisor's recompute COUNT and the slice's recompute ROSTER the same reading; the three unattributed states are pairwise distinct and exactly one names `:rf.trace/events-retained`; an untagged RUN beside a tagged skip still degrades to `:unknown` with a `:dropped` of 1; **and the four-operation matrix** — every `:rf.sub` operation with an `:rf.sub/id` and without one, each cell asserted against what the operation IS *and* against link 2's reading of the same event |
 
 The pair-in-one-row shape of the third suite is the point: an advisor-only row
 would go green against a causal slice that had drifted back, and a causal-only
@@ -369,6 +403,21 @@ row against an advisor that had. Its red demonstration is the pre-repair
 predicate planted in both places — 17 failures across six of its rows, naming
 `:cap` where the window held evidence and a five-element roster where two
 recomputes ran.
+
+The matrix is the second control, and it exists because the first one **covered
+the adjacent case rather than the failing one**: an untagged RUN beside a tagged
+skip, which the pre-repair ordering happened to get right, while untagged
+non-work was what it got wrong. A table over four operations by tagged/untagged
+cannot leave a cell to nobody's row. Both assertions per cell are load-bearing —
+the absolute expectation alone is escapable by two views drifting together, and
+the cross-view agreement alone by both drifting the same way — and the untagged
+run and create rows are the controls that stop the table being satisfied by
+*everything untagged is zero*. Its red demonstration is the `(nil? sid)` branch
+restored to the head of the `cond`: **11 failures at exit 1**, four of them the
+matrix's two untagged non-work cells, over the same 1320 tests and 6246
+assertions the green run reports — so the plant stopped no namespace. Every
+pre-existing row in the suite stayed GREEN under that plant, which is the
+finding restated as a measurement.
 
 All three suites run in the existing `:node-test` build (`tools/xray/test` is
 already on its source paths) and the two `.cljc` ones additionally under

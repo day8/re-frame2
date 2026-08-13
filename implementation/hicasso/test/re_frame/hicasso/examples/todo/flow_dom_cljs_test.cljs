@@ -29,9 +29,10 @@
   an empty `flushSync` and cannot help: nothing is scheduled in React
   yet. Nothing at either call site says which of the two a click is.
 
-  So [[drained]] waits on the CONDITION —
-  `re-frame.test-support/poll-until`, the supported condition-poll,
-  which composes with `cljs.test/async`. There is no virtual clock here
+  So `hm/settle-until!` waits on the CONDITION — the facade's own door
+  for the enqueued kind, a bounded `re-frame.test-support/poll-until`
+  with the flush this file used to pair by hand, and it composes with
+  `cljs.test/async` the same way. There is no virtual clock here
   and there cannot be: `{:clock true}` replaces the global `setTimeout`
   that the poll's own interval uses, and firing a timer would not drain
   a router task anyway. That is finding 7, met from a second
@@ -158,20 +159,6 @@
 
 (defn- read-sub [m query-v] (rf/subscribe-once query-v {:frame (:frame m)}))
 
-(defn- drained
-  "Wait for `pred` to hold, then flush React and answer a promise of the
-  handle — the ROUTER-DRAIN counterpart of `hm/settle!`, for the one
-  place a click leaves work merely enqueued (see the namespace docstring
-  §TWO CLICKS).
-
-  A bounded condition poll rather than a sleep: it returns as soon as
-  the navigation lands, and fails at a deadline with
-  `:rf.error/poll-until-timeout` naming the label rather than hanging
-  the run."
-  [m pred label]
-  (-> (test-support/poll-until pred {:label label})
-      (.then (fn [_] (hm/settle! m)))))
-
 (defn- follow-filter!
   "Click the filter tab labelled `label` and wait for the router to
   deliver the navigation."
@@ -180,9 +167,9 @@
                 (nodes m ".filters a"))]
     (is (some? a) (str "there is a tab labelled " (pr-str label)))
     (.click a)
-    (drained m
-             #(= expected-filter (read-sub m [::subs/showing]))
-             (str "the " label " filter to land"))))
+    (hm/settle-until! m
+                      #(= expected-filter (read-sub m [::subs/showing]))
+                      {:label (str "the " label " filter to land")})))
 
 (defn- mount-app!
   "The whole application, on its own root and its own frame, seeded and

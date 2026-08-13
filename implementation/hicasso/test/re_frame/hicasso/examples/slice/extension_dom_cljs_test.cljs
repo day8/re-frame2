@@ -12,8 +12,8 @@
   edit flow, and the two conventions it established are kept here
   unchanged — a Hicasso intent dispatches synchronously so `hm/settle!`
   is all a click owes, while a ROUTE-LINK and an async reply both leave
-  work merely enqueued and are waited on with
-  `re-frame.test-support/poll-until`.
+  work merely enqueued and are waited on with `hm/settle-until!`, the
+  facade's door for that kind.
 
   ## What the keyed-identity rows can and cannot claim
 
@@ -88,14 +88,6 @@
   (hm/settle! m))
 
 (defn- read-sub [m query-v] (rf/subscribe-once query-v {:frame (:frame m)}))
-
-(defn- drained
-  "Wait for `pred`, then flush React — the ROUTER-DRAIN counterpart of
-  `hm/settle!`, for the two places a click leaves work merely enqueued: a
-  route-link's navigate, and an async reply."
-  [m pred label]
-  (-> (test-support/poll-until pred {:label label})
-      (.then (fn [_] (hm/settle! m)))))
 
 (defn- at-page!
   "The whole application, mounted on the feed. `n` is the `?page=` the
@@ -176,9 +168,9 @@
         ;; own `activate-link!` deciding. Nothing here calls preventDefault
         ;; — if the click were not claimed, this page would navigate away.
         (.click (node m ".pager-next"))
-        (-> (drained m
-                     #(= 2 (:page (read-sub m [:rf.route/query])))
-                     "the page link's navigate to drain")
+        (-> (hm/settle-until! m
+                              #(= 2 (:page (read-sub m [:rf.route/query])))
+                              {:label "the page link's navigate to drain"})
             (.then (fn [_]
                      (is (= ["Keys are domain ids" "Boundaries are components"
                              "Revision is a counter"]
@@ -363,9 +355,9 @@
           (is (true? (.-disabled (node m ".digest-retry")))
               "so a second click cannot queue a second request"))
 
-        (-> (drained m
-                     #(= db/digest (read-sub m [::subs/digest-blocks]))
-                     "the stand-in content server's reply")
+        (-> (hm/settle-until! m
+                              #(= db/digest (read-sub m [::subs/digest-blocks]))
+                              {:label "the stand-in content server's reply"})
             (.then
               (fn [_]
                 (is (nil? (node m ".digest-error"))

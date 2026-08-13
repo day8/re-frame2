@@ -44,7 +44,7 @@ Bulk is gated on the Reagent pair only, unresolved and instrument-limited. Heap 
 | Warm allocation | No fitted series clears the instrument's quality floor — no claim publishable yet |
 | Teardown | Zero retained bytes and objects on the pinned heap arms — the proven invariant |
 | Interpreter walk | Faster than stock Reagent — interpretation itself is solved |
-| Controlled input | Strong in Chromium; WebKit matrix open (K4) |
+| Controlled input | Strong in Chromium; the WebKit half of the matrix is no longer open (K4). Controlled text is verified on all three engines, and the native-IME cells read **Green** — by operator ruling of 2026-08-13 (`rf2-hic-016`) |
 | SSR | Core per-surface server/hydration contract owed; the Node spike is proven on its fixtures; the deployable service is **v0 scope** — the *"waits for its named caller"* gate this row carried is removed (amended 2026-08-12 by operator ruling, Mike in session 17:36 AUSEST, `rf2-xpq9`). **Amended again 2026-08-13 (`rf2-k6bv`)**: `rf2-hic-056` shipped — PR #8028 landed the bounded Node/React service at `implementation/ssr-node/`, so this row's *"not yet built"* no longer holds. What is still unbuilt is the JVM half of the crossing: the `ssr-ring` render seam at `build-full-response*`, the per-application state projector with its negative fixture, and the end-to-end `JVM → Node → JVM` topology witness; nothing is deployed, and no caller is wired |
 | Correctness isolation | Eleven-risk register open — eight kernel rows plus three native-tier rows; the blocker class |
 

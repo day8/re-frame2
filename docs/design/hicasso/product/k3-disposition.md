@@ -1,10 +1,11 @@
 # The K3 disposition — three scoreboards, no substitution
 
-> **Status: OPERATIVE by default, operator-overturnable.** This is the explicit
+> **Status: OPERATIVE by ruling — RATIFIED 2026-08-13, operator-reversible.**
+> This is the explicit
 > per-read K3 record [`budgets.md`](budgets.md) and the
 > [decision brief](decision-brief.md) both name and neither takes. It discharges
 > `rf2-hic-070`. The **decider is Mike Thompson, acting as re-frame2 product
-> operator**; `rf2-hic-085` records what that decider rules and fills the
+> operator**; `rf2-hic-085` records what that decider rules and has filled the
 > effective-revision field in [§9](#9-the-record). It follows the rule
 > `rf2-hic-003` set for the sibling records: the drafted disposition is operative
 > now so that nothing depends on tracker-only state, and the decider's ruling
@@ -19,9 +20,23 @@
 > [validation.md](../validation.md#the-kill-table-at-graduation--the-p2-ruling-of-2026-08-13),
 > where K3's *disposition owed explicitly* is discharged by this page). **No
 > figure, scoreboard, verdict or rule below moves**, and the §9
-> effective-revision field stays unfilled: a re-pin is a ruling on K3, the
-> ruling of 2026-08-13 did not give one, and it is now owed by an operator
-> ruling rather than by a meeting on the calendar.
+> effective-revision field stayed unfilled through that ruling: a re-pin is a
+> ruling on K3, and the graduation ruling did not give one.
+>
+> **The K3 ruling was then given separately, on the same day.** Recorded on
+> `rf2-hic-085` under operator-authorised delegation for the decider and
+> **reversible by the operator on sight**: this record is **RATIFIED AS
+> DRAFTED**. K3's per-read axis is **accepted as a recorded miss** per
+> [§7](#7-the-disposition); the three scoreboards stand separately labelled;
+> and no figure, threshold, verdict or rule moves. The ruling does **not** mark
+> K3 green, does **not** widen the `943 B/read` line, and does **not** permit
+> one scoreboard to substitute for another. The governed row is **`a-ii`**, the
+> [§3](#3-scoreboard-a--governed-viability-against-the-best-shipped-path)
+> default confirmed rather than displaced. [§9](#9-the-record) now carries the
+> effective revision, [§8](#8-the-10-same-witness-per-read-regression-rule)'s
+> forward rule runs from the `2,115` baseline with its enforcement home
+> `rf2-hic-071`, and [§10](#10-reopen-and-revert)'s reopen and revert
+> conditions are unchanged and live.
 
 K3 asks one question — *is per-boundary heap worse than Reagent with no paper
 path to the floor?* — and the per-read half of it is answered by three different
@@ -174,6 +189,13 @@ reopen target. The operator may instead rule that the governed row stays `a-i`
 configuration — in which case only which of the two numbers is quoted as *the*
 K3 miss changes; **neither ruling turns the row green**, and both are recorded
 above so that the choice is visible rather than embedded.
+
+**Ruled on 2026-08-13: the governed row is `a-ii`** — this section's default
+confirmed rather than displaced (`rf2-hic-085`, under operator-authorised
+delegation; operator-reversible). It is a ruling about the selected shipping
+configuration, not a claim that today's checkout already installs that adapter.
+`a-i` stays what it was: the design-cost decomposition and the reopen target,
+never the shipped-product baseline. The row is not turned green by being ruled.
 
 ### What this scoreboard may not be used for
 
@@ -376,7 +398,7 @@ The fields any governance change owes under the
 | Regression rule | The 10% same-witness per-read rule, made executable in [§8](#8-the-10-same-witness-per-read-regression-rule) |
 | Decider | Mike Thompson, acting as re-frame2 product operator |
 | Evidence owner | [`budgets.md`](budgets.md) for S1–S7, [`lanes/evidence-baseline.md`](lanes/evidence-baseline.md#pinned-economic-evidence) for the pinned values, [`substrate-decision.md`](substrate-decision.md) for which column ships |
-| Effective revision | *(left blank — `rf2-hic-085` fills it. The sitting it was to be filled at was pre-empted on 2026-08-13, so it now awaits an operator ruling on K3 rather than a date; see the status note at the top)* |
+| Effective revision | **This ruling of 2026-08-13** — recorded on `rf2-hic-085` under operator-authorised delegation and reversible by the operator on sight — **effective from that date**. The carrying commit is `2fd1316442`, back-filled afterwards by `rf2-i7v0` under the `rf2-mcwm` rule, because no commit can contain its own hash; a back-fill is not an amendment and does not re-freeze this record ([the sibling precedent](resource-demand-criteria.md#amendment-rule)). The ruling in full is in the status note at the top; it ratifies this record as drafted and moves no figure, threshold, verdict or rule |
 | Reopen conditions | [§10](#10-reopen-and-revert) |
 | Revert condition | [§10](#10-reopen-and-revert) |
 

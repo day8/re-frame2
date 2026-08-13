@@ -49,7 +49,9 @@ The order is what makes it accurate. Each step is a check the next depends on.
 
 ## The three sentences that do the most work
 
-Put all three in every editing brief.
+The first two go in **every** editing brief. The third goes in every brief whose
+deliverable includes a control — a gate, a guard, a checker, a test that proves a
+property.
 
 > **This brief's premises are CLAIMS, not findings.** Check each at source before
 > acting on it. A verified "already fixed" or "the premise does not hold" is a
@@ -68,6 +70,24 @@ sibling item; one that named the wrong audit finding; one told to execute a reso
 that had already merged; one that a scope correction had redefined from an allocation
 leak to a baseline-contamination leak; and one carrying three wrong path, flag and
 script details. **Every one of those briefs was accurate when it was written.**
+
+**The third is scoped because a prose-only brief cannot satisfy it.** A comment
+truth-up, a documentation correction, a governance-record edit: none of them has a
+property to remove, so none of them has a control to show red. Sent anyway, the
+sentence is exactly the unsatisfiable quantifier the method-reread loop is told to hunt
+for, and an unsatisfiable rule does not stop the reader — it makes one up. That was
+measured on the *enforcing* side rather than a worker's: on one dispatch tick four
+editing briefs went out, two of them prose-only, and both carried the first two
+sentences verbatim while neither carried the third. Nobody decided to drop it. Each
+brief improvised the same omission separately, which is the tell that the rule was
+doing no work.
+
+**Say what a brief with no control does instead, or that gets improvised too.** The
+wording is already settled under *Quality gates — which gate* below: the honest brief
+states that no automated gate covers the surface, and the worker verifies it by hand
+and reports what it checked and the counts in the change body. Point at it rather than
+restating it. Naming the alternative is what keeps the scoping from reading as
+permission to prove nothing.
 
 ---
 

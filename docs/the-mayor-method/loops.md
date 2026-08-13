@@ -26,6 +26,10 @@ including yours after a refactor.
 Some people prefer merge and dispatch as separate loops. One loop is simpler and
 has a real advantage: a merge frees a worker slot, and the same tick refills it.
 
+**Five loops, six bodies.** Merge and dispatch share one tick, but each is long
+enough to want a heading of its own, so they are written separately below. The
+numbering follows the bodies; the cadence follows the table.
+
 **Loops fire on time, not on state.** Several ticks legitimately have nothing to
 do. *"Nothing to merge, fleet saturated, here is why"* is a complete report. A
 loop that manufactures work to look busy is worse than a quiet one.
@@ -96,9 +100,25 @@ push that broke it. One gate here was skipped on the breaking commit and on ever
 after, while the trunk's rollup read green throughout; it surfaced only when a change
 happened to touch a surface that armed it. So when a change reds a gate the trunk is
 green on, **check whether that job actually ran on the trunk** before concluding the
-change caused it. If it did not, the defect is the trunk's and the fix belongs on a new
-branch off it — the reflex prescribes a fix worker onto the red change's branch, which
-puts a workaround on an innocent one.
+change caused it.
+
+**If it did not, what you have is uncertainty, not a verdict.** The reflex — this change
+reds it, so this change broke it — dispatches a fix worker onto that change's branch and
+puts a workaround on a possibly innocent one. But the correction is not the opposite
+reflex. A job that never ran on the trunk is silent about *both* sides: it is no evidence
+the trunk is broken, and none that the change is clean. The red change may perfectly well
+have introduced the failure itself. Only running the gate settles it. Reproduce the actual
+failing check on a clean checkout of the change's base, or set up an equivalent controlled
+comparison. If it fails there, the defect is the trunk's and the fix belongs on a new branch
+off it; if it passes, the change owns the failure and the fix belongs on the change's own
+branch.
+
+**A right answer reached by the refuted inference is still a defect**, because the
+inference is what you carry to the next case. One mayor here called a red change innocent
+on the bare ground that its failing gate is skipped on trunk pushes, and dispatched no fix
+worker on that basis; it reproduced the gate nowhere. A sibling landed shortly after, the
+failure cleared, and the call now reads correct in the record. The outcome did not validate
+the reasoning — and nothing left in the record tells the two apart.
 
 ### Clause 3 — require the terminal state, do not enumerate the bad ones
 
@@ -269,9 +289,10 @@ routed item is exactly the kind a worker may reasonably decline.
 ### When a change is not green
 
 A real, repeated failure on the touched surface is not a flake and is never an override
-candidate. Once you have established the failure is the change's own and not the trunk's,
-dispatch a fix worker onto the **existing** branch that runs the **actual** failing gate,
-not a proxy that already passed.
+candidate. Once you have established the failure is the change's own and not the trunk's
+— clause 2 above says what establishes it, and a gate that never ran on the trunk does
+not — dispatch a fix worker onto the **existing** branch that runs the **actual** failing
+gate, not a proxy that already passed.
 
 ---
 
@@ -378,7 +399,56 @@ needs the operator, and do not manufacture work.
 
 ---
 
-## 3. Posture, and the stranded sweep
+## 3. Backlog reread
+
+**Dispatch reads the ready list; this loop reads everything else.** A ready list is a
+projection. It answers *what could go out right now*, and by construction it omits held
+items, blocked items and items a live worker already holds. Those are the ones that fail
+quietly: a dispatchable item that goes wrong is caught on the next tick, because the tick
+is looking straight at it, while a held item that should have been released is caught by
+nobody, because nothing in the short loop reads it again.
+
+So on a medium cadence, read **all** open items from the raw list — not a saved filter, not
+the ready view, not what you remember filing. Read each one bottom-up, newest note first;
+*Dispatch* above explains why.
+
+Four things surface here and nowhere else.
+
+**A fence that has cleared.** The dispatch tick records the fence on the item and moves on,
+and nothing removes it when the condition is met. An item sequenced behind another's merge
+becomes dispatchable the moment that change lands, and the tracker does not notice: the
+short tick keeps skipping it because it is still not *ready*, and the note is the only
+record that anything is being waited on at all. Re-testing those conditions is this loop's
+most productive minute — **recording a fence is worth nothing without the loop that reads
+it back.**
+
+**A dependency that has outlived what it was enforcing.** The item is still blocked, the
+thing it was waiting for shipped, and only a full read notices. The remedy, and why it
+needs its reasoning written onto the item, is under *Tracker mechanics* below.
+
+**A closure that reverted.** Verifying at the moment you close is not enough, so re-check
+what this session closed. **But read the item's notes before re-closing anything.** On a
+project that audits its merged changes, most reappearances are the audit working rather
+than a lost write, and re-closing one destroys a real finding while looking like tidiness.
+
+**A hold that is costing more than it is holding.** Separate *needs a decision* from *needs
+work under a decision already made* — the second is dispatchable now, and it tends to sit in
+the first pile. For the ones that genuinely need the operator, record what the hold is
+costing: which items are behind it, and what stops if it stays. A hold with no cost written
+on it reads as free, and the cheapest-looking item in a list is the one that stays there
+longest.
+
+In-progress items are read here too, but their liveness question belongs to the stranded
+sweep in the next loop. Read them for scope and for fences; leave *is this worker still
+alive?* to the loop that owns it.
+
+**Most passes find nothing, and a pass that finds nothing is complete.** What is not
+complete is a pass that reports nothing without having read the raw list. Inferring the
+backlog from the ready view is the exact failure this loop exists to go behind.
+
+---
+
+## 4. Posture, and the stranded sweep
 
 ### Posture
 
@@ -418,15 +488,25 @@ Look for items marked in-progress. If no live worker holds one, it may be strand
 **Discriminate before acting** — a long-running worker and a stranded one look identical from
 outside, and both readings went wrong in a single day here, in opposite directions.
 
-1. **Has the commit count on that item's branch moved since the last tick?** A moved count
-   says alive. This is the cheap, reliable discriminator, and it works precisely because every
-   brief demands commit-and-push-as-you-go. An unmoved count says *nothing* on its own.
+1. **Has the *tip revision* on that item's branch changed since the last tick?** Record the
+   revision id, not a count of changes — **a count survives a rebase unchanged**, and rebasing
+   onto a moved trunk is what a briefed worker does constantly, so a count fails on the common
+   case rather than an edge one. The timestamps split the same way: a rebase replays the
+   *authored* time and rewrites only the *committed* one, so two honest readers can call one
+   change forty-three minutes old and seventy-five seconds old and neither be misreading.
+   Reading the count and the authored time together, a healthy worker here was called unchanged
+   for two consecutive ticks — it had rebased two minutes before the second read and had
+   committed all of its assigned work. A changed id says alive everywhere a count does, plus
+   that case; an unchanged id still says *nothing* on its own, which is what saved that worker,
+   because the next step is to ask rather than to reap. **Ask the remote for the tip** rather
+   than refreshing first and reading what the refresh left behind — the shared fetch-head trap
+   under *After each merge* is on this read path too, and there it is silent.
 2. **Is there a live task to message?** Try messaging first — resuming beats redispatching,
    because the worker's context is still there. **The commonest strand by far is a worker that
    detached a long gate and then ended its turn**, waiting for a completion event that nothing
    sends. Seven such incidents happened in one day; every one recovered intact the moment
    somebody asked for a status.
-3. **Only when there is no live task and no commit movement:** push any existing commits on the
+3. **Only when there is no live task and no movement in the tip:** push any existing commits on the
    branch — pure durability — then set the item back to open with a note saying what was found
    and what was salvaged, and redispatch.
 
@@ -435,7 +515,7 @@ it forms a coherent change.
 
 ---
 
-## 4. Hygiene
+## 5. Hygiene
 
 ### Reaping
 
@@ -565,7 +645,7 @@ inventing another proxy.** A stale directory is cheap. A destroyed run is not.
 
 ---
 
-## 5. Method reread
+## 6. Method reread
 
 **This loop earns its place, but not by re-reading.** Re-reading unchanged files spends context for
 nothing.

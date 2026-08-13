@@ -164,7 +164,23 @@
   a fold that treated a missing tag as zero would report a subscription
   it never timed as instantaneous — the loudest possible version of the
   `unknown is never zero` mistake, because the reader would then rank
-  it last."
+  it last.
+
+  **The OPERATION is classified before the identity, and that ordering is
+  the whole correctness of this fold** (rf2-hic-037, merged-PR audit
+  #8063). It was inverted: `(nil? sid)` was the first branch, so it ran
+  ahead of `hh/sub-recompute?` and every untagged `:subs` event became an
+  unnamed RUN — an untagged `:rf.sub/skip` and an untagged
+  `:rf.sub/dispose` alike were reported as work that happened, while
+  `hicasso-causal`'s link 2 (which filters on operation first) reported
+  no recompute for the same window. One event, two public answers, and
+  the shared predicate was bypassed on exactly the path where identity is
+  absent. What an event IS does not depend on whether it carried a tag,
+  so the tag cannot be the outer question. Identity loss is handled
+  INSIDE each operation arm, where it means something different in each:
+  a run that joins to nothing is uncorrelated WORK, a skip that joins to
+  nothing is an uncorrelated OBSERVATION, and an eviction is neither
+  either way."
   [acc frame-id bundle]
   (let [did (:dispatch-id bundle)]
     (reduce
@@ -172,26 +188,37 @@
         (let [sid (get-in ev [:tags :rf.sub/id])
               k   [frame-id sid]]
           (cond
-            ;; A sub event with no registration id is a real run that
-            ;; joins to no subscription. It is counted at the window level
-            ;; (below) rather than dropped, because dropping it would let
-            ;; an untagged stream read as an idle one.
-            (nil? sid)      (update m ::unnamed-runs (fnil inc 0))
-
+            ;; RUN / CREATE — the body ran.
             (hh/sub-recompute? ev)
-            (let [ms (get-in ev [:tags :rf.sub/elapsed-ms])]
-              (-> m
-                  (update-in [k :runs] (fnil inc 0))
-                  (update-in [k :dispatch-ids] (fnil conj #{}) did)
-                  (cond->
-                    (number? ms) (-> (update-in [k :elapsed-ms] (fnil + 0.0) ms)
-                                     (update-in [k :timed-runs] (fnil inc 0))
-                                     (update-in [k :max-ms] (fnil max 0.0) ms))
-                    (not (number? ms)) (update-in [k :untimed-runs] (fnil inc 0)))))
+            (if (nil? sid)
+              ;; Work with no registration id joins to no subscription. It
+              ;; is counted at the window level (below) rather than
+              ;; dropped, because dropping it would let an untagged stream
+              ;; read as an idle one. ONLY this arm may increment it.
+              (update m ::unnamed-runs (fnil inc 0))
+              (let [ms (get-in ev [:tags :rf.sub/elapsed-ms])]
+                (-> m
+                    (update-in [k :runs] (fnil inc 0))
+                    (update-in [k :dispatch-ids] (fnil conj #{}) did)
+                    (cond->
+                      (number? ms) (-> (update-in [k :elapsed-ms] (fnil + 0.0) ms)
+                                       (update-in [k :timed-runs] (fnil inc 0))
+                                       (update-in [k :max-ms] (fnil max 0.0) ms))
+                      (not (number? ms)) (update-in [k :untimed-runs] (fnil inc 0))))))
 
+            ;; SKIP — a memo hit, whether or not it named the cell it hit.
+            ;; An untagged one is still a skip: the cell was considered and
+            ;; the memo held, and the only thing missing is which cell.
             (hh/sub-skip? ev)
-            (update-in m [k :memo-hits] (fnil inc 0))
+            (if (nil? sid)
+              (update m ::unnamed-skips (fnil inc 0))
+              (update-in m [k :memo-hits] (fnil inc 0)))
 
+            ;; `:rf.sub/dispose`, and any operation the vocabulary grows
+            ;; later: an eviction is neither work nor a memo hit, tagged or
+            ;; untagged, and a producer that adds a fifth operation must be
+            ;; a decision in `hh/sub-recompute-operations` rather than a
+            ;; silent reclassification here.
             :else m)))
       acc
       (:subs bundle))))
@@ -206,7 +233,8 @@
       ;;     :loss {:reason :cap :dropped :unknown}
       ;;     :by-read {[:app/main :todo] {:runs 4 :timed-runs 4 :untimed-runs 0
       ;;                                  :elapsed-ms 6.4 :max-ms 2.1
-      ;;                                  :memo-hits 9 :dispatch-ids #{41 42 43 44}}}}
+      ;;                                  :memo-hits 9 :dispatch-ids #{41 42 43 44}}}
+      ;;     :unnamed-runs 0 :unnamed-skips 0}
 
   `windows` is `{frame-id [event-bundle …]}` exactly as
   `re-frame.trace.tooling/trace-buffer` answers it, one entry per frame.
@@ -228,7 +256,8 @@
                           {}
                           frames)
         unnamed   (get folded ::unnamed-runs 0)
-        by-read   (dissoc folded ::unnamed-runs)
+        unnamed-sk (get folded ::unnamed-skips 0)
+        by-read   (dissoc folded ::unnamed-runs ::unnamed-skips)
         retained  (reduce + 0 (map (comp count val) windows))]
     {:schema        timing-schema
      :producer      timing-producer
@@ -243,7 +272,19 @@
      ;; than folded away so an untagged stream cannot read as an idle one.
      :unnamed-runs  unnamed
      :unnamed-loss  (when (pos? unnamed)
-                      {:reason :uncorrelated :dropped unnamed})}))
+                      {:reason :uncorrelated :dropped unnamed})
+     ;; And its counterpart, which used to be counted as a run. A skip
+     ;; whose tag is absent is uncorrelated in the SAME way and a
+     ;; different fact: the memo held and the cell it held for is what
+     ;; joins to nothing. It is a second field rather than a second number
+     ;; in the first, because a reader deciding what to do next needs to
+     ;; know whether the untagged half of this window was work or was the
+     ;; absence of work — which is the very distinction the fold above
+     ;; collapsed (audit #8063). `hicasso-causal`'s link 2 states the same
+     ;; pair as a `:skipped :count` its `:sub-ids` cannot account for.
+     :unnamed-skips unnamed-sk
+     :unnamed-skip-loss (when (pos? unnamed-sk)
+                          {:reason :uncorrelated :dropped unnamed-sk})}))
 
 ;; ---------------------------------------------------------------------------
 ;; The join — a boundary's read edges, priced

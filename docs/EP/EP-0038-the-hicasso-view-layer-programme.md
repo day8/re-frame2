@@ -394,8 +394,9 @@ that list states what is open *now*.
 - **What the ruling does not decide, stated so it is not over-read.** K2's `1.5×`
   architecture kill is **not waived** and measurement continues under its own
   protocol; K3's owed disposition is discharged by its own record, not by this
-  ruling; K4's WebKit half of the control matrix is **open and unwitnessed**, an
-  evidence limitation the ruling accepts rather than closes; and K6 stands with
+  ruling; K4's WebKit half of the control matrix is **no longer open**, having
+  been discharged by the operator's separate ruling of 2026-08-13
+  (`rf2-hic-016`) rather than by this one; and K6 stands with
   its bans on a compiler, an analyzer and a dual mode — the K1 line is *priced,
   not met by a compiler*, so nothing here reads as licence to build one. The
   non-kill rows are unchanged too. Dispositions row by row in `validation.md`.

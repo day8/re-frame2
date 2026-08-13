@@ -239,7 +239,15 @@
   ;; event + sub family the Sim rail consumes.
   (sim/install!)
   ;; Hydrate from localStorage. The persistence ns guards storage
-  ;; availability internally so the JVM test path is a no-op.
+  ;; availability internally so the JVM test path is a no-op, and guards
+  ;; on the shell frame being registered so this orchestrator-time call
+  ;; short-circuits cleanly when it isn't (rf2-qw0o). On the production
+  ;; path it isn't: `register-xray-handlers!` runs well before
+  ;; `mount/ensure-xray-frame!`, whose `::hydrate-static-machines`
+  ;; first-mount hook is the call that actually lands the restore. This
+  ;; call stays for the paths where the frame ALREADY exists when the
+  ;; handlers (re-)register — a shadow-cljs `:after-load`, or a test
+  ;; installing handlers against a live frame.
   (persistence/hydrate!)
   ;; Register the Static Machines tab with the internal L4 tab registry.
   (panel-registry/reg-l4-tab!
