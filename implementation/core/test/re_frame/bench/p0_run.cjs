@@ -2546,6 +2546,11 @@ module.exports = {
   ALLOC_PLAN,
   ALLOC_PLAN_SHAPE,
   allocPlanArms,
+  // The row's own table reader, so the pin can DRIVE a narrowed plan through
+  // it. A mode that collects V3's controls and then throws in the summariser
+  // has not delivered V3, and "the mode is defined" and "the mode runs" are
+  // different claims.
+  summariseAlloc,
 };
 
 if (require.main === module) (async () => {
