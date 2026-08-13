@@ -105,7 +105,14 @@
 (defn analyse
   "Walk the pristine tree, planning every site and stamping each entry
   with the file, line, column and source form. Returns
-  `{:entries [...] :suggestions [...] :sites n :left-alone n}`."
+  `{:entries [...] :suggestions [...] :sites n :left-alone n}`.
+
+  **Crossing SITES, so inert subtrees are pruned rather than walked**
+  (rf2-xc11). A `#_`, a quote and a `(comment …)` body each parse into the
+  nodes a live crossing does, and nothing in any of them crosses into
+  React. The `nil` guard below is not defensive: [[rewrite/past-subtree]]
+  answers `nil` for an inert form that ends the file, and `z/end?` alone
+  would fault on it."
   [source {:keys [file] :as ctx}]
   (loop [loc      (z/of-string source {:track-position? true})
          entries  []
@@ -114,35 +121,37 @@
          calls    {}          ; symbol -> [line …], the same-file call sites
          sites    0
          quiet    0]
-    (if (z/end? loc)
+    (if (or (nil? loc) (z/end? loc))
       {:entries    (into entries (map #(adapt-def-entry % calls)) defs)
        :suggestions suggests
        :sites      sites
        :left-alone quiet}
-      (let [nd         (z/node loc)
-            [line col] (z/position loc)
-            form       (fn [] (let [s (z/string loc)]
-                                (if (> (count s) 200) (str (subs s 0 200) " …") s)))
-            kind       (rw/site-kind nd ctx)
-            calls      (if-let [s (hiccup-head-symbol nd)]
-                         (update calls s (fnil conj []) line)
-                         calls)
-            defs       (if (adapt-def? nd ctx)
-                         (conj defs {:sym  (rw/sexpr-safe (rw/element-at nd 1))
-                                     :line line :col col :form (form) :file file})
-                         defs)]
-        (if-not kind
-          (recur (z/next loc) entries suggests defs calls sites quiet)
-          (let [plan (rw/plan-site nd (assoc ctx :meta-keys (meta-keys-above loc)))
-                es   (mapv #(assoc % :file file :line line :col col
-                                   :form (form) :head (:head plan))
-                           (:entries plan))]
-            (recur (z/next loc)
-                   (into entries es)
-                   (cond-> suggests (:suggest plan) (conj (:suggest plan)))
-                   defs calls
-                   (inc sites)
-                   (cond-> quiet (empty? es) inc))))))))
+      (if (rw/inert? (z/node loc))
+        (recur (rw/past-subtree loc) entries suggests defs calls sites quiet)
+        (let [nd         (z/node loc)
+              [line col] (z/position loc)
+              form       (fn [] (let [s (z/string loc)]
+                                  (if (> (count s) 200) (str (subs s 0 200) " …") s)))
+              kind       (rw/site-kind nd ctx)
+              calls      (if-let [s (hiccup-head-symbol nd)]
+                           (update calls s (fnil conj []) line)
+                           calls)
+              defs       (if (adapt-def? nd ctx)
+                           (conj defs {:sym  (rw/sexpr-safe (rw/element-at nd 1))
+                                       :line line :col col :form (form) :file file})
+                           defs)]
+          (if-not kind
+            (recur (z/next loc) entries suggests defs calls sites quiet)
+            (let [plan (rw/plan-site nd (assoc ctx :meta-keys (meta-keys-above loc)))
+                  es   (mapv #(assoc % :file file :line line :col col
+                                     :form (form) :head (:head plan))
+                             (:entries plan))]
+              (recur (z/next loc)
+                     (into entries es)
+                     (cond-> suggests (:suggest plan) (conj (:suggest plan)))
+                     defs calls
+                     (inc sites)
+                     (cond-> quiet (empty? es) inc)))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Pass 2 — transform
@@ -159,9 +168,19 @@
   "Rewrite one node. A site's own plan is applied AFTER its children have
   been rewritten — so a nested `[:>]` inside a prop value or a child slot
   is repaired too — but the plan itself is computed from the pristine
-  node, so the report pass and this pass cannot reach different decisions."
+  node, so the report pass and this pass cannot reach different decisions.
+
+  Inert source is returned WHOLE and never descended into (rf2-xc11). This
+  is the arm with the teeth: [[analyse]] pruning alone would only quieten
+  the report, while this pass is the one that WRITES, and without the
+  prune `--rewrite --write` edits inside a `(comment …)` body — respelling
+  a prop key in source the program never runs. The two passes must prune
+  identically or the report would stop describing the file the fixer
+  produces."
   [nd ctx]
   (cond
+    (rw/inert? nd) nd
+
     (rw/meta-node? nd)
     (let [[metas inner] (rw/unwrap-metas nd)
           plan   (rw/plan-site inner (assoc ctx :meta-keys (rw/meta-key-nodes metas)))
