@@ -782,7 +782,7 @@ today. *Disposition* is a link that must resolve to a section naming the row.
 | D16 | 0 unwrapping hops per render, per component, native and handwritten React | 0 — the UIx route reads 1, opening `argv` | package | `MET` | `implementation/hicasso/test/re_frame/hicasso/three_way_parity_cljs_test.cljs` (PR gate) | `rf2-hic-034` | — |
 | S1 | 1,024 B, R=0 shell, Reagent segment | 1,100 B [1,091–1,107] | package | `BREACH` | P0 heap ladder, package candidate arm (P-DEV-1 evidence run) | `rf2-0xx2` | [substrate-decision §5.2](substrate-decision.md#52-the-read-free-boundary-shell--the-disposition); scoped acceptance 2026-08-13, [§5](budgets.md#5-the-read-free-boundary-shell-the-byte-exact-line-now-frozen-at-1024-b) — ceiling unchanged at 1,024 B, accepted to 1,107 B |
 | S2 | 1,024 B, R=0 shell, UIx segment | 1,095 B [1,087–1,101] | package | `BREACH` | P0 heap ladder, package candidate arm (P-DEV-1 evidence run) | `rf2-0xx2` | [substrate-decision §5.2](substrate-decision.md#52-the-read-free-boundary-shell--the-disposition); scoped acceptance 2026-08-13, [§5](budgets.md#5-the-read-free-boundary-shell-the-byte-exact-line-now-frozen-at-1024-b) — ceiling unchanged at 1,024 B, accepted to 1,101 B |
-| S3 | ≤ 10% regression on the same pinned witness | 1,417 vs Reagent 948 per read | package | `UNRESOLVED` | P0 heap ladder, package candidate arm (P-DEV-1 evidence run) | `rf2-hic-085` | [substrate-decision §6](substrate-decision.md#6-what-this-page-does-not-decide) |
+| S3 | ≤ 10% regression on the same pinned witness | 1,417 vs Reagent 948 per read | package | `UNRESOLVED` | P0 heap ladder, package candidate arm (P-DEV-1 evidence run) | `rf2-hic-071` | [substrate-decision §6](substrate-decision.md#6-what-this-page-does-not-decide) |
 | S4 | ≤ 10% regression on the same pinned witness | 2,115 vs UIx 2,980 per read | package | `MET` | P0 heap ladder, package candidate arm (P-DEV-1 evidence run) | `rf2-hic-070` | — |
 | S5 | teardown retained indistinguishable from 0 | indistinguishable from 0; all ten rungs' bands straddle it | package | `MET` | P0 heap ladder, package candidate arm (P-DEV-1 evidence run) | `rf2-hic-089` | — |
 | S6 | 1.10x cold mount against direct UIx-on-subs | 1.1718x [1.1263–1.2190] n=8; 1.1976x [1.1504–1.2468] n=6 | bench-tree | `BREACH` | final K1 estimator (P-DEV-1 evidence run) | `rf2-hic-085` | [§9.2](budgets.md#92-what-each-not-green-row-is-waiting-on) |
@@ -798,7 +798,7 @@ today. *Disposition* is a link that must resolve to a section naming the row.
 | C3 | ≤ 1.25x the best relevant adapter on broad updates | — | — | `UNPINNED` | — (none) | `rf2-hic-071` | [§9.2](budgets.md#92-what-each-not-green-row-is-waiting-on) |
 | C4 | no sustained 1.5x as ordinary Hicasso | — | — | `UNPINNED` | — (none) | `rf2-hic-071` | [§9.2](budgets.md#92-what-each-not-green-row-is-waiting-on) |
 | C5 | 1,024 B byte-exact, not governed by baseline-plus-10% | 1,100 B / 1,095 B [1,087–1,107] | package | `BREACH` | P0 heap ladder, package candidate arm (P-DEV-1 evidence run) | `rf2-0xx2` | [§9.2](budgets.md#92-what-each-not-green-row-is-waiting-on); scoped acceptance 2026-08-13, [§5](budgets.md#5-the-read-free-boundary-shell-the-byte-exact-line-now-frozen-at-1024-b) — ceiling unchanged at 1,024 B, accepted to 1,107 B / 1,101 B |
-| C6 | ≤ 10% per-read regression on the same pinned witness | see S3 / S4 | package | `UNRESOLVED` | P0 heap ladder, package candidate arm (P-DEV-1 evidence run) | `rf2-hic-085` | [§9.2](budgets.md#92-what-each-not-green-row-is-waiting-on) |
+| C6 | ≤ 10% per-read regression on the same pinned witness | see S3 / S4 | package | `UNRESOLVED` | P0 heap ladder, package candidate arm (P-DEV-1 evidence run) | `rf2-hic-071` | [§9.2](budgets.md#92-what-each-not-green-row-is-waiting-on) |
 | C7 | a native island within 5% or 1 ms of the same component mounted directly | — | — | `UNPINNED` | — (none) | `rf2-hic-071` | [§9.2](budgets.md#92-what-each-not-green-row-is-waiting-on) |
 | C8 | an escape recovers ≥ 20%, saves ≥ 2 ms p95, or flips a failed budget | — | — | `UNPINNED` | — (none) | `rf2-hic-071` | [§9.2](budgets.md#92-what-each-not-green-row-is-waiting-on) |
 | I9 | ≤ 2 React hooks per boundary shell, invariant in read count | 2 | package | `MET` | `implementation/hicasso/test/re_frame/hicasso/hook_budget_cljs_test.cljs` (PR gate) | `rf2-hic-018` | — |
@@ -860,6 +860,20 @@ pinned bands' upper edges, `1,107 B` and `1,101 B`.
   nobody re-reads. No line here is re-pinned by that ratification: the
   [correction ledger](correction-ledger.md) reopens a budget line only when a
   ceiling *changes*, and this one did not move.
+  **[Amended 2026-08-13.]** `S6` and `C2` keep `rf2-hic-085` as their
+  authority, and keeping it is a decision rather than an omission. What these
+  two rows are waiting on is not a reading — the *"final K1 estimator"* in
+  their instrument cell is the estimator that already took one, `rf2-diaud`'s,
+  and it decided them on the failing side. What is unsettled is the
+  disposition, and the disposition is the price accepted for the miss;
+  [that record's §9](k1-price-acceptance.md#9-amendments-to-this-record) makes
+  `rf2-hic-085`, which owns its effective-revision field, the only route to a
+  change in it. No other live bead holds that route, and a bead filed to hold
+  it would be the same standing recorder under a second id. So the cell names
+  the bead that can actually move the row, which is what this column is for,
+  and the consequence is written down rather than worked around: `rf2-hic-085`
+  stays open while this record stands, and closing it would leave both rows
+  pointing at nobody.
 - **`S7` has no publishable claim to pin.** No fitted allocation series clears
   the quality floor. This is a property of the readings rather than of the
   rig, so it is `UNPINNED` rather than `UNRESOLVED`: nothing crossed a line,
@@ -906,6 +920,17 @@ pinned bands' upper edges, `1,107 B` and `1,101 B`.
   and the sentence above still holds without amendment: `C5` is settled the day
   a shell arm lands under `1,024 B` on the package, and on that day the
   acceptance is deleted rather than kept as a floor.
+  **[Amended 2026-08-13.]** `C6`'s authority moves from `rf2-hic-085` to
+  `rf2-hic-071`, and `S3`'s moves with it. The recorder's business with these
+  two rows was the K3 ruling; that ruling has been given and recorded, so what
+  it held them for is discharged. What remains is the forward same-witness
+  comparison, and the K3 record names its enforcement home in its own field
+  table — `rf2-hic-071`, with the early framework at `rf2-hic-089`
+  ([§8](k3-disposition.md#8-the-10-same-witness-per-read-regression-rule)),
+  which is also the paragraph above's *"the day the first `rf2-hic-071`
+  same-witness comparison actually decides it"* read from the authority side.
+  The handoff moves custody and nothing else: both rows stay `UNRESOLVED`,
+  both readings stand, and `S3`'s disposition still points where it did.
 
 ### 9.3 Where this ledger stops and rf2-hic-071 begins
 
