@@ -1,22 +1,26 @@
 # Checkpoint 1 — the kernel review record
 
-**Verdict: HELD. Not a pass, and not a fail.** Checkpoint 1 (`rf2-hic-019`) ran on `main`@`27c5d12754` at
-2026-08-11 17:28 AUSEST and **could not adjudicate the Phase 1 kernel exit**. Four of its own dependencies were
-open when it ran, so three of the eight kernel rows of the
-[adversarial risk register](lanes/adversarial-risks.md#phase-1-kernel-risks) have no completed witness set, and the
-substrate decision, the byte-exact shell disposition and the two-hook freeze that the protocol's §1 requires have
-not been made.
+**Verdict: the correctness half of the Phase 1 exit is CONFIRMED; the exit as a whole is NOT MET.**
+Checkpoint 1 (`rf2-hic-019`) was re-dispatched to a reviewer who wrote none of the fixes and ran on
+`main`@`d079143b91` on 2026-08-13. All eleven of its dependencies had landed. This record **supersedes**
+the HELD record of 2026-08-11 (`main`@`27c5d12754`), which said so of itself.
 
-**The exit state is NOT CONFIRMED.** [Specification §12 Phase 1](specification.md#phase-1--make-the-reactive-kernel-trustworthy)
-exits "at zero stale reads, cross-frame operations, tears, or residual ownership and only when the shell meets its
-frozen line or carries its separate prospective disposition". This record does not establish that, in whole or in
-part, and nothing on this page may be quoted as though it did. **No row in [§2](#2-the-eight-kernel-rows-one-by-one)
-reads `pass`.**
+Two findings, and they are separate:
 
-HELD is a third verdict and it is deliberate. A `fail` would say the kernel was measured and found wrong. A `pass`
-would say it was measured and found right. Neither happened: most of it was not measured. Recording that as either
-of the other two would be the fail-open shape this programme exists to delete — written into the governance layer,
-where it would be believed longest.
+1. **"Zero stale reads, cross-frame operations, tears, or residual ownership" is confirmed** on the
+   evidence re-run here. All eight kernel rows of the
+   [adversarial risk register](lanes/adversarial-risks.md#phase-1-kernel-risks) map to landed witnesses;
+   seven of the eight now carry an **executing** sabotage control, and the eighth's — row 5's — was
+   re-run by hand by this checkpoint and reddened. Nothing in the four suites indicts the kernel.
+2. **The exit is a conjunction, and its second conjunct is open.**
+   [Specification §12 Phase 1](specification.md#phase-1--make-the-reactive-kernel-trustworthy) exits
+   "at zero stale reads, cross-frame operations, tears, or residual ownership **and only when the shell
+   meets its frozen line or carries its separate prospective disposition**". The shell is a plain red
+   and no disposition has been made; worse, nothing open owns the making of one (`rf2-zk87`).
+
+**No row in [§2](#2-the-eight-kernel-rows-one-by-one) reads `pass` unqualified**, and Phase 1 may not be
+declared exited on this record. What changed since 2026-08-11 is that the kernel's correctness can now
+be spoken about at all: the previous checkpoint could not adjudicate it, and this one can.
 
 ## Where each fact lives
 
@@ -26,206 +30,277 @@ where it would be believed longest.
 | What Phase 1 must deliver, and the words its exit is written in | [`specification.md` §12](specification.md#12-action-programme), indexed by [`lanes/delivery-programme.md`](lanes/delivery-programme.md) |
 | The review protocol this record discharges — §1 Completeness, §2 Correctness, §3 Quality | `rf2-hic-019` |
 | What each miss is, its severity, and what it takes to close it | [`correction-ledger.md`](correction-ledger.md#the-ledger), and the bead each row names |
-| Whether the kernel exit is met | this file — and today the answer is *not established* |
+| Whether the kernel exit is met | this file |
 
-One owner per fact. Bare `§1`, `§2` and `§3` throughout this page mean the review protocol's three sections;
-specification sections are always written as `specification.md §N`. The five findings are **not** restated here:
-their text lives in the ledger row and their full detail in the bead. A third copy is a third thing to drift.
+One owner per fact. Bare `§1`, `§2` and `§3` throughout this page mean the review protocol's three
+sections; specification sections are always written as `specification.md §N`. Findings are **not**
+restated here: their text lives in the ledger row and their full detail in the bead.
 
-## 1. Why the verdict is HELD, and what would discharge it
+## 1. The two halves of the exit, taken separately
 
-### 1.1 The four dependencies that were open
+### 1.1 The correctness half
 
-`rf2-hic-019`'s dependency set is `rf2-hic-010` … `rf2-hic-018`, `rf2-hic-029`, and the ledger bead `rf2-hic-073`
-— eleven, of which seven had landed. These four had not:
+Confirmed, and [§3](#3-what-was-re-run-and-what-it-measures) is the evidence. Four suites were re-run
+from a clean checkout of `origin/main` and all four are green with raw captured exit codes; a sabotage
+control was identified for every one of the eight risk families and each was either executed by the
+suite or planted by hand and observed to redden.
 
-| Open dependency | What it owes | What its absence costs this checkpoint |
-|---|---|---|
-| `rf2-hic-016` | Kernel: controlled input across Firefox and WebKit | Kernel row 5 (controlled-input portability) has no completed witness set |
-| `rf2-hic-017` | Kernel: the mutable-global sweep — root-scope or justify every one | Kernel row 2 (process-global ownership) has no completed witness set |
-| `rf2-hic-018` | The substrate adjudication: choose the under-collector, freeze the two-hook ceiling, disposition the shell breach | §1 Completeness cannot check three governance artefacts that do not exist |
-| `rf2-hic-029` | Retaining-host callback identity: the experiment and the verdict | Kernel row 7 (callback identity and retirement) has no completed witness set; `rf2-hic-013` carries only its other half |
+The confirmation is bounded in one place, and the boundary is the operator's own: kernel row 5's native
+IME half is **assumed, not witnessed** — see [§2.1](#21-row-5-is-assumed-not-witnessed).
 
-### 1.2 The three §1 artefacts that have not been made
+### 1.2 The shell half
 
-The protocol's §1 Completeness requires that "the substrate decision + byte-exact shell disposition + two-hook
-freeze exist and follow the governance shape". None of the three exists, because `rf2-hic-018` — the bead that
-makes all three — was open. §1 is therefore not a partial pass with three items outstanding; it is an unanswered
-question, and the specification's Phase 1 exit names the shell disposition as a conjunct of the exit itself.
+`substrate-decision.md:353-359` measures the R=0 package shell at **1,100 B** (Reagent segment) and
+**1,095 B** (UIx segment) against the operator's frozen **1,024 B**, all twelve readings at or above
+1,087 B, "a plain red" with no band-crossing verdict available. `rf2-hic-018` then **declines** to
+re-register the line, on stated and good grounds, and records that the decider is the operator and only
+he can move it (`substrate-decision.md:391-419`).
 
-### 1.3 What discharges the hold
+That is a correct refusal, and this checkpoint does not disturb it. What it leaves is an obligation with
+nobody attached: `validation.md:794-795` names `rf2-hic-018` as the owner of the red row and that bead is
+closed; the budget ledger's Authority column names it too, for five rows, and `rf2-hic-070` — also closed
+— for the other two; and `correction-ledger.md`'s *Deferred items* table, whose stated job is that such
+obligations "must not vanish into a green tick", does not carry it. Filed as `rf2-zk87` and `rf2-ltmd`.
 
-`rf2-hic-019` **stays open**. It is not closed on a partial pass, and this record is not its closure. The hold
-discharges when all four beads above land and the checkpoint is **re-dispatched** — to a reviewer who did not write
-the fixes — to run all three protocol sections again, including the obligations §2 left outstanding
-([§3.2](#32-the-node-lane-does-not-cover-the-dom-half)). The re-run supersedes this record; it does not append to
-it. Until then the two checkpoints downstream of it — `rf2-hic-026` and `rf2-hic-064` — read Phase 1's exit as
-unestablished.
+**Until an operator disposition exists, Phase 1's exit clause is unsatisfiable as written**, whatever the
+kernel does.
 
 ## 2. The eight kernel rows, one by one
 
 Register order, as published in [`lanes/adversarial-risks.md`](lanes/adversarial-risks.md#phase-1-kernel-risks).
-Three verdicts are used and `pass` is not among them:
+The verdict vocabulary:
 
-- **MISS** — a defect was found and is a row in the [correction ledger](correction-ledger.md#the-ledger).
-- **HELD — witness set incomplete** — the bead that builds this row's witness is still open. There was nothing to review.
-- **HELD — §2 re-run outstanding** — the witness landed and nothing indicts it, but the protocol's §2 obligation
-  (re-run the suite from a clean checkout and independently re-run one sabotage control for the family) was not
-  discharged. An undischarged obligation is not a pass.
+- **WITNESSED** — the row's named scenarios each appear as a landed, executing witness; a sabotage
+  control for the family exists and was seen to bite; the suites carrying it ran green here.
+- **WITNESSED, record in flight** — as above, but a §1 artefact the row's bead owes is not yet on `main`.
+- **ASSUMED IN PART** — a named scenario of the row has no measurement and is closed on an operator
+  ruling rather than on evidence.
 
 | # | Kernel risk | Witness set | §2 sabotage control | Row verdict |
 |---|---|---|---|---|
-| 1 | Frame reincarnation and cached operations | complete (`rf2-hic-013`) | not indicted; not re-run here | HELD — §2 re-run outstanding |
-| 2 | Process-global ownership | **incomplete** (`rf2-hic-017` open) | **absent in any form** (`rf2-1mmn`) | **MISS** |
-| 3 | Speculative render leakage | complete (`rf2-hic-010`, `rf2-hic-014`) | not indicted; not re-run here | HELD — §2 re-run outstanding |
-| 4 | Ambient-read extent | complete (`rf2-hic-011`) | not indicted; not re-run here | HELD — §2 re-run outstanding |
-| 5 | Controlled-input portability | **incomplete** (`rf2-hic-016` open) | pending its witness | HELD — witness set incomplete |
-| 6 | HMR identity | complete (`rf2-hic-015`) | not indicted; not re-run here | HELD — §2 re-run outstanding |
-| 7 | Callback identity and retirement | **incomplete** (`rf2-hic-029` open) | pending its witness | HELD — witness set incomplete |
-| 8 | Hydration isolation | complete (`rf2-hic-012`) | **absent in any form** (`rf2-1mmn`) | **MISS** |
+| 1 | Frame reincarnation and cached operations | complete (`rf2-hic-013`) | executing — `reincarnation_routing`, `reincarnation_paint_dom` | WITNESSED |
+| 2 | Process-global ownership | complete (`rf2-hic-012`, `rf2-hic-017`) | executing — `public_root_lifecycle_dom` W3 | WITNESSED, record in flight |
+| 3 | Speculative render leakage | complete (`rf2-hic-010`, `rf2-hic-014`) | executing — `kernel_commit_owns_cljs` residue-census control | WITNESSED |
+| 4 | Ambient-read extent | complete (`rf2-hic-011`) | executing — exact-refusal-map rows, both-ways witness | WITNESSED |
+| 5 | Controlled-input portability | complete for the synthetic tier (`rf2-hic-016`) | hand-run, **re-run by this checkpoint** | **ASSUMED IN PART** |
+| 6 | HMR identity | complete (`rf2-hic-015`) | executing — `lost-cleanup-sabotage`, `a-leaked-stale-registration-turns-the-cleanup-witness-red` | WITNESSED |
+| 7 | Callback identity and retirement | complete (`rf2-hic-013`, `rf2-hic-029`) | executing — the unpinned-capture negative control | WITNESSED |
+| 8 | Hydration isolation | complete (`rf2-hic-012`) | executing — `roots_frames_hydration_dom` H6 | WITNESSED |
 
-Two readings of that table would be wrong, and both are easy.
+Each row's named scenarios were checked against the witnesses **one for one**, by name, rather than by
+counting files. Row 4's nine — nested helper, branch, loop, event, render prop, promise, timer, lazy
+sequence, module — are nine `deftest` names at `read_extent_cljs_test.cljs:236-560`. Row 6's five are five
+pinned section names in `hmr_spec.cjs:625-634`, enforced by name rather than by total. Row 2's four —
+overlapping hydration, independent root release, concurrent request frames, root-unmount failure — are
+four `deftest` names spread across three files, the last of them
+`a-root-whose-teardown-throws-cannot-strand-its-siblings-state`.
 
-**"Not indicted" is not "verified".** In the sabotage column it means only that `rf2-1mmn`'s audit of the controls
-did not name the row. This checkpoint did not inventory those controls and did not execute one deliberately, so the
-column records the absence of an accusation, never the presence of evidence.
+### 2.1 Row 5 is assumed, not witnessed
 
-**"Complete" is a statement about beads, not about coverage.** It says the witness bead for that row has landed. What
-that witness actually measures — and, for rows 2 and 8, what no lane measured at all — is [§3](#3-what-was-re-run-and-what-it-measures).
+`rf2-hic-016` was closed on 2026-08-13 by operator ruling, in its own words **"CLOSED AS ASSUMED, NOT
+WITNESSED"**: the manual native-IME session was attempted and abandoned — a Japanese OS IME proved too
+difficult to set up — and the operator ruled to close so the programme is not held on it.
+
+Register row 5 names its deciding witness as "**WebKit/Firefox native composition and `beforeinput`**,
+range/direction, autofill, reset, blur, unmount and upgrade matrix". The landed runner is honest about
+the gap (`serve-and-run-hicasso-controlled-testbed.cjs:213-217`: real composition ranges are Chromium-only
+and the abort signature "cannot be reproduced from page script in any engine, **so it is not claimed
+here**"). Everything else on the row is measured, on three engines, and was re-measured here.
+
+So the row is not a miss against the code and not a pass either. It is a scenario the programme has
+decided to assume. That decision is the operator's to make and this record does not reopen it — but six
+documents still describe the session as pending and owed, which is filed as `rf2-aubc`.
+
+### 2.2 Row 2's record is in flight
+
+`rf2-hic-017`'s deliverable is the mutable-global sweep's justification — the page that answers "root-scope
+or justify every one". Its witnesses have landed and are green, but the ledger page itself
+(`product/globals.md`, nineteen owners, zero migrations) is on PR **#8066**, which was open at
+`d079143b91`. §1's "every kernel row maps to a landed witness" is therefore satisfied for row 2's *tests*
+and not yet for its *record*. No bead is filed: the PR is live and owned. **The next reader of this page
+re-checks that #8066 landed.**
 
 ## 3. What was re-run, and what it measures
 
-### 3.1 The two suites that ran
+From a fresh worktree of `origin/main`@`d079143b91`. Exit codes are the values captured to file, not the
+harness's report.
 
-Two suites were re-run against `main`@`27c5d12754`, both green:
+| Suite | Result | Captured exit |
+|---|---|---|
+| `shadow-cljs compile node-test-hicasso` | — | **0** |
+| `node out/node-test-hicasso.js` | **1127 tests, 4611 assertions, 0 failures, 0 errors** | **0** |
+| `npm run test:browser` | **1473 tests, 9143 assertions, 0 failures, 0 errors** | **0** |
+| `npm run test:hicasso-invariants` | freeze 1 row; motion/overlay/native/forms unreachable from the public door; **74 live complaints**, 6 reserved, 1 pending retirement, 1 retired, every live row emitted and rowed in Spec 009, every anchor resolving; budget ledger 38 rows | **0** |
+| `npm run test:hicasso-controlled` | **97 checks across 13 sections on each of chromium, firefox and webkit** | **0** |
+| `npm run test:hicasso-hmr` | **105 checks across 8 sections on each of chromium, firefox and webkit; 36 real shadow reloads** | **0** |
 
-- `npx shadow-cljs compile node-test-hicasso && node out/node-test-hicasso.js` — **553 tests, 2508 assertions,
-  0 failures, 0 errors**.
-- `npm run test:hicasso-invariants` — freeze (1 frozen row); optional-module reachability (motion unreachable from
-  the public door); complaint catalogue (67 live, 6 reserved, 1 pending retirement, 1 retired; every live row
-  emitted and rowed in Spec 009, every anchor resolving).
+**The browser lane is the obligation the 2026-08-11 checkpoint left outstanding**, and it is now
+discharged: kernel rows 2 and 8 live entirely in `:browser-test`, and both their witnesses and both their
+sabotage controls executed in that green run.
 
-Neither is the clean-checkout run of the full kernel suite that §2 Correctness asks for, and neither executes a
-nominated sabotage control per risk family. §2 is discharged in neither respect.
+For scale: the node lane read 553 tests on 2026-08-11 and reads 1127 here. The `ns-regexp`
+(`implementation/shadow-cljs.edn:982`) is unchanged; the growth is two days of landed work.
 
-### 3.2 The node lane does not cover the DOM half
+### 3.1 The node lane still does not cover the DOM half
 
-**This is a measurement fact, not a caveat, and a reader of "553 tests green" must not mistake it for kernel
-coverage.**
+Unchanged from the previous record and repeated because it is a measurement fact, not a caveat:
+`:node-test-hicasso`'s `ns-regexp` matches `-dom-cljs-test`, so DOM namespaces compile into the node lane
+and their tests are counted in the 1127 — but in that lane every DOM claim degrades to a stated skip
+(`roots_frames_support.cljs:85-91`, `impl/mount.cljs:447-451`). The skip is honest and it is not a
+measurement. A green assertion whose reason is "there is no DOM here" answers no question about the DOM.
 
-`:node-test-hicasso`'s `ns-regexp` (`implementation/shadow-cljs.edn:975`) matches `-dom-cljs-test` as well as
-`-cljs-test`, so the DOM namespaces are compiled into the node lane and their tests are counted in the 553. But in
-that lane **every DOM claim degrades to a stated skip** — `implementation/hicasso/test/re_frame/hicasso/roots_frames_support.cljs:85-91`
-and `implementation/hicasso/src/re_frame/hicasso/impl/mount.cljs:447-451`.
+The remedy is that the browser lane ran. It is the 1473, not the 1127, that speaks for rows 2 and 8.
 
-The skip is honest. It is a passing `is` carrying its reason rather than a silent absence, which is the right shape
-for a lane that cannot do the work. **It is still not a measurement.** A green assertion whose reason is "there is
-no DOM here" answers no question about the DOM, and it inflates the test count while doing so.
+### 3.2 The HMR gate is a real reload, not a simulation
 
-Kernel rows 2 (process-global ownership) and 8 (hydration isolation) live **entirely** in `:browser-test`. A
-clean-checkout `:browser-test` run was **not performed** by this checkpoint and remains §2's outstanding
-obligation — which is also why those two rows' missing sabotage controls (`rf2-1mmn`) could not be supplied by
-running something else instead.
+`test:hicasso-hmr` drove **36 real shadow-cljs reloads** across the three engines and asserted 105 checks
+in eight sections named individually in `hmr_spec.cjs:625-634` and pinned by name in the runner's
+`REQUIRED_SECTIONS`. A section deleted from the list fails the gate rather than shrinking a total, which
+is the same structural-floor discipline the controlled gate uses. Row 6's register scenarios —
+focused/uncontrolled input, child hook state, active host, frame routing, cleanup — are five of those
+eight names, and the eighth is the family's executing sabotage.
 
-## 4. The five misses
+## 4. The sabotage controls, one per risk family
 
-Filed as real beads by the checkpoint and rowed in the [correction ledger](correction-ledger.md#the-ledger), where
-each carries its [severity](correction-ledger.md#severity) and the [closure rule](correction-ledger.md#the-closure-rule)
-that governs it. They are listed here by id only; the ledger row and the bead own their text.
+§2 asks for one control per family, independently re-run. Seven of the eight are **executing controls**:
+they are `deftest`s in the suites above, they ran in the green runs recorded in §3, and each asserts
+*both* directions — the armed half reds if the mutation has quietly become a no-op, the disarmed half
+reds if the defect returns. A control of that shape needs no hand-run to prove it bites; its armed half
+failing **is** the proof, and it is taken on every run rather than on the day somebody remembered.
 
-| bd id | Protocol section | Severity | Note |
+| Family | Control | How it was discharged here |
+|---|---|---|
+| 1 | `an-unpinned-bundle-does-reach-the-successor`; `restoring-the-macrotask-deferral-makes-the-paint-order-witness-fail` | executed, green |
+| 2 | `a-page-wide-teardown-door-strands-the-sibling-root` (`public_root_lifecycle_dom:307`) | executed, green |
+| 3 | `the-residue-census-can-answer-false` (`kernel_commit_owns_cljs:433`) | executed, green |
+| 4 | the exact-refusal-map rows and `the-refusal-witness-answers-both-ways` | executed, green |
+| 5 | disable the composition guard; the WebKit IME witness must redden | **planted by this checkpoint** — [§4.1](#41-the-one-control-that-had-to-be-planted) |
+| 6 | `lost-cleanup-sabotage` (`hmr_spec.cjs`); `a-leaked-stale-registration-turns-the-cleanup-witness-red` | executed |
+| 7 | `NEGATIVE-CONTROL-an-unpinned-capture-does-reach-the-successor` | executed, green |
+| 8 | `a-page-global-adoption-window-steals-an-ordinary-roots-enter-transition` (H6) | executed, green |
+
+Families 2 and 8 are `rf2-1mmn`'s repair, filed by the previous checkpoint when neither had a control in
+any form. Both were read in full here and both are the shape the finding asked for.
+
+### 4.1 The one control that had to be planted
+
+Row 5's sabotage is named by `rf2-hic-016`'s acceptance — *disabling the composition guard must turn the
+WebKit IME witness red* — and it is not a `deftest`. It is a source mutation, and the runner's own
+docstring (`serve-and-run-hicasso-controlled-testbed.cjs:228-246`) records it being run by hand on
+2026-08-10 and again on 2026-08-11, with the failure it produced. **A hand-run mutation recorded in a
+comment is not re-runnable by a reviewer**, which is the shape `rf2-1mmn` indicted for rows 2 and 8. This
+one is better than what that finding described — it is dated and it quotes its failure text verbatim,
+rather than pointing at an unnamed PR body — but it still had to be taken again to be believed.
+
+So it was. `impl/controlled.cljs:380-381`'s `composing-input?` body was replaced with `false` — the whole
+carve-out off, both halves, since the draft shadow is held from the same reading — and
+`HICASSO_TESTBED_ENGINES=webkit npm run test:hicasso-controlled` was run against the plant:
+
+```text
+FAIL Hicasso controlled input (I15) — three engines (webkit):
+  [webkit] the first composing update survives in the field: expected "123あ", got "123"
+```
+
+**Captured exit 1.** That is the same row and the same failure the 2026-08-10 session recorded, reproduced
+by a reviewer who wrote none of it. The guard was then restored with `git checkout --`; `git diff` under
+`implementation/` is empty and no source change is carried by this record's PR.
+
+The green baseline it is measured against is §3's `test:hicasso-controlled` run — 97 checks on webkit,
+captured exit 0 — taken on the same worktree immediately before the plant.
+
+**What this does and does not establish.** It establishes that the composition carve-out is load-bearing
+and that the WebKit witness reddens when it is removed: the family has a control and the control bites.
+It establishes nothing about *native* IME composition on WebKit, which drives a synthetic composition
+sequence rather than a real one — see [§2.1](#21-row-5-is-assumed-not-witnessed).
+
+## 5. The misses
+
+### 5.1 Filed by this run
+
+| bd id | Protocol section | Severity | One line |
 |---|---|---|---|
-| `rf2-czlb` | §3 Quality | correctness | — |
-| `rf2-u9lk` | §3 Quality | correctness | Native-surface risks are Phase-3-deferred ([register](lanes/adversarial-risks.md#phase-3-native-surface-risks)), so this does not block the kernel exit |
-| `rf2-3f11` | §3 Quality | correctness | — |
-| `rf2-1mmn` | §2 Correctness | coverage | The row-2/row-8 control gap of [§3.2](#32-the-node-lane-does-not-cover-the-dom-half) |
-| `rf2-34a7` | §3 Quality | quality | Severity qualified in the ledger row; see the bead |
+| `rf2-aubc` | §1 Completeness | correctness | Six records still promise a native-IME session the operator ruled will not happen |
+| `rf2-zk87` | §1 Completeness | coverage | The byte-exact shell disposition is a Phase 1 exit conjunct with no owner and no ledger row |
+| `rf2-ltmd` | §1 Completeness | coverage | All seven non-`MET` budget rows name a closed bead as the authority owning them "today" |
 
-Three correctness rows and one coverage row block `rf2-hic-064` until each is closed — and under the ledger's own
-rule a row closes only when the protocol section that produced it is re-run against the landed fix, never when the
-fix merges. **These five are the misses found in the part of the kernel that could be reviewed.** They are not the
-kernel's defect list; §1 and §2 above are why no such list can be written yet.
+None of the three is a defect in the kernel. All three are the governance layer describing the kernel
+inaccurately, which is the failure class this programme treats as load-bearing.
 
-## 5. Checked, and found sound
+### 5.2 Closed by this run
 
-A checkpoint's negative findings are worth as much as its positive ones, and nothing else in this tree records
-them. Each of these was examined against the failure shape the protocol sends a reviewer hunting, and each held:
+The five misses the 2026-08-11 checkpoint filed have all merged and all had their producing protocol
+section re-run here against `main`@`d079143b91`, by a reviewer who wrote none of them. The evidence is in
+each [ledger row](correction-ledger.md#the-ledger); the closure rule is that page's, and this checkpoint
+was the ledger keeper while it ran.
 
-- **The microtask-checkpoint instrument** (`checkpoint_support.cljs`). `at-the-checkpoint` (`:102-131`) takes its
-  vacuity check *synchronously, before* the checkpoint and fails loudly if the condition already held — the "a row
-  that watched nothing" shape, already closed. Its docstring records that the turn count was mistakenly used as the
-  vacuity check first, and reddened four rows. `with-macrotask-deferral` (`:137-155`) is a real sabotage: the
-  collector is unmodified and unaware, and the docstring argues from react-dom's own by-value `scheduleMicrotask`
-  binding that it has no collateral.
-- **The hook-budget witness** (`hook_budget_cljs_test.cljs`). Its first row drives a three-hook control and asserts
-  the probe answers three *by name and in order*, so every "exactly two" below it is a measurement rather than a
-  limit of the instrument. `armed!` (`:102-109`) asserts `probe/install!` rather than branching on it, and says
-  why: the budget would be "UNWITNESSED, not satisfied". This is the model `rf2-1mmn` asks rows 2 and 8 to meet.
-- **Residue before reset.** `roots_frames_support.cljs:179-196`'s `teardown-census!` states the rule exactly —
-  `mount/release!` resets the runtime, so a post-release census reads zeros whether teardown worked or not, "the
-  shape of gate that cannot go red". `kernel_commit_owns_dom` (`:74-79`) and `read_extent_dom` (`:298-309`) carry
-  the same discipline. Read from the fixture code rather than from the claims, as §2 requires.
-- **Exercised-population rosters** exist and are *asserted* where the risk row needs one: `kernel_commit_owns_dom:119`
-  (5), `read_extent_dom:170` (4), `reincarnation_paint_dom:100` (3), `testbed/spec.cjs:927` (13, pinned by
-  `serve-and-run-hicasso-controlled-testbed.cjs:354`), `testbed/hmr_spec.cjs:625` (8, cross-checked against
-  `serve-and-run-hicasso-hmr-testbed.cjs:161`), `native-ime-witness.cjs:519` (8, with missing/extra reporting).
-- **Row 4's scenario coverage** is one-for-one with the register's named scenarios, as `deftest` names — nested
-  helper, branch, loop, event, render prop, promise, timer, lazy sequence, module
-  (`read_extent_cljs_test.cljs:236-560`). It has no declared-population `def`, and that was **deliberately not
-  filed**: the `deftest` names already enumerate the register's list, and a roster `def` beside them would be
-  process for its own sake.
-- **The "declared a gate that runs nowhere" trap is already caught mechanically.** `test.yml:1446` records that
-  `test:hicasso-hmr` once ran nowhere; `scripts/check_gate_scheduling.py` now guards it and is always-on
-  (`test.yml:662-669`). `test:hicasso-controlled` (`test.yml:1440`) and `test:hicasso-hmr` (`test.yml:1544`) are
-  both wired.
-- **`impl/frames.cljs`'s incarnation row** — one row per public id carrying incarnation, bundle and dispatch
-  closure, so the three cannot describe different incarnations. Correctness is lazy replacement rather than a
-  destruction hook, and `forget-frame-ops!` is stated as reset-and-hygiene only. The coupling is structural, not a
-  rule somebody has to keep.
-- **`impl/roots.cljs`** — the adoption window is per-root, born open, nil-is-closed, with the page-global
-  reference-count alternative explicitly refused and its reason recorded.
-- **The virtual clock's handover** (`test_kit/mounted.cljs:301-363`). An interval's time left is its next tick
-  re-armed as a one-shot that then arms the platform's repeat; the cadence is armed in a `finally` so a throwing
-  tick cannot retire the timer, and the throw still escapes. Negative virtual ids (`:225-235`) keep the two
-  scheduler id domains provably disjoint. `fire-due!` advances an interval's due *before* the call, so the virtual
-  clock and the handed-over real one behave the same way under a throw.
+## 6. Checked, and found sound
 
-## 6. Considered, and not filed
+A checkpoint's negative findings are worth as much as its positive ones. The 2026-08-11 record's list is
+carried forward whole — it is that checkpoint's work and remains true — and this run adds:
 
-Recorded so that a later reviewer meeting them knows they were seen and judged, rather than missed:
+- **Time is never the authority on ownership.** Both reapers in `impl/collector.cljs` are scheduled by
+  `setTimeout` and decided by a count: `arm-cell-reaper!` (`:622-631`) disposes only
+  `(when (and (zero? (alength (.-readers cell))) (not (.-disposed cell))))`, and `arm-entry-reaper!`
+  (`:1321-1333`) drops only `(when (zero? (.-refs entry)))`. `entry-reap-horizon-ms`'s docstring
+  (`:1284-1319`) is explicit that the 4 ms is "**A MARGIN, NOT A CONTRACT**", that no caller may rely on
+  it, and that losing the race "costs a cache miss and a rebuilt subscription, **never a wrong value**".
+  That is exactly what the register's row-3 remedy asks for — commit identity authoritative, time
+  demoted to scheduling.
+- **Both new sabotage controls arm in both directions.** `public_root_lifecycle_dom:307` runs the same
+  two-root construction twice and its armed half fails loudly with "THE SABOTAGE DID NOT SABOTAGE" if the
+  page-wide door stops being page-wide; `roots_frames_hydration_dom:702` asserts the armed half's
+  page-wide window is *still open* on the line where the shipped tray reads its phase, so what the tray
+  answers is the scoping doing work rather than the absence of any window. Neither needed an invented
+  seam: one uses the shipped `impl.mount/release!`, the other restores the pre-`rf2-6tmu` page-global.
+- **The residue census can be made non-zero.** `the-residue-census-can-answer-false` leaks exactly one
+  abandoned-read registration by hand, asserts the summed counters *and* the per-key reader list see it,
+  and then waits on `inventory/quiesced!` to assert that **the reapers do not launder it**. Every zero in
+  that file is worth what that row is worth, and the row is real.
+- **The four corrective fixes are on `main` and are what their beads said.** `boundary.cljs:186-227` has
+  the closed `prop-roster` and the `:on-error` shape check; `codec.cljs:1925-1967` refuses a form after
+  `opts` and `:1839` guards `opts` is a map; `native.cljc:357-404` validates the declaration map against
+  both rosters; `codec.cljs:803` refuses a `::h/mounting` override out of a tray's reach.
+- **The three-engine controlled matrix is unanimous and re-measured.** 97 checks × 13 sections × three
+  engines, no divergence, `NARROWINGS` empty — re-run here rather than quoted.
 
-- `codec.cljs:1695` writes a `component` field onto the host head that nothing in `implementation/hicasso/` reads
-  (`host-element` reads gate/callbacks/slots/displayName at `:2781-2787`; under `:ssr :render` the gate *is* the
-  component). Dead weight, one line, no author-visible effect.
-- `portal.cljs:138-141` claims "a misspelled option is therefore an absent one, and lands on `portal-target`'s
-  refusal". True for `:target`, not for `:fallback` — a misspelled `:fall-back` crosses as ordinary data and the
-  server render silently emits nothing. Two options is genuinely not a roster; the docstring sentence overreaches
-  slightly.
+## 7. Considered, and not filed
 
-## 7. What this record is not
+- **Rows 2, 7 and 8 publish no `declared-population` roster**, where rows 1, 3, 4, 5 and 6 do
+  (`reincarnation_paint_dom`, `kernel_commit_owns_dom`/`activity_suspense`, `read_extent_dom`, and the two
+  `REQUIRED_SECTIONS` floors in the testbed runners). Not filed, for the reason the 2026-08-11 record gave
+  when it declined the same finding for `read_extent_cljs_test`: each of those rows' register scenarios
+  already appears as a `deftest` name, one for one, and a roster `def` beside them would be process for
+  its own sake. **The honest caveat**: row 2's four scenarios are spread across three files, so no single
+  artefact would red if one were deleted. That is a general property of this repository's tests, not a
+  kernel defect, and buying a guard for it here alone would be arbitrary.
+- **The negative controls for families 1 and 7 are not literally the mutation their beads named.** Both
+  beads say "remove the incarnation check / the retirement check and the case must go red"; what landed is
+  an *unpinned capture*, which by construction never had a pin, driven through the public
+  `rf/capture-frame` seam. It establishes the same A/B — pin present, write refused; pin absent, write
+  lands — without redefining a substrate var, and both files say so in as many words. The difference is
+  real and it is not worth a bead.
+- `codec.cljs`'s `component` field on the host head and `portal.cljs:138-141`'s slightly over-reaching
+  docstring sentence, both recorded by the 2026-08-11 checkpoint and both still true. Still not filed, for
+  its reasons.
 
-It is not a partial pass, and it may not be cited as one. It is not the closure of `rf2-hic-019`, which stays open.
-It is not evidence about the browser lane, which did not run. It is the honest state of Checkpoint 1 on
-`main`@`27c5d12754`: five misses in what could be reviewed, and a kernel exit that has not been adjudicated.
+## 8. What this record is not
 
-## 8. Where this page's words came from
+It is not a declaration that Phase 1 has exited: [§1.2](#12-the-shell-half) is why, and no amount of green
+in [§3](#3-what-was-re-run-and-what-it-measures) reaches it. It is not evidence about native IME conduct on
+Firefox or WebKit, which nothing has measured. It is not a `pass` on row 2's record, which is on an open
+PR. It is the honest state of Checkpoint 1 on `main`@`d079143b91`: a kernel whose correctness the suites
+now support, three governance misses filed, five earlier misses closed with evidence, and an exit clause
+waiting on a decision only the operator can take.
 
-`rf2-hic-019` ran under a read-only, no-PR fence and could write neither this page nor the ledger rows itself. Its
-durable record is its own bead notes, timestamped 2026-08-11 17:21–17:28 AUSEST; `rf2-0bu1` is the publication brief
-that carried part of that material forward; this page was assembled from both.
+## 9. Where this page's words came from
 
-**What the checkpoint supplied**, re-worded for the page but never re-derived: the verdict and its four open
-dependencies, the five misses with their protocol sections and severities, the two suite results of
-[§3.1](#31-the-two-suites-that-ran) and the node-lane scoping fact of
-[§3.2](#32-the-node-lane-does-not-cover-the-dom-half) — each of those recorded in both the bead notes and `rf2-0bu1`
-— plus [§5](#5-checked-and-found-sound) and [§6](#6-considered-and-not-filed), which come from the notes alone and
-were never in `rf2-0bu1`. Nothing here was re-audited, and the two suite results are quoted rather than re-measured.
+This revision was written by the reviewer who ran it, in the same session, from the suites and sources it
+cites. Every figure in [§3](#3-what-was-re-run-and-what-it-measures) is a value captured to file by that
+run rather than a quotation; every line number was read at `d079143b91`. [§6](#6-checked-and-found-sound)
+carries the 2026-08-11 record's list forward by reference and adds its own; [§7](#7-considered-and-not-filed)
+does the same and says which items are inherited.
 
-**What the publication added**, because this page is not a transcription of either bead and a record whose authority
-rests on faithfulness owes the reader that seam. The dependency arithmetic of
-[§1.1](#11-the-four-dependencies-that-were-open) was **corrected**: the checkpoint's brief implied six dependencies,
-`bd show rf2-hic-019` reports eleven of which seven had landed, and the tracker's count is the one written here. The
-**arrangement is new** — the eight-row table of [§2](#2-the-eight-kernel-rows-one-by-one), its three-verdict
-vocabulary, the `§N` gloss and the framing prose were written for this page from the register's row order and the
-checkpoint's findings. Neither addition moves a verdict: which dependencies are open is unchanged, and the vocabulary
-the arrangement introduced has no `pass` in it.
+The record it replaces was assembled at one remove — the checkpoint of 2026-08-11 ran under a read-only,
+no-PR fence, so its verdict was published by a second worker from bead notes, and a provenance repair
+(PR #7917) was needed afterwards to say so. That seam does not exist in this revision, which is the main
+reason the re-dispatch was given a worktree and a PR.
