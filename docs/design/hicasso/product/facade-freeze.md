@@ -16,6 +16,18 @@ spellings remain in use everywhere, including in this page.
 The evidence this freeze reads is reported, not restated, in
 [`checkpoint-2-slice.md`](checkpoint-2-slice.md). Read it before quoting anything here.
 
+> **Amended 2026-08-13.** Three sentences on this page said, in the present tense, that the four
+> event-value shapes were missing from the public door — in
+> [§1](#1-the-membership-and-how-it-was-decided), in [§2](#2-the-frozen-laws) row 7, and in
+> [§6](#6-what-this-record-is-not). Each was true when this page was written and had stopped being true
+> before it merged: `rf2-lu0s` was fixed and closed by PR #8088, which put a *FOUR shapes* section in
+> `defview`'s docstring carrying the Enter/Escape key-map example and naming the central composition
+> gate. The three now read in the past tense and keep the finding, because a record that AGED is not a
+> record that was WRONG. Nothing else moves —
+> [§4](#4-the-one-law-that-could-not-be-applied) already reads the landed fix and what it reports that
+> fix published is unchanged, and [`correction-ledger.md`](correction-ledger.md) carries the closure
+> evidence clause by clause.
+
 ## Where each fact lives
 
 | Fact | Owner |
@@ -67,7 +79,8 @@ the claim that an ordinary application meets it.
 Beyond the nine and the three, the Todo class added exactly one thing to the union and **it is not a
 name**: the key-map shape at an `:on-*` prop, `{"Enter" […] "Escape" […]}`. It is why that
 application's `views.cljs` contains no callback at all. It is frozen as part of the event grammar in
-[§2](#2-the-frozen-laws) and it is missing from the door, which is `rf2-lu0s`.
+[§2](#2-the-frozen-laws), and it was missing from the door when this page was written, which is
+`rf2-lu0s` — since fixed and closed.
 
 **One member is frozen conditionally.** `reg-state` is on this list because two independent ordinary
 applications reached it, which is the evidence this freeze weighs. But
@@ -90,7 +103,7 @@ disagree the owner governs and this row is the defect.
 | 4 | Reads in branches and loops are legal, and a branch not taken contributes no edge. `use-subs` is the control: it declares its edge set, so an untaken branch still costs its edge. | §3.3; the facade's own two docstrings | slice `editor` (ambient, branching) vs `article-row` (grouped) |
 | 5 | React owns keys, refs, hooks, effects, errors, concurrency, hydration and component identity. | authoring law 4; §3.2 | Todo N4 (`:ref` identity); §4 hooks-not-in-a-body |
 | 6 | Event vectors are data. One explicit callback form. Ordinary `fn` values keep ordinary JavaScript callback semantics, and **position selects the contract**. | authoring law 5; §3.5; §4.1 | `impl.intent`'s position table; neither app needed the callback form once |
-| 7 | A value at an `on-*` prop takes one of four shapes: an intent vector, a key map, the one callback form, or a plain function passed through. | §4.1; ergonomics-api §Surface boundaries | Todo N1 — **and the door does not say so (`rf2-lu0s`)** |
+| 7 | A value at an `on-*` prop takes one of four shapes: an intent vector, a key map, the one callback form, or a plain function passed through. | §4.1; ergonomics-api §Surface boundaries | Todo N1 — **and the door did not say so when this page was written (`rf2-lu0s`, since fixed and closed)** |
 | 8 | Key maps are composition-gated centrally, so an IME's Enter commits nothing. | §4.1 *must make IME composition behavior explicit* | `impl.intent` `composing?`; `test:hicasso-controlled`, three engines |
 | 9 | Controlled fields are a framework law, not an application pattern: same-turn convergence, committed echo, rejection/normalization, caret and selection preservation, composition safety, and identity-preserving reset through an explicit revision. | §4.2; authoring law 6 | `test:hicasso-controlled` — 97 checks × 13 sections × 3 engines. **The revision half is witnessed there and by NEITHER ordinary application (`rf2-36bd`, closed); [§5](#5-what-is-not-in-the-ordinary-surface) states its real population.** |
 | 10 | Owned control attributes beat forwarded attributes by presence, not truthiness. | authoring law 7 | testbed `empty` arm (`""` is falsy and still wins) |
@@ -184,4 +197,5 @@ page would then have to be amended to admit, with its witness. It is not evidenc
 hot-path facades, which Phase 3 freezes from their own witnesses. And it is not a statement that
 every frozen law is witnessed by the Phase 2 applications: row 9's revision half is not — `rf2-36bd`
 measured that, the slice's inert bookkeeping came out, and the law keeps its own three-engine witness —
-and row 7 is witnessed in the applications and absent from the door, which is `rf2-lu0s`.
+and row 7 is witnessed in the applications and was absent from the door when this page was written,
+which is `rf2-lu0s`, since fixed and closed.
