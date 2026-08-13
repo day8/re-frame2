@@ -100,9 +100,25 @@ push that broke it. One gate here was skipped on the breaking commit and on ever
 after, while the trunk's rollup read green throughout; it surfaced only when a change
 happened to touch a surface that armed it. So when a change reds a gate the trunk is
 green on, **check whether that job actually ran on the trunk** before concluding the
-change caused it. If it did not, the defect is the trunk's and the fix belongs on a new
-branch off it — the reflex prescribes a fix worker onto the red change's branch, which
-puts a workaround on an innocent one.
+change caused it.
+
+**If it did not, what you have is uncertainty, not a verdict.** The reflex — this change
+reds it, so this change broke it — dispatches a fix worker onto that change's branch and
+puts a workaround on a possibly innocent one. But the correction is not the opposite
+reflex. A job that never ran on the trunk is silent about *both* sides: it is no evidence
+the trunk is broken, and none that the change is clean. The red change may perfectly well
+have introduced the failure itself. Only running the gate settles it. Reproduce the actual
+failing check on a clean checkout of the change's base, or set up an equivalent controlled
+comparison. If it fails there, the defect is the trunk's and the fix belongs on a new branch
+off it; if it passes, the change owns the failure and the fix belongs on the change's own
+branch.
+
+**A right answer reached by the refuted inference is still a defect**, because the
+inference is what you carry to the next case. One mayor here called a red change innocent
+on the bare ground that its failing gate is skipped on trunk pushes, and dispatched no fix
+worker on that basis; it reproduced the gate nowhere. A sibling landed shortly after, the
+failure cleared, and the call now reads correct in the record. The outcome did not validate
+the reasoning — and nothing left in the record tells the two apart.
 
 ### Clause 3 — require the terminal state, do not enumerate the bad ones
 
@@ -273,9 +289,10 @@ routed item is exactly the kind a worker may reasonably decline.
 ### When a change is not green
 
 A real, repeated failure on the touched surface is not a flake and is never an override
-candidate. Once you have established the failure is the change's own and not the trunk's,
-dispatch a fix worker onto the **existing** branch that runs the **actual** failing gate,
-not a proxy that already passed.
+candidate. Once you have established the failure is the change's own and not the trunk's
+— clause 2 above says what establishes it, and a gate that never ran on the trunk does
+not — dispatch a fix worker onto the **existing** branch that runs the **actual** failing
+gate, not a proxy that already passed.
 
 ---
 
