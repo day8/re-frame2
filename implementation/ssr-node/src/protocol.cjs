@@ -169,12 +169,22 @@ const COMPLETE_FIELDS = Object.freeze(['type', 'chunks', 'renderMs', 'buildId', 
  * shipped for one commit with the returned value forwarded to the caller
  * as `meta`, HTTP happened not to serialise it, and "the current transport
  * drops it" was doing the work a guarantee was supposed to do.
+ *
+ * THE ACCEPTED SET IS `{ undefined }` and nothing else. The door's first
+ * cut spared `null` as well, on the reading that `null` is a kind of
+ * nothing; it is not. Falling off the end of a function produces
+ * `undefined`, so `undefined` is what absence looks like here, while
+ * `return null` is a sentence someone wrote — and it is the likeliest
+ * deliberate return this contract will ever be handed, because it reads
+ * as "nothing to say". A guarantee that admits one value is fail-closed
+ * except, with the exception on the most probable path.
  */
 const MODULE_RETURN_REFUSAL =
   'the render module returned a value. `emit` is its only output channel: this contract ' +
   'carries body markup and nothing else, so a second way out of the isolate is application ' +
   'data crossing a boundary that has no policy for it — the host fork arriving by increments. ' +
-  'Render what the module has to say, and return nothing.';
+  'Falling off the end — `undefined` — is the only accepted return; `null` is a value, not ' +
+  'an absence. Render what the module has to say, and return nothing.';
 
 /**
  * A top-level app-db key, as its EDN text. Keywords in re-frame2 are what

@@ -164,10 +164,20 @@ async function render(id, request) {
     // leave, and the alternative is serving a page from a module whose
     // contract this service does not hold.
     //
+    // `undefined` IS THE WHOLE OF THE ACCEPTED SET, and `null` is not in
+    // it. A function that falls off its end returns `undefined`; every
+    // other value arriving here was typed by someone, and `return null`
+    // most of all — it is the spelling a render module reaches for to
+    // mean "nothing to say", which is the sentence `emit` has already
+    // finished. So the one value this door admitted for a commit was the
+    // one most likely to actually arrive. A door with a single exception
+    // is not fail-closed, it is fail-closed EXCEPT, and the exception was
+    // sitting on the most probable path rather than an exotic one.
+    //
     // The refusal names the SHAPE and never the value. A diagnostic that
     // echoed what the module tried to return would be the same egress
     // wearing a different frame type.
-    if (out !== undefined && out !== null) {
+    if (out !== undefined) {
       post({
         t: 'error',
         id,

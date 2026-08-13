@@ -102,7 +102,9 @@ There is no member the application's render module fills in, and no
 mechanism by which it could: **`emit` is a render module's only output
 channel**, and a module that returns a value is refused
 (`:rf.ssr-node/render-threw`) rather than having the value quietly
-dropped. `test/egress.test.cjs` is the witness.
+dropped. The accepted set is `{ undefined }` — falling off the end and
+nothing else, `null` included in the refusal. `test/egress.test.cjs` is
+the witness.
 
 That door was not there in the first cut of this package, and how it was
 missing is worth keeping on the record. `worker.cjs` forwarded an
@@ -413,10 +415,13 @@ door rather than fussiness — see
 it is holding and what it cost to find missing. An `async render` that
 falls off its end returns `undefined` and is fine; `return { … }` is a
 module reaching for a second way out, and the refusal says so in as many
-words. Because it can only be discovered *after* the render, a module that
-both emitted and returned produces a **torn** response carrying
-`detail.afterChunks` — the bytes really did leave, and the transport must
-not present them as a page.
+words. **`undefined` is the whole of the accepted set** — `return null` is
+refused too, because falling off the end is what absence looks like here
+and `null` is a value someone typed. The door spared it for one commit, on
+the most likely deliberate return a render module has. Because a return
+can only be discovered *after* the render, a module that both emitted and
+returned produces a **torn** response carrying `detail.afterChunks` — the
+bytes really did leave, and the transport must not present them as a page.
 
 The CLJS half — the thing behind `MY_APP_SSR.renderToString` — is the
 existing Hicasso render entry: a per-request `gensym` frame, `:rf/set-db`
@@ -573,7 +578,7 @@ affect", answers *nothing* for this package's files.
 
 The suite drives the service against reference render modules under
 `test/fixtures/` — well-behaved, mutating, sloppy-mode, hanging, throwing,
-chunking, byte-hostile and leaky — because every guarantee here is a
+chunking, byte-hostile, leaky and null-returning — because every guarantee here is a
 property of the *service*, and a fixture that misbehaves on purpose is the
 only way to see a guard fire.
 
@@ -594,9 +599,10 @@ counter is shown reading 2 before it is trusted reading 1; the byte
 comparison is shown moving under a re-encoding before it is trusted
 agreeing; the runaway render is shown still running after 400 ms before a
 200 ms refusal is called a termination; the egress scan is shown finding a
-planted leak — and the leaky fixture shown really returning one — before
-its zero is believed; and the absence scan is shown
-finding a planted reference before its zero is believed.
+planted leak — and the leaky fixture shown really returning one, and the
+null-returning fixture shown really returning `null` rather than drifting
+into falling off its end — before its zero is believed; and the absence
+scan is shown finding a planted reference before its zero is believed.
 
 ---
 

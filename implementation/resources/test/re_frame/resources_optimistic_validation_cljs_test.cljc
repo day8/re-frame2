@@ -29,6 +29,7 @@
   (:require
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
+   [clojure.string :as str]
    [re-frame.core :as rf]
    [re-frame.fx :as fx]
    ;; load-bearing side-effecting requires: register the :rf.resource/* +
@@ -752,3 +753,132 @@
       (is (= :pending (:status (instance :bs1)))
           "a non-map descriptor entry did NOT abort the write")
       (is (some? @last-managed-args) "the request reached the transport"))))
+
+;; ===========================================================================
+;; REGRESSION (rf2-e4y9) — an `:optimistic` EXACT target written as the
+;; `[id params]` VECTOR.
+;;
+;; Reported second-hand as a fail-silent write: zero requests, `:idle`
+;; afterwards, "nothing logged". The first two reproduce exactly and are
+;; CORRECT — the refusal runs at phase 1.5, before the request lowers and
+;; before any instance row is committed, so "nothing was minted" is a truthful
+;; reading rather than a half-built one (the same granularity line rf2-06lp
+;; drew one registrar up, and for the same reason: an instance minted and left
+;; `:pending` with no request behind it would be a write that reports itself in
+;; flight forever).
+;;
+;; The third does NOT hold, and this gate is why the claim could be made at
+;; all: NOTHING in the three optimistic suites asserted a bad target, and the
+;; sibling assertions in `resources-mutation-cljs-test` prove the dispatch path
+;; only "by OBSERVING no partial cache mutation" — a claim a genuinely SILENT
+;; no-op satisfies exactly as well as a refusal does. The refusal is real and
+;; carries its reason (`:rf.error/mutation-invalid-target`, catalogued at
+;; spec/009 with `:recovery :fix-mutation-target` and the `:arm` / `:target`
+;; facets); it is simply not legible on stdout, because per Spec 009
+;; §Observability channels re-frame2 ships NO default console sink and the
+;; router CAPTURES a handler throw rather than re-throwing it to
+;; `dispatch-sync`'s caller. That residual — framework-wide, not specific to
+;; this arm — is rf2-fu75's, not this path's.
+;;
+;; So this test asserts the readable half on the always-on `:errors` axis,
+;; which is where a refusal is legible in dev AND in a production build. The
+;; `nil?`/`:idle` rows below are deliberately kept alongside it: they are the
+;; hollow half, and they survive a plant that deletes the signal entirely.
+;;
+;; NOTE the deliberate asymmetry with the `:optimistic-tags` regression
+;; directly above (rf2-o5ca8k), which warn-and-SKIPS. Tags are a best-effort
+;; broadcast that may match zero keys, so a malformed descriptor writes nothing
+;; under a wrong identity and must not nuke the authoritative write. An EXACT
+;; target is an assertion of cache identity, and the pre-write `:strict` policy
+;; (rf2-1vpbld) whole-arm-rejects it precisely because no server write has
+;; landed yet — the cost of refusing is a fixed source defect, not a stranded
+;; commit.
+;; ===========================================================================
+
+(defn- record-error-records!
+  "Run `body-fn` with an `:errors` listener installed; return the vector of every
+  always-on error record fanned during it (capture order).
+
+  The `:errors` stream — not stdout, not the dev trace — is where a framework
+  REFUSAL is legible: per Spec 009 §Observability channels the runtime ships no
+  default console sink, so a category that fans a record here is loud in dev AND
+  in a production build, while a category that fans nothing is invisible
+  everywhere. Sibling of the same-named helper in `resources-mutation-cljs-test`
+  (rf2-06lp)."
+  [body-fn]
+  (let [seen (atom [])
+        k    ::error-record-recorder]
+    (rf/register-listener! :errors k (fn [rec] (swap! seen conj rec)))
+    (try (body-fn)
+         (finally (rf/unregister-listener! :errors k)))
+    @seen))
+
+(def ^:private favorite-plan-vector-target
+  "`favorite-plan`, with its ONE exact target respelled as the `[id params]`
+  VECTOR — the internal storage shape, never a public input (EP-0016 Rider 2 /
+  Spec 016 §Map-form exact resource targets)."
+  {:scope :rf.scope/global
+   :params-schema [:map [:slug :string]]
+   :optimistic (fn [{:keys [slug]}]
+                 {[:r/article {:slug slug}]
+                  (fn [a] (update-in a [:article :favoritesCount] inc))})})
+
+(deftest vector-shaped-optimistic-target-refuses-readably
+  (reg-article-resource!)
+  (own-loaded! {:resource :r/article :scope :rf.scope/global :params {:slug "w"} :owner [:v :d]}
+               {:article {:favorited false :favoritesCount 9}})
+  (rf/reg-mutation :m/fav-vector favorite-plan-vector-target favorite-plan-request)
+  (let [recs (record-error-records!
+               #(rf/dispatch-sync [:rf.mutation/execute
+                                   {:mutation :m/fav-vector :params {:slug "w"}
+                                    :instance :fv1}]))
+        rec  (first (filterv #(= :rf.error/handler-exception (:error %)) recs))]
+
+    (testing "the write ABORTED at phase 1.5 — nothing minted, nothing sent"
+      (is (nil? @last-managed-args) "no write reached the transport")
+      (is (nil? (instance :fv1)) "no instance row was minted")
+      (is (= :idle (:status (mutation-state :fv1)))
+          "the passive read answers :idle — byte-identical to never having written"))
+
+    (testing "and NO optimistic paint landed under a guessed identity"
+      (is (= 9 (get-in (entry article-key) [:data :article :favoritesCount]))
+          "the cache still carries the pre-write value")
+      (is (nil? (entry [:r/article {:slug "w"}]))
+          "and the vector was NOT taken as a cache key of its own"))
+
+    ;; ---- the half the old assertions cannot make -----------------------
+    (testing "the refusal is READABLE — the runtime did not stay silent"
+      (is (some? rec)
+          ":rf.mutation/execute fanned an always-on error record")
+      (is (= :rf.mutation/execute (:event-id rec)))
+      (let [data (ex-data (:exception rec))]
+        (is (= :rf.error/mutation-invalid-target (:rf.error/id data))
+            "the canonical catalogued category, not a bare host throw")
+        (is (= :optimistic (:arm data))
+            "the refusal NAMES the offending arm")
+        (is (= :fix-mutation-target (:recovery data))
+            "and carries the catalogued recovery disposition")
+        (is (str/includes? (str (:target data)) ":r/article")
+            "and quotes the target the caller actually typed"))
+      (let [msg (str (some-> (:exception rec) ex-message))]
+        (is (str/includes? msg ":resource")
+            "the human message names the map form the caller should have used")
+        (is (str/includes? msg "mutation-invalid-target")
+            "and is tagged with the catalogued id"))))
+
+  (testing "the SAME plan spelled as the map form lowers and paints — so the
+            rejection above is a refusal of the SHAPE, not a dead arm"
+    (reset! last-managed-args nil)
+    (rf/reg-mutation :m/fav-map
+      {:scope :rf.scope/global
+       :params-schema [:map [:slug :string]]
+       :optimistic (fn [{:keys [slug]}]
+                     {{:resource :r/article :params {:slug slug} :scope :rf.scope/global}
+                      (fn [a] (update-in a [:article :favoritesCount] inc))})}
+      favorite-plan-request)
+    (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/fav-map :params {:slug "w"}
+                                             :instance :fm1}])
+    (is (some? @last-managed-args) "the request reached the transport")
+    (is (= :pending (:status (instance :fm1))))
+    (is (= 10 (get-in (entry article-key) [:data :article :favoritesCount]))
+        "the optimistic paint landed")))

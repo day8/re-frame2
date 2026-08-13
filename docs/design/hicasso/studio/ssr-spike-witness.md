@@ -17,6 +17,34 @@ rather than one still ahead. **No figure, row, digest or refusal below moves**,
 the page still publishes no verdict, and the SSR work it prices is unstarted
 either way — graduation did not start it.
 
+**A second note on tense, added 2026-08-13 (`rf2-a8c5`, following `rf2-k6bv`):
+half of the SSR work this page prices has since been started, and the paragraph
+above is left standing rather than rewritten, because it was true when it
+landed.** That paragraph merged in PR #8021 at 2026-08-12T20:48:50Z; forty
+minutes later, at 21:29:24Z, **PR #8028 landed the bounded Node/React service at
+`implementation/ssr-node/`** — under a *separate and earlier* ruling, `rf2-xpq9`
+(operator, in session, 2026-08-12 17:36 AUSEST), which made every Phase-5
+optional product v0 scope and removed `rf2-hic-056`'s *"when a named caller
+activates it"* condition.
+
+**Graduation still did not start this arm, and it did not choose it either.**
+The choice was `rf2-2rtt6.88`'s on 2026-08-08 and the start was `rf2-xpq9`'s on
+2026-08-12; neither is the graduation ruling's act, so what has aged above is
+the *"is unstarted"* half of the clause and nothing else in it.
+
+**No figure, row, digest or refusal below moves**, on the same terms the
+paragraph above set, and the page still prices work that is mostly unbuilt. Of
+the five start gates `rf2-2rtt6.88` named, the two the crossing owns are
+undischarged: gate 3's per-application **state projector**, with its round-trip
+corpus and its negative fixture — the JVM produces that projection, and a
+service that allowlists what arrives is not a projector — and gate 5's
+end-to-end **`JVM → Node → JVM` witness**, which has no JVM leg to witness,
+because `ssr-ring`'s pipeline still hard-calls `ssr/render-to-string`, the
+render seam at `build-full-response*` is unwritten, nothing deploys or
+supervises the process, and no caller is wired. Gates 1, 2 and 4 are answered
+inside the package and witnessed by its own suite, which is not the same as
+witnessed across the crossing.
+
 Bead: `rf2-2rtt6.87`, re-measured in full for `rf2-zn7pj`. Producing commit:
 **`b557ed71f4`** — a commit already on `main`. Every row below was taken at that
 commit, on one box, on 2026-08-06.

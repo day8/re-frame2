@@ -36,6 +36,14 @@
 //      dropped — and the refusal does not carry the payload either, which
 //      is the failure a diagnostic-shaped leak would take.
 //
+// Claim 3 is about the ACCEPTED SET as much as about the refusal, and the
+// set is exactly `{ undefined }`. The door shipped reading
+// `out !== undefined && out !== null`, so `return null` — a value someone
+// typed, and the likeliest deliberate return a render module has — went
+// through as a clean success. A guarantee one value short is fail-closed
+// except, so the null rows below are ordinary members of this section
+// rather than an appendix to it.
+//
 // ## EVERY ROW HAS A CONTROL, AND THE CONTROLS ARE ORDINARY ROWS
 //
 // The suite-wide discipline (see the package README) applies here with
@@ -55,6 +63,7 @@ const { withService, collect, refusalOf, post } = require('./_support.cjs');
 const { CODE, COMPLETE_FIELDS, MODULE_RETURN_REFUSAL } = require('../src/protocol.cjs');
 const { serve } = require('../src/http.cjs');
 const LEAKY = require('./fixtures/leaky.cjs');
+const NULL_RETURN = require('./fixtures/null-return.cjs');
 
 // ---------------------------------------------------------------------------
 // The two checkers. Both are ordinary functions so a control can feed them
@@ -286,10 +295,50 @@ test('the refusal does not carry the payload out through the error channel', asy
   });
 });
 
+test('CONTROL — the null fixture really does return null, and not nothing', () => {
+  // In-process, with no service in the way, and for the same reason the
+  // leaky control exists: the row below is only a measurement if the two
+  // values it has to tell apart are genuinely both on the table. `null`
+  // and `undefined` are `==`, so a fixture that had drifted into falling
+  // off its end would look identical from the outside — and would turn
+  // the refusal row into a test of nothing.
+  const emitted = [];
+  const out = NULL_RETURN.render({ entry: 'app/root', state: { ':todos': '[1]' } }, (h) =>
+    emitted.push(h),
+  );
+  assert.strictEqual(emitted.length, 1, 'it emits body markup like any other module');
+  assert.strictEqual(out, null, 'the return really is null…');
+  assert.notStrictEqual(out, undefined, '…and null is not undefined, which is the whole distinction');
+});
+
+test('a module that returns null is REFUSED too — `undefined` is the whole accepted set', async () => {
+  // The door read `out !== undefined && out !== null` for one commit, so
+  // this exact module emitted, returned, and was reported as a clean
+  // success. `undefined` is what falling off the end produces and is
+  // therefore what ABSENCE looks like; `null` is a value someone typed,
+  // and `return null` is the spelling a render module reaches for to mean
+  // "nothing to say". A guarantee that admits one deliberate value is not
+  // fail-closed, and that one value sat on the likeliest path of all.
+  //
+  // Same code, same wording: reaching for a second channel is one offence
+  // and it keeps one refusal.
+  await withService('null-return', { isolates: 1 }, async (service) => {
+    const err = await refusalOf(() =>
+      collect(service, { protocol: 1, entry: 'app/root', state: { ':todos': '[1]' } }),
+    );
+    assert.ok(err, 'returning null must not pass as a clean success');
+    assert.strictEqual(err.code, CODE.RENDER_THREW, 'the existing refusal, not a new member');
+    assert.strictEqual(err.message, MODULE_RETURN_REFUSAL, 'the contract owns the wording');
+    assert.strictEqual(err.detail.afterChunks, 1, 'it emitted first, so the response is torn');
+    assert.strictEqual(err.detail.returned, '[object Null]', 'the SHAPE, for a diagnosis');
+  });
+});
+
 test('a well-behaved module returns nothing, and the service is fine with that', async () => {
-  // The positive half of the door: `undefined` is the contract's answer,
-  // and it must not be coerced into an empty object that then trips the
-  // very check above.
+  // The positive half of the door, and — since the row above closed the
+  // null gap — the ONLY half: `undefined` is the contract's answer, it is
+  // now the entire accepted set, and it must not be coerced into an empty
+  // object that then trips the very check above.
   await withService('reference', { isolates: 1 }, async (service) => {
     const { chunks, complete } = await collect(service, req());
     assert.strictEqual(chunks.length, 1);

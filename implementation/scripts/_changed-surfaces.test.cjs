@@ -1055,6 +1055,158 @@ test('a v1 codemod change does NOT fire the rest of the matrix (rf2-0qzh)', () =
   }
 });
 
+// rf2-n8vp — the ssr-node package's lane, the same four-sided shape one tree
+// over. PR #8028 landed implementation/ssr-node/ — 26 files, 73 test rows
+// across 7 suites, runnable as `node implementation/ssr-node/test/run.cjs` —
+// and the string `ssr-node` then appeared in neither
+// implementation/package.json nor any file under .github/workflows/. So the
+// package classified to nothing, ran nowhere, and the five bounded guarantees
+// its README documents were claims rather than gates.
+//
+// The half that makes an arm real is a regression that fails when the arm goes
+// wrong, in BOTH directions: a lane that never fires is the same defect as no
+// lane, and a lane that fires on everything is the cost this bead exists to
+// avoid.
+
+const SSR_NODE_LANE = {
+  job: 'node-ssr-node',
+  output: 'ssr_node',
+  script: 'test:ssr-node',
+  dir: 'implementation/ssr-node',
+  // The runner the gate invokes, the sibling it spawns, and a fixture — one
+  // exemplar from each of the three shapes the package is made of.
+  runner: 'implementation/ssr-node/test/run.cjs',
+  src: 'implementation/ssr-node/src/service.cjs',
+  fixture: 'implementation/ssr-node/test/fixtures/bad-no-allowlist.cjs',
+};
+
+test('the ssr-node job is gated on its own output and runs the suite (rf2-n8vp)', () => {
+  const workflow = fs.readFileSync(WORKFLOW, 'utf8');
+  const block = jobBlock(workflow, SSR_NODE_LANE.job);
+  assert.match(block, /needs: detect_changed_surfaces/);
+  assert.match(
+    block,
+    /if: needs\.detect_changed_surfaces\.outputs\.ssr_node == 'true'/,
+    `${SSR_NODE_LANE.job} must be gated on ${SSR_NODE_LANE.output}`,
+  );
+  assert.match(
+    block,
+    /working-directory: implementation/,
+    `${SSR_NODE_LANE.job} must run from implementation/, where the script is defined`,
+  );
+  // It must EXECUTE the gate, not merely mention it. A job that references a
+  // command it never runs is the fail-open these rows exist to close.
+  assert.ok(
+    stepRunning(block, `npm run ${SSR_NODE_LANE.script}`),
+    `the job must run \`npm run ${SSR_NODE_LANE.script}\` as a step`,
+  );
+  // Plumbed out of detect_changed_surfaces, or the `if:` reads an empty string
+  // and the job can never run — silently.
+  assert.match(
+    workflow,
+    /ssr_node: \$\{\{ steps\.detect\.outputs\.ssr_node \}\}/,
+    `${SSR_NODE_LANE.output} must be declared as a detect_changed_surfaces output`,
+  );
+  // Required, not advisory. A job absent from the aggregator's needs: is a job
+  // a merge can skip past, which is where this artefact already was.
+  assert.ok(
+    jobBlock(workflow, 'all-required-passed').includes(`- ${SSR_NODE_LANE.job}`),
+    `aggregator must list ${SSR_NODE_LANE.job} in needs:`,
+  );
+});
+
+test('the ssr-node gate command exists and points at the package runner (rf2-n8vp)', () => {
+  // NON-VACUITY. Gating a job on an npm script is worth nothing if the script
+  // is absent or runs something else: `npm run` on a missing script exits
+  // non-zero, so the job would red for a reason unrelated to the package, and a
+  // repointed one would go green having run somebody else's suite. Resolve the
+  // command's path argument the way the job does — relative to
+  // `working-directory: implementation` — and require the answer to be the
+  // runner this lane names.
+  const pkg = JSON.parse(
+    fs.readFileSync(path.join(IMPL_ROOT, 'package.json'), 'utf8'),
+  );
+  const command = pkg.scripts[SSR_NODE_LANE.script];
+  assert.ok(command, `implementation/package.json must define ${SSR_NODE_LANE.script}`);
+  const arg = /^node\s+(\S+)$/.exec(command.trim());
+  assert.notEqual(arg, null, `${SSR_NODE_LANE.script} must be a bare \`node <runner>\` invocation`);
+  const resolved = path
+    .relative(REPO_ROOT, path.resolve(IMPL_ROOT, arg[1]))
+    .replace(/\\/g, '/');
+  assert.equal(
+    resolved,
+    SSR_NODE_LANE.runner,
+    `the script runs ${resolved}, so that is the file this lane must arm on`,
+  );
+  assert.ok(
+    fs.existsSync(path.join(REPO_ROOT, resolved)),
+    `${resolved} must exist — the job invokes it and reds on a move`,
+  );
+});
+
+test('the ssr-node lane arms on its own tree (rf2-n8vp)', () => {
+  for (const file of [
+    SSR_NODE_LANE.src,
+    SSR_NODE_LANE.runner,
+    SSR_NODE_LANE.fixture,
+    'implementation/ssr-node/README.md',
+    // The gate is DEFINED here and nowhere else, so an edit that renamed or
+    // emptied the script must run it.
+    'implementation/package.json',
+  ]) {
+    assert.equal(
+      classify(file)[SSR_NODE_LANE.output],
+      'true',
+      `${file} must arm ${SSR_NODE_LANE.output}`,
+    );
+  }
+});
+
+test('the ssr-node lane stays dark for surfaces it does not depend on (rf2-n8vp)', () => {
+  // A rule that matches everything is as useless as one that matches nothing,
+  // and the two SIBLINGS matter most: `implementation/ssr/` and
+  // `implementation/ssr-ring/` are different artefacts one character apart, and
+  // a `implementation/ssr*` pattern would swallow all three. shadow-cljs.edn
+  // and the lockfile are here for the other half of the scoping: no build id
+  // reaches this package and it declares no npm dependency, so neither can
+  // change what the runner executes.
+  for (const file of [
+    'implementation/ssr/src/re_frame/ssr.cljc',
+    'implementation/ssr-ring/deps.edn',
+    'implementation/core/src/re_frame/core.cljc',
+    'implementation/shadow-cljs.edn',
+    'implementation/package-lock.json',
+    'spec/006-ReactiveSubstrate.md',
+  ]) {
+    assert.equal(
+      classify(file)[SSR_NODE_LANE.output],
+      'false',
+      `${file} has no edge into the ssr-node package's runner`,
+    );
+  }
+});
+
+test('an ssr-node change fires that lane and NOTHING else (rf2-n8vp)', () => {
+  // THE WHOLE REASON THIS OUTPUT IS ITS OWN. One entry in
+  // implementation/package.json arms eleven expensive lanes — the Hicasso
+  // browser matrix among them — none of which this package's files have any
+  // edge into. Folding ssr-node into an existing output, or letting it reach
+  // the generic build-config arm, would make every future edit here pay for
+  // that matrix and STILL not run the 73 rows. So the assertion is exact: an
+  // ssr-node-only diff arms `ssr_node` and leaves every other output false.
+  const result = classify(SSR_NODE_LANE.src);
+  assert.equal(result[SSR_NODE_LANE.output], 'true');
+  for (const [output, value] of Object.entries(result)) {
+    if (output === SSR_NODE_LANE.output) continue;
+    assert.equal(
+      value,
+      'false',
+      `an ssr-node-only diff must not arm ${output} — the package is plain `
+        + 'CommonJS on node builtins, with no build, classpath or npm edge',
+    );
+  }
+});
+
 // rf2-8m344 — the viewer PAGE lane, same three-part shape. The `:machines-viz-
 // viewer` build was declared in implementation/shadow-cljs.edn and compiled by
 // no workflow, npm script or gate, while README.md and spec/API.md documented
