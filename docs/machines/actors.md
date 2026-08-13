@@ -330,7 +330,8 @@ A spawned actor is destroyed when:
 
 Destroy releases exactly three framework-managed kinds:
 
-- in-flight `:rf.http/managed` requests this actor issued (the reply is
+- in-flight `:rf.http/managed` requests this actor issued (the reply arrives
+  with `:status :cancelled` and an `:error` of
   `{:kind :rf.http/aborted :reason :actor-destroyed}`);
 - this actor's armed `:after` timers;
 - `:rf.resource/*` owners this actor holds.
@@ -423,6 +424,8 @@ Rules:
 
 - **Each child needs a unique `:id`** (the join key) on top of the usual
   spawn keys. Duplicates are `:rf.error/machine-spawn-all-duplicate-id`.
+- **`:on-child-done` and `:on-child-error` are required** event keywords —
+  missing either is `:rf.error/machine-spawn-all-bad-shape`.
 - **`:join` is only `:all` or `:any`.** There is no `{:n n}` and no
   predicate. Quorum ("N of M") is `:after` / `:always` plus a
   `:done-guard` that reads the join's done count — not a `:join` mode.

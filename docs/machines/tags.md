@@ -90,7 +90,7 @@ The query is this subscription:
 
 ```clojure
 (rf/reg-view sign-in-button []
-  (let [busy? @(rf/subscribe [:rf.machine/has-tag? :auth.login/flow :auth/busy])]
+  (let [busy? @(subscribe [:rf.machine/has-tag? :auth.login/flow :auth/busy])]
     [:button {:disabled busy?} "Sign in"]))
 ```
 
@@ -157,7 +157,7 @@ The root view branches once:
 
 ```clojure
 (rf/reg-view root-view []
-  (case @(rf/subscribe [:ui/render])
+  (case @(subscribe [:ui/render])
     :done      [view-done]
     :correct   [view-correct]
     :incorrect [view-incorrect]
@@ -174,7 +174,7 @@ the data bucket — living in one table. Adding a render case is one row plus on
 
 ```clojure
 (rf/reg-view new-todo-form []
-  (let [read-only? @(rf/subscribe [:rf.machine/has-tag? :ui/nine-states :mode/read-only])]
+  (let [read-only? @(subscribe [:rf.machine/has-tag? :ui/nine-states :mode/read-only])]
     [:button {:disabled read-only?} "Add"]))
 ```
 

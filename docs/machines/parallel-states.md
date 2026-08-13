@@ -194,6 +194,23 @@ Root targets are region-qualified:
 A bare keyword target at the root of a parallel machine is rejected at
 registration with `:rf.error/machine-parallel-root-on-bad-target`.
 
+A parallel root may also declare its own `:after` — the timer-driven analog
+of the root `:on`. It arms at machine birth and belongs to the root, so no
+region's own transitions cancel or restart it.
+
+## When every region finishes
+
+When every region reaches a `:final?` leaf, the root's `:on-done` fires. A
+parallel root's `:on-done` runs its `:action` and emits its `:fx` only; a
+`:target` is rejected at registration
+(`:rf.error/machine-parallel-on-done-target`) because the root has no
+sibling state to land on. The machine stays in the all-final configuration.
+
+Without a root `:on-done`, all-regions-final ends the machine the way a
+root-level `:final?` leaf does: a singleton is destroyed, and a spawned
+child reports to its parent
+([Actors](actors.md#when-a-child-finishes)).
+
 ## Coordinating regions: tags as `stateIn`
 
 A region guard or action gets two extra context keys. They appear only inside a
