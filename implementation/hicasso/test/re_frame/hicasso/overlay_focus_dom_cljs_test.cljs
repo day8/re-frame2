@@ -237,6 +237,70 @@
     [:button#ghost {:type "button" :style {:visibility "hidden"}} "Ghost"]]
    [:button#after {:type "button"} "After"]])
 
+;; THE TWO THE PAGE ABOVE DOES NOT COVER, and they are separate pages for
+;; the reason the two above it are: each puts its ghost LAST, and a panel
+;; can only have one last element. They differ from the hidden one in the
+;; only way that matters here — the platform still calls them VISIBLE, so
+;; `checkVisibility` cannot reach them and the exclusion has to be asked
+;; for another way.
+
+(h/defview a-page-with-a-modal-whose-last-control-is-inert [_]
+  ;; A TRAILING `inert` REGION, which is ordinary modal markup: the step
+  ;; of a wizard the user has not arrived at yet, painted but switched
+  ;; off. Document order is [reason ok cancel ghost]; sequential order is
+  ;; [reason ok cancel], because an inert subtree takes no focus.
+  ;;
+  ;; `ghost` is LAST for the reason the hidden page gives, and its
+  ;; wrapper carries the attribute rather than the button itself so the
+  ;; row measures INHERITED inertness — the shape a wizard actually has,
+  ;; and the one a predicate reading only the element in hand misses.
+  [:div
+   [:button#before {:type "button"} "Before"]
+   [:button#trigger {:type "button" :on-click [::opened]} "Open"]
+   [overlay/modal {:open?      (h/sub [::open?])
+                   :on-dismiss [::dismissed]
+                   :label      "Confirm"}
+    [:input#reason {:type "text" :aria-label "Reason"}]
+    [:button#ok {:type "button"} "OK"]
+    [:button#cancel {:type "button"} "Cancel"]
+    [:div#later {:inert true}
+     [:button#ghost {:type "button"} "Ghost"]]]
+   [:button#after {:type "button"} "After"]])
+
+(h/defview a-page-with-a-modal-whose-last-control-is-in-a-disabled-fieldset [_]
+  ;; A TRAILING `disabled` `<fieldset>`, equally ordinary: a form section
+  ;; switched off until an earlier choice enables it. Document order is
+  ;; [reason ok cancel ghost]; sequential order is [reason ok cancel].
+  ;;
+  ;; The fieldset also carries the case that says WHICH reading is
+  ;; correct. `ghost.disabled` is FALSE — the IDL property reflects the
+  ;; element's own attribute and the element has none — so the property
+  ;; the predicate used to read cannot see this at all, while the
+  ;; `:disabled` PSEUDO-CLASS matches the effective state. The row below
+  ;; asserts both halves of that, because the gap between them is the
+  ;; whole defect.
+  [:div
+   [:button#before {:type "button"} "Before"]
+   [:button#trigger {:type "button" :on-click [::opened]} "Open"]
+   [overlay/modal {:open?      (h/sub [::open?])
+                   :on-dismiss [::dismissed]
+                   :label      "Confirm"}
+    [:input#reason {:type "text" :aria-label "Reason"}]
+    [:button#ok {:type "button"} "OK"]
+    [:button#cancel {:type "button"} "Cancel"]
+    [:fieldset#later {:disabled true}
+     ;; The FIRST `<legend>` of a disabled fieldset is NOT disabled, and
+     ;; `legend-button` is here to hold that boundary: it is the one
+     ;; control in this subtree the engine still focuses, so a fix that
+     ;; excluded the whole fieldset by walking ancestors would drop a
+     ;; REAL stop and move the panel's last edge onto `cancel`'s
+     ;; predecessor. It is written before `ghost` and is therefore not
+     ;; the edge; the forward cycle names it, which is how the row
+     ;; notices if it ever stops being a stop.
+     [:legend [:button#legend-button {:type "button"} "Legend"]]
+     [:button#ghost {:type "button"} "Ghost"]]]
+   [:button#after {:type "button"} "After"]])
+
 ;; `:async? true` — the MAP shape — because the trusted-input row below
 ;; is `(async done …)`. `make-reset-runtime-fixture` returns the
 ;; POSITIONAL fn by default, and cljs.test throws a bare string that
@@ -744,6 +808,160 @@
                   (finally (finish)))))
             (catch :default e
               (is false (str "the hidden-trailing-control row threw: "
+                             (.-message e)))
+              (finish))))))))
+
+;; ---------------------------------------------------------------------------
+;; The two the platform still calls VISIBLE
+;; ---------------------------------------------------------------------------
+;;
+;; SAME DEFECT, AND THE REASON THE ROW ABOVE COULD NOT REACH THEM. That
+;; row is answered by `checkVisibility`, because `visibility:hidden` and a
+;; closed `<details>` are exactly what the platform means by not visible.
+;; An `inert` region and a `disabled` `<fieldset>` are PAINTED — the user
+;; can read them, they are simply switched off — so `checkVisibility`
+;; answers true for both, measured, and no amount of visibility reasoning
+;; will exclude them.
+;;
+;; They were left counted with the argument that a surplus candidate only
+;; ever costs a wrap that does not fire. rf2-5lzq had already priced that
+;; wrong at the last position — a surplus at the END is what `peek`
+;; returns — and the reason given for leaving these two anyway was that no
+;; measured markup puts either of them last. These two pages are that
+;; markup, and both are the ordinary kind: the wizard step not yet reached,
+;; and the form section a prior answer has not unlocked. Both were measured
+;; taking `document.activeElement` to `<body>` on BOTH edges.
+
+(deftest a-real-tab-wraps-past-a-trailing-inert-region
+  (if-not (browser?)
+    (skip! ":node-test has no modality, and no engine to press a key at")
+    (if-not (trusted/bridge?)
+      (trusted/unwitnessed! "the trap over a panel ending in an inert region")
+      (async done
+        (let [m      (hm/mount! [a-page-with-a-modal-whose-last-control-is-inert {}])
+              finish (fn [] (hm/unmount! m) (done))]
+          (try
+            (open! m)
+            (is (.contains ($ m "dialog") (active))
+                "premise: opening put focus inside the panel")
+
+            ;; THE PREMISES, and they are the row. If the attribute never
+            ;; reached the DOM the panel would be three ordinary controls
+            ;; and every cycle below would pass without measuring
+            ;; anything — so the condition is asserted rather than assumed.
+            (is (some? (.closest ($ m "#ghost") "[inert]"))
+                "premise: the ghost really does sit under an `inert`
+                 ancestor — INHERITED, not carried on the button itself")
+            (is (true? (.checkVisibility ($ m "#ghost")
+                                         #js {"visibilityProperty" true}))
+                "premise: and the platform calls it VISIBLE, which is why
+                 the `checkVisibility` repair that answered the hidden
+                 control cannot answer this one")
+            (is (false? (focusable? ($ m "#ghost")))
+                "premise: the engine refuses focus on it all the same, so
+                 it is an element of the panel and not a stop of it")
+
+            (both-edges!
+              m "#reason" 5
+              (fn [forward backward]
+                (try
+                  (is (= ["ok" "cancel" "reason" "ok" "cancel"] forward)
+                      (str "THE CYCLE, FORWARD. `cancel` is the last stop, "
+                           "so Tab off it lands on `reason`. Against the "
+                           "predicate that counted an inert element, the "
+                           "computed edge was `ghost`, the press off "
+                           "`cancel` matched nothing, and the third landing "
+                           "was `body` — measured. Pressed: " (pr-str forward)))
+                  (is (= ["cancel" "ok" "reason" "cancel" "ok"] backward)
+                      (str "THE CYCLE, BACKWARD. Shift+Tab off `reason` "
+                           "lands on `cancel`. Against that predicate the "
+                           "wrap AIMED at `ghost`, `.focus()` declined, "
+                           "`preventDefault` was correctly withheld, and "
+                           "withholding it is what put the FIRST landing on "
+                           "`body` — measured. Pressed: " (pr-str backward)))
+                  (is (empty? (filter #{"before" "trigger" "after" "body" "ghost"}
+                                      (concat forward backward)))
+                      (str "and not one landing in either lap was a control "
+                           "of the page behind, the nowhere between them, or "
+                           "the switched-off button itself. Pressed: "
+                           (pr-str (concat forward backward))))
+                  (finally (finish)))))
+            (catch :default e
+              (is false (str "the inert-trailing-region row threw: "
+                             (.-message e)))
+              (finish))))))))
+
+(deftest a-real-tab-wraps-past-a-trailing-disabled-fieldset
+  (if-not (browser?)
+    (skip! ":node-test has no modality, and no engine to press a key at")
+    (if-not (trusted/bridge?)
+      (trusted/unwitnessed! "the trap over a panel ending in a disabled fieldset")
+      (async done
+        (let [m      (hm/mount!
+                       [a-page-with-a-modal-whose-last-control-is-in-a-disabled-fieldset {}])
+              finish (fn [] (hm/unmount! m) (done))]
+          (try
+            (open! m)
+            (is (.contains ($ m "dialog") (active))
+                "premise: opening put focus inside the panel")
+
+            ;; THE PREMISE THAT NAMES THE READING. The property and the
+            ;; pseudo-class disagree here, and that disagreement is the
+            ;; entire defect: one reflects the element's own attribute,
+            ;; the other the state the engine actually enforces.
+            (is (false? (.-disabled ($ m "#ghost")))
+                "premise: `ghost.disabled` is FALSE — the IDL property
+                 reflects the button's own attribute and it has none, so
+                 the property reading cannot see this case at all")
+            (is (true? (.matches ($ m "#ghost") ":disabled"))
+                "premise: while `:disabled` matches, because the
+                 pseudo-class is the EFFECTIVE state the fieldset imposes")
+            (is (true? (.checkVisibility ($ m "#ghost")
+                                         #js {"visibilityProperty" true}))
+                "premise: and it is VISIBLE — painted and greyed, not
+                 hidden — so #8093's repair does not reach it either")
+            (is (false? (focusable? ($ m "#ghost")))
+                "premise: the engine refuses focus on it")
+
+            ;; THE OTHER DIRECTION, and it is why this fix asks the
+            ;; pseudo-class rather than walking up to a `fieldset[disabled]`.
+            (is (true? (focusable? ($ m "#legend-button")))
+                "premise: the FIRST `<legend>`'s contents are NOT disabled
+                 by the fieldset, so `legend-button` is a REAL stop inside
+                 the switched-off section — an exclusion that dropped the
+                 whole subtree would lose it, and losing a stop makes the
+                 wrap fire at the wrong control rather than merely miss")
+
+            (both-edges!
+              m "#reason" 5
+              (fn [forward backward]
+                (try
+                  (is (= ["ok" "cancel" "legend-button" "reason" "ok"] forward)
+                      (str "THE CYCLE, FORWARD, and the last stop is "
+                           "`legend-button` — not `cancel`, and not "
+                           "`ghost`. Against the predicate that read the "
+                           "`.disabled` PROPERTY, the computed edge was "
+                           "`ghost`, and the fourth landing was `body` — "
+                           "measured. A fix that excluded the fieldset "
+                           "wholesale reds here the other way, landing the "
+                           "wrap on `cancel`. Pressed: " (pr-str forward)))
+                  (is (= ["legend-button" "cancel" "ok" "reason" "legend-button"]
+                         backward)
+                      (str "THE CYCLE, BACKWARD. `reason` is the first "
+                           "stop, so Shift+Tab off it lands directly on "
+                           "`legend-button`. Against that predicate the "
+                           "wrap aimed at `ghost`, could not land, and the "
+                           "FIRST landing was `body` — measured. Pressed: "
+                           (pr-str backward)))
+                  (is (empty? (filter #{"before" "trigger" "after" "body" "ghost"}
+                                      (concat forward backward)))
+                      (str "and not one landing in either lap was a control "
+                           "of the page behind, the nowhere between them, or "
+                           "the disabled button itself. Pressed: "
+                           (pr-str (concat forward backward))))
+                  (finally (finish)))))
+            (catch :default e
+              (is false (str "the disabled-fieldset row threw: "
                              (.-message e)))
               (finish))))))))
 
