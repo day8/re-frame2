@@ -8,7 +8,7 @@ The application is `re-frame.hicasso.examples.slice.*` under `implementation/hic
 
 ## What the application actually needed
 
-The most useful single fact for a facade freeze is the list of doors an ordinary application reaches for. This one reaches four namespaces and, within `re-frame.hicasso`, **nine names and three keywords**:
+The most useful single fact for a facade freeze is the list of doors an ordinary application reaches for. This one reaches four namespaces and, within `re-frame.hicasso`, **nine names and two keywords**:
 
 | Reached | Used for |
 |---|---|
@@ -19,9 +19,9 @@ The most useful single fact for a facade freeze is the list of doors an ordinary
 | `route-link` | two link sites |
 | `reg-state` | one per-row disclosure flag |
 | `root!` / `render!` / `unmount!` | the entry point and its `^:dev/after-load` hook |
-| `::h/value` · `::h/checked` · `::h/revision` | the two controlled text fields, the checkbox, and the discard |
+| `::h/value` · `::h/checked` | the two controlled text fields, and the checkbox |
 
-**Never reached, in an application deliberately chosen to be broad:** `portal`, `as-element`, `as-component`, `defhost`, `hfn`, `hframe`, `motion/presence`, and the whole native tier. Each has a real use case named in the specification; none of them is *ordinary*. `hfn` is the sharpest of these — it is the one callback form, and an application with two text fields, a checkbox, a select and five buttons never needed one, because an intent vector said everything.
+**Never reached, in an application deliberately chosen to be broad:** `portal`, `as-element`, `as-component`, `defhost`, `hfn`, `hframe`, `motion/presence`, and the whole native tier. `::h/revision` belongs on this list too, and the story of how it got there is finding 5: it was reached for, written into two fields and two handlers, and then measured to be doing nothing. Each has a real use case named in the specification; none of them is *ordinary*. `hfn` is the sharpest of these — it is the one callback form, and an application with two text fields, a checkbox, a select and five buttons never needed one, because an intent vector said everything.
 
 The import discipline is asserted mechanically rather than reviewed: `surface-cljs-test` reads each application namespace's `:requires` / `:require-macros` / `:uses` / `:use-macros` off the ClojureScript analyzer and pins that roster of four, so a fifth door cannot arrive quietly.
 
@@ -83,19 +83,28 @@ Mixing the two in one body is legal and unremarked: `use-subs` sets a `grouped` 
 
 Consistent with the operator's standing ruling that grouped `use-subs` sits below the ergonomics bar.
 
-### 5. `::h/revision` works, and the counter behind it is the author's to invent
+### 5. The counter this report asked for was not needed — WITHDRAWN AND REPLACED (rf2-36bd)
 
-The reset law is right and the slice depends on it. What the slice discovered is that the **most ordinary** use of it — a *Discard changes* button — does not work without bookkeeping the application has to add:
+**This finding said the opposite, and it was wrong.** It read:
 
-```clojure
-{:db (-> db
-         (update :drafts dissoc slug)                  ;; the model moves back
-         (update-in [:revision slug] (fnil inc 0)))}   ;; …and this is what the field takes
-```
+> The reset law is right and the slice depends on it. What the slice discovered is that the **most ordinary** use of it — a *Discard changes* button — does not work without bookkeeping the application has to add […] So an `app-db` key, a `(fnil inc 0)` in two handlers and a subscription exist for no reason a reader of the application can see […] The mechanism should stay; what is missing is that nothing on the door says *you will need a counter*. A worked discard in the guide would probably close it.
 
-Dropping the draft moves the model back to a value the field is **already showing**, so React's own value diff sees nothing to do and the typed text stays on the glass. The revision bump is what re-baselines it. So an `app-db` key, a `(fnil inc 0)` in two handlers and a subscription exist for no reason a reader of the application can see, and their absence is a bug that shows up only when a user discards after typing — the exact case a hurried author will not have.
+It rested on a row that could not see its own subject. `flow-dom-cljs-test`'s reset row asserted the field's value after a discard and said, in its own failure message, that *the changed `::h/revision` is what re-baselines it*. rf2-hic-026's slice review deleted the bump from `::discard` — nothing else touched — and the browser lane came back at **1474 tests, 9154 assertions, 0 failures, captured exit 0**, byte-identical to the control. Ten files recompiled, so the plant was in the bundle. The bookkeeping this finding called load-bearing had never been carried by anything.
 
-The mechanism should stay; what is missing is that nothing on the door says *you will need a counter*. A worked discard in the guide would probably close it.
+**Why it is inert, which is the part a guide row actually needs.** `impl/codec`'s `revision-key` states the whole delivery: *the revision is a value the body reads, and its change **re-runs the body***; the re-run re-commits the element and the commit re-asserts the model over whatever the DOM holds. React marks that host update on props-object **identity** (HD-004 refuses prop-object caching), so **any** re-render of the boundary does the same re-assert for free. A discard already moves three of this editor's reads — the draft, the dirty flag, the save status — so the body re-runs whatever the counter does.
+
+That was measured too, and against the hardest case rather than the easy one. A probe drifted a field's DOM by an **eventless value write** — the shape a password manager, an autofill or a translation extension has, and the shape the controlled-input testbed's `revision` arm uses deliberately — and then discarded, with the bump deleted. The drift was repaired. There is no DOM state in this application that can tell the counter's presence from its absence.
+
+So the counter came out: the `:revision` key, `db/revision`, the two `(fnil inc 0)`s, `::subs/revision` and both `::h/revision` props. The slice reaches **two** of the three reserved keyword markers, not three.
+
+**What replaces the finding.** `::h/revision` is the door for a reset that leaves **every other read the body makes `=`**. Two populations get there and the slice is in neither:
+
+- a **normalising or refusing** field whose typed value lands back on the value the model already holds, so nothing moves at all — `examples/editor`'s slug field is written for exactly this;
+- a DOM that **drifted by a route React never saw** — autofill, an extension, a live IME composition — re-asserted by a control that changes no other state. The testbed's `revision` / `revision-strict` arms drive precisely that, with a bare *bump revision* button, and they are the only witnesses in the corpus measured to red on a deleted trigger.
+
+**So the guide row this finding asked for should be inverted.** Not *you will need a counter* — most authors will not, and a row teaching one to the ordinary-discard population would have every reader adding an `app-db` key, a subscription and two `fnil`s that do nothing. The row worth writing gives them the **test**: *if your reset leaves every value your body reads equal, you need `::h/revision`; if it moves any of them, React's own commit has already done it.*
+
+> A caution the corpus earns: `examples/editor`'s `what-the-revision-bump-is-actually-load-bearing-FOR` presents itself as the measured counterpart to this finding, and it stayed green on a deleted bump too (**rf2-5h9k**). Do not write the guide row from it until that is settled.
 
 ### 6. Two clicks on one page settle differently, and nothing says which
 
