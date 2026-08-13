@@ -167,7 +167,7 @@
 
   Throws rather than answers empty. An empty population passes every
   fence VACUOUSLY, and a macro that returns `[]` because a source root
-  moved would turn three suites green while proving nothing."
+  moved would turn all six suites green while proving nothing."
   [package-sym]
   (let [package  (name package-sym)
         rel-path (-> package (str/replace "." "/") (str/replace "-" "_"))
