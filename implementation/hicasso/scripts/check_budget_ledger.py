@@ -36,8 +36,8 @@ THE TWO THINGS IT EXISTS TO PREVENT, stated plainly:
   has ruled against; a gate that greened it would be the normalisation
   budgets.md §5 forbids. So a `BREACH` row does not redden this gate —
   an UNRECORDED breach does. L3 is the whole of that: every not-green
-  row names an owner and a disposition record, and that record has to
-  exist and name the row.
+  row names a bead reference and a disposition record, and that record
+  has to exist and name the row.
 
 THE RULES
 ---------
@@ -434,7 +434,7 @@ def check(rows, registered, sections, existing_files):
         if not _AUTHORITY_RE.match(row["authority"]):
             failures.append(
                 "L3 %s names authority %r, which is not a bead id. Every row "
-                "has an owner" % (rid, row["authority"]))
+                "names a bead reference" % (rid, row["authority"]))
         if row["status"] != PASSING_STATUS:
             link = _LINK_RE.search(row["disposition"])
             if not link:
@@ -772,8 +772,9 @@ def main(argv=None):
     print("An Authority cell is read for SHAPE, not for life. This gate reads "
           "two markdown files and has no tracker access, so it cannot see "
           "that a named bead has closed:")
-    print("a row can name an owner and have none. Whether the named beads are "
-          "open is a question for a reader, and it is not certified here.")
+    print("a row can name a bead reference and have no live owner. Whether "
+          "the named beads are open is a question for a reader, and it is not "
+          "certified here.")
     print("This is a verdict about the RECORD. It is not a statement that any "
           "budget is met -- %d rows are not MET."
           % (len(rows) - counts["MET"]))
