@@ -70,8 +70,7 @@ theme:
       toggle:
         icon: material/weather-sunny
         name: Switch to light mode
-  # Body type is not on Google Fonts (Gorton / Routed Gothic). Disable
-  # Material's Google Fonts loader; extra_css sets --md-text-font.
+  # Body type is self-hosted Gorton Digital (not on Google Fonts).
   font: false
   features:
     - navigation.tabs
