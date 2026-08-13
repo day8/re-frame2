@@ -134,10 +134,27 @@
     spec-self #"(?i)empty-descendant leaf"]
 
    ;; docs/machines/concepts.md
-   ["concepts: runtime `internal?` flag narrower than XState `internal`"
-    concepts-self #"(?is)runtime\s+`internal\?`\s+flag\s+is\s+narrower"]
-   ["concepts: the targetless no-op is named"
-    concepts-self #"(?i)targetless\**\s+no-op alone"]
+   ;;
+   ;; rf2-s41i re-points this surface's two pins. They were anchored on the
+   ;; parenthetical that carried the XState-parity disambiguation — "XState
+   ;; calls that non-reentering shape `internal`; re-frame2's runtime
+   ;; `internal?` flag is narrower — it's the **targetless** no-op alone".
+   ;; The rf2-9d0d guide rewrite deleted that parenthetical and now teaches
+   ;; the three self-transition shapes as a table that never says `internal`
+   ;; at all. That is not the drift this guard exists to catch — the
+   ;; conflation is impossible in prose that does not use the word, and the
+   ;; FORBIDDEN half still scans this same slice, so re-introducing it fails.
+   ;; Re-injecting the deleted parenthetical would revert an operator-authored
+   ;; rewrite, so the pins follow the guide instead: they now hold the SAME
+   ;; distinction the parenthetical carried — targetless is the action-only
+   ;; geometry, and a targeted self on a COMPOUND is not a no-op because it
+   ;; re-resolves descendants. The normative statement of the disambiguation
+   ;; is unaffected: Spec 005 §Self-transitions still carries all four of its
+   ;; pins below, including the `internal?`/XState-parity labels.
+   ["concepts: targetless is the action-only shape"
+    concepts-self #"(?is)\(targetless\).{0,60}?action only"]
+   ["concepts: a targeted self on a compound re-resolves descendants"
+    concepts-self #"(?is)compound\s+re-resolves\s+descendants"]
 
    ;; transition.cljc runtime prose
    ["impl: `compute-cascade-paths` keeps `explicit target is NEVER internal`"
