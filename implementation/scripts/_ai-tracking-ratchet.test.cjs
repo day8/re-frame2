@@ -359,7 +359,9 @@ test('ARM 7: an unresolvable base ref fails closed rather than passing vacuously
 
     // The realistic shape, taking the DEFAULT base: a root commit, which is
     // also what a depth-1 shallow clone looks like to this gate. This is why
-    // portability.yml checks out with fetch-depth: 2.
+    // portability.yml checks out with fetch-depth: 2 — the depth that holds
+    // HEAD^ for the manual-dispatch fallback. (This assertion outlived a spell
+    // when the workflow said 0; rf2-uol6 put the file back in step with it.)
     const rootCommit = h.run();
     assert.equal(rootCommit.status, 1, 'an unresolvable HEAD^ must fail, not pass');
     assert.match(rootCommit.stderr, /cannot resolve base ref HEAD\^/);
@@ -436,6 +438,59 @@ test('ARM 8: a multi-commit push — an ai/ path added before the tip escapes HE
 });
 
 // ---------------------------------------------------------------------------
+// ARM 9 — AN ABSENT BASE SHA FAILS CLOSED. The tooth for rf2-uol6, and the one
+// that makes a SHALLOW CI checkout safe to run this gate under.
+//
+// `git rev-parse --verify --quiet <40-hex>` echoes the sha back with EXIT 0 even
+// when the object is not in the store: for a full-length hex name git does not
+// consult the object database at all. The gate's fail-closed guard therefore did
+// not fire on the one shape a shallow clone actually produces — an accepted base
+// deeper than the fetch. `git ls-tree` then failed INTO A PIPELINE, whose POSIX
+// status is `sort`'s, so `set -e` did not fire either, and the two leaks composed
+// into "END STATE reached", exit 0, over a base that was never read.
+//
+// The negative control is the pre-fix resolution itself, run against this
+// fixture: `git rev-parse --verify --quiet <sha>` exits 0 here, which is exactly
+// what the old guard consulted. So the fixture DISCRIMINATES — it is not a base
+// that everything would reject.
+
+test('ARM 9: a base sha absent from the object store fails closed, not vacuously green', () => {
+  withFixtureRepo((h) => {
+    h.write('README.md', '# fixture\n');
+    seedAi(h, 2);
+    h.commit('seed');
+    h.write('README.md', '# fixture, edited\n');
+    h.commit('a second commit, so HEAD^ resolves and only the ABSENT base is at issue');
+
+    // Well-formed, syntactically valid, and not an object in this repository —
+    // the shape `github.event.before` takes in an over-shallow clone.
+    const absent = '0123456789abcdef0123456789abcdef01234567';
+
+    // NEGATIVE CONTROL: the resolution the gate used BEFORE this arm existed.
+    // It exits 0 on this very sha, so the old guard let it through.
+    const legacyResolve = spawnSync(
+      'git',
+      ['rev-parse', '--verify', '--quiet', absent],
+      { cwd: h.root, encoding: 'utf8' },
+    );
+    assert.equal(
+      legacyResolve.status,
+      0,
+      'negative control: `rev-parse --verify` PASSES an absent 40-hex sha — the fixture discriminates',
+    );
+
+    const r = h.run(absent);
+    assert.equal(r.status, 1, 'an absent base sha must fail closed');
+    assert.match(r.stderr, new RegExp(`cannot resolve base ref ${absent}`));
+    assert.doesNotMatch(
+      r.stdout,
+      /END STATE reached/,
+      'the gate must not certify an end state it read no base for',
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Non-vacuity of the SUITE itself: the arms above are not all failures. If a
 // future edit made the gate fail unconditionally, arms 1, 3, 6a and the drain
 // would catch it — this asserts that mix is actually present, so the suite
@@ -447,6 +502,7 @@ test('SUITE: the arms include genuine passes, so a fail-everything gate is caugh
   assert.ok(names.some((n) => n.startsWith('ARMS 3+4')), 'the decrease-then-increase sequence must be present');
   assert.ok(names.some((n) => n.startsWith('ARMS 6a+6b')), 'the end-state sequence must be present');
   assert.ok(names.some((n) => n.startsWith('ARM 8')), 'the multi-commit push tooth must be present');
+  assert.ok(names.some((n) => n.startsWith('ARM 9')), 'the absent-base fail-closed tooth must be present');
 });
 
 let failed = 0;

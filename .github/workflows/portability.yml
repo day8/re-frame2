@@ -152,25 +152,50 @@ jobs:
     name: No newly tracked files under ai/
     runs-on: ubuntu-latest
     steps:
-      # fetch-depth: 0 is REQUIRED, not incidental (rf2-ow7dz, rf2-7hq4l). The
-      # gate compares the tracked ai/ set against the last ACCEPTED state, and
-      # that base is the event's accepted base — resolved in the step below,
-      # NOT HEAD^:
+      # THE BASE IS ONE NAMED COMMIT, so the checkout fetches TWO and the step
+      # below fetches THAT ONE (rf2-uol6). This job used fetch-depth: 0 and spent
+      # 211 of its 216 seconds cloning history it never walked — measured over
+      # three runs (216 / 216 / 233s) against 14–16s for its two siblings, which
+      # made it the most expensive job on every PR by more than 3x.
+      #
+      # WHAT THE GATE ACTUALLY NEEDS FROM HISTORY, measured rather than inferred
+      # from the flag name: the base COMMIT OBJECT AND ITS TREE, and nothing
+      # else. The script resolves the base and then runs `git ls-tree` on it; it
+      # never walks an ancestor. A `git fetch --depth=1 origin <sha>` of a
+      # 1200-commit-deep sha took 2.8s and made `ls-tree` succeed while that
+      # commit's own PARENT stayed unresolvable — which is the proof that no
+      # ancestry is required.
+      #
+      # THE BASE IS STILL THE EVENT'S ACCEPTED BASE, unchanged (rf2-ow7dz,
+      # rf2-7hq4l) — resolved in the step below, NOT HEAD^:
       #   * push to main: github.event.before, the tip main pointed at before
       #     this push. On a MULTI-COMMIT push HEAD^ is only the second-to-last
       #     commit of this same push, so a path first tracked in an earlier
       #     commit and retained at the tip is present on both sides and escapes
-      #     (the rf2-7hq4l defect). The accepted base can be arbitrarily deep,
-      #     so a full checkout is the only depth that is guaranteed to hold it.
+      #     (the rf2-7hq4l defect). The accepted base can be arbitrarily deep —
+      #     which is why it is FETCHED BY NAME rather than cloned up to.
       #   * pull_request: github.event.pull_request.base.sha, the base-branch
       #     tip — which equals the merge commit's first parent, so HEAD^ was
       #     already sound here; the base sha is passed explicitly so both event
       #     shapes share one contract instead of relying on HEAD^ by accident.
+      #
+      # WHY 2 AND NOT 1. workflow_dispatch carries no accepted base, so the
+      # script falls back to its own HEAD^ default; depth 1 would make that
+      # fallback unresolvable and red the manual run. Depth 2 holds HEAD^ for
+      # one extra commit's worth of delta. This is also the depth
+      # `_ai-tracking-ratchet.test.cjs` has always pinned.
+      #
       # If the base cannot be resolved the script FAILS closed rather than
-      # passing vacuously (its own guard), so a missing base certifies nothing.
+      # passing vacuously, so a fetch that misses the base reds — it does not
+      # pass. That guard was NOT sound before this change: `git rev-parse
+      # --verify --quiet <40-hex>` returns the sha with exit 0 even when the
+      # object is absent, so an unfetched base sailed through and the gate
+      # reported "END STATE reached" over a base it never read. rf2-uol6 measured
+      # that false green and hardened the script; a shallower checkout is safe
+      # only because it is now genuinely fail-closed.
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
-          fetch-depth: 0
+          fetch-depth: 2
 
       # Same precedent as the gate above: lint the gate script itself so a
       # future edit cannot introduce a shell bug that silently weakens it.
@@ -183,6 +208,14 @@ jobs:
       # empty, so the script falls back to its own HEAD^ default. Context
       # values arrive via `env:` — never interpolated into the script body — so
       # the step is injection-safe regardless of what the event carries.
+      #
+      # ...and then FETCH that one commit if the depth-2 checkout above does not
+      # already hold it (rf2-uol6). `--depth=1` brings down the commit and its
+      # tree and stops; the ratchet needs no ancestor, and the existing shallow
+      # boundary for HEAD is untouched (measured: HEAD^ still resolves after
+      # this fetch). GitHub serves a reachable SHA to `git fetch` — the accepted
+      # base is always an ancestor of a ref — and a fetch that fails leaves the
+      # base unresolvable, which the script turns into a RED rather than a pass.
       - name: Resolve the accepted base
         id: base
         env:
@@ -198,6 +231,10 @@ jobs:
           esac
           if [ "$base" = '0000000000000000000000000000000000000000' ]; then
             base=''
+          fi
+          if [ -n "$base" ] && ! git rev-parse --verify --quiet "$base^{commit}" >/dev/null; then
+            echo "base $base is deeper than this shallow clone; fetching that one commit."
+            git fetch --no-tags --no-recurse-submodules --depth=1 origin "$base"
           fi
           echo "ref=$base" >> "$GITHUB_OUTPUT"
 
