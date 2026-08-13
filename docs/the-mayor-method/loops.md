@@ -511,9 +511,18 @@ outside, and both readings went wrong in a single day here, in opposite directio
    for two consecutive ticks — it had rebased two minutes before the second read and had
    committed all of its assigned work. A changed id says alive everywhere a count does, plus
    that case; an unchanged id still says *nothing* on its own, which is what saved that worker,
-   because the next step is to ask rather than to reap. **Ask the remote for the tip** rather
-   than refreshing first and reading what the refresh left behind — the shared fetch-head trap
-   under *After each merge* is on this read path too, and there it is silent.
+   because the next step is to ask rather than to reap. **Read the tip from whichever ref the
+   worker's commit updates DIRECTLY, and prefer a read that performs no refresh at all** — a
+   refresh is what exposes the shared fetch-head trap under *After each merge*, which is on this
+   read path too and is silent here. Where workers share one repository metadata directory, the
+   shared local ref moves the moment a worker commits, while the *published* ref moves only when
+   that worker chooses to push. So the published one lags, and it lags in the direction that
+   reads as death: the read most likely to condemn a healthy worker is the one that asks the
+   wrong ref.
+   **And an unchanged tip says something only once it is corroborated with worktree activity.** A
+   worker inside a long gate commits nothing by design, so a still tip is the *expected* reading
+   for the commonest healthy state rather than a warning — which is why the corroboration, and
+   not the tip, is what carries the verdict.
 2. **Is there a live task to message?** Try messaging first — resuming beats redispatching,
    because the worker's context is still there. **The commonest strand by far is a worker that
    detached a long gate and then ended its turn**, waiting for a completion event that nothing
