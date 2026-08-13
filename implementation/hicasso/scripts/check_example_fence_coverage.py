@@ -42,8 +42,11 @@ WHAT IS CHECKED, IN ONE DIRECTION
 ---------------------------------
 Every package directly under `examples/` that holds application code is
 named by at least one `emit-application-namespaces` call somewhere under
-`examples/`.  That macro argument IS the fence's declaration of what it
-fences, which is what makes the PACKAGE -> FENCE mapping n:m rather than
+`examples/` that the reader actually EVALUATES — a disabled, quoted or
+commented-out call is not a claim about anything, and counting one let a
+package look covered by a fence that no longer ran (rf2-t9kd).  That macro
+argument IS the fence's declaration of what it fences, which is what makes
+the PACKAGE -> FENCE mapping n:m rather than
 1:1: `witness_surface_cljs_test.cljs` at the examples root names
 `…examples.editor` AND `…examples.grid`, so the cheap check — *every
 package directory contains a `surface_cljs_test.cljs`* — would false-red
@@ -130,17 +133,111 @@ CLAIM_RE = re.compile(
 STRING_RE = re.compile(r'"(?:[^"\\]|\\.)*"', re.S)
 COMMENT_RE = re.compile(r";.*")
 
+# `(comment …)` and not `(comment-on …)`: the lookahead is the symbol-tail
+# class, so only the bare core form opens a comment.
+COMMENT_FORM_RE = re.compile(r"\(\s*comment(?![\w.*+!?<>=$%&|:'/-])")
+
+OPENERS = "([{"
+CLOSERS = ")]}"
+
+
+def form_end(text, i):
+    """Index just past the ONE form beginning at or after `text[i]`.
+
+    `text` has already been through the string and line-comment passes, so
+    every remaining bracket is structural.  A character literal is the one
+    exception and is skipped whole: `\\(` is a paren that closes nothing,
+    and miscounting it would unbalance the rest of the file.
+    """
+    n = len(text)
+    while i < n and text[i].isspace():
+        i += 1
+    if i >= n:
+        return n
+    if text[i] == "\\":  # character literal: `\(`, `\;`, `\newline`
+        return min(i + 2, n)
+    if text[i] not in OPENERS:  # a bare symbol, keyword or number
+        while i < n and not text[i].isspace() and text[i] not in OPENERS + CLOSERS:
+            i += 1
+        return i
+    depth = 0
+    while i < n:
+        ch = text[i]
+        if ch == "\\":
+            i += 2
+            continue
+        if ch in OPENERS:
+            depth += 1
+        elif ch in CLOSERS:
+            depth -= 1
+            if depth == 0:
+                return i + 1
+        i += 1
+    return n
+
+
+def strip_inert(text):
+    """`text` with the three INERT form shapes blanked out (rf2-t9kd).
+
+    A form the reader discards is not a claim about anything, so a gate that
+    counted one could certify a package whose fence had been switched off:
+
+        #_(rg/emit-application-namespaces …)              reader discard
+        (comment (rg/emit-application-namespaces …))      comment macro
+        '(rg/emit-application-namespaces …)               quoted
+
+    Those three and no more.  DELIBERATELY NOT HANDLED, because none occurs
+    in this tree and a general Clojure reader is a far larger artefact than
+    this gate deserves: reader conditionals (`#?(:clj …)`), dead-by-value
+    branches (`(when false …)`, `(if false …)`), stacked discards (`#_#_`),
+    `#_` applied to a set or prefixed form (`#_#{…}`, `#_'x`), a
+    fully-qualified `(clojure.core/comment …)`, and `comment` shadowed by a
+    local binding.  Each of those still counts as a live claim; the failure
+    mode is a package looking covered, which is the same one this function
+    narrows rather than a new one.
+
+    Blanking preserves length and newlines so the surviving text keeps its
+    offsets, and the walk resumes at the END of each inert form — a live
+    claim sitting beside a disabled one still counts.
+    """
+    chars = list(text)
+    i, n = 0, len(text)
+    while i < n:
+        ch = text[i]
+        if ch == "\\":  # character literal, as in `form_end`
+            i += 2
+            continue
+        if text.startswith("#_", i):
+            start, body = i, i + 2
+        elif ch in "'`" and (i == 0 or text[i - 1].isspace() or text[i - 1] in OPENERS):
+            # `'` is a legal SYMBOL character in Clojure (`next'`), so it
+            # quotes only where a form may start. Without that guard the gate
+            # would blank a LIVE claim and false-red a fenced package.
+            start, body = i, i + 1
+        elif COMMENT_FORM_RE.match(text, i):
+            start, body = i, i  # the `(comment …)` form is inert entire
+        else:
+            i += 1
+            continue
+        end = form_end(text, body)
+        for j in range(start, end):
+            if chars[j] != "\n":
+                chars[j] = " "
+        i = end
+    return "".join(chars)
+
 
 def read_forms(source):
-    """`source` with strings and line comments blanked out.
+    """`source` reduced to the forms the reader would actually EVALUATE.
 
-    Read off FORMS, never off prose — the rule
+    Read off LIVE FORMS, never off prose — the rule
     `check_optional_module_reachability.py` states for the same reason.
     These files carry long docstrings ABOUT the macro; one that quoted a
     call would otherwise register a claim nothing asserts.  Strings go
-    first, so a `;` inside one cannot start a comment.
+    first, so a `;` inside one cannot start a comment; line comments go
+    second, so a `)` inside one cannot unbalance [[strip_inert]]'s walk.
     """
-    return COMMENT_RE.sub("", STRING_RE.sub('""', source))
+    return strip_inert(COMMENT_RE.sub("", STRING_RE.sub('""', source)))
 
 
 def package_of(ns_symbol):
@@ -248,6 +345,21 @@ def scan(tree):
 
 
 def self_test():
+    # THIS SELF-TEST'S OWN CLAIMS MUST NOT BE DISCARDABLE. `python -O` deletes
+    # every `assert` below, and the function would print OK having proved
+    # nothing — a control silenced by a reader that drops its forms, which is
+    # the exact defect rf2-t9kd exists to stop this gate having. It would be
+    # a poor gate that could not catch its own case.
+    try:
+        assert False
+    except AssertionError:
+        pass
+    else:
+        raise SystemExit(
+            "assertions are disabled (python -O / PYTHONOPTIMIZE), so this "
+            "self-test would prove nothing. Re-run without -O."
+        )
+
     # The n:m case, which is the one the cheap check gets wrong: two
     # packages, one fence file naming both, and no `surface_cljs_test.cljs`
     # in either directory.
@@ -316,6 +428,51 @@ def self_test():
     )
     assert len(prose) == 1, prose
     assert prose[0].startswith("examples/ghost/"), prose
+
+    # AN INERT FORM IS NOT A CLAIM (rf2-t9kd). One unfenced package, one
+    # fence file, and the only difference between the rows below is whether
+    # the reader evaluates the call in it.
+    def ghost(fence_body):
+        return scan(
+            {
+                "ghost/views.cljs": "(ns re-frame.hicasso.examples.ghost.views)",
+                "notes_cljs_test.cljs":
+                    "(ns re-frame.hicasso.examples.notes-cljs-test)\n" + fence_body,
+            }
+        )
+
+    # The LIVE claim is green, and it is what keeps the three reds honest: a
+    # checker that had simply stopped counting `emit-application-namespaces`
+    # would satisfy every negative row below and be worth nothing.
+    live = ghost("(rg/emit-application-namespaces re-frame.hicasso.examples.ghost)")
+    assert live == [], live
+
+    # None of these three expands, so none installs a fence, so none may
+    # certify coverage. Each was reproduced GREEN against the landed scanner.
+    for inert in (
+        "#_(rg/emit-application-namespaces re-frame.hicasso.examples.ghost)",
+        "(comment\n  (rg/emit-application-namespaces re-frame.hicasso.examples.ghost))",
+        "(def forms\n  ['(rg/emit-application-namespaces re-frame.hicasso.examples.ghost)])",
+    ):
+        disabled = ghost(inert)
+        assert len(disabled) == 1, (inert, disabled)
+        assert disabled[0].startswith("examples/ghost/"), (inert, disabled)
+
+    # Blanking stops at the END of the inert form rather than running to the
+    # end of the file: a live claim beside a disabled one still covers.
+    beside = ghost(
+        "#_(rg/emit-application-namespaces re-frame.hicasso.examples.gone)\n"
+        "(rg/emit-application-namespaces re-frame.hicasso.examples.ghost)"
+    )
+    assert beside == [], beside
+
+    # And `'` closes over a form only where a form may START, because it is
+    # also a legal symbol character. `next'` must not swallow what follows it.
+    tick = ghost(
+        "(def next' 1)\n"
+        "(rg/emit-application-namespaces re-frame.hicasso.examples.ghost)"
+    )
+    assert tick == [], tick
 
     # The vacuity floor fires rather than reporting a green nothing.
     empty = scan({})
