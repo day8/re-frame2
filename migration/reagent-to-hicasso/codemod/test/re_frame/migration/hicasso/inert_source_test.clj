@@ -29,7 +29,16 @@
   A syntax-quote is NOT inert. A macro's template emits a real crossing at
   every expansion, so a site inside one is a site. `census-test` pins that
   boundary for the reporter; [[a-syntax-quote-is-still-a-crossing-site]]
-  pins the same boundary here, on the shared predicate both now consult."
+  pins the same boundary here, on the shared predicate both now consult.
+
+  ## The third population (rf2-0xd6)
+
+  `inert?` answers ONE question about the source, and three walks ask it.
+  Everything above decides what is a SITE. The last section decides a
+  refusal REASON *inside* a site that is live either way: an
+  `r/as-element` in a `(comment …)` in a live site's props once cost the
+  migrator a hand-port of a form that never runs. Pinned from
+  [[an-inert-reagent-call-is-not-a-refusal-reason]] down."
   (:require [clojure.test :refer [deftest is testing]]
             [re-frame.migration.hicasso.codemod :as cm]))
 
@@ -182,3 +191,65 @@
       (is (= :adapt-def-site (:class entry)))
       (is (= [5] (get-in entry [:detail :call-sites-in-this-file]))
           "line 5 is the live call; line 4 is inside the comment"))))
+
+;; ---------------------------------------------------------------------------
+;; A refusal REASON computed inside a live site (rf2-0xd6)
+;; ---------------------------------------------------------------------------
+
+(deftest an-inert-reagent-call-is-not-a-refusal-reason
+  (testing "rf2-0xd6. The site here is live and was always reported
+            correctly; what was wrong is the EXTRA refusal beside it.
+            `subtree-has-reagent-call?` recursed through `n/children`
+            without consulting `inert?`, so an `r/as-element` inside a
+            `(comment …)` in a live site's props read as an as-element
+            island and the tool declined a repair it could have made."
+    (is (= [:computed-value]
+           (classes "[:> Foo {:x (comment (r/as-element [:div]))}]\n"))
+        "the bead's own probe. `:computed-value` STAYS — that value really
+         is one the tool cannot read — and only `:as-element-island` goes")
+    (is (= [:computed-value]
+           (classes "[:> Foo {:x #_(r/as-element [:div]) 1}]\n"))
+        "`#_` discard")
+    (is (= []
+           (classes "[:> Foo {:x '(r/as-element [:div])}]\n"))
+        "reader quote. A quoted form IS readable off the text, so once the
+         island goes there is no `:computed-value` left behind it")
+    (is (= [:computed-value]
+           (classes "[:> Foo {:x (clojure.core/comment (r/as-element [:div]))}]\n"))
+        "a fully-qualified `comment` is the same head"))
+
+  (testing "the guard went INSIDE the shared predicate rather than at either
+            call site, so the second caller — the Reagent-API arm, which
+            passes a collection of symbols through the same walk — is
+            answered by the same one call"
+    (is (= [:computed-value]
+           (classes "[:> Foo {:x (comment (r/atom 0))}]\n"))
+        "an inert `r/atom` is not API residue either")
+    (is (= [:computed-value]
+           (classes "[:> Foo {:x (comment (r/with-let [a 1] a))}]\n"))
+        "nor is an inert form-3 shape")))
+
+(deftest a-live-reagent-call-is-still-a-refusal-reason
+  (testing "ADVERSARIAL, and the arm that carries the weight: a fix which
+            simply stopped reporting islands would pass every assertion
+            above. Each case here puts the same call somewhere it RUNS."
+    (is (= [:as-element-island]
+           (classes "[:> Foo {:x (fn [] (r/as-element [:div]))}]\n"))
+        "the live island, unchanged")
+    (is (= [:reagent-api-residue]
+           (classes "[:> Foo {:x (fn [] (r/atom 0))}]\n"))
+        "and the live API residue, unchanged")
+    (is (= [:as-element-island :computed-value]
+           (classes (str "[:> Foo {:x (comment (r/as-element [:div]))\n"
+                         "         :y (fn [] (r/as-element [:span]))}]\n")))
+        "one inert and one LIVE `r/as-element` in the SAME props map. The
+         prune is per-node, so it takes the `(comment …)` and nothing
+         around it; a guard that skipped the map wholesale would lose the
+         live one and report no island at all"))
+
+  (testing "the syntax-quote boundary, restated on the refusal arm. `inert?`
+            is one predicate and every population consults it, so a
+            boundary that moved would move for all of them at once — and a
+            macro's template emits a real `r/as-element` per expansion."
+    (is (= [:as-element-island :computed-value]
+           (classes "[:> Foo {:x `(r/as-element [:div])}]\n")))))

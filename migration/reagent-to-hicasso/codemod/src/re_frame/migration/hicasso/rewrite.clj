@@ -558,11 +558,27 @@
                                   (not (contains? (set (vals renamed)) h)))))))))))
 
 (defn- subtree-has-reagent-call?
+  "Does this subtree contain a call to Reagent's `sym` that RUNS?
+
+  Live is the whole of it (rf2-0xd6). Both callers use this answer to
+  REFUSE — to decline a site the tool would otherwise repair — so an
+  `r/as-element` sitting in a `(comment …)` inside a live site's props
+  would send a migrator to hand-port a form that never evaluates. The
+  site itself is live either way; only the refusal is wrong, which is
+  what makes this a different question from rf2-xc11's site walk.
+
+  [[inert?]] is consulted here, per node, rather than at the two call
+  sites: the discard, the quote and the `(comment …)` body can sit at
+  any depth in the subtree, and one guard on the recursion answers
+  every caller at every depth. A syntax-quote is deliberately not
+  pruned — see [[inert?]] for why that boundary sits where it does."
   [node sym ctx]
   (boolean
-   (or (reagent-call? node sym ctx)
-       (and (n/inner? node)
-            (some #(subtree-has-reagent-call? % sym ctx) (n/children node))))))
+   (and (not (inert? node))
+        (or (reagent-call? node sym ctx)
+            (and (n/inner? node)
+                 (some #(subtree-has-reagent-call? % sym ctx)
+                       (n/children node)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Site detection
