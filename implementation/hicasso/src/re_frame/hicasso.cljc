@@ -104,6 +104,48 @@
   makes the head's identity stable by construction and leaves the codec's
   stable-component-head cache with nothing to do.
 
+  ## What a value at an `on-*` prop may be — FOUR shapes
+
+  A body writes its handlers as DATA, and the SHAPE of the value at an
+  `on-*` position selects the behaviour — so there is no roster of
+  blessed prop names, and `:on-click` and `:onClick` read the same:
+
+      [:li    {:on-click [:todo/toggle id]}]               ;; a vector
+      [:input {:on-key-down {\"Enter\"  [:todo/commit id]    ;; a map
+                             \"Escape\" [:todo.ui/cancel id]}}]
+      [:input {:on-change (h/hfn [e] …)}]                  ;; the one callback
+      [:div   {:on-focus  a-plain-fn}]                     ;; a plain fn
+
+  - **A vector is an intent**, dispatched into this boundary's frame.
+    `::h/value` and `::h/checked` substitute the event target's current
+    value at dispatch time, and `::h/prevent` is the reserved head that
+    calls `.preventDefault` before dispatching the intent it wraps —
+    `[::h/prevent [:filter/show-done]]`, the opt-in an anchor acting as
+    a button needs, since `:on-submit` is the only position that
+    prevents by default.
+  - **A map is a KEY MAP** — the key exactly as the browser spells it
+    (`\"Enter\"`, `\"Escape\"`) → an intent vector or a function. It is
+    lowered ONCE per render into a plain string→handler map, so an event
+    costs one lookup and no allocation, and it is **composition-gated
+    centrally**: a keystroke arriving mid-IME-composition commits
+    nothing. That gate is the half a hand-written `.key` test does not
+    have, which is why the key map is the spelling to reach for — the
+    hand-written version yields an application that works and is wrong
+    for every user who composes.
+  - **[[hfn]] (`h/fn`) is the one callback form**, for when the event
+    itself is wanted. At an `on-*` position a returned vector is
+    dispatched and any other return is ignored.
+  - **A plain function is passed through untouched**, reaching React by
+    identity so `React.memo` and every handler-identity bail-out keep
+    working.
+
+  The vector and the key map are EVENT-FIRST: both read the DOM event
+  from argument one, and a position whose invoker passes something else
+  — a value-first foreign callback — refuses loudly at the position
+  rather than doing nothing. Which contract a position imposes on a
+  callback, and what a [[defhost]] declaration changes about it, is
+  [[re-frame.hicasso.impl.intent]]'s position table.
+
   ## The fn this expands to is ANONYMOUS, and that is the contract
   (rf2-jan2)
 
