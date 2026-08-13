@@ -24,7 +24,29 @@ if [ "$force_all" = true ]; then
 elif [ "${#explicit_paths[@]}" -gt 0 ]; then
   files="$(printf '%s\n' "${explicit_paths[@]}")"
 elif [ "${GITHUB_EVENT_NAME:-}" = "pull_request" ] && [ -n "${GITHUB_BASE_REF:-}" ]; then
-  git fetch --no-tags --depth=100 origin "${GITHUB_BASE_REF}" >/dev/null 2>&1 || true
+  # Fetch the base branch BY NAME, with no depth cap (rf2-om08). Two things
+  # make that the right shape. First, this fetch is load-bearing even though
+  # the sole caller checks out at full depth: a pull_request checkout fetches
+  # `+<sha>:refs/remotes/pull/N/merge` and never creates
+  # refs/remotes/origin/<base>, so this is what puts that name in scope for the
+  # three-dot diff below — and it costs almost nothing, because the objects are
+  # already local from that checkout.
+  # Second, a `--depth` cap here would not merely fetch too little, it would
+  # DESTROY history: `git fetch --depth=N` converts a COMPLETE clone into a
+  # shallow one, grafting the base branch at N and discarding exactly what
+  # test.yml's `fetch-depth: 0` just paid for — the checkout its own comment
+  # calls "what makes the base resolvable without a fetch: it can be
+  # arbitrarily deep". A merge base past that graft then dies `fatal: no merge
+  # base` (measured: exit 128). That fails CLOSED — the diff below is
+  # unswallowed under `set -euo pipefail`, so the classify step reds rather
+  # than classifying an empty change set and skipping every gate — but a
+  # spurious red on a PR with an unusually distant merge base is still worth
+  # not having. docs.yml's `Detect docs surface` step (rf2-ihfw) and lint.yml's
+  # lint-surface classifier (rf2-4sl9) fetch their base the same uncapped way,
+  # for the same reasons. (A `--depth=1` fetch of a SPECIFIC SHA under a
+  # deliberately shallow checkout is a different and legitimate shape — see
+  # portability.yml, which checks out at depth 2.)
+  git fetch --no-tags origin "${GITHUB_BASE_REF}" >/dev/null 2>&1 || true
   # rf2-vxgfnd.137 — `--no-renames` is load-bearing, not cosmetic. Git rename
   # detection collapses a rename to its DESTINATION path only, so a pure rename
   # OUT of a classified surface (e.g. implementation/ui/** -> docs/**) would
