@@ -14,8 +14,10 @@ name: freehand-conformance
 #
 # REQUIRED-CHECK SHAPE. The `pull_request` trigger is deliberately UNFILTERED
 # and the single job is NOT surface-gated, so the `Freehand conformance index`
-# status context is present on every PR and can be required by the branch
+# status context is present on every PR and CAN BE required by the branch
 # ruleset without the phantom-pending trap a path-filtered workflow creates.
+# Note the mood: can be. It is not — see NAMING at the end of this header — so
+# the shape buys readiness, not a live gate.
 # There is no aggregator job because there is nothing to aggregate: one job,
 # always present, ~30 seconds including the pip install.
 #
@@ -65,9 +67,16 @@ name: freehand-conformance
 # drifted. An archive that can quietly shrink or be edited is worse than no
 # archive. Stdlib Python, well under a second.
 #
-# The job id and display name stay `index` / `Freehand conformance index` even
-# though the job proves two ledgers: that string is the status context the
-# branch ruleset requires, and renaming it would silently drop the requirement.
+# NAMING. The job id and display name stay `index` / `Freehand conformance
+# index` even though the job proves two ledgers. That string is NOT a required
+# status context. The branch ruleset on `main` requires exactly three — `All
+# required checks passed` (test.yml), `Lint required` (lint.yml) and `Docs
+# required` (docs.yml) — and this job can reach none of them, because `needs:`
+# cannot span workflow files. So this gate is ADVISORY, held by the standing
+# practice that a red PR gets fixed rather than merged. Keep the name stable
+# regardless: it is the handle the PR rollup and TESTING.md use, and the string
+# the ruleset would have to name if the context were ever required. Renaming it
+# would not drop a requirement, because there is none to drop.
 
 on:
   # BOTH triggers are intentionally UNFILTERED. The PR one for the
