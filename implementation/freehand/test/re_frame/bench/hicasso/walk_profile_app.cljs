@@ -125,7 +125,10 @@
      `window.HICASSO_CONTROL_FAILED` and `run.cjs` exits 1 (rf2-1huc —
      before it, that exit path was dead for this arm, so tables 1-4 were
      guarded against ordering and page fidelity but not against the
-     instrument having signal at all).
+     instrument having signal at all). A control whose own prediction
+     collapses refuses under a SEPARATE heading rather than passing on a
+     bar of zero, which is how the first cut of table 5 failed open
+     (merged-PR audit #8149; see [[tag-cache-floor-row]]).
 
   Owner bead: rf2-y1jkm. Driver: `run.cjs` with
   HICASSO_INIT_FN=re-frame.bench.hicasso.walk-profile-app/-main."
@@ -805,7 +808,29 @@
   row. This control is NEW, so it has no published row to re-adjudicate
   and inherits none of that: it takes the stricter rule from birth, the
   way `hd8-rows` did and for the reason `hd8-rows` gives — a control
-  whose worst round is wrong has caught something."
+  whose worst round is wrong has caught something.
+
+  ## Why a floor of zero or below REFUSES (rf2-1huc, merged-PR audit #8149)
+
+  The first cut of this row asked only `worst >= bar` and shipped FAILING
+  OPEN in the one direction its own subject makes reachable. `bar` is
+  derived from `fresh - hit`, so if those two primitives CONVERGE the bar
+  collapses to zero at the same moment the measured delta does — and
+  `>= 0` is cleared by any reading whatever. Converging primitives are
+  not an odd corner: they are exactly `parse-raw` having stopped being an
+  ablation, which is the thing this row exists to catch. Worse in the
+  other direction, a hit priced above a fresh parse puts the bar BELOW
+  zero, where the slack widens the band downward instead of narrowing it.
+  The audit reproduced both against the compiled function at merge
+  825cd611c8; `walk_profile_control_cljs_test` pins both.
+
+  So the prediction is required to STATE something before it is allowed
+  to adjudicate anything: `:stated?` is `floor > 0`, and a row that does
+  not state a prediction refuses under its own heading rather than
+  passing on a vacuous bar. The planted-fault proof could never have
+  found this — a mutation of the measured ARM leaves the micro table's
+  primitive difference healthy — which is the argument for pinning it by
+  arithmetic in the always-on suite instead."
   [readings census ^js tags micro]
   (let [m       (into {} micro)
         fresh   (:parse-tag-fresh m)
@@ -816,21 +841,37 @@
         bar     (* floor (- 1.0 control-slack))
         deltas  (per-round-delta readings :parse-raw :local)
         worst   (apply min deltas)
-        same?   (= n-tags parses)]
+        same?   (= n-tags parses)
+        ;; STRICTLY positive, so a NaN micro row refuses here too rather
+        ;; than sliding through a comparison that is false either way.
+        stated? (pos? floor)]
     {:row        :tag-cache-floor
      :predicted  (lane/round4 floor)
      :bar        (lane/round4 bar)
      :slack      control-slack
+     :stated?    stated?
      :population {:micro-roster n-tags :walk-parses parses}
      :per-round  (mapv lane/round4 deltas)
      :worst      (lane/round4 worst)
-     :ok?        (and same? (>= worst bar))
+     :ok?        (and same? stated? (>= worst bar))
      :why        (cond
                    (not same?)
                    (str "the micro roster holds " n-tags " tags but the walk parses "
                         parses " — the prediction is per-tag over the roster, so a "
                         "roster that is not the walk's parse population prices the "
                         "wrong thing and no figure in this run is reportable")
+
+                   (not stated?)
+                   (str "the micro table prices a fresh parse at " (fmt fresh 1)
+                        " ns against a cache hit at " (fmt hit 1) " ns over "
+                        n-tags " tags, so the predicted floor is " (fmt floor 4)
+                        " ms/walk and this control states no prediction. A floor "
+                        "at or below zero predicts that parse-raw costs no more "
+                        "than local, which puts the bar where every measurement "
+                        "clears it — including the flat one this row exists to "
+                        "catch. Converged primitives ARE the tag cache having "
+                        "stopped mattering, so this refuses rather than passing "
+                        "on a vacuous bar")
 
                    (>= worst bar)
                    (str n-tags " parses x " (fmt (- fresh hit) 1) " ns fresh-minus-cached "
@@ -873,13 +914,28 @@
                        "work than the eager one by construction, so an inversion "
                        "means the window is not pricing the walk"))}))
 
+(defn control-status
+  "The label one control row prints under. THREE outcomes, not two,
+  because a refusal that names no cause sends the operator to the wrong
+  place: `FAILED` means the arms did not show what the arithmetic
+  predicted and the repair is the ARM, while `REFUSED — no prediction`
+  means the arithmetic predicted nothing at all and the repair is the
+  MICRO TABLE that priced it (rf2-1huc). Rows that state no prediction —
+  [[lazy-tail-direction-row]], whose claim is a bare ordering — carry no
+  `:stated?` and read as the two-outcome rows they are."
+  [{:keys [ok? stated?]}]
+  (cond
+    ok?              "ok"
+    (false? stated?) "REFUSED — no prediction"
+    :else            "FAILED"))
+
 (defn- control-report!
   "Print every control row, passing or not. A control quoted only when it
   passes is not a control."
   [rows]
   (js/console.log ";; ==== POSITIVE CONTROL (does this instrument see a change it predicts?) ====")
-  (doseq [{:keys [row ok? why]} rows]
-    (js/console.log (str ";;   " (name row) ": " (if ok? "ok" "FAILED") " — " why))))
+  (doseq [{:keys [row why] :as r} rows]
+    (js/console.log (str ";;   " (name row) ": " (control-status r) " — " why))))
 
 (defn ^:export -main []
   (rf/init! uix-adapter/adapter)

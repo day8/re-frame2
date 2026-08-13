@@ -35,7 +35,18 @@
   disagree on it: overlap passes, every-round refuses. A worker who
   \"simplifies\" the control down to `lane/control-verdict` therefore
   discovers it here, rather than in a bench run six months later that
-  quietly stopped having teeth."
+  quietly stopped having teeth.
+
+  ## The assertions the planted fault could not reach
+
+  Merged-PR audit #8149 then found the control FAILING OPEN on its own
+  prediction: the bar is `n-tags x (fresh - hit)` less slack, and nothing
+  required that difference to be positive, so converged primitives put
+  the bar at zero where every reading clears it. A browser proof cannot
+  find that — mutating the measured ARM leaves the micro table healthy —
+  so [[a-converged-prediction-refuses-however-healthy-the-deltas-look]]
+  and its siblings below pin it by arithmetic instead. That is the second
+  reason this file exists and not merely belt-and-braces either."
   (:require [cljs.test :refer-macros [deftest is testing]]
             [re-frame.bench.hicasso.lane :as lane]
             [re-frame.bench.hicasso.walk-profile-app :as wp]))
@@ -122,6 +133,105 @@
       (is (false? (:ok? strict))
           "the every-round rule REFUSES it, which is the whole difference")
       (is (= 0.03 (:worst strict))))))
+
+;; ---------------------------------------------------------------------------
+;; The prediction must STATE something (rf2-1huc, merged-PR audit #8149)
+;; ---------------------------------------------------------------------------
+;;
+;; The control shipped FAILING OPEN in the one direction its own subject
+;; makes reachable. The bar is `n-tags x (fresh - hit)` less 25%, and the
+;; verdict was `worst >= bar` with nothing requiring `fresh - hit` to be
+;; positive. So if the two primitives CONVERGE — which is precisely the
+;; tag cache having stopped mattering, the ablation this row exists to
+;; catch — the prediction collapses to zero or below at the same moment
+;; the measured delta does, the bar lands at or under zero, and any
+;; reading at all clears it. The audit reproduced both directions against
+;; the exact compiled function at merge 825cd611c8:
+;;
+;;   cached 50 ns, fresh 50 ns, delta 0  ->  predicted 0,    bar 0,      ok TRUE
+;;   cached 150 ns, fresh 50 ns, delta 0 ->  predicted -0.1, bar -0.075, ok TRUE
+;;
+;; The planted-fault proof could not have found this: it moved the WALK
+;; call site and left the micro table's primitive difference healthy, so
+;; the prediction stayed positive and the bar stayed real. A control's
+;; own prediction going vacuous is a mode no mutation of the measured arm
+;; can reach, and it is why these cases are pinned by arithmetic here
+;; rather than by a browser run.
+
+(def ^:private micro-converged
+  "The two primitives priced the SAME. Predicted floor 0."
+  [[:cached-parse-hit 50.0] [:parse-tag-fresh 50.0]])
+
+(def ^:private micro-inverted
+  "A cache hit priced ABOVE a fresh parse. Predicted floor -0.1 ms/walk,
+  whose 25% slack makes the bar -0.075 — a bar the arithmetic moves UP
+  from the floor rather than down, which is on its own enough to say the
+  band has stopped meaning anything."
+  [[:cached-parse-hit 150.0] [:parse-tag-fresh 50.0]])
+
+(deftest a-converged-prediction-refuses-however-healthy-the-deltas-look
+  (testing "fresh == cached predicts NO extra cost, so there is nothing for
+            the walk to have seen — and a control with nothing to see must
+            not report that it saw it"
+    (let [r (wp/tag-cache-floor-row [(healthy 0.20) (healthy 0.25)] census roster
+                                    micro-converged)]
+      (is (= 0.0 (:predicted r)) "the fixture really does state a zero floor")
+      (is (false? (:ok? r))
+          "a bar of zero is cleared by any measurement whatever, so passing
+           here is passing on a vacuous test")
+      (is (false? (:stated? r))
+          "and the refusal is attributed to the PREDICTION, not to the arms"))))
+
+(deftest the-audits-exact-converged-case
+  (testing "cached 50 ns, fresh 50 ns, observed delta 0 — reported ok TRUE
+            at merge 825cd611c8"
+    (let [r (wp/tag-cache-floor-row [(healthy 0.0)] census roster micro-converged)]
+      (is (= 0.0 (:predicted r)))
+      (is (= 0.0 (:bar r)))
+      (is (= 0.0 (:worst r)))
+      (is (false? (:ok? r))))))
+
+(deftest the-audits-exact-inverted-case
+  (testing "cached 150 ns, fresh 50 ns, observed delta 0 — reported ok TRUE
+            at merge 825cd611c8, because a NEGATIVE floor puts the bar
+            below every real measurement"
+    (let [r (wp/tag-cache-floor-row [(healthy 0.0)] census roster micro-inverted)]
+      (is (= -0.1 (:predicted r)))
+      (is (= -0.075 (:bar r)))
+      (is (false? (:ok? r)))
+      (is (false? (:stated? r))))))
+
+(deftest a-roster-with-no-tags-refuses
+  (testing "the other route to a vacuous bar: nothing to predict over. The
+            population rule cannot catch it, because an empty roster and a
+            walk that parses nothing agree with each other"
+    (let [r (wp/tag-cache-floor-row [(healthy 0.20)] {:native 0} (make-array 0) micro)]
+      (is (= 0.0 (:predicted r)))
+      (is (false? (:ok? r)))
+      (is (false? (:stated? r))))))
+
+(deftest an-absent-prediction-is-reported-DIFFERENTLY-from-a-missed-bar
+  (testing "two refusals, two causes, two repairs — an operator told only
+            `FAILED` would go looking at the arms, where nothing is wrong"
+    (let [vacuous (wp/tag-cache-floor-row [(healthy 0.20)] census roster micro-converged)
+          missed  (wp/tag-cache-floor-row [(healthy 0.01)] census roster micro)]
+      (is (false? (:ok? vacuous)))
+      (is (false? (:ok? missed)))
+      (is (false? (:stated? vacuous)))
+      (is (true? (:stated? missed))
+          "the missed bar had a real prediction; it is the ARMS that missed it")
+      (is (re-find #"states no prediction" (:why vacuous)))
+      (is (re-find #"BELOW it" (:why missed)))
+      (is (= "REFUSED — no prediction" (wp/control-status vacuous)))
+      (is (= "FAILED" (wp/control-status missed)))
+      (is (= "ok" (wp/control-status (wp/tag-cache-floor-row
+                                       [(healthy 0.20)] census roster micro)))))))
+
+(deftest a-real-prediction-still-passes-on-real-signal
+  (testing "the repair must not have closed the door on the healthy case —
+            the whole point is a control that can still say yes"
+    (is (true? (:ok? (wp/tag-cache-floor-row [(healthy 0.20) (healthy 0.18)]
+                                             census roster micro))))))
 
 (deftest a-roster-that-is-not-the-walks-parse-population-refuses
   (testing "the prediction is per-tag over the micro roster, so a roster
