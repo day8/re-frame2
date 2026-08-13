@@ -13,8 +13,8 @@
 # the per-gate shellcheck below, aimed at the rf2-ldkuk class: a script CI
 # runs whose defects surface only on the runner.
 #
-# It also carries the tracked-`ai/` RATCHET (rf2-lsp1i) and the re-frame.ui
-# view-lifetime residue ratchet (rf2-5e8zv) — see those jobs below. The gates
+# It also carries the tracked-`ai/` RATCHET (rf2-lsp1i) and the repo-wide
+# view-lifetime vocabulary ratchet (rf2-5e8zv) — see those jobs below. The gates
 # live together because each is the UPSTREAM lock for a leak class that would
 # otherwise surface downstream: the 2026-07-18 incident was a force-added ai/
 # dossier carrying a personal worktree path, which failed the portability gate
@@ -251,21 +251,34 @@ jobs:
           AI_RATCHET_BASE_REF: ${{ steps.base.outputs.ref }}
         run: sh scripts/check-ai-tracking-ratchet.sh
 
-  # The re-frame.ui view-lifetime residue ratchet (rf2-5e8zv, the excision
-  # epic finale). Like the tracked-ai/ ratchet above this is a whole-tree,
-  # every-PR git invariant with a ZERO baseline — the excision epic removed the
-  # view-lifetime concept in full (the observation surface returns a HANDLE,
-  # Resources pin liveness with an OWNER), and ANY tracked file can reintroduce
-  # its vocabulary, so the only correct surface is the whole tree. The guard
-  # scans `git ls-files` content AND paths for every lexical form (natural
-  # language singular/plural/past/gerund, snake/camel/kebab identifiers, and
-  # file names), excludes ONLY `.beads/**`, and carries no baseline, ceiling, or
-  # allowlist for product files. It constructs its own forbidden token so the
-  # guard is never its own violation, and ordinary words (release, please) plus
-  # the excision's survivors (handle, owner, route, machine, ssr, app-event) are
-  # never flagged.
+  # The REPO-WIDE view-lifetime vocabulary ratchet (rf2-5e8zv, the excision epic
+  # finale; renamed by rf2-p3zf).
+  #
+  # THIS GATE DOES NOT RETIRE WITH `implementation/ui/`, and the name it used to
+  # carry — "No re-frame.ui view-lifetime residue" — argued that it did. The rule
+  # has NO coupling to re-frame.ui, or to any substrate: read
+  # `scripts/check_view_lifetime_residue.py` and the whole mechanism is
+  # `git ls-files -z` over every tracked path with `_EXCLUDE_PREFIXES =
+  # (".beads/",)`. No donor tree is named, scanned for, or scoped to. The rule is
+  # "this word does not appear in this repository", full stop. EP-0038 HD-018
+  # rules that on a win the public re-frame.freehand and re-frame.ui surfaces are
+  # DELETED; a worker executing that deletion must NOT take this job with them.
+  # It is precisely what stops the next substrate reintroducing the vocabulary
+  # the excision removed — the case it is most needed for.
+  #
+  # Like the tracked-ai/ ratchet above this is a whole-tree, every-PR git
+  # invariant with a ZERO baseline — the excision epic removed the view-lifetime
+  # concept in full (the observation surface returns a HANDLE, Resources pin
+  # liveness with an OWNER), and ANY tracked file can reintroduce its vocabulary,
+  # so the only correct surface is the whole tree. The guard scans `git ls-files`
+  # content AND paths for every lexical form (natural language
+  # singular/plural/past/gerund, snake/camel/kebab identifiers, and file names),
+  # excludes ONLY `.beads/**`, and carries no baseline, ceiling, or allowlist for
+  # product files. It constructs its own forbidden token so the guard is never
+  # its own violation, and ordinary words (release, please) plus the excision's
+  # survivors (handle, owner, route, machine, ssr, app-event) are never flagged.
   view-lifetime-residue-ratchet:
-    name: No re-frame.ui view-lifetime residue
+    name: No retired view-lifetime vocabulary, repo-wide
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
