@@ -46,9 +46,10 @@
   React's own change tracker captures the prototype descriptor when it
   begins tracking a node, so a spy installed afterwards is behind React's
   captured reference and would count nothing. [[type-into!]] here writes
-  through a setter captured at namespace load, so a scripted keystroke's
-  own write is outside the count by construction rather than by
-  subtraction.
+  through a setter captured on FIRST BROWSER USE, which
+  [[with-glass-spy]] forces before it replaces anything, so a scripted
+  keystroke's own write is outside the count by construction rather than
+  by subtraction.
 
   [[mutations-during]] drains a `MutationObserver` synchronously with
   `takeRecords`, which is what makes it usable inside a discrete event:
@@ -215,7 +216,11 @@
   around the MOUNT and not merely around the keystroke — React's change
   tracker captures the prototype descriptor when it starts tracking a
   node, so a spy installed after the mount sits behind the reference
-  React already took."
+  React already took.
+
+  It also FORCES [[pristine-setters]] before it replaces anything — see
+  that def; the ordering is what keeps the user agent's own write out of
+  the count."
   [f]
   (let [_         @pristine-setters ;; capture BEFORE the swap — see that def
         protos    [["INPUT" js/HTMLInputElement.prototype]
@@ -258,12 +263,40 @@
           records))
 
 (defn- attribute-trace
-  "The attribute records in order, as `\"name: <old> -> <new>\"`.
+  "The attribute records in order, as
+  `\"<attribute>: <value before this record> -> <value NOW>\"`.
 
-  A count says a commit touched `name` four times; this says what it did
-  to it, which is the difference between reporting the commit stage and
-  ATTRIBUTING it. `:attributeOldValue` is what the observer needs to
-  answer it, and it changes no record's existence or count."
+  A count says a commit touched `name` four times; this says which
+  attribute each of the four was and what it held beforehand, which is
+  the difference between reporting the commit stage and ATTRIBUTING it.
+  `:attributeOldValue` is what the observer needs to answer that, and it
+  changes no record's existence or count.
+
+  **NEITHER SIDE OF THE ARROW IS A NEW VALUE, AND NO ROW HERE IS AN
+  OBSERVED TRANSITION.** A `MutationRecord` carries `oldValue` and no
+  counterpart: a new value has to be read back off the element, and by
+  the time this runs — after every record has been taken — that read
+  answers what the attribute holds now, the FINAL value. Hence the
+  `name: nil -> nil` rows below, printed by records that set `name` to
+  `\"\"`.
+
+  The attribution survives that intact, because it never rested on the
+  right-hand side. It rests on the ORDER of the attribute names and on
+  each record's old value, and those are read FORWARDS: `name`'s removal
+  record carries `oldValue` `\"\"`, and that is the observation — not an
+  inference — that `name` had been set to the empty string. Every caller
+  below reads it that way, and
+  `docs/design/hicasso/product/per-keystroke.md` §5 states the same limit
+  before it presents the table it draws from these records.
+
+  RECONSTRUCTING each record's new value from the NEXT same-attribute
+  record's `oldValue` was weighed and DECLINED (rf2-hic-045, the audit of
+  PR #8163). It would restate what the old values already carry; done
+  correctly it must key on target IDENTITY as well as attribute name, not
+  on the name alone; and the last record of each attribute would still
+  fall back to a final read taken after `hm/settle!`, so the caveat above
+  would survive the change that was supposed to remove it. Naming the
+  limit costs nothing and hides nothing."
   [records]
   (into []
         (comp (filter (fn [r] (= "attributes" (.-type r))))
@@ -391,11 +424,19 @@
                           "type: \"text\" -> \"text\""
                           "name: \"\" -> nil"]
                          (attribute-trace @muts))
-                      "TWO PASSES over one input, and the trace is what says
-                       so: `name`, `type`, `value`, `name` — then `name`,
-                       `type`, `name` with no `value`, because the second pass
-                       finds `defaultValue` already right. React 19 removes
-                       and restores `name` around every controlled-input
+                      "TWO PASSES over one input, and the ORDER of the
+                       attribute names is what says so: `name`, `type`,
+                       `value`, `name` — then `name`, `type`, `name` with no
+                       `value`, because the second pass finds `defaultValue`
+                       already right. The arrows' RIGHT-hand sides carry
+                       nothing: they are the attribute as it finally stands,
+                       not each record's new value, which is why a record that
+                       set `name` to the empty string prints `nil -> nil` (see
+                       [[attribute-trace]]). That empty string is witnessed on
+                       the LEFT of the following `name` record, and that is the
+                       observation it was set and then removed. React 19
+                       removes and restores `name` around every
+                       controlled-input
                        update so that a radio group's changes apply
                        atomically, and this input has no `name` at all, so
                        four of the seven records are churn on an attribute the
@@ -538,7 +579,11 @@
                       "THE ATTRIBUTION, and it is decisive. A refusal runs ZERO
                        bodies, so React commits nothing — and THREE of the
                        accepted keystroke's seven records appear anyway, as one
-                       `name`/`type`/`name` pass with no `value` write. Those
+                       `name`/`type`/`name` pass with no `value` write. It is
+                       the ORDER of those names that carries this, not the
+                       arrows: their right-hand sides are the final attribute
+                       values rather than per-record new ones, so `name` prints
+                       `nil -> nil` here too (see [[attribute-trace]]). Those
                        three are React's post-event controlled-state restore,
                        which is also what performs the single `value` PROPERTY
                        write the row above counts. The remaining four —
