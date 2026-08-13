@@ -104,20 +104,34 @@
 ;; ---------------------------------------------------------------------------
 
 (def ^:private pristine-setters
-  "The two prototypes' own `value` setters, captured at namespace load.
+  "The two prototypes' own `value` setters, captured on first use.
 
   [[with-glass-spy]] replaces those descriptors while it is installed, so
   a keystroke written through the live descriptor would be counted as a
-  write the runtime made. Capturing here is what keeps the user agent's
-  own write out of the count by construction — the alternative is to
-  subtract one and hope the subtrahend never changes."
-  {"TEXTAREA" (.-set (js/Object.getOwnPropertyDescriptor
-                       js/HTMLTextAreaElement.prototype "value"))
-   "INPUT"    (.-set (js/Object.getOwnPropertyDescriptor
-                       js/HTMLInputElement.prototype "value"))})
+  write the runtime made. Capturing before any spy exists is what keeps
+  the user agent's own write out of the count by construction — the
+  alternative is to subtract one and hope the subtrahend never changes.
+
+  A `delay` and not a `def` of the map itself, because this namespace
+  LOADS on the node lane — where its rows skip, but its top level still
+  runs, and `js/HTMLInputElement` does not exist there.
+
+  **[[with-glass-spy]] forces it before it replaces anything**, and that
+  ordering is the whole correctness of this def rather than a nicety. Every
+  keystroke in this file is typed inside a spy, so a delay left to be
+  forced by the first [[set-native-value!]] would capture the SPY's setter
+  and count the user agent's own write — turning the accepted keystroke's
+  measured zero into a one. Forcing at the top of the spy is what makes
+  *pristine* structural."
+  (delay
+    {"TEXTAREA" (.-set (js/Object.getOwnPropertyDescriptor
+                         js/HTMLTextAreaElement.prototype "value"))
+     "INPUT"    (.-set (js/Object.getOwnPropertyDescriptor
+                         js/HTMLInputElement.prototype "value"))}))
 
 (defn- set-native-value! [n v]
-  (.call (get pristine-setters (.-tagName n) (get pristine-setters "INPUT")) n v))
+  (let [setters @pristine-setters]
+    (.call (get setters (.-tagName n) (get setters "INPUT")) n v)))
 
 (defn- type-into!
   "Type `text` at the end of `n` the way a browser does — the field moves
@@ -203,7 +217,8 @@
   node, so a spy installed after the mount sits behind the reference
   React already took."
   [f]
-  (let [protos    [["INPUT" js/HTMLInputElement.prototype]
+  (let [_         @pristine-setters ;; capture BEFORE the swap — see that def
+        protos    [["INPUT" js/HTMLInputElement.prototype]
                    ["TEXTAREA" js/HTMLTextAreaElement.prototype]]
         !n        (atom 0)
         originals (mapv (fn [[_ p]] (js/Object.getOwnPropertyDescriptor p "value")) protos)]
