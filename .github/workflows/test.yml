@@ -93,6 +93,7 @@ jobs:
       hicasso_controlled: ${{ steps.detect.outputs.hicasso_controlled }}
       hicasso_hmr: ${{ steps.detect.outputs.hicasso_hmr }}
       migration_v1_codemod: ${{ steps.detect.outputs.migration_v1_codemod }}
+      ssr_node: ${{ steps.detect.outputs.ssr_node }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
@@ -5166,6 +5167,46 @@ jobs:
       - name: Run JVM tests (from-re-frame-v1 codemod artefact)
         run: clojure -M:test
 
+  node-ssr-node:
+    name: Node implementation/ssr-node (bounded SSR service suite)
+    needs: detect_changed_surfaces
+    if: needs.detect_changed_surfaces.outputs.ssr_node == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: implementation
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - name: Set up Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e  # v6.4.0
+        with:
+          node-version: '24'
+
+      # rf2-n8vp — the ssr-node package's 73 rows across 7 suites, and the FIRST
+      # lane this artefact has ever had. It landed (PR #8028) with no npm script
+      # and no job: `ssr-node` appeared in neither implementation/package.json
+      # nor .github/workflows/, so the five bounded guarantees the package was
+      # built to hold — per-request state isolation, fail-closed allowlists, one
+      # in-flight render per isolate, timeout plus hard termination, and a
+      # pre-registered latency envelope — were claims rather than gates.
+      #
+      # NO `npm ci`, and that is the point rather than an omission. The package
+      # is plain CommonJS on `node:` builtins and declares no npm dependency of
+      # its own (absence.test.cjs asserts it, alongside the absence of any
+      # shadow-cljs build or classpath entry reaching the tree), so `npm run`
+      # needs nothing installed to execute the runner. Same posture as
+      # `js-harness-self-tests` one job over. That is what makes this lane cheap
+      # enough to be armed on its own surface: seconds, no build, no browser.
+      #
+      # The runner spawns each suite in its OWN process, so the exit code below
+      # is an aggregate of real exit codes rather than an in-process tally, and
+      # a leaked worker thread in one file cannot turn the next file's clean
+      # failure into a hang. Its HTTP rows bind port 0 and let the OS pick, so
+      # this job reserves no port and cannot collide with a concurrent lane.
+      - name: Run the ssr-node suite
+        run: npm run test:ssr-node
+
   node-test-tools-re-frame2-pair-mcp:
     name: Node tools/re-frame2-pair-mcp (shadow-cljs :server-test)
     needs: detect_changed_surfaces
@@ -6165,6 +6206,14 @@ jobs:
       # the conservatism its tests pin is a promise made to somebody else's
       # repository. Advisory would leave it one `if:` from the nowhere it ran.
       - jvm-migration-v1-codemod
+      # rf2-n8vp — required, not advisory. A job absent from this list is
+      # advisory whatever its own gate says, and advisory is one `if:` from the
+      # nowhere this package's suite ran until now. What it holds is not
+      # incidental either: per-request state isolation and a fail-closed module
+      # allowlist are the two properties that decide whether one tenant's render
+      # can observe another's, so a merge that never ran this lane must not be
+      # possible.
+      - node-ssr-node
       - node-test-tools-re-frame2-pair-mcp
       - node-test-tools-story-mcp
       - mcp-conformance-re-frame2-pair
