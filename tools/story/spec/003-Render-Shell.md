@@ -186,6 +186,28 @@ node and reseats the workspace. Decorator fingerprinting tracks
 whether the decorator stack used by a mounted variant has changed at
 the registry level; stale variants re-mount.
 
+### Error-stream ownership
+
+Mounting the shell registers an `:errors` listener; unmounting drops it
+again. The listener carries no behaviour — the registration *is* the
+payload, because it is a claim rather than a sink.
+
+The framework's dev console fallback (Spec 009 §Error-emit listener)
+prints a promoted `:rf.error/*` record to `console.error` only while the
+corpus-wide `:errors` registry is empty, on the reasoning that an
+untooled dev build would otherwise surface a captured refusal nowhere at
+all. A mounted shell is the tooled case. Story runs failing variants on
+purpose, captures every promoted refusal off the trace axis, and shows
+the outcome in the assertion strip, the Test pane's per-row verdict and
+the embedded Xray Trace tab — so a console line would only duplicate
+what is already on screen, once per failing run.
+
+Registering any `:errors` listener takes ownership corpus-wide, which is
+what the framework contract offers as the fallback's off-switch. Story's
+claim is scoped to the mounted shell: unmounting hands the fallback back
+to whatever runs on the page next, and a host app's own `:errors`
+listener rides under its own id and survives a Story unmount untouched.
+
 ### One run owner (prepare / resume)
 
 A focused variant's run spans the real React render boundary — the
