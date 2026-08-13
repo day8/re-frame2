@@ -489,11 +489,15 @@ Look for items marked in-progress. If no live worker holds one, it may be strand
 outside, and both readings went wrong in a single day here, in opposite directions.
 
 1. **Has the *tip revision* on that item's branch changed since the last tick?** Record the
-   revision id, not a count of changes — **a count survives a rebase unchanged**, and rebasing
-   onto a moved trunk is what a briefed worker does constantly, so a count fails on the common
-   case rather than an edge one. The timestamps split the same way: a rebase replays the
-   *authored* time and rewrites only the *committed* one, so two honest readers can call one
-   change forty-three minutes old and seventy-five seconds old and neither be misreading.
+   revision id, not a count of changes — **an *ahead* count, the changes your branch carries
+   beyond the trunk, survives a rebase unchanged**, and rebasing onto a moved trunk is what a
+   briefed worker does constantly, so a count fails on the common case rather than an edge one.
+   Say which count, because only that one is invariant: counting *everything reachable* from
+   the branch does move under a rebase, having counted what the trunk gained as well. So the
+   misleading count is the ahead count — which is also the one you naturally read. The
+   timestamps split the same way: a rebase replays the *authored* time and rewrites only the
+   *committed* one, so two honest readers can call one change forty-three minutes old and
+   seventy-five seconds old and neither be misreading.
    Reading the count and the authored time together, a healthy worker here was called unchanged
    for two consecutive ticks — it had rebased two minutes before the second read and had
    committed all of its assigned work. A changed id says alive everywhere a count does, plus
