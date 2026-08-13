@@ -166,10 +166,21 @@ test('Mixed Story src + spec change DOES trigger story_xray_browser (rf2-k9ekz)'
   assert.equal(result.story_xray_browser, 'true');
 });
 
-// rf2-f79t8 (b) — a tools/{story,xray}/spec/**.md MARKDOWN change is a
-// pure doc change: it cannot affect any runtime, JVM unit test, or MCP
-// wire surface, so it must NOT fan out to the JVM/MCP probes (tools_jvm,
-// mcp_conformance). docs.yml + the nightly full matrix cover docs.
+// rf2-f79t8 (b) — a tools/story/spec/**.md MARKDOWN change is a pure doc
+// change: it cannot affect any runtime, JVM unit test, or MCP wire surface,
+// so it must NOT fan out to the JVM/MCP probes (tools_jvm, mcp_conformance).
+// docs.yml + the nightly full matrix cover docs.
+//
+// THE XRAY HALF OF THIS PIN WAS DELETED (rf2-6ng7), because its premise was
+// false. Two suites under `tools/xray/test/` read the Xray spec markdown as
+// their expected value — `coverage_matrix_metadata_test.clj` (jvm-tools-xray)
+// and `panel_enum_spec_refs.clj`, whose macro compiles into the :node-test
+// build (cljs). The assertion below used to name
+// `017-Test-Coverage-Matrix.md` specifically, which is one of the two files
+// the first of those suites slurps: the pin held the classifier to exactly
+// the hole. What replaces it is the derived roster at the foot of this file,
+// which reads both suites' own path lists rather than restating them, plus
+// the surviving Story control here.
 
 test('Story spec-only .md does NOT fan out to tools_jvm / mcp_conformance (rf2-f79t8)', () => {
   const result = classify('tools/story/spec/Spec.md');
@@ -178,11 +189,14 @@ test('Story spec-only .md does NOT fan out to tools_jvm / mcp_conformance (rf2-f
   assert.equal(result.cljs_node_test, 'false');
 });
 
-test('Xray spec-only .md does NOT fan out to tools_jvm / mcp_conformance (rf2-f79t8)', () => {
+test('Xray spec-only .md still does NOT fan out to mcp_conformance / template_expensive (rf2-f79t8, rf2-6ng7)', () => {
+  // The narrowing rf2-6ng7 made is on the PATH axis, not a repeal: markdown
+  // still cannot change an MCP wire surface or the generated app's compile,
+  // and no suite in either lane reads these files.
   const result = classify('tools/xray/spec/017-Test-Coverage-Matrix.md');
-  assert.equal(result.tools_jvm, 'false');
   assert.equal(result.mcp_conformance, 'false');
-  assert.equal(result.cljs_node_test, 'false');
+  assert.equal(result.template_expensive, 'false');
+  assert.equal(result.story_xray_browser, 'false');
 });
 
 test('Story NON-spec change (JVM .clj test) STILL fans out to tools_jvm / mcp_conformance (rf2-f79t8)', () => {
@@ -5639,6 +5653,247 @@ test('jvm-routing stays gated on implementation_jvm, or the census arm schedules
     /if: needs\.detect_changed_surfaces\.outputs\.implementation_jvm == 'true'/,
     'jvm-routing must stay gated on implementation_jvm',
   );
+});
+
+// ---------------------------------------------------------------------------
+// rf2-6ng7 — NON-LOCAL INPUT EDGES ARM THE JOB THAT READS THEM.
+//
+// The bounded audit this bead ruled found three more gates in the rf2-w9ip
+// shape above: a suite whose expected value IS a file somewhere else in the
+// repository, scheduled in a job that the file's own classification never
+// armed. Each is pinned here the way the census is — the roster READ OUT OF
+// the gate's own source, never restated. A restated list is a second thing to
+// keep in step, which is the defect these pins exist to catch.
+//
+// Every one asserts three legs, because two are not enough: the path arms the
+// output, the output still gates the job, and the parse that produced the
+// roster found something (a roster read as empty asserts nothing and reports
+// green).
+// ---------------------------------------------------------------------------
+
+/**
+ * The string literals of the first vector following `(def ^:private <name>`,
+ * read out of Clojure source.
+ *
+ * Same scan as `censusAppRoots` above and for the same reason: the docstring
+ * between the name and the vector quotes paths and namespaces, so the first
+ * `[` that is not inside a string or a line comment is the vector's.
+ */
+function defVectorStrings(source, defName, label) {
+  const start = source.indexOf(`(def ^:private ${defName}`);
+  assert.notEqual(start, -1, `${label} must still define ${defName}`);
+
+  let i = start;
+  let inString = false;
+  let inComment = false;
+  for (; i < source.length; i += 1) {
+    const ch = source[i];
+    if (inString) {
+      if (ch === '\\') i += 1;
+      else if (ch === '"') inString = false;
+      continue;
+    }
+    if (inComment) {
+      if (ch === '\n') inComment = false;
+      continue;
+    }
+    if (ch === '"') inString = true;
+    else if (ch === ';') inComment = true;
+    else if (ch === '[') break;
+  }
+  assert.ok(i < source.length, `${label}: no ${defName} vector found`);
+
+  const end = source.indexOf(']', i);
+  assert.notEqual(end, -1, `${label}: unterminated ${defName} vector`);
+
+  return [...source.slice(i, end).matchAll(/"([^"\\]*)"/g)].map((m) => m[1]);
+}
+
+// --- the re-frame.ui shadow-configuration contract -------------------------
+//
+// `shadow_config_contract_jvm_test.clj` spells no expected value: the expected
+// value is the repository's four real holders, read at run time and compared as
+// data. It runs in `jvm-ui`, which `implementation_jvm` gates, and before this
+// bead not one holder armed that output.
+
+const SHADOW_CONTRACT_REL =
+  'implementation/ui/test/re_frame/ui/shadow_config_contract_jvm_test.clj';
+
+/**
+ * The suite's compared holders: every `(def ^:private <name>-rel "<path>")`
+ * except the repo-root LOCATOR.
+ *
+ * `root-marker-rel` is excluded by name and deliberately. It is the durable
+ * root file the suite walks up to find (`AGENTS.md`) — "deliberately not a
+ * compared holder", as its own comment says. Arming the whole JVM tier on
+ * every AGENTS.md edit would be over-arming for a file the suite only ever
+ * uses as a coordinate; the negative control below pins that it stays cheap.
+ */
+function shadowContractHolders(source) {
+  const rows = [...source.matchAll(/\(def\s+\^:private\s+([a-z0-9-]*-rel)\s+"([^"]+)"\)/g)]
+    .map((m) => ({ name: m[1], rel: m[2] }));
+  assert.ok(
+    rows.length >= 5,
+    `${SHADOW_CONTRACT_REL}: expected at least 5 \`-rel\` path defs, parsed ${rows.length}`,
+  );
+  const marker = rows.find((r) => r.name === 'root-marker-rel');
+  assert.ok(marker, `${SHADOW_CONTRACT_REL} must still define root-marker-rel`);
+
+  const holders = rows.filter((r) => r.name !== 'root-marker-rel');
+  // Cannot pass vacuously: a parse that found only the marker would assert
+  // every holder in an empty list and report green.
+  assert.ok(
+    holders.length >= 4,
+    `${SHADOW_CONTRACT_REL}: expected at least 4 compared holders, parsed ${holders.length}`,
+  );
+  return holders;
+}
+
+test('every shadow-config contract holder arms implementation_jvm (rf2-6ng7)', () => {
+  const source = fs.readFileSync(path.join(REPO_ROOT, SHADOW_CONTRACT_REL), 'utf8');
+  for (const { name, rel } of shadowContractHolders(source)) {
+    assert.equal(
+      classify(rel).implementation_jvm,
+      'true',
+      `${rel} (${name}) must arm implementation_jvm: shadow-config-contract-jvm-test compares it as a holder, and jvm-ui is the only job that runs it`,
+    );
+  }
+});
+
+test('the shadow-config contract locator stays cheap (rf2-6ng7 negative control)', () => {
+  const source = fs.readFileSync(path.join(REPO_ROOT, SHADOW_CONTRACT_REL), 'utf8');
+  const marker = [...source.matchAll(/\(def\s+\^:private\s+root-marker-rel\s+"([^"]+)"\)/g)][0];
+  assert.ok(marker, `${SHADOW_CONTRACT_REL} must still define root-marker-rel`);
+  assert.equal(
+    classify(marker[1]).implementation_jvm,
+    'false',
+    `${marker[1]} is the suite's repo-root LOCATOR, not a compared holder — it must not queue the JVM tier`,
+  );
+});
+
+// --- the Xray spec markdown two suites read --------------------------------
+//
+// The classifier's spec-md guard (rf2-f79t8) excused
+// `tools/{story,xray}/spec/**.md` from every probe on the premise that spec
+// prose "cannot affect any JVM unit test". Two suites under `tools/xray/test/`
+// read exactly that prose as their expected value, so for the Xray half the
+// premise was false.
+
+const XRAY_PANEL_REFS_REL =
+  'tools/xray/test/day8/re_frame2_xray/panel_enum_spec_refs.clj';
+const XRAY_MATRIX_REL =
+  'tools/xray/test/day8/re_frame2_xray/coverage_matrix_metadata_test.clj';
+
+test('the Xray spec files the panel-enum guard reads arm cljs_node_test (rf2-6ng7)', () => {
+  const source = fs.readFileSync(path.join(REPO_ROOT, XRAY_PANEL_REFS_REL), 'utf8');
+  const specFiles = defVectorStrings(source, 'spec-files', XRAY_PANEL_REFS_REL);
+  assert.ok(
+    specFiles.length >= 2,
+    `${XRAY_PANEL_REFS_REL}: expected at least 2 spec-files, parsed ${specFiles.length} (${specFiles.join(', ')})`,
+  );
+  for (const rel of specFiles) {
+    assert.equal(
+      classify(rel).cljs_node_test,
+      'true',
+      `${rel} must arm cljs_node_test: panel-enum-spec-refs slurps it at macro-expansion time into panel_enum_guard_cljs_test.cljs, which the consolidated :node-test build compiles`,
+    );
+  }
+});
+
+test('the Xray spec files the coverage-matrix suite reads arm tools_jvm (rf2-6ng7)', () => {
+  const source = fs.readFileSync(path.join(REPO_ROOT, XRAY_MATRIX_REL), 'utf8');
+  // Segment vectors — `["tools" "xray" "spec" "<file>.md"]` — joined the way
+  // `(apply io/file (find-repo-root) rel)` resolves them.
+  const rels = ['matrix-spec-rel', 'insight-spec-rel'].map((defName) => {
+    const segs = defVectorStrings(source, defName, XRAY_MATRIX_REL);
+    assert.ok(
+      segs.length >= 2,
+      `${XRAY_MATRIX_REL}: ${defName} parsed ${segs.length} segments (${segs.join(', ')})`,
+    );
+    return segs.join('/');
+  });
+  for (const rel of rels) {
+    assert.equal(
+      classify(rel).tools_jvm,
+      'true',
+      `${rel} must arm tools_jvm: coverage-matrix-metadata-test slurps it, and jvm-tools-xray is the only job that runs it`,
+    );
+  }
+});
+
+test('Story spec markdown stays cheap (rf2-6ng7 negative control)', () => {
+  // The guard the Xray arm narrows is still doing its job on the other half:
+  // Story's spec prose has no counterpart reader inside test.yml, so it must
+  // still classify to nothing at all.
+  const verdicts = classify('tools/story/spec/API.md');
+  for (const output of ['tools_jvm', 'cljs_node_test', 'mcp_conformance', 'template_expensive']) {
+    assert.equal(
+      verdicts[output],
+      'false',
+      `tools/story/spec/API.md must not arm ${output} — no test.yml suite reads Story's spec markdown`,
+    );
+  }
+});
+
+// --- the setup skill's reference snippets ----------------------------------
+//
+// `setup-skill-scaffold-compiles-test` materialises a whole scaffold out of
+// the fenced blocks in one directory and compiles it. That suite runs in
+// `jvm-tools-template` under `template_expensive`, and the directory armed
+// only `skills_structural` — a shape guard, which cannot tell whether the
+// snippets still compile.
+
+const TEMPLATE_EMITTED_REL =
+  'tools/template/test/day8/re_frame2_template/emitted_test_run_test.clj';
+
+test('the setup skill reference snippets arm template_expensive (rf2-6ng7)', () => {
+  const source = fs.readFileSync(path.join(REPO_ROOT, TEMPLATE_EMITTED_REL), 'utf8');
+  const m = source.match(
+    /\(def\s+\^:private\s+skill-setup-refs[\s\S]{0,400}?\(io\/file\s+\(repo-root\)\s+"([^"]+)"\)/,
+  );
+  assert.ok(
+    m,
+    `${TEMPLATE_EMITTED_REL} must still resolve skill-setup-refs from a repo-relative literal`,
+  );
+  const dir = m[1];
+  assert.ok(
+    dir.startsWith('skills/'),
+    `${TEMPLATE_EMITTED_REL}: skill-setup-refs resolved to "${dir}", which is not a skills path`,
+  );
+  for (const probe of [`${dir}/rf2_6ng7_probe.md`, `${dir}/nested/rf2_6ng7_probe.md`]) {
+    assert.equal(
+      classify(probe).template_expensive,
+      'true',
+      `${probe} must arm template_expensive: setup-skill-scaffold-compiles-test materialises the scaffold from ${dir} and compiles it, and jvm-tools-template is the only job that runs that suite`,
+    );
+  }
+});
+
+test('the rest of the setup skill stays off template_expensive (rf2-6ng7 negative control)', () => {
+  assert.equal(
+    classify('skills/re-frame2-setup/SKILL.md').template_expensive,
+    'false',
+    'skills/re-frame2-setup/SKILL.md is not materialised into the scaffold — it must not queue the emitted-app compile',
+  );
+});
+
+test('the jobs these arms reach are still gated on the armed outputs (rf2-6ng7)', () => {
+  // The third leg, the one no arming test can supply: arming an output binds
+  // nothing unless the job running the suite is still gated on that output.
+  // (`jvm-ui` / `implementation_jvm` is already pinned by the rf2-61ar test
+  // above, so it is not restated here.)
+  const workflow = fs.readFileSync(WORKFLOW, 'utf8');
+  for (const [job, output] of [
+    ['jvm-tools-xray', 'tools_jvm'],
+    ['cljs', 'cljs_node_test'],
+    ['jvm-tools-template', 'template_expensive'],
+  ]) {
+    assert.match(
+      jobBlock(workflow, job),
+      new RegExp(`if: needs\\.detect_changed_surfaces\\.outputs\\.${output} == 'true'`),
+      `${job} must stay gated on ${output}, or arming it schedules nothing`,
+    );
+  }
 });
 
 let failed = 0;
