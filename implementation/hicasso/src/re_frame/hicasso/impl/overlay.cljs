@@ -132,6 +132,15 @@
 ;; The anchor — a DOM id in, a CSS anchor name out
 ;; ---------------------------------------------------------------------------
 
+;; **Page-wide on purpose, and narrowing it would be a defect** — the one
+;; row on `docs/design/hicasso/product/globals.md` where the ordinary
+;; "a mutable global, therefore scope it to a root" reading introduces the
+;; bug it thinks it is preventing (rf2-hic-017).
+;;
+;; A CSS anchor name lives in ONE namespace per document, not one per React
+;; root. Two roots each minting `--rf-overlay-1` put two live overlays on
+;; one name, and the second claim silently steals the first's positioning.
+;; The counter is page-wide because the namespace it allocates into is.
 (defonce ^:private !anchor-seq (atom 0))
 
 (defn- next-anchor-ident

@@ -20,7 +20,17 @@
   [[quiesced!]] is here rather than beside the reapers it waits on
   because its only purpose is to make a [[residue]] BASELINE honest, and
   a settling point separated from the thing it settles for is a settling
-  point that drifts — which is exactly what rf2-981nt was."
+  point that drifts — which is exactly what rf2-981nt was.
+
+  **This file counts what is retained; it does not say why any of it is
+  allowed to be one-per-page.** That is a different question with a
+  different answer per owner, and it has its own record:
+  `docs/design/hicasso/product/globals.md` enumerates every module-level
+  mutable owner in the runtime with its disposition, and states the
+  searches that produce the roster. Read it before scoping one of these
+  tables to a root — three of them are already frame-scoped BY KEYING,
+  and at least one (`impl.overlay`'s anchor counter) would break if it
+  were scoped to anything narrower than the page (rf2-hic-017)."
   (:require [re-frame.hicasso.impl.codec :as codec]
             [re-frame.hicasso.impl.collector :as collector]
             [re-frame.hicasso.impl.frames :as frames]
