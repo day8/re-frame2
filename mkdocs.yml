@@ -70,9 +70,9 @@ theme:
       toggle:
         icon: material/weather-sunny
         name: Switch to light mode
-  font:
-    text: IBM Plex Sans
-    code: Source Code Pro
+  # Body type is not on Google Fonts (Gorton / Routed Gothic). Disable
+  # Material's Google Fonts loader; extra_css sets --md-text-font.
+  font: false
   features:
     - navigation.tabs
     - navigation.sections
@@ -152,6 +152,7 @@ extra_javascript:
   - cljs/playground.js
 
 extra_css:
+  - stylesheets/fonts.css
   - cljs/playground.css
 
 extra:
