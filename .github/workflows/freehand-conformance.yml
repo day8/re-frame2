@@ -113,14 +113,28 @@ name: freehand-conformance
 #
 # RETIREMENT. This file is STAGE 3 — the LAST — of the staged order in
 # `TESTING.md` § "Retirement order for the Freehand CI lanes", and its trigger
-# is "no `spec/**` page cites an `FH-*` id". Being advisory is what makes the
-# workflow cheap to delete and is NOT what makes it safe to: 28 citations of
-# `conformance-index.md` across eight normative spec files run through
-# `scripts/check_doc_slugs.py`, which `Docs required` genuinely needs, so the
-# INDEX cannot go before the citations do. Deleting the workflow alone strands
-# nothing required and loses something real anyway — the index's internal
-# integrity, which nothing else proves. That asymmetry is why this file is last
-# rather than first, and the section states it in full.
+# is "nothing under `spec/` OUTSIDE `spec/conformance/freehand/**` cites an
+# `FH-*` id". The exclusion is load-bearing, not tidying: unscoped, the
+# condition can never come true, because `conformance-index.md` is where those
+# ids are DEFINED. Measured 2026-08-14, 68 external `FH-*` references across
+# seven tracked files; reproduce with
+#
+#   git grep -oE 'FH-[0-9A-Za-z_-]+' -- 'spec' ':!spec/conformance/freehand'
+#
+# and do not believe a zero without a cross-check — a differently-shaped
+# pathspec for the same question returns nothing at all on at least one
+# supported checkout, which on a deletion trigger fails OPEN.
+#
+# The corpus comes off in this stage too, and for the reason this workflow is
+# last: being advisory makes it cheap to delete and is NOT what makes it safe
+# to. A SEPARATE count governs that half — 28 link targets naming
+# `conformance-index.md` across eight normative spec files (re-measured
+# 2026-08-14) run through `scripts/check_doc_slugs.py`, which `Docs required`
+# genuinely needs, so the INDEX cannot go before those links do. And deleting
+# this workflow alone, leaving the index, strands nothing required while
+# losing something real anyway: the index's internal integrity, which nothing
+# else proves. Workflow and corpus therefore go together. The section states
+# both counts, why they differ, and the full asymmetry.
 
 on:
   # BOTH triggers are intentionally UNFILTERED. The PR one for the
