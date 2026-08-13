@@ -55,7 +55,7 @@ A re-run that fails writes its failure into the evidence cell and leaves the row
 
 Checkpoints append rows. Every transition after `open` is the ledger keeper's, written in the commits set out above; what moves a row to `closed` is always a re-run performed after the fix landed — the keeper's, or a closure bead's.
 
-Rows are not the verdict, and reading them as one understates it: Checkpoint 1's verdict is that the Phase 1 exit is **not met** — its shell conjunct is open and unowned, whatever the kernel rows say — and it is recorded in [`checkpoint-1-kernel.md`](checkpoint-1-kernel.md).
+Rows are not the verdict, and reading them as one understates it: Checkpoint 1's verdict is that the Phase 1 exit is **not met** — its shell conjunct is open, whatever the kernel rows say — and it is recorded in [`checkpoint-1-kernel.md`](checkpoint-1-kernel.md). That conjunct now carries a named owner and a [deferred row](#deferred-items-and-the-release-decision); what it still lacks is the decision itself.
 
 | Checkpoint | Protocol section | Finding | bd id | Severity | Status | Closure evidence |
 |---|---|---|---|---|---|---|
