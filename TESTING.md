@@ -60,7 +60,7 @@ Don't grow example-level specs, and don't overload examples with internal canari
 
 - **Cheap tests** run on every PR + every checkin. No conditional gating.
 - **Expensive tests** run only when needed — gated by a **changed-surface classifier** on PR CI, by **full sweeps** nightly, and by **release gates** before tagging.
-- **Expensive browser gates run in two tiers**: a high-signal **PR smoke** on the critical path, and the **full sweep** nightly. The nightly set is a strict superset, so the smoke never becomes the only coverage.
+- **Expensive browser gates run in two tiers**: a high-signal **PR smoke** on the critical path, and the **full sweep** nightly. The nightly set is a strict superset, so the smoke never becomes the only coverage. **Superset of the PR gates, not of every gate the classifier can arm** (rf2-mvq7): a surface-armed job that is skipped on a main push reports the same colour as one that passed, so a gate with no unconditional arm anywhere is invisible on main until some PR happens to touch its surface. `expensive-tests.yml` now carries the narrow-armed gates too, and the four it deliberately leaves out are named in its own `DECLARED HOLES` comment with the exposure each one accepts — the `unscheduled` idiom of `check_gate_scheduling.py`, applied to cadence instead of existence.
 - **Per-tier scenarios** package these into named workflows so contributors know which gate they're in.
 
 The classifier maps "what files changed" → "which expensive jobs fire." The full matrix runs nightly and on release candidates regardless of the diff. Skipping the wrong gate at the wrong time is the failure mode this system exists to prevent — **Placement decision dimensions** below is the frame for placing a new test.

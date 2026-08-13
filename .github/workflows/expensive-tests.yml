@@ -221,6 +221,113 @@ jobs:
         if: ${{ !cancelled() }}
         run: npm run test:ui-warm-watch
 
+      # ==================================================================
+      # rf2-mvq7 — THE NARROW-ARMED GATES, given the arm against main they
+      # never had. From the rf2-2uy8 B+ ruling: TESTING.md calls this sweep a
+      # strict superset of the surface-armed PR gates, and for the expensive
+      # browser class it is. It was not for the gates below. Each runs only
+      # when `detect_changed_surfaces` arms it at PR time, and none had any
+      # arm that ever ran against main — so a CROSS-SURFACE regression in one
+      # sits green on main until some PR happens to touch its narrow surface.
+      # That is the rf2-8yyd shape one tier down: the gate is not red and not
+      # green, it is absent, and a rollup cannot tell absent from passing.
+      #
+      # Every one of these rides setup this job already does (npm ci under
+      # `implementation`, JDK, Clojure CLI, pinned Chromium), which is what
+      # makes them cheap enough to be unconditional here. Each is its own
+      # NAMED step rather than a block, because `nightly_failure_alert.py`
+      # keys its failure signature on the step name (rf2-wh5to): one newly-red
+      # gate must become one new signature in the tracking issue, not a
+      # reshuffle of a shared step's.
+      #
+      # `if: !cancelled()` matches every gate above: a red gate must not
+      # suppress the ones after it, or the first failure of the night hides
+      # the rest.
+      - name: Gate — bounded Node SSR service suite (test:ssr-node)
+        if: ${{ !cancelled() }}
+        run: npm run test:ssr-node
+
+      - name: Gate — perf-flag bundle isolation (test:perf-bundle)
+        if: ${{ !cancelled() }}
+        run: npm run test:perf-bundle
+
+      - name: Gate — schemas bundle cost, two-sided margin (test:schemas-bundle)
+        if: ${{ !cancelled() }}
+        run: npm run test:schemas-bundle
+
+      - name: Gate — re-frame.ui G-1 direct-render parity (test:ui-g1)
+        if: ${{ !cancelled() }}
+        run: npm run test:ui-g1
+
+      - name: Gate — re-frame.ui G-13 push economics (test:ui-g13)
+        if: ${{ !cancelled() }}
+        run: npm run test:ui-g13
+
+      - name: Gate — re-frame.ui G-18 facade DCE isolation (test:ui-facade-isolation)
+        if: ${{ !cancelled() }}
+        run: npm run test:ui-facade-isolation
+
+      - name: Gate — Reagent Slim client-runtime smoke (test:reagent-slim:smoke)
+        if: ${{ !cancelled() }}
+        run: npm run test:reagent-slim:smoke
+
+      - name: Gate — tenant-switcher testbed smoke (test:testbed-tenant-switcher)
+        if: ${{ !cancelled() }}
+        run: npm run test:testbed-tenant-switcher
+
+      - name: Gate — tools/machines-viz CLJS lane (test:tools-machines-viz)
+        if: ${{ !cancelled() }}
+        run: npm run test:tools-machines-viz
+
+      - name: Gate — machines-viz viewer page build + stage (build:machines-viz-viewer)
+        if: ${{ !cancelled() }}
+        run: npm run build:machines-viz-viewer
+
+      # ------------------------------------------------------------------
+      # rf2-mvq7 — DECLARED HOLES. These four narrow-armed gates are NOT in
+      # this sweep, and the omission is a decision rather than an oversight.
+      # The idiom is `check_gate_scheduling.py`'s `unscheduled` kind: a hole
+      # that is named costs a reader one paragraph; a hole that is not costs
+      # them the belief that the sweep is a superset.
+      #
+      #   test:hicasso-controlled  — three engines. Needs Firefox AND WebKit,
+      #   test:hicasso-hmr           which this job does not install; the HMR
+      #   test:ui-g8                 gate additionally needs a live
+      #                              `shadow-cljs watch` and its own
+      #                              `:dev-http` origin on 8061, and drives 36
+      #                              real reloads per engine. Two more engine
+      #                              downloads plus a watch daemon is not the
+      #                              "few minutes of nightly runtime" the
+      #                              rf2-2uy8 ruling budgeted, and the
+      #                              process-orchestration class is the one
+      #                              most prone to false negatives here.
+      #                              ACCEPTED EXPOSURE: a cross-surface break
+      #                              of the caret/composition or HMR contracts
+      #                              sits on main until a PR touches
+      #                              `implementation/hicasso/**`,
+      #                              `implementation/ui/**`, `core` runtime or
+      #                              the build-config trio. Reconsider when
+      #                              this job needs Firefox or WebKit for some
+      #                              other reason and the marginal cost is a
+      #                              step rather than an install.
+      #
+      #   test:re-frame2-pair-live-overflow — would run VACUOUSLY. Without
+      #   `$SHADOW_CLJS_NREPL_PORT` it exits 0 on a SKIP marker (TESTING.md),
+      #   and a gate that cannot fail is worse here than an absent one: it
+      #   would report green nightly and read as coverage. Its real coverage
+      #   is the hermetic suite in the `mcp-live` job below, which IS in this
+      #   sweep.
+      #
+      #   test:cljs (tools/mcp-base) — NO cross-surface input to miss.
+      #   `tools/mcp-base/deps.edn` states the artefact's own rule: runtime
+      #   sources "must not depend on implementation/" and it carries no
+      #   external runtime dependency beyond Clojure. Its suite exercises that
+      #   artefact's reader-conditional branches, which is exactly the surface
+      #   `tools_jvm` arms on — so the PR arm is complete rather than narrow,
+      #   and a nightly arm would buy nothing. This one is listed because a
+      #   census that omits it looks like an oversight.
+      # ==================================================================
+
   template-emitted-app:
     name: Template emitted-app smoke
     runs-on: ubuntu-latest
@@ -377,6 +484,30 @@ jobs:
 
       - name: Run re-frame2-pair live conformance suite (hermetic)
         run: npm run test:re-frame2-pair-live-hermetic-suite
+
+      # rf2-mvq7 — three more narrow-armed gates given an arm against main.
+      # `test:unit` and `test:flag-gates` are `mcp-conformance`'s own Node
+      # cluster and the cross-MCP CLI flag-vocabulary gate; `test:stdin-eof-
+      # shutdown` is the re-frame2-pair-mcp shutdown regression. All three run
+      # only when the classifier arms `mcp_conformance` / `mcp_live` at PR
+      # time, and this sweep already carried their siblings
+      # (`test:re-frame2-pair`, `test:story`, `test:exec-safety`) and not
+      # them. Each is its own NAMED step, not an addition to the conformance
+      # block above, so a newly-red one becomes its own failure signature for
+      # `nightly_failure_alert.py` (rf2-wh5to). Both installs they need are
+      # already done by this job.
+      - name: Gate — mcp-conformance Node unit-regression cluster (test:unit)
+        if: ${{ !cancelled() }}
+        run: npm run test:unit
+
+      - name: Gate — cross-MCP CLI flag-vocabulary conformance (test:flag-gates)
+        if: ${{ !cancelled() }}
+        run: npm run test:flag-gates
+
+      - name: Gate — re-frame2-pair-mcp stdin-EOF shutdown (test:stdin-eof-shutdown)
+        if: ${{ !cancelled() }}
+        working-directory: tools/re-frame2-pair-mcp
+        run: npm run test:stdin-eof-shutdown
 
   jvm-slow-tests:
     # rf2-bv2qqm — the heavy `^:slow` / `^:stress` JVM tests (the SSR
