@@ -24,6 +24,7 @@
   | a real `<dialog>` traps focus when it is MODAL, and does not when it is merely shown | [[the-instrument-tells-a-trap-from-its-absence]] |
   | the module's modal is the trapping kind: the reachable set becomes EXACTLY the panel's controls | [[an-open-modal-is-the-whole-of-what-a-keyboard-can-reach]] |
   | the module's popover is NOT a trap, and must not be read as one | [[an-open-popover-leaves-the-page-behind-it-reachable]] |
+  | a REAL Tab cycles inside the trap, and a REAL Escape lets the page back out | [[a-real-tab-cycles-within-the-modal-and-a-real-escape-gives-the-page-back]] |
 
   The middle claim is an emptiness claim about everything outside a
   dialog, and an emptiness claim is exactly the shape that passes
@@ -44,32 +45,52 @@
   would be asserting something the module does not claim and must not
   do.
 
-  ## What is measured, and what a page cannot drive
+  ## What is measured, and what the fourth row adds
 
-  Every row asks the ENGINE — blur, request focus, read
+  The first three rows ask the ENGINE — blur, request focus, read
   `document.activeElement` back — because inertness is decided by the
   engine's own modality and by nothing this module writes. See
   `examples.ledger.keyboard-dom-cljs-test` on why asking is the only
   honest instrument.
 
-  A real Escape key is still not reachable from inside the page:
-  Chromium refuses an untrusted `KeyboardEvent` a close request by
-  design, which `overlay-dom-cljs-test` names and drives through
-  `HTMLDialogElement.requestClose` instead — the same `cancel` path
-  Escape takes. Nothing here re-litigates it.
+  Asking is not quite tabbing, though, and this file's central claim is
+  about what a keyboard user can REACH. [[reachable]] answers *which
+  elements would take focus if asked*; a trap is *where Tab goes when it
+  runs out of panel*. The two agree here, and since rf2-il7b that
+  agreement is measured rather than assumed:
+  [[a-real-tab-cycles-within-the-modal-and-a-real-escape-gives-the-page-back]]
+  presses Tab through the browser gate's trusted-input bridge
+  (`re-frame.hicasso.trusted-input-support`, whose other half is
+  `scripts/run-browser-tests.cjs`) and finds it CYCLING — off the last
+  panel control back onto the first, never onto `before`, `trigger` or
+  `after` — which is the property a modal is actually bought for and the
+  one an emptiness claim over `reachable` can only approximate. The same
+  row then presses a real Escape and gets the page back.
+
+  It also found something no amount of asking would have: the wrap goes
+  through the DOCUMENT. `document.activeElement` reads `<body>` for one
+  step between the panel's last control and its first, so the cycle is
+  four stops for three controls. That is recorded on the row itself,
+  because it is the engine's conduct and not this module's.
+
+  `overlay-dom-cljs-test` holds the synthetic-versus-trusted comparison
+  for Escape itself; this file does not re-litigate it.
 
   ## Browser lane
 
   `<dialog>`, `popover`, the top layer and inertness have no
   implementation in the node lane at all, so every row states a skip
-  there rather than a false green. Nothing here is `async` (rf2-u0j8:
-  an async row under a positional fixture aborts the whole run)."
-  (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
+  there rather than a false green. The trusted-input row is `async` —
+  the press happens in another process — which is why the fixture below
+  is the MAP shape (rf2-u0j8: an async row under a POSITIONAL fixture
+  aborts the whole run)."
+  (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as uix-adapter]
             [re-frame.core :as rf]
             [re-frame.hicasso :as h]
             [re-frame.hicasso.overlay :as overlay]
             [re-frame.hicasso.test.mounted :as hm]
+            [re-frame.hicasso.trusted-input-support :as trusted]
             [re-frame.test-support :as test-support]))
 
 ;; ---------------------------------------------------------------------------
@@ -113,10 +134,16 @@
     [:button#cancel {:type "button" :on-click [::closed]} "Cancel"]]
    [:button#after {:type "button"} "After"]])
 
+;; `:async? true` — the MAP shape — because the trusted-input row below
+;; is `(async done …)`. `make-reset-runtime-fixture` returns the
+;; POSITIONAL fn by default, and cljs.test throws a bare string that
+;; unwinds the entire lane the moment an async body appears under one
+;; (rf2-u0j8).
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture
     {:adapter       uix-adapter/adapter
-     :ambient-frame nil}))
+     :ambient-frame nil
+     :async?        true}))
 
 ;; ---------------------------------------------------------------------------
 ;; The lane
@@ -287,6 +314,91 @@
           (is (= ["before" "trigger" "after"] (reachable (:container m)))))
 
         (finally (hm/unmount! m))))))
+
+;; ---------------------------------------------------------------------------
+;; The trap under a real keyboard
+;; ---------------------------------------------------------------------------
+
+(deftest a-real-tab-cycles-within-the-modal-and-a-real-escape-gives-the-page-back
+  ;; WHAT THIS ADDS TO THE ROW ABOVE, and it is not decoration.
+  ;; [[an-open-modal-is-the-whole-of-what-a-keyboard-can-reach]] is an
+  ;; emptiness claim: it asks each of the page's controls whether it
+  ;; would take focus, and finds that none would. That is inertness.
+  ;; A TRAP is the positive fact next door — that Tab off the end of the
+  ;; panel comes back to its start rather than leaving — and no amount
+  ;; of asking elements whether they are focusable can see it, because
+  ;; the thing being measured is where the engine SENDS focus when
+  ;; nobody asked.
+  ;;
+  ;; Escape closes the row out, because a trap with no exit is a defect
+  ;; rather than a feature, and the exit is the platform's alone.
+  (if-not (browser?)
+    (skip! ":node-test has no modality, and no engine to press a key at")
+    (if-not (trusted/bridge?)
+      (trusted/unwitnessed! "the trap under real sequential navigation")
+      (async done
+        (let [m      (hm/mount! [a-page-with-a-modal {}])
+              finish (fn [] (hm/unmount! m) (done))]
+          (try
+            (open! m)
+            (is (.contains ($ m "dialog") (active))
+                "premise: opening put focus inside the panel")
+            (is (= "confirm" (label-of (active)))
+                (str "premise: on the panel's first control. Active: "
+                     (label-of (active))))
+
+            ;; FIVE, so the sequence closes: four presses is a wrap, five is
+            ;; a CYCLE, and only the second rules out a one-off excursion
+            ;; that happened to come back.
+            (trusted/walk!
+              "Tab" 5
+              (fn [] (some-> (active) label-of))
+              (fn [landings]
+                (try
+                  (is (= ["reason" "cancel" "body" "confirm" "reason"] landings)
+                      (str "THE CYCLE, AS THE ENGINE ACTUALLY PERFORMS IT. From "
+                           "the panel's first control, Tab runs to its last and "
+                           "then wraps back to its first — never to `before`, "
+                           "`trigger` or `after`, and the fifth press repeats "
+                           "the second, so this closes rather than merely "
+                           "returning once.\n"
+                           "  MEASURED, AND NOT WHAT WAS PREDICTED: the wrap "
+                           "goes through the DOCUMENT. Off the last control, "
+                           "`document.activeElement` is `<body>` for one step — "
+                           "the nothing-is-focused reading — and the step after "
+                           "re-enters the panel. So a modal's cycle is four "
+                           "stops for three controls. That waypoint is not a "
+                           "leak: `<body>` is not a control, it is what "
+                           "`activeElement` says when focus rests nowhere, and "
+                           "the next press proves the scope never widened. A "
+                           "row that had asserted the tidier "
+                           "`[reason cancel confirm]` would have been asserting "
+                           "a guess about the engine. Pressed: " (pr-str landings)))
+                  (is (empty? (filter #{"before" "trigger" "after"} landings))
+                      (str "and not one landing was a control of the page "
+                           "behind — the leak a keyboard user tabs straight "
+                           "out of. Pressed: " (pr-str landings)))
+
+                  (trusted/press-once!
+                    "Escape"
+                    (fn []
+                      (try
+                        (hm/settle! m)
+                        (testing "AND OUT: the platform's own dismissal, which
+                                  is the only exit a trap has. The panel goes,
+                                  and the page comes back exactly as
+                                  [[an-open-modal-is-the-whole-of-what-a-keyboard-can-reach]]
+                                  found it after a programmatic close"
+                          (is (nil? ($ m "dialog")))
+                          (is (= ["before" "trigger" "after"]
+                                 (reachable (:container m)))))
+                        (finally (finish)))))
+                  (catch :default e
+                    (is false (str "the cycle assertion threw: " (.-message e)))
+                    (finish)))))
+            (catch :default e
+              (is false (str "the trap row threw: " (.-message e)))
+              (finish))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; The module's popover — deliberately not a trap

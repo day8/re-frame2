@@ -50,18 +50,27 @@
   window moving; and that the screen carries no control whose role
   promises an activation its tag cannot deliver.
 
-  **Stated, because trusted input is not reachable from inside the
-  page.** A synthetic `KeyboardEvent` performs no default action in any
-  engine, so a Tab press moves focus nowhere and an Escape closes
-  nothing — a `pressed Tab` row would be measuring its own dispatcher.
-  Sequential navigation is therefore witnessed as the ENGINE'S OWN
-  focusability answer over the candidate set in document order, which is
-  what Tab consumes, and Enter/Space activation is witnessed as
-  [[every-operable-control-is-one-the-platform-activates]]: the ledger's
-  controls are a real `<input>` and a real `<button>`, so their keyboard
-  activation is the platform's and needs no handler to exist. Driving a
-  real key through a Playwright bridge would need the browser test
-  runner, which this bead does not own — see the PR body.
+  **Measured too, since rf2-il7b: a real Tab.** A synthetic
+  `KeyboardEvent` performs no default action in any engine — it reaches
+  every listener and moves focus nowhere — so a `pressed Tab` row built
+  from `new KeyboardEvent` would measure its own dispatcher.
+  [[a-real-tab-moves-focus-and-a-synthetic-one-does-not]] carries both
+  arms of exactly that, and
+  [[real-sequential-navigation-agrees-with-the-instrument]] presses Tab
+  along the ledger and finds the same sequence [[keyboard-order]]
+  derives. The instrument is unchanged and still the one every other row
+  uses: it costs no round trip, it can range over the whole
+  forty-eight-entry order, and it is now VERIFIED against the thing it
+  stands in for rather than merely argued for. The presses come through
+  the browser gate's trusted-input bridge
+  (`re-frame.hicasso.trusted-input-support`, whose other half is
+  `scripts/run-browser-tests.cjs`).
+
+  Enter/Space activation stays a structural claim, and deliberately:
+  [[every-operable-control-is-one-the-platform-activates]] holds that the
+  ledger's controls are a real `<input>` and a real `<button>`, so their
+  keyboard activation is HTML's and needs no handler to exist. Pressing
+  Enter on a native button would witness the platform, not this screen.
 
   ## Browser lane
 
@@ -70,11 +79,13 @@
   too (`cljs-test$` matches `-dom-cljs-test`) and every row degrades
   there to a STATED skip rather than to a false green.
 
-  Nothing here is `async`: every claim is settled inside one tick, which
-  is deliberate — an async row under a positional fixture aborts the
-  whole `test:browser` run, every later namespace included (rf2-u0j8,
-  and the note on `virtualized-dom-cljs-test`'s fixture)."
-  (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
+  The two trusted-input rows are `async` — the press happens in another
+  process — and every other row is not. That is what the MAP fixture
+  below is for: cljs.test refuses an async row under a POSITIONAL
+  fixture by throwing a bare string that unwinds the whole
+  `test:browser` run, every later namespace and the closing summary
+  included (rf2-u0j8)."
+  (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as uix-adapter]
             [re-frame.hicasso :as h]
             [re-frame.hicasso.examples.ledger.app :as app]
@@ -82,6 +93,7 @@
             [re-frame.hicasso.examples.ledger.vendor :as vendor]
             [re-frame.hicasso.examples.ledger.views :as views]
             [re-frame.hicasso.test.mounted :as hm]
+            [re-frame.hicasso.trusted-input-support :as trusted]
             [re-frame.test-support :as test-support]
             ["react-dom" :as react-dom]))
 
@@ -109,15 +121,21 @@
    [:div#neither {:role "button"} "Not even a tabindex"]])
 
 ;; The fixture snapshots the registrar when THIS form is evaluated, so it
-;; sits below every view above. The MAP shape, for the reason
-;; `virtualized-dom-cljs-test` states: a positional fixture aborts the
-;; entire run on an async row, and the map shape is the one that does
-;; not — kept here even though nothing in this file is async, so the
-;; file cannot acquire the trap by acquiring an async row.
+;; sits below every view above.
+;;
+;; `:async? true` — the MAP shape — because this file now has async rows.
+;; A positional fixture makes cljs.test throw a bare string the moment a
+;; test body returns an async object, and nothing catches it: the whole
+;; lane unwinds, closing summary included (rf2-u0j8). An earlier draft of
+;; this comment claimed the map shape was already in force here. It was
+;; not: `make-reset-runtime-fixture` returns the POSITIONAL fn by default
+;; and `:async? true` is the opt-in, so the file was one async row away
+;; from the trap it believed it had avoided.
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture
     {:adapter       uix-adapter/adapter
-     :ambient-frame nil}))
+     :ambient-frame nil
+     :async?        true}))
 
 ;; ---------------------------------------------------------------------------
 ;; The lane
@@ -347,6 +365,114 @@
         (is (false? (focusable? (q m "[role='gridcell']")))))
 
       (hm/unmount! m))))
+
+;; ---------------------------------------------------------------------------
+;; A REAL Tab — and the synthetic one it has to be told apart from
+;; ---------------------------------------------------------------------------
+
+(deftest a-real-tab-moves-focus-and-a-synthetic-one-does-not
+  ;; BOTH ARMS, ONE MOUNT. Either alone proves nothing: the trusted arm
+  ;; on its own claims that Tab moves focus, which nobody doubts, and the
+  ;; synthetic arm on its own claims this file's dispatcher is broken.
+  ;; Together they are the reason every row below reads the engine's
+  ;; focusability answer instead of pressing a key — until rf2-il7b there
+  ;; was no key to press.
+  ;;
+  ;; The three-control page, not the ledger: what is under test is a
+  ;; property of the PLATFORM, and driving it through four hundred lines
+  ;; of virtualizer would only make it slower to read.
+  (if-not (browser?)
+    (skip! "a real key press")
+    (if-not (trusted/bridge?)
+      (trusted/unwitnessed! "sequential navigation on this screen")
+      (async done
+        (let [m      (hm/mount! [a-page-of-near-misses {}])
+              finish (fn [] (hm/unmount! m) (done))]
+          (try
+            (let [real (q m "#real")]
+              (.focus real)
+              (is (identical? real (active)) "premise: focus starts on the button")
+
+              (testing "SYNTHETIC: dispatched, unprevented, and inert. It is a
+                        real event object and every listener in its path sees
+                        it — which is exactly why `:on-key-down` needs no
+                        bridge — but `isTrusted` is false, and sequential
+                        navigation is a DEFAULT ACTION, which a page may not
+                        forge"
+                (let [ev        (js/KeyboardEvent. "keydown"
+                                                   #js {:key "Tab" :bubbles true
+                                                        :cancelable true})
+                      delivered (.dispatchEvent real ev)]
+                  (is (true? delivered)
+                      "the event was dispatched and nothing called preventDefault")
+                  (is (false? (.-isTrusted ev)) "and it is untrusted, by construction")
+                  (is (identical? real (active))
+                      "and focus has not moved: a `pressed Tab` row built this
+                       way would be measuring its own dispatcher")))
+
+              (trusted/press-once!
+                "Tab"
+                (fn []
+                  (try
+                    (testing "TRUSTED: the same key, the same page, pressed by
+                              the engine — and focus lands on the next element
+                              the engine accepts, which is the `<div>` a
+                              `tabindex` bought a place for and not the one with
+                              only a role"
+                      (is (identical? (q m "#half") (active))
+                          (str "expected #half, got " (some-> (active) label-of)))
+                      (is (not (identical? real (active)))))
+                    (finally (finish))))))
+            (catch :default e
+              (is false (str "the Tab row threw: " (.-message e)))
+              (finish))))))))
+
+(deftest real-sequential-navigation-agrees-with-the-instrument
+  ;; THE PROXY, VERIFIED. Every other row in this file reads
+  ;; [[keyboard-order]] — the engine's focusability answer over a
+  ;; candidate set in document order — and asserts it IS what Tab
+  ;; consumes. That was an argument. Here it is a measurement: press Tab
+  ;; along the ledger and compare the landings with what the instrument
+  ;; derived for the same page.
+  ;;
+  ;; A PREFIX rather than all forty-eight, on purpose. Each press is a
+  ;; round trip to the runner, so the whole order would cost ten seconds
+  ;; of a lane whose entire budget is a few tens; and the claim does not
+  ;; get truer with length — what could differ between the two answers
+  ;; (an element in one and not the other, or a different next element)
+  ;; differs on the first step or not at all.
+  (if-not (browser?)
+    (skip! "the traversal")
+    (if-not (trusted/bridge?)
+      (trusted/unwitnessed! "the traversal")
+      (async done
+        (let [m      (mount-ledger!)
+              finish (fn [] (hm/unmount! m) (done))
+              steps  5]
+          (try
+            (let [order (keyboard-order m)
+                  start (note-node m 0)]
+              (is (= (first order) (events/note-id 0))
+                  "premise: the instrument puts row 0's note field first")
+              (.focus start)
+              (is (identical? start (active)) "premise: the walk starts there")
+
+              (trusted/walk!
+                "Tab" steps
+                (fn [] (some-> (active) label-of))
+                (fn [landings]
+                  (try
+                    (is (= (subvec order 1 (inc steps)) landings)
+                        (str "THE SEQUENCE. Five real Tab presses land exactly "
+                             "where the instrument said the next five stops "
+                             "were — note, flag, note, flag, note, alternating "
+                             "across rows. Instrument: "
+                             (pr-str (subvec order 1 (inc steps)))
+                             " Pressed: " (pr-str landings)))
+                    (finally (finish))))))
+            (catch :default e
+              (is false (str "the traversal row threw: " (.-message e)))
+              (finish))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; The order, complete — and bounded by the window

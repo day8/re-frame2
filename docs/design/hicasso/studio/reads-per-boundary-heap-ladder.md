@@ -2715,10 +2715,14 @@ it in *both* segments; it shows in one, to the byte, while the UIx segment
 reproduces `2,115` exactly and its ratio moves from `0.7099×` to `0.7098×`.
 Naming a cause would take ablations this window is not permitted to run — its
 terms are one invocation, and an instrument iterated until it explains itself is
-no longer the instrument the figures were taken on. **`rf2-hic-018` owns the
-attribution, and it now has the same-instrument package baseline that makes an
-attribution possible at all**, which is precisely what this bead existed to
-supply.
+no longer the instrument the figures were taken on. Supplying the
+same-instrument package baseline that makes an attribution possible at all is
+precisely what this bead existed to do, and the attribution was taken on that
+baseline the next day:
+[the `+139 B/read` subsection below](#the-139-bread-attributed-to-one-line-and-the-premise-it-had-to-correct-first-rf2-l50z)
+prices the whole move to a single ratom-only correctness line in `wire-cell!`.
+**No figure moves** — S3 remains `1,417 B/read`, because the attribution names
+what that cost buys rather than removing it.
 
 What it does to the candidate's standing, stated plainly:
 

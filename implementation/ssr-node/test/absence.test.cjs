@@ -17,10 +17,11 @@
 //      deps.edn` has no entry for it, so it is in no module graph and
 //      there is no bundle it could be in. This is the strong one: absence
 //      from the graph is not a property anyone has to maintain by care.
-//   3. IT ADDS NO DEPENDENCY. Every `require` in `src/` is a `node:`
-//      builtin or a sibling file here, so the package contributes nothing
-//      to `implementation/package.json` and nothing to any consumer's
-//      dependency closure.
+//   3. IT ADDS NO DEPENDENCY. Every `require` in `src/` names a `node:`
+//      builtin or a sibling file here, and the one whose specifier is
+//      COMPUTED takes it from the caller, so the package contributes
+//      nothing to `implementation/package.json` and nothing to any
+//      consumer's dependency closure.
 //
 // ## EVERY CHECK PLANTS ITS OWN FAULT, EVERY RUN
 //
@@ -33,6 +34,18 @@
 // The fault is planted in a scratch directory and never in the repo: the
 // scanners take their file list as an argument precisely so the control
 // can hand them a different tree.
+//
+// AND THE PLANT MUST NOT BE ARRANGED SO THE BUG CANNOT REACH IT. That is
+// one level deeper than "the check has a control", and it is the failure
+// this file actually shipped. The ns control planted the forbidden
+// namespace as the FIRST AND ONLY libspec of a `:require`, while the
+// scanner read only the first form after the key — so every realistic ns
+// form, two libspecs with the second forbidden, passed. The control could
+// not see that, because a single-libspec plant exercises exactly the path
+// that worked. Reading 1 was green about a class it did not cover and the
+// proof of coverage was itself the blind spot (rf2-6ovv, from the
+// merged-PR audit of #8049). So the plants below are realistic files, and
+// where a position can vary the control SWEEPS it instead of picking one.
 
 const test = require('node:test');
 const assert = require('node:assert');
@@ -209,7 +222,12 @@ const SPECIFIER = /(?:\b(?:require|import)\s*\(\s*|\bfrom\s+|\bimport\s+)(['"])(
 const DYNAMIC_SPECIFIER = /\b(?:require|import)\s*\(\s*(?!['"])/;
 const STRING_LITERAL = /(['"`])((?:[^'"`\\\n]|\\.)*)\1/g;
 
-/** ns forms that put a namespace on the compiler's load path. */
+/**
+ * ns forms that put a namespace on the compiler's load path. Each opens a
+ * CLAUSE whose body is any number of sibling forms — `(:require [a] [b] [c])`
+ * — which is why these are read with `clauseFormsAfterKeys` and the EDN keys
+ * below with `valuesAfterKeys`.
+ */
 const CLJ_LOAD_KEYS = [':require', ':require-macros', ':import', ':use', ':load'];
 
 /** EDN keys whose value is a source path or a dependency coordinate. */
@@ -265,8 +283,8 @@ function balancedFormAt(text, i) {
   return bare ? bare[0] : '';
 }
 
-/** The form following each occurrence of each key. Returns `[{text, at}]`. */
-function formsAfterKeys(text, keys) {
+/** Each standalone occurrence of each key, as `[{at, from}]`. */
+function keyPositions(text, keys) {
   const out = [];
   for (const key of keys) {
     let from = 0;
@@ -277,10 +295,69 @@ function formsAfterKeys(text, keys) {
       // `:paths` must not fire on `:source-paths`, nor `:deps` on `:extra-deps`.
       if (at > 0 && /[\w:./-]/.test(text[at - 1])) continue;
       if (/[\w:./-]/.test(text[from] ?? '')) continue;
-      out.push({ text: balancedFormAt(text, from), at });
+      out.push({ at, from });
     }
   }
   return out;
+}
+
+/**
+ * The ONE value form after each key — the right shape for an EDN MAP ENTRY,
+ * where `:paths [...]` and `:deps {...}` each take a single collection and
+ * every element of it is already inside that one form.
+ */
+function valuesAfterKeys(text, keys) {
+  return keyPositions(text, keys).map(({ at, from }) => ({
+    text: balancedFormAt(text, from),
+    at,
+  }));
+}
+
+/**
+ * The sibling forms from `i` up to the closer of the ENCLOSING form — an ns
+ * clause body, not one value. Still deliberately naive: it is not a Clojure
+ * reader, only a walk that knows balanced delimiters, strings and line
+ * comments, and a shape it cannot parse leaves extra text inside a form
+ * rather than dropping any.
+ */
+function formsInClause(text, i) {
+  const out = [];
+  while (i < text.length) {
+    const c = text[i];
+    if (/[\s,]/.test(c)) {
+      i += 1;
+    } else if (c === ';') {
+      const nl = text.indexOf('\n', i); // a line comment holds no form
+      if (nl === -1) break;
+      i = nl + 1;
+    } else if (c === ')' || c === ']' || c === '}') {
+      break; // the clause closed
+    } else {
+      const form = balancedFormAt(text, i);
+      if (!form) break;
+      out.push({ text: form, at: i });
+      i += form.length;
+    }
+  }
+  return out;
+}
+
+/**
+ * EVERY form in the clause body each key opens — the right shape for an ns
+ * CLAUSE, where `(:require [a :as a] [b :as b])` takes as many libspecs as it
+ * likes and they are SIBLINGS rather than nested.
+ *
+ * READING ONLY THE FIRST FORM WAS A FAIL-OPEN, AND ITS CONTROL WAS BUILT SO
+ * IT COULD NOT SEE THAT — rf2-6ovv, from the merged-PR audit of #8049.
+ * `valuesAfterKeys` on `(:require [app.first :as first] [rf.ssr-node/service
+ * :as svc])` yields `[app.first :as first]` and stops, so an ordinary
+ * two-line ns form hid the reference completely. The planted fault put the
+ * forbidden namespace FIRST AND ONLY — the single position that worked — so
+ * the row stayed green over a shape it never reached. The sweep below plants
+ * at every position of every clause key instead.
+ */
+function clauseFormsAfterKeys(text, keys) {
+  return keyPositions(text, keys).flatMap(({ from }) => formsInClause(text, from));
 }
 
 /**
@@ -298,8 +375,8 @@ function loaderPositions(rel, text) {
       for (const m of text.matchAll(STRING_LITERAL)) out.push({ text: m[2], at: m.index });
     }
   }
-  if (CLJ_EXT.has(ext)) out.push(...formsAfterKeys(text, CLJ_LOAD_KEYS));
-  if (ext === '.edn') out.push(...formsAfterKeys(text, EDN_LOAD_KEYS));
+  if (CLJ_EXT.has(ext)) out.push(...clauseFormsAfterKeys(text, CLJ_LOAD_KEYS));
+  if (ext === '.edn') out.push(...valuesAfterKeys(text, EDN_LOAD_KEYS));
   if (path.basename(rel).toLowerCase() === 'package.json') {
     let manifest = null;
     try {
@@ -397,6 +474,30 @@ function foreignRequires(files) {
   return hits;
 }
 
+/**
+ * Requires whose specifier is COMPUTED — `require(x)`, not `require('x')` —
+ * returning the argument text.
+ *
+ * `foreignRequires` cannot see one, and `src/` HAS one: `worker.cjs` loads
+ * the application bundle it was pointed at, which is the entire design.
+ * So Reading 3 was asserting "every require here is a builtin or a sibling"
+ * over a set that excluded its only counter-example, and the row would have
+ * stayed green if that line had computed a package name instead. Same shape
+ * as the ns fail-open this file was reopened for (rf2-6ovv): a check green
+ * about a case it could not reach. Reading 1 had already drawn this
+ * distinction for itself — see `DYNAMIC_SPECIFIER` — and Reading 3 had not.
+ */
+function computedRequires(files) {
+  const hits = [];
+  for (const abs of files) {
+    const text = fs.readFileSync(abs, 'utf8');
+    for (const m of text.matchAll(/\brequire\(\s*(?!['"])([^)]*)\)/g)) {
+      hits.push({ file: path.basename(abs), arg: m[1].trim() });
+    }
+  }
+  return hits;
+}
+
 const srcFiles = () =>
   fs
     .readdirSync(path.join(PACKAGE_DIR, 'src'))
@@ -459,13 +560,22 @@ test('the layout map DOES name the package, as the README ratchet requires', () 
  * ONE PLANTED FAULT PER LOADER POSITION. If a shape below stops being
  * found, Reading 1 has a blind spot in exactly that shape — which is the
  * only way a narrowed reading can fail quietly.
+ *
+ * EVERY PLANT HERE IS A REALISTIC FILE, and that is a correctness property
+ * rather than a matter of taste. `app/core.cljs` used to carry the forbidden
+ * namespace as the ns form's FIRST AND ONLY libspec, and a scanner that read
+ * only the first form passed it (rf2-6ovv). A minimal plant does not merely
+ * under-test: it can be the one arrangement the bug does not reach.
  */
 const PLANTED_LOADER_FAULTS = {
   'app/boot.cjs': "require('../../implementation/ssr-node/src/service.cjs');\n",
   'app/entry.mjs': "import svc from '../implementation/ssr-node/src/service.cjs';\n",
   'app/lazy.cjs': "const P = 'implementation/ssr-node/src/service.cjs';\nrequire(P);\n",
   'app/re_export.mjs': "export { render } from '../ssr-node/src/service.cjs';\n",
-  'app/core.cljs': '(ns app.core\n  (:require [rf.ssr-node/service :as svc]))\n',
+  'app/core.cljs':
+    '(ns app.core\n  (:require [reagent.core :as r]\n'
+    + '            [re-frame.core :refer [dispatch subscribe]]\n'
+    + '            [rf.ssr-node/service :as svc]))\n',
   'build/shadow-cljs.edn': '{:builds {:app {:target :browser\n :source-paths ["ssr-node/src"]}}}\n',
   'build/deps.edn': '{:deps {day8/ssr-node {:mvn/version "0.1.0"}}}\n',
   'build/local.edn': '{:aliases {:x {:extra-deps {a/b {:local/root "../ssr-node"}}}}}\n',
@@ -485,6 +595,88 @@ test('CONTROL — every loader position this file knows about finds its planted 
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }
+  }
+});
+
+/**
+ * ORDINARY COMPANY FOR THE FORBIDDEN ENTRY, one set per ns clause key. The
+ * fault is swept through every position among them, so no single arrangement
+ * can be the one the scanner happens to reach.
+ */
+const NS_CLAUSE_NEIGHBOURS = {
+  ':require': [
+    '[reagent.core :as r]',
+    '[re-frame.core :refer [dispatch subscribe]]',
+    '[clojure.string :as str]',
+  ],
+  ':require-macros': ['[app.macros :as m]', '[cljs.core.async.macros :refer [go]]'],
+  ':import': ['(java.util Date UUID)', '(java.io File)'],
+  ':use': ['[clojure.set :only [union]]', '[clojure.walk :only [keywordize-keys]]'],
+  ':load': ['"app/first"', '"app/second"'],
+};
+
+/** The forbidden entry, spelled the way each clause key spells one. */
+const NS_CLAUSE_FAULTS = {
+  ':require': '[rf.ssr-node/service :as svc]',
+  ':require-macros': '[rf.ssr-node/macros :refer [with-service]]',
+  ':import': '(rf.ssr-node Service)',
+  ':use': '[rf.ssr-node/service :only [render]]',
+  ':load': '"../ssr-node/src/service"',
+};
+
+test('CONTROL — an ns clause is scanned WHOLE, and not just its first form', () => {
+  // THE ROW rf2-6ovv EXISTS FOR, AND THE SHAPE THE PROJECT SHOULD FEAR MOST.
+  // Reading 1 read the ONE form after `:require`, so
+  // `(:require [app.first :as first] [rf.ssr-node/service :as svc])` — an
+  // unremarkable two-line ns form — yielded `[app.first :as first]` and
+  // passed. The gate was green about a class it did not cover.
+  //
+  // What made it survive a merged-PR review is that the CONTROL could not
+  // fail: the planted fault sat FIRST AND ALONE, which is precisely the
+  // position the broken scan handled. So this row does not plant one
+  // arrangement. It sweeps the fault through EVERY position of EVERY clause
+  // key the file claims, and a scanner that reads one form fails it at
+  // position 2 of the very first key.
+  for (const [key, neighbours] of Object.entries(NS_CLAUSE_NEIGHBOURS)) {
+    const fault = NS_CLAUSE_FAULTS[key];
+    for (let i = 0; i <= neighbours.length; i += 1) {
+      const entries = [...neighbours.slice(0, i), fault, ...neighbours.slice(i)];
+      const indent = ' '.repeat(key.length + 4);
+      const body = `(ns app.core\n  (${key} ${entries.join(`\n${indent}`)}))\n`;
+      const dir = scratch({ 'app/core.cljs': body });
+      try {
+        const hits = scanLoaderPositions(dir, ['app/core.cljs'], REFERENCES, null);
+        assert.ok(
+          hits.length > 0,
+          `${key}: the fault at position ${i + 1} of ${entries.length} was NOT found:\n${body}`,
+        );
+      } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+      }
+    }
+  }
+});
+
+test('CONTROL — the whole-clause walk stops at the clause, not at the file', () => {
+  // The counterpart the sweep above cannot give: reading MORE than one form
+  // is only right if it stops reading at the closing paren. A walk that ran
+  // on would drag the whole file into the `:require` position and red on any
+  // mention anywhere — the absolute zero this reading was narrowed away from,
+  // reintroduced by accident.
+  const dir = scratch({
+    'app/core.cljs':
+      '(ns app.core\n  (:require [app.first :as first])) ; not (ssr-node) either\n\n'
+      + '(def note "see implementation/ssr-node/src/service.cjs for the protocol")\n'
+      + '(defn render [] (str "ssr-node"))\n',
+  });
+  try {
+    assert.deepStrictEqual(
+      scanLoaderPositions(dir, ['app/core.cljs'], REFERENCES, null),
+      [],
+      'text after the clause is not in the clause',
+    );
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
   }
 });
 
@@ -565,7 +757,11 @@ test('CONTROL — a CI lane naming the package is inert, and IS NOT inert once i
     'implementation/scripts/_changed-surfaces.test.cjs':
       CI_WIRING_SHAPES['implementation/scripts/_changed-surfaces.test.cjs']
       + "require('../ssr-node/src/service.cjs');\n",
-    'implementation/scripts/boot.cljs': '(ns boot\n  (:require [rf.ssr-node/service]))\n',
+    // Multi-libspec on purpose: a single-libspec ns is the one arrangement
+    // the pre-rf2-6ovv scanner handled, so pinning it here would have made
+    // this row green for the wrong reason too.
+    'implementation/scripts/boot.cljs':
+      '(ns boot\n  (:require [clojure.string :as str]\n            [rf.ssr-node/service]))\n',
   });
   try {
     const linkedFiles = [...files, '.github/build/deps.edn', 'implementation/scripts/boot.cljs'];
@@ -597,6 +793,42 @@ test('CONTROL — the exclusion really is what keeps the package itself quiet', 
   assert.ok(unexcluded.length > 0, 'the needles must match inside the package');
   const excluded = scanForReferences(REPO_ROOT, files, REFERENCES, 'implementation/ssr-node/');
   assert.deepStrictEqual(excluded, [], 'and the exclusion must silence exactly those');
+});
+
+test('CONTROL — the refusal-code needle finds a refusal code, and only that', () => {
+  // THE SECOND NEEDLE HAD NO CONTROL AT ALL, and the audit that found the ns
+  // fail-open (rf2-6ovv) is the reason to say so here. This file's header
+  // promises every reading a row that plants the exact fault it must see, but
+  // `CODE_NAMESPACE`'s absolute zero had none: the row above runs both
+  // needles together and `assert.ok(unexcluded.length > 0)` is satisfied by
+  // `PATH_REFERENCE` alone, so nothing ever required `CODE_NAMESPACE` to
+  // match anything. A typo in it would have read as a clean scan.
+  //
+  // The near-miss is the point of the pairing. `[rf.ssr-node/service]` is a
+  // PATH_REFERENCE hit with no leading colon, so it proves the two needles
+  // are genuinely different rather than one an alias of the other.
+  const dir = scratch({
+    'app/handler.cljs':
+      '(ns app.handler)\n(defn refused? [r] (= (:code r) :rf.ssr-node/render-threw))\n',
+    'app/near_miss.cljs':
+      '(ns app.near-miss\n  (:require [rf.ssr-node/service :as svc]))\n'
+      + '(def other :rf.ssr-nodes/render-threw)\n',
+  });
+  try {
+    const files = ['app/handler.cljs', 'app/near_miss.cljs'];
+    assert.deepStrictEqual(
+      scanForReferences(dir, files, [CODE_NAMESPACE], null).map((h) => h.file),
+      ['app/handler.cljs'],
+      'the refusal-code needle must find a planted code and nothing else',
+    );
+    assert.strictEqual(
+      scanForReferences(dir, ['app/near_miss.cljs'], [PATH_REFERENCE], null).length,
+      1,
+      'and the near-miss must be a PATH_REFERENCE hit, or it proves nothing',
+    );
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 // ---------------------------------------------------------------------------
@@ -647,7 +879,7 @@ test('the package is pure JavaScript — no CLJS a build could pick up', () => {
 // 3. It adds no dependency
 // ---------------------------------------------------------------------------
 
-test('every require in src/ is a node builtin or a sibling', () => {
+test('every require in src/ is a builtin, a sibling, or the caller\'s own path', () => {
   const files = srcFiles();
   assert.ok(files.length >= 6, `only ${files.length} source files found — the scan looks wrong`);
   assert.deepStrictEqual(
@@ -655,14 +887,38 @@ test('every require in src/ is a node builtin or a sibling', () => {
     [],
     'a third-party require would put this package into a dependency closure',
   );
+  // And the requires the line above cannot read. The property is not that
+  // there are none — `worker.cjs` needs one — but that THIS PACKAGE NEVER
+  // NAMES A MODULE IT COMPUTES: every computed specifier comes from
+  // `workerData`, so it is the caller's path, and nothing it resolves to can
+  // reach a manifest we ship.
+  const computed = computedRequires(files);
+  assert.ok(computed.length > 0, 'no computed require found at all — the scan has gone blind');
+  for (const hit of computed) {
+    assert.match(
+      hit.arg,
+      /^workerData\./,
+      `${hit.file}: require(${hit.arg}) computes a specifier from something other than the caller`,
+    );
+  }
 });
 
-test('CONTROL — a third-party require is caught', () => {
-  const dir = scratch({ 'bad.cjs': "const React = require('react');\n" });
+test('CONTROL — a third-party require is caught, spelled out or computed', () => {
+  const dir = scratch({
+    'bad.cjs': "const React = require('react');\n",
+    'sneaky.cjs': "const NAME = 'react';\nconst R = require(NAME);\n",
+  });
   try {
     const hits = foreignRequires([path.join(dir, 'bad.cjs')]);
     assert.strictEqual(hits.length, 1);
     assert.strictEqual(hits[0].spec, 'react');
+    // The half `foreignRequires` is blind to, and the reason the row above
+    // needs a second scan: this file declares its own module name and hides
+    // it behind a binding.
+    assert.deepStrictEqual(foreignRequires([path.join(dir, 'sneaky.cjs')]), []);
+    const computed = computedRequires([path.join(dir, 'sneaky.cjs')]);
+    assert.deepStrictEqual(computed, [{ file: 'sneaky.cjs', arg: 'NAME' }]);
+    assert.doesNotMatch(computed[0].arg, /^workerData\./, 'and it is not a caller-supplied path');
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }

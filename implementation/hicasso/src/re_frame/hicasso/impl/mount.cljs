@@ -157,13 +157,19 @@
 ;; this arm. The only thing missing was a way to say the word through
 ;; these doors, and until rf2-hic-046 there was none.
 ;;
-;; **The server half is React's too, and it needs no door here.** A
-;; consumer server-renders through `react-dom/server` itself —
+;; **The PREFIX's server half is React's too, and it needs no door
+;; here.** A consumer server-renders through `react-dom/server` itself —
 ;; `renderToString(element, #js {"identifierPrefix" "a-"})` — which per
 ;; rf2-ggnp's census, re-run, is the only server path this package has.
 ;; So the two sides already meet in React's own vocabulary and what
 ;; matters is that the caller hands BOTH of them the same string.
 ;; Agreement is the contract; presence on one side proves nothing.
+;;
+;; **That settles the prefix and not the pair**, and the difference is
+;; the whole of why no hydrating door is public. `useId` derives from
+;; tree POSITION as well as from the prefix, and a hydrating root's tree
+;; is not the app subtree. [[hydrate-root!]] carries the measurement and
+;; the consequence.
 
 (defn- root-options
   "React's `react-dom/client` root options object, or nil when there is
@@ -404,12 +410,39 @@
   one) resolves every id in the tree differently from the bytes it is
   adopting; React sees the divergence as a mismatch and recovers by
   replacing the subtree, which is a correct repair of a page that should
-  never have shipped. The server side of the pair is React's own
-  `react-dom/server` option and needs nothing from this arm — see the
-  [[root-options]] section comment.
+  never have shipped.
 
   Name neither and [[hydrate-root-options]] answers nil in production, so
   this call is the bare two-argument one it always was.
+
+  ## Matching the prefix is NECESSARY and it is not SUFFICIENT
+
+  The prefix half of the pair does meet in React's own vocabulary, and
+  needs nothing from this arm: a consumer names `identifierPrefix` on
+  `react-dom/server`'s own render and the same string here — the
+  [[root-options]] section comment is where that is set out.
+
+  **Matching root STRUCTURE is the other half, and today nothing on this
+  arm produces it** (`dispositions.md` HS-11, obstruction 2, MEASURED;
+  obstruction 1 was the prefix and rf2-hic-046 cleared it). React derives
+  a `useId` from tree POSITION as well as from the prefix, and a
+  hydrating root's tree is NOT the app subtree: [[tree]] wraps it in a
+  Fragment whose first child is [[adoption-window-closer]], with the
+  adoption-window provider around the app. The only server path this
+  package has — a hand-rolled `renderToString`, rf2-ggnp's census —
+  emits no counterpart to that fork, so bytes a consumer can bake today
+  hydrate into a text mismatch whose two ids agree on the prefix and
+  differ after it. The same fork is where `:adoption` comes from, and the
+  provider presence reads to start an adopted child `:present` rather
+  than `:mounting` has no server counterpart either.
+
+  **So this door is built and witnessed but NOT on the
+  `re-frame.hicasso` facade** (rf2-k1mp), and the section comment there
+  is the roster's own record of the absence. HS-11 names two candidate
+  repairs — a matching server-render entry of this arm's own, or making
+  the closer a wrapper rather than a sibling — and rules on neither.
+  Until one lands, a caller reaching in here is hydrating against bytes
+  no door in this package emits.
 
   ## The handle carries `:adoption` — this root's OWN window (rf2-6tmu)
 

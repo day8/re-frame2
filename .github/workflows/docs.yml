@@ -295,7 +295,7 @@ jobs:
       - name: Install Playwright (Chromium + system deps)
         if: github.event_name != 'pull_request'
         working-directory: docs/tools/playground
-        run: npx playwright install --with-deps chromium
+        run: npx playwright install --with-deps chromium || "$GITHUB_WORKSPACE/.github/scripts/playwright-install-failed.sh"
 
       - name: Smoke the built bundles under headless Chromium
         if: github.event_name != 'pull_request'

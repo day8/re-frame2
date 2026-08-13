@@ -37,6 +37,23 @@
   the positives and fails both of these, and would take a user out of the
   field they are still typing in.
 
+  **Focus, third direction: the SCOPE.** Every row here mounts exactly
+  one application, and on a page with one root a recipe scoped to the
+  document and a recipe scoped to its own root are indistinguishable —
+  which is how the document-wide version survived the audits of #7970 and
+  #8031. So one row,
+  [[a-deep-link-focuses-inside-the-applications-own-root]], mounts a
+  marked DECOY heading ahead of the application and asserts both halves:
+  that `document.querySelector` over the shared marker answers the decoy
+  rather than this application's heading, and that focus lands on this
+  application's heading anyway. Without the decoy the scope would be
+  untested; without the first half the decoy might not be in the way.
+
+  Every focus row reads the application's OWN node — `focused-heading`
+  polls on `identical?` against the heading inside this mount's
+  container, never on *something with the marker has focus*, because the
+  weaker predicate is satisfied by exactly the defect above.
+
   **Scroll.** Positive: a forward navigation lands at the top, and Back
   restores the exact offset the page was left at. Too-eager: a
   navigation carrying `:scroll false` must move nothing, and a Back to a
@@ -129,6 +146,24 @@
 
 (defn- read-sub [m query-v] (rf/subscribe-once query-v {:frame (:frame m)}))
 
+(defn- decoy!
+  "A marked heading belonging to something that is NOT this application —
+  a shell header, a banner, a second root — appended to the document
+  BEFORE the application's own root, so it wins document order.
+
+  This is the near-miss the recipe's `:root` scope exists to close, and
+  it is the control that makes the scope's witness mean anything: with
+  the decoy in front of it, a recipe that resolved its selector against
+  the document would focus the decoy, and the row would go red."
+  []
+  (let [h (.createElement js/document "h2")]
+    (.setAttribute h "data-route-heading" "true")
+    (.setAttribute h "tabindex" "-1")
+    (.setAttribute h "id" "navigation-decoy")
+    (set! (.-textContent h) "A shell heading that belongs to no route")
+    (.appendChild js/document.body h)
+    h))
+
 (defn- at!
   "Mount the application with its first navigation already made — the deep
   link, and the shape every other row starts from."
@@ -139,20 +174,27 @@
                                 [:rf.route/navigate (cond-> {:to route}
                                                       params (assoc :params params))]]})))
 
-(defn- finish [m done]
-  (-> (hm/unmount! m) (hm/assert-clean!) (.then done)))
+(defn- finish
+  "Take the mount down and read it clean — and detach anything the row
+  appended to the page ITSELF, which the facade knows nothing about. A
+  decoy left behind would be in the way of every row that followed."
+  ([m done] (finish m nil done))
+  ([m extra-nodes done]
+   (doseq [n extra-nodes] (try (.remove n) (catch :default _ nil)))
+   (-> (hm/unmount! m) (hm/assert-clean!) (.then done))))
 
 (defn- finish-after
   "End the row when `p` settles, reporting a rejection as a failure rather
   than letting a deadline hang the run — and tearing the mount down
   either way, so a stuck row cannot make the next row's reading wrong."
-  [p m done]
-  (-> p
-      (.catch (fn [e]
-                (is false (str "the flow never settled: "
-                               (or (ex-message e) (str e)) " "
-                               (pr-str (ex-data e))))))
-      (.then (fn [_] (finish m done)))))
+  ([p m done] (finish-after p m nil done))
+  ([p m extra-nodes done]
+   (-> p
+       (.catch (fn [e]
+                 (is false (str "the flow never settled: "
+                                (or (ex-message e) (str e)) " "
+                                (pr-str (ex-data e))))))
+       (.then (fn [_] (finish m extra-nodes done))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Waiting for a frame, and waiting long enough to disbelieve
@@ -176,14 +218,21 @@
   (.then (next-frame) (fn [_] (next-frame))))
 
 (defn- focused-heading
-  "Wait until the route heading holds focus, then answer it. The positive
-  focus rows poll rather than counting frames, because a deadline reports
-  WHICH heading never arrived and a frame count reports only that a line
-  was false."
+  "Wait until THIS APPLICATION'S OWN route heading holds focus, then answer
+  it. The positive focus rows poll rather than counting frames, because a
+  deadline reports WHICH heading never arrived and a frame count reports
+  only that a line was false.
+
+  The predicate is `identical?` against the node inside this mount's
+  container, and deliberately not *the focused element carries the
+  marker*. The marker is a vocabulary, so a shell heading or another
+  root is free to carry it too — and the weaker predicate is satisfied by
+  a recipe that focused somebody else's heading, which is precisely the
+  document-scoped defect the decoy row exists to catch."
   [m label]
   (-> (test-support/poll-until
-        #(let [el (active)]
-           (and (some? el) (.hasAttribute el "data-route-heading")))
+        #(let [h (heading m)]
+           (and (some? h) (identical? h (active))))
         {:label label})
       (.then (fn [_] (heading m)))))
 
@@ -243,6 +292,37 @@
            and `.focus()` is a silent no-op; with 0 the recipe buys itself
            an extra Tab press for every keyboard user on every page"))))
 
+(deftest the-recipe-names-a-root-and-not-the-document
+  (let [fx           (:fx (events/pane-shown {} [::events/pane-shown]))
+        [fx-id args] (first fx)]
+    (testing "`:on-match` asks for exactly one effect, and it is the focus one"
+      (is (= 1 (count fx)))
+      (is (= ::events/focus-heading fx-id)))
+
+    (testing "the effect carries a ROOT scope alongside the selector"
+      (is (= events/root-selector (:root args))
+          "without `:root` the effect resolves its selector against the whole
+           document and focuses the first marked heading on the page, whoever
+           it belongs to — the defect
+           [[a-deep-link-focuses-inside-the-applications-own-root]] mounts a
+           decoy to catch")
+      (is (= events/heading-selector (:selector args))))
+
+    (testing "and the shell RENDERS that root, so the scope names an element
+              rather than nothing"
+      ;; The other half of the same fact, and the half a `:root` key alone
+      ;; cannot state: a recipe scoped to an id no view writes resolves to
+      ;; nil and focuses nothing at all — a no-op that looks exactly like a
+      ;; working recipe on a page where nothing else competes for the marker.
+      (let [tree (ht/tree [views/app {}] {:subs {[:rf.route/id] routes/feed}})
+            root (ht/find tree #(= events/root-id (:id (ht/attrs %))))]
+        (is (some? root)
+            (str "no element in the shell carries the id "
+                 (pr-str events/root-id) " that " (pr-str events/root-selector)
+                 " names"))
+        (is (= :main (:tag root))
+            "and it is the application's own root element")))))
+
 ;; ---------------------------------------------------------------------------
 ;; Focus — the positives
 ;; ---------------------------------------------------------------------------
@@ -265,6 +345,51 @@
                           the landing is not merely somewhere but somewhere
                           identifiable")))
             (finish-after m done))))))
+
+(deftest a-deep-link-focuses-inside-the-applications-own-root
+  (if-not (browser?)
+    (skip! ":node-test has no focus model")
+    (async done
+      ;; The decoy is appended BEFORE the mount, so it precedes the
+      ;; application's container in document order and a document-wide
+      ;; lookup reaches it first. Binding order is the whole mechanism.
+      (let [decoy (decoy!)
+            m     (at! routes/article {:slug (:slug first-article)})]
+        (-> (js/Promise.resolve
+              (testing "the near-miss is LIVE — a document-wide lookup does NOT
+                        answer this application's heading"
+                (is (some? (heading m))
+                    "precondition: the pane rendered a marked heading of its own")
+                (is (some? (.querySelector js/document events/root-selector))
+                    (str "precondition: the shell rendered "
+                         (pr-str events/root-selector) ", the root the recipe
+                         scopes to. A scope that resolves to nothing focuses
+                         nothing, which on a page with no decoy is
+                         indistinguishable from a recipe that works"))
+                (is (not (identical? (heading m)
+                                     (.querySelector js/document events/heading-selector)))
+                    "the decoy precedes the application in document order, so
+                     `document.querySelector` over the shared marker answers
+                     something that is not this application's heading. The
+                     recipe as it stood ran exactly that lookup — and would
+                     still have left `activeElement` on a marked heading, which
+                     is why every assertion below is written against the
+                     application's OWN node rather than against the marker")))
+            (.then (fn [_] (focused-heading m "the deep link's landing focus")))
+            (.then (fn [h]
+                     (is (identical? h (active))
+                         (str "focus is on " (active-label) ", not the article's
+                              own heading"))
+                     (is (not (identical? decoy (active)))
+                         "and NOT on the decoy. The `:root` scope is the only
+                          thing that decides this: drop it from the recipe and
+                          the decoy takes the landing focus of every navigation
+                          in this application")
+                     (is (= (:title first-article) (.-textContent h))
+                         "and the heading names the article that was opened, so
+                          the landing is not merely somewhere but somewhere
+                          identifiable")))
+            (finish-after m [decoy] done))))))
 
 (deftest going-back-lands-focus-on-the-pane-it-returned-to
   (if-not (browser?)

@@ -429,6 +429,55 @@ test('run-browser-tests: an aborted run is named as an abort, not waited out as 
   );
 });
 
+test('run-browser-tests: an unanswerable trusted-input request stops the run instead of hanging it (rf2-il7b)', () => {
+  const src = read('run-browser-tests.cjs');
+  // The bridge ITSELF needs no static pin, and deliberately does not get one:
+  // three cljs.test suites press a real Tab and a real Escape through it on
+  // every `npm run test:browser`, so it is a fact the runner observes directly
+  // rather than one a source regex would stand in for. (rf2-u0j8's worker
+  // rejected a lint on exactly that ground; the same test applies here.)
+  //
+  // What IS pinned is the arm those suites cannot reach. The page publishes a
+  // request and SUSPENDS until it is acknowledged, so a request the runner
+  // cannot answer takes the whole lane down — every namespace after it, and
+  // the closing summary with it — and presents as a six-minute hang. Dormant
+  // in a healthy tree, exactly like the fixture abort above.
+  assert.match(
+    src,
+    /const\s+trustedInput\s*=\s*\{[^}]*faults:\s*\[\]/,
+    'must track unanswerable bridge requests in a dedicated ledger, not merely in diagnostics',
+  );
+  // Inside the poll loop, and AFTER the press attempt that produces it: the
+  // whole point is not to wait out a budget for a row that cannot resume.
+  assert.match(
+    src,
+    /while\s*\([\s\S]{0,80}?TIMEOUT_MS\s*\)\s*\{[\s\S]{0,1600}?serviceTrustedInputRequest\([\s\S]{0,200}?if\s*\(\s*trustedInput\.faults\.length\s*>\s*0\s*\)\s*break\s*;/,
+    'the poll loop must stop the moment a request it cannot answer is seen',
+  );
+  // Narrowness, as above: a press that THREW is acknowledged with its error so
+  // the row resumes and reds on the spot. Only an unacknowledgeable request is
+  // terminal — a runner that broke on every failed press would convert an
+  // ordinary red assertion into a truncated lane.
+  assert.doesNotMatch(
+    src,
+    /while\s*\([\s\S]{0,80}?TIMEOUT_MS\s*\)\s*\{[\s\S]{0,1600}?if\s*\(\s*trustedInput\.presses\s*[=<>!]/,
+    'a failed press must not short-circuit the poll loop',
+  );
+  // And it must SAY what happened, and name both halves of the protocol —
+  // the drift is always between two files, and a message naming one of them
+  // sends the reader to the wrong side.
+  assert.match(
+    src,
+    /THE BROWSER RUN STALLED ON THE TRUSTED-INPUT BRIDGE/,
+    'the stall must name itself rather than presenting as a summary timeout',
+  );
+  assert.match(
+    src,
+    /trusted-input-support[\s\S]{0,300}?serviceTrustedInputRequest/,
+    'the message must name the page half and the runner half, not merely report the stall',
+  );
+});
+
 // ---- serve-and-run-xray-feature-gate.cjs ----
 
 test('xray-feature-gate: a scenario with a captured pageerror is not marked passed (rf2-mwx08)', () => {

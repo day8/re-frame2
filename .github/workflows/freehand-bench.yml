@@ -418,7 +418,7 @@ jobs:
             ${{ runner.os }}-playwright-
 
       - name: Install Playwright (Chromium + system deps)
-        run: npx playwright install --with-deps chromium
+        run: npx playwright install --with-deps chromium || "$GITHUB_WORKSPACE/.github/scripts/playwright-install-failed.sh"
 
       # The buffered console arrives on stderr; stdout carries the runner's
       # one-line summary. The log is kept whatever the exit code, so a red

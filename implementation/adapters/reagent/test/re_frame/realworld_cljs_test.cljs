@@ -1715,6 +1715,54 @@
     (is (nil? (rf/compute-sub [:editor/submit-error] (rf/frame-state-value f)))
         "the client-validation branch clears :submit-error (that door is for transport failures)")))
 
+(defn- editor-same-slug-seed-preserves-typing-test []
+  ;; A stub that CAPTURES the request and never replies, so the GET stays in
+  ;; flight for as long as this test wants it to. Every other stub here settles
+  ;; on the spot, which is precisely the window this test needs to open.
+  (let [in-flight (atom nil)]
+    (rf/reg-fx :realworld.test/editor-in-flight
+      {:platforms #{:client :server}}
+      (fn [_frame-ctx args] (reset! in-flight args) nil))
+    (with-new-frame [f (frame/make-anon-frame-record!
+                         {:initial-events [[:app/initialise]]
+                          :fx-overrides {:rf.http/managed :realworld.test/editor-in-flight}})]
+      (rf/dispatch-sync [:auth/store-session {:username "alice" :token "jwt"}] {:frame f})
+      (rf/dispatch-sync [:rf.route/handle-url-change "/editor/hello-world"] {:frame f})
+      (let [req (deref in-flight)]
+        (is (some? req) "entering the edit route lowered the article GET")
+        (is (true? (ed-has-tag? f :lifecycle/loading))
+            "the lifecycle region sits at :loading while the fetch is out")
+        ;; TYPE, while the fetch is still out — the ordinary case, not a race: the
+        ;; round trip is slower than the first keystroke.
+        (rf/dispatch-sync [:editor/edit-field :title "My unsaved heading"] {:frame f})
+        (is (= #{:title} (:touched (rf/compute-sub [:editor/slice] (rf/frame-state-value f))))
+            "typing marked :title touched and nothing else")
+        ;; THE SETTLE. Replay the captured `:on-success` with the transport's
+        ;; success result appended, exactly as managed-HTTP delivers it. RED on the
+        ;; whole-slice seed `:editor/loaded` used to do: :title becomes "Hello, world".
+        (rf/dispatch-sync (conj (:on-success req)
+                                {:status :ok
+                                 :value {:article {:slug "hello-world" :title "Hello, world"
+                                                   :description "Intro" :body "Body text"
+                                                   :tagList ["intro" "demo"]}}})
+                          {:frame f})
+        (let [slice (rf/compute-sub [:editor/slice] (rf/frame-state-value f))
+              draft (rf/compute-sub [:editor/draft] (rf/frame-state-value f))]
+          (is (= "My unsaved heading" (:title draft))
+              "the touched field keeps the user's text — the settle must not clobber typing")
+          (is (= "" (:title (:baseline slice)))
+              "the touched field keeps its own baseline too, so the typing reads as UNSAVED")
+          (is (= {:title "" :description "Intro" :body "Body text" :tagList "intro, demo"}
+                 (:baseline slice))
+              "the baseline is seeded leafwise in step with the draft — asserted whole,
+               because the bug is never the leaf you looked at")
+          (is (= "Intro" (:description draft)) "an untouched field IS seeded from the loaded article")
+          (is (= "intro, demo" (:tagList draft)) "…including the joined tag string")
+          (is (= "hello-world" (:slug slice)) "the slice still targets the loaded slug")
+          (is (true? (rf/compute-sub [:editor/dirty?] (rf/frame-state-value f)))
+              "typing that survived a settle leaves the draft DIRTY — the save must send it")
+          (is (= #{:title} (:touched slice)) "the seed marks nothing touched of its own"))))))
+
 (deftest realworld-article-editor-edit-delete
   (testing "pure helpers: validate-draft / parse-tag-list / draft-from-article / article-body (rf2-54eebb)"
     (editor-pure-helpers-test))
@@ -1725,7 +1773,9 @@
   (testing ":editor/delete issues a DELETE, resets the slice, and navigates home (rf2-54eebb)"
     (editor-delete-test))
   (testing "a client-invalid submit fills per-field errors and fires no request (rf2-54eebb)"
-    (editor-invalid-submit-test)))
+    (editor-invalid-submit-test))
+  (testing "a same-slug settle seeds LEAFWISE and does not clobber typing (rf2-czvc, R-C1)"
+    (editor-same-slug-seed-preserves-typing-test)))
 
 ;; ============================================================================
 ;; favorites / comments / feed / profile — optimistic-success + follow-author +

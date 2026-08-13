@@ -2,18 +2,19 @@
 
 The evidence for [specification.md](specification.md#7-complete-use-case-coverage) §7's *Validation and async normalization* row (**late result cannot clobber newer edits**), the *Async resources and mutations* row's mutation-status and settle-merge half, and the dirty-leave half of its *Routing and navigation* row.
 
-`rf2-hic-054` **changes no runtime and adds no namespace to any artefact.** It is three recipes, written as one small application on the shipped public doors, plus the two suites that hold them.
+`rf2-hic-054` **changes no runtime and adds no namespace to any artefact.** It is three recipes, written as one small application on the shipped public doors, plus the two suites that hold them and the one witness that holds *this page* to them.
 
 They are the **standing** answer rather than the residual one. [`resource-demand-verdict.md`](resource-demand-verdict.md) returned **STOP** on committed-read resource demand — four criteria met, two ambiguous, and ambiguity resolves to STOP by the frozen rule — so these recipes carry the whole of acquiring and releasing resources against read liveness. Their future shape is an ordinary evolution of these doors, not a holding pattern awaiting a mechanism: a reopen needs new evidence of a kind the [`rf2-hic-044` witness](resource-demand-witness.md) could not supply, and its nine-site ownership census is the population they should be readable against.
 
 ## What was built, and where it runs
 
-Three files under `implementation/routing/test/re_frame/recipes/` — one application namespace and two suites. `routing/test` is already a `:source-paths` entry both test lanes compile from, so no build id and no `:dev-http` port were added, and no hot-zone file was touched.
+Four files under `implementation/routing/test/re_frame/recipes/` — one application namespace and three suites. `routing/test` is already a `:source-paths` entry both CLJS test lanes compile from *and* an `:extra-paths` entry on the routing artefact's JVM `:test` alias, so no build id, no `:dev-http` port and no roster entry were added, and no hot-zone file was touched.
 
 | suite | lane | what it owns |
 |---|---|---|
 | `re-frame.recipes.async-nav-l0-cljs-test` | `:node-test` | every rule of all three recipes — first as pure functions, then through a real frame — plus the clobber control and the structural row that names the guard on the route |
 | `re-frame.recipes.async-nav-guard-dom-cljs-test` | `:browser-test` | the one claim no model row can make: the browser's own Back button, and the address bar the guard puts back |
+| `re-frame.recipes.async-nav-doc-test` | JVM `:test` | **this page.** Every `:optimistic` target printed below is read as data and matched against the ones the application registers, so a snippet teaching a shape the runtime rejects reds here rather than in a reader's console |
 
 The application reaches **four** foreign namespaces — `re-frame.core`, `re-frame.http.managed`, `re-frame.resources` and `re-frame.routing` — and nothing else. There is no view-substrate dependency in the model at all; the view exists for the browser suite and is thirty lines of Reagent-adapter hiccup.
 
@@ -56,8 +57,13 @@ The optimistic half is one registration key:
 
 ```clojure
 :optimistic (fn [{:keys [slug favourite?]}]
-              {[::articles {}] (fn [articles] …)})
+              {{:resource articles-resource
+                :params   {}
+                :scope    :rf.scope/global}
+               (fn [articles] …)})
 ```
+
+**The target is a map — `{:resource :params :scope}` — and the `[id params]` vector a reader of `[:rf/resource …]` reaches for is not a near-miss.** Optimistic arms run *before* the request lowers, so a target that could write the cache under a wrong identity is rejected outright rather than dropped-and-warned, and it takes the request with it: no instance, no request, no error, `:idle` afterwards. Measured on this application's first node-lane run, and the reason `re-frame.recipes.async-nav-doc-test` exists — a snippet is the one part of a page a reader runs, and this one failed *silently* when it was wrong. Making the runtime refuse the vector spelling out loud is `rf2-e4y9`'s, separately; that this page cannot teach it is this bead's.
 
 `:on-conflict` is left at its `:invalidate` default deliberately. If a concurrent write landed on the entry between the optimistic apply and the rollback, a blind restore would clobber newer truth, so the entry is marked stale and the read path fetches the authoritative answer.
 
@@ -107,6 +113,7 @@ The browser row therefore asserts both sides of the asymmetry: after a real `his
 | a guard read negatively, or non-boolean | `l0` | `can-leave?` is asserted `boolean?` in both positions, and the route's `:can-leave` key is asserted present on the editor and absent on the list |
 | a blocked Back leaving the URL moved | `browser` | `location.pathname` after a real `history.back()` |
 | a prompt that is not ordinary view code | `browser` | the negative control asserts NO prompt node exists until something is pending |
+| **this page** printing an `:optimistic` target the runtime rejects | `doc-test`, JVM | the published target is read as data; the `[id params]` vector fails the shape row *and* is absent from the set the application registers |
 
 Every one of those has its second direction. The clobber row's twin asserts that with nothing touched the recipe **is** the naive write — which is why the defect survives every load that beats the typist, and why a witness that only tested the happy path would be green forever. The prompt rows assert both presence and absence. The `Stay` row asserts the work is still in the field afterwards, because cancelling the leave must not also cancel the edits it was protecting.
 

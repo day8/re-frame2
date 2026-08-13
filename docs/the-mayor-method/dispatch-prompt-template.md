@@ -65,9 +65,12 @@ overwritten by a peer: nothing errors, and the loser can READ the survivor and
 take a PR body with plausible structure and the wrong subject for its own — or a
 gate exit code belonging to another worker's run, which reads as a clean pass and
 fails the merge decision open. Confirm a scratch file is your own before
-believing it, and check that a gate's printed `gate root:` line names YOUR
-worktree before believing its colour — that check, not this naming rule, is what
-has actually caught both observed collisions.
+believing it, and confirm each gate read YOUR worktree before believing its
+colour — by whichever of two routes that gate affords. The shell gates print
+`gate root: <path>` as their first line; check it names your worktree. A gate
+that prints no banner (no `scripts/check_*.py` does) is discriminated by the red
+from a fault you planted, which exists only in your tree. That worktree check,
+not this naming rule, is what has actually caught both observed collisions.
 
 If you create a `node_modules` symlink/junction in your worktree, remove the
 LINK (never its target) before you report done: a later `git worktree remove`
@@ -195,11 +198,16 @@ none of them is obvious from the gate command itself.
   bullet no longer grudges it — a worker who believes it has already erred reads
   for how to atone rather than for what to do next, and reads straight past the
   instruction that would have saved it.
-- **Invoke a backgrounded gate by its ABSOLUTE path.** The gate scripts derive
-  their repo root from `${BASH_SOURCE[0]}`, which is relative when the
-  invocation is — and a `cd <worktree> && sh scripts/…` does not reliably keep
-  that `cd` once backgrounded, so the run adopts whatever cwd the shell really
-  has. One did exactly that inside *another live worker's* checkout: it took
+- **Invoke a backgrounded gate by its ABSOLUTE path.** This holds for every
+  gate, by two different mechanisms. The shell gates — every `scripts/test-*.sh`
+  — derive their repo root from `${BASH_SOURCE[0]}`, which is relative when the
+  invocation is. The `scripts/check_*.py` gates instead default their root to
+  the script's own grandparent, which sounds immune to cwd and is not:
+  `python scripts/check_….py` resolves THAT path against the cwd first, so a
+  wrong cwd hands the interpreter a sibling's copy of the script, which then
+  pins faithfully to the sibling's root. Either way, a `cd <worktree> && sh
+  scripts/…` does not reliably keep that `cd` once backgrounded, so the run
+  adopts whatever cwd the shell really has. One did exactly that inside *another live worker's* checkout: it took
   that tree as its spine root, its diff root and its classifier input, then
   reported the resulting verdict as its own. A complete, internally consistent
   run about somebody else's work is far harder to catch than a broken one, so
