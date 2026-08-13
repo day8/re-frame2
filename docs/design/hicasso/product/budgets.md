@@ -883,7 +883,20 @@ pinned bands' upper edges, `1,107 B` and `1,101 B`.
   Neither section adjudicates the *rule*, only the readings
   under it, so the two rows point here rather than borrowing a disposition
   that was not made about them. `C5` is settled the day a shell arm lands
-  under `1,024 B` on the package; `C6` the day the K3 record is taken.
+  under `1,024 B` on the package; `C6` the day the first `rf2-hic-071`
+  same-witness comparison actually decides it.
+  **[Amended 2026-08-13.]** `C6`'s condition read *the day the K3 record is
+  taken*, which promised a settlement the taking of a record cannot deliver.
+  The K3 record has now been taken — [`k3-disposition.md`](k3-disposition.md)
+  is **ratified by the operator ruling of 2026-08-13**, recorded on
+  `rf2-hic-085` — and `C6` stays `UNRESOLVED` across it. The ruling freezes the
+  governed baseline at `2,115 B/read`, fixes the trip point at `2,326.5 B/read`
+  and routes future enforcement to `rf2-hic-071`; it cannot manufacture a
+  passing comparison, and
+  [that record's §8](k3-disposition.md#8-the-10-same-witness-per-read-regression-rule)
+  says in terms that the first forward same-witness comparison has not yet been
+  taken. `S3` is untouched by it and is not recoloured: the Reagent contrast is
+  a viability scoreboard, never a test of the forward 10% rule.
   **[Amended 2026-08-13.]** `C5` now carries a disposition made about the rule
   as well as its readings: the scoped acceptance ruled on `rf2-0xx2` and
   recorded in
