@@ -427,14 +427,20 @@ artefact-naming rule. A one-line documentation edit still runs a link validator,
 
 **Say what a brief whose gate affords no plant does instead, or that gets improvised too** — the improvisation
 was measured on the *enforcing* side, where five dispatches in one session carried five different lengths of
-this one block, nobody having decided to drop anything. Two cases, and they are not the same. Where NO automated
+this one block, nobody having decided to drop anything. Three cases, and they are not the same. Where NO automated
 gate covers the surface, the wording is already settled under *Quality gates — which gate* above: the brief says
 so, and the worker verifies it by hand and reports what it checked and the counts in the change body. Where a
 gate DOES cover the surface but affords no safe discriminating plant, that gate still runs and the unconditional
-four still bite; what lapses is only the planted-fault route to proving which tree was read, so the brief
-nominates the root-banner route instead and the worker says which one it used. Point at that rather than
-restating it, and **scope the block rather than shortening it** — dropping the sanction along with the parts
-that do not apply is the same failure by a shorter road.
+four still bite; what lapses is only the planted-fault route to proving which tree was read, and which route is
+left turns on the gate's *other* capability. If it prints its root, the brief nominates the root-banner route and
+the worker says which one it used. If it prints nothing either, neither route is on offer — the two-route rule
+below is explicit that many gates print nothing, so silent AND unplantable is a real pairing rather than a corner
+— and the brief says exactly that: no discriminating tree-verification route here, or the concrete bounded
+mechanism the gate does afford in place of one. Nominating a route the gate cannot supply is the failure recorded
+further down, where an earlier rule claimed every gate printed a banner and the workers who met it
+improvised. Point at the settled wording rather than restating it, and **scope the block rather than
+shortening it** — dropping the sanction along with the parts that do not apply is the same failure by a
+shorter road.
 
 **Detaching a long gate is CORRECT; ending the turn afterwards is the defect.** Where a harness hard-kills a
 foreground command well below what the full gate needs, "foreground, to completion" is not on offer however
