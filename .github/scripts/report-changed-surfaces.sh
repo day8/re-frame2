@@ -1524,6 +1524,225 @@ else
         cljs_node_test=true
         cljs_browser=true
         ;;
+
+      # ─── PROSE THAT A test.yml SUITE PINS (rf2-61ar) ──────────────────────
+      #
+      # THE HOLE. A docs/spec-only diff classified to NOTHING: measured on
+      # main, `report-changed-surfaces.sh docs/machines/parallel-states.md
+      # docs/machines/concepts.md` printed all 32 outputs `false`. But a
+      # growing family of suites inside test.yml jobs `slurp` repo PROSE and
+      # assert on its text — guide-truth pins, terminology pins, schema
+      # extracts, doc-example evaluators. Every one of them was armed by its
+      # CODE surface and by nothing on the PROSE side, so a prose-only edit
+      # could red them and merge green, with the red landing on `main` for the
+      # next unrelated PR to discover. That is not hypothetical: PR #8068 (the
+      # machines-guide rewrite, 13 files, docs-only) skipped `jvm-machines` —
+      # the very lane pinning the pages it rewrote — and left five assertions
+      # across four deftests red on main until an unrelated PR happened to arm
+      # `implementation_jvm` (rf2-s41i, PR #8082, the prose+test half).
+      #
+      # THE MEASURED ROSTER — the prose each test.yml suite reads, and the job
+      # that reads it. Established by walking every `.clj`/`.cljc` under
+      # implementation/**/test and tools/**/test that both names a repo prose
+      # path and calls a read primitive, then reading each one:
+      #
+      #   docs/machines/parallel-states.md   parallel_states_guide_truth_jvm_test
+      #                                        .clj                  → jvm-machines
+      #   docs/machines/concepts.md          transition_geometry_terminology_jvm_
+      #                                        test.clj              → jvm-machines
+      #   docs/core/freehand/**.md           guide/samples_coverage_jvm_test.clj
+      #                                      (file-seq over the WHOLE tree,
+      #                                       digest-pins every fenced block)
+      #                                                              → jvm-freehand
+      #   docs/api/re-frame.adapter.uix.md   scope_ensure_authority_test.clj
+      #                                                              → jvm-core
+      #   docs/api/re-frame.ssr.md           ssr_doc_example_projector_test.clj
+      #                                                              → jvm-ssr
+      #   docs/design/hicasso/product/       recipes/async_nav_doc_test.clj
+      #     async-routing-recipes.md                                 → jvm-routing
+      #   spec/000-Vision.md                 scope_ensure_authority_test.clj
+      #   spec/012-Routing.md                        "
+      #   spec/013-Flows.md                          "                → jvm-core
+      #   spec/Tool-Pair.md                  spec_elision_registry_tense_
+      #   spec/Security.md                     conformance_test.clj   → jvm-core
+      #   spec/009-Instrumentation.md        error_catalogue_channel_conformance
+      #                                        _test.clj (core), scope_ensure_
+      #                                        authority_test.clj (core),
+      #                                        destroyed_reason_channel_
+      #                                        conformance_test.clj (machines),
+      #                                        spawn_all_schema_extract.clj →
+      #                                        spawn_all_authority_catalogue_
+      #                                        test.clj (machines)
+      #                                              → jvm-core + jvm-machines
+      #   spec/005-StateMachines.md          transition_geometry_terminology_jvm_
+      #                                        test.clj, destroyed_reason_channel
+      #                                        _conformance_test.clj → jvm-machines
+      #   spec/Cross-Spec-Interactions.md    destroyed_reason_channel_conformance
+      #                                        _test.clj             → jvm-machines
+      #   spec/006-ReactiveSubstrate.md      slice_memo_lifetime_census_jvm_test
+      #                                        .clj                  → jvm-ui
+      #   spec/Pattern-FormAction.md         ssr_doc_example_form_action_test.clj
+      #                                                              → jvm-ssr
+      #   spec/Spec-Schemas.md               SIX suites in FIVE artefacts — see
+      #                                        its own arm below.
+      #
+      # WHY `implementation_jvm` AND NOT SOMETHING NARROWER. There is nothing
+      # narrower. `implementation_jvm` is the single output every one of the 22
+      # per-artefact JVM jobs gates on; a per-lane arm would mean 22 new outputs
+      # and 22 `if:` widenings in test.yml for a saving the spec roster above
+      # would not even collect (its pins already span jvm-core, jvm-machines,
+      # jvm-ui, jvm-epoch, jvm-ssr and jvm-routing). The precedent is directly
+      # overhead: rf2-vxgfnd.97.3 armed exactly this output for the S3/S4/S5
+      # profile DOCS "so the jvm-ui job re-runs the S3-S5 profile guards", and
+      # rf2-drpa3.70 arms it for `implementation/freehand/*.md`. So the
+      # narrowing this bead buys is bought on the PATH axis instead: prose a
+      # suite reads arms the JVM tier, and prose nothing reads still arms
+      # nothing, exactly as today.
+      #
+      # NONE of these arms `cljs_browser`, `cljs_prod` or any Playwright
+      # output. Markdown cannot change what React puts on a page — the same
+      # line rf2-drpa3.70 drew for `implementation/freehand/*.md`. The one
+      # exception is `spec/Spec-Schemas.md`, and it is a COMPILE-TIME edge
+      # rather than a runtime one; its own arm below says why.
+      docs/machines/*.md)
+        # The two pinned pages are `concepts.md` (the §Self-transitions
+        # terminology `transition_geometry_terminology_jvm_test.clj` holds to
+        # spec/005) and `parallel-states.md` (the guide-truth walk). The arm is
+        # the TREE rather than those two names, and deliberately:
+        #   * the incident was a 13-file tree-wide rewrite, which is how a
+        #     guide is actually edited — page by page is the exception;
+        #   * `concepts.md` and `parallel-states.md` are the terminology spine
+        #     every other page in the guide restates, so a rewrite that moves a
+        #     definition between pages is the shape most likely to red them;
+        #   * unlike `docs/api/**` below, this tree has NO other gate — it
+        #     reaches docs.yml, which stages it into the site and executes not
+        #     one line of the suites that read it. Under-arming here is what
+        #     cost the red, and TESTING.md's rule for exactly this doubt is
+        #     "when in doubt, over-classify".
+        # `.md` rather than `*`: both pins read Markdown, and the tree carries
+        # no other file today. An image dropped beside a page should not queue
+        # a JVM tier.
+        implementation_jvm=true
+        ;;
+      docs/core/freehand/*.md)
+        # No judgement needed on the scope here — the pin IS the tree.
+        # `guide/samples_coverage_jvm_test.clj` `file-seq`s `docs/core/freehand`
+        # and digest-pins EVERY fenced block on EVERY `.md` page under it
+        # (22 pages today), so every page is genuinely pinned and a new page is
+        # pinned the moment it lands. The suite runs in `jvm-freehand`.
+        #
+        # `implementation_jvm` only — no `cljs_node_test`. The sibling prose arm
+        # `implementation/freehand/*.md` fires both, but that one covers prose
+        # INSIDE the artefact (a README documenting contracts the two host
+        # suites assert). Nothing in the `:node-test` build reads this guide.
+        implementation_jvm=true
+        ;;
+      docs/api/re-frame.adapter.uix.md|docs/api/re-frame.ssr.md)
+        # Named files, NOT `docs/api/*` — the one place in this block where the
+        # narrow answer is the right one, for a reason the other trees lack:
+        # `docs/api/**` is ALREADY on lint.yml's `paths:` filter, so all 25
+        # pages carry the api-manifest `doc-api-check` projection gate. The
+        # tree is not an unwatched surface; the hole is two pages that two
+        # test.yml JVM suites additionally name as literals —
+        # `scope_ensure_authority_test.clj` (jvm-core) reads the uix adapter
+        # page's scope/ensure row, and `ssr_doc_example_projector_test.clj`
+        # (jvm-ssr) EVALUATES the projector example off the ssr page. Arming 25
+        # pages' worth of edits into a 22-job JVM tier when 23 of them have no
+        # JVM pin at all is the "coarse rules clutter the matrix" TESTING.md
+        # warns about. Add the page here when a new JVM suite names one.
+        implementation_jvm=true
+        ;;
+      docs/design/hicasso/product/async-routing-recipes.md)
+        # One named file, and emphatically not its tree: `docs/design/**` is 159
+        # files of working design records, deliberately excluded from the site
+        # build (`exclude_docs` in mkdocs.yml) and validated only by
+        # scripts/check_doc_slugs.py + check_provenance_pins.py. Exactly one of
+        # them is read by a test.yml suite — `recipes/async_nav_doc_test.clj`
+        # (jvm-routing) reads this page's recipe forms and evaluates them — so
+        # exactly one is armed.
+        implementation_jvm=true
+        ;;
+      spec/conformance/freehand/README.md|spec/conformance/freehand/donor-inventory.md)
+        # A MEASURED EXCLUSION, held ahead of the `spec/*` catch-all below so
+        # the catch-all cannot silently reverse it.
+        #
+        # rf2-49upn and rf2-lrtwj each read these two files' consumers and
+        # found neither reachable from a lane: README.md DEFINES the
+        # conformance addressing scheme (it speaks in illustrative ids and is
+        # excluded from the census's own citation scan for exactly that
+        # reason), and donor-inventory.md is an archive of the withdrawn
+        # absorption programme whose checker, check_donor_inventory.py, is a
+        # snapshot-integrity check reading that one file and nothing else — so
+        # it cannot observe a source change at all. Neither can change what a
+        # lane proves.
+        #
+        # `spec/*` below is a POLICY default for spec prose nobody has
+        # measured. These two have been measured, by two beads, and the frozen
+        # mirror pins the result. A general default does not get to overturn a
+        # specific measurement, so the walk stops here. The empty `:` arm is
+        # the same device the story-feature-load launcher case uses further up
+        # for the same purpose.
+        :
+        ;;
+      spec/Spec-Schemas.md)
+        # The widest single miss in the roster, and the only prose file in the
+        # repo that arms a CLJS output.
+        #
+        # SIX suites in FIVE artefacts extract schema forms from this file:
+        #   error_catalogue_channel_conformance_test.clj      (core)
+        #   observation_schema_extract.clj                    (core)
+        #   epoch_silence_contract_test.clj                   (epoch)
+        #   destroyed_reason_channel_conformance_test.clj     (machines)
+        #   spawn_all_schema_extract.clj                      (machines)
+        #   frame_destroyed_op_schema_jvm_test.clj            (ui)
+        # — jvm-core, jvm-epoch, jvm-machines and jvm-ui, all on
+        # `implementation_jvm`.
+        #
+        # `cljs_node_test` as well, and this is the part no other prose arm
+        # needs: `observation_schema_extract.clj` is a JVM MACRO namespace, and
+        # `observation_port_cljs_test.cljc` pulls it in through
+        # `:require-macros`. So the ObservationOnChangeFailedTags schema is
+        # extracted from this Markdown at COMPILE TIME and inlined into the
+        # consolidated `:node-test` build. Editing the def form here changes
+        # what the `cljs` job compiles and asserts, not merely what a JVM suite
+        # slurps — the same macro-expansion-time reasoning the
+        # `spec/conformance/freehand/fixtures/*` arm above is built on.
+        #
+        # Must precede the `spec/*` catch-all below: a POSIX `case` takes the
+        # FIRST match, and the catch-all does not set `cljs_node_test`.
+        implementation_jvm=true
+        cljs_node_test=true
+        ;;
+      spec/*)
+        # The catch-all, and WHOLESALE on purpose.
+        #
+        # Eleven spec documents are pinned today by suites in six artefacts
+        # (the roster above), and every one of them arrived as its own bead —
+        # rf2-qyvyes, rf2-4go8s, rf2-qgsp2o, rf2-vxgfnd.97.3 and friends. A
+        # named list of eleven would therefore be a list that is wrong again by
+        # the next bead, and being wrong is precisely this hole: an unarmed
+        # normative document whose pin runs in no lane. `spec/` is the
+        # artefact of this repo — the implementation is downstream of it — and
+        # it is edited prose-only routinely, which is the exact diff shape that
+        # classified to nothing.
+        #
+        # The cost is explicit and accepted: a typo fix in an unpinned spec
+        # page now queues the JVM tier. That is TESTING.md's "when in doubt,
+        # over-classify", and the tier is 22 cached `clojure -M:test` jobs — no
+        # Chromium, no `:advanced` compile, no Playwright.
+        #
+        # It is a CATCH-ALL, so its POSITION is load-bearing twice over. A
+        # POSIX `case` takes the first match and `*` spans `/`, so this arm
+        # would swallow every narrower `spec/` case if it preceded them. The
+        # four that must stay ahead of it, and do:
+        #   spec/api-manifest{,-metadata}.edn + spec/API.md  (cljs_node_test)
+        #   spec/conformance/S{3,4,5}-view-conformance-profile.md
+        #   spec/conformance/fixtures/*
+        #   spec/conformance/freehand/fixtures/* + conformance-index.md
+        #   spec/Spec-Schemas.md                             (immediately above)
+        # A new narrower `spec/` arm goes ABOVE this one or it is dead code.
+        implementation_jvm=true
+        ;;
       implementation/scripts/serve-and-run-reagent-slim-smoke.cjs|implementation/scripts/_reagent-slim-smoke-policy.test.cjs)
         # rf2-5v0dg7 — false-green fix, mirroring the xray-feature-gate
         # launcher case below. serve-and-run-reagent-slim-smoke.cjs IS the
