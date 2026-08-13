@@ -73,9 +73,22 @@
 # `HEAD^` stays the default for LOCAL and manual runs, where the parent is a
 # sensible base and there is no event to consult. If the base cannot be
 # resolved (root commit, or an over-shallow clone) the gate FAILS rather than
-# passing: a guard that cannot see its base must not certify anything. The
-# workflow therefore checks out with fetch-depth: 0, because the accepted push
-# base can be arbitrarily deep.
+# passing: a guard that cannot see its base must not certify anything.
+#
+# THE BASE IS PEELED TO `^{commit}`, AND THAT IS LOAD-BEARING (rf2-uol6). The
+# first cut resolved it with `git rev-parse --verify --quiet "$base_ref"`, which
+# looks fail-closed and is not: for a FULL 40-hex sha git echoes the string back
+# with exit 0 WITHOUT consulting the object store, so an absent base passed the
+# guard. `git ls-tree` on it then failed — into a pipeline, whose POSIX status is
+# the LAST command's (`sort`, exit 0), so `set -e` never fired either. Both
+# leaks composed into a false green: an empty base list, an empty diff, and
+# "END STATE reached" printed over a base that was never read. Peeling forces
+# the lookup, and the ls-tree below is run UNPIPED with its status checked.
+#
+# That is what makes a SHALLOW CI checkout safe. portability.yml checks out with
+# fetch-depth: 2 (holding HEAD^ for the manual-dispatch fallback) and fetches the
+# accepted base as a single `--depth=1` commit when it is deeper — the gate needs
+# the base's TREE, never its ancestry. A fetch that misses the base now reds.
 #
 # Cross-platform: POSIX sh. No bashisms (`[[`, arrays, `<<<`, process
 # substitution). Runs identically on the ubuntu-latest CI runner, on macOS,
@@ -95,17 +108,23 @@ cd "$repo_root"
 
 base_ref=${AI_RATCHET_BASE_REF:-HEAD^}
 
-# `--verify --quiet` prints nothing and exits non-zero on an unresolvable
-# ref. Guard the assignment so `set -e` does not abort before the message.
-base_sha=$(git rev-parse --verify --quiet "$base_ref" 2>/dev/null) || base_sha=''
+# `--verify --quiet` prints nothing and exits non-zero on an unresolvable ref.
+# The `^{commit}` peel is REQUIRED, not decorative: without it a full 40-hex sha
+# resolves to itself even when the object is missing from a shallow clone (see
+# the header). Guard the assignment so `set -e` does not abort before the
+# message.
+base_sha=$(git rev-parse --verify --quiet "$base_ref^{commit}" 2>/dev/null) || base_sha=''
 
 if [ -z "$base_sha" ]; then
   printf 'ai/ tracking ratchet FAILED: cannot resolve base ref %s.\n' "$base_ref" >&2
   printf '\n' >&2
   printf 'This gate compares the tracked ai/ set against the last accepted\n' >&2
   printf 'state, so without a base it cannot certify anything and will not\n' >&2
-  printf 'pass by default. Usual cause: a depth-1 shallow clone (CI must\n' >&2
-  printf 'check out with fetch-depth: 2) or a root commit with no parent.\n' >&2
+  printf 'pass by default. Usual causes: a depth-1 shallow clone (CI checks\n' >&2
+  printf 'out with fetch-depth: 2, which holds HEAD^); an accepted base that\n' >&2
+  printf 'is deeper than that and was never fetched (CI fetches it as a\n' >&2
+  printf 'single --depth=1 commit — see .github/workflows/portability.yml);\n' >&2
+  printf 'or a root commit with no parent.\n' >&2
   printf 'Set AI_RATCHET_BASE_REF to name the base explicitly.\n' >&2
   exit 1
 fi
@@ -114,6 +133,7 @@ fi
 # bashism. Clean up on every exit path.
 current_list=$(mktemp)
 base_list=$(mktemp)
+base_raw=$(mktemp)
 added_list=$(mktemp)
 removed_list=$(mktemp)
 # `cleanup` IS reachable: `trap cleanup EXIT` below invokes it, and a POSIX
@@ -126,15 +146,29 @@ removed_list=$(mktemp)
 # on the function. Listing both keeps this lint-clean on either version.
 # shellcheck disable=SC2317,SC2329
 cleanup() {
-  rm -f "$current_list" "$base_list" "$added_list" "$removed_list"
+  rm -f "$current_list" "$base_list" "$base_raw" "$added_list" "$removed_list"
 }
 trap cleanup EXIT
 
 # Current state: the INDEX, so a staged force-add is caught before it is
 # even committed. Base state: the tree at BASE. Both sorted under LC_ALL=C
 # so `comm` sees the same collation on every locale.
+#
+# The base read is UNPIPED and its status checked. Piping it into `sort` hides
+# the failure — a POSIX pipeline reports the LAST command's status — and the
+# gate would then compare against an empty base and pass anything.
 git ls-files ai/ | LC_ALL=C sort > "$current_list"
-git ls-tree -r --name-only "$base_sha" -- ai/ | LC_ALL=C sort > "$base_list"
+if ! git ls-tree -r --name-only "$base_sha" -- ai/ > "$base_raw" 2>/dev/null; then
+  printf 'ai/ tracking ratchet FAILED: cannot read the tree at base %s (%s).\n' \
+    "$base_ref" "$base_sha" >&2
+  printf '\n' >&2
+  printf 'The commit resolved but its tree could not be listed, so the base\n' >&2
+  printf 'state is unknown and this gate will not certify anything. Usual\n' >&2
+  printf 'cause: a partial clone missing that tree. Fetch the base commit\n' >&2
+  printf 'in full, or set AI_RATCHET_BASE_REF to a base you hold.\n' >&2
+  exit 1
+fi
+LC_ALL=C sort "$base_raw" > "$base_list"
 
 current_count=$(wc -l < "$current_list" | tr -d ' ')
 base_count=$(wc -l < "$base_list" | tr -d ' ')
