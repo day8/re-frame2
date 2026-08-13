@@ -163,7 +163,11 @@
     {:boundaries    boundaries
      :edges         edges
      :elements      (lane/element-count (:container handle))
-     :rendered-rows (count (.querySelectorAll (:container handle) "li.topo-row"))}))
+     ;; `.-length`, not `count`: a `NodeList` implements no CLJS protocol,
+     ;; so `count` throws `ICounted` rather than answering — which errored
+     ;; all twelve structural cells on this file's first run and is worth a
+     ;; comment because the same call reads perfectly in a REPL over a seq.
+     :rendered-rows (.-length (.querySelectorAll (:container handle) "li.topo-row"))}))
 
 (deftest every-arm-is-the-topology-it-claims
   (if-not (mount/browser?)
