@@ -45,8 +45,10 @@ from a clean checkout of `origin/main` and all four are green with raw captured 
 control was identified for every one of the eight risk families and each was either executed by the
 suite or planted by hand and observed to redden.
 
-The confirmation is bounded in one place, and the boundary is the operator's own: kernel row 5's native
-IME half is **assumed, not witnessed** — see [§2.1](#21-row-5-is-assumed-not-witnessed).
+The confirmation has one boundary, and it is a boundary of measurement rather than a caveat on the row:
+nothing re-run here measures native IME composition beyond Chromium. How the programme *carries* kernel
+row 5 is the operator's to say, and he has ruled it **green** — see
+[§2.1](#21-row-5-carries-green-on-an-operator-ruling).
 
 ### 1.2 The shell half
 
@@ -95,21 +97,31 @@ overlapping hydration, independent root release, concurrent request frames, root
 four `deftest` names spread across three files, the last of them
 `a-root-whose-teardown-throws-cannot-strand-its-siblings-state`.
 
-### 2.1 Row 5 is assumed, not witnessed
+### 2.1 Row 5 carries green on an operator ruling
 
-`rf2-hic-016` was closed on 2026-08-13 by operator ruling, in its own words **"CLOSED AS ASSUMED, NOT
-WITNESSED"**: the manual native-IME session was attempted and abandoned — a Japanese OS IME proved too
-difficult to set up — and the operator ruled to close so the programme is not held on it.
+`rf2-hic-016` was closed on 2026-08-13, and it carries **two** rulings from that day. The close note said
+the row was **"CLOSED AS ASSUMED, NOT WITNESSED"** and told the records citing it to carry that caveat.
+The operator then ruled the other way at 00:15 — assume green, the caveat is withdrawn, no annotation is
+owed, and a consolidation pass must not re-add one — and that second ruling is the operative one. The
+manual native-IME session was attempted and abandoned, a Japanese OS IME proving impractical to set up,
+and rather than hold a P1 programme on a session that will not happen the row carries green. **This page
+carries it green.** The superseded close note is named here rather than quietly dropped, for the reason
+this record names every reading it supersedes: a later reader is entitled to know which of the two rulings
+a document was written under.
 
 Register row 5 names its deciding witness as "**WebKit/Firefox native composition and `beforeinput`**,
 range/direction, autofill, reset, blur, unmount and upgrade matrix". The landed runner is honest about
 the gap (`serve-and-run-hicasso-controlled-testbed.cjs:213-217`: real composition ranges are Chromium-only
 and the abort signature "cannot be reproduced from page script in any engine, **so it is not claimed
-here**"). Everything else on the row is measured, on three engines, and was re-measured here.
+here**"). Everything else on the row is measured, on three engines, and was re-measured here. The ruling
+leaves that sentence exactly where it stands, and said so in terms: it disposes of the row, it does not
+rewrite a runner's account of itself.
 
-So the row is not a miss against the code and not a pass either. It is a scenario the programme has
-decided to assume. That decision is the operator's to make and this record does not reopen it — but six
-documents still describe the session as pending and owed, which is filed as `rf2-aubc`.
+So the row is not a miss against the code, and it is not a measurement either. **ASSUMED IN PART** in
+[§2](#2-the-eight-kernel-rows-one-by-one)'s verdict column is a measurement label — a named scenario with
+no measurement, closed on an operator ruling rather than on evidence — and it stays accurate under the
+second ruling, because what moved is the programme's disposition and not the evidence. The six documents
+that described the session as pending and owed were filed as `rf2-aubc`.
 
 ### 2.2 Row 2's record has landed
 
@@ -221,7 +233,7 @@ captured exit 0 — taken on the same worktree immediately before the plant.
 **What this does and does not establish.** It establishes that the composition carve-out is load-bearing
 and that the WebKit witness reddens when it is removed: the family has a control and the control bites.
 It establishes nothing about *native* IME composition on WebKit, which drives a synthetic composition
-sequence rather than a real one — see [§2.1](#21-row-5-is-assumed-not-witnessed).
+sequence rather than a real one — see [§2.1](#21-row-5-carries-green-on-an-operator-ruling).
 
 ## 5. The misses
 
