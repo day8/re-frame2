@@ -43,6 +43,8 @@ const path = require('path');
 const IMPL_DIR = path.resolve(__dirname, '..');
 const REPO_ROOT = path.resolve(IMPL_DIR, '..');
 const SHADOW_CLJS = path.join(IMPL_DIR, 'shadow-cljs.edn');
+const PACKAGE_JSON = path.join(IMPL_DIR, 'package.json');
+const GATE_SCHEDULING = path.join(REPO_ROOT, 'scripts', 'check_gate_scheduling.py');
 
 // The two lanes and the builds that own them.
 const CORRECTNESS_BUILD = ':browser-test';
@@ -128,6 +130,85 @@ function domTestNamespaces() {
     .sort((a, b) => a.ns.localeCompare(b.ns));
 }
 
+// ---- deriving the executors ------------------------------------------------
+//
+// rf2-j8os. A partition of SELECTORS is not a proof that both halves EXECUTE,
+// and the second half was held by nothing. `:browser-test-freehand-bench` is
+// the sole browser home of seven `re-frame.freehand.bench.*` DOM suites, and
+// the chain that ends in them running is three links long:
+//
+//   the build id  ->  the npm script that compiles it  ->  a workflow `run:`
+//
+// The first two assertions below hold the FIRST link. The third delegates the
+// second link to `scripts/check_gate_scheduling.py`, which already enforces
+// that every `test:` / `bench:` / `build:` script in `package.json` is either
+// reachable from an executable `run:` or carries a checked `DISPOSITIONS`
+// entry — and which runs in `verify-skill-mcp-drift`, a `needs:` of the
+// required `All required checks passed` aggregator.
+//
+// WHY DELEGATE RATHER THAN RE-DERIVE. Reading workflow `run:` values here
+// would put a second authority on "what counts as executable text" beside the
+// Python one, and that checker's own history is the argument against it: its
+// first cut matched raw YAML, so a `run:` line deleted while its explanatory
+// paragraph stayed put left the gate reading as scheduled (rf2-6ckzl). Two
+// implementations of that rule can disagree, and the one that disagrees
+// downward is a false green. So the link is delegated, not copied — and the
+// delegation is HELD rather than asserted in prose, because a claim about the
+// world in a comment is exactly what this file exists to stop trusting: the
+// executor must carry a prefix that checker asks about, and must not carry a
+// `DISPOSITIONS` entry excusing it from the question. Both are read out of the
+// Python source rather than restated here, for the rf2-k41ph reason a copy is
+// a second authority with nothing holding it in step.
+//
+// WHAT THIS DOES NOT CLOSE. Someone may still add a `DISPOSITIONS` entry for a
+// lane's executor — and this arm will red and make them argue it, which is the
+// whole difference between a decision and an accident. What it does close is
+// the silent path: delete `freehand-bench.yml` and the four `package.json`
+// scripts it is the sole home of (rf2-vyqq), and before this arm every gate in
+// the repo stayed green while seven mounted DOM suites ran nowhere.
+
+// `shadow-cljs <verb> <build-id> ...` is the only way a build id is executed.
+// Whole tokens, never a substring test: `browser-test` is a prefix of
+// `browser-test-freehand-bench`, so `includes()` would report the correctness
+// lane's script as the bench lane's executor too — the same prefix trap
+// `check_gate_scheduling.py`'s `_PROBE_TAIL` was added for.
+function buildIdsInvokedBy(body) {
+  const ids = new Set();
+  for (const m of body.matchAll(/shadow-cljs\s+(?:compile|release|watch)\s+([^&|;<>]*)/g)) {
+    for (const token of m[1].trim().split(/\s+/)) {
+      if (token && !token.startsWith('-')) ids.add(token);
+    }
+  }
+  return ids;
+}
+
+function executorsOf(scripts, buildId) {
+  return Object.keys(scripts)
+    .filter((name) => buildIdsInvokedBy(scripts[name]).has(buildId))
+    .sort();
+}
+
+// The families `check_gate_scheduling.py` asks the scheduling question about.
+function gatePrefixes() {
+  const src = fs.readFileSync(GATE_SCHEDULING, 'utf8');
+  const decl = src.match(/^GATE_PREFIXES\s*=\s*\(([^)]*)\)/m);
+  assert.ok(decl, 'scripts/check_gate_scheduling.py declares no GATE_PREFIXES tuple');
+  const prefixes = [...decl[1].matchAll(/"([^"]+)"/g)].map((m) => m[1]);
+  assert.ok(prefixes.length > 0, 'GATE_PREFIXES parsed as empty — the derivation is broken');
+  return prefixes;
+}
+
+// The scripts that checker excuses from needing a workflow home.
+function dispositionKeys() {
+  const src = fs.readFileSync(GATE_SCHEDULING, 'utf8');
+  const at = src.indexOf('DISPOSITIONS: dict[str, dict] = {');
+  assert.ok(at > -1, 'scripts/check_gate_scheduling.py declares no DISPOSITIONS dict');
+  const rest = src.slice(at);
+  const ends = rest.indexOf('\n}\n');
+  const body = ends > -1 ? rest.slice(0, ends) : rest;
+  return new Set([...body.matchAll(/^ {4}"([^"]+)":\s*\{/gm)].map((m) => m[1]));
+}
+
 // ---- the gate --------------------------------------------------------------
 
 test('the two browser DOM lanes partition every *_dom_cljs_test namespace (rf2-mf4uy)', () => {
@@ -189,6 +270,45 @@ test('the bench lane is exactly the Freehand bench DOM suites (rf2-mf4uy)', () =
     `the evidence lane picked up namespaces outside re-frame.freehand.bench.*, ` +
       `which means ordinary correctness suites left the PR gate:\n  ${stray.join('\n  ')}`,
   );
+});
+
+test('every browser DOM lane has an executor CI is held to running (rf2-j8os)', () => {
+  const text = fs.readFileSync(SHADOW_CLJS, 'utf8');
+  const scripts = JSON.parse(fs.readFileSync(PACKAGE_JSON, 'utf8')).scripts || {};
+  const prefixes = gatePrefixes();
+  const declared = dispositionKeys();
+  const namespaces = domTestNamespaces();
+
+  for (const buildKey of [CORRECTNESS_BUILD, BENCH_BUILD]) {
+    const buildId = buildKey.slice(1);            // `:browser-test` -> `browser-test`
+    const selector = selectorFor(text, buildKey);
+    const selected = namespaces.filter(({ ns }) => selector.test(ns)).map(({ ns }) => ns);
+    const carried = `it selects ${selected.length} DOM suite(s):\n  ${selected.join('\n  ')}`;
+
+    const executors = executorsOf(scripts, buildId);
+    assert.ok(
+      executors.length > 0,
+      `no script in implementation/package.json runs \`shadow-cljs compile|release|watch ` +
+        `${buildId}\`, so the ${buildKey} lane has nothing that executes it — and ${carried}`,
+    );
+
+    const asked = executors.filter((n) => prefixes.some((p) => n.startsWith(p)));
+    assert.ok(
+      asked.length > 0,
+      `the ${buildKey} lane is executed only by ${executors.join(', ')}, and no such name ` +
+        `starts with one of ${prefixes.join(' / ')} — so check_gate_scheduling.py never asks ` +
+        `whether a workflow runs it, and this lane can lose its CI home in silence. ` +
+        `Rename the script into a scanned family, or widen GATE_PREFIXES. Meanwhile ${carried}`,
+    );
+
+    const held = asked.filter((n) => !declared.has(n));
+    assert.ok(
+      held.length > 0,
+      `every executor of the ${buildKey} lane (${asked.join(', ')}) carries a DISPOSITIONS ` +
+        `entry in scripts/check_gate_scheduling.py, which excuses it from needing a workflow ` +
+        `home — so nothing now requires this lane to run anywhere in CI, and ${carried}`,
+    );
+  }
 });
 
 let failed = 0;
