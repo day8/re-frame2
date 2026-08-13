@@ -44,12 +44,15 @@ on:
 # as the always-present minimum so the aggregator never resolves to an
 # all-skipped phantom. The heavier core JVM (jvm-core) and CLJS node
 # integration (cljs) jobs are job-level gated on the changed-surface
-# classifier (rf2-f79t8): they skip on a spec/docs-only PR but run on
-# every code surface (core / adapters / per-feature artefacts / fixtures
-# / build config, and — for cljs — the tools/{story,xray} CLJS test
-# trees the consolidated :node-test build compiles). Expensive browser,
-# bundle, examples, Story/Xray, tool, template, MCP-live, and skill
-# structural jobs are likewise guarded. The workflow's pull_request
+# classifier (rf2-f79t8): they run on every code surface (core /
+# adapters / per-feature artefacts / fixtures / build config, and — for
+# cljs — the tools/{story,xray} CLJS test trees the consolidated
+# :node-test build compiles). A DOCS-ONLY PR IS NO LONGER A GUARANTEED
+# SKIP: since rf2-61ar the classifier also arms implementation_jvm for
+# prose that a test.yml suite pins — jvm-core's own comment names which
+# prose, and what escapes. Expensive browser, bundle, examples,
+# Story/Xray, tool, template, MCP-live, and skill structural jobs are
+# likewise guarded. The workflow's pull_request
 # trigger stays UNFILTERED so the `All required checks passed` aggregator
 # is always present (job-level gating, NOT a trigger path filter — a
 # path-filtered trigger would make the required aggregator absent on
@@ -1058,12 +1061,31 @@ jobs:
     # rf2-f79t8 — job-level gating (NOT a workflow-trigger path filter:
     # the pull_request trigger stays unfiltered so the
     # `All required checks passed` aggregator is always present). The
-    # JVM core suite skips on a spec/docs-only PR, where
-    # `implementation_jvm` is false; it runs on every code surface that
-    # touches core, the adapters, the per-feature artefacts, the
-    # conformance fixtures, or the build config (see
-    # report-changed-surfaces.sh). The aggregator treats a surface-skip
-    # as OK and the nightly full matrix is the safety net.
+    # JVM core suite runs on every code surface that touches core, the
+    # adapters, the per-feature artefacts, the conformance fixtures, or
+    # the build config.
+    #
+    # A DOCS-ONLY PR NO LONGER IMPLIES A SKIP (rf2-61ar). The classifier
+    # also arms `implementation_jvm` for prose that a test.yml suite
+    # pins — nearly all of `spec/*` (57 of the 60 tracked `spec/**.md`,
+    # via a catch-all), the `docs/core/freehand/*.md` and
+    # `docs/machines/*.md` trees, and three named pages
+    # (`docs/api/re-frame.adapter.uix.md`, `docs/api/re-frame.ssr.md`,
+    # `docs/design/hicasso/product/async-routing-recipes.md`).
+    #
+    # NEARLY all of `spec/*`, not wholesale, and the difference matters
+    # to anyone reasoning from this comment: `spec/API.md` is caught
+    # FIRST by an earlier arm that sets `cljs_node_test` only, and
+    # `spec/conformance/freehand/{README,donor-inventory}.md` are a
+    # measured exclusion held deliberately ahead of the catch-all. The
+    # rest of `docs/` still arms nothing.
+    #
+    # The classifier is the roster and it moves, so measure the path
+    # rather than trust this paragraph:
+    #   .github/scripts/report-changed-surfaces.sh <path>
+    #
+    # The aggregator treats a surface-skip as OK and the nightly full
+    # matrix is the safety net.
     needs: detect_changed_surfaces
     if: needs.detect_changed_surfaces.outputs.implementation_jvm == 'true'
     runs-on: ubuntu-latest
