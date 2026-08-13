@@ -312,12 +312,48 @@
   wins, otherwise the hook value flows through the SHARED sentinel / coercion /
   corruption rules (`adapter-context/context-value->current-frame`) — identical
   to the reader's classification, since on the client `useContext` observes the
-  same value `_currentValue` holds."
+  same value `_currentValue` holds.
+
+  THE AMBIENT-FRAME-REFUSAL TIER IS DELIBERATELY NOT CONSULTED HERE (rf2-wxnc).
+  `frame/resolve-current-frame` withdraws its React-context tier while a
+  substrate has established a refusing extent (rf2-2rtt6.122), and rejects a
+  carried stamp naming some OTHER frame when that extent declared an
+  `:extent-frame` (rf2-nqj22). This two-tier read is not that reader, and the
+  asymmetry is intended rather than an oversight — for three reasons, each
+  sufficient on its own.
+
+  IT CANNOT BE INSIDE A REFUSING EXTENT. Per Spec 002 §The refusal tier, an
+  extent is exactly a substrate's own SYNCHRONOUS render call, and React
+  invokes a child fiber only AFTER the parent's render function has returned —
+  under `react-dom/server` as much as the client renderer, which is why
+  `frame/call-with-ambient-frame-refused` tracks no nesting. So the extent has
+  unwound before React invokes a compiled view, and with it this LEADING hook.
+  A ViewCell mounted anywhere below a refusing body never observes a non-nil
+  `frame/*ambient-frame-refusal*`.
+
+  AND IT MUST NOT BE GATED ON ONE. The question this hook answers is WHICH
+  FRAME THIS COMPONENT IS IN — the same question a substrate answers BEFORE it
+  refuses anything, and whose answer it hands core as `:extent-frame`. The
+  refusing substrate resolves it the same way: `re-frame.hicasso.impl.collector/`
+  `resolve-frame!` reads this very context directly and records that it is
+  deliberately NOT the dynamic-var → context chain. Gating a boundary's own
+  frame on the tier that exists to refuse ambient AUTHOR reads would have a
+  substrate refuse itself. The refusal deletes an ambient FIND written in a
+  body; it was never addressed to the boundary doing the finding — the ambient
+  `(sub …)` sites that ARE addressed by it reach it through
+  `frame/require-current-frame!` as they do under every other substrate.
+
+  NOR IS THE SHARED READER AVAILABLE AS THE ROUTE. `resolve-current-frame`'s
+  React-context tier is `adapter-context/function-component-current-frame` —
+  the private `_currentValue` read rf2-2rzx0 moved this hook OFF, precisely
+  because `react-dom/server` does not populate that slot."
   []
   (let [ctx-frame (react/useContext adapter-context/frame-context)]
     ;; Dynamic binding before React context (the carried-invariant precedence);
     ;; the single `useContext` call above owns the repaint SUBSCRIPTION and now
-    ;; also supplies the renderer-agnostic frame value.
+    ;; also supplies the renderer-agnostic frame value. NOT routed through
+    ;; `frame/resolve-current-frame`, so the refusal tier does not gate it —
+    ;; see the docstring's last three paragraphs (rf2-wxnc).
     (or frame/*current-frame*
         (adapter-context/context-value->current-frame ctx-frame))))
 
