@@ -1,6 +1,7 @@
 (ns re-frame.recipes.async-nav-doc-test
   "The one witness that reads the PROSE beside this application, and the
-  only reason it exists is that its class of defect is SILENT.
+  only reason it exists is that a code block is the one part of a page a
+  reader actually runs, and it was the one part under no gate at all.
 
   ## What went wrong, and why prose could not notice
 
@@ -12,14 +13,37 @@
   Optimistic arms run BEFORE the request lowers, so a target that could
   write the cache under a wrong identity is rejected outright rather
   than dropped-and-warned, and it takes the request with it: a reader
-  who copied the published recipe got no instance, no request, no error
-  and `:idle` afterwards — a no-op with nothing to read.
+  who copied the published recipe got no instance, no request, and
+  `:idle` afterwards.
+
+  ## What the runtime does about it — corrected
+
+  An earlier telling here called that refusal SILENT. It is not, and
+  rf2-e4y9 measured the difference. `validate-target-key!` throws the
+  catalogued `:rf.error/mutation-invalid-target` under the strict
+  pre-write policy, carrying `:recovery :fix-mutation-target`, the
+  offending `:arm`, and the target the caller actually typed; the router
+  captures it and fans it on the always-on `:errors` axis as
+  `:rf.error/handler-exception`, legible in a dev build AND in a
+  production one. The row that pins this is
+  `vector-shaped-optimistic-target-refuses-readably` in
+  `re-frame.resources-optimistic-validation-cljs-test`. The absent
+  instance and the `:idle` read are the RULED answer rather than a hole,
+  for rf2-06lp's reason one registrar up: an instance minted and left
+  `:pending` with no request behind it would report itself in flight
+  forever.
+
+  What no channel carries is a CONSOLE byte. re-frame2 ships no default
+  console sink and the router captures the throw rather than re-throwing
+  it to `dispatch-sync`'s caller, so a reader with no `:errors` listener
+  attached still meets a bare no-op. That residual is framework-wide —
+  it swallows an unregistered event id on the same terms — and it is
+  exactly rf2-fu75's; this gate neither touches it nor needs it fixed to
+  be worth having.
 
   Both suites beside this one were green throughout, and correctly so:
   they exercise the APPLICATION, which was right. Nothing anywhere
-  exercised the SNIPPET, which was wrong. A code block is the one part
-  of a page a reader actually runs, and it was the one part under no
-  gate at all.
+  exercised the SNIPPET, which was wrong.
 
   ## The rule
 
@@ -81,7 +105,9 @@
   false green. Nothing here evaluates a line of the page or of the
   application; this namespace reads text and compares data.
 
-  Filed under rf2-hic-054, from the merged-PR audit of #8045."
+  Filed under rf2-hic-054, from the merged-PR audit of #8045; its
+  narrative corrected under the same bead from the audit of #8056, after
+  rf2-e4y9 refuted the silence."
   (:require [clojure.java.io :as io]
             [clojure.set :as set]
             [clojure.string :as str]
@@ -242,7 +268,11 @@
                            " is not a " (pr-str (vec (sort required-target-keys)))
                            " map. An optimistic target is an identity, and a wrong-identity"
                            " target is refused BEFORE the request lowers, so this spelling"
-                           " deletes the whole mutation silently")
+                           " deletes the whole mutation: no instance, no request, :idle"
+                           " afterwards. The runtime says why —"
+                           " :rf.error/mutation-invalid-target on the always-on :errors"
+                           " axis — but only to a listener, never to a console (rf2-fu75),"
+                           " so a reader who copies this meets a bare no-op")
     :not-a-literal-fn (str "UNREADABLE PLAN — " (pr-str form)
                            " is not a literal `(fn …)`; this witness reads the literal shape")
     :not-a-literal-map (str "UNREADABLE PLAN — the plan's last form is " (pr-str form)

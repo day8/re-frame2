@@ -307,8 +307,11 @@
   captured and the resources artefact clears the mutation kind outright,
   so a load-time registration is not guaranteed to still be there when a
   row runs — and `[:rf.mutation/execute {:mutation <unregistered> …}]`
-  mints no instance, issues no request and reports NOTHING (rf2-06lp).
-  A witness standing on that luck reads `:idle` and calls it a pass."
+  mints no instance and issues no request (rf2-06lp). It DOES refuse
+  loudly, with `:rf.error/mutation-not-registered` naming the id, but
+  only onto the always-on `:errors` axis: no listener, no console byte
+  (rf2-fu75). A witness standing on that luck therefore reads `:idle`
+  and calls it a pass."
   []
   (rf/reg-resource articles-resource
     {:params-schema [:map]
