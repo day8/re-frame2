@@ -288,15 +288,22 @@ instances `[:edit id]`/`[:status id]`/`[:create id]` (`linearlite/core.cljs:504-
 
 #### C.3 Known traps (verified)
 
-- **Slug-correlated replies were retrofitted twice** (y4mgw: PR #6569 reopen → #6628
-  fix): uncorrelated `:reply-to [:editor/article-loaded]` accepted ANY successful
-  article and re-slugged the editor. Correlation must be the paved path, not a lesson.
+- **Slug-correlated replies were retrofitted three times** (y4mgw: PR #6569 reopen →
+  #6628 fix; then rf2-czvc's second pass, for the HTTP twin): uncorrelated
+  `:reply-to [:editor/article-loaded]` accepted ANY successful article and re-slugged
+  the editor — and the managed-HTTP twin's `:on-success [:editor/loaded]` was still
+  doing exactly that after its leafwise seed landed. Correlation must be the paved
+  path, not a lesson.
 - **The same-slug typing clobber** went uncaught for two rounds of this exact bug
   (R-C1): the cross-slug regression settles B before anyone edits B, so it could
   never reach the same-slug half, and no other suite looked. It is fixed and
   covered now (rf2-czvc), but the *shape* is the trap worth keeping — a
   correlation guard reads like the whole answer to "late reply clobbers the
-  form", and it is only half of it.
+  form", and it is only half of it. **The converse bit too** (rf2-czvc, audit of
+  PR #8055): the leafwise merge reads as the whole answer in ITS turn, and it is
+  untouched-field logic — a reply for a different article finds every field
+  untouched relative to the slice it lands on and takes the lot. Two gates, two
+  questions: does this reply belong to this screen, and which fields may it write.
 - **Vacuous teardown assertions**: the browser fixture asserted `(is true)` instead of
   inspecting `:active-owners` (y4mgw) — the harness demands owner-state assertions on a
   real leave path.
