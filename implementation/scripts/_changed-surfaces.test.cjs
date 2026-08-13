@@ -5545,6 +5545,102 @@ test('the prose arms reach lanes that are still gated on implementation_jvm (rf2
   }
 });
 
+// rf2-w9ip — THE ROUTE-PATH CENSUS IS ARMED BY EVERY TREE IT READS.
+//
+// `implementation/routing/test/re_frame/routing_path_census_test.clj` is a JVM
+// suite that reads three app trees named in its own `app-roots`. It runs only
+// in `jvm-routing`, which only `implementation_jvm` gates — and before this
+// bead none of the three roots armed that output, so the census could not fire
+// on a single edit it exists to police.
+//
+// The roster is DERIVED from the census source rather than restated here. That
+// is the whole point: a second hand-maintained list would be a fresh instance
+// of the defect (rf2-6ng7's class — a gate's inputs and its arming in two
+// files with nothing holding them in step), and fixing one instance by minting
+// another is not a fix. Add a root over there and this reds until the
+// classifier catches up.
+
+const CENSUS_REL = 'implementation/routing/test/re_frame/routing_path_census_test.clj';
+
+/**
+ * The string literals of the census's `app-roots` vector, read out of its
+ * source.
+ *
+ * Scans forward from `(def app-roots` for the first `[` that is not inside a
+ * string or a line comment — the docstring in between is long, quotes
+ * namespaces and paths, and must not be mistaken for the vector.
+ */
+function censusAppRoots(source) {
+  const start = source.indexOf('(def app-roots');
+  assert.notEqual(start, -1, `${CENSUS_REL} must still define app-roots`);
+
+  let i = start;
+  let inString = false;
+  let inComment = false;
+  for (; i < source.length; i += 1) {
+    const ch = source[i];
+    if (inString) {
+      if (ch === '\\') i += 1;
+      else if (ch === '"') inString = false;
+      continue;
+    }
+    if (inComment) {
+      if (ch === '\n') inComment = false;
+      continue;
+    }
+    if (ch === '"') inString = true;
+    else if (ch === ';') inComment = true;
+    else if (ch === '[') break;
+  }
+  assert.ok(i < source.length, `${CENSUS_REL}: no app-roots vector found`);
+
+  const end = source.indexOf(']', i);
+  assert.notEqual(end, -1, `${CENSUS_REL}: unterminated app-roots vector`);
+
+  const roots = [...source.slice(i, end).matchAll(/"([^"\\]*)"/g)].map((m) => m[1]);
+  // Cannot pass vacuously: a parse that found nothing would assert every root
+  // in an empty list and report green.
+  assert.ok(
+    roots.length >= 3,
+    `${CENSUS_REL}: expected at least 3 app-roots, parsed ${roots.length} (${roots.join(', ')})`,
+  );
+  return roots;
+}
+
+test('every route-path census app-root arms implementation_jvm (rf2-w9ip)', () => {
+  const source = fs.readFileSync(path.join(REPO_ROOT, CENSUS_REL), 'utf8');
+
+  // The census reads `.cljs` / `.cljc` and nothing else, and the classifier's
+  // predicate mirrors that filter. Pin the filter itself: widening it there
+  // without widening the arm would re-open the hole in a shape no root list
+  // can show.
+  assert.ok(
+    source.includes('#"\\.clj[sc]$"'),
+    `${CENSUS_REL}: source-file filter changed — re-check is_route_path_census_input's extensions`,
+  );
+
+  for (const root of censusAppRoots(source)) {
+    for (const ext of ['cljs', 'cljc']) {
+      const probe = `${root}/rf2_w9ip_probe.${ext}`;
+      assert.equal(
+        classify(probe).implementation_jvm,
+        'true',
+        `${probe} must arm implementation_jvm: the route-path census reads ${root}, and jvm-routing is the only job that runs it`,
+      );
+    }
+  }
+});
+
+test('jvm-routing stays gated on implementation_jvm, or the census arm schedules nothing (rf2-w9ip)', () => {
+  // The third leg the arming tests above cannot supply: arming an output binds
+  // nothing unless the job running the suite is still gated on that output.
+  assert.match(
+    jobBlock(fs.readFileSync(WORKFLOW, 'utf8'), 'jvm-routing'),
+    /if: needs\.detect_changed_surfaces\.outputs\.implementation_jvm == 'true'/,
+    'jvm-routing must stay gated on implementation_jvm',
+  );
+});
+
 let failed = 0;
 for (const { name, fn } of tests) {
   try {

@@ -368,6 +368,72 @@ is_story_full_gate_path() {
   esac
 }
 
+# rf2-w9ip — predicate: is `$1` an INPUT to the in-bundle route-path census
+# (`implementation/routing/test/re_frame/routing_path_census_test.clj`)?
+# Returns 0 (yes) / 1 (no).
+#
+# THE FAIL-OPEN THIS CLOSES. The census is a JVM suite in the routing
+# artefact, so the only job that runs it is `jvm-routing`, gated on
+# `implementation_jvm`. Its inputs are the trees in its own `app-roots` —
+# `examples`, `testbeds` and `implementation/hicasso/test` — and NONE of the
+# three armed that output. Measured on main before this arm:
+#
+#   examples/reagent/todo/src/foo.cljs                      implementation_jvm=false
+#   testbeds/foo.cljs                                       implementation_jvm=false
+#   implementation/hicasso/test/.../examples/foo.cljs       implementation_jvm=false
+#
+# So the census could not fire on ANY edit it exists to police. A PR adding
+# or renaming a route path reached main with the collision check never run —
+# route paths are plain strings in the PROCESS-GLOBAL registrar and the
+# shared node bundle loads a dozen applications into one process, so the
+# first registration of a duplicate path wins every URL forever and the later
+# app is unreachable for URL ingress. That breakage lands in a suite which has
+# never heard of the new app, naming ITS routes; rf2-hic-025 cost twelve
+# RealWorld assertions exactly that way. PR #8131 added two routes and would
+# have been the same case — its worker ran the routing suite by hand and said
+# so, which is not a mechanism.
+#
+# WHY A PREDICATE AND NOT AN ARM OF THE BIG `case`, the same reason rf2-65ajl
+# gives above: a POSIX `case` takes the FIRST match, and all three roots
+# already have arms there (`examples/*`, `implementation/hicasso/*`), so an
+# arm would be shadowed. A predicate consulted for every file cannot be. It
+# only ever SETS `implementation_jvm`, so it can narrow nothing.
+#
+# WHY `implementation_jvm` AND NOT AN OUTPUT OF ITS OWN. An output of its own
+# would fire one job instead of twenty-two, which is the honest argument for
+# it — but `scripts/test-fast-pr.sh` gates the local JVM tier on
+# `implementation_jvm` too, so a second predicate would have to be taught to
+# the spine as well and then held in step with this one. That is the very
+# defect this bead reports (rf2-6ng7's class: a gate's inputs and its arming
+# in two files with nothing holding them together), and buying one instance
+# by manufacturing another is a bad trade. Reusing the existing output keeps
+# CI and the local spine aligned BY CONSTRUCTION, which is the property
+# TESTING.md's fast-spine section already claims.
+#
+# EXTENSIONS ARE THE CENSUS'S OWN. `source-files` filters `#"\.clj[sc]$"`, so
+# a README, a `.cjs` harness or an `.edn` fixture under these trees is not an
+# input and must not queue the JVM tier. Plain `.clj` is deliberately absent
+# here for the same reason it is absent there.
+#
+# HELD IN STEP: `implementation/scripts/_changed-surfaces.test.cjs` reads
+# `app-roots` out of the census source and asserts this predicate arms the
+# lane for every root it finds. Add a root there and the assertion reds here
+# until this list catches up — the roster is derived, not restated on trust.
+is_route_path_census_input() {
+  case "$1" in
+    examples/*|testbeds/*|implementation/hicasso/test/*)
+      case "$1" in
+        *.cljs|*.cljc)
+          return 0 ;;
+        *)
+          return 1 ;;
+      esac
+      ;;
+    *)
+      return 1 ;;
+  esac
+}
+
 if [ "$files" = "__ALL__" ]; then
   mark_all
 else
@@ -430,6 +496,14 @@ else
     # arms below, and is spelled out there.
     if is_story_full_gate_path "$file"; then
       story_full_gate=true
+    fi
+
+    # rf2-w9ip — same shape, same reason (see the predicate's own note): the
+    # route-path census reads three app trees that all have shadowing arms in
+    # the `case` below, and it runs in `jvm-routing`, which only
+    # `implementation_jvm` gates.
+    if is_route_path_census_input "$file"; then
+      implementation_jvm=true
     fi
 
     case "$file" in
