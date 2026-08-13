@@ -4391,6 +4391,65 @@ jobs:
       # download while turning the lock-wait into a re-runnable FAILURE
       # instead of an open-ended block. Mirrors the identical step-level cap
       # on the hermetic re-frame2-pair-mcp Playwright install.
+      #
+      # rf2-g3lv — DO NOT RAISE THIS NUMBER, and do not thin the apt hop to
+      # make it fit. This is the canonical note; the other two capped sites
+      # (tenant-switcher-testbed-smoke, mcp-conformance-re-frame2-pair) point
+      # here. Measured 2026-08-13, and every claim below is from a CI log or
+      # from `playwright-core` at the pinned version, not from taste:
+      #
+      #   * THE CAP IS NOT TIGHT. 183 samples of this step across 2026-08-10
+      #     to 2026-08-13 (every `Install Playwright*` step of the last ~46
+      #     completed test.yml runs): 183 successes, 0 failures, min 10s,
+      #     p50 13s, p90 21s, max 49s. The 300s cap is 6.1x the observed
+      #     worst case. Raising it re-widens the open-ended window the cap
+      #     exists to bound — the rf2-e6enf failure above, where four PRs
+      #     (#2304/#2311/#2316/#2324) each sat 15-75+ min on a wedged
+      #     apt/dpkg lock and blocked the merge queue. That trade is a
+      #     regression, not a fix.
+      #
+      #   * THE APT HOP IS ALREADY MINIMAL. On ubuntu-24.04 the hop reports
+      #     `0 upgraded, 9 newly installed, 0 to remove` — invariant across
+      #     image versions 20260720.247.2 and 20260810.271.1 and four
+      #     independent jobs. ZERO Chromium shared libraries are installed;
+      #     every one of the 21 entries in nativeDeps' `chromium:` list
+      #     reports "is already the newest version". The 9 are CJK/Thai/
+      #     Cyrillic fonts from the separate `tools:` list plus two
+      #     transitive xfonts packages. They cannot be dropped selectively:
+      #     `Registry.installDeps` does an unconditional `targets.add("tools")`
+      #     (registry/index.js) and `installDependenciesLinux` already passes
+      #     `--no-install-recommends` (registry/dependencies.js). The only
+      #     lever is dropping `--with-deps` wholesale, which trades a loud,
+      #     annotated apt failure for a silent dependency on a runner-image
+      #     property nobody here controls — a removed lib would surface as an
+      #     unlaunchable Chromium, which is strictly worse than a slow apt.
+      #
+      #   * SO THE ONE OBSERVED BLOW-OUT WAS THE MIRROR, NOT THIS WORKFLOW.
+      #     Job 93920468065 (2026-08-11) spent the whole 5 min inside apt and
+      #     never reached the browser download. Those same 21.1 MB of fonts
+      #     fetch in 1s at 17-23 MB/s on a healthy run (job 94306922190,
+      #     2026-08-13: "Fetched 21.1 MB in 1s (18.9 MB/s)"). In the failing
+      #     job they came down at a sustained ~52 kB/s — while `apt-get
+      #     update`'s own metadata had come off the SAME host seconds earlier
+      #     in the SAME step at 7831 kB/s, 150x faster. That is an
+      #     azure.archive.ubuntu.com edge degradation. No cap survives it:
+      #     21.1 MB at 52 kB/s needs ~405s of download alone.
+      #
+      #   * THE BROWSER CACHE IS ORTHOGONAL HERE. rf2-f79t8's cache step
+      #     above scored an exact-key hit in that very job ("Cache restored
+      #     from key: Linux-playwright-96be61e0…") and the step blew the cap
+      #     anyway. A hit skips the DOWNLOAD; this failure is in the apt hop,
+      #     which runs either way.
+      #
+      # One real gap stays open and is deliberately not patched here: a step
+      # the runner guillotines on `timeout-minutes` is killed rather than
+      # failing, so the `|| playwright-install-failed.sh` handler never runs
+      # and this mode prints no "no gate ran" annotation. Moving the cap into
+      # the command (`timeout 270 npx playwright install …`) would fix that,
+      # but it breaks `scripts/check_fast_pr_gap.py`'s `^npx playwright
+      # install\b` setup pattern and would fail-open the gap map — see the
+      # header of .github/scripts/playwright-install-failed.sh. At 0 failures
+      # in 183 samples that trade is not worth taking.
       - name: Install Playwright (Chromium + system deps)
         timeout-minutes: 5
         run: npx playwright install --with-deps chromium || "$GITHUB_WORKSPACE/.github/scripts/playwright-install-failed.sh"
@@ -4460,6 +4519,16 @@ jobs:
       # job for the dpkg/apt-lock-wedge rationale). A healthy install is
       # ~20s; 5 min covers a slow apt + cold download while turning a lock
       # wait into a re-runnable FAILURE instead of an open-ended block.
+      #
+      # rf2-g3lv — DO NOT RAISE THIS NUMBER. This is the job whose 2026-08-11
+      # run (93920468065) burned the whole 5 min inside the apt hop without
+      # reaching the browser download. That was an azure.archive.ubuntu.com
+      # throughput collapse (~52 kB/s against 17-23 MB/s on a healthy run),
+      # not a cap that is too tight: 183 samples of this step over four days
+      # gave 183 successes with a 49s worst case. The measurement, the
+      # at-source reason the apt hop cannot be thinned, and why the browser
+      # cache does not help this path are all set out at the
+      # cljs-reagent-slim-bundle-isolation site above.
       - name: Install Playwright (Chromium + system deps)
         timeout-minutes: 5
         run: npx playwright install --with-deps chromium || "$GITHUB_WORKSPACE/.github/scripts/playwright-install-failed.sh"
@@ -5525,6 +5594,15 @@ jobs:
       # ~20s; 5 min covers a slow apt + cold (cache-miss) download while
       # turning the lock-wait into a re-runnable FAILURE instead of an
       # open-ended block.
+      #
+      # rf2-g3lv — DO NOT RAISE THIS NUMBER. Measured over 2026-08-10 to
+      # 2026-08-13, this step is 183-for-183 with a 49s worst case against a
+      # 300s cap, and the one recorded blow-out (job 93920468065) was an
+      # azure.archive.ubuntu.com throughput collapse that no cap survives.
+      # The apt hop cannot be thinned either — it installs zero Chromium
+      # libraries and only Playwright's unconditional `tools:` fonts. Full
+      # measurement and the at-source citations are at the
+      # cljs-reagent-slim-bundle-isolation site above.
       - name: Install Playwright chromium (for hermetic browser preload)
         working-directory: implementation
         timeout-minutes: 5
