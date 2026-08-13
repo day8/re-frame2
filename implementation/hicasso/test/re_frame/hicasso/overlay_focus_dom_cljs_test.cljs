@@ -27,6 +27,7 @@
   | a REAL Tab and a REAL Shift+Tab cycle inside the trap, and a REAL Escape lets the page back out | [[a-real-tab-cycles-within-the-modal-and-a-real-escape-gives-the-page-back]] |
   | the wrap fires at the SEQUENTIAL edge, over a panel whose sequential order is shorter than its markup | [[a-real-tab-wraps-at-the-radio-groups-edge-and-not-at-the-dom-s]] |
   | …and over one whose sequential order is a permutation of it | [[a-real-tab-wraps-at-the-tabindex-ordered-edge]] |
+  | …and over one whose LAST element is not a stop at all | [[a-real-tab-wraps-past-a-trailing-hidden-control]] |
 
   The middle claim is an emptiness claim about everything outside a
   dialog, and an emptiness claim is exactly the shape that passes
@@ -96,6 +97,17 @@
   population, one panel per way the two lists can differ. What
   `impl.overlay/sequential-tab-stops` does and does not model is stated
   on that function; these rows measure the part it claims.
+
+  [[a-real-tab-wraps-past-a-trailing-hidden-control]] is the third way,
+  and it is about the boundary itself rather than the model inside it.
+  Those two rows differ from the DOM in ORDER; this panel differs in
+  LENGTH, and only at the end — a `visibility:hidden` final button,
+  which reports a client rect and refuses focus. #8071's audit had
+  argued a candidate like that costs only a wrap that does not fire.
+  That is true and, at the LAST position, not free: the surplus becomes
+  the edge, so the handler declines and `<body>` gets the focus. The row
+  exists because *refuses focus* was measured and *costs nothing* was
+  inferred.
 
   `overlay-dom-cljs-test` holds the synthetic-versus-trusted comparison
   for Escape itself; this file does not re-litigate it.
@@ -200,6 +212,29 @@
     [:button#second {:type "button" :tab-index 2} "Second"]
     [:button#first {:type "button" :tab-index 1} "First"]
     [:button#third {:type "button"} "Third"]]
+   [:button#after {:type "button"} "After"]])
+
+(h/defview a-page-with-a-modal-whose-last-control-is-hidden [_]
+  ;; A TRAILING `visibility:hidden` CONTROL, which is ordinary modal
+  ;; markup — a final button hidden by a condition rather than removed.
+  ;; Document order is [reason ok cancel ghost]; sequential order is
+  ;; [reason ok cancel], because `ghost` takes no focus.
+  ;;
+  ;; `ghost` is LAST on purpose, and that position is the whole row.
+  ;; A surplus candidate anywhere else is free — the handler never looks
+  ;; at it. At the END it is what `peek` returns, so it becomes both the
+  ;; edge the forward wrap tries to MATCH and the control the backward
+  ;; wrap tries to LAND on, and it can be neither.
+  [:div
+   [:button#before {:type "button"} "Before"]
+   [:button#trigger {:type "button" :on-click [::opened]} "Open"]
+   [overlay/modal {:open?      (h/sub [::open?])
+                   :on-dismiss [::dismissed]
+                   :label      "Confirm"}
+    [:input#reason {:type "text" :aria-label "Reason"}]
+    [:button#ok {:type "button"} "OK"]
+    [:button#cancel {:type "button"} "Cancel"]
+    [:button#ghost {:type "button" :style {:visibility "hidden"}} "Ghost"]]
    [:button#after {:type "button"} "After"]])
 
 ;; `:async? true` — the MAP shape — because the trusted-input row below
@@ -622,6 +657,94 @@
                   (finally (finish)))))
             (catch :default e
               (is false (str "the tabindex trap row threw: " (.-message e)))
+              (finish))))))))
+
+;; ---------------------------------------------------------------------------
+;; The trap over a panel whose LAST element is not a stop
+;; ---------------------------------------------------------------------------
+;;
+;; THE THIRD WAY THE TWO LISTS DIFFER, and the one that took a second
+;; bead to see. The two rows above are about a candidate set in the
+;; wrong ORDER. This one is about a candidate set of the wrong LENGTH at
+;; the one end where length is load-bearing.
+;;
+;; `sequential-tab-stops` still counts candidates the engine skips, and
+;; #8071's audit reasoned that was affordable: they refuse `.focus()`,
+;; and `wrap-tab!` confirms the landing before taking the default action
+;; away, so a surplus candidate costs a wrap that DOES NOT FIRE rather
+;; than one that fires at the wrong place. That argument is sound and
+;; still holds — but *refuses focus* and *costs nothing* are different
+;; claims, and only the first of them was measured.
+;;
+;; A missed wrap is not free at the LAST candidate. There the surplus is
+;; what `peek` returns, so Tab off the real final control matches no
+;; edge at all, the handler declines, and the engine's own end-of-scope
+;; step puts `document.activeElement` on `<body>` — the exact leak this
+;; handler was written to close, reached by a fourth route. rf2-5lzq
+;; measured it on the one of those four cases that is ordinary markup: a
+;; conditionally-hidden final button.
+;;
+;; The row names `body` explicitly for the reason the two above do.
+
+(deftest a-real-tab-wraps-past-a-trailing-hidden-control
+  (if-not (browser?)
+    (skip! ":node-test has no modality, and no engine to press a key at")
+    (if-not (trusted/bridge?)
+      (trusted/unwitnessed! "the trap over a panel whose last element is hidden")
+      (async done
+        (let [m      (hm/mount! [a-page-with-a-modal-whose-last-control-is-hidden {}])
+              finish (fn [] (hm/unmount! m) (done))]
+          (try
+            (open! m)
+            (is (.contains ($ m "dialog") (active))
+                "premise: opening put focus inside the panel")
+
+            ;; THE TWO PREMISES THAT MAKE THIS PANEL THE CASE IT IS, and
+            ;; they pull in opposite directions — which is precisely why
+            ;; a rects-based reading counted `ghost` and a keyboard
+            ;; never reaches it.
+            (is (pos? (.-length (.getClientRects ($ m "#ghost"))))
+                "premise: `visibility:hidden` still occupies layout, so
+                 the hidden button DOES report a client rect — this is
+                 not `display:none`, and a predicate reading rects has
+                 no way to tell it from a real control")
+            (is (false? (focusable? ($ m "#ghost")))
+                "premise: and the engine refuses focus on it anyway, so
+                 it is an element of the panel and not a stop of it")
+
+            (both-edges!
+              m "#reason" 5
+              (fn [forward backward]
+                (try
+                  (is (= ["ok" "cancel" "reason" "ok" "cancel"] forward)
+                      (str "THE CYCLE, FORWARD, OVER A PANEL WHOSE LAST "
+                           "ELEMENT IS NOT ITS LAST STOP. `cancel` is the "
+                           "final stop, so Tab off it must land on "
+                           "`reason`. Against a predicate that counted "
+                           "`ghost`, the panel's edge was an element the "
+                           "press could never arrive at: the handler "
+                           "matched nothing, let the default action stand, "
+                           "and the third landing was `body`. Pressed: "
+                           (pr-str forward)))
+                  (is (= ["cancel" "ok" "reason" "cancel" "ok"] backward)
+                      (str "THE CYCLE, BACKWARD, and it fails the other "
+                           "way for the same reason. Shift+Tab off "
+                           "`reason` must land on `cancel`; with `ghost` "
+                           "counted, the wrap AIMED at `ghost`, `.focus()` "
+                           "declined, `preventDefault` was correctly "
+                           "withheld — and withholding it is what let the "
+                           "engine put focus on `body`. Pressed: "
+                           (pr-str backward)))
+                  (is (empty? (filter #{"before" "trigger" "after" "body" "ghost"}
+                                      (concat forward backward)))
+                      (str "and not one landing in either lap was a control "
+                           "of the page behind, the nowhere between them, or "
+                           "the hidden button itself. Pressed: "
+                           (pr-str (concat forward backward))))
+                  (finally (finish)))))
+            (catch :default e
+              (is false (str "the hidden-trailing-control row threw: "
+                             (.-message e)))
               (finish))))))))
 
 ;; ---------------------------------------------------------------------------
