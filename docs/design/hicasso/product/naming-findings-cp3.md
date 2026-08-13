@@ -1,0 +1,43 @@
+# Naming findings — Checkpoint 3 fragment
+
+Every naming question Checkpoint 3 (`rf2-hic-038`) met, written here rather than into
+[`naming-ledger.md`](naming-ledger.md) so that concurrent checkpoints cannot collide in one table.
+**`rf2-hic-065` consolidates fragments into the ledger and publishes the packet**; nothing here is
+applied, and prototype spellings stay in use everywhere until that sitting.
+
+Read with [`checkpoint-3-native.md`](checkpoint-3-native.md), which is the evidence this page reads,
+and with [`naming-findings-cp2.md`](naming-findings-cp2.md), the sibling fragment. Checkpoint 3
+freezes no name — and, unlike Checkpoint 2, it freezes no law either, because the Phase 3 exit its
+freeze is conditioned on is not met.
+
+## The headline, and it is an absence
+
+The native tier's **taught** names all have ledger rows already — `n/$` (row 7), `n/props` (row 8),
+`n/defcomponent` (row 9), `n/use-sub`/`n/use-frame` (row 10), `n/memo`/`n/lazy` (row 29), and the
+`:server` policy option (row 21, applied). Every one reads *keep*. Checkpoint 3 met no evidence
+against any of them and proposes no change to any.
+
+What it did meet is the **other half of the namespace**, which no row covers at all.
+
+## Questions
+
+| # | Surface | Question | Checkpoint 3's recommendation |
+|---|---|---|---|
+| C3-1 | the unrostered public vars of `re-frame.hicasso.native` | Seven vars are public in the namespace and appear in no ledger row: `n/component`, `n/marker`, `n/prop-slots`, `n/props*`, `n/el`, `n/check-child!`, `n/declared-server` (`native.cljc:194, 242, 299, 316, 357, 470, 512`). They are not uniform in kind. `n/component` and `n/marker` are reached by name from the tier's own witnesses — `native_abi_dom_cljs_test.cljs` mints `(n/component "app/hot-cell" :client-only island-body)` directly, and `n/marker` is the seam every ABI helper and both embedding directions read. `n/el` says of itself "reached from an `$` expansion". `n/prop-slots` is asserted **as a public equality** against the macro's own emission (`native_grammar_cljs_test.cljs`, *the-macro-and-the-runtime-share-one-rule-rather-than-two-copies*). So the set spans doors, seams and expansion targets with nothing marking which is which. | **Classify before the packet, do not rename here.** The question this fragment puts to the sitting is not *what should these be called* but *which of them are surface at all* — and that is prior to naming, because [`specification.md` §12](specification.md#12-action-programme) has Phase 3 freeze "the grammar and ABI", and a freeze cannot be deterministic over a surface whose membership is unstated. The repository already applies this rule elsewhere: a facade export is classified and justified when it lands. Recommended disposition: `n/component` and `n/marker` are **surface** (a witness reaches them and the ABI helpers are defined in terms of `marker`); `n/el`, `n/check-child!`, `n/props*` and `n/prop-slots` are **expansion targets and seams**, public only because a macro expansion must be able to name them, and belong behind the same `impl` convention the rest of the package uses. Filed as `rf2-hic-038`'s quality row rather than actioned, because a checkpoint that edited the surface it audits could not certify it. |
+| C3-2 | `n/declared-server` | Public, and it is the validator behind `n/defcomponent`'s `:server` option — the option row 21 already **applied** (`:server`, not `:ssr`). Row 21 settled the *option key*; nothing settled the *validator's own name*, which reads as a predicate ("declared server?") but is a parser returning the declared policy. | **Rename is premature; the classification in C3-1 probably dissolves it.** If it lands behind `impl` it needs no ledger row. If the sitting rules it surface, `declared-policy` states what it returns where `declared-server` states what it was asked. Recorded so the sweep does not read C3-1's disposition as covering the spelling too. |
+
+## Recorded, and not a naming question
+
+- **No native name changed under Checkpoint 3, and none should.** Rows 7–10 and 29 all read *keep*
+  and this checkpoint produces no evidence against them. That is worth stating positively: the
+  native tier is the one surface where the prototype spellings were ratified against a real
+  three-route corpus (`three_way_parity_cljs_test.cljs` writes nine subjects three ways), and the
+  names survived it without a single authoring complaint recorded in the tier's own witnesses.
+- **`n/$`'s grammar is not a naming question and is not offered as one.** Checkpoint 3 files
+  correctness and coverage findings against the grammar row's *evidence* — the missing
+  macro-expansion fixtures and the unwitnessed source-located refusal — and none of them is about
+  a spelling. `rf2-hic-065` should read them in [`correction-ledger.md`](correction-ledger.md),
+  not here.
+- **The `:server` value vocabulary (`:render` / `:client-only`) is settled and this checkpoint
+  re-met it without friction.** Row 21 records it applied; the native tier's SSR witness
+  (`native_ssr_dom_cljs_test.cljs`) drives both values through real server bytes. No question.
