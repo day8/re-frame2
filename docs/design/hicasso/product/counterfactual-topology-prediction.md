@@ -236,7 +236,7 @@ Worth stating because it is the artefact's only real asset, and because it was n
 
 | obligation | who carried it | held |
 |---|---|---|
-| predictions written before outcomes existed | phase 1, commit `de4b1bef3ea202ca97f5989424b14bc998f15794` | yes — `rf2-hic-036` had not run |
+| predictions written before outcomes existed | phase 1, authored at `de4b1bef3ea202ca97f5989424b14bc998f15794` and landed on `main` as `62761dccf2623a6bac50ffff56b170b11261343e` | yes — `rf2-hic-036` had not run |
 | tournament does not grade its own predictor | [tournament §1.7](topology-tournament.md#17-what-this-page-will-not-do), restated at [§2.8](topology-tournament.md#28-what-was-not-concluded) | yes — it hands over outcomes and declines to score |
 | phase 2 does not amend predictions or rule | this section | yes — appended only |
 | phase 2 held by a different worker | dispatch | yes |
