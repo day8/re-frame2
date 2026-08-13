@@ -353,7 +353,7 @@ budgets belong to [Performance](19-performance.md).
 
 ## Migration shadow tests
 
-`ht/shadow!` is a development-only migration harness. It drives a Hicasso view
+`hm/shadow!` is a development-only migration harness. It drives a Hicasso view
 and its Reagent original with one script, then compares canonical DOM and
 intent streams at each checkpoint. Its full use belongs to
 [Migrating from Reagent](20-migration-from-reagent.md).

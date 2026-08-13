@@ -8,8 +8,9 @@ it still uses re-frame v1 shapes, complete that migration first.
 
 Use three migration tools in this order:
 
-1. **Reporter** — classify every foreign React crossing and identify mechanical
-   rewrites, human decisions, and runtime blockers.
+1. **Reporter** — classify every foreign React crossing, and census every
+   Reagent API call site, as mechanical rewrites, human decisions, and runtime
+   blockers.
 2. **Shadow comparison** — run the Reagent original and Hicasso port side by
    side and compare canonical DOM and intent streams.
 3. **Codemod** — apply only source transformations whose behaviour is
@@ -62,6 +63,44 @@ example, declaring a render prop as `:event` can replace its return value with
 a dispatch path and blank the UI without a useful runtime error. Confirm every
 contract against the component library's documentation.
 
+### The report's second half: the census
+
+Everything above describes the **fixer**, and its population — the `[:>]`
+family — is not what a Reagent codebase is mostly made of. Run over this
+repository's own 81-file example corpus the fixer reports **zero entries**,
+because the corpus crosses into React nowhere. A migrator reading only that
+sees 81 files the report never mentions.
+
+So the same run also emits a **census**, under `:census`, whose population is
+the Reagent API **call site**: `r/atom`, `r/with-let`, `r/create-class`,
+`r/as-element`, `r/cursor`, `r/reactify-component`, root mounting, and the rest
+of the roster. On that same corpus it reports **62 sites across 28 files**.
+
+| Half | Population | Addressed at | Verdicts |
+| --- | --- | --- | --- |
+| fixer (`:entries`) | `[:>]`-family crossing sites | the site | rewrote, or refused in the classes above |
+| census (`:census`) | Reagent API call sites | the call | `:mechanical`, `:human-decision`, `:runtime-blocker` |
+
+The two halves measure different things and neither is a denominator for the
+other. Every census class is a shape §2's translation table already teaches:
+
+| Verdict | Named classes | Meaning |
+| --- | --- | --- |
+| Human decision | `:with-let`, `:outward-bridge`, `:adapt-react-class`, `:react-create-element`, `:props-helper`, `:reagent-partial`, `:render-control`, `:root-mount` | A Hicasso translation exists, but which one depends on intent the source does not carry |
+| Runtime blocker | `:local-reactive-cell`, `:derived-cell`, `:lifecycle-class`, `:as-element`, `:component-introspection` | Hicasso has no equivalent tier, so the site raises or silently misrenders until someone chooses the shape |
+| Mechanical | none | The bucket is always emitted, at `:mechanical 0`. Every mechanical rewrite this tool family knows is a W-rule and every W-rule sits at a crossing, so the zero is a measurement rather than an omission |
+
+Two further classes report a resolution failure rather than a translation, both
+as runtime blockers. A namespace that spells a Reagent name without being
+Reagent's — a vendored inlined copy, for instance — is
+`:unresolved-reagent-require` at the `ns` form, and every roster-named call in
+that file is `:unresolved-alias`. The tool does not guess that such a copy is
+`reagent.core`, because a wrong binding rewrites working code.
+
+What it cannot name it does not count, and says so. A Form-2 component is a
+`defn` returning a `fn` with nothing else marking it, so the census counts the
+`r/atom` that component closes over and reports nothing about the shape itself.
+
 ## 2. Port one screen by hand
 
 Migrate a complete screen rather than changing all component declarations,
@@ -97,17 +136,17 @@ Two common mistakes fail loudly:
 
 ## 3. Prove the port with shadow comparison
 
-`ht/shadow!` mounts the original and candidate against isolated copies of the
+`hm/shadow!` mounts the original and candidate against isolated copies of the
 same seeded frame. One interaction script drives both implementations. At
 each checkpoint it compares canonical DOM and the intent stream.
 
 ```clojure
 (ns app.migration.article-row-shadow
-  (:require [re-frame.hicasso.test :as ht]
+  (:require [re-frame.hicasso.test.mounted :as hm]
             [app.views.article-row-reagent :as old]
             [app.views.article-row :as new]))
 
-(ht/shadow!
+(hm/shadow!
  {:reference      [old/article-row {:article-id 7}]
   :candidate      [new/article-row {:article-id 7}]
   :initial-events [[:demo/install-fixture]]
