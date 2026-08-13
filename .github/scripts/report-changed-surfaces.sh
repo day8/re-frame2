@@ -434,6 +434,59 @@ is_route_path_census_input() {
   esac
 }
 
+# rf2-6ng7 — THE re-frame.ui SHADOW CONFIGURATION CONTRACT'S FOUR HOLDERS.
+#
+# `implementation/ui/test/re_frame/ui/shadow_config_contract_jvm_test.clj`
+# contains, by design, NO literal expected value: the expected value IS the
+# repository's real configuration, read at run time from four holders and
+# compared as data. It runs in `jvm-ui`, which only `implementation_jvm`
+# gates — and measured on main before this bead, not one of the four armed
+# that output:
+#
+#   implementation/shadow-cljs.edn                    implementation_jvm=false
+#   implementation/package.json                       implementation_jvm=false
+#   examples/ui/minimal-counter/deps.edn              implementation_jvm=false
+#   skills/re-frame2-setup/references/shadow-cljs.md  implementation_jvm=false
+#
+# So the suite whose entire subject is those four files could not fire on an
+# edit to any of them — the rf2-w9ip shape exactly, one artefact over. The
+# skill reference is the sharpest case: it exists to be a pin rather than a
+# copy free to drift, and drift there was invisible at PR time.
+#
+# `examples/*` does arm `implementation_jvm` already, via the route-path
+# census predicate above — but only for `.cljs`/`.cljc`, which are the
+# census's extensions. The scaffold holder is a `deps.edn`, so it falls
+# through that filter and needs this one.
+#
+# WHY A PREDICATE AND NOT AN ARM OF THE BIG `case` — the rf2-65ajl / rf2-w9ip
+# reason again. All four paths already have arms there
+# (`implementation/shadow-cljs.edn|implementation/package.json|…`,
+# `examples/*`, `skills/re-frame2-setup/*`), so an arm placed after them is
+# shadowed and an arm placed before them would silently narrow what they set.
+# A predicate consulted for every file can only ever SET `implementation_jvm`.
+#
+# WHY `implementation_jvm` and not an output of its own: unchanged from the
+# note above. A second output would have to be taught to
+# `scripts/test-fast-pr.sh` and then held in step with this file, which is a
+# fresh instance of the class rather than a repair of one.
+#
+# HELD IN STEP: `implementation/scripts/_changed-surfaces.test.cjs` reads the
+# `*-rel` holder paths out of the suite's own source and asserts this
+# predicate arms the lane for every one of them. Add a holder over there and
+# the assertion reds here until this list catches up.
+is_shadow_config_contract_holder() {
+  case "$1" in
+    implementation/shadow-cljs.edn|implementation/package.json)
+      return 0 ;;
+    examples/ui/minimal-counter/deps.edn)
+      return 0 ;;
+    skills/re-frame2-setup/references/shadow-cljs.md)
+      return 0 ;;
+    *)
+      return 1 ;;
+  esac
+}
+
 if [ "$files" = "__ALL__" ]; then
   mark_all
 else
@@ -503,6 +556,14 @@ else
     # the `case` below, and it runs in `jvm-routing`, which only
     # `implementation_jvm` gates.
     if is_route_path_census_input "$file"; then
+      implementation_jvm=true
+    fi
+
+    # rf2-6ng7 — same shape, same reason (see the predicate's own note): the
+    # re-frame.ui shadow-configuration contract compares four holders that all
+    # have shadowing arms in the `case` below, and it runs in `jvm-ui`, which
+    # only `implementation_jvm` gates.
+    if is_shadow_config_contract_holder "$file"; then
       implementation_jvm=true
     fi
 
@@ -2267,8 +2328,43 @@ else
         # below (rf2-k9ekz). All NON-spec-md changes (src/test .clj/.cljs,
         # deps.edn, README, EDN, …) still fire the probes conservatively.
         case "$file" in
-          tools/story/spec/*.md|tools/xray/spec/*.md)
-            : # spec doc only — no runtime/JVM/MCP/CLJS/template fan-out
+          # rf2-6ng7 — THE XRAY HALF OF THAT GUARD WAS FALSE. Its premise is
+          # that a spec-md change "cannot affect any JVM unit test"; two
+          # suites under `tools/xray/test/` refute it by reading the spec
+          # markdown as their expected value:
+          #
+          #   coverage_matrix_metadata_test.clj  slurps
+          #     tools/xray/spec/017-Test-Coverage-Matrix.md and
+          #     019-Cross-Cutting-Insight.md, reconciling the feature-matrix
+          #     scenario names against the spec's rows      → jvm-tools-xray
+          #   panel_enum_spec_refs.clj           slurps
+          #     tools/xray/spec/007-UX-IA.md and
+          #     008-Embedding-Contract.md at MACRO-EXPANSION time, emitting
+          #     the spec's `mount-<panel>!` set into
+          #     panel_enum_guard_cljs_test.cljs, which the consolidated
+          #     :node-test build compiles                   → cljs
+          #
+          # Both were armed by their CODE surface and by nothing on the spec
+          # side, so an Xray spec edit that renamed a matrix row or a panel
+          # left the reconciling suite unrun and the red landed on main for
+          # the next unrelated PR — the rf2-61ar incident shape.
+          #
+          # THE TREE, NOT THE FOUR NAMES, and deliberately: naming them here
+          # would be a second copy of a roster that already lives in the two
+          # suites, free to drift the moment a fifth spec file is read or
+          # content moves between files. `mcp_conformance` and
+          # `template_expensive` stay OFF — markdown cannot change an MCP wire
+          # surface or the generated app's compile, and no suite in either
+          # lane reads these files.
+          tools/xray/spec/*.md)
+            tools_jvm=true
+            cljs_node_test=true
+            ;;
+          tools/story/spec/*.md)
+            : # spec doc only — no runtime/JVM/MCP/CLJS/template fan-out.
+              # Story's spec markdown has no counterpart reader: the one
+              # consumer, api-manifest's story_spec_check, runs in lint.yml's
+              # api-manifest job, which `tools/*` already arms (rf2-6ng7).
             ;;
           *)
             tools_jvm=true
@@ -2503,6 +2599,27 @@ else
         # rf2-agi57x — the re-frame2-setup skill carries a structural drift
         # guard (tests/setup_drift_test.clj) gated under skills-structural.
         skills_structural=true
+        # rf2-6ng7 — the skill's REFERENCE snippets are compiled, not merely
+        # linted. `setup-skill-scaffold-compiles-test` in
+        # tools/template/test/day8/re_frame2_template/emitted_test_run_test.clj
+        # materialises a scaffold for each documented substrate SOLELY from
+        # the fenced blocks in this directory (first-counter.md /
+        # shared-dataflow.md + entry-namespace.md + shadow-cljs.md), then runs
+        # `clojure -M:shadow compile app` over it against the in-repo source.
+        # That suite runs in `jvm-tools-template`, which `template_expensive`
+        # gates — and this tree armed only `skills_structural`, so the one
+        # gate that compiles the skill's hand-written greenfield counter never
+        # fired on an edit to it. The structural guard cannot stand in: it
+        # checks shape, not that the snippets still compile.
+        #
+        # `references/` only. The skill's SKILL.md, its tests/ and its other
+        # trees are not materialised into the scaffold, and an expensive
+        # emitted-app compile has no business queueing for them.
+        case "$file" in
+          skills/re-frame2-setup/references/*)
+            template_expensive=true
+            ;;
+        esac
         ;;
       docs/tools/playground/*|docs/cljs/playground.js|docs/cljs/playground.css|scripts/playground-sci-input-digest.mjs)
         # rf2-ee38b.22 — the docs/cljs live-cell playground (CM6 + Scittle
