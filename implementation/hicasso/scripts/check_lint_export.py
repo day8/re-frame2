@@ -287,6 +287,23 @@ def self_test():
     each pinned by the mutation that would bring it back. No count is stated
     here on purpose — the list grows, and a number in prose does not.
     """
+    # AND A GATE NOBODY HAS TESTED IS ALSO WHAT THIS BECOMES UNDER `python -O`
+    # (rf2-uyhh) — or `PYTHONOPTIMIZE` in the environment, which needs no flag
+    # at the call site. Either strips every `assert` below, leaving a function
+    # that runs to its success line having verified nothing: a control failing
+    # GREEN, the one direction that never announces itself. The check is
+    # empirical rather than a reading of `__debug__`, so it also catches a
+    # `.pyc` compiled under `-O` and run without it.
+    try:
+        assert False
+    except AssertionError:
+        pass
+    else:
+        raise SystemExit(
+            "assertions are disabled (python -O / PYTHONOPTIMIZE), so this "
+            "self-test would prove nothing. Re-run without -O."
+        )
+
     with open(HOOK_FILE, encoding="utf-8") as fh:
         original = fh.read()
 
