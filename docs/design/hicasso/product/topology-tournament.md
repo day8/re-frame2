@@ -176,9 +176,10 @@ about the machine.**
 |---|---|
 | instrument | `implementation/freehand/test/re_frame/bench/hicasso/topo/census_dom_cljs_test.cljs` |
 | substrate | the bench's **arm-1** runtime, not `implementation/hicasso` |
-| witness | `npm run test:browser` (Chromium, real DOM), 1,500 tests / 9,482 assertions |
+| witness | `npm run test:browser` (Chromium, real DOM), 1,500 tests / 9,482 assertions, 0 failures / 0 errors |
+| clock control | `topo/control_app.cljs` via the lane's generic `run.cjs` — **run, and refused**; see §2.6 |
 | profile | P-DEV-1 |
-| box | `\System\Processor Queue Length` read **0.00** on every sample taken before, during and after |
+| box | `\System\Processor Queue Length` read **0.00** on every sample taken before, during and after both runs |
 
 **The substrate limitation is stated rather than buried.** Every figure below
 is an arm-1 figure and carries no `implementation/hicasso` generalisation. That
@@ -264,38 +265,101 @@ operation** — 20 rows on a bulk commit at every row count, 1 elsewhere. It is
 also the only arm whose figures are about a different page, and the two facts
 are the same fact.
 
-### 2.5 The budget verdict the deterministic half CAN reach
+### 2.5 U5, and an instrument gap in it that this tournament exposed
 
-One registered budget line is deterministic, and this census adjudicates it
-directly:
+One registered budget line is deterministic, so the census can speak to it:
 
 > **U5** — Narrow-update body work scales with changed rows, not all mounted
 > rows. ([budgets §4](budgets.md#the-6-user-visible-budgets), family:
-> **deterministic**)
+> **deterministic**, estimand **boundary bodies run**, pinned as D1–D4)
 
-| arm | U5 on sparse/edit | basis |
-|---|---|---|
-| `fine` | **meets** | 1 row built per 1 row changed, at every `B` |
-| `virtual` | **meets** | 1 row built per 1 row changed |
-| `chunked` | **meets, bounded by k** | 25 rows built, constant in `B` |
-| `coarse` | **BREACHES, at every row count** | `B` rows built for one changed row |
+**Read against its registered estimand, every arm passes — including the one
+that plainly should not.** A narrow update runs exactly one boundary body in
+all four arms:
 
-`coarse` cannot satisfy U5 at any row count, and no amount of tuning changes
-that: rebuilding the whole family from a single view-model **is** the arm. This
-is a verdict on a registered line, taken on the family of budget that needs no
-quiet box, and it is the tournament's firmest result.
+| arm | bodies on a narrow update | rows of markup built | U5 as registered |
+|---|---|---|---|
+| `fine` | 1 | 1 | passes |
+| `virtual` | 1 | 1 | passes |
+| `chunked` | 1 | 25 | passes |
+| `coarse` | 1 | **`B`** | **passes** |
+
+The coarse arm rebuilds a thousand rows for a one-row change and satisfies a
+budget whose English forbids exactly that, because the budget counts *bodies*
+and the arm does its thousand rows **inside one body**.
+
+**This is not a quibble; it is a hole with a known shape.** D3/D4 exist
+precisely to catch a coarse topology — *"coarse shape with closure props moves
+it to 26/101"* — and they catch it because that witness's coarse shape still
+holds per-cell boundaries. **A coarse shape that inlines its rows has no
+boundaries to count, so the same instrument reads 1 and reports a pass.** The
+tournament's coarse arm is that shape, and it is the ordinary spelling of a
+view-model arm rather than an exotic one.
+
+The honest verdict is therefore split, and neither half is allowed to stand in
+for the other:
+
+- **On U5 as registered: no breach, in any arm.** This page does not report one.
+- **On the property U5 is written to protect: `coarse` fails at every row
+  count**, on an exact integer counter, and untunably — rebuilding the family
+  from one view-model *is* the arm.
+
+Closing that gap is `rf2-hic-071`/`rf2-hic-089`'s, since they own turning these
+rows into gates, and it is filed rather than patched here.
 
 ### 2.6 The clock half — REFUSED, and on what
 
-**No clock cell is published, and the refusal is located in the source rather
-than in an opinion about the machine.**
+**No clock cell is published. The control was built, run on a verified-quiet
+box, and REFUSED — so the refusal is a measurement, not an opinion about the
+machine.**
 
-The instrument was built to its pre-registration —
-`topo/control_app.cljs` carries the changed-set doubling, and
-`topo/model.cljs`'s `:topo/bump-stride` is the write it needs. The refusal is
-not that it could not be built. It is that **the control is degenerate on two
-of the four arms, by construction**, and this was discovered from the census's
-own integers rather than from a run:
+#### The run
+
+`topo/control_app.cljs`, driven by the lane's generic `run.cjs`, Chromium
+147.0.7727.15 headless, `:advanced`, `goog.DEBUG false`, 24 threads / 32 GB.
+`\System\Processor Queue Length` read **0.00** on all five samples immediately
+before the run. Page structure was checked before the clock and matched its
+arithmetic exactly: **1,001 boundaries, 2,001 read edges, 5,001 elements.**
+`B = 1000`, `fine` arm, 20 commits under one clock, 12 samples × 5 rounds,
+arms interleaved in `slot-order`.
+
+| round | `d10` p50 (ms/20 commits) | `d5` p50 | ratio |
+|---|---|---|---|
+| 1 | 44.80 | 59.65 | 1.331 |
+| 2 | 44.35 | 61.50 | 1.387 |
+| 3 | 44.45 | 63.30 | 1.424 |
+| 4 | 44.50 | 65.45 | 1.471 |
+| 5 | 48.35 | 64.05 | 1.325 |
+
+**Verdict: `:ok? false` — REFUSED ON THE BAND.** Predicted 2.00, registered
+band [1.60, 2.50], measured 1.325–1.471. Exit code **1**, captured from the
+runner itself.
+
+#### Why this refusal is worth more than a green one would have been
+
+Everything that could have made it dismissible held. The **arm-order guard
+passed** — *"no arm reads differently for its position in the plan"*, both by
+predecessor and by phase, within 10%. The ranges are tight, the five rounds
+agree to within 0.15, and the sign is right in every round. **This is not
+noise; it is a strong, stable signal that is not 2.00.**
+
+So the model behind the prediction is wrong, and the census says where. The
+window contains three costs and only one of them doubles: the event handler
+`reduce-kv`s the whole thousand-row table at both strides, the subscription
+layer re-evaluates all 1,000 `[:topo/row i]` cells at both strides, and only
+the 100→200 rows of markup actually double. **A large constant term is shared
+between the arms, so the ratio is compressed toward 1** — which is precisely
+the failure `rf2-7iqb5` recorded for page-scaling controls, reappearing in the
+control built to replace them.
+
+**The band is not widened to 1.32, and the prediction is not re-derived now
+that the data is in.** Either move would retro-admit every run this gate was
+built to catch. The cell refuses.
+
+#### And the control could not have covered two arms anyway
+
+Independent of the run, and derived from the census's own integers rather than
+from any clock: **the control is degenerate on two of the four arms.**
 
 | arm | markup at stride 10 | at stride 5 | predicted factor |
 |---|---|---|---|
@@ -332,8 +396,15 @@ window produced.
 Pre-registered: **two tuning iterations per red cell.** Spent: **zero**, and
 the reason is recorded rather than convenient — no cell was red *against a line
 the instrument could adjudicate*. The clock lines (U2, U3, C3, C4) went
-unmeasured, so nothing could be above them; the one line that was adjudicated
-(U5) has a breach that is structural rather than tunable.
+unmeasured because the control refused before any cell was taken, so nothing
+could be above them.
+
+**Repairing the control would not have been a tuning iteration, and it was not
+spent as one.** §1.6 defines the allowance as a bounded change to *the arm's
+topology*, and says in terms that a change to the instrument, the band, the
+control or the kill line is not a tuning iteration but a different tournament.
+The control's 2.00 prediction is wrong for a reason the run diagnosed; fixing
+it is `rf2-m6i0`, run as its own window.
 
 Dispositions, one per cell class, with no cell left open:
 
@@ -347,8 +418,13 @@ Dispositions, one per cell class, with no cell left open:
 
 ### 2.8 What was NOT concluded
 
-- **No clock figure at all**, for any arm, operation or row count.
+- **No clock figure at all**, for any arm, operation or row count. The ratios
+  in §2.6's table are the CONTROL's, and a refused control publishes nothing —
+  including itself as a finding about the arms.
 - **No verdict against U1, U2, U3, U4, C3 or C4** — all are millisecond lines.
+- **No breach recorded against U5**, because as registered it is not breached.
+  What is recorded is that its estimand cannot see the arm that fails the
+  property it is written to protect.
 - **No `rf2-hic-080` scoring.** Its phase 2 is deliberately another worker's,
   and a tournament that graded its own blinded predictor would destroy the
   property the split exists to protect. What this page hands over is the
