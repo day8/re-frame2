@@ -3083,7 +3083,9 @@
           ;; `frame/require-current-frame!`, which delegates to
           ;; `resolve-current-frame` → the live `:adapter/current-frame`
           ;; late-bind hook (`function-component-current-frame`: dynamic-var →
-          ;; `_currentValue` with sentinel→nil and corrupted-value detection)
+          ;; the renderer's active context slot — `_currentValue`, falling back
+          ;; to `_currentValue2` under `react-dom/server` (rf2-5rqn) — with
+          ;; sentinel→nil and corrupted-value detection)
           ;; and emits + throws `:rf.error/no-frame-context` on nil. This
           ;; single-sources resolution with `subs/subscribe`'s 1-arity — the
           ;; hook and the imperative read can never diverge — and then hands

@@ -78,13 +78,20 @@
     ($ :div (str "k=" v))))
 
 ;; ---- rf2-5rqn: which context slot does the SERVER renderer populate? -------
-;; Reads all three observation points off the SHARED frame-context during a
-;; render, so the suite can pin the MECHANISM of the SSR refusal rather than
-;; only its symptom: the private `_currentValue` slot (what the
-;; `:adapter/current-frame` reader consults), the private `_currentValue2`
-;; slot (React's secondary-renderer slot), and the PUBLIC `useContext` return
-;; (renderer-agnostic). Deliberately calls no re-frame hook — it must render
-;; under `react-dom/server` without tripping the very refusal being measured.
+;; Reads five observation points off the SHARED frame-context during a render,
+;; so the suite can pin the MECHANISM of the SSR behaviour rather than only its
+;; symptom: the private `_currentValue` slot (the PRIMARY, client-renderer
+;; slot), the private `_currentValue2` slot (React's SECONDARY slot, which
+;; `react-dom/server` writes), the PUBLIC `useContext` return
+;; (renderer-agnostic), the SHARED READER
+;; `function-component-current-frame` — the `:adapter/current-frame` hook every
+;; ambient consumer funnels through, so an assertion on it proves the repair is
+;; central rather than hook-local — and `frame/resolve-current-frame`, which
+;; layers the ambient-REFUSAL tier in front of that reader.
+;;
+;; Deliberately calls no re-frame HOOK: it must render under
+;; `react-dom/server` whatever the reader answers, so it can measure a refusal
+;; as readily as a resolution.
 
 (def ^:private ssr-slot-observed (atom nil))
 
@@ -93,7 +100,9 @@
     (reset! ssr-slot-observed
             {:current-value  (.-_currentValue ^js ctx)
              :current-value2 (.-_currentValue2 ^js ctx)
-             :use-context    (React/useContext ctx)})
+             :use-context    (React/useContext ctx)
+             :reader         (adapter-context/function-component-current-frame)
+             :resolve        (frame/resolve-current-frame)})
     ($ :div "slots")))
 
 ;; ---- use-frame probe (rf2-y6dz8t) ------------------------------------------
@@ -342,6 +351,9 @@
    ;; frame: the row is a COLD server render and must not read a sub-cache
    ;; some earlier browser-lane row warmed.
    :ssr-ambient-frame             :rf.uix-5rqn/ssr-ambient-frame
+   ;; The tier-1 contender for the dynamic-precedence control: a SECOND frame,
+   ;; so "the dynamic var won" is distinguishable from "the provider won".
+   :ssr-dynamic-frame             :rf.uix-5rqn/ssr-dynamic-frame
    :probe-ssr-slots-element       (fn [] (uix/$ ProbeSsrSlots))
    :ssr-slot-observed             ssr-slot-observed
    ;; rf2-y6dz8t — use-frame (capture-frame in hook position)
