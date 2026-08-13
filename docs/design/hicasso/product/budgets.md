@@ -1295,3 +1295,44 @@ instrument and the U-row gates it makes possible, the ladder re-pin and the 5%
 comparison it makes meaningful, and the escape-benefit rule over the escapes
 its own dependencies land. This ledger is what it will report into — the bead
 owns the status columns from the moment it takes them.
+
+### 9.4 What rf2-hic-071 has taken so far, and what it still cannot take
+
+**Taken, 2026-08-14.** Ten rows and one rule. `D17`–`D25` bring
+[the per-keystroke census](per-keystroke.md)'s five remaining stages under
+`L4`'s round trip, `L5`'s population pin and `L6`'s witness check, so a figure
+that lived in prose on one page now has to keep agreeing with a witness a pull
+request runs. `D26` and `L7` close the fail-open `rf2-hic-036`'s tournament
+exposed in `U5`: a registered scaling claim can no longer be decided on one
+counter, in either direction. Neither needed a measurement — every integer here
+was already measured, published and merged, and this bead transcribed rather
+than re-derived them, on §3's own rule that a second source for one number is a
+second thing to drift.
+
+**Not taken, and the reason is the same reason in three places: each needs a
+measurement window this bead did not open.** They are recorded here rather than
+quietly carried:
+
+- **The user-visible gates** — `U1`–`U4`, and `C3`/`C4` stated on the same
+  readings. §4 says in terms that no package-resident clock instrument exists,
+  and §9.2 records that `rf2-hic-045`'s census narrowed *what* the clock will
+  be timing without supplying one. A threshold guessed rather than measured
+  would be a fabricated line, which is what `UNPINNED` exists to say instead.
+- **The 5% same-instrument regression gate** — `C1`. §6 records that the
+  registered instrument's eleven pinned blobs are superseded rather than
+  repaired, one of its files no longer existing, so *"the same instrument"*
+  still names nothing. The re-pin is a run, not an edit.
+- **The escape-benefit rule** — `C8`, whose population is site-level by
+  [Ruling 2](#92-what-each-not-green-row-is-waiting-on). No escape site taken
+  **for a benefit** has landed in an application: the one `h/as-element` call
+  in the shipped examples is the ledger screen handing a view to a vendor
+  virtualizer's `renderRow`, which is interoperability rather than an escape
+  claiming recovered time. That distinction is worth stating before the gate is
+  built, because a `C8` gate written over *every* landed escape would demand
+  the removal of an escape with no alternative — the mirror of the fail-open
+  `L7` just closed, and a fail-closed one.
+
+**What this leaves.** Every deterministic budget this corpus has measured is
+now a ledger row with a witness a pull request runs, and every remaining gate
+is blocked on an instrument rather than on an edit. That is the honest boundary
+today, and moving it needs a quiet box rather than another pass over this page.
