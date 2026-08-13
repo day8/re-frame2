@@ -9,8 +9,17 @@
   - a keystroke's echo lands in the turn that typed it;
   - a NORMALISED value echoes as the committed one rather than as what
     was typed;
-  - a discard re-baselines a field that has drifted, which is the whole
-    of what `::h/revision` buys.
+  - a discard re-baselines a field that some OTHER agent drifted without
+    firing an event, which is the whole of what `::h/revision` buys.
+
+  The word *eventless* in that third claim is load-bearing rather than
+  descriptive, and it cost this file a row (rf2-5h9k). A keystroke's own
+  divergence is converged in the turn that typed it — the second claim
+  above IS that mechanism — so a reset row built on typing asserts a
+  value that has been on the glass since before the reset and stays green
+  with the counter deleted.
+  [[what-the-revision-bump-is-actually-load-bearing-FOR]] carries the
+  reasoning and the measurement.
 
   ## The per-keystroke measurement lives here (§13)
 
@@ -201,46 +210,82 @@
 (deftest what-the-revision-bump-is-actually-load-bearing-FOR
   ;; rf2-hic-025's finding 5 says the bump is needed because dropping a
   ;; draft "moves the model back to a value the field is already
-  ;; showing". This application is the place to say WHICH fields can
-  ;; reach that state, because it has one of each policy.
+  ;; showing". This application is the place to say what can reach that
+  ;; state, because it has one field of each policy on one page.
   ;;
-  ;; MEASURED, and it refines the finding rather than repeating it. A
-  ;; field the model ACCEPTED from has no drift: the model is what the
-  ;; field shows, so a discard moves the value React compares and the
-  ;; wall opens whether a revision moved or not. The bump is load-bearing
-  ;; where the model DID NOT take what was typed — a refusal, or a
-  ;; normalisation whose result the field is already displaying — and it
-  ;; is those fields whose discard is silently broken without it.
+  ;; ## What was here before, and why it was replaced rather than fixed
   ;;
-  ;; The row below is the reachable half at this tier: type a value the
-  ;; slug policy normalises to the value the model already holds, so the
-  ;; model does not move at all, then discard. Without the revision the
-  ;; wall has value-equality on both sides and bails.
+  ;; The first row written here (rf2-5h9k) typed into the slug a value
+  ;; its policy normalises back to what the model already held, discarded,
+  ;; and asserted the field showed the model. It was measured with
+  ;; `::events/discard`'s `(update :revision (fnil inc 0))` DELETED, and it
+  ;; stayed GREEN — so it was never asserting the counter at all.
+  ;;
+  ;; The reason is mechanical and is one file away. A keystroke's
+  ;; divergence is not drift: `impl.controlled/converge!` runs at the end
+  ;; of the change handler, in the same discrete event, and writes the
+  ;; model's value onto the glass — which is exactly what
+  ;; [[a-normalised-keystroke-echoes-the-COMMITTED-value]] asserts three
+  ;; rows above, on this same field with this same setup. By the time that
+  ;; row clicked `#discard` the field had shown `"intents-are-data"` since
+  ;; the keystroke, and the closing assertion re-read a value nothing had
+  ;; disturbed. A row that cannot see its own subject is not patched into
+  ;; seeing it; the stimulus was wrong, so the stimulus is what changed.
+  ;;
+  ;; ## The drift the reset law is about is the drift NO HANDLER RAN FOR
+  ;;
+  ;; A password manager, an autofill, a browser extension assigning
+  ;; `.value`. No change event, so no handler, so the in-turn converge
+  ;; never sees it — and React's own end-of-event restore is not on this
+  ;; path either. The only thing that repairs it is React's per-commit
+  ;; controlled re-assert, and that runs when the BOUNDARY RE-RENDERS.
+  ;; (`impl.codec/revision-key` states the whole delivery in those terms.)
+  ;;
+  ;; Which makes this a claim about the read set of ONE BOUNDARY rather
+  ;; than about the form. `views/text-field` reads exactly two addresses,
+  ;; its own field and the counter, so a discard that leaves this field's
+  ;; value where it is can notify it through `::subs/revision` and through
+  ;; nothing else. The form is therefore dirtied from ANOTHER field: that
+  ;; makes `#discard` live and gives the discard real work — `:draft
+  ;; :title` moves and `::subs/dirty?` moves — while neither address is
+  ;; read by the boundary under measurement. `::subs/dirty?` feeds
+  ;; `views/buttons`, which is a separate boundary for the separate reason
+  ;; [[the-per-keystroke-body-count-is-one-and-does-not-grow]] measures,
+  ;; and that separation is what makes this row reachable at all.
   (if-not (browser?)
     (skip! "the drift case")
-    (let [m (mount-editor!)
-          n (field-node m :slug)]
-      (set-native-value! n "")
-      (type-into! n "Intents Are Data")
+    (let [m     (mount-editor!)
+          title (field-node m :title)
+          slug  (field-node m :slug)]
+      (type-into! title "!")
       (hm/settle! m)
-      (is (= "intents-are-data" (model m :slug))
-          "the normalisation landed on the value the article already
-           holds, so the MODEL is where it started")
-      (is (false? (rf/with-frame (:frame m) (deref (rf/subscribe [::subs/dirty?]))))
-          "and the form is not even dirty — the draft equals the article")
+      (is (true? (rf/with-frame (:frame m) (deref (rf/subscribe [::subs/dirty?]))))
+          "dirtied from the OTHER field, so `#discard` is live and the
+           slug's own address is not among what the discard will move")
 
-      ;; The field, however, is not necessarily where it started: what it
-      ;; shows is whatever the converge last wrote, and a discard from
-      ;; here asks the wall to re-assert a value equal to the one it last
-      ;; rendered. That is precisely the state the revision exists for.
+      ;; The drift, and it is EVENTLESS on purpose.
+      (set-native-value! slug "typed-by-nobody")
+      (is (= "typed-by-nobody" (.-value slug))
+          "the glass moved")
+      (is (= "intents-are-data" (model m :slug))
+          "and the model did not. That gap is the drift, and it is the
+           one kind nothing in this runtime closes on its own: no change
+           event fired, so no handler ran, so the converge that repairs a
+           keystroke's divergence never saw it")
+
       (click! (node m "#discard"))
       (hm/settle! m)
-      (is (= "intents-are-data" (.-value n))
-          "restored. The revision moved, so the wall opened on a value
-           React's own diff had nothing to say about — this is the case
-           rf2-hic-025 named, reached from a NORMALISING field rather than
-           from a draft map, and it is why the counter cannot be dropped
-           as bookkeeping nobody can see a reason for")
+      (is (= "intents-are-data" (.-value slug))
+          "re-baselined, and the counter is the only thing that could have
+           done it. `:draft :slug` never moved, so of this boundary's two
+           reads the discard touched only `::subs/revision`; the bump
+           re-ran the body, the re-run re-committed the element, and the
+           commit re-asserted the model over a draft React's own value
+           diff had nothing to say about. Delete the `(update :revision
+           (fnil inc 0))` from `::events/discard` and THIS row reds, with
+           the field still showing `typed-by-nobody` — measured, and that
+           is why the counter cannot be dropped as bookkeeping nobody can
+           see a reason for")
       (hm/unmount! m))))
 
 (h/defview bad-revision-box
