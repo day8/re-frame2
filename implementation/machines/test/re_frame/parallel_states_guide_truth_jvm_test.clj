@@ -136,18 +136,42 @@
    ;;    token within a short window of the `fixed`/`frozen` word — which the
    ;;    negated teaching (`frozen for the selection round … not for the whole
    ;;    macrostep`, `whole` ~80 chars away) never satisfies.
+   ;;
+   ;;    rf2-s41i adds the SEEN-AT axis. The rf2-9d0d rewrite shipped "It sees
+   ;;    the sibling state as it was at the start of the macrostep." on main —
+   ;;    the superseded claim in a paraphrase none of the alternatives above
+   ;;    reached (no `frozen`/`fixed` word at all, and `as it WAS AT` rather
+   ;;    than the pinned `as OF`). Two alternatives close it: the `as of / as it
+   ;;    was at ... the start of the macrostep` family, and an observation verb
+   ;;    (`sees`/`reads`/`observes`) within a short window of `at the start of
+   ;;    the macrostep`. Neither can reach the corrected teaching, which never
+   ;;    dates the frozen view to the macrostep at all.
    [claim-frozen-whole-macrostep
-    #"(?i)(?:frozen\s+for\s+the\s+\*{0,2}whole\s+macrostep|as\s+of\s+the\s+\*{0,2}start\*{0,2}\s+of\s+the\s+macrostep|\b(?:frozen|fixed|constant|unchanged|stable|pinned|immutable|unchanging)\b[^.\n]{0,45}?\b(?:whole|entire|throughout|across|for\s+the\s+(?:duration|life)\s+of|until\s+the\s+end\s+of|macrostep\s+entry)\b[^.\n]{0,30}?\bmacrostep\b|\bfrom\s+macrostep\s+(?:entry|start|begin(?:ning)?)\b[^.\n]{0,45}?\b(?:until|to|through|up\s+to)\b[^.\n]{0,30}?\bmacrostep\s+(?:exit|end|finish|completion)\b)"]])
+    #"(?i)(?:frozen\s+for\s+the\s+\*{0,2}whole\s+macrostep|as\s+(?:of|(?:it|they)\s+(?:was|were)\s+at)\s+the\s+\*{0,2}(?:start|beginning|outset)\*{0,2}\s+of\s+the\s+macrostep|\b(?:sees?|reads?|observes?|gets?)\b[^.\n]{0,60}?\bat\s+the\s+\*{0,2}(?:start|beginning|outset)\*{0,2}\s+of\s+the\s+macrostep\b|\b(?:frozen|fixed|constant|unchanged|stable|pinned|immutable|unchanging)\b[^.\n]{0,45}?\b(?:whole|entire|throughout|across|for\s+the\s+(?:duration|life)\s+of|until\s+the\s+end\s+of|macrostep\s+entry)\b[^.\n]{0,30}?\bmacrostep\b|\bfrom\s+macrostep\s+(?:entry|start|begin(?:ning)?)\b[^.\n]{0,45}?\b(?:until|to|through|up\s+to)\b[^.\n]{0,30}?\bmacrostep\s+(?:exit|end|finish|completion)\b)"]])
 
 ;; ---------------------------------------------------------------------------
 ;; The load-bearing terms the rewrite installed. Absence = the guide lost the
 ;; law, which is the revert this guard exists to catch.
 
+;; rf2-s41i re-pins two of these onto the shorter prose the rf2-9d0d guide
+;; rewrite installed. Both pins move from a phrasing/markup form to the CLAIM
+;; the new prose makes; neither is relaxed. The other four are unchanged,
+;; because the rewritten guide still carries them word for word.
+;;
+;; - freeze → select → apply was pinned on a **bolded** three-step list. The
+;;   rewrite states the same round in running prose, so the pin now anchors on
+;;   the ORDER (freeze the whole configuration → select → apply → freeze again),
+;;   which is the law; the bold markup was never the law.
+;; - birth was pinned on "the same process runs at **birth**". The rewrite says
+;;   the parent settles `:always` across the whole configuration at birth using
+;;   "the same freeze / select / apply rounds used after an event" — the same
+;;   claim, so the pin follows it.
+
 (def ^:private required-terms
   [["the parent owns `:always` stabilization"
     #"(?i)`?:always`?\s+stabilization\s+is\s+parent-owned"]
-   ["the round is freeze → select → apply"
-    #"(?is)\*{2}Freeze\*{2}.{0,400}\*{2}Select\*{2}.{0,400}\*{2}Apply\*{2}"]
+   ["the round is freeze → select → apply, over the whole configuration"
+    #"(?is)parent\s+freezes\s+the\s+whole\s+configuration.{0,250}?\bselects\b.{0,250}?\bapplies\b.{0,120}?\bfreezes\s+again\b"]
    ["the view is re-frozen between rounds"
     #"(?i)between\s+rounds[^\n]{0,80}re-frozen"]
    ["sibling keys are frozen per selection round"
@@ -155,7 +179,7 @@
    ["`:always-depth-limit` counts parent rounds"
     #"(?i)counts\s+parent\s+\*{0,2}rounds"]
    ["birth runs the same parent-owned round process"
-    #"(?i)same\s+process\s+runs\s+at\s+\*{0,2}birth"]])
+    #"(?is)parent\s+settles\s+`?:always`?\s+across\s+the\s+whole\s+configuration.{0,80}?same\s+freeze\s*/\s*select\s*/\s*apply\s+rounds"]])
 
 ;; ---------------------------------------------------------------------------
 ;; Historical / incorrect-example polarity.
@@ -273,7 +297,12 @@
              [claim-frozen-whole-macrostep
               "the sibling configuration as of the *start* of the macrostep."]
              [claim-frozen-whole-macrostep      ; paraphrase (rf2-b0vvu mutation)
-              "Sibling keys remain fixed from macrostep entry until macrostep exit."]]]
+              "Sibling keys remain fixed from macrostep entry until macrostep exit."]
+             ;; rf2-s41i — the paraphrase that actually SHIPPED to main in the
+             ;; rf2-9d0d guide rewrite, verbatim. It carried no `frozen`/`fixed`
+             ;; word, so every alternative above missed it.
+             [claim-frozen-whole-macrostep
+              "It sees the sibling state as it was at the start of the macrostep."]]]
       (is (= [family] (superseded-hits sentence))
           (str "the guard failed to catch (exactly) the claim: " family
                "\n  in: " sentence))))
