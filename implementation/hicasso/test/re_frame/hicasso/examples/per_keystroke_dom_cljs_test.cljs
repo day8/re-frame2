@@ -330,8 +330,18 @@
                   (is (= 1 (addresses-moved before after))
                       "P1 — one state write")
                   (is (= 10 (total runs))
-                      (str "P2 — subscription recomputations. Measured: "
-                           (pr-str runs)))
+                      (str "P2 HELD — ten subscription recomputations for one
+                            write. Measured: " (pr-str runs)))
+                  (is (= {::editor-subs/field     4
+                          ::editor-subs/committed 4
+                          ::editor-subs/revision  1
+                          ::editor-subs/dirty?    1}
+                         runs)
+                      "and the ten are every mounted cell, not the one the
+                       keystroke moved: four field cells, four committed
+                       cells, the revision and the dirty flag. Nine of them
+                       compute the value they computed last time and notify
+                       nobody")
                   (is (= 1 bodies)
                       "P3 — one boundary body, the title field's (D8)")
                   (is (= 0 (glass-writes))
@@ -440,6 +450,13 @@
       (is (= 31 (:sub-runs at-25))
           (str "P9 — subscription recomputations at 5x5. Measured: "
                (pr-str (:by-sub at-25))))
+      (is (= {::grid-subs/cell 100 ::grid-subs/row-total 10 ::grid-subs/dimensions 1}
+             (:by-sub at-100))
+          "the attribution at 10x10 — every mounted cell, every row total,
+           and the dimensions cell that nothing moved")
+      (is (= {::grid-subs/cell 25 ::grid-subs/row-total 5 ::grid-subs/dimensions 1}
+             (:by-sub at-25))
+          "and at 5x5 the same three terms, each following the mount")
       (is (= 0 (:glass at-100))
           "zero writes onto the glass, exactly as the editor — an accepted
            keystroke is already showing what the model took")

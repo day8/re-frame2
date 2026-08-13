@@ -3,14 +3,24 @@
 
   Four fields and four subscription cells, because the per-keystroke
   budget is a fact about the READ TOPOLOGY and about nothing else.
-  `docs/design/hicasso/draft-guide/18-performance.md` §Trace one
-  controlled keystroke walks it: one write, the subscriptions reading
-  that address recompute, equality gates stop every one whose output did
-  not move, and the boundaries whose reads changed are notified. With a
-  field per cell that is **one** changed subscription and **one** body
-  run per keystroke — write amplification 1, independent of how many
-  fields the form has. `editor.flow-dom-cljs-test` measures it rather
-  than asserting the arithmetic.
+  `docs/design/hicasso/draft-guide/19-performance.md` §Trace one
+  controlled keystroke walks it: one write, subscriptions recompute,
+  equality gates stop every one whose output did not move, and the
+  boundaries whose reads changed are notified. With a field per cell that
+  is **one** changed subscription and **one** body run per keystroke —
+  write amplification 1, independent of how many fields the form has.
+  `editor.flow-dom-cljs-test` measures it rather than asserting the
+  arithmetic.
+
+  **`recompute` is not the same set as `reads that address`**, and this
+  paragraph used to say it was. Every subscription here is a LAYER-1
+  reader, memoised on the whole of `app-db` rather than on the address it
+  goes on to read, so a keystroke re-runs all TEN of this form's cells and
+  the equality gate then stops nine of them from notifying anything.
+  Measured by `examples.per-keystroke-dom-cljs-test` and published in
+  `docs/design/hicasso/product/per-keystroke.md`: one changed subscription
+  out of ten recomputed, which is a distinction the body count cannot
+  make and the budget does not rest on.
 
   [[field]] is PARAMETRIC, so the four cells are four entries under one
   registration rather than four registrations. A parametric subscription
