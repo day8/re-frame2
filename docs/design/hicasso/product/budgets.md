@@ -819,6 +819,27 @@ that exists and runs in the first lane; a distributional row may never name the
 first lane at all. *Authority* is the bead that owns the row's disposition
 today. *Disposition* is a link that must resolve to a section naming the row.
 
+**[Amended 2026-08-13.]** *Authority* is read in **two modes**, and which one
+applies follows the state of the **disposition**, not the state of the bead.
+While a live transition remains to be made — the `UNPINNED` rows waiting on
+`rf2-hic-071`'s instruments; `S6` and `C2`, whose K1 price record is amendable
+only through `rf2-hic-085`; `S3` and `C6`, handed onward because real work
+remained — the cell names the **live** bead that can actually move the row, and
+a closed id there is a defect. Once the row's *Disposition* cell records a
+**taken, complete** ruling carrying its own reopen conditions and revert
+trigger, the cell names the bead that **took** it, and a closed id is then
+correct: the decision outlives the decider. That is why `S1`, `S2` and `C5`
+keep `rf2-0xx2` after its close ([§9.2](#92-what-each-not-green-row-is-waiting-on)),
+and it is not a loosening — the discriminator is never bead liveness, it is
+whether a live transition remains. The column has never been a uniformly
+live-owner field in practice: many `MET` rows in the table below name closed
+beads, and this amendment describes what the ledger already does rather than
+permitting something new. Should a taken disposition ever need amending with no
+route to it, the fix is to give **that record** a named standing amendment-route
+bead on the K1 pattern — `rf2-hic-085` is the worked example — never to read a
+settled row back into live-route mode. The gate is indifferent to all of this:
+it reads the cell for **shape, not for life**, and says so in its own output.
+
 <!-- rf2-hic-089: ledger -->
 
 | # | Registered line | Current value | Population | Status | Instrument (lane) | Authority | Disposition |
@@ -896,6 +917,25 @@ that one: the scoped acceptance ruled on `rf2-0xx2` and recorded in
 It moves neither reading and neither status — both rows stay `BREACH` against
 the unmoved `1,024 B` line, and the acceptance reaches no further than the
 pinned bands' upper edges, `1,107 B` and `1,101 B`.
+
+**[Amended 2026-08-13.]** `S1`, `S2` and `C5` keep `rf2-0xx2` as their
+authority although that bead has closed, and keeping it is a decision rather
+than an omission — these are the settled-mode rows of
+[§9.1](#91-how-to-read-a-row), not live-route ones. What the three were waiting
+on was a disposition, and the disposition has been **taken**: the scoped
+acceptance ruled on `rf2-0xx2` and recorded in
+[§5](budgets.md#5-the-read-free-boundary-shell-the-byte-exact-line-now-frozen-at-1024-b)
+on the five fields `specification.md` §6 requires, reopen conditions and revert
+trigger among them. A ruling that carries its own amendment machinery needs no
+live bead to hold it, and the cell naming who took it is the audit trail —
+`rf2-0xx2`'s close reason is where the scoping is recorded. The remaining path
+is not owed an owner either: a shell arm landing under `1,024 B` on the
+package, on which day the acceptance is **deleted rather than kept as a floor**,
+[stays live and deliberately unowned](correction-ledger.md#deferred-items-and-the-release-decision)
+by the programme's own choice, so there is no live bead to name and naming one
+would fabricate ownership the programme withheld. Contrast `S6` and `C2` below,
+where a route to change the record does exist and the cell names it: same rule,
+other mode.
 
 - **No package-resident clock instrument exists.** `U1`, `U2`, `U3` and `U4`
   are latency budgets, and §4 says in terms that they cannot be pinned until
