@@ -90,6 +90,16 @@ across four workflows away from mergeable, not one.
 Count only the conclusions that mean the work ran and was fine. Read every other
 value, cancellation included, as a check that has not passed.
 
+**Skipped is accepted, and it says nothing about the trunk.** A surface-armed job is
+skipped on every change that touches none of its surfaces — including, on the trunk, the
+push that broke it. One gate here was skipped on the breaking commit and on every push
+after, while the trunk's rollup read green throughout; it surfaced only when a change
+happened to touch a surface that armed it. So when a change reds a gate the trunk is
+green on, **check whether that job actually ran on the trunk** before concluding the
+change caused it. If it did not, the defect is the trunk's and the fix belongs on a new
+branch off it — the reflex prescribes a fix worker onto the red change's branch, which
+puts a workaround on an innocent one.
+
 ### Clause 3 — require the terminal state, do not enumerate the bad ones
 
 Do not test this by listing the states that block. The vocabulary is longer than it
@@ -259,8 +269,9 @@ routed item is exactly the kind a worker may reasonably decline.
 ### When a change is not green
 
 A real, repeated failure on the touched surface is not a flake and is never an override
-candidate. Dispatch a fix worker onto the **existing** branch that runs the **actual**
-failing gate, not a proxy that already passed.
+candidate. Once you have established the failure is the change's own and not the trunk's,
+dispatch a fix worker onto the **existing** branch that runs the **actual** failing gate,
+not a proxy that already passed.
 
 ---
 
