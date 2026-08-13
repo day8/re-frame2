@@ -22,8 +22,7 @@ have a name on the same wire as everything else.
 
 <a id="in-this-section"></a>
 
-**Prerequisites.** [Effects](../core/effects.md) — returning an effect map from a
-handler. Managed HTTP plugs into that pipeline; it does not replace events or app-db.
+Managed HTTP plugs into the event pipeline. It does not replace events or app-db.
 
 ## Scope
 

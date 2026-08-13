@@ -7,8 +7,6 @@ You know `:on-success` on [HTTP](http.md), `:reply-to` on mutations, `:on-done` 
 that sentence — the one move, what `await` costs, what you gain when the continuation
 is a value.
 
-**Prerequisites.** Issue at least one managed request ([tutorial](tutorial.md)).
-
 !!! tip "Just want the `.then` / `.catch` / `.finally` map?"
 
     [Coming from Promises](coming-from-promises.md) is the quick table; this page is

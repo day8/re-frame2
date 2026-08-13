@@ -2,10 +2,8 @@
 
 You know [server render + hydrate](concepts.md). This page is one job: put
 **`<title>`, `<meta>`, OpenGraph, and JSON-LD** on the first byte as pure data from
-app-db — not an imperative DOM API. Crawlers don't run JS.
-
-**Prerequisites.** [The model](concepts.md) and a [route](../routing/concepts.md) that
-can name a head id.
+app-db — not an imperative DOM API. Crawlers don't run JS. A
+[route](../routing/concepts.md) names the head.
 
 ## Register a head, name it on the route
 

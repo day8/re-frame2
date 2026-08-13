@@ -23,8 +23,8 @@ with [SSR](../ssr/index.md), no separate server router.
 
 <a id="in-this-section"></a>
 
-**Prerequisites.** [Core introduction](../core/introduction.md) — events, app-db,
-subscriptions, views. Routing plugs into those; it does not replace them.
+Routing plugs into [events](../core/introduction.md), app-db, subscriptions,
+and views. It does not replace them.
 
 ## When *not* to use routing
 

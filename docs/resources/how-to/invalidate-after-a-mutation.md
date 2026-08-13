@@ -20,10 +20,6 @@ watch → optional arms (populate, patches, optimistic, cross-scope).
     **declare** invalidation on the mutation registration (once), and it matches by
     **tags within a scope** — only owned entries refetch immediately.
 
-**Prerequisites.** `re-frame.resources` + `re-frame.http.managed` on the require
-list; reads registered with `reg-resource`. If that is unfamiliar, start at
-[the model](../concepts.md).
-
 ## 1. Tag the reads
 
 A [cache tag](../glossary.md#cache-tag) names a *fact*, not a resource. `[:article "welcome"]` and `[:article-list]` are facts — a specific article, and the list as a whole. When two resources carry the same tag, that tag becomes the join key a write uses to reach both of them at once.

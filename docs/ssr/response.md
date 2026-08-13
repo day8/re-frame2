@@ -7,8 +7,6 @@ Server-only [effects](../core/glossary.md#effect) write a per-request accumulato
 Ring adapter materialises it. Response logic stays pure and testable like any
 [effect map](../core/glossary.md#effect-map).
 
-**Prerequisites.** [The model](concepts.md) or the [tutorial](tutorial.md) through Step 7.
-
 ## The effects
 
 | fx-id | args | does |

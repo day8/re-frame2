@@ -34,9 +34,8 @@ there.
 
 The same table shape covers a login flow or a request. Only the names change.
 
-**Prerequisites.** The [Core introduction](../core/introduction.md) — events,
-app-db, subscriptions, effects. Machines plug into those; they do not replace
-them.
+Machines plug into [events](../core/introduction.md), app-db, subscriptions,
+and effects. They do not replace them.
 
 ## Why nest states
 

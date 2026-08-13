@@ -7,8 +7,6 @@ You know [managed HTTP](http.md). This page is two production jobs:
 
 Neither is required to be productive — open this when the app grows into them.
 
-**Prerequisites.** [Managed HTTP](http.md) and the [tutorial](tutorial.md).
-
 ## Interceptors: stamp every request once
 
 Threading `"Authorization"` into every call site is a cross-cutting concern. re-frame2

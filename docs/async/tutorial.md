@@ -4,8 +4,7 @@ Load an article from a server one idea at a time: request → failure path → v
 schema → retry → race cure → network-free test. By the end you have every piece of
 `:rf.http/managed` everyday work needs.
 
-**Prerequisites.** [Effects](../core/effects.md) — return an effect map from a handler.
-Full key catalogue after this walk-through: [Managed HTTP](http.md).
+Full key catalogue: [Managed HTTP](http.md).
 
 ## Step 0 — turn managed HTTP on
 
