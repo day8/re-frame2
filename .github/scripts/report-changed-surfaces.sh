@@ -6,7 +6,9 @@ set -euo pipefail
 #   .github/scripts/report-changed-surfaces.sh [--all] [path ...]
 #
 # With explicit paths, classify those paths. Without paths, derive the changed
-# file list from the GitHub Actions event, or from HEAD^ locally.
+# file list from the GitHub Actions event's ACCEPTED BASE, or from HEAD^
+# locally. See the base-resolution block below for what "accepted base" means
+# on each event shape.
 
 force_all=false
 declare -a explicit_paths=()
@@ -34,7 +36,94 @@ elif [ "${GITHUB_EVENT_NAME:-}" = "pull_request" ] && [ -n "${GITHUB_BASE_REF:-}
   # classified as delete + add; ordinary add/modify/delete are unaffected.
   files="$(git diff --no-renames --name-only "origin/${GITHUB_BASE_REF}...HEAD")"
 else
-  files="$(git diff --no-renames --name-only HEAD^ HEAD 2>/dev/null || git diff --no-renames --name-only HEAD)"
+  # rf2-34yg — THE EVENT'S ACCEPTED BASE, not HEAD^. One push event produces
+  # ONE workflow run, at the tip. On a MULTI-COMMIT push HEAD^ is merely the
+  # push's own second-to-last commit, so commits 1..N-1 are invisible to this
+  # classifier and never get a run of their own — a rebase-merged PR of N
+  # commits has its trunk run classified on commit N alone. This is the
+  # rf2-7hq4l defect, already named and fixed twice here:
+  # .github/workflows/portability.yml resolves the accepted base from
+  # `github.event.before` and passes it to scripts/check-ai-tracking-ratchet.sh
+  # in `AI_RATCHET_BASE_REF`; .github/workflows/post-merge-workflow-sanity.yml
+  # does the same inline. This is the same idiom, one script over.
+  #
+  # MEASURED, on two real merges (both re-run in the PR that added this):
+  #   * PR #8159's 4-commit push — tip was a docs file, so the push armed
+  #     NOTHING. Whole push arms 6. Run 31742435731 reported "All required
+  #     checks passed" across 78 jobs with every surface-gated one skipped.
+  #   * ebd92e12d2 touched expensive-tests.yml AND TESTING.md, both `mark_all`
+  #     triggers, behind a tip arming 0. Tip-only 0; whole push 32. The
+  #     full-matrix run that editing TESTING.md exists to FORCE never happened.
+  # It creates no exposure relative to the PR gate — each of those commits was
+  # fully classified against `base...HEAD` on its own PR. What it degrades is
+  # the POST-MERGE net: the run that catches a semantic conflict between two
+  # PRs green alone, and that honours `mark_all` when CI's own configuration
+  # changes.
+  #
+  # THE CALLER SUPPLIES THE REF, this script only consumes it — portability.yml's
+  # split, and for its stated reason: context values reach the script through
+  # `env:` and are never interpolated into a script body, so the step is
+  # injection-safe whatever the event carries. test.yml maps push ->
+  # `github.event.before`; a pull_request never reaches here (the branch above
+  # takes it, unchanged, and its `base...HEAD` was always correct).
+  #
+  # TWO-DOT, matching post-merge-workflow-sanity.yml and the ratchet's
+  # base-tree comparison. On the ordinary push the base is an ancestor of HEAD
+  # and two- and three-dot agree; on a FORCE-PUSH they do not, and two-dot is
+  # the conservative one — it reports the discarded commits' paths as changed
+  # too, arming more rather than fewer gates.
+  #
+  # FIRST PUSH TO A NEW REF sends the all-zeros sentinel; force-push sends a
+  # tip that may no longer be reachable. Both are handled below, and neither
+  # silently returns to HEAD^ semantics without saying so.
+  base_ref="${CHANGED_SURFACES_BASE_REF:-}"
+  if [ "$base_ref" = '0000000000000000000000000000000000000000' ]; then
+    # The first push to a fresh ref has no "before". post-merge-workflow-
+    # sanity.yml folds this to HEAD^ and portability.yml folds it to empty so
+    # the ratchet's own HEAD^ default stands; both land in the same place, and
+    # so does this. There is no earlier state to have missed, so HEAD^ loses
+    # nothing here.
+    base_ref=''
+  fi
+
+  if [ -z "$base_ref" ]; then
+    files="$(git diff --no-renames --name-only HEAD^ HEAD 2>/dev/null || git diff --no-renames --name-only HEAD)"
+  else
+    # The `^{commit}` peel is REQUIRED, not decorative (rf2-uol6, learnt by the
+    # ai/ ratchet): for a full 40-hex sha `git rev-parse --verify --quiet`
+    # echoes the string back with exit 0 WITHOUT consulting the object store,
+    # so an absent base would sail through and `git diff` would then fail into
+    # a `|| true`, classifying an empty change set as "nothing to run". Peeling
+    # forces the lookup. Guarded so `set -e` does not abort before the message.
+    base_sha="$(git rev-parse --verify --quiet "${base_ref}^{commit}" 2>/dev/null)" || base_sha=''
+    if [ -n "$base_sha" ]; then
+      files="$(git diff --no-renames --name-only "$base_sha" HEAD)"
+    else
+      # UNRESOLVABLE BASE — mark_all, and say so loudly.
+      #
+      # The realistic cause is a FORCE-PUSH to main: `before` is then the
+      # DISCARDED tip, reachable from no ref, so even test.yml's fetch-depth: 0
+      # checkout does not hold it. (portability.yml fetches its base by name
+      # because it checks out at depth 2; the sole caller here is already a
+      # full clone, so a fetch would buy only this one unreachable case and is
+      # deliberately not attempted.)
+      #
+      # WHY mark_all AND NOT HEAD^. The ratchet's rule is that a guard which
+      # cannot see its base must not certify anything — but a RATCHET fails
+      # closed by exiting red, whereas a CLASSIFIER's failure mode is a false
+      # GREEN: skipping gates. Arming everything is this script's fail-closed,
+      # and it is the only branch here that cannot under-arm. Falling back to
+      # HEAD^ would reproduce the very defect above, silently. Erroring out
+      # would red the trunk on a legitimate if abnormal event; a force-push to
+      # main is also exactly when the full matrix is worth running.
+      printf 'report-changed-surfaces.sh: base ref %s does not resolve to a commit.\n' \
+        "$base_ref" >&2
+      printf 'Classifying as --all: a classifier that cannot see its base must not\n' >&2
+      printf 'skip gates. Usual cause: a force-push, whose previous tip is now\n' >&2
+      printf 'unreachable. See rf2-34yg.\n' >&2
+      files="__ALL__"
+    fi
+  fi
 fi
 
 implementation_jvm=false

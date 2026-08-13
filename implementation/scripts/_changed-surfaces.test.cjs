@@ -4067,7 +4067,12 @@ function writeFileP(root, relPath, contents) {
 // its Git-derived (local, HEAD^ HEAD) discovery mode with NO explicit paths and
 // return the parsed classifier outputs. GITHUB_* is cleared so the script takes
 // the local branch and prints to stdout.
-function classifyViaGitDiscovery(buildHistory) {
+// `envFor` (rf2-34yg) is an OPTIONAL callback run after the history is built
+// and before the script is invoked; it returns extra environment for the run.
+// It is a callback rather than a plain object because the interesting variable
+// — the push's accepted base — is a SHA that does not exist until
+// `buildHistory` has made the commits.
+function classifyViaGitDiscovery(buildHistory, envFor) {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'rf2-changed-surfaces-'));
   try {
     gitIn(tmp, 'init', '-q');
@@ -4092,6 +4097,14 @@ function classifyViaGitDiscovery(buildHistory) {
     delete env.GITHUB_BASE_REF;
     for (const key of Object.keys(env)) {
       if (key.startsWith('GIT_')) delete env[key];
+    }
+    // Applied LAST, so a test can set what the deletions above cleared —
+    // notably GITHUB_EVENT_NAME=push plus the accepted base (rf2-34yg).
+    if (envFor) {
+      Object.assign(
+        env,
+        envFor({ root: tmp, git: (...args) => gitIn(tmp, ...args) }),
+      );
     }
     const out = execFileSync('bash', ['-s'], {
       cwd: tmp,
@@ -4228,6 +4241,151 @@ test('DISCOVERY: ordinary docs-only modify does NOT arm UI gates (scope, unchang
   for (const key of UI_GATE_KEYS) {
     assert.equal(result[key], 'false', `a docs-only modify must NOT arm ${key}`);
   }
+});
+
+// ─── rf2-34yg — A MULTI-COMMIT PUSH IS CLASSIFIED OVER THE WHOLE PUSH ────────
+//
+// One push event produces ONE workflow run, at the tip. Before this, the
+// classifier's non-PR branch diffed `HEAD^ HEAD`, so a PR rebase-merged with N
+// commits had its trunk run classified on commit N ALONE — commits 1..N-1 were
+// invisible and never got a run of their own. This is the rf2-7hq4l defect,
+// already fixed twice in this repo (portability.yml + the ai/ ratchet;
+// post-merge-workflow-sanity.yml), and the classifier was the last holdout.
+//
+// MEASURED on two real merges before the fix:
+//   * PR #8159's 4-commit push (efb1cc781f..858f22fe76) — the tip was a docs
+//     file, so the push armed NOTHING; the whole push arms 6. Run 31742435731
+//     reported "All required checks passed" over 78 jobs with every
+//     surface-gated one skipped.
+//   * ebd92e12d2 touched expensive-tests.yml AND TESTING.md, both `mark_all`
+//     triggers, behind a tip touching only scripts/test-rigorous-local.sh.
+//     Tip-only armed 0; the whole push arms 32.
+//
+// These tests build a REAL multi-commit history and drive the same
+// git-discovery path, so they fail if the base resolution regresses to HEAD^.
+
+// A three-commit "push": a classified file lands in commit 1 and is untouched
+// by commits 2 and 3, so it is present on both sides of a HEAD^ diff and
+// escapes — exactly the shape the two measured merges had.
+function pushHistory({ write, commit }) {
+  write('README.md', '# scratch\n');
+  commit('base — the tip main pointed at BEFORE the push');
+  write(UI_SOURCE, '(ns re-frame.ui.reactive)\n');
+  commit('push commit 1 — the classified change');
+  write('docs/a.md', '# a\n');
+  commit('push commit 2 — docs only');
+  write('docs/b.md', '# b\n');
+  commit('push commit 3 — the TIP, docs only');
+}
+
+test('PUSH: a multi-commit push classifies over the WHOLE push, not the tip (rf2-34yg)', () => {
+  const result = classifyViaGitDiscovery(pushHistory, ({ git }) => ({
+    GITHUB_EVENT_NAME: 'push',
+    // The accepted base: the tip main pointed at before the push, i.e.
+    // `github.event.before`. Three commits back from the tip.
+    CHANGED_SURFACES_BASE_REF: git('rev-parse', 'HEAD~3').toString().trim(),
+  }));
+  for (const key of UI_GATE_KEYS) {
+    assert.equal(
+      result[key],
+      'true',
+      `a UI change in commit 1 of a 3-commit push must arm ${key} on the ` +
+        'push run — reverting the base to HEAD^ makes this fail',
+    );
+  }
+});
+
+test('PUSH: the CONTROL — HEAD^ alone misses that same change (rf2-34yg)', () => {
+  // The defect itself, pinned. Same history, no accepted base, so the script
+  // takes its HEAD^ default and sees only the docs tip. If this ever starts
+  // arming the UI gates the test above has stopped proving anything.
+  const result = classifyViaGitDiscovery(pushHistory);
+  for (const key of UI_GATE_KEYS) {
+    assert.equal(
+      result[key],
+      'false',
+      `HEAD^ sees only the docs tip, so ${key} stays false — this is the ` +
+        'defect rf2-34yg fixes, kept as the control for the test above',
+    );
+  }
+});
+
+test('PUSH: the all-zeros sentinel folds back to HEAD^ (first push to a ref) (rf2-34yg)', () => {
+  // A first push to a fresh ref carries an all-zeros `before`. There is no
+  // earlier state to have missed, so HEAD^ loses nothing — but it must not
+  // be passed to `git diff` as a literal ref. post-merge-workflow-sanity.yml
+  // folds it the same way.
+  const result = classifyViaGitDiscovery(pushHistory, () => ({
+    GITHUB_EVENT_NAME: 'push',
+    CHANGED_SURFACES_BASE_REF: '0'.repeat(40),
+  }));
+  for (const key of UI_GATE_KEYS) {
+    assert.equal(result[key], 'false', `all-zeros must fold to HEAD^, not fail (${key})`);
+  }
+});
+
+test('PUSH: an UNRESOLVABLE base arms everything rather than skipping (rf2-34yg)', () => {
+  // The force-push case: `before` is the DISCARDED tip, reachable from no ref,
+  // so even a full clone need not hold it. A classifier's failure mode is a
+  // false GREEN, so its fail-closed is `mark_all` — never a silent return to
+  // HEAD^, which would reproduce the defect above.
+  const result = classifyViaGitDiscovery(pushHistory, () => ({
+    GITHUB_EVENT_NAME: 'push',
+    CHANGED_SURFACES_BASE_REF: 'dead0000'.repeat(5),
+  }));
+  for (const key of UI_GATE_KEYS) {
+    assert.equal(
+      result[key],
+      'true',
+      `an unresolvable base must arm ${key} — a base it cannot see must not ` +
+        'let it skip gates',
+    );
+  }
+  // Not merely the UI subset: this is mark_all, so every output is true.
+  const falses = Object.entries(result).filter(([, v]) => v !== 'true');
+  assert.deepEqual(falses, [], 'an unresolvable base must arm the FULL matrix');
+});
+
+test('PUSH: a pull_request is unaffected — base...HEAD still wins (rf2-34yg)', () => {
+  // The PR branch was always correct and is deliberately untouched. Even with
+  // a base ref present in the environment, a pull_request event must not take
+  // the push branch. GITHUB_BASE_REF is absent here, so the PR branch's own
+  // guard sends this to the HEAD^ default rather than to the push branch.
+  const result = classifyViaGitDiscovery(pushHistory, () => ({
+    GITHUB_EVENT_NAME: 'pull_request',
+  }));
+  for (const key of UI_GATE_KEYS) {
+    assert.equal(result[key], 'false', `a pull_request must not take the push branch (${key})`);
+  }
+});
+
+test('test.yml hands the classifier the accepted base via env: (rf2-34yg)', () => {
+  // THE CALLER HALF. The script cannot read `github.event.before` on its own —
+  // Actions exports no such variable — so the fix is inert unless test.yml
+  // passes it. Dropping this `env:` would silently restore tip-only
+  // classification with every test above still green, because they supply the
+  // base themselves.
+  const block = jobBlock(fs.readFileSync(WORKFLOW, 'utf8'), 'detect_changed_surfaces');
+  assert.match(
+    block,
+    /CHANGED_SURFACES_BASE_REF:\s*\$\{\{\s*github\.event\.before\s*\}\}/,
+    'detect_changed_surfaces must pass github.event.before as ' +
+      'CHANGED_SURFACES_BASE_REF, or a multi-commit push is classified on its ' +
+      'tip alone (rf2-34yg)',
+  );
+  // Via `env:`, never interpolated into the run body — portability.yml's rule
+  // for the same context value, so the step is injection-safe.
+  assert.doesNotMatch(
+    block,
+    /run:[\s\S]*\$\{\{\s*github\.event\.before/,
+    'the base must arrive through env:, not interpolated into the script body',
+  );
+  // The base can be arbitrarily deep; a shallow checkout would not hold it.
+  assert.match(
+    block,
+    /fetch-depth:\s*0/,
+    'the accepted base can be arbitrarily deep — this job needs full history',
+  );
 });
 
 // ---------------------------------------------------------------------------
