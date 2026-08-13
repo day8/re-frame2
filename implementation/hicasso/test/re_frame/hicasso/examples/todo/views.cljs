@@ -22,15 +22,20 @@
      id] \"Escape\" [::h/clear db/draft id]}` is a first-class lowered
      shape — one `.key` lookup per event, composition-gated centrally so
      an IME's Enter commits nothing — and it is why this file contains no
-     callback at all. It is also **absent from the door**:
-     `re-frame.hicasso`'s own docstrings never mention it, and the only
-     statement of the four event-value shapes a runtime reader can reach
-     is `re-frame.hicasso.impl.intent`'s, in the namespace the door tells
-     authors they never need to open. (The draft guide and
-     `docs/design/hicasso/authoring.md` teach it; neither is what an
-     editor shows on `h/`.) Without it, the Todo class's Enter/Escape
-     pair reaches for the one callback form and a hand-written `.-key`
-     test — losing the composition gate with it.
+     callback at all. Without it, the Todo class's Enter/Escape pair
+     reaches for the one callback form and a hand-written `.-key` test —
+     losing the composition gate with it.
+
+     It was **absent from the door** when this application was written:
+     `re-frame.hicasso`'s own docstrings never mentioned it, and the only
+     statement of the four event-value shapes a runtime reader could
+     reach was `re-frame.hicasso.impl.intent`'s, in the namespace the
+     door tells authors they never need to open. That was rf2-lu0s, and
+     it is fixed: `defview`'s docstring now carries a *FOUR shapes*
+     section with this Enter/Escape example and the central composition
+     gate named. (The draft guide and
+     `docs/design/hicasso/authoring.md` teach it too; neither is what an
+     editor shows on `h/`.)
 
   3. **A `:ref` must be a STABLE function**, so [[focus-on-mount]] is a
      top-level `def`. React detaches and re-attaches a ref whose identity
