@@ -404,7 +404,7 @@
   | `:owner` | `:basis` | `:observed` | Means |
   |---|---|---|---|
   | `:computation` | `:observation` | `:recomputes` | one read's measured recompute time dominates, above the clock's floor |
-  | `:read-topology` | `:derivation` | `:recomputes` / `:memo-hits-only` | the read set is the problem: it oscillates, or it re-runs repeatedly for little measured work |
+  | `:read-topology` | `:derivation` | any | the read set is the problem: it oscillates, or it re-runs repeatedly for little measured work. Oscillation is read off the entry cache rather than off the ring, so it holds at any `:observed` — including `:nothing` |
   | `:unattributed` | `:host-opaque` | `:recomputes` | the window WAS searched, recomputes happened, and the measured half does not explain them — so the owner is one of the three unmeasured classes, and this door cannot say which |
   | `:unattributed` | `:host-opaque` | `:memo-hits-only` | the window retained this boundary's reads being CONSIDERED and the memo answered every one. Nothing recomputed, so computation owns none of it |
   | `:unattributed` | `:cap` | `:nothing` | the window retained no activity for this boundary at all; this is an absence of evidence, not evidence of absence |
@@ -428,18 +428,18 @@
   own axis, because making the arithmetic work by promoting a skip would
   be the same lie one layer down."
   [{:keys [time frequency read-churn]} att]
-  (let [ms        (:ms time)
-        timed?    (:timed? att)
-        hottest   (:hottest att)
-        hot-ms    (or (:elapsed-ms hottest) 0.0)
-        memo-hits (:memo-hits frequency 0)
+  (let [ms          (:ms time)
+        timed?      (:timed? att)
+        hottest     (:hottest att)
+        hot-ms      (or (:elapsed-ms hottest) 0.0)
+        memo-hits   (:memo-hits frequency 0)
         ;; SEARCHED is about recomputes and CONSIDERED is about activity of
         ;; any kind. They are two questions and were one predicate.
-        searched?  (pos? (:runs frequency))
+        searched?   (pos? (:runs frequency))
         considered? (or searched? (pos? memo-hits))
-        observed   (cond searched?   :recomputes
-                         considered? :memo-hits-only
-                         :else       :nothing)]
+        observed    (cond searched?   :recomputes
+                          considered? :memo-hits-only
+                          :else       :nothing)]
     (cond
       ;; MEASURED. One read holds the majority of a total the clock can
       ;; actually order.

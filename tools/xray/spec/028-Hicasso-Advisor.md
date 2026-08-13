@@ -132,7 +132,7 @@ already scopes its leads against (audit #7789).
 | `:owner` | `:basis` | `:observed` | Means |
 |---|---|---|---|
 | `:computation` | `:observation` | `:recomputes` | one read holds ≥ `dominance` of a total ≥ `computation-floor-ms` |
-| `:read-topology` | `:derivation` | `:recomputes` / `:memo-hits-only` | the read set oscillates (`:read-orders` > 1), or it re-runs ≥ `repeat-floor` times for measured work below the floor |
+| `:read-topology` | `:derivation` | any | the read set oscillates (`:read-orders` > 1), or it re-runs ≥ `repeat-floor` times for measured work below the floor. Oscillation is read off the entry cache rather than off the ring, so it holds at any `:observed` |
 | `:unattributed` | `:host-opaque` | `:recomputes` | the window was searched, recomputes happened, and the measured half does not explain them |
 | `:unattributed` | `:host-opaque` | `:memo-hits-only` | the window retained this boundary's reads being CONSIDERED and the memo answered every one — nothing recomputed |
 | `:unattributed` | `:cap` | `:nothing` | the window retained no activity for this boundary at all, so no search happened |
