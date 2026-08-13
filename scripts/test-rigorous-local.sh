@@ -75,9 +75,21 @@ printf '==> implementation rigorous browser/bundle gates\n'
 # yield a VERDICT and both are nightly-only, so both satisfy (a) and (b) — and
 # until this change neither ran anywhere at all.
 #
+# The TEN after those (rf2-mvq7, from the rf2-2uy8 B+ ruling) are the
+# narrow-armed gates: each runs at PR time only when `detect_changed_surfaces`
+# arms it, and until that change none had any arm that ran against main at all,
+# so a cross-surface regression in one sat green there until some PR happened to
+# touch its narrow surface.  They join the nightly sweep and therefore join this
+# mirror.  The `hicasso-controlled` / `hicasso-hmr` / `ui-g8` trio is
+# deliberately NOT here, for the same reason it is not in the nightly — the
+# declared-hole comment in `expensive-tests.yml` carries the exposure each one
+# accepts.
+#
 # Keep these commands in lockstep with that workflow's implementation
 # browser/bundle list — the `test:script-policy` gate pins the inventory (see
-# implementation/scripts/_rigorous-local-inventory.test.cjs).
+# implementation/scripts/_rigorous-local-inventory.test.cjs).  That pin is not
+# decorative: it is what caught this list drifting behind the ten additions
+# above, in the same spine run that was meant merely to confirm them.
 (cd "$repo_root/implementation" && \
   npm run test:browser && \
   npm run bench:freehand-browser && \
@@ -95,6 +107,16 @@ printf '==> implementation rigorous browser/bundle gates\n'
   npm run test:xray-feature-gate && \
   npm run test:story-static && \
   npm run test:cljs-perf-emit-nightly && \
-  npm run test:ui-warm-watch)
+  npm run test:ui-warm-watch && \
+  npm run test:ssr-node && \
+  npm run test:perf-bundle && \
+  npm run test:schemas-bundle && \
+  npm run test:ui-g1 && \
+  npm run test:ui-g13 && \
+  npm run test:ui-facade-isolation && \
+  npm run test:reagent-slim:smoke && \
+  npm run test:testbed-tenant-switcher && \
+  npm run test:tools-machines-viz && \
+  npm run build:machines-viz-viewer)
 
 printf 'PASS rigorous local suite\n'
