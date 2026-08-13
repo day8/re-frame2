@@ -78,24 +78,73 @@ jobs:
     name: Dispatch affected workflows
     runs-on: ubuntu-latest
     steps:
+      # DEPTH 2 HOLDS HEAD^ AND NOTHING DEEPER, which is all the FALLBACK base
+      # needs (a manual dispatch, or the all-zeros first push to a fresh ref).
+      # The ACCEPTED base of a multi-commit push is arbitrarily deeper, so it is
+      # FETCHED BY NAME in the step below rather than cloned up to —
+      # portability.yml:207-249 is the worked precedent, and it measured a
+      # fetch-depth: 0 clone of this history at 211 of its 216 seconds.
+      #
+      # rf2-8oh5: depth 2 ALONE made the base resolution below inert. On a push
+      # of 2+ commits the accepted base was simply absent, `git diff` failed on
+      # it, `|| true` swallowed the failure, and the step reported "No workflow
+      # files changed in this push" over a push that changed several — fail-open,
+      # defeating the very fix it applied, on exactly the multi-commit pushes
+      # rf2-34yg measured as routine here. The depth and the fetch are ONE
+      # decision; `_post-merge-sanity-base.test.cjs` pins them together.
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
-          fetch-depth: 2  # need parent commit for the diff
+          fetch-depth: 2
 
       - name: Identify changed workflow files
         id: changed
+        env:
+          # Through `env:`, never interpolated into the run body, so the step
+          # stays injection-safe whatever the event carries — portability.yml's
+          # rule for this same context value.
+          PUSH_BEFORE: ${{ github.event.before }}
         run: |
           set -euo pipefail
-          # Diff this push against its parent. github.event.before is the
-          # SHA before the push; for the first push to a fresh branch it
-          # may be all-zeros — fall back to HEAD^.
-          before="${{ github.event.before }}"
-          if [ -z "$before" ] || [ "$before" = "0000000000000000000000000000000000000000" ]; then
-            before="HEAD^"
+          # Diff this push against its ACCEPTED base — the tip `main` pointed at
+          # BEFORE the push (rf2-7hq4l). NOT HEAD^, which on a multi-commit push
+          # is only this same push's second-to-last commit, so a workflow edited
+          # in an earlier commit and untouched at the tip sits on both sides of
+          # the diff and escapes.
+          base="${PUSH_BEFORE:-}"
+          if [ "$base" = "0000000000000000000000000000000000000000" ]; then
+            base=""
           fi
-          # List changed .github/workflows/*.yml files (basenames).
-          changed=$(git diff --name-only "$before" HEAD -- '.github/workflows/*.yml' \
-            | xargs -n1 -I{} basename {} || true)
+          # Fetch that ONE commit when the shallow checkout does not hold it.
+          # Peeled to ^{commit} deliberately: `git rev-parse --verify` echoes any
+          # 40-hex string back with exit 0 WITHOUT consulting the object store
+          # (rf2-uol6), so an unpeeled check is not a reachability check at all.
+          if [ -n "$base" ] && ! git rev-parse --verify --quiet "$base^{commit}" >/dev/null; then
+            echo "base $base is deeper than this shallow clone; fetching that one commit."
+            if ! git fetch --no-tags --no-recurse-submodules --depth=1 origin "$base"; then
+              # FAIL LOUD, NOT FAIL OPEN. Only a force-push to `main` can get
+              # here — `before` is then the discarded tip, reachable from no ref,
+              # so no depth and no fetch can produce it. This canary GATES
+              # NOTHING (the merge already happened; no required check consumes
+              # its verdict), so a red costs one visible failure and blocks
+              # nobody. Falling back to HEAD^ would silently reinstate rf2-8oh5;
+              # dispatching everything would spend the nightly matrix to answer
+              # the question and leave no trace that the base resolution broke.
+              echo "::error::post-merge workflow sanity cannot resolve the accepted base $base (force-push to main?). Refusing to report 'nothing changed' over a push this run cannot read."
+              exit 1
+            fi
+          fi
+          # No accepted base at all: a manual dispatch, or the first push to a
+          # fresh ref. There is no earlier accepted state to have missed, so
+          # HEAD^ loses nothing — and depth 2 holds it.
+          if [ -z "$base" ]; then
+            base="HEAD^"
+          fi
+          # List changed .github/workflows/*.yml files (basenames). NO `|| true`
+          # here: it converted a failed `git diff` — and `pipefail` with it —
+          # into "nothing changed" (rf2-8oh5). With it gone, `set -euo pipefail`
+          # reds any residual failure, so this whole path is fail-closed.
+          changed=$(git diff --name-only "$base" HEAD -- '.github/workflows/*.yml' \
+            | xargs -I{} basename {})
           if [ -z "$changed" ]; then
             echo "No workflow files changed in this push."
             echo "files=" >> "$GITHUB_OUTPUT"
