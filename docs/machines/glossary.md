@@ -65,7 +65,10 @@ One named mode of a machine, such as `:idle`, `:submitting`, or `:authed`.
 
 The thing that can fire a transition. A dispatched trigger is the inner
 vector, such as `[:auth.login/submit credentials]`. A timer expiry (`:after`)
-and a guard that became true (`:always`) are triggers too.
+and an eventless `:always` step are triggers too.
+
+A guard is not a trigger. The runtime samples guards when a trigger runs, and
+never between, so a guard that turns true on its own moves nothing.
 
 Do not call the inner vector an "event." In re-frame2, the **event** is the
 outer vector whose id is the machine id.
@@ -255,8 +258,10 @@ See [Automatic transitions](automatic-transitions.md).
 
 ### **singleton**
 
-A machine registered with `reg-machine`. One id, one live instance. The
-snapshot is `nil` until the first event. Login is a singleton.
+A machine registered with `reg-machine`. One id, one live instance per
+[frame](../core/glossary.md#frame) — the snapshot lives in that frame's
+runtime-db, so a second frame runs its own. The snapshot is `nil` until the
+first event. Login is a singleton.
 
 See [Actors](actors.md).
 

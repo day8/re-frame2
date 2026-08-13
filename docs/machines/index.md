@@ -103,8 +103,8 @@ that can fire a transition. Here it is another vector: `[:auth.login/submit]`.
 The table matches the first keyword against the current state's `:on` map.
 Anything after that keyword is payload.
 
-Not every trigger comes from `dispatch`. A timer expiry and a guard that
-became true are triggers too — [Automatic transitions](automatic-transitions.md).
+Not every trigger comes from `dispatch`. A timer expiry is a trigger, and so
+is an eventless `:always` step — [Automatic transitions](automatic-transitions.md).
 
 `reg-machine` is sugar over `reg-event`: same registry, same `dispatch`. Read
 the live value with an ordinary `subscribe`. That value — the snapshot — lives
@@ -112,7 +112,9 @@ in [runtime-db](../core/glossary.md#runtime-db), the framework half of the
 frame, so undo, Xray, SSR, and tests see it the way they see any other event's
 result.
 
-`:auth.login/flow` is a **singleton**: one registered id, one live instance.
+`:auth.login/flow` is a **singleton**: one registered id, one live instance
+per frame. The snapshot sits in that frame's runtime-db, so a second frame
+running the same app runs its own login machine, independently.
 The snapshot is `nil` until the first event. A **spawned** actor is a second
 live instance of a type, created at run time with an allocated id. Login is a
 singleton. An in-flight request protocol is often spawned. The spec heading

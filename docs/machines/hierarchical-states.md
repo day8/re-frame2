@@ -20,6 +20,20 @@ under `:authenticated`:
   {:initial :unauthenticated
    :data    {:attempts 0 :error nil}
 
+   ;; Unchanged from the first machine — nesting is a change to :states only.
+   :guards
+   {:form-valid?
+    (fn [{[_ creds] :event}]
+      (and (seq (:email creds)) (seq (:password creds))))}
+
+   :actions
+   {:clear-error
+    (fn [_] {:data {:error nil}})
+
+    :store-session
+    (fn [{[_ {:keys [value]}] :event}]
+      {:fx [[:auth.session/store {:token (:token value)}]]})}
+
    :states
    {:unauthenticated
     {:initial :idle

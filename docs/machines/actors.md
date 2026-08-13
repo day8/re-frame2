@@ -4,8 +4,8 @@
 <a id="actors-spawning-child-machines"></a>
 
 Every machine so far has been a **singleton**: one `reg-machine` id, one live
-instance. `[:rf/machine :auth.login/flow]` is that instance, or `nil` before
-the first event.
+instance in the frame. `[:rf/machine :auth.login/flow]` is that instance, or
+`nil` before the first event.
 
 A **spawned** actor is another live instance of a machine **type**, created
 at run time. It gets an allocated id (`:auth/request#0`). Use one when you
@@ -32,13 +32,34 @@ The singleton login machine spawns a request actor on `:submitting`:
 (rf/reg-machine :auth/request
   {:initial :running
    :data    {}
+
+   :actions
+   {:issue-request
+    ;; The tutorial's managed request, addressed to this actor's own id.
+    (fn [{data :data}]
+      {:fx [[:rf.http/managed
+             {:request    {:method :post :url "/api/login"
+                           :body (:credentials data)
+                           :request-content-type :json}
+              :decode     :json
+              :on-success [(:rf/self-id data) [:server-ok]]
+              :on-failure [(:rf/self-id data) [:server-err]]}]]})
+
+    :keep-token
+    (fn [{data :data [_ {:keys [value]}] :event}]
+      {:data (assoc data :token (:token value))})
+
+    :report-success
+    (fn [{data :data}]
+      {:fx [[:dispatch [(:rf/parent-id data) [:auth.login/success]]]]})}
+
    :states
    {:running
     {:entry :issue-request
      :on    {:server-ok {:target :done
                          :action :keep-token}
              :server-err :failed}}
-    :done   {:final? true :output-key :token}
+    :done   {:entry :report-success :final? true :output-key :token}
     :failed {:final? true :error? true}}})
 
 :submitting
@@ -49,12 +70,20 @@ The singleton login machine spawns a request actor on `:submitting`:
          :on-done    (fn [{:keys [data result]}]
                        (assoc data :token result))
          :on-error   {:target :error-shown}}
- :on    {:auth.login/cancel :idle}}
+ :on    {:auth.login/success :authed
+         :auth.login/cancel  :idle}}
 ```
 
 `:auth.login/flow` is still the singleton. `:auth/request` is the **type**.
 Each visit to `:submitting` allocates a new spawned id. Leaving
 `:submitting` — success, error, cancel, timeout — destroys that actor.
+
+The two success halves do different jobs. `:on-done` folds the child's token
+into the parent's `:data` and stops there; it is not a transition, so on its
+own the parent would sit in `:submitting` wearing `:auth/busy` with the child
+already gone. The move is an ordinary trigger: the child's final state
+dispatches `[:auth.login/success]` to `:rf/parent-id`, and `:submitting`
+handles it. Failure needs no counterpart — `:on-error` **is** a transition.
 
 A larger shipped case binds one socket actor to a parent that spans several
 children:
@@ -64,6 +93,12 @@ children:
 (rf/reg-machine :ws/connection
   {:initial :disconnected
    :data    {:url nil :auth-token nil}
+
+   :actions
+   {:record-options
+    (fn [{data :data [_ {:keys [url auth-token]}] :event}]
+      {:data (assoc data :url url :auth-token auth-token)})}
+
    :states
    {:disconnected
     {:on {:ws/connect {:target :active
@@ -79,7 +114,10 @@ children:
      :initial :connecting
      :states  {:connecting     {:on {:ws/opened :authenticating}}
                :authenticating {:on {:ws/auth-ok :connected}}
-               :connected      {}}}}})
+               :connected      {}}}
+
+    :reconnecting {:on {:ws/connect :active}}
+    :failed       {:on {:ws/connect :active}}}})
 ```
 
 The socket is spawned on the `:active` *parent*, so one actor spans
