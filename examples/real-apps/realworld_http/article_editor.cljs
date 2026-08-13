@@ -95,6 +95,45 @@
         (update :baseline seed-in)
         (update :errors #(apply dissoc % seeded)))))
 
+(defn still-editing?
+  "Does a reply for `slug` still belong to the slice we are about to write?
+
+   The editor slice holds ONE article at a time, and `[:editor :slug]` names
+   which. `:editor/load-article` stamps it on entry to `/editor/:slug`;
+   `:editor/reset` nils it on entry to `/editor`. So comparing the slug the
+   reply was REQUESTED for against the slug the slice currently targets answers
+   exactly the question a late reply raises: is this still my article?
+
+   Why the correlation is needed at all — the two gates are independent, and
+   neither substitutes for the other:
+
+   - `seed-slice` (above) is the LEAFWISE gate. It decides WHICH FIELDS a reply
+     may overwrite, and it protects a field the user has touched. It is no help
+     across articles: a reply for A lands on B's slice with every field
+     untouched relative to B's baseline, so the merge would take all of A's
+     values quite happily.
+   - This is the CORRELATION gate. It decides WHETHER THE REPLY BELONGS TO THIS
+     SCREEN at all, before any field is considered.
+
+   And the `:request-id` does not stand in for it. `[:editor/load-article slug]`
+   makes A's and B's requests DISTINCT ids, so managed HTTP's same-id supersede
+   (Spec 014 §`:request-id` (internal)) never fires between them and A's reply
+   is delivered in full. Collapsing the id to a bare `:editor/load-article`
+   would suppress A when B is lowered, but only then — leaving `/editor/A` for
+   `/editor` (create) or for any non-editor page lowers no superseding request,
+   so the late A reply would still arrive. Supersede is an optimisation;
+   correlating the reply is the correctness boundary, which is why the app owns
+   it (Spec 014: navigation staleness for a plain managed request is the app's,
+   not the fx's).
+
+   The resources twin spells the same rule against the ROUTE
+   (`realworld-resources.article-editor` `:editor/article-loaded`), because
+   there the ROUTE owns the article read. Here the EVENT owns the request and
+   stamps the slice in the same handler that lowers it, so the slice's own slug
+   is the tighter fact — and reading it needs no runtime coeffect."
+  [db slug]
+  (= slug (get-in db [:editor :slug])))
+
 (defn validate-draft [{:keys [title description body]}]
   (cond-> {}
     (str/blank? title)       (assoc :title "Title is required.")
@@ -277,7 +316,14 @@
   {:doc "Pull an existing article into the editor for editing. The house
          data-fetch retry policy applies. Broadcasts `:use-edit` so the :mode
          region flips to edit, and `:fetch-started` so the :lifecycle region
-         moves to :loading while the fetch is out."
+         moves to :loading while the fetch is out.
+
+         Both reply targets CARRY THE REQUESTED SLUG. A GET is slower than a
+         click, so the reader can be on `/editor/B` (or `/editor`, or a page
+         with no editor on it at all) by the time A comes back; the slug rides
+         along so `still-editing?` can tell the reply apart from the slice it
+         would otherwise land on. See that helper for why neither `seed-slice`
+         nor the `:request-id` covers this."
    :rf.http/decode-schemas [schema/ArticleResponse]}
   ;; The route lives in runtime-db.
   (fn [{:keys [db] rt :rf.db/runtime} _]
@@ -291,24 +337,40 @@
                           :decode     schema/ArticleResponse
                           :retry      rh/data-fetch-retry
                           :request-id [:editor/load-article slug]
-                          :on-success [:editor/loaded]
-                          :on-failure [:editor/load-failed]})]]})))
+                          :on-success [:editor/loaded slug]
+                          :on-failure [:editor/load-failed slug]})]]})))
 
 (rf/reg-event :editor/loaded
-  {:doc "The GET's `:on-success`. Seeds the editor from the loaded article — but
-         LEAFWISE (`seed-slice`), because the user can start typing before the
-         round trip returns, and a whole-slice replacement would discard those
-         keystrokes."}
-  (fn [{:keys [db]} [_ {:keys [value]}]]
-    (let [article (:article value)
-          draft   (draft-from-article article)]
-      {:db (update db :editor seed-slice (:slug article) draft)
-       :fx [[:dispatch [:ui/article-editor [:fetch-succeeded]]]]})))
+  {:doc "The GET's `:on-success`, carrying the slug it was requested for.
+
+         Two gates, in order, and they answer different questions:
+
+         1. CORRELATION (`still-editing?`) — is this reply still for the
+            article the slice holds? A reply for A that arrives after the
+            reader moved to `/editor/B` is dropped on the floor: it must not
+            rewrite B's draft, B's baseline or B's slug, and it must not tell
+            the machine B's fetch succeeded.
+
+         2. LEAFWISE SEED (`seed-slice`) — of the fields this reply MAY write,
+            which does it actually get? Not the ones the user has touched: the
+            round trip is slower than the first keystroke, so a whole-slice
+            replacement would discard what they typed."}
+  (fn [{:keys [db]} [_ slug {:keys [value]}]]
+    (when (still-editing? db slug)
+      (let [article (:article value)
+            draft   (draft-from-article article)]
+        {:db (update db :editor seed-slice (:slug article) draft)
+         :fx [[:dispatch [:ui/article-editor [:fetch-succeeded]]]]}))))
 
 (rf/reg-event :editor/load-failed
-  (fn [{:keys [db]} [_ {:keys [error]}]]
-    {:db (assoc-in db [:editor :submit-error] (rh/failure->message error))
-     :fx [[:dispatch [:ui/article-editor [:fetch-failed]]]]}))
+  {:doc "The GET's `:on-failure`, correlated exactly as `:editor/loaded` is —
+         a late failure for A must not raise an error banner over B's draft or
+         push B's lifecycle region into :error while B's own fetch is still
+         out."}
+  (fn [{:keys [db]} [_ slug {:keys [error]}]]
+    (when (still-editing? db slug)
+      {:db (assoc-in db [:editor :submit-error] (rh/failure->message error))
+       :fx [[:dispatch [:ui/article-editor [:fetch-failed]]]]})))
 
 (rf/reg-event :editor/edit-field
   (fn [{:keys [db]} [_ field value]]

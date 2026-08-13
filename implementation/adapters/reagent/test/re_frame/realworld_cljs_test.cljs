@@ -1763,6 +1763,103 @@
               "typing that survived a settle leaves the draft DIRTY — the save must send it")
           (is (= #{:title} (:touched slice)) "the seed marks nothing touched of its own"))))))
 
+;; The CROSS-slug half of the same defect, and the reason the leafwise seed above
+;; is not the whole answer. `seed-slice` protects a field the USER HAS TOUCHED —
+;; but a reply for article A lands on article B's slice with every field
+;; untouched relative to B's baseline, so the merge would hand A's values over
+;; field by field, all of them. The two gates answer different questions:
+;; correlation decides WHETHER the reply belongs to this screen, the leafwise
+;; seed decides WHICH FIELDS it may write. These two tests drive the real
+;; sequence — A's GET out, navigate to B, A settles late — over both reply
+;; branches.
+
+(defn- editor-cross-slug-settle-is-refused-test []
+  ;; A stub that CAPTURES every lowered request and never replies, so BOTH the A
+  ;; and the B GET can be held open and settled by hand, in the order a slow
+  ;; network would pick.
+  (let [lowered (atom [])
+        article (fn [slug title]
+                  {:article {:slug slug :title title
+                             :description (str "About " slug)
+                             :body        (str "Body of " slug)
+                             :tagList     [slug]}})]
+    (rf/reg-fx :realworld.test/editor-cross-slug
+      {:platforms #{:client :server}}
+      (fn [_frame-ctx args] (swap! lowered conj args) nil))
+    (with-new-frame [f (frame/make-anon-frame-record!
+                         {:initial-events [[:app/initialise]]
+                          :fx-overrides {:rf.http/managed :realworld.test/editor-cross-slug}})]
+      (rf/dispatch-sync [:auth/store-session {:username "alice" :token "jwt"}] {:frame f})
+      ;; Enter /editor/alpha — A's GET goes out and stays out.
+      (rf/dispatch-sync [:rf.route/handle-url-change "/editor/alpha"] {:frame f})
+      ;; …and move on to /editor/beta before A replies. A freshly-entered draft is
+      ;; clean, so `:can-leave` waves this through: an ordinary navigation, not a
+      ;; contrived one.
+      (rf/dispatch-sync [:rf.route/handle-url-change "/editor/beta"] {:frame f})
+      (is (= 2 (count @lowered))
+          "each editor entry lowered its own article GET, and nothing else went out")
+      (let [[a-req b-req] @lowered]
+        (is (= [:editor/load-article "alpha"] (:request-id a-req))
+            "the two GETs carry DISTINCT per-slug request-ids, so managed HTTP's
+             same-id supersede never fires between them — A's reply is delivered
+             in full and correlating it is the app's job")
+        (is (= [:editor/load-article "beta"] (:request-id b-req)))
+        (is (= [:editor/loaded "alpha"] (:on-success a-req))
+            "so the reply target carries the slug it was requested for")
+        (is (= [:editor/load-failed "alpha"] (:on-failure a-req))
+            "…on the failure branch too")
+        ;; B settles normally first: the editor is fully seeded from beta.
+        (rf/dispatch-sync (conj (:on-success b-req)
+                                {:status :ok :value (article "beta" "Beta")})
+                          {:frame f})
+        (is (= "Beta" (:title (rf/compute-sub [:editor/draft] (rf/frame-state-value f))))
+            "B's own reply seeds B's draft — the ordinary path is untouched")
+        ;; THE LATE ARRIVAL. Nothing has been typed, so every field of beta's slice
+        ;; is UNTOUCHED — which is precisely why the leafwise seed is no defence
+        ;; here. RED without the correlation gate: the whole draft, the baseline
+        ;; and the slug all become alpha's.
+        (rf/dispatch-sync (conj (:on-success a-req)
+                                {:status :ok :value (article "alpha" "Alpha")})
+                          {:frame f})
+        (let [slice (rf/compute-sub [:editor/slice] (rf/frame-state-value f))
+              draft (rf/compute-sub [:editor/draft] (rf/frame-state-value f))]
+          (is (= "beta" (:slug slice))
+              "a late alpha reply must not re-slug the editor — the PUT target stays beta")
+          (is (= {:title "Beta" :description "About beta" :body "Body of beta" :tagList "beta"}
+                 draft)
+              "…nor rewrite beta's draft, asserted whole because the bug is never the
+               leaf you looked at")
+          (is (= draft (:baseline slice))
+              "…nor beta's baseline, which is what dirty-detection compares against")
+          (is (false? (rf/compute-sub [:editor/dirty?] (rf/frame-state-value f)))
+              "so the form stays clean and `:can-leave` still lets the reader go")
+          (is (empty? (:touched slice))
+              "and the refusal marks nothing touched of its own"))))))
+
+(defn- editor-cross-slug-failure-is-refused-test []
+  ;; Same sequence, failure branch: beta's GET is still out when alpha's fails.
+  (let [lowered (atom [])]
+    (rf/reg-fx :realworld.test/editor-cross-slug-fail
+      {:platforms #{:client :server}}
+      (fn [_frame-ctx args] (swap! lowered conj args) nil))
+    (with-new-frame [f (frame/make-anon-frame-record!
+                         {:initial-events [[:app/initialise]]
+                          :fx-overrides {:rf.http/managed :realworld.test/editor-cross-slug-fail}})]
+      (rf/dispatch-sync [:auth/store-session {:username "alice" :token "jwt"}] {:frame f})
+      (rf/dispatch-sync [:rf.route/handle-url-change "/editor/alpha"] {:frame f})
+      (rf/dispatch-sync [:rf.route/handle-url-change "/editor/beta"] {:frame f})
+      (let [[a-req] @lowered]
+        (rf/dispatch-sync (conj (:on-failure a-req)
+                                {:status :error
+                                 :error  {:kind :rf.http/http-5xx :status 500}})
+                          {:frame f})
+        (is (nil? (rf/compute-sub [:editor/submit-error] (rf/frame-state-value f)))
+            "alpha's late failure raises no error banner over beta's editor")
+        (is (true? (ed-has-tag? f :lifecycle/loading))
+            "…and leaves the lifecycle region at :loading, where beta's own fetch put it")
+        (is (false? (ed-has-tag? f :lifecycle/error))
+            "…so the page-level error gate stays shut for a reply that was never beta's")))))
+
 (deftest realworld-article-editor-edit-delete
   (testing "pure helpers: validate-draft / parse-tag-list / draft-from-article / article-body (rf2-54eebb)"
     (editor-pure-helpers-test))
@@ -1775,7 +1872,13 @@
   (testing "a client-invalid submit fills per-field errors and fires no request (rf2-54eebb)"
     (editor-invalid-submit-test))
   (testing "a same-slug settle seeds LEAFWISE and does not clobber typing (rf2-czvc, R-C1)"
-    (editor-same-slug-seed-preserves-typing-test)))
+    (editor-same-slug-seed-preserves-typing-test))
+  (testing "a CROSS-slug settle is refused outright — a late A cannot rewrite B's
+            draft, baseline or slug (rf2-czvc, R-C2)"
+    (editor-cross-slug-settle-is-refused-test))
+  (testing "a CROSS-slug FAILURE is refused too — a late A error cannot banner B
+            or trip B's lifecycle into :error (rf2-czvc, R-C2)"
+    (editor-cross-slug-failure-is-refused-test)))
 
 ;; ============================================================================
 ;; favorites / comments / feed / profile — optimistic-success + follow-author +
