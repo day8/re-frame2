@@ -786,6 +786,7 @@ The raw trace stream is event-at-a-time; pair-shaped UIs (the Story trace panel,
 ;;                                              ;;   skipped-on-platform
 ;;      :subs               [<trace-event> ...]  ;; :rf.sub/run + :rf.sub/skip
 ;;                                              ;;   + :rf.sub/create
+;;                                              ;;   + :rf.sub/dispose
 ;;      :renders            [<trace-event> ...]  ;; :op-type :rf.view /
 ;;                                              ;;   :operation :rf.view/render
 ;;      :other              [<trace-event> ...]} ;; errors, warnings, machines,
