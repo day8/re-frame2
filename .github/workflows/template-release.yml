@@ -199,6 +199,20 @@ jobs:
       # Chromium now fails the job (`browser-proofs-required?` in
       # `emitted_test_run_test.clj`). `--with-deps` because the runner has
       # none of Chromium's shared libraries.
+      #
+      # rf2-169n — and cache that binary (see `cljs-browser` in test.yml for
+      # the scheme). This is the RELEASE gate, so a network flake on the
+      # Chrome-for-Testing bucket reds a tag rather than a PR; a cache hit
+      # removes the download hop entirely. It does not remove `--with-deps`,
+      # whose apt system libraries are not cacheable.
+      - name: Cache Playwright browser binary
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('implementation/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-playwright-
+
       - name: Install Playwright chromium (for the emitted browser proofs)
         working-directory: implementation
         run: npx playwright install --with-deps chromium || "$GITHUB_WORKSPACE/.github/scripts/playwright-install-failed.sh"

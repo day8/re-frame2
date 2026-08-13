@@ -1318,6 +1318,17 @@ jobs:
       - name: npm install
         run: npm ci
 
+      # rf2-169n — cache the Playwright browser binary (see `cljs-browser` for
+      # the scheme). On a hit the install below still runs `--with-deps`; only
+      # the browser download is skipped.
+      - name: Cache Playwright browser binary
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('implementation/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-playwright-
+
       - name: Install pinned Chromium
         run: npx playwright install --with-deps chromium || "$GITHUB_WORKSPACE/.github/scripts/playwright-install-failed.sh"
 
@@ -5017,6 +5028,22 @@ jobs:
       # present and nothing earlier in the job installs them; a
       # half-provisioned browser would now red the job, so provision it
       # properly.
+      #
+      # rf2-169n — and cache that binary (see `cljs-browser` for the scheme).
+      # This job is where rf2-swos was filed from: run 94299983393 died on the
+      # browser DOWNLOAD, a Google Cloud Storage 403 geo-denial on the
+      # Chrome-for-Testing bucket. A cache hit skips that download outright.
+      # It does NOT skip `--with-deps` — the apt system libraries live outside
+      # ~/.cache/ms-playwright and are not cacheable, so the apt hop still runs
+      # on every run, hit or miss.
+      - name: Cache Playwright browser binary
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('implementation/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-playwright-
+
       - name: Install Playwright chromium (for the emitted browser proofs)
         working-directory: implementation
         run: npx playwright install --with-deps chromium || "$GITHUB_WORKSPACE/.github/scripts/playwright-install-failed.sh"
@@ -5932,6 +5959,28 @@ jobs:
       # bundle build is reproducible — required for the drift gate below.
       - name: npm ci (bootstrap deps)
         run: npm ci
+
+      # rf2-169n — cache the Playwright browser binary. This job's
+      # working-directory is docs/tools/playground, so `npx` resolves THAT
+      # tree's Playwright (^1.60.0 → 1.60.0), not implementation's pinned
+      # 1.59.1 — so the key hashes the playground's own lockfile. Keying it on
+      # implementation/package-lock.json would bust this cache on a bump it
+      # does not care about and leave it stale across the bump that matters.
+      # No bare `-playwright-` restore fallback here, so an implementation
+      # browser tree is never restored into this job. (The reverse can happen
+      # on an implementation-lock bump; it is harmless — the install step
+      # always runs, and Playwright only ever uses the exact revision
+      # directory its own version asks for.) On a hit that install still runs
+      # `--with-deps`: the apt system libraries live outside
+      # ~/.cache/ms-playwright and are not cacheable. Only the browser
+      # DOWNLOAD is skipped — which is the hop that failed in rf2-swos.
+      - name: Cache Playwright browser binary
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-playground-${{ hashFiles('docs/tools/playground/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-playwright-playground-
 
       - name: Install Playwright (Chromium + system deps)
         run: npx playwright install --with-deps chromium || "$GITHUB_WORKSPACE/.github/scripts/playwright-install-failed.sh"

@@ -292,6 +292,32 @@ jobs:
       # events: on a PR the docs build is a regression check that never deploys,
       # and tools-playground already smokes the bundle at PR time. This also
       # keeps main-push CI at ONE heavy bundle build instead of two.
+      #
+      # rf2-169n — cache the Playwright browser binary. This step runs under
+      # docs/tools/playground, so `npx` resolves THAT tree's Playwright
+      # (^1.60.0 → 1.60.0), not implementation's pinned 1.59.1 — so the key
+      # hashes the playground's own lockfile. Keying it on
+      # implementation/package-lock.json would bust this cache on a bump it
+      # does not care about and leave it stale across the bump that matters.
+      # No bare `-playwright-` restore fallback here, so an implementation
+      # browser tree is never restored into this job. (The reverse can happen
+      # on an implementation-lock bump; it is harmless — the install step
+      # always runs, and Playwright only ever uses the exact revision
+      # directory its own version asks for.) On a hit that install still runs
+      # `--with-deps`: the apt system libraries live outside
+      # ~/.cache/ms-playwright and are not cacheable. Only the browser
+      # DOWNLOAD is skipped — which is the hop that failed in rf2-swos.
+      # Same `if:` as the install step it fronts, so PR runs neither restore
+      # nor save a cache for a smoke they do not run.
+      - name: Cache Playwright browser binary
+        if: github.event_name != 'pull_request'
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-playground-${{ hashFiles('docs/tools/playground/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-playwright-playground-
+
       - name: Install Playwright (Chromium + system deps)
         if: github.event_name != 'pull_request'
         working-directory: docs/tools/playground

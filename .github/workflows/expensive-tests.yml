@@ -67,6 +67,17 @@ jobs:
       - name: Compile every standalone example build (nightly coverage net)
         run: npm run test:examples-compile
 
+      # rf2-169n — cache the Playwright browser binary (see `cljs-browser` in
+      # test.yml for the scheme). On a hit the install below still runs
+      # `--with-deps`; only the browser download is skipped.
+      - name: Cache Playwright browser binary
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('implementation/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-playwright-
+
       - name: Install Playwright (Chromium + system deps)
         run: npx playwright install --with-deps chromium || "$GITHUB_WORKSPACE/.github/scripts/playwright-install-failed.sh"
 
@@ -259,6 +270,19 @@ jobs:
       # (`browser-proofs-required?` in `emitted_test_run_test.clj`).
       # `--with-deps` because the runner carries none of Chromium's shared
       # libraries and nothing earlier in this job installs them.
+      #
+      # rf2-169n — and cache that binary (see `cljs-browser` in test.yml for
+      # the scheme). A hit skips the browser download but NOT `--with-deps`:
+      # the apt system libraries are not cacheable, which is exactly why the
+      # flag stays.
+      - name: Cache Playwright browser binary
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('implementation/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-playwright-
+
       - name: Install Playwright chromium (for the emitted browser proofs)
         working-directory: implementation
         run: npx playwright install --with-deps chromium || "$GITHUB_WORKSPACE/.github/scripts/playwright-install-failed.sh"
@@ -333,6 +357,19 @@ jobs:
       - name: Install implementation deps (for Playwright)
         working-directory: implementation
         run: npm install --no-audit --no-fund
+
+      # rf2-169n — cache the Playwright browser binary (see `cljs-browser` in
+      # test.yml for the scheme). Keyed on implementation/package-lock.json
+      # because the install step below runs under `implementation`, which is
+      # what pins the Playwright `npx` resolves. On a hit the install still
+      # runs `--with-deps`; only the browser download is skipped.
+      - name: Cache Playwright browser binary
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('implementation/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-playwright-
 
       - name: Install Playwright chromium (for hermetic browser preload)
         working-directory: implementation
