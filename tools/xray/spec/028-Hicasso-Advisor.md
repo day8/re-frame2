@@ -127,20 +127,65 @@ frame B's clock into frame A's ranking would make an idle boundary look hot
 because something unrelated was busy next door — the defect `explain-render`
 already scopes its leads against (audit #7789).
 
-### Four classifications, and the pair that must not collapse
+### Five classifications, and the trio that must not collapse
 
-| `:owner` | `:basis` | Means |
-|---|---|---|
-| `:computation` | `:observation` | one read holds ≥ `dominance` of a total ≥ `computation-floor-ms` |
-| `:read-topology` | `:derivation` | the read set oscillates (`:read-orders` > 1), or it re-runs ≥ `repeat-floor` times for measured work below the floor |
-| `:unattributed` | `:host-opaque` | the window WAS searched and the measured half does not explain it |
-| `:unattributed` | `:cap` | nothing was retained, so no search happened |
+| `:owner` | `:basis` | `:observed` | Means |
+|---|---|---|---|
+| `:computation` | `:observation` | `:recomputes` | one read holds ≥ `dominance` of a total ≥ `computation-floor-ms` |
+| `:read-topology` | `:derivation` | `:recomputes` / `:memo-hits-only` | the read set oscillates (`:read-orders` > 1), or it re-runs ≥ `repeat-floor` times for measured work below the floor |
+| `:unattributed` | `:host-opaque` | `:recomputes` | the window was searched, recomputes happened, and the measured half does not explain them |
+| `:unattributed` | `:host-opaque` | `:memo-hits-only` | the window retained this boundary's reads being CONSIDERED and the memo answered every one — nothing recomputed |
+| `:unattributed` | `:cap` | `:nothing` | the window retained no activity for this boundary at all, so no search happened |
 
-The last two are the pair a naive advisor collapses. `:cap` says *raise
-`:rf.trace/events-retained` and reproduce* — free. `:host-opaque` says *the
-answer is real and lives in another tool* — a change of instrument. One sentence
-covering both would send half its readers to the wrong place, so they are two
-sentences under two loss chips.
+The last three are the trio a naive advisor collapses, and `:observed` is what
+holds them apart **in data** rather than only in prose. `:cap` says *raise
+`:rf.trace/events-retained` and reproduce* — free. The two `:host-opaque` rows
+say *the answer is real and lives in another tool* — a change of instrument. One
+sentence covering all three would send two thirds of its readers to the wrong
+place, so they are three sentences under two loss chips, and exactly one of them
+names the retention knob.
+
+#### `:rf.sub/skip` means one thing, and both views say it
+
+A memo hit is **not a recompute and not nothing**. Spec 009 emits `:rf.sub/skip`
+only when the cell was considered — it is *distinct from the case where the sub
+was not considered at all* — so a retained skip is positive evidence that the
+window observed this read and the memo held.
+
+That fact reached the two views differently, and they contradicted each other
+about the same event (audit #8027, reproduced on `main` with one skip:
+`{:memo-hits 1, :advisor-basis :cap, :causal-holds [:a], :causal-evidenced true}`):
+
+- the advisor recorded the skip as a memo hit — correctly, and calls it the
+  single most informative topology signal there is — but derived `searched?`
+  from **recompute runs alone**, so a skip-only window fell through to `:cap`,
+  said *no search happened*, and told the programmer to enlarge a window that
+  had already retained the evidence;
+- the causal slice's link 2 collected every `:subs` item carrying an
+  `:rf.sub/id` **without filtering the operation**, so the same skip appeared in
+  a roster labelled *subscriptions recomputed* under an `evidenced` chip. The
+  trace projection's `:subs` slot also carries `:rf.sub/dispose`, which was
+  landing in that roster too.
+
+An advisor that sends a reader to the retention knob when the evidence was
+already retained is worse than no advisor: it sends them to fix the instrument
+instead of the code.
+
+The repair is **one predicate**, `hicasso-helpers/sub-recompute?`
+(`#{:rf.sub/run :rf.sub/create}`) with `sub-skip?` beside it, in the shared
+algebra both derivations already consume — two definitions of *did work happen*
+is what produced the disagreement, and a third would have been worse. The
+advisor's private `sub-run?` is gone.
+
+`classify` now asks two questions rather than one: `searched?` is about
+recomputes and `considered?` is about activity of any kind. A skip-only window is
+`:host-opaque` / `:memo-hits-only`, routed to **measure-first** and never to the
+retention knob, and its sentence says what the window actually held — *N memo
+hits and no recompute at all; the cells were considered and answered without
+running; subscription computation owns none of this boundary's cost, because
+none of it ran.* **`:runs` stays 0**: the skip is classified as observed activity
+without being promoted to a run, because making the arithmetic work by
+reclassifying the event would be the same lie one layer down.
 
 Three thresholds, each with its reason attached rather than a taste:
 
@@ -182,7 +227,7 @@ ring still holds, so the two views are one workflow rather than two lookups.
 | # | Link | Seam | Basis |
 |---|---|---|---|
 | 1 | event | Spec 009's retained ring, the bundle for this dispatch | `:observation` |
-| 2 | subscriptions recomputed | that bundle's `:subs` events, keyed `:rf.sub/id` | `:observation` |
+| 2 | subscriptions recomputed | that bundle's `:subs` RECOMPUTE events — `hicasso-helpers/sub-recompute?`, keyed `:rf.sub/id` | `:observation` |
 | 3 | values changed | the cell table's epoch stamps, at the boundary's peak | `:observation` |
 | 4 | boundaries notified | the cells' reader arrays — the reverse edge `notify!` walks | `:derivation` |
 | 5 | bodies run | — | `:host-opaque` |
@@ -202,6 +247,15 @@ id. Two solid facts, printed adjacent, joined by nothing: exactly the adjacency
 than implied away by the arrow between two green links. The 1→2 join, by
 contrast, IS evidenced — the ring GROUPS by dispatch-id, so that join is the
 storage rather than an inference.
+
+Link 2's roster is **recomputes only**, and the memo hits ride a separate
+`:skipped` field on the same link — reported rather than discarded, because a
+skip is the informative half of a dispatch that recomputed nothing. An empty
+`:holds` with no unnamed run is a genuine survey result (*this dispatch
+recomputed nothing*); an empty `:holds` **with** unnamed runs states `:unknown`
+instead, which is the one substitution the evidence schema exists to refuse.
+Filtering by operation does not touch that rule: `:unknown` follows from an
+unnamed RUN, never from an untagged skip.
 
 Link 4 is derived even when green. The reader array is what `collector/notify!`
 walks, so the notified set follows from it — but the notify CALL is not recorded,
@@ -305,10 +359,18 @@ bead: no new sentinel, no new evidence machinery, and no code under
 
 | Suite | Tier | Proves |
 |---|---|---|
-| `…panels.hicasso-advisor-cljs-test` | node + JVM | the timing fold (untimed ≠ zero; a memo hit is not work; an unnamed run is `:uncorrelated`, never dropped; the per-frame scope); the top-3 against a HAND profile whose frequency order deliberately inverts its time order; the fallback axis says `NOT by time`; the four classifications, each driven from a real window; `:cap` and `:host-opaque` are two remedies in two sentences; **the native refusal as a property over the classifier's whole output**, with the ladder's non-vacuity control beside it; the refusal names a non-Xray authority per candidate |
+| `…panels.hicasso-advisor-cljs-test` | node + JVM | the timing fold (untimed ≠ zero; a memo hit is not work; an unnamed run is `:uncorrelated`, never dropped; the per-frame scope); the top-3 against a HAND profile whose frequency order deliberately inverts its time order; the fallback axis says `NOT by time`; the five classifications, each driven from a real window; `:cap` and `:host-opaque` are two remedies in two sentences; **the native refusal as a property over the classifier's whole output**, with the ladder's non-vacuity control beside it; the refusal names a non-Xray authority per candidate |
 | `…panels.hicasso-causal-cljs-test` | node (reactive substrate) | the seven links on a REAL interaction through the real commit seam and the real router; links 1–4 evidenced and 5–7 host-opaque with three distinct authorities; the 2→3 join `:uncorrelated` while the 1→2 join is `:evidenced`; **four mutation rows, each with its positive control**; the loss chips reach the page under distinct testids and change between two genuinely different window states; the advisor answers on the running app and still refuses the ladder; advice and slice come from ONE turn |
+| `…panels.hicasso-skip-semantics-cljs-test` | node + JVM | **both public results, off ONE window** — a skip-only window is `:memo-hits-only` / `:host-opaque` with `:runs` 0, routed to measure-first and never to the retention knob, while the same window's slice holds `[]` recomputes and one `:skipped`; a bundle carrying all four `:rf.sub` operations gives the advisor's recompute COUNT and the slice's recompute ROSTER the same reading; the three unattributed states are pairwise distinct and exactly one names `:rf.trace/events-retained`; an untagged RUN beside a tagged skip still degrades to `:unknown` with a `:dropped` of 1 |
 
-Both suites run in the existing `:node-test` build (`tools/xray/test` is already
-on its source paths) and the `.cljc` one additionally under
+The pair-in-one-row shape of the third suite is the point: an advisor-only row
+would go green against a causal slice that had drifted back, and a causal-only
+row against an advisor that had. Its red demonstration is the pre-repair
+predicate planted in both places — 17 failures across six of its rows, naming
+`:cap` where the window held evidence and a five-element roster where two
+recomputes ran.
+
+All three suites run in the existing `:node-test` build (`tools/xray/test` is
+already on its source paths) and the two `.cljc` ones additionally under
 `tools/xray`'s `clojure -M:test`. No new build id, no new `:dev-http` port, no
 `implementation/shadow-cljs.edn` change.
