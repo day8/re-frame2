@@ -1230,10 +1230,20 @@ test('the narrow plans SUBTRACT arms — they add none, move none and reorder no
 
 test('the DRIVER honours both switches — the write, the plan, and the record', () => {
   // The wiring, so the pins above cannot drift off the thing that runs.
-  has(
-    /window\.P0H\.allocWindow\(n, k, d\),\s*\[ALLOC_WRITES, drain, ALLOC_WRITE_SPEC\.kind\]/,
-    'the measured window drives the SELECTED write, not a literal'
+  // BOTH allocWindow call sites, counted rather than merely matched. The
+  // warm-up and the measured window carry identical text, so a `has` would
+  // stay green with either one pinned back to a literal — and the warm-up is
+  // the more dangerous of the two to lose, because a site warmed under one
+  // write and measured under the other reads its settled value for neither.
+  // (`b8-alloc`'s driver watched a first window read 5.3x its settled value.)
+  assert.strictEqual(
+    (SRC.match(
+      /window\.P0H\.allocWindow\(n, k, d\),\s*\[ALLOC_WRITES, drain, ALLOC_WRITE_SPEC\.kind\]/g
+    ) || []).length,
+    2,
+    'the warm-up AND the measured window both drive the SELECTED write'
   );
+  lacks(/window\.P0H\.allocWindow\(n, 'write', d\)/, 'and neither is pinned to a literal kind');
   has(
     /const plan = allocPlanArms\(ladderPlan\(perRoot, ROOTS\), ALLOC_PLAN_SHAPE\);/,
     'and the plan is the shipped ladder plan narrowed by the shape'
