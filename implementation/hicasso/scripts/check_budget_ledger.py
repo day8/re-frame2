@@ -745,9 +745,14 @@ def main(argv=None):
           % (len(rows), counts["MET"], counts["BREACH"],
              counts["UNRESOLVED"], counts["UNPINNED"]))
     print("Every registered line has a row; every row that is not MET names "
-          "an owner and a disposition that resolves;")
+          "a bead id and a disposition that resolves;")
     print("no band crossing its line is recorded as a pass; no distributional "
           "row is wired to a pull-request gate.")
+    print("An Authority cell is read for SHAPE, not for life. This gate reads "
+          "two markdown files and has no tracker access, so it cannot see "
+          "that a named bead has closed:")
+    print("a row can name an owner and have none. Whether the named beads are "
+          "open is a question for a reader, and it is not certified here.")
     print("This is a verdict about the RECORD. It is not a statement that any "
           "budget is met -- %d rows are not MET."
           % (len(rows) - counts["MET"]))
