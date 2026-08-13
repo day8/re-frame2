@@ -400,6 +400,5 @@ everything, and this one published a good deal.
   it; why React 19 spells the atomicity guarantee that way is React's business
   and was not investigated.
 - **Nothing about composition, IME or the caret.** A keystroke here is a scripted
-  `input` event on a settled field. Composition exchanges are
-  [`rf2-hic-040`](https://github.com/day8/re-frame2/issues)'s cross-browser
-  matrix and are not this census's subject.
+  `input` event on a settled field. Composition exchanges are `rf2-hic-040`'s
+  cross-browser matrix and are not this census's subject.
