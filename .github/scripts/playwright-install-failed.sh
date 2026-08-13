@@ -18,6 +18,10 @@
 # CLI, clj-kondo and Babashka installs. This is the same remedy at the fourth
 # site: on failure the step now says, on the checks page, that no gate ran.
 #
+# "No gate ran" is the whole of the claim. It is deliberately NOT "not this
+# diff" — see "What the annotation can support" below, which is the correction
+# the merged-PR audit of #8061 reopened this bead for.
+#
 # Every call site is one line:
 #
 #     - name: Install Playwright (Chromium + system deps)
@@ -38,6 +42,62 @@
 # `implementation/scripts/_changed-surfaces.test.cjs` and
 # `tools/template/test/day8/re_frame2_template/release_gate_test.clj` assert
 # on intact, so this change needs no edit outside `.github/`.
+#
+# # What the annotation can support — and why it no longer says "not this diff"
+#
+# The first cut of this file (#8061) titled EVERY nonzero exit "CI
+# infrastructure — not this diff" and said in the body that the red "says
+# nothing whatever about the diff". That is a claim about the diff, and this
+# script has no way to reach it. It knows three things and no more:
+#
+#   * the install exited nonzero — it is the `||` branch, so that is a given;
+#   * therefore the browser is absent, the gate step never started, and NO GATE
+#     RAN IN THIS JOB. True whatever the cause, and worth saying, because the
+#     bare `##[error]Process completed with exit code 1` at the rollup does not;
+#   * its own environment — the working directory it was invoked in, which is
+#     the one fact that tells the reader WHICH Playwright root failed.
+#
+# It cannot see the diff. It cannot even see the install's output: the call
+# site is `npx playwright install … || <this script>`, so the fetcher's stderr
+# goes to the job log and never to this process. A signature classifier of the
+# `resolve-clojure-deps.sh` kind is therefore not available here without
+# changing the call-site shape, and the shape is pinned by the gap-map coupling
+# described above.
+#
+# And the claim was not merely unsupported, it was wrong for a real class. A PR
+# can break this install itself: by editing the browser arguments on the `npx
+# playwright install` line, the step's `working-directory`, `env` or download
+# host, the runner image or `setup-node`/cache inputs, this script, or the
+# Playwright pin the job resolves. Under the old wording all of those reds
+# arrived titled "not this diff" — a confident wrong answer telling the author
+# to look away from the change that caused it. That is the same fault the
+# merged-PR audits of #7132 and #7221 found in `resolve-clojure-deps.sh`, whose
+# comment states the rule this file now follows: the bias is that a fault it
+# cannot classify degrades to "we do not know" rather than to "not your diff".
+#
+# So the title states only what is certain — the install failed, no gate ran —
+# and the body keeps every useful measured fact as CONDITIONAL guidance: first
+# the provisioning inputs a diff can reach, then the re-run remedy for the case
+# where the diff reaches none of them. The reader loses nothing; the annotation
+# stops deciding for them.
+#
+# # The two Playwright roots — the pin depends on which root the step ran in
+#
+# The old caveat named `implementation/package-lock.json` alone. There are two
+# roots, resolving different pins from different lockfiles, and `npx` resolves
+# whichever one the step's working directory sits in:
+#
+#   * `implementation` — `package.json` pins `playwright` to an exact `1.59.1`;
+#     19 of the 21 sites run here, each after an `npm ci` in the same root.
+#   * `docs/tools/playground` — `package.json` asks for `^1.60.0`, and its own
+#     `package-lock.json` resolves `1.60.0`; the two playground smokes run here
+#     (`docs.yml`'s post-merge `build` job and `test.yml`'s `tools-playground`).
+#
+# Different pins fetch different Chrome-for-Testing revisions, which is why
+# rf2-169n (#8065) keys the two browser caches on the two lockfiles separately.
+# The annotation therefore prints `$PWD` and names both locks, leaving the
+# reader one obvious step — match the directory to its lockfile — instead of a
+# caveat that is silently inapplicable in two of twenty-one jobs.
 #
 # # Why there is no retry loop here — the siblings have one and this does not
 #
@@ -92,11 +152,19 @@
 #     understands. There is no working alternative value, so the knob is not
 #     set.
 #
-# So this file ships the (c)-half of the sibling remedy and refuses the
-# (a)-half, on the evidence. If a transient 5xx or ECONNRESET is ever measured
-# at this site — as it was at the other three on 2026-08-13 — Playwright's own
-# five attempts are the thing to widen, and an outer loop belongs here then,
-# sized under the tightest `timeout-minutes` of its call sites.
+# So this file ships the (c)-half of the sibling remedy — an explicit
+# annotation and a non-zero exit, rather than falling through to a later
+# "command not found" — and refuses the (a)-half, the widened retry envelope,
+# on the evidence. It parts company with the siblings on one point only: their
+# annotations classify the failure as infrastructure in the title, which they
+# can nearly support because the only diff-reachable input at those three sites
+# is a constant URL in the very file the caveat names. This site has a dozen
+# such inputs across two roots, so the title classifies nothing.
+#
+# If a transient 5xx or ECONNRESET is ever measured at this site — as it was at
+# the other three on 2026-08-13 — Playwright's own five attempts are the thing
+# to widen, and an outer loop belongs here then, sized under the tightest
+# `timeout-minutes` of its call sites.
 #
 # Exit status stays a plain 1, as in `install-clojure-cli.sh` and
 # `resolve-clojure-deps.sh`: the annotation is the machine-readable carrier
@@ -105,5 +173,5 @@
 #
 set -euo pipefail
 
-echo "::error title=Playwright browser install failed — CI infrastructure — not this diff::NO GATE RAN IN THIS JOB. This step provisions the browser, so the step that would have tested this change never started and this red says nothing whatever about the diff. Playwright already retries the download five times internally (playwright-core browserFetcher.js), so the remedy is a re-run, which lands on a different runner. Two modes have been measured (rf2-swos): a Google Cloud Storage 403 'this service is not available in your location' on the Chrome-for-Testing bucket that cdn.playwright.dev redirects to, which is scoped to this runner's egress IP; and a slow azure.archive.ubuntu.com apt hop under --with-deps. Neither is affected by anything in this PR UNLESS it changes the Playwright pin in implementation/package-lock.json or edits .github/scripts/playwright-install-failed.sh, in which case read those first."
+echo "::error title=Playwright browser install failed — no gate ran::npx playwright install exited nonzero in ${PWD}. This step provisions the browser, so the gate this job exists to run never started: the red reports PROVISIONING and carries no verdict on the code under test. WHICH KIND of failure it is depends on the diff, and this script cannot tell you — it is the || branch of the install and sees neither the diff nor the install's output. BEFORE RE-RUNNING, check whether this PR touches a provisioning input: the browser arguments on the npx playwright install line, the step's working-directory or env or download host, the runner image or setup-node or cache inputs, this script itself, or the Playwright pin in the lockfile of the root shown above — implementation/package-lock.json pins 1.59.1, docs/tools/playground/package-lock.json pins 1.60.0. If it touches any of them, read this step's raw log first: a diff-caused install failure lands here looking exactly like an outage. If it touches none of them, this is infrastructure and the remedy is a re-run, which lands on a different runner. Playwright already retries the download five times internally (playwright-core browserFetcher.js), and both modes measured under rf2-swos need a different runner rather than more attempts: a Google Cloud Storage 403 'this service is not available in your location' on the Chrome-for-Testing bucket that cdn.playwright.dev redirects to, scoped to this runner's egress IP; and a slow azure.archive.ubuntu.com apt hop under --with-deps."
 exit 1

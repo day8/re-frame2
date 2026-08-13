@@ -49,18 +49,22 @@
   a `rangeExtractor` that can force an index to stay in the rendered
   range. `react-window` has the first two and lacks only the third. The
   key has been the consumer's across both its generations — `itemKey`
-  through the whole 1.x line, `rowKey` in 2.3.0 — and so have the
-  wrappers, through `outerElementType`/`innerElementType` in 1.x and
-  through a root whose `tagName` and `role` the consumer sets in 2.x.
-  What neither generation offers is any seam that admits an
-  out-of-range index to what renders: each computes one contiguous
-  `[start, stop]` range and loops it, with `overscanCount` the only
-  consumer influence on it, so a record four hundred rows away cannot
-  be kept mounted. That single missing property is why the recipe names
-  the properties rather than the package — and it is why a collection
-  with nothing focusable in its rows can use `react-window` quite
-  happily. `virtualizer-recipe.md` carries the version-pinned audit
-  these sentences are read from; the two must move together.
+  through the whole 1.x line, `rowKey` in 2.3.0. The wrappers have a
+  shorter history than the key: 1.0.0 through 1.3.1 take
+  `outerTagName`/`innerTagName`, a tag name and nothing more, while
+  `outerElementType`/`innerElementType`, which put an arbitrary
+  component in either position, arrive in 1.4.0 and hold through
+  1.8.11; 2.x drops the pair for a root whose `tagName` and `role`
+  the consumer sets. What neither generation offers is any seam that
+  admits an out-of-range index to what renders: each computes one
+  contiguous `[start, stop]` range and loops it, with `overscanCount`
+  the only consumer influence on it, so a record four hundred rows
+  away cannot be kept mounted. That single missing property is why the
+  recipe names the properties rather than the package — and it is why
+  a collection with nothing focusable in its rows can use
+  `react-window` quite happily. `virtualizer-recipe.md` carries the
+  version-pinned audit these sentences are read from; the two must
+  move together.
 
   ## The ABI
 

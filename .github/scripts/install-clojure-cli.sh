@@ -88,7 +88,7 @@ while [ "$attempt" -lt "$attempts" ]; do
     https://github.com/clojure/brew-install/releases/latest/download/linux-install.sh \
     && sudo bash /tmp/linux-install.sh && break
   if [ "$attempt" -ge "$attempts" ]; then
-    echo "::error title=Clojure CLI install failed — CI infrastructure, not this diff::Downloading and running the official Clojure CLI installer failed ${attempts} times over roughly seven minutes. NO GATE RAN IN THIS JOB: this step provisions the toolchain, so the step that would have tested this change never started, and this red says nothing whatever about the diff. The usual cause is a github.com 5xx storm on the release download (four PRs on 2026-08-13, rf2-xsfr); the URL fetched is a fixed constant in .github/scripts/install-clojure-cli.sh, so no change can affect it UNLESS this PR edits that file, in which case read it first. Otherwise re-run the job."
+    echo "::error title=Clojure CLI install failed — CI infrastructure — not this diff::Downloading and running the official Clojure CLI installer failed ${attempts} times over roughly seven minutes. NO GATE RAN IN THIS JOB: this step provisions the toolchain, so the step that would have tested this change never started, and this red says nothing whatever about the diff. The usual cause is a github.com 5xx storm on the release download (four PRs on 2026-08-13, rf2-xsfr); the URL fetched is a fixed constant in .github/scripts/install-clojure-cli.sh, so no change can affect it UNLESS this PR edits that file, in which case read it first. Otherwise re-run the job."
     exit 1
   fi
   delay=$((attempt * 20 + RANDOM % 10))
