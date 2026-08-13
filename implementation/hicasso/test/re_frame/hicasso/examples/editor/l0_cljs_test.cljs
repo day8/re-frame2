@@ -25,7 +25,7 @@
   [[one-keystroke-moves-exactly-one-address]] is the L0 half of the
   per-keystroke budget. `flow-dom-cljs-test` counts the bodies that run;
   this counts the addresses that move, and the two together are the walk
-  `docs/design/hicasso/draft-guide/18-performance.md` §Trace one
+  `docs/design/hicasso/draft-guide/19-performance.md` §Trace one
   controlled keystroke describes. It is asserted here rather than there
   because it is a property of the model and needs no React to be true."
   (:require [cljs.test :refer-macros [deftest is use-fixtures]]

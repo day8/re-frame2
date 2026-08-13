@@ -5,11 +5,20 @@
 
   [[cell]] is parametric on `[row col]`, so a hundred cells are a hundred
   independently-gated cells under one registration. A keystroke writes
-  one address; exactly one of the hundred recomputes to a different
-  value; exactly one boundary is notified. The other ninety-nine are
-  **never notified** — not notified-and-bailed-out, which is a different
-  and more expensive thing
-  (`docs/design/hicasso/draft-guide/18-performance.md` §Scale the same
+  one address; exactly one of the hundred COMPUTES a different value;
+  exactly one boundary is notified. The other ninety-nine are **never
+  notified** — not notified-and-bailed-out, which is a different and more
+  expensive thing
+
+  All hundred do RECOMPUTE, and the distinction is the one
+  `docs/design/hicasso/product/per-keystroke.md` publishes: these are
+  layer-1 readers memoised on the whole of `app-db`, so a keystroke re-runs
+  every mounted cell's `get-in` and the equality gate on the OUTPUT is what
+  keeps ninety-nine of them from notifying. Notification is what scales
+  narrowly; recomputation scales with the grid —
+  `examples.per-keystroke-dom-cljs-test` counts 111 at 10x10 and 31 at 5x5
+  against two boundary bodies at both sizes
+  (`docs/design/hicasso/draft-guide/19-performance.md` §Scale the same
   topology to a grid).
 
   [[dimensions]] is read by the grid body and by the row bodies, and it

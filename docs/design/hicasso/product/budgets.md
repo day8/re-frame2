@@ -973,6 +973,22 @@ other mode.
   the same missing readings. None of the six can be pinned by measuring harder
   on the rig that exists; each needs a clock instrument pointed at
   `implementation/hicasso`, on P-DEV-1, in its own window.
+  **[Amended 2026-08-14, `rf2-hic-045`.]** `U1`'s **deterministic half is now
+  published** — [`per-keystroke.md`](per-keystroke.md) is the per-keystroke
+  census of the two witness applications, and its §6 records that on both
+  pages the typed field shows the model's value at the instant
+  `dispatchEvent` returns, inside the discrete event, with no flush performed
+  and **no frame boundary crossed at all**. `U1` is **not** recoloured by it
+  and stays `UNPINNED`, deliberately: the registered estimand is *latency to
+  visible echo at p95*, a distributional row, and *the echo is present before
+  the turn yields* does not imply *the echo reaches the glass within 16.7 ms
+  at p95* on a machine where the event turn itself can be slow. Substituting
+  the structural reading for the distributional one is the conflation §3
+  refuses when it keeps `D9`'s counters apart from `S5`'s bytes. What the
+  census narrows is what the clock will eventually be timing: work inside one
+  discrete event, on a path whose other five stages are now counted.
+  §9.3's *one-frame keystroke echo* deliverable is therefore still
+  `rf2-hic-071`'s, and its scope is unchanged.
 - **The 5% rule has no same-instrument anchor.** `C1` compares a reading
   against the pinned ordinary-Hicasso benchmark, and §6 records that the
   registered instrument's eleven pinned blobs are superseded rather than
