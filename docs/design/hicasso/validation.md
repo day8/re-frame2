@@ -800,6 +800,29 @@ open proof obligations — a full application witness, a serious vendor
 integration, the WebKit matrix — are execution risks inside the selected
 direction rather than discharged ones.
 
+**[Amended 2026-08-13.]** One of those rows now carries a disposition, and it is
+still not closed. The read-free boundary shell's prospective disposition — the
+one the sentence above records as handed up — was taken on the same day, on
+`rf2-0xx2`, as a **scoped acceptance**: a delegated ruling, recorded under
+operator-authorised delegation and operator-reversible, on all five fields
+[`specification.md` §6](product/specification.md#6-performance-contract)
+requires, written into
+[`budgets.md` §5](product/budgets.md#5-the-read-free-boundary-shell-the-byte-exact-line-now-frozen-at-1024-b)
+by PR #8095. It moves nothing in the sentence above, and the shell row stays
+**red**. The ceiling is **unchanged at `1,024 B`** and the acceptance covers the
+measured breach only — up to `1,107 B` (Reagent segment) and `1,101 B` (UIx
+segment), the pinned bands' upper edges. Those are **acceptance bounds, not
+replacement pass lines**: any same-instrument reading beyond either bound is an
+unaccepted, undispositioned plain red this record cannot be cited against. The
+ruling **prices the breach; it does not pass it** — the K1 pattern again, that
+acceptance of a price is not a pass — so `S1`, `S2` and `C5` stay `BREACH` in
+the reconciliation ledger and no result here is recoloured. It is operative only
+while the shell, the wrapper, the comparator, the React version, the build mode
+and the measurement contract remain materially equivalent, and its revert
+trigger **deletes the acceptance, never keeps it as a floor**, the moment a
+qualifying shell arm lands under `1,024 B`. Everything else in the paragraph
+above stands exactly as written.
+
 ## Timing (HD-015)
 
 The programme starts immediately: P0 and the donor arm are ordinary bench-lane

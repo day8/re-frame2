@@ -418,6 +418,41 @@ nothing silent, and every field filled:
   is the one that stands, and the re-registration is deleted rather than kept as
   a floor.
 
+**[AMENDED 2026-08-13] The handed-up decision has been taken. It is a SCOPED
+ACCEPTANCE, and the line is UNMOVED.** Nothing above changes — the refusal, the
+three priced routes and every figure in this section read exactly as they did,
+and the refusal was correct: what it declined to draft has since been decided,
+on the fields it named. The ruling is on `rf2-0xx2`; it is a **delegated
+ruling**, recorded under operator-authorised delegation after the reviewed
+dossier and operator-reversible, so the *Decider* field above holds as written —
+the `1,024 B` reading was not moved, here or anywhere. The **ceiling** field
+this section deliberately refused to draft resolved as **line unchanged at
+`1,024 B`, acceptance scoped to the pinned band edges `1,107 B` (Reagent
+segment) and `1,101 B` (UIx segment)**. All five fields
+[`specification.md` §6](specification.md#6-performance-contract) requires —
+reason, ceiling, effective revision, reopen conditions, revert trigger — are
+recorded verbatim in
+[`budgets.md` §5](budgets.md#5-the-read-free-boundary-shell-the-byte-exact-line-now-frozen-at-1024-b)
+(PR #8095), and are neither restated nor re-derived here.
+
+Read the scope precisely, because a summary destroys it:
+
+- the ceiling is **unchanged at `1,024 B`**, and those two figures are
+  **acceptance bounds, not replacement pass lines** — any same-instrument
+  reading beyond either bound is an unaccepted, undispositioned plain red **this
+  record cannot be cited against**;
+- the ruling **prices the breach; it does not pass it** — the K1 pattern, that
+  acceptance of a price is not a pass. `S1`, `S2` and `C5` stay `BREACH` in
+  [§9's ledger](budgets.md#9-the-budget-line-reconciliation-ledger), red now
+  carrying a disposition, and no row here is recoloured;
+- the effective revision is **conditional**: operative only while the shell, the
+  wrapper, the comparator, the React version (19.2.0), the build mode and the
+  measurement contract remain materially equivalent;
+- and the **revert trigger deletes the acceptance — never keeps it as a floor** —
+  the moment a qualifying shell arm lands under `1,024 B` on the package. The
+  third route this section priced but did not measure therefore stays live, and
+  the acceptance lapses the day it lands.
+
 **Nothing is recoloured in the meantime.** [`budgets.md` §7](budgets.md) keeps the
 distributional family out of blocking PR thresholds, so the red row costs no gate
 and buys no allowance; §6 already forbids a relative regression allowance from
