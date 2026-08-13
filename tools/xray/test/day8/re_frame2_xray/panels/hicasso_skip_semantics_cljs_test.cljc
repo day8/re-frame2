@@ -33,6 +33,24 @@
   the same fixture. A row that only checked the advisor would go green
   against a causal slice that had drifted back, and vice versa.
 
+  ## And the path that still bypassed the predicate
+
+  Sharing a predicate is not enough if one consumer can decide the answer
+  before consulting it. The advisor's fold tested `(nil? sid)` FIRST, so
+  identity loss short-circuited the operation question entirely and every
+  untagged `:subs` event was counted as a real unnamed RUN — an untagged
+  `:rf.sub/skip` gave the advisor `:unnamed-runs 1` and `:by-read {}`
+  while link 2 gave `:holds []` and `:skipped {:count 1 :sub-ids []}`, and
+  an untagged `:rf.sub/dispose` gave the advisor `:unnamed-runs 1` while
+  link 2 reported no recompute and no skip at all (merged-PR audit #8063).
+  The two views still disagreed, on exactly the path where identity is
+  absent.
+
+  The first regression here covered an untagged RUN beside a tagged skip
+  — the adjacent case, not the failing one — which is why
+  [[operation-matrix]] is a TABLE: four operations by tagged/untagged, so
+  the untagged non-work cells cannot be the ones nobody wrote a row for.
+
   Pure data → data, so this runs under the JVM target beside the CLJS
   one. The live-runtime claims stay in `hicasso_causal_cljs_test`.
 
@@ -80,6 +98,14 @@
     :operation op
     :tags      (cond-> {:rf.sub/id sub-id}
                  (number? ms) (assoc :rf.sub/elapsed-ms ms))}))
+
+(defn- untagged-ev
+  "The same event with its `:rf.sub/id` gone — the shape a stripped or
+  never-tagged emission actually has. `:tags {}` rather than a missing
+  `:tags`, because that is what the seam produces and it is the shape the
+  mutation row in `hicasso_causal_cljs_test` builds too."
+  [op]
+  {:op-type :rf.sub :operation op :tags {}})
 
 (defn- bundle
   [dispatch-id event-id subs]
@@ -200,6 +226,119 @@
                "two definitions of `did work happen` is what produced the "
                "disagreement this row exists to prevent")))))
 
+;; ---------------------------------------------------------------------------
+;; The four operations, tagged and untagged — the whole surface, in one table
+;; ---------------------------------------------------------------------------
+
+(defn- advisor-counts
+  "The advisor fold's window-level reading, in the four quantities link 2
+  also states."
+  [timing]
+  {:named-runs    (reduce + 0 (map #(get (val %) :runs 0) (:by-read timing)))
+   :unnamed-runs  (get timing :unnamed-runs 0)
+   :named-skips   (reduce + 0 (map #(get (val %) :memo-hits 0) (:by-read timing)))
+   :unnamed-skips (get timing :unnamed-skips 0)})
+
+(defn- link2-counts
+  "Link 2's reading of the SAME window, in the same four quantities.
+
+  Read off the link's public fields rather than recomputed: `:holds` is
+  the named recompute roster (or `:unknown` when work joined to nothing),
+  the `:uncorrelated` loss carries the unnamed run count, and `:skipped`
+  states the memo hits as a total beside the ids it could name — so the
+  untagged skips are exactly the total the ids do not account for."
+  [link2]
+  (let [holds (:holds link2)
+        loss  (:loss link2)
+        named-skips (count (get-in link2 [:skipped :sub-ids]))]
+    {:named-runs    (if (hh/unknown? holds) 0 (count holds))
+     :unnamed-runs  (if (= :uncorrelated (:reason loss)) (:dropped loss) 0)
+     :named-skips   named-skips
+     :unnamed-skips (- (get-in link2 [:skipped :count]) named-skips)}))
+
+(def ^:private operation-matrix
+  "Every `:op-type :rf.sub` operation Spec 009 routes through the
+  projection's `:subs` slot, WITH its `:rf.sub/id` and without it, and what
+  each one is.
+
+  The untagged half is the half that was wrong (rf2-hic-037, merged-PR
+  audit #8063): the advisor's fold tested `(nil? sid)` BEFORE
+  `hh/sub-recompute?`, so identity loss decided the classification and
+  every untagged event became a run. The two untagged non-work rows are
+  therefore the rows this table exists for — an untagged `:rf.sub/skip`
+  read as one unnamed run against link 2's one memo hit, and an untagged
+  `:rf.sub/dispose` read as one unnamed run against link 2's nothing at
+  all.
+
+  The absolute expectation is written out per row rather than only
+  comparing the two views, because two views wrong the same way agree
+  perfectly. The untagged run and create rows are the controls that keep
+  the table from being satisfied by *everything untagged is zero* — they
+  MUST still count an unnamed run, which is the rule the repair had to
+  leave standing."
+  [[:rf.sub/run     true  {:named-runs 1 :unnamed-runs 0 :named-skips 0 :unnamed-skips 0}]
+   [:rf.sub/run     false {:named-runs 0 :unnamed-runs 1 :named-skips 0 :unnamed-skips 0}]
+   [:rf.sub/create  true  {:named-runs 1 :unnamed-runs 0 :named-skips 0 :unnamed-skips 0}]
+   [:rf.sub/create  false {:named-runs 0 :unnamed-runs 1 :named-skips 0 :unnamed-skips 0}]
+   [:rf.sub/skip    true  {:named-runs 0 :unnamed-runs 0 :named-skips 1 :unnamed-skips 0}]
+   [:rf.sub/skip    false {:named-runs 0 :unnamed-runs 0 :named-skips 0 :unnamed-skips 1}]
+   [:rf.sub/dispose true  {:named-runs 0 :unnamed-runs 0 :named-skips 0 :unnamed-skips 0}]
+   [:rf.sub/dispose false {:named-runs 0 :unnamed-runs 0 :named-skips 0 :unnamed-skips 0}]])
+
+(deftest every-operation-reads-the-same-in-both-views-with-or-without-an-id
+  ;; THE MATRIX. One event per cell, both public results off it, and each
+  ;; cell asserted twice: against what the operation IS, and against the
+  ;; other view. Either assertion alone is escapable — the first by two
+  ;; views drifting together, the second by both drifting the same way.
+  (doseq [[op tagged? expected] operation-matrix]
+    (testing (str op (if tagged? " with an `:rf.sub/id`" " with NO `:rf.sub/id`"))
+      (let [ev      (if tagged? (sub-ev :a nil op) (untagged-ev op))
+            windows {:app/main [(bundle 1 :e/tick [ev])]}
+            {:keys [advice link2]} (both [[:app/main :a]] windows)
+            adv     (advisor-counts (:timing advice))
+            l2      (link2-counts link2)]
+        (is (= expected adv)
+            (str "the advisor's fold must classify the OPERATION first — "
+                 "an untagged event is still whatever operation it is"))
+        (is (= expected l2)
+            "and link 2's roster must read the same event the same way")
+        (is (= adv l2)
+            (str "one window, two public results, ONE answer to `did work "
+                 "happen` — the disagreement is the defect, and identity "
+                 "loss is where it survived"))))))
+
+(deftest an-untagged-NON-WORK-event-is-uncorrelated-observation-never-work
+  ;; The audit's two reproductions, pinned with their own numbers. The
+  ;; matrix above proves the counts agree; this proves the advisor states
+  ;; the right KIND of absence about them — a skip that joins to nothing
+  ;; is an uncorrelated observation, and an eviction is not an absence at
+  ;; all.
+  (testing "an untagged `:rf.sub/skip` — was `:unnamed-runs 1`, `:by-read {}`"
+    (let [t (advisor/sub-timing
+              {:app/main [(bundle 1 :e/tick [(untagged-ev :rf.sub/skip)])]})]
+      (is (zero? (:unnamed-runs t))
+          "no run happened; the memo answered")
+      (is (nil? (:unnamed-loss t))
+          "and no work is missing an id, so there is no unnamed-RUN account")
+      (is (= 1 (:unnamed-skips t)))
+      (is (= :uncorrelated (:reason (:unnamed-skip-loss t)))
+          (str "the skip is real and the CELL it held for joins to nothing — "
+               "the same uncorrelated state an unnamed run is in, about a "
+               "different fact"))
+      (is (= 1 (:dropped (:unnamed-skip-loss t))))))
+
+  (testing "an untagged `:rf.sub/dispose` — was `:unnamed-runs 1` against link 2's nothing"
+    (let [t (advisor/sub-timing
+              {:app/main [(bundle 1 :e/tick [(untagged-ev :rf.sub/dispose)])]})]
+      (is (zero? (:unnamed-runs t)))
+      (is (zero? (:unnamed-skips t))
+          "an eviction is neither work nor a memo hit, tagged or not")
+      (is (nil? (:unnamed-loss t)))
+      (is (nil? (:unnamed-skip-loss t))
+          (str "and it is not an absence either — nothing was dropped, so "
+               "there is nothing to account for"))
+      (is (= {} (:by-read t))))))
+
 (deftest the-shared-predicate-is-the-one-in-the-shared-algebra
   ;; The predicate is a public var in `hicasso-helpers` precisely so both
   ;; derivations can consult it and a reader can see that they do.
@@ -258,7 +397,7 @@
   ;; untagged run beside a tagged skip is the case where a careless filter
   ;; would count the skip's absence of a tag as the run's.
   (let [windows {:app/main [(bundle 1 :e/tick
-                                    [{:op-type :rf.sub :operation :rf.sub/run :tags {}}
+                                    [(untagged-ev :rf.sub/run)
                                      (sub-ev :a nil :rf.sub/skip)])]}
         {:keys [link2]} (both [[:app/main :a]] windows)]
     (is (hh/unknown? (:holds link2))
