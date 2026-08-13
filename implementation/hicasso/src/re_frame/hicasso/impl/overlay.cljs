@@ -247,14 +247,47 @@
        "iframe,object,embed,audio[controls],video[controls],"
        "[contenteditable],[tabindex]"))
 
+(defn- rendered?
+  "Is `el` rendered — painted somewhere a user could reach it?
+
+  `checkVisibility` is the platform's own answer and is asked for it,
+  because the obvious substitute is wrong in the direction that costs a
+  WRONG landing. `getClientRects()` reports a box for
+  `visibility:hidden` and for the contents of a closed `<details>`
+  (measured `rects: 1` for both, in this repo's Chromium), and both of
+  those refuse focus — so reading rects counts a trailing control that
+  is not a stop, and rf2-5lzq measured what that costs: Tab off a
+  modal's real last control found the surplus candidate at the edge
+  instead, declined to wrap, and let focus reach `<body>`.
+
+  **`visibilityProperty` and NOT `contentVisibilityAuto`, measured
+  rather than copied from the option list.** A control inside a
+  `content-visibility:auto` subtree that is currently skipped STILL
+  TAKES FOCUS — the engine renders it on the way in — while
+  `checkVisibility({contentVisibilityAuto: true})` answers false for it.
+  Passing that option would drop a real stop, and a set too SMALL puts
+  the wrap at the wrong control rather than merely failing to fire it.
+  `opacityProperty` is left off for the same reason: `opacity:0` is
+  focusable, measured.
+
+  The rect test stays as the fallback for an engine without the method.
+  It is the weaker answer — it is exactly the reading whose two gaps are
+  named above — but it is the reading this module shipped with, so an
+  engine that lacks `checkVisibility` is left no worse than before
+  rather than left with no test at all."
+  [^js el]
+  (if (fn? (.-checkVisibility el))
+    (.checkVisibility el #js {"visibilityProperty" true})
+    (pos? (.-length (.getClientRects el)))))
+
 (defn- tab-stop?
   "Would Tab stop here? Disabled elements take no focus, a negative
-  `tabIndex` is reachable only programmatically, and an element with no
-  client rect is not rendered at all — `display:none` or `hidden`."
+  `tabIndex` is reachable only programmatically, and an element the
+  engine does not render is reachable by nothing — see [[rendered?]]."
   [^js el]
   (and (not (.-disabled el))
        (not (neg? (.-tabIndex el)))
-       (pos? (.-length (.getClientRects el)))))
+       (rendered? el)))
 
 (defn- radio-group-of
   "The radio group `el` belongs to, or nil when it belongs to none.
@@ -309,16 +342,20 @@
     with document order inside each bucket.
 
   **It is not the platform's focus algorithm and does not try to be.**
-  Four things the engine skips are still counted here, and they are
-  named rather than half-modelled: an element inside an `inert`
-  subtree, a control inside a `disabled` `<fieldset>`, a control under
-  `visibility:hidden`, and the contents of a closed `<details>`. (That
-  last one also retires a claim this file used to make: content inside a
-  closed `<details>` DOES report client rects in Chromium, so
-  [[tab-stop?]] never filtered it.) Shadow roots, `delegatesFocus` and
-  scrollable-overflow focusability are outside the set entirely.
+  Two things the engine skips are still counted here, and they are named
+  rather than half-modelled: an element inside an `inert` subtree, and a
+  control inside a `disabled` `<fieldset>`. Shadow roots,
+  `delegatesFocus` and scrollable-overflow focusability are outside the
+  set entirely.
 
-  ## Why that boundary is safe where the radio group was not
+  Two more used to be on that list and are now filtered, by
+  [[rendered?]] asking `checkVisibility` instead of reading client
+  rects: `visibility:hidden`, and the contents of a closed `<details>`
+  (whose UA `content-visibility:hidden` the bare call already answers).
+  A `content-visibility:hidden` subtree goes with them, which was not on
+  the list at all. All measured.
+
+  ## Why one of those four was a defect after all, and why the two left are not
 
   A surplus candidate costs a WRAP THAT DOES NOT FIRE when it cannot
   take focus, and a WRAP THAT LANDS WRONG when it can — and
@@ -328,8 +365,26 @@
   `visibility:hidden` and closed-`<details>` contents ALL refuse focus,
   while an unchecked radio in a checked group ACCEPTS it. That is the
   whole reason the radio group was a wrong landing rather than a missed
-  wrap, and the reason the four above are not this bead's defect one
-  level further in.
+  wrap.
+
+  **But a missed wrap is not free at the LAST candidate**, and rf2-5lzq
+  measured the difference the `.focus()` reading could not show. A
+  trailing `visibility:hidden` control — a conditionally-hidden final
+  button, ordinary markup — becomes `peek`, so Tab off the real last
+  control matches no edge, the handler declines, and the engine's own
+  end-of-scope step puts `document.activeElement` on `<body>`: the leak
+  this whole handler exists to close, by a fourth route. `refuses focus`
+  and `costs nothing` are different claims and only the first was ever
+  measured. [[a-real-tab-wraps-past-a-trailing-hidden-control]] holds
+  the second.
+
+  The two still counted keep the old argument, now stated as the
+  narrower thing it is: they cost a missed wrap, and they are left
+  because no measured markup puts either of them LAST in a modal.
+  Whichever does earns the fix rather than a rule written ahead of it —
+  and for the `<fieldset>` the remedy is already measured, `:disabled`
+  as a pseudo-class matching the effective state that the `.disabled`
+  property above does not.
 
   A group whose checked member sits OUTSIDE `panel` needs no rule: this
   handler is the modal's alone, so everything outside the panel is
@@ -357,11 +412,16 @@
 
   **The engine confirms the landing before the default action is taken
   away.** `HTMLElement.focus()` on an element that cannot be focused —
-  `visibility:hidden`, inert because a nested modal is open above it — is
-  a no-op that leaves `activeElement` where it was, so the move is
-  attempted first and `preventDefault` follows only if it took. A wrap
-  that could not land therefore degrades to exactly the engine's own
-  conduct rather than to a Tab that does nothing.
+  inert because a nested modal is open above it, or inside a `disabled`
+  `<fieldset>` — is a no-op that leaves `activeElement` where it was, so
+  the move is attempted first and `preventDefault` follows only if it
+  took. A wrap that could not land therefore degrades to exactly the
+  engine's own conduct rather than to a Tab that does nothing.
+
+  That confirmation is a floor and not a licence to feed this a loose
+  candidate set: it saves a wrap that lands nowhere, and cannot save one
+  aimed at the wrong CONTROL. [[sequential-tab-stops]] states which
+  candidates are still surplus and why each is affordable.
 
   A press a control inside the panel has already claimed is left alone:
   the native event's `defaultPrevented` is read rather than the synthetic
