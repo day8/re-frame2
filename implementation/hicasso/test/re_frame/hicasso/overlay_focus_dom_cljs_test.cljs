@@ -25,6 +25,8 @@
   | the module's modal is the trapping kind: the reachable set becomes EXACTLY the panel's controls | [[an-open-modal-is-the-whole-of-what-a-keyboard-can-reach]] |
   | the module's popover is NOT a trap, and must not be read as one | [[an-open-popover-leaves-the-page-behind-it-reachable]] |
   | a REAL Tab and a REAL Shift+Tab cycle inside the trap, and a REAL Escape lets the page back out | [[a-real-tab-cycles-within-the-modal-and-a-real-escape-gives-the-page-back]] |
+  | the wrap fires at the SEQUENTIAL edge, over a panel whose sequential order is shorter than its markup | [[a-real-tab-wraps-at-the-radio-groups-edge-and-not-at-the-dom-s]] |
+  | …and over one whose sequential order is a permutation of it | [[a-real-tab-wraps-at-the-tabindex-ordered-edge]] |
 
   The middle claim is an emptiness claim about everything outside a
   dialog, and an emptiness claim is exactly the shape that passes
@@ -77,6 +79,23 @@
   edges. The row asserts the three-stop cycle, so it reddens the day that
   handler stops working — and the version of it that recorded `<body>` as
   a waypoint is what the audit of #8058 correctly refused to accept.
+
+  ## What that row still could not fail on, and the two below that can
+
+  Its panel is three plain controls, and over three plain controls the
+  ELEMENTS a selector finds and the STOPS Tab visits are the same list in
+  the same order. A handler computing the first from document order was
+  therefore indistinguishable, here, from one computing it correctly —
+  and the audit of #8071 measured the difference on a panel this fixture
+  could not hold: a radio group, which is three elements and ONE stop,
+  where Shift+Tab off the checked member went to `<body>` because the
+  handler had taken the unchecked one for the panel's first stop.
+
+  [[a-real-tab-wraps-at-the-radio-groups-edge-and-not-at-the-dom-s]] and
+  [[a-real-tab-wraps-at-the-tabindex-ordered-edge]] are that missing
+  population, one panel per way the two lists can differ. What
+  `impl.overlay/sequential-tab-stops` does and does not model is stated
+  on that function; these rows measure the part it claims.
 
   `overlay-dom-cljs-test` holds the synthetic-versus-trusted comparison
   for Escape itself; this file does not re-litigate it.
@@ -137,6 +156,50 @@
     [:button#confirm {:type "button"} "Delete"]
     [:input#reason {:type "text" :aria-label "Reason"}]
     [:button#cancel {:type "button" :on-click [::closed]} "Cancel"]]
+   [:button#after {:type "button"} "After"]])
+
+;; THE TWO SHAPES THE THREE-PLAIN-CONTROL PANEL ABOVE CANNOT CONTAIN, and
+;; the reason they are separate pages rather than extra controls on that
+;; one. Both are panels whose SEQUENTIAL focus order differs from their
+;; DOCUMENT order, which is the difference the audit of #8071 measured
+;; `impl.overlay` getting wrong; the rows above are about inertness and
+;; the popover contrast, and folding a radio group into their fixture
+;; would change what every one of them reads without making any of them
+;; measure a wrap.
+
+(h/defview a-page-with-a-modal-holding-a-radio-group [_]
+  ;; A RADIO GROUP IS THREE ELEMENTS AND ONE TAB STOP. Document order in
+  ;; this panel is [small large ok reason]; sequential order is
+  ;; [large ok reason], because `small` is an unchecked member of a group
+  ;; whose checked member is `large`. The group is FIRST on purpose — that
+  ;; puts the discrepancy on the backward edge, where a handler reading
+  ;; document order finds `small` and never `large`.
+  [:div
+   [:button#before {:type "button"} "Before"]
+   [:button#trigger {:type "button" :on-click [::opened]} "Open"]
+   [overlay/modal {:open?      (h/sub [::open?])
+                   :on-dismiss [::dismissed]
+                   :label      "Pick a size"}
+    [:input#small {:type "radio" :name "size" :aria-label "Small"}]
+    [:input#large {:type "radio" :name "size" :default-checked true
+                   :aria-label "Large"}]
+    [:button#ok {:type "button"} "OK"]
+    [:input#reason {:type "text" :aria-label "Reason"}]]
+   [:button#after {:type "button"} "After"]])
+
+(h/defview a-page-with-a-modal-ordered-by-tabindex [_]
+  ;; A POSITIVE `tabindex` SORTS AHEAD OF EVERY ZERO. Document order is
+  ;; [second first third]; sequential order is [first second third],
+  ;; because 1 precedes 2 and both precede the implicit 0.
+  [:div
+   [:button#before {:type "button"} "Before"]
+   [:button#trigger {:type "button" :on-click [::opened]} "Open"]
+   [overlay/modal {:open?      (h/sub [::open?])
+                   :on-dismiss [::dismissed]
+                   :label      "Ordered by tabindex"}
+    [:button#second {:type "button" :tab-index 2} "Second"]
+    [:button#first {:type "button" :tab-index 1} "First"]
+    [:button#third {:type "button"} "Third"]]
    [:button#after {:type "button"} "After"]])
 
 ;; `:async? true` — the MAP shape — because the trusted-input row below
@@ -431,6 +494,134 @@
                     (finish)))))
             (catch :default e
               (is false (str "the trap row threw: " (.-message e)))
+              (finish))))))))
+
+;; ---------------------------------------------------------------------------
+;; The trap over a panel whose sequential order is not its document order
+;; ---------------------------------------------------------------------------
+;;
+;; WHY THE ROW ABOVE COULD NOT HAVE CAUGHT THIS. Its panel is three plain
+;; controls, and over three plain controls *the elements a selector finds*
+;; and *the stops Tab visits* are the same list in the same order. So a
+;; handler that read the first and taught itself it had the second passed
+;; that row perfectly, and went on choosing the wrong edge on any panel
+;; where the two lists differ — which the audit of #8071 then measured.
+;;
+;; The two rows below are that population, added rather than argued: one
+;; panel whose sequential order is SHORTER than its document order (a
+;; radio group), one whose sequential order is a PERMUTATION of it (a
+;; positive `tabindex`). Both drive both edges with trusted input, and
+;; both name `body` explicitly, because `<body>` is where a wrap that did
+;; not fire puts focus and reading it as merely "some other control" is
+;; how #8058 shipped.
+
+(defn- both-edges!
+  "Focus `start`, walk `n` trusted Tabs, re-focus `start`, walk `n` trusted
+  Shift+Tabs, and hand the two laps to `k`.
+
+  Re-focusing between the laps rather than continuing from wherever the
+  forward one finished, so the backward lap is measured FROM the edge
+  Shift+Tab has to wrap at."
+  [m start n k]
+  (.focus ($ m start))
+  (trusted/walk!
+    "Tab" n
+    (fn [] (some-> (active) label-of))
+    (fn [forward]
+      (.focus ($ m start))
+      (trusted/walk!
+        "Shift+Tab" n
+        (fn [] (some-> (active) label-of))
+        (fn [backward] (k forward backward))))))
+
+(deftest a-real-tab-wraps-at-the-radio-groups-edge-and-not-at-the-dom-s
+  (if-not (browser?)
+    (skip! ":node-test has no modality, and no engine to press a key at")
+    (if-not (trusted/bridge?)
+      (trusted/unwitnessed! "the trap over a panel holding a radio group")
+      (async done
+        (let [m      (hm/mount! [a-page-with-a-modal-holding-a-radio-group {}])
+              finish (fn [] (hm/unmount! m) (done))]
+          (try
+            (open! m)
+            (is (.contains ($ m "dialog") (active))
+                "premise: opening put focus inside the panel")
+            (is (true? (.-checked ($ m "#large")))
+                "premise: `large` is the group's checked member, so it — and
+                 not `small` — is the one stop the group contributes")
+
+            ;; FIVE presses over a three-stop cycle, for the reason the
+            ;; three-control row gives: three is a wrap, five closes it.
+            (both-edges!
+              m "#large" 5
+              (fn [forward backward]
+                (try
+                  (is (= ["ok" "reason" "large" "ok" "reason"] forward)
+                      (str "THE CYCLE, FORWARD, OVER A PANEL WHOSE FIRST "
+                           "STOP IS NOT ITS FIRST ELEMENT. The wrap off "
+                           "`reason` lands on `large` — the group's CHECKED "
+                           "member, which is where the engine's own "
+                           "sequential order starts — and never on `small`, "
+                           "which is an element of the panel but not a stop "
+                           "of it. Against the algorithm this row was "
+                           "written for, the third landing was `small`. "
+                           "Pressed: " (pr-str forward)))
+                  (is (= ["reason" "ok" "large" "reason" "ok"] backward)
+                      (str "THE CYCLE, BACKWARD, and this is the edge that "
+                           "was measured broken. `large` IS the panel's "
+                           "first stop, so Shift+Tab off it must land "
+                           "directly on `reason`; a handler that took the "
+                           "panel's first ELEMENT for its first STOP found "
+                           "`small`, matched nothing, let the default action "
+                           "stand and put focus on `<body>`. Pressed: "
+                           (pr-str backward)))
+                  (is (empty? (filter #{"before" "trigger" "after" "body" "small"}
+                                      (concat forward backward)))
+                      (str "and not one landing in either lap was a control "
+                           "of the page behind, the nowhere between them, or "
+                           "the group member the engine does not sequence to. "
+                           "Pressed: " (pr-str (concat forward backward))))
+                  (finally (finish)))))
+            (catch :default e
+              (is false (str "the radio-group trap row threw: " (.-message e)))
+              (finish))))))))
+
+(deftest a-real-tab-wraps-at-the-tabindex-ordered-edge
+  (if-not (browser?)
+    (skip! ":node-test has no modality, and no engine to press a key at")
+    (if-not (trusted/bridge?)
+      (trusted/unwitnessed! "the trap over a panel ordered by positive tabindex")
+      (async done
+        (let [m      (hm/mount! [a-page-with-a-modal-ordered-by-tabindex {}])
+              finish (fn [] (hm/unmount! m) (done))]
+          (try
+            (open! m)
+            (is (.contains ($ m "dialog") (active))
+                "premise: opening put focus inside the panel")
+
+            (both-edges!
+              m "#first" 5
+              (fn [forward backward]
+                (try
+                  (is (= ["second" "third" "first" "second" "third"] forward)
+                      (str "THE CYCLE, FORWARD, OVER A PANEL WHOSE ORDER IS "
+                           "A PERMUTATION OF ITS MARKUP. `first` carries "
+                           "`tabindex=1` and is written SECOND; the wrap off "
+                           "`third` must land on it rather than on the "
+                           "panel's first element. Pressed: " (pr-str forward)))
+                  (is (= ["third" "second" "first" "third" "second"] backward)
+                      (str "THE CYCLE, BACKWARD. `first` is the panel's "
+                           "first stop, so Shift+Tab off it lands directly "
+                           "on `third` — the last, because a `tabindex=0` "
+                           "sorts AFTER every positive one. Pressed: "
+                           (pr-str backward)))
+                  (is (empty? (filter #{"before" "trigger" "after" "body"}
+                                      (concat forward backward)))
+                      (str "and neither lap left the panel or rested nowhere. "
+                           "Pressed: " (pr-str (concat forward backward))))
+                  (finally (finish)))))
+            (catch :default e
+              (is false (str "the tabindex trap row threw: " (.-message e)))
               (finish))))))))
 
 ;; ---------------------------------------------------------------------------
