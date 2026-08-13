@@ -70,8 +70,6 @@ theme:
       toggle:
         icon: material/weather-sunny
         name: Switch to light mode
-  # Body type is self-hosted Gorton Digital (not on Google Fonts).
-  font: false
   features:
     - navigation.tabs
     - navigation.sections
@@ -151,7 +149,6 @@ extra_javascript:
   - cljs/playground.js
 
 extra_css:
-  - stylesheets/fonts.css
   - cljs/playground.css
 
 extra:
