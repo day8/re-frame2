@@ -269,7 +269,7 @@
 ;; elision bundle.
 
 (fx/reg-fx :rf.machine/spawn
-  {:doc "Spawn a machine instance. Per Spec 005 §Declarative :spawn (sugar over spawn). Args carry `:machine-id`, optional `:system-id`, and optional `:initial-data`."}
+  {:doc "Spawn a machine instance. Per Spec 005 §Declarative :spawn (sugar over spawn). Args carry `:machine-id`, optional `:system-id`, and optional `:data`."}
   spawn-fx)
 
 (fx/reg-fx :rf.machine/destroy
@@ -330,7 +330,7 @@
 ;; off `:rf/machine` — so a view that only cares about whether a specific
 ;; tag is present re-renders only when the containment-bit flips.
 (subs/reg-runtime-sub :rf.machine/has-tag?
-  {:doc "Subscribe to a machine's `:fsm/tags` containment-bit for `tag`. Returns `true` iff the named machine's snapshot's `:tags` set contains `tag`, `false` otherwise (including unknown / not-yet-initialised machines). Per Spec 005 §State tags."}
+  {:doc "Subscribe to a machine's `:tags` containment-bit for `tag`. Returns `true` iff the named machine's snapshot's `:tags` set contains `tag`, `false` otherwise (including unknown / not-yet-initialised machines). Per Spec 005 §State tags."}
   (fn [runtime-db [_ machine-id tag]]
     (contains? (get-in runtime-db (paths/snapshot-path machine-id :tags)) tag)))
 
