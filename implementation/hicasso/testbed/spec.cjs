@@ -850,6 +850,75 @@ async function waitForArm(page, predicate, arg, whatFailed) {
   }
 }
 
+const TESTBED_ROOT = '[data-testid="hicasso-controlled-testbed"]';
+
+/**
+ * Wait for the app to mount after a re-navigation, under the navigation's own
+ * ceiling, and fail with the one thing the bare wait could not say: WHICH of
+ * the two candidate mechanisms it was (rf2-vinj).
+ *
+ * A single webkit run of this section timed out here at Playwright's anonymous
+ * 30s, having taken about six seconds over the twelve sections before it. The
+ * bead that filed it left slow-versus-hung open, because it could not
+ * reproduce. Forty consecutive local webkit re-navigations, with the same
+ * multi-second idle gap the real section has, put this mount at p50 80ms and
+ * max 108ms with no stalls — so 30,000ms is not a slow mount, it is a stopped
+ * one. What it is NOT is a mechanism, and a ceiling cannot supply one.
+ *
+ * So the failure carries the page's own state at the moment the ceiling fires,
+ * chosen to separate the candidates rather than to describe the page:
+ *
+ *   no `bundle`, !`bundleRan`  main.js never arrived — the fetch stalled, and
+ *                              no ceiling on this line can repair that
+ *   `bundle` but !`bundleRan`  it arrived and never began executing
+ *   `bundleRan`, `appEmpty`    it executed and mounted nothing
+ *   !`appEmpty`, !`rootPresent`  something mounted, but not this testbed
+ *   `rootPresent`, zero box    the mount is fine; `waitForSelector` defaults
+ *                              to state 'visible', so THAT is what was waited
+ *                              on and the wait, not the page, is the bug
+ *   all present                the only reading on which it was merely slow
+ *
+ * `bundleRan` witnesses `shadow$provide`, which main.js declares on its FIRST
+ * line. It deliberately does not witness `window.__TB__`: the runner installs
+ * that via `addInitScript`, so it is present before the page's own script on
+ * every navigation and would report a bundle that never loaded as one that
+ * ran. That is not hypothetical — it is what the first cut of this asserted,
+ * and a 1ms-ceiling run caught it saying `appRan: true` about a document still
+ * in `readyState: 'loading'` with no bundle fetched at all.
+ *
+ * Whichever it is, the next occurrence closes the question instead of filing
+ * the bead again.
+ */
+async function waitForRemount(page, ctx) {
+  try {
+    await page.waitForSelector(TESTBED_ROOT, { timeout: ctx.navTimeoutMs });
+  } catch {
+    const at = await page.evaluate((sel) => {
+      const root = document.querySelector(sel);
+      const box = root && root.getBoundingClientRect();
+      const app = document.getElementById('app');
+      return {
+        readyState: document.readyState,
+        scriptTag: !!document.querySelector('script[src="main.js"]'),
+        bundle: performance.getEntriesByType('resource')
+          .filter((e) => e.name.endsWith('main.js'))
+          .map((e) => ({ ms: Math.round(e.duration), bytes: e.transferSize })),
+        bundleRan: typeof window.shadow$provide !== 'undefined',
+        appEmpty: !app || app.childNodes.length === 0,
+        rootPresent: !!root,
+        rootBox: box ? `${Math.round(box.width)}x${Math.round(box.height)}` : null,
+      };
+    }, TESTBED_ROOT).catch((err) => ({ evaluateFailed: String(err && err.message) }));
+    throw new Error(
+      `the testbed root did not mount within ${ctx.navTimeoutMs}ms of the ` +
+      're-navigation. This is the navigation\'s OWN ceiling and not the lane ' +
+      'budget that wraps the section, so the re-navigation is what failed. ' +
+      'The same mount measures p50 80ms locally, which is why this reads as ' +
+      'a stopped mount rather than a slow one — the state below says which ' +
+      `(rf2-vinj, and the docstring above reads it): ${JSON.stringify(at)}`);
+  }
+}
+
 async function armedEdgesAreWired(page, w, ctx) {
   const before = await page.evaluate(() => ({
     label: window.__TB__.el('armed').textContent,
@@ -902,6 +971,15 @@ async function armedEdgesAreWired(page, w, ctx) {
   // would apply an anonymous 30s default that no lane budget can reach — so a
   // missing ceiling REFUSES here rather than defaulting, which is the same
   // choice `examples/scripts/spec-helpers.cjs` makes for spec-side callers.
+  //
+  // AND SO DOES THE MOUNT-WAIT THAT FOLLOWS IT (rf2-vinj). It was bare until
+  // that bead, which made the paragraph above true of the `goto` and false of
+  // the line under it: `waitUntil` is `'commit'`, so the navigation is only
+  // half done when `goto` returns and the mount-wait is the other half of the
+  // SAME operation — yet it took Playwright's anonymous 30s while the goto
+  // took 60,000. One operation, two budgets, and the second one invisible in
+  // the source. That is the shape this comment already refuses; it just wore
+  // a name the sweep did not police, which is now fixed there too.
   const base = page.url().split('?')[0];
   if (typeof ctx.navTimeoutMs !== 'number') {
     throw new Error(
@@ -911,7 +989,7 @@ async function armedEdgesAreWired(page, w, ctx) {
   }
   await page.goto(`${base}?arm-ms=${ARM_MS}`,
     { waitUntil: ctx.navWaitUntil, timeout: ctx.navTimeoutMs });
-  await page.waitForSelector('[data-testid="hicasso-controlled-testbed"]');
+  await waitForRemount(page, ctx);
 
   const seed = await page.evaluate(() => window.__TB__.model().revision);
   await page.locator('[data-testid="arm-bump"]').click();

@@ -376,7 +376,10 @@ async function main() {
       undefined,
       { timeout: RUNTIME_PRELOAD_TIMEOUT_MS },
     );
-    await page.waitForSelector('#value');
+    // Same number as the two waits above, for the same reason: this is still
+    // the fixture coming up, and an unnamed ceiling here would be Playwright's
+    // anonymous 30s — a third budget for one operation (rf2-vinj).
+    await page.waitForSelector('#value', { timeout: RUNTIME_PRELOAD_TIMEOUT_MS });
     const initial = (await page.textContent('#value')) || '';
     assert(initial.trim() === '5', `fixture did not initialise to 5: got "${initial}"`);
 
