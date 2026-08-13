@@ -77,5 +77,5 @@ The [primary portfolio](../specification.md#11-innovation-portfolio) alone owns 
 - A full headless/JVM renderer is a second semantic implementation; the supported assertion model remains partial.
 - User Timing describes render attempts, not committed occurrence identity.
 - Deep Hiccup conversion inside arbitrary host data corrupts foreign ABIs; ReactNode positions must be declared.
-- Submit-only automatic prevention creates position/value-dependent behavior; prevention stays explicit.
+- Submit-only automatic prevention creates position/value-dependent behavior; prevention stays explicit. **[Corrected 2026-08-13.]** This guardrail was written before the Phase 2 evidence arrived, and the operator ruled the other way on `rf2-j6fn`: the `:on-submit` data spelling auto-prevents, the position-dependence it names is accepted as deliberate law, and the rare real submission opts out through the function escape. The reasoning survives as the reason the exception stops at one position — no second auto-preventing position may be added.
 - Generic adapter-local state, compiler/JIT modes, automatic hot promotion, signals replacement and universal callback cells remain out.

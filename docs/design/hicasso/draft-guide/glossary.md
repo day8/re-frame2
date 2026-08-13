@@ -265,12 +265,15 @@ Related: [Events as data](03-events-as-data.md),
 ### `::h/prevent`
 
 An intent wrapper that calls `preventDefault` and then dispatches one inner
-event vector. Hicasso does not auto-prevent clicks or form submits.
+event vector. Hicasso does not auto-prevent clicks; `:on-submit` is the one
+position whose data spelling prevents by default, so a submit intent needs no
+wrapper. A callback always owns its own event and is never auto-prevented.
 
 ```clojure
-[:form
- {:on-submit [::h/prevent [:signup/submit]]}
- ...]
+[:a.nav-link
+ {:href      "#"
+  :on-click  [::h/prevent [:todo/filter-active]]}
+ "Active"]
 ```
 
 Related: [Events as data](03-events-as-data.md).

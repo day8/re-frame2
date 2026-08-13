@@ -98,10 +98,13 @@ is not taught.
 The guide uses `h/fn` consistently. `:handler` remains a valid `defhost`
 callback-contract value and is not the same thing as an `h/handler` macro.
 
-No form submit is auto-prevented. A submit that must stay on the page uses:
+An `:on-submit` intent auto-prevents — the one position that does, and no second
+one may be added. A form that must perform a real browser submission opts out
+through the callback escape, which owns its own event. Every other position is
+explicit:
 
 ```clojure
-[::h/prevent [:form/submitted]]
+[::h/prevent [:filter/show-done]]
 ```
 
 ### Hooks
