@@ -85,6 +85,21 @@ Almost everything this runtime holds is one-per-page, and that is deliberate: **
 
 The consequence for reading a witness is stated in `roots_frames_isolation_dom_cljs_test`'s own opening and is worth repeating here, because it is what makes the claim checkable: a boundary that resolved the wrong frame still renders a value, and React still repairs the tree to something plausible by the end of the event, so a total isolation failure can look like a working page when read at `.-textContent`. The witness therefore reads three observables React cannot forge — **the cell table's key set, the reader count per key, and the monotone body-run counter** — with the DOM read afterwards as corroboration only. That suite is the standing proof for the three frame-scoped rows above, and this bead migrated nothing, so it is green unchanged rather than green again.
 
+### The witness was falsified before it was cited
+
+A green witness cited for a claim nobody tried to break is an assertion with a test-shaped decoration on it, so the keying claim was checked by making it false. `impl.collector/read-key!` mints the sub-key as `[frame-kw query-v]`; the plant replaced `frame-kw` with one constant **for the isolation suite's two frames only**, which is a frame-qualification leak and nothing else. The narrowing was necessary rather than tidy: an unconditional plant crashed `examples.slice.extension` with an uncaught `TypeError`, and shadow.test runs the whole lane inside one `run-block` with no try/catch, so the run aborted at namespace 121 and the isolation suite — later in the alphabet — never executed at all. A truncated run is red for the wrong reason and proves nothing about the witness.
+
+Under the narrow plant the suite failed on exactly the observables its opening says it takes, and on no others by accident:
+
+| Assertion | Expected | Observed under the plant |
+|---|---|---|
+| the cell table's key set | four frame-qualified keys, two per frame | two keys, both under the planted constant |
+| `cell-frames` | `#{frame-a frame-b}` | `#{planted-leak}` |
+| readers per key | `[1 1 1 1]` | `[0 0 0 0]` |
+| frame-local dispatch and its DOM echo | root A at `"1"`, root B at `"0"` | both at `"0"` |
+
+`npm run test:browser` went from `0 failures, 0 errors` to `22 failures, 0 errors` across 1,467 tests, and the file was restored and verified byte-identical by SHA-256 against its pre-plant digest before any gate result on this page was taken.
+
 The one page-wide door that reaches across roots is `impl.collector/reset-runtime!`, and it is a **fixture door and not root teardown** (`rf2-31xm`): every table it empties is one-per-page, so calling it to tear one root down empties the runtime under every other root on the page. `impl.mount/unmount!` is root teardown and reaches none of it. It also deliberately does not touch the hydration adoption window (`rf2-6tmu`) — that window used to be one page-wide boolean and is now per-root, reachable only from the root that minted it, which is the one migration this class of state has actually needed and it landed before this bead.
 
 ## Module-level identities, which are not mutable owners
