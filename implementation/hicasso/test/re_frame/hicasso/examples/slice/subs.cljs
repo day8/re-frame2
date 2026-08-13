@@ -128,10 +128,6 @@
   own fields when nobody has typed yet. See db/draft-for."}
   (fn [db [_ slug]] (db/draft-for db slug)))
 
-(rf/reg-sub ::revision
-  {:doc "The controlled fields' reset trigger for one article."}
-  (fn [db [_ slug]] (db/revision db slug)))
-
 (rf/reg-sub ::dirty?
   {:doc "Has this article been edited since it was last saved or discarded?"}
   (fn [db [_ slug]] (db/dirty? db slug)))

@@ -130,7 +130,6 @@
   (ht/tree [views/editor {:slug "intents"}]
            {:subs (merge {[::subs/draft "intents"]      {:title "T" :body "B"
                                                          :published? true}
-                          [::subs/revision "intents"]   0
                           [::subs/dirty? "intents"]     false
                           [::subs/save-state "intents"] save
                           [::subs/token :danger]        "rgb(176, 32, 32)"}

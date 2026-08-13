@@ -6,11 +6,15 @@
   rf2-hic-074 added for pagination, runtime-selected content and a
   nested error region: a pager, a digest region, its body, and four
   block renderers. Everything they reach for is `h/…`: `defview`, `sub`,
-  `use-subs`, `boundary`, `route-link`, the `::h/value` / `::h/checked` /
-  `::h/revision` markers. There is no `impl` namespace anywhere in the
+  `use-subs`, `boundary`, `route-link`, and the `::h/value` /
+  `::h/checked` markers. There is no `impl` namespace anywhere in the
   `:require` list above, and no `re-frame.core` either — a view neither
   dispatches nor subscribes directly, because an intent is a vector and a
   read is `h/sub`.
+
+  The third marker, `::h/revision`, is **not** here, and its absence is a
+  measurement rather than an oversight — see [[editor]] and `db`'s
+  namespace docstring.
 
   ## The one thing an author has to know that is not in a signature
 
@@ -351,15 +355,22 @@
   local draft, no `onChange` closure and no effect reconciling two copies
   of the text. The model is the only place it lives.
 
-  `::h/revision` is the reset trigger and it carries the ONLY thing that
-  makes *discard* work. Dropping the draft moves the model back to the
-  article — but if the user had typed and then discarded, the value the
-  field is handed is the value it was handed before, and React sees
-  nothing to do. A changed revision re-baselines the field to the model
-  without remounting it (HD-019)."
+  ## NO `::h/revision`, and that is the finding rather than a gap
+
+  Both fields carried one until rf2-36bd measured it. Deleting the
+  counter's bump from `::discard` left the browser lane at exactly its
+  control — the reset law's trigger was inert here, because the whole of
+  what a revision does is re-run the body, and a discard already moves
+  three of the reads below. The commit that follows re-asserts the model
+  over the fields on its own.
+
+  A consumer needs `::h/revision` where a reset leaves every read its body
+  makes `=` — a normalising or refusing field whose typed value lands back
+  on the value the model already holds, or a DOM drifted by something
+  React never saw. This editor is neither, and
+  `flow-dom-cljs-test`'s reset section witnesses both halves."
   [{:keys [slug]}]
   (let [draft            (h/sub [::subs/draft slug])
-        revision         (h/sub [::subs/revision slug])
         dirty?           (h/sub [::subs/dirty? slug])
         {:keys [status problem]} (h/sub [::subs/save-state slug])
         saving?          (= :saving status)]
@@ -368,16 +379,14 @@
 
      [:label {:for "slice-title"} (h/sub [::subs/t :editor/title])]
      [:input#slice-title.field-title
-      {:type         "text"
-       :value        (:title draft)
-       ::h/revision  revision
-       :on-input     [::events/edit slug :title ::h/value]}]
+      {:type     "text"
+       :value    (:title draft)
+       :on-input [::events/edit slug :title ::h/value]}]
 
      [:label {:for "slice-body"} (h/sub [::subs/t :editor/body])]
      [:textarea#slice-body.field-body
-      {:value        (:body draft)
-       ::h/revision  revision
-       :on-input     [::events/edit slug :body ::h/value]}]
+      {:value    (:body draft)
+       :on-input [::events/edit slug :body ::h/value]}]
 
      [:label.published {:for "slice-published"}
       [:input#slice-published

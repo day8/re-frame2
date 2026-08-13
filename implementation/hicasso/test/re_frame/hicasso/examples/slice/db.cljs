@@ -12,7 +12,6 @@
       {:articles {slug {:slug :title :body :published? :tags}}
        :order    [slug …]                ;; publication order, the list's key order
        :drafts   {slug {:title :body :published?}}
-       :revision {slug n}                ;; the controlled fields' reset trigger
        :save     {:status :idle|:saving|:failed|:saved  :slug :problem}
        :digest   {:status :ready|:loading  :blocks [block …]}
        :locale   :en
@@ -47,15 +46,36 @@
   than a flag somebody has to remember to clear, and \"reset\" is a
   `dissoc` rather than a re-copy.
 
-  ## `:revision` is a COUNTER, not a value
+  ## THERE IS NO `:revision` KEY, AND ITS ABSENCE WAS MEASURED (rf2-36bd)
 
-  HD-019's reset law re-baselines a controlled field to its model when
-  `::h/revision` CHANGES. A discard that only removed the draft would
-  leave the field showing what the user typed — the model moved back to
-  where it already was, so React's own value diff sees nothing to do. The
-  counter is what makes the reset observable to the field, and it is
-  bumped by exactly the two handlers that need it (discard, and a
-  successful save)."
+  An earlier draft of this application carried one: a `{slug n}` counter,
+  a `(fnil inc 0)` in two handlers, a subscription, and `::h/revision` on
+  both text fields. It was written from HD-019's reset law and from the
+  sentence that used to stand here — *a discard that only removed the
+  draft would leave the field showing what the user typed*.
+
+  That sentence is false of this application, and the way it was found is
+  the only reason to keep talking about it: the counter's bump was deleted
+  from `::discard` and the browser lane did not move — 1474 tests, 9154
+  assertions, zero failures, exactly the control. The bookkeeping was
+  inert.
+
+  It is inert for a mechanical reason worth carrying, because it decides
+  when a consumer needs one. `impl.codec`'s `revision-key` states the
+  whole delivery: **the revision is a value the body reads, and its change
+  RE-RUNS THE BODY**; the re-run re-commits the element and the commit
+  re-asserts the model over whatever the DOM holds. React marks that host
+  update on props-object identity, so *any* re-render of the boundary does
+  the same re-assert for free. A discard here already moves three of the
+  editor's reads — the draft, [[dirty?]], and the save status — so the
+  body re-runs whatever the counter does.
+
+  **`::h/revision` is therefore the door for a reset that leaves every
+  other read the body makes `=`** — not, as the first report had it, for a
+  field that outlives its reset. This field outlives its reset and needs
+  nothing. `flow-dom-cljs-test`'s reset section witnesses both halves: the
+  discard that works, and a DOM drifted by a write React never saw, which
+  the same re-render repairs."
   (:refer-clojure :exclude [empty?]))
 
 (def page-size
@@ -159,7 +179,6 @@
                             :tags ["routing"]}}
    :order    ["hicasso" "intents" "controls" "keys" "boundaries" "revision" "pages"]
    :drafts   {}
-   :revision {}
    :save     {:status :idle}
    :digest   {:status :ready :blocks digest}
    :locale   :en
@@ -196,14 +215,6 @@
   "Has `slug` been edited since it was last saved or discarded?"
   [db slug]
   (contains? (:drafts db) slug))
-
-(defn revision
-  "The reset trigger for `slug`'s controlled fields. Starts at 0 so the
-  first render carries a value rather than a nil that later becomes a
-  number — a change from nil is a change, and the field would re-baseline
-  on the second render for no reason a reader could see."
-  [db slug]
-  (get-in db [:revision slug] 0))
 
 (defn blank?
   "Is `s` absent, or nothing but whitespace? The one string predicate the
@@ -287,5 +298,4 @@
   [db slug draft]
   (-> db
       (update-in [:articles slug] merge (select-keys draft [:title :body :published?]))
-      (update :drafts dissoc slug)
-      (update-in [:revision slug] (fnil inc 0))))
+      (update :drafts dissoc slug)))
