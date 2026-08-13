@@ -342,6 +342,15 @@ Target a fixed number of concurrent workers — six is a workable ceiling for on
 operator — and refill the instant a slot frees. Dispatch low-priority items to stay
 saturated; the goal is a backlog trending to zero.
 
+**A heavyweight gate is an exclusive resource, and that ceiling does not bound it.** The
+parallel-or-sequential split reasons about *surfaces*; a gate heavy enough that two runs
+cannot coexist is contention for the *machine*, so six workers on six disjoint surfaces can
+still wedge one another inside it — measured once, and both runs hung rather than failed.
+Sequence dispatches that will all run one, or take the re-run knowingly. **This is the
+constraint a measurement window is already fenced under, seen from the other side**: a window
+is held for a quiet machine, and a heavyweight gate is what makes the machine loud. Keep one
+vocabulary for the two rather than inventing a second.
+
 Pick the shape by kind first, then priority, then size. The shapes are in
 [`dispatch-prompt-template.md`](dispatch-prompt-template.md).
 

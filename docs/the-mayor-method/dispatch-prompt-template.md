@@ -419,6 +419,22 @@ one hour, every one recovered intact the moment somebody asked it for a status.
 polling instruction had not landed: a worker who believes it has already erred reads for how to atone rather
 than for what to do next, and reads straight past the instruction that would have saved it.
 
+**A gate heavy enough that two cannot coexist WEDGES rather than fails.** Two workers in one wave ran the same
+heavyweight suite concurrently, each holding several gigabytes, and both hung — neither returned, and neither
+reported a failure. Nothing else here catches that: every rule around it protects two workers writing the same
+*file*, and both of these had correct, distinct names throughout. This is contention for the MACHINE, and
+per-attempt naming does nothing for it. Recognise it rather than diagnosing it as a bug in your own change — no
+progress in the log, no exit file, from a run that was healthy a minute ago. To recover, correlate your own
+build artefact's modification time against the start times of the candidate runs, and **kill only the one you
+can show is yours**: a peer's run recovers by itself once memory frees, and killing it costs somebody else a
+full gate.
+
+**Read the clock before you kill anything on elapsed time.** That same worker briefly killed a healthy run
+because it believed seventeen minutes had passed when about two had. Ask the system for the time; do not infer
+it from how much has happened. Elapsed-time and count-based inference about a running process fail the same
+way, and this one runs in both directions — the loop watching from outside hits it too, reading a worker that
+has just rebased as stalled.
+
 **Invoke a backgrounded gate by its ABSOLUTE path.** This holds by two different mechanisms. A script that
 derives its repository root from its own invocation path gets a relative one when the invocation is relative.
 And an interpreter handed a relative script path resolves *that* against the working directory first, so a wrong
