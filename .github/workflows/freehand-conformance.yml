@@ -67,6 +67,39 @@ name: freehand-conformance
 # drifted. An archive that can quietly shrink or be edited is worse than no
 # archive. Stdlib Python, well under a second.
 #
+# AND IT WAS PUT TO THE QUESTION AND KEPT (rf2-q4qj) — recorded here because
+# the two donor steps below look, correctly, like they do not belong in a
+# workflow named for the conformance index, and the next reader deserves the
+# answer rather than the re-derivation. The case for dropping them is strong
+# and is not disputed: `scripts/check_donor_inventory.py` is 906 lines whose
+# whole live function is "this archived markdown file has not been edited", git
+# already records that immutably, and NOTHING normative cites the archive —
+# every other CI reference to it exists to keep it OUT of the CI graph. On this
+# project's stated posture that is the strongest retire-now candidate in the
+# three Freehand workflows.
+#
+# It stays anyway, on two grounds that are RECORDED rather than inferred, and
+# neither of them is "it is cheap":
+#
+#   1. The archive's own banner rules the disposition.
+#      `spec/conformance/freehand/donor-inventory.md` says "this snapshot and
+#      its snapshot check therefore retire WITH the donor surfaces they map, in
+#      the change that deletes them" — deriving from EP-0038 HD-018, which
+#      reopens only by operator ruling. The audit that proposed the retirement
+#      grepped for CONSUMERS of the archive and correctly found none; it did
+#      not look for a disposition INSIDE it.
+#   2. HD-018's win condition is a conjunction — "P2 go + v0 bar green +
+#      dogfood preference" — and HD-029 (operator, 2026-08-13) supplied the P2
+#      go while stating in terms that it does NOT discharge the rest. The
+#      change that deletes the donor surfaces is therefore not yet authorised,
+#      and this checker's retirement rides with it.
+#
+# A smaller reason points the same way: this check is the one thing that would
+# stop the archive shrinking between now and the deletion meant to take it
+# whole. So it retires at STAGE 2 of the order in `TESTING.md`, not at stage 0
+# where the audit placed it, and it leaves WITH the archive in one change
+# rather than ahead of it.
+#
 # NAMING. The job id and display name stay `index` / `Freehand conformance
 # index` even though the job proves two ledgers. That string is NOT a required
 # status context. The branch ruleset on `main` requires exactly three — `All
