@@ -775,10 +775,16 @@
 ;; carries its reason (`:rf.error/mutation-invalid-target`, catalogued at
 ;; spec/009 with `:recovery :fix-mutation-target` and the `:arm` / `:target`
 ;; facets); it is simply not legible on stdout, because per Spec 009
-;; §Observability channels re-frame2 ships NO default console sink and the
+;; §Observability channels a listener is the only ALWAYS-ON channel and the
 ;; router CAPTURES a handler throw rather than re-throwing it to
-;; `dispatch-sync`'s caller. That residual — framework-wide, not specific to
-;; this arm — is rf2-fu75's, not this path's.
+;; `dispatch-sync`'s caller. That residual was framework-wide rather than
+;; specific to this arm, and rf2-fu75 has since SETTLED it (PR #8108): an
+;; unowned promoted record now ALSO reaches the browser console. It is a
+;; fallback, not a channel, and none of its three conditions holds here — it
+;; needs a dev build, a browser host (this is the Node lane, no `js/document`)
+;; and an EMPTY `:errors` registry, which the listener this suite installs
+;; fills. So the reading below is unchanged, and the always-on axis is still
+;; the one that holds in dev AND in prod.
 ;;
 ;; So this test asserts the readable half on the always-on `:errors` axis,
 ;; which is where a refusal is legible in dev AND in a production build. The
@@ -800,11 +806,14 @@
   always-on error record fanned during it (capture order).
 
   The `:errors` stream — not stdout, not the dev trace — is where a framework
-  REFUSAL is legible: per Spec 009 §Observability channels the runtime ships no
-  default console sink, so a category that fans a record here is loud in dev AND
-  in a production build, while a category that fans nothing is invisible
-  everywhere. Sibling of the same-named helper in `resources-mutation-cljs-test`
-  (rf2-06lp)."
+  REFUSAL is legible: per Spec 009 §Observability channels a listener is the
+  only ALWAYS-ON channel, so a category that fans a record here is loud in dev
+  AND in a production build, while a category that fans nothing is invisible
+  everywhere. (Since PR #8108 there is ALSO a browser-console fallback, but it
+  is not the always-on contract and cannot fire here: it needs a dev build, a
+  browser host — this suite is the Node lane, no `js/document` — and an EMPTY
+  `:errors` registry, which the listener below fills.) Sibling of the same-named
+  helper in `resources-mutation-cljs-test` (rf2-06lp)."
   [body-fn]
   (let [seen (atom [])
         k    ::error-record-recorder]

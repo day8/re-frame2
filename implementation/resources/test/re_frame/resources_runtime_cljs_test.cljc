@@ -116,10 +116,14 @@
   every always-on error record fanned during it (capture order).
 
   The `:errors` stream — not stdout, not the dev trace — is where a framework
-  REFUSAL is legible: per Spec 009 §Observability channels the runtime ships no
-  default console sink, so a category that fans a record here is loud in dev
+  REFUSAL is legible: per Spec 009 §Observability channels a listener is the
+  only ALWAYS-ON channel, so a category that fans a record here is loud in dev
   AND in a production build, while a category that fans nothing is invisible
-  everywhere. A refusal that reaches NO channel is indistinguishable from a
+  everywhere. (Since PR #8108 there is ALSO a browser-console fallback, but it
+  is not the always-on contract and cannot fire here: it needs a dev build, a
+  browser host — this suite is the Node lane, no `js/document` — and an EMPTY
+  `:errors` registry, which the listener below fills.)
+  A refusal that reaches NO channel is indistinguishable from a
   silent no-op at the call site, which is exactly the gap rf2-06lp closed on
   the mutation path; this is the copy that lets the read path assert the same
   way (rf2-w67y, sibling of `record-error-records!` in
@@ -540,8 +544,10 @@
         (is (nil? @last-managed-args) "no request reached the transport"))
       (testing "and the refusal is READABLE — the runtime did not stay silent"
         ;; Read off the always-on `:errors` axis, not stderr: per Spec 009
-        ;; §Observability channels the framework ships NO default console sink,
-        ;; so this listener is where a refusal is legible in dev AND in prod.
+        ;; §Observability channels a listener is the only ALWAYS-ON channel, so
+        ;; this listener is where a refusal is legible in dev AND in prod. The
+        ;; browser-dev console fallback (#8108) is not a second reading here —
+        ;; it needs an EMPTY registry, and this listener fills it.
         ;; Without this half the two rows above are satisfied by a silent
         ;; no-op and the test cannot fail.
         (is (some? rec)
