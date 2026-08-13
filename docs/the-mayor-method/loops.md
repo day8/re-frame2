@@ -26,6 +26,10 @@ including yours after a refactor.
 Some people prefer merge and dispatch as separate loops. One loop is simpler and
 has a real advantage: a merge frees a worker slot, and the same tick refills it.
 
+**Five loops, six bodies.** Merge and dispatch share one tick, but each is long
+enough to want a heading of its own, so they are written separately below. The
+numbering follows the bodies; the cadence follows the table.
+
 **Loops fire on time, not on state.** Several ticks legitimately have nothing to
 do. *"Nothing to merge, fleet saturated, here is why"* is a complete report. A
 loop that manufactures work to look busy is worse than a quiet one.
@@ -378,7 +382,56 @@ needs the operator, and do not manufacture work.
 
 ---
 
-## 3. Posture, and the stranded sweep
+## 3. Backlog reread
+
+**Dispatch reads the ready list; this loop reads everything else.** A ready list is a
+projection. It answers *what could go out right now*, and by construction it omits held
+items, blocked items and items a live worker already holds. Those are the ones that fail
+quietly: a dispatchable item that goes wrong is caught on the next tick, because the tick
+is looking straight at it, while a held item that should have been released is caught by
+nobody, because nothing in the short loop reads it again.
+
+So on a medium cadence, read **all** open items from the raw list — not a saved filter, not
+the ready view, not what you remember filing. Read each one bottom-up, newest note first;
+*Dispatch* above explains why.
+
+Four things surface here and nowhere else.
+
+**A fence that has cleared.** The dispatch tick records the fence on the item and moves on,
+and nothing removes it when the condition is met. An item sequenced behind another's merge
+becomes dispatchable the moment that change lands, and the tracker does not notice: the
+short tick keeps skipping it because it is still not *ready*, and the note is the only
+record that anything is being waited on at all. Re-testing those conditions is this loop's
+most productive minute — **recording a fence is worth nothing without the loop that reads
+it back.**
+
+**A dependency that has outlived what it was enforcing.** The item is still blocked, the
+thing it was waiting for shipped, and only a full read notices. The remedy, and why it
+needs its reasoning written onto the item, is under *Tracker mechanics* below.
+
+**A closure that reverted.** Verifying at the moment you close is not enough, so re-check
+what this session closed. **But read the item's notes before re-closing anything.** On a
+project that audits its merged changes, most reappearances are the audit working rather
+than a lost write, and re-closing one destroys a real finding while looking like tidiness.
+
+**A hold that is costing more than it is holding.** Separate *needs a decision* from *needs
+work under a decision already made* — the second is dispatchable now, and it tends to sit in
+the first pile. For the ones that genuinely need the operator, record what the hold is
+costing: which items are behind it, and what stops if it stays. A hold with no cost written
+on it reads as free, and the cheapest-looking item in a list is the one that stays there
+longest.
+
+In-progress items are read here too, but their liveness question belongs to the stranded
+sweep in the next loop. Read them for scope and for fences; leave *is this worker still
+alive?* to the loop that owns it.
+
+**Most passes find nothing, and a pass that finds nothing is complete.** What is not
+complete is a pass that reports nothing without having read the raw list. Inferring the
+backlog from the ready view is the exact failure this loop exists to go behind.
+
+---
+
+## 4. Posture, and the stranded sweep
 
 ### Posture
 
@@ -435,7 +488,7 @@ it forms a coherent change.
 
 ---
 
-## 4. Hygiene
+## 5. Hygiene
 
 ### Reaping
 
@@ -565,7 +618,7 @@ inventing another proxy.** A stale directory is cheap. A destroyed run is not.
 
 ---
 
-## 5. Method reread
+## 6. Method reread
 
 **This loop earns its place, but not by re-reading.** Re-reading unchanged files spends context for
 nothing.

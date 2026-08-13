@@ -76,7 +76,7 @@ and paste that block verbatim into every dispatch preamble. Skip the interview i
 the operator's opening message already names the stance; restate it as a one-line
 confirmation instead.
 
-SET UP THE LOOPS. The five bodies are in `loops.md`. Codify each as a command file
+SET UP THE LOOPS. The five loops are in `loops.md`. Codify each as a command file
 in this repository so each is one invocation and one source of truth, rather than
 re-pasted prose. When a method rule changes, re-read the matching command file — a
 link checker catches renamed files, not semantic drift.
