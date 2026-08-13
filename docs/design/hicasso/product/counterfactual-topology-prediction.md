@@ -223,3 +223,125 @@ It needs exactly one thing that does not exist: **`rf2-hic-036` must have run.**
 ## Standing
 
 **Nothing is retained.** No advisor was built, nothing was wired into Xray, no runtime tap was added, no public surface moved and no production namespace was touched. This page and the branch that carries it are the whole of phase 1, and the §11 row stays at **Spike** until phase 2 returns a verdict.
+
+---
+
+## Phase 2 — the scoring, applied
+
+Added 2026-08-14 by `rf2-hic-080` phase 2, a different worker in a different context, after [the topology tournament](topology-tournament.md) ran and published. **Everything above this rule is phase 1 and is unchanged**: not one prediction, not one confidence, not one clause of the scoring rule, and not one figure in the three quantities. The scoring below is applied to the text as frozen, including where that text turns out not to decide the question — those places are recorded as ambiguities rather than resolved, because resolving them now, with the outcomes visible, is exactly the move the split exists to prevent.
+
+### The freeze held on both sides
+
+Worth stating because it is the artefact's only real asset, and because it was not guaranteed.
+
+| obligation | who carried it | held |
+|---|---|---|
+| predictions written before outcomes existed | phase 1, commit `de4b1bef3ea202ca97f5989424b14bc998f15794` | yes — `rf2-hic-036` had not run |
+| tournament does not grade its own predictor | [tournament §1.7](topology-tournament.md#17-what-this-page-will-not-do), restated at [§2.8](topology-tournament.md#28-what-was-not-concluded) | yes — it hands over outcomes and declines to score |
+| phase 2 does not amend predictions or rule | this section | yes — appended only |
+| phase 2 held by a different worker | dispatch | yes |
+
+The tournament also pre-committed to *this page's* unaddressed clause by name, before its own results existed — [§1.4](topology-tournament.md#14-the-estimand-and-the-one-substitution-that-is-refused) states that a cell whose clock control refuses is handed over as **unaddressed** rather than as *"a work-census ordering wearing a clock's clothes."* The two frozen vocabularies interlocked without either side adjusting to the other. That is the one unambiguous success of the exercise, and it is a success of the protocol rather than of the method.
+
+### What the tournament delivered, and what it did not
+
+| half | state | bearing on scoring |
+|---|---|---|
+| deterministic work census | **complete** — 48 of 48 cells, both counters agreeing, witnessed by 1,507 tests / 9,533 assertions, 0 failures | measured orderings exist for sparse, edit and reorder |
+| clock table | **does not exist** — no cell, for any arm, operation or row count | no clock ordering exists to score against |
+
+Two separate causes are recorded for the clock, and neither is a judgement about the machine: the windowed arm's control [refused on the band](topology-tournament.md#26-the-clock-half--the-first-control-refused-the-replacement-certifies-three-arms-of-four) at the committed window size, and — the larger one — **the 4 × 4 clock table was never instrumented at all.** Only the control was built.
+
+### The one place the frozen rule does not decide: which estimand
+
+**Recorded, not resolved.** The rule says a prediction is right *"only if the tournament's measured **ordering** of the arms matches the predicted ordering, for that operation at that row count."* It does not name the estimand, and the tournament turned out to have two:
+
+- The tournament's **primary** estimand is [the clock](topology-tournament.md#14-the-estimand-and-the-one-substitution-that-is-refused), and "beats" in these predictions means what it means to a user. Under this reading nothing is scoreable at all.
+- The tournament's **only measured** ordering is the deterministic work census. Under this reading the three resolvable operations are scoreable.
+
+The frozen text supports both and chooses neither. Rather than pick the one that flatters the method, **both are scored below.** They agree on the verdict, which is the most that can honestly be claimed for the ambiguity: it is real, it is the rule's fault, and it did not change the outcome.
+
+What the rule *does* decide, and which resolves the compound-prediction problem without amendment, is its own scope clause — **"for that operation at that row count"**. Scoring is therefore **per cell**, not per prediction as a monolith, and a prediction spanning four operations is right on the cells it addresses and unaddressed on the cells it does not. No new score category was invented; `right`, `wrong` and `unaddressed` are the whole vocabulary and remain so.
+
+### Reading A — the clock, the tournament's primary estimand
+
+| # | scored | outcome | evidence |
+|---|---|---|---|
+| P1 | control | **UNADDRESSED** | no clock cell exists |
+| P2 | yes | **UNADDRESSED** | no clock cell exists |
+| P3 | yes | **UNADDRESSED** | no clock cell exists; no noise band was ever published |
+| P4 | control | **UNADDRESSED** | no clock cell exists |
+| P5 | yes | **UNADDRESSED** | no clock cell exists |
+| P6 | yes | **UNADDRESSED** | no clock cell exists |
+
+Six of six unaddressed; four of four on the deciding set. A method that cannot be scored cannot be *usefully right*, so this reading returns **stop** immediately. The controls do not fire either, so nothing above is discredited by it — the page is neither confirmed nor falsified on the clock.
+
+### Reading B — the work census, the tournament's one measured ordering
+
+The measured integers, from [§2.2](topology-tournament.md#22-the-rung-2-teaching-table--rows-of-markup-built) (rows of markup, the counter that separates the arms) and [§2.3](topology-tournament.md#23-the-same-table-boundary-bodies-run) (boundary bodies). `bulk` is excluded from scoring throughout, because the tournament itself declares it **UNRESOLVED** at [§2.7](topology-tournament.md#27-the-kill-rule-and-how-many-iterations-were-spent) and routes the question to `rf2-hic-018` rather than answering it — *"the line is in milliseconds and no millisecond here has a control."* Its integers exist; its ordering is withheld. Excluding it is the rule's unaddressed clause applied, not a choice made here.
+
+| # | prediction, in brief | outcome | the measurement that decides it |
+|---|---|---|---|
+| P1 | sparse: fine beats coarse at every `B` | **RIGHT** (control) | markup 1 against 100 / 300 / 1000 |
+| P2 | bulk: coarse beats fine at every `B` | **UNADDRESSED** | bulk is unresolved by the tournament's own disposition |
+| P3 | reorder: coarse ≥ fine | **WRONG** | fine builds **0** rows, coarse builds `B`, at all three row counts |
+| P4 | edit: fine beats coarse | **RIGHT** (control) | markup 1 against 100 / 300 / 1000 |
+| P5 | chunked is not the best arm on any operation | **RIGHT** | best arm is fine or virtual on every resolvable cell; chunked is worst on reorder |
+| P6 | no arm changes rank between 100, 300 and 1000 | **RIGHT** | ranks constant on sparse, edit and reorder, on both counters |
+
+**Deciding set: two right, one wrong, one unaddressed.** Controls: both right, so the runtime model behind the three quantities is not falsified and the rest of the page stays readable.
+
+#### The four scored predictions, at source
+
+**P2 — unaddressed, and the near miss is recorded rather than banked.** On boundary bodies the direction the prediction named is there (coarse 1 against fine's `B`, and the gap grows 100 → 300 → 1000). But the tournament's [finding 2](topology-tournament.md#24-the-four-findings) is explicit that this is *"the finding most likely to be misread"*: bulk does not separate fine, coarse and chunked on markup at all — all three build exactly `B` — and *"whatever separates those three arms on a bulk commit is not the number of rows built."* The tournament withholds the bulk ordering deliberately. Taking the bodies counter as the ordering anyway would be substituting a census for a clock, which both pages refused in advance. **Unaddressed, not right.**
+
+**P3 — wrong, and it is the only directional claim the tournament could resolve.** The prediction was that a permutation, being a broad operation, would not favour the fine arm. Measured, the fine arm builds **zero rows of markup for a table that visibly reorders** — the memo bails on unchanged props and React moves DOM nodes — while coarse rebuilds all `B`. The arms invert here, and [finding 3](topology-tournament.md#24-the-four-findings) names the inversion. P3's second clause, *"at 100 rows all arms land within noise of each other"*, is separately **unaddressed**: the rule pinned it to *"the tournament's own noise band, whatever it turns out to be"*, and no noise band exists, because no clock published. On exact integers there is no noise to be within — 0, 1, 100, 100 is not a near-tie by any reading.
+
+**P5 — right, and it is the least informative thing on the page to be right about.** Chunked is never the best arm on any resolvable cell: fine and virtual build 1 row on sparse and edit against chunked's 25, and on reorder chunked is [strictly worst on both counters](topology-tournament.md#24-the-four-findings), drawing the tournament's only **STOP** disposition. `chunked/windowed` here is the chunked arm and not the native-virtualized one — the page's own gloss on P5 says *"the chunked arm"*, and [N2](#what-is-refused-rather-than-predicted) refuses to predict the virtualized arm at all. Under the other reading of that slash, P5 would be **wrong**, because virtual is the best arm on bulk; the page's own text settles it, but the slash was sloppy and is recorded as such. The rightness is a null result either way: the page said in advance that P5 *"is the prediction most worth being wrong about"*, because the four named operations are each pure and cannot show a chunked read at its best. Being right about a designed-in blind spot is a fact about the tournament's operation set, not evidence that the method chooses well.
+
+**P6 — right on the three resolvable operations.** Ranks hold across 100, 300 and 1000 on sparse, edit and reorder, on both counters. **One counterexample exists and is recorded rather than suppressed**: on `bulk` boundary bodies, chunked (4, 12, 40) and virtual (20, 20, 20) swap rank between `B = 300` and `B = 1000`. Bulk is unaddressed for every other prediction here for a reason the tournament states, so admitting it against P6 alone would be scoring inconsistently in the direction that hurts — but a reader who holds that measured integers are measured integers reaches **wrong** for P6, and the frozen rule does not adjudicate between them. P6 emits no advice in any case; it is a stability claim, not a choice.
+
+#### The unscored magnitude clauses, recorded because two are false
+
+The rule excludes magnitudes — *"Predicted magnitudes are not scored; none was stated"* — which is itself slightly wrong, since three predictions do state one. They are not scored. They are reported, because a worksheet that hid a falsified clause behind an exclusion would be worthless.
+
+| clause | predicted | measured on the census | note |
+|---|---|---|---|
+| P1 margin grows monotonically with `B` | yes | holds — 99, 299, 999 | not scored |
+| P2 margin grows with `B` | yes | holds on bodies — 100, 300, 1000 | rides on an unaddressed ordering |
+| P4 margin larger than P1's | yes | **false** — the edit and sparse cells are *identical* integers | not scored, but it is a model error |
+
+P4's miss is the interesting one. The derivation expected a controlled-input keystroke to cost more than a plain single-field change; on the deterministic counter it costs exactly the same, in all four arms, at all three row counts. That difference, if it exists, lives entirely in the clock — which does not exist.
+
+### The verdict
+
+The §11 deciding rule is *"retain only if blinded calibration predicts useful coarse/fine/chunked choices."* Applied:
+
+**STOP. The method is not retained.**
+
+Four reasons, in descending weight:
+
+1. **The method's actual advice is contradicted where the tournament could speak.** The [rule the three quantities imply](#the-rule-the-three-quantities-imply) orders the arms by across-family co-change: 0.78 → *merge it, go coarse.* The tournament's dispositions narrow `coarse` out of sparse and edit **at every row count**, and on reorder coarse builds `B` rows against fine's 0. The one operation where 0.78 might have been vindicated — bulk — is the one the tournament could not resolve.
+2. **[§3.3](#33-the-finding-that-conditions-everything-below) called this in advance, and was right about the wrong thing being right.** It recorded that the committed evidence cannot choose between 0.78 (merge) and 0.33 (keep fine), and that the ambiguity sits on the quantity the deciding rule is most about. Every resolvable operation favours the 0.33 reading. The method's central quantity did not decide, and the direction it leaned unweighted is the direction the measurements went against.
+3. **Two right, one wrong, one unaddressed is not "usefully right"** on a four-prediction deciding set — and neither of the two right ones emits advice. P5 is a negative claim about the tournament's operation set; P6 is a stability claim. The single deciding prediction that named a direction between coarse and fine on a resolvable operation is P3, and it is wrong.
+4. **Under the primary estimand there is nothing to score.** Reading A returns four of four unaddressed. A method whose calibration is unscoreable on the estimand that defines "beats" has not earned retention on the other one.
+
+**Retention is not close, and it is not made close by re-reading the rule.** Both estimand readings, both counters, and both readings of P5's slash reach stop. The only scoring choice that moves any headline number is P6's, and P6 emits no advice either way.
+
+#### What follows, and what deliberately does not
+
+- **Nothing is retained.** No advisor, no instrument, no runtime tap, no public surface, no production namespace — the same standing phase 1 recorded, now final rather than pending.
+- **The §11 row stays at Spike**, which needs no edit: a stop verdict is what leaves it there. It is now *closed at Spike* rather than *awaiting phase 2*.
+- **No follow-up programme is proposed.** [The decision brief](decision-brief.md#part-iii--the-plan) closes the decisive experiments with *"no open-ended benchmark programme after it"*, and a spike that failed its deciding rule is the last place to open one. The clock table's absence is `rf2-hic-036`'s record to carry, not a debt this page books.
+- **The three quantities stay on the page and stay believable.** Both controls came out right, so the runtime model is not falsified; the [landmark](#the-landmark-reproduced-exactly) against the census still reproduces exactly. What failed is the inference from those quantities to an arm, not the quantities.
+
+### Ambiguities in the frozen rule, recorded for whoever writes the next pre-registration
+
+The rule survived contact, but not intact. Four gaps, each found by needing it and not having it — and each of them was a live decision at scoring time rather than a tidy-up:
+
+1. **The estimand is not named.** "The tournament's measured ordering" was written when the tournament had one estimand in prospect and turned out to have two, one of which never materialised. A pre-registration must name the quantity, not just the comparison.
+2. **The counter is not named either.** The census publishes rows-of-markup *and* boundary-bodies, and they disagree in direction on bulk and in rank-stability on P6. The rule has no tiebreak.
+3. **Roll-up to the verdict is unstated.** The rule scores cells; the §11 deciding rule wants retain-or-stop; nothing connects them. "Usefully right" stayed a post-outcome judgement, which is precisely what a freeze is supposed to remove. Here it did not matter, because every path reaches stop — that is luck, not design.
+4. **`chunked/windowed` in P5 names two arms with a slash.** The page's own gloss settles it, but only because the gloss happens to exist.
+
+**This was seen before the outcomes were visible.** The merged-PR audit of #8150 recorded gaps 1, 3 and the compound-claim problem, and proposed a bounded repair *"before `rf2-hic-036` outcomes are visible."* That window closed unused. The repair is deliberately **not** made now: amending a scoring rule after seeing the results is indistinguishable from tuning it, and a stop verdict reached under an imperfect frozen rule is worth more than a retain verdict reached under a repaired one. Gap 3 is the one that would have mattered had the result been marginal.
