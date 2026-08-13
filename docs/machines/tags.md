@@ -1,87 +1,104 @@
 # State tags
 
-You know the [flat model](concepts.md): states, transitions, snapshot. This page is
-how views ask **what is true** without hard-coding state names.
+A view often does not care which exact state a machine is in. It cares about a
+semantic question:
 
-Some questions are not "which state?" but "is it *busy*?" across `:loading`,
-`:retrying`, `:reconnecting`, and whatever you add next month. A
-**[state tag](glossary.md#state-tag)** is a label on a state so a view asks for
-intent — busy, read-only, terminal — instead of enumerating names. *Ask, don't
-tell.*
+- is this flow busy?
+- is this screen read-only?
+- is this state terminal?
+- should the root view render loading, empty, error, or content?
 
-Reach for tags when:
+A **[state tag](glossary.md#state-tag)** is a label on a state that answers those
+questions without forcing the view to enumerate state names.
 
-- several states share a meaning a view cares about;
-- render decisions slice across more than one axis (see also
-  [parallel regions](parallel-states.md));
-- a guard in one parallel region needs a sibling region's *intent* without private
-  state.
-
-If a label would only ever match one state, skip it — compare `:state` directly.
-
-## Declaring tags on a state
-
-`:tags` is a state-node key whose value is a **set of keywords**. No separate
-registration — just another slot on the state, alongside `:on`, `:entry`, and
-`:after`:
+## Declare tags on states
 
 ```clojure
 (rf/reg-machine :todos/loader
   {:initial :idle
    :states
-   {:idle     {:on {:fetch :loading}}
+   {:idle
+    {:on {:fetch :loading}}
 
-    :loading  {:tags #{:data/in-flight}
-               :on   {:ok :ready :fail :retrying}}
+    :loading
+    {:tags #{:data/in-flight}
+     :on   {:ok :ready
+            :fail :retrying}}
 
-    :retrying {:tags #{:data/in-flight}            ;; same intent as :loading
-               :on   {:ok :ready :give-up :error}}
+    :retrying
+    {:tags #{:data/in-flight}
+     :on   {:ok :ready
+            :give-up :error}}
 
-    :ready    {:tags #{:data/ready}}
-    :error    {:tags #{:data/error}}}})
+    :ready
+    {:tags #{:data/ready}}
+
+    :error
+    {:tags #{:data/error}}}})
 ```
 
-Both `:loading` and `:retrying` wear `:data/in-flight`. A view that wants "show the
-spinner while a request is in flight" consumes that one tag — and a third in-flight
-state is one `:tags` entry with no view change.
+Both `:loading` and `:retrying` advertise `:data/in-flight`. A third in-flight
+state later is one more `:tags` entry; the view that asks for that tag does not
+change.
 
-Two rules:
+`:tags` is a **set of keywords** on a state node. A vector or a lone keyword is
+rejected at registration with `:rf.error/machine-bad-tags`.
 
-- **Tags label *intent*, not *identity*.** `:tags #{:data/in-flight}` is good; `:tags #{:todos.loader/loading-state}` just re-encodes the state name and earns nothing. Use a per-axis namespace (`:data/…`, `:form/…`, `:mode/…`) so one tag-question can span several states.
-- **The `:rf/*` / `:rf.*/*` namespaces are framework-reserved.** Tag with your own feature prefix — `:auth/busy`, `:cart/dirty`, `:ws/disconnected`. Any unreserved namespace is fair game, dotted forms (`:ui.state/loading`) included.
+Tags label **intent**, not identity. Good tags name what the state means to the
+rest of the program:
 
-!!! note "Tags ride on *states*, never on transitions"
+```clojure
+:tags #{:auth/busy}
+:tags #{:mode/read-only}
+:tags #{:ws/connected}
+```
 
-    `:tags` is a state-node slot only — there is no tag on an `:on` entry, an `:always`, or an `:after`. "Was this transition tagged?" is already answered by the trace vocabulary, so a transition carries no tag. (Adding transition tags later would be non-breaking — but today, tags are not on transitions.)
+Weak tags repeat the state's identity:
 
-## The snapshot's `:tags` slot
+```clojure
+:tags #{:auth-login/submitting-state}
+```
 
-At every transition the runtime walks the machine's active states, unions their tag sets, and stamps the result onto the [snapshot](glossary.md#snapshot) at `:tags`. The snapshot gains one optional slot:
+Use a per-axis namespace (`:data/…`, `:form/…`, `:mode/…`) so one question can
+span several states. The `:rf/*` and `:rf.*/*` namespaces are reserved; tag with
+your own feature prefix. Dotted forms such as `:ui.state/loading` are fine.
+
+If a tag will only ever match one state, skip it and read `:state` directly.
+
+## The snapshot's `:tags`
+
+The runtime unions the tags on every active state and writes the result onto the
+[snapshot](glossary.md#snapshot):
 
 ```clojure
 @(rf/subscribe [:rf/machine :todos/loader])
-;; => {:state :retrying :data {…} :tags #{:data/in-flight}}
+;; => {:state :retrying
+;;     :data  {...}
+;;     :tags  #{:data/in-flight}}
 ```
 
 How the union is computed depends on the machine's shape:
 
-- **Flat machine** — the single active state's `:tags`.
-- **[Compound (hierarchical)](hierarchical-states.md) machine** — the union along the active path: root → every compound ancestor → leaf.
-- **[Parallel](parallel-states.md) machine** — the union across *every* active state in *every* region. (This is what makes tags the cross-region signal in the last section.)
+| Machine shape | Tag projection |
+|---|---|
+| Flat | tags on the active state |
+| [Hierarchical](hierarchical-states.md) | union along the active path, root to leaf |
+| [Parallel](parallel-states.md) | union of every active state in every region |
 
-`:tags` is **read-only** for you. It's a pure projection of `:state` — set the state, the tags follow — so an action can't return `:tags` in its `{:data :fx}` effect map; the runtime owns the slot. And when the union is **empty** (no active state declares any tag), the runtime **elides** the key entirely: a tag-free machine carries no `:tags` slot at all, so `(contains? snap :tags)` can be `false` even after the machine has settled. Don't declare an empty `:tags #{}` to "have the slot" — just omit it.
+The runtime owns `:tags`. An action cannot return `{:tags …}` — the slot is a
+projection of `:state`. When no active state declares tags, the runtime
+**elides** the key. Do not declare `:tags #{}` to force the slot; omit it.
 
-## Querying with `[:rf.machine/has-tag? …]`
+## Query one tag
 
 <a id="querying-with-machine-has-tag"></a>
 
-The framework ships one **derived subscription** for the containment question — *does this machine's snapshot carry this tag?* There is no separate function sugar; every runtime-db read is a subscription vector:
+The query is this subscription:
 
 ```clojure
-@(rf/subscribe [:rf.machine/has-tag? :todos/loader :data/in-flight])   ;; => true | false
+@(rf/subscribe [:rf.machine/has-tag? :todos/loader :data/in-flight])
+;; => true or false
 ```
-
-In a view that's all you need to render on intent:
 
 ```clojure
 (rf/reg-view spinner-or-list []
@@ -90,44 +107,50 @@ In a view that's all you need to render on intent:
     [todo-list]))
 ```
 
-Because the sub is **derived directly off the snapshot's `:tags` slot** — it reads the containment bit with `get-in` rather than chaining the whole `[:rf/machine id]` snapshot — a view that asks one tag re-renders only when *that bit* flips, not on every `:data` mutation or unrelated transition. It returns `false` for an unknown or not-yet-initialised machine, so there's no nil-guard to write.
+It returns `false` for an unknown or not-yet-initialised machine. The sub is
+derived: a view that asks one tag re-renders when that membership flips, not on
+every `:data` write.
 
-Need the whole set rather than one bit? That's the ordinary snapshot read:
+There is no `machine-has-tag?` function and no `[:rf/machine-has-tag? …]`
+vector. The membership question is `[:rf.machine/has-tag? machine-id tag]`.
+
+Need the whole set? Read the snapshot:
 
 ```clojure
-(:tags @(rf/subscribe [:rf/machine :todos/loader]))   ;; => #{:data/in-flight}
+(:tags @(rf/subscribe [:rf/machine :todos/loader]))
+;; => #{:data/in-flight}
 ```
 
-!!! note "Reading tags inside an event handler"
-
-    A snapshot lives in [runtime-db](../core/glossary.md#runtime-db), not app-db, so a handler that needs to branch on a tag reads it from the `:rf.db/runtime` coeffect rather than from `:db`:
-
-    ```clojure
-    (fn [{rt :rf.db/runtime} _]
-      (get-in rt [:rf.runtime/machines :snapshots :todos/loader :tags]))
-    ```
+Use that form for selectors and render-priority tables.
 
 ## Collapsing many states into one render decision
 
-This is where tags pay off hardest. The [Nine States example](../../examples/patterns/nine_states) models a page as one [`:type :parallel`](parallel-states.md) machine with three orthogonal regions — `:data` (request lifecycle + cardinality), `:form` (validation), `:mode` (active / archived). Every state wears a per-axis tag:
+Several tags can be live at once in a [parallel](parallel-states.md) machine, but
+a page can render only one main view.
+
+The [Nine States example](../../examples/patterns/nine_states) is one
+`:type :parallel` machine with three regions — `:data`, `:form`, `:mode`. Each
+state advertises a per-axis tag:
 
 ```clojure
-;; (excerpt from the three regions) — each state announces its intent
-:loading   {:tags #{:data/loading :data/transient}        :on {…}}
-:empty     {:tags #{:data/empty}                           :on {…}}
-:incorrect {:tags #{:form/invalid}                         :on {…}}
-:correct   {:tags #{:form/success :form/transient}         :on {…}}
+;; cf. examples/patterns/nine_states
+:loading   {:tags #{:data/loading :data/transient} :on {...}}
+:empty     {:tags #{:data/empty}                   :on {...}}
+:incorrect {:tags #{:form/invalid}                 :on {...}}
+:correct   {:tags #{:form/success :form/transient} :on {...}}
 :done      {:tags #{:mode/done :mode/read-only :mode/terminal}}
 ```
 
-Three axes run at once, so several tags are live simultaneously — `:data/loading` *and* `:form/invalid` *and* `:mode/active`. The page can only draw one thing, so it needs a tie-breaker. Make it **plain data**: a render-priority table read top to bottom, plus one selector sub that returns the first matching tag's render-model keyword.
+Make the tie-breaker **plain data**: a table read top to bottom, plus a selector
+sub that returns the first matching tag's render keyword.
 
 ```clojure
-(def render-priority             ;; excerpt — the runnable example carries all ten rows
-  [{:tag :mode/done    :render :done}        ;; archived trumps everything
-   {:tag :form/success :render :correct}     ;; transient form acks next
+;; cf. examples/patterns/nine_states — the example carries all ten rows
+(def render-priority
+  [{:tag :mode/done    :render :done}
+   {:tag :form/success :render :correct}
    {:tag :form/invalid :render :incorrect}
-   {:tag :data/loading :render :loading}     ;; then the data lifecycle
+   {:tag :data/loading :render :loading}
    {:tag :data/error   :render :error}
    {:tag :data/empty   :render :empty}
    {:tag :data/some    :render :some}])
@@ -141,7 +164,7 @@ Three axes run at once, so several tags are live simultaneously — `:data/loadi
             render-priority))))
 ```
 
-The root view's entire branching logic is then one `case` — the only place the UI ever forks:
+The root view branches once:
 
 ```clojure
 (rf/reg-view root-view []
@@ -156,9 +179,9 @@ The root view's entire branching logic is then one `case` — the only place the
     [:p "(unrecognised state)"]))
 ```
 
-Nine states, three regions, one branch site. The priority order is a *product decision* — "an archived page beats a form acknowledgement beats the data bucket" — living in one readable table, not smeared across nine views. Adding a tenth render case is one row in `render-priority` plus one `case` clause; the machine and the other views don't move.
-
-And the controls disable themselves the same ask-don't-tell way — they ask for the *intent*, not the state:
+The order is a product decision — archived beats a form acknowledgement beats
+the data bucket — living in one table. Adding a render case is one row plus one
+`case` clause.
 
 ```clojure
 (rf/reg-view new-todo-form []
@@ -166,25 +189,82 @@ And the controls disable themselves the same ask-don't-tell way — they ask for
     [:button {:disabled read-only?} "Add"]))
 ```
 
-Notice what the form *doesn't* ask: "is the `:mode` region in `:done`?" It asks "is this read-only?" Move `:mode/read-only` onto a different state tomorrow and this view doesn't change a line.
+The form does not ask whether `:mode` is `:done`. It asks whether the screen is
+read-only.
 
 ## Tags as a cross-region signal
 
-In a [parallel machine](parallel-states.md) the tag union spans *all* regions, which makes it the channel one region uses to read what a sibling is doing — the classic statechart coordination primitive, shipped without a dedicated operator. A sibling region advertises a tag; any region's guard reads the machine-wide union off its context map and predicates on it — `(fn [{:keys [tags]}] (contains? tags :form/valid))`.
+In a [parallel machine](parallel-states.md) the tag union spans every region. One
+region can advertise a tag; another region's guard reads it.
 
-Two things to hold onto:
+```clojure
+(rf/reg-machine :checkout/page
+  {:type :parallel
+   :data {}
 
-- **A tag is a guard *input*, not a *trigger*.** A tag flipping on does not *fire* anything — there is no "on this tag appearing" transition. The dependent region still moves on its next event (or an eventless `:always`); the guard merely *reads* the sibling's advertised tag when it runs.
-- **The cross-region keys are parallel-only.** A flat or compound machine's guard/action context stays exactly `{:data :event :state :meta}` — it has no sibling to coordinate with.
+   :guards
+   {:form-valid?
+    (fn [{:keys [tags]}]
+      (contains? tags :form/valid))}
 
-The worked example — a `:checkout` region whose `:submit` waits for the `:form` region to advertise `:form/valid` — plus the precise `:all-state` variant and the frozen-snapshot selection rules are in [Parallel states → Coordinating regions](parallel-states.md#coordinating-regions-tags-as-statein).
+   :regions
+   {:form
+    {:initial :editing
+     :states  {:editing {:tags #{:form/editing}
+                         :on   {:complete :valid}}
+               :valid   {:tags #{:form/valid}}}}
 
-## What tags are *not*
+    :checkout
+    {:initial :idle
+     :states  {:idle       {:on {:submit {:target :submitting
+                                          :guard  :form-valid?}}}
+               :submitting {:tags #{:checkout/submitting}}}}}})
+```
 
-- **Not transition labels.** `:tags` is a state-node slot; transitions carry no tags.
-- **Not an autonomous driver.** A tag appearing never fires a transition by itself — it's read by guards, it doesn't trigger them. For a state change that should follow a `:data` condition on its own, use a guarded eventless `:always`.
-- **Not user-writable.** An action can't return `:tags` in its `{:data :fx}` map — the slot is runtime-owned and derived from `:state`.
-- **Not the `:meta` slot.** A state's `:meta` (e.g. `{:terminal? true}`) is static, tooling-visible metadata; `:tags` is the runtime projection of the *active* configuration. Both can sit on the same state; they are not synonyms.
-- **Not a replacement for `[:rf/machine id]`.** When a view needs the whole snapshot
-  it still subscribes to `:rf/machine`; `machine-has-tag?` is for the
-  predicate-shaped question.
+The checkout region does not need the form region's state names. It reads
+`:form/valid`.
+
+A region guard or action also receives `:all-state`, the region → state map,
+when the precise sibling state matters:
+
+```clojure
+(fn [{:keys [all-state]}]
+  (= :valid (:form all-state)))
+```
+
+Prefer tags. They survive a sibling refactor.
+
+Two rules:
+
+- **A tag is a guard input, not a trigger.** A tag appearing does not fire a
+  transition. The dependent region still moves on its next event or a guarded
+  `:always`; the guard only reads the sibling's tag when it runs.
+- **`:tags` and `:all-state` are parallel-only.** A flat or compound machine's
+  guard/action context is `{:data :event :state :meta}`. There is no sibling to
+  coordinate with.
+
+The frozen-snapshot selection rules live in
+[Parallel states → Coordinating regions](parallel-states.md#coordinating-regions-tags-as-statein).
+
+## What tags are not
+
+- **Not transition labels.** `:tags` is a state-node slot. Transitions carry
+  none.
+- **Not a trigger.** A tag appearing never fires a transition by itself. For a
+  move that should follow a condition on its own, use a guarded `:always`.
+- **Not user-writable.** An action cannot return `:tags`. The runtime projects
+  the slot from active state.
+- **Not `:meta`.** A state's `:meta` (for example `{:terminal? true}`) is static,
+  tooling-visible metadata. `:tags` is the live projection of the active
+  configuration. Both can sit on the same state; they are not the same thing.
+- **Not a replacement for `[:rf/machine id]`.** When a view needs the whole
+  snapshot it still subscribes to `:rf/machine`. `[:rf.machine/has-tag? …]` is
+  the predicate-shaped question.
+
+## Troubleshooting
+
+| Symptom | Cause | Fix |
+| --- | --- | --- |
+| Registration throws `:rf.error/machine-bad-tags` | `:tags` is a vector or a lone keyword | Write a set: `#{:data/in-flight}` |
+| Snapshot has no `:tags` key | No active state declares tags; the empty union is elided | Omit the key; `(contains? (:tags snap) x)` is still false |
+| Guard ctx has no `:tags` / `:all-state` | The machine is flat or compound | Those keys exist only inside a parallel region |

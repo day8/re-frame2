@@ -1,114 +1,99 @@
 # Machines glossary
 
-re-frame2's optional state-machine capability. One term, definition first; short
-code when the spelling matters; *See* / Related points at the teaching page.
+One term, short definition, tiny code when the spelling matters. *See* points
+at the teaching page.
 
-Grouped by role: [the core loop](#the-core-loop), [state structure](#state-structure),
-[transitions and timing](#transitions-and-timing), [actors and composition](#actors-and-composition),
-[tags](#tags), and [the runtime model](#the-runtime-model).
-
-## The core loop
+## Core terms
 
 ### **machine**
 
-A statechart registered as an [event handler](../core/glossary.md#event-handler) with
-`reg-machine`. Models a feature's lifecycle as explicit [states](#state) and
-[transitions](#transition) — driven by `dispatch`, with [guards](#guard),
-[actions](#action), timers, and optional child machines ([spawn](#spawn)) — instead
-of boolean flags in [app-db](../core/glossary.md#app-db).
-
-Live value is a [snapshot](#snapshot) in [runtime-db](../core/glossary.md#runtime-db).
+A statechart registered as an event handler. It models a feature lifecycle as
+named states and transitions.
 
 ```clojure
+(rf/defmachine login-flow {…})
 (rf/reg-machine :auth.login/flow login-flow)
 ```
 
-Related: [Machines](concepts.md); [`reg-machine`](../api/re-frame.machines.md#reg-machine).
+See [The model](concepts.md).
 
 ### **transition table**
 
-The data a machine *is*: `:initial`, starting [`:data`](#data), machine-local
-[`:guards`](#guard) / [`:actions`](#action), optional `:schemas`, and the `:states`
-tree. Event keys under each state's `:on` move it. [`reg-machine`](../api/re-frame.machines.md#reg-machine)
-compiles the map into an ordinary event handler at registration.
-
-```clojure
-{:initial :idle
- :data    {:attempts 0 :error nil}
- :guards  {:under-retry-limit (fn [{d :data}] (< (:attempts d) 2))}
- :actions {:clear-error (fn [_] {:data {:error nil}})}
- :states  {:idle       {:on {:submit {:target :submitting :action :clear-error}}}
-           :submitting {...}}}
-```
+The map that defines a machine: `:initial`, `:data`, optional `:guards`,
+optional `:actions`, optional `:schemas`, and `:states` or `:regions`.
 
 See [The idea](concepts.md#the-idea).
 
 ### **snapshot**
 
-A machine's live value — current [state](#state) plus `:data` (and optional `:tags`).
-Lives in [runtime-db](../core/glossary.md#runtime-db); read via subscription.
+The machine's live value.
 
 ```clojure
-@(rf/subscribe [:rf/machine :auth.login/flow])   ;; {:state :authed :data {...}}
+{:state :submitting
+ :data  {:attempts 1}
+ :tags  #{:auth/busy}}
 ```
 
-Plain printable value (no functions or atoms), so undo, [time-travel](../core/glossary.md#time-travel),
-persistence, and SSR hydration work without extra wiring. `:state` is a keyword
-(flat), a path vector (compound), or a region → state map (parallel).
+It lives in [runtime-db](../core/glossary.md#runtime-db). Read it with
+`[:rf/machine id]`:
 
-Related: [Machines](concepts.md); [`[:rf/machine machine-id]`](../api/re-frame.machines.md#rfmachine-machine-id).
+```clojure
+@(rf/subscribe [:rf/machine :auth.login/flow])
+```
+
+`nil` until the first event. `:state` is a keyword, a path vector, or a
+region map.
+
+See [The snapshot](concepts.md#the-snapshot).
 
 ### **:data**
 
-Machine-private working memory — counters, error strings, captured credentials —
-riding beside the named [state](#state) in every [snapshot](#snapshot). Guards and
-actions read it from their context map; an action updates it by returning
-`{:data …}` (see [action effect map](#action-effect-map)). Must be printable. A
-machine sees **only its own** `:data` — never [app-db](../core/glossary.md#app-db).
+A machine's private working memory. Guards and actions read it. Actions update
+it by returning `{:data …}`. Merged, not replaced — `{:data {:error nil}}` sets
+that key to nil.
 
-Taught in [The idea](concepts.md#the-idea).
+See [The idea](concepts.md#the-idea).
 
 ### **state**
 
-One fixed, named, mutually exclusive mode — `:idle`, `:submitting`, `:authed`.
-With [parallel regions](#parallel-state), one per region. Leaf = no nested
-`:states`; [compound](#compound-state) = nests its own `:states`.
+One named mode of a machine, such as `:idle`, `:submitting`, or `:authed`.
 
 ### **transition**
 
-Move from one [state](#state) to another on a dispatched [event](../core/glossary.md#event),
-optionally gated by a [guard](#guard) and running an [action](#action). Written under
-a state's `:on`. Also *eventless* ([`:always`](#eventless-transition-always)) or
-*timed* ([`:after`](#delayed-transition-after)).
+A move from one state to another, usually in response to an event under a
+state's `:on` map.
 
 ### **guard**
 
-Pure yes/no predicate on a [transition](#transition). Named in `:guards`, referenced
-from the table. Receives `{:data :event :state :meta}` (**no** app-db); returns a
-boolean. No `{:and …}` combinator — compound logic is one named function.
+A predicate that gates a transition.
 
-Runs *before* the transition's [action](#action), so it sees the pre-action snapshot
-— `(< (:attempts d) 2)` for a three-attempt policy. See [Guards](concepts.md#guards).
+```clojure
+:guard :form-valid?
+```
+
+Defined in `:guards`, or written inline for a one-liner. A three-attempt
+policy is `(< (:attempts data) 2)` — the guard sees the count *before* the
+action increments it.
+
+See [Guards](concepts.md#guards).
 
 ### **action**
 
-Side work on a [transition](#transition): returns `{:data … :fx …}` like an
-[event handler](../core/glossary.md#event-handler); never writes [app-db](../core/glossary.md#app-db)
-directly. Named in `:actions`. Slots: source `:exit`, transition `:action`, target
-`:entry`.
+A function that returns `{:data … :fx …}`. It may update the machine's private
+data or describe effects. It never writes app-db (`:rf.error/machine-action-wrote-db`).
+
+See [Actions](concepts.md#actions).
 
 ### **action effect map**
 
-What an [action](#action) returns. `:data` is **merged** into the snapshot (explicit
-`nil` sets a key to nil; does not remove keys); `:fx` is a vector of `[fx-id args]`.
-`nil` / `{}` means no effects. Describes work rather than performing it.
+The return value from an action.
 
 ```clojure
-:record-error
-(fn [{data :data [_ {:keys [error]}] :event}]
-  {:data (-> data (update :attempts inc)
-                  (assoc :error (:message error)))})
+{:data {:error nil}
+ :fx   [[:dispatch [:session/clear]]]}
 ```
+
+`:data` is merged into the machine data. `:fx` is the ordinary effects vector.
 
 See [The effect map](concepts.md#the-effect-map-data-fx).
 
@@ -116,274 +101,251 @@ See [The effect map](concepts.md#the-effect-map-data-fx).
 
 ### **compound state**
 
-A [state](#state) with its own `:states` map and required `:initial` — parent mode
-with child modes. Snapshot `:state` becomes a **vector path**
-(`[:authenticated :cart :browsing]`). Event resolution walks leaf → root
-(**deepest-wins with parent fallthrough**). Child can [opt out](#forbidden-transition)
-or override.
+A state with nested `:states` and its own `:initial`. The snapshot's `:state`
+becomes a vector path, such as `[:authenticated :cart :paying]`.
 
 See [Hierarchical states](hierarchical-states.md).
 
-### **parallel state**
+### **parallel machine**
 
-Root `:type :parallel` with a **`:regions`** map — all [regions](#region) active at
-once. Snapshot `:state` is a region-name → state map; one shared [`:data`](#data);
-[tags](#state-tag) union across regions. If axes don't share data, use N machines.
+A machine with `:type :parallel` and `:regions`. All regions are active at the
+same time. The snapshot's `:state` is a map of region name to region state.
 
-See [Parallel states](parallel-states.md); [nine_states](../../examples/patterns/nine_states/).
+See [Parallel regions](parallel-states.md).
 
 ### **region**
 
-One orthogonal axis of a [parallel state](#parallel-state) — independent
-sub-state-tree, concurrent with siblings, sharing the machine's [`:data`](#data).
-Events broadcast to every region; each resolves independently. Cross-region
-coordination reads sibling [tags](#state-tag).
+One orthogonal axis of a parallel machine. Each region has its own `:initial`
+and `:states`, but all regions share one machine `:data`.
+
+See [Parallel regions](parallel-states.md).
 
 ### **final state**
 
-Leaf marked **`:final? true`**: entering it **terminates the machine** (auto-destroy,
-including top-level singletons). For a resting end-screen (`:authed`), omit
-`:final?`. May name [`:output-key`](#on-done-and-output-key); may set `:error? true`.
-A final *nested in a compound* ends the sub-flow, not the machine.
+A leaf marked `:final? true`. At the root, it ends and destroys the machine.
+Inside a compound state, it marks that sub-flow as done. A resting end-screen
+(`:authed`) omits `:final?`.
 
-See [Actors → When a child finishes](actors.md#when-a-child-finishes);
-[Hierarchical states → nested finals](hierarchical-states.md#when-a-sub-flow-finishes-nested-final-states).
+See [Final states](concepts.md#final-states);
+[nested finals](hierarchical-states.md#when-a-sub-flow-finishes-nested-final-states).
 
 ### **history state**
 
-`:type :history` **pseudo-state** targeted to re-enter a [compound](#compound-state)
-at the last active substate. Shallow = immediate child; deep = full path;
-`:default-target` for never-visited. Recording rides the [snapshot](#snapshot).
+A `:type :history` pseudo-state inside a compound state. Target it to re-enter
+the compound where it last exited.
 
 See [History states](history.md).
 
-## Transitions and timing
+### **state tag**
+
+A semantic label on a state.
+
+```clojure
+:tags #{:auth/busy}
+```
+
+Read it with `[:rf.machine/has-tag? id tag]`:
+
+```clojure
+@(rf/subscribe [:rf.machine/has-tag? :auth.login/flow :auth/busy])
+```
+
+See [Tags](tags.md).
+
+## Transition forms
+
+### **candidate vector**
+
+A first-match-wins list of transitions.
+
+```clojure
+:on {:auth.login/failure [{:guard :under-retry-limit :target :error-shown
+                           :action :record-error}
+                          {:target :locked-out :action :record-error}]}
+```
 
 ### **self-transition**
 
-Transition back into the current state. re-frame2 is **internal-by-default**:
+A transition that stays in the same state.
 
-- **Targetless** (omit `:target`) — action only; no exit/entry; timers and spawns undisturbed.
-- **Self-target, no `:reenter?`** — own exit/entry still skip; compounds re-resolve descendants to `:initial`.
-- **`:reenter? true`** — full exit → action → entry (timers reset, spawns restart).
+Targetless self-transitions run an action without exit/entry. `:reenter? true`
+forces exit and re-entry.
 
 See [Self-transitions and wildcards](concepts.md#self-transitions-and-wildcards).
 
 ### **wildcard transition**
 
-`:on` key matching a class of events. Three tiers, most-specific first: exact id →
-`:ns/*` → `:*`. Guard-blocked exact falls through to coarser tiers.
+An `:on` key that handles a family of events:
 
 ```clojure
-:tracking {:on {:mouse/down {:action :begin-drag}
-                :mouse/*    {:action :note-move}
-                :*          {:action :log-unknown}}}
+:mouse/*
+:*
 ```
+
+Resolution is exact id, namespace wildcard, then total wildcard.
 
 See [Self-transitions and wildcards](concepts.md#self-transitions-and-wildcards).
 
 ### **forbidden transition**
 
-Present `:on` key with value `{}` or `nil` — consumes the event and stops
-deepest-wins search without changing state. How a child opts out of a parent
-transition. Distinct from unhandled (missing key), which falls through.
+A present no-op transition, such as `{:on {:logout {}}}` or
+`{:on {:logout nil}}`. It consumes the event and prevents parent fallthrough.
 
-Covered with [wildcards](concepts.md#self-transitions-and-wildcards).
+See [Self-transitions and wildcards](concepts.md#self-transitions-and-wildcards).
 
-### **eventless transition (`:always`)**
+### **:always**
 
-State-node key: vector of guarded transitions that fire **with no event** —
-checked on entry and after any landing transition; first-passing-guard wins. Must
-not target its own state (registration reject). Fixed-point form: targetless
-guarded `:always` whose action flips the guard.
+An eventless transition checked after entry and after transitions into the
+state.
 
 ```clojure
-:checking-form {:always [{:guard :form-valid?   :target :submitting}
-                         {:guard :form-invalid? :target :show-errors}]}
+:always [{:guard :done? :target :complete}]
 ```
-
-Settled inside the [microstep](#microstep) loop. See [Automatic transitions](automatic-transitions.md).
-
-### **delayed transition (`:after`)**
-
-Declarative timer: delay → transition. Enter arms; leave cancels. Epoch-tagged so
-late firings from earlier visits are ignored. Delay: positive-int ms, subscription
-vector, or `(fn [{:keys [snapshot]}] ms)`.
-
-```clojure
-:reconnecting {:after {5000 {:target :connecting}}
-               :on    {:net/give-up :failed}}
-```
-
-ISO-8601 / `"5s"` shorthand belong to [`:timeout`](#timeout), not `:after`. See
-[Automatic transitions](automatic-transitions.md).
-
-### **timeout**
-
-Named deadline: `:timeout` + `:on-timeout`. Lowers onto [`:after`](#delayed-transition-after).
-Duration: integer-ms or ISO-8601 (`"PT5S"`); `"5s"` rejected at registration.
 
 See [Automatic transitions](automatic-transitions.md).
 
 ### **choice state**
 
-`:type :choice` transient routing node: resolves immediately on entry to the first
-candidate whose guard passes. Declarative candidate **array** (must include unguarded
-default); no ordinary state keys. Desugars to [`:always`](#eventless-transition-always).
+A transient decision node.
+
+```clojure
+{:type :choice
+ :choice [{:guard :valid? :target :accepted}
+          {:target :rejected}]}
+```
 
 See [Automatic transitions](automatic-transitions.md).
 
-### **run-to-completion**
+### **:after**
 
-One event processes to a settled configuration before the next is seen — every
-[`:always`](#eventless-transition-always) microstep and [`:raise`](#raise) drains,
-then the snapshot [commits](#commit) once. External observers never see mid-cascade
-intermediates. Non-converging loops are depth-bounded (default 16) and abort with
-the snapshot unchanged.
+A delayed transition. Entering the state arms the timer; leaving cancels it.
 
-See [microstep](#microstep), [macrostep](#macrostep).
+```clojure
+:after {5000 :timed-out}
+```
+
+See [Automatic transitions](automatic-transitions.md).
+
+### **timeout**
+
+A named deadline using `:timeout` and `:on-timeout`.
+
+```clojure
+{:timeout "PT5S"
+ :on-timeout {:target :timed-out}}
+```
+
+See [Automatic transitions](automatic-transitions.md).
 
 ## Actors and composition
 
-### **spawn**
+### **actor**
 
-Declarative key that starts a child machine on state entry and tears it down on
-exit; result returns via [`:on-done`](#on-done-and-output-key). (`:spawn-all` starts
-several in parallel and joins.) Under the hood: reserved
-[`[:rf.machine/spawn …]`](../api/re-frame.machines.md#rfmachinespawn-spawn-spec)
-effect. Running instance is an [actor](#actor).
+A live machine instance. A singleton machine and a spawned child are both
+actors. Liveness is the presence of a snapshot in runtime-db.
 
 See [Actors](actors.md).
 
-### **actor**
+### **spawn**
 
-Live machine instance — a [snapshot](#snapshot) at
-`[:rf.runtime/machines :snapshots <id>]` in [runtime-db](../core/glossary.md#runtime-db).
-Two kinds: long-lived **singleton** (`reg-machine` id) and dynamically
-**[spawned](#spawn)** child. Liveness *is* snapshot presence. Address by allocated
-id (`<prefix>#<n>`, never `gensym`) or [system-id](#system-id).
+A state-node key that starts a child actor on entry and destroys it on exit.
+
+```clojure
+:spawn {:machine-id :worker}
+```
+
+See [Actors](actors.md).
 
 ### **spawn-all**
 
-Fan-out sibling of [`:spawn`](#spawn): starts **N children in parallel** and
-**joins** on completion (or first failure with cooperative cancel).
+A state-node key that starts several children and joins on their completion.
+`:join` is `:all` or `:any`.
 
-See [long_running_work](../../examples/patterns/long_running_work/);
-[Actors → Fan-out and join](actors.md#fan-out-and-join-with-spawn-all).
-
-### **:on-done and :output-key**
-
-How a finishing child reports back. Final state names **`:output-key`** (slot of
-[`:data`](#data) to surface). Parent's [`:spawn`](#spawn) declares **`:on-done`**
-`(fn [{:keys [data result]}] new-data)`; runtime then tears the child down.
-Completion is event-shaped — it *happens*, not a long-lived `output` slot.
-
-```clojure
-:done {:final? true :output-key :token}
-:authenticating {:spawn {:machine-id :auth-flow
-                         :on-done (fn [{:keys [data result]}]
-                                    (assoc data :token result))}}
-```
-
-See [Actors → When a child finishes](actors.md#when-a-child-finishes).
+See [Fan-out and join](actors.md#fan-out-and-join-with-spawn-all).
 
 ### **system-id**
 
-Stable role name (`:logger`, `:websocket`) bound to a spawned [actor](#actor).
-Action-side: `[:rf.machine/dispatch-to-system [system-id event]]` — actions can't
-read app-db, so the fx is how they message a named child.
+A stable role name bound to a spawned actor. Use it to message a child without
+threading its generated id.
 
-```clojure
-{:fx [[:rf.machine/dispatch-to-system [:logger [:logger/flush]]]]}
-```
+See [Actors](actors.md).
 
-Parked XState v6 parity escape (`systemId`); everyday send is plain `dispatch` to
-the id you hold. See [`machine-by-system-id`](../api/re-frame.machines.md#re-framemachinesmachine-by-system-id).
+### **:on-done**
+
+A callback or transition that runs when a child or compound sub-flow completes.
+
+See [When a child finishes](actors.md#when-a-child-finishes).
+
+### **:output-key**
+
+A key on a final state naming which value from `:data` is reported to the
+parent.
+
+See [When a child finishes](actors.md#when-a-child-finishes).
 
 ### **:raise**
 
-Machine-only fx-id. Inside an action's `:fx`, `[:raise [:some-event …]]` loops an
-event into *this* machine — **atomically, pre-commit**, FIFO inside one handler
-invocation (never the router queue). Contrast `:fx [[:dispatch [self-id …]]]`
-(separate post-commit event / [epoch](../core/glossary.md#epoch)).
+A machine-only effect that loops an event back into the same machine before
+the macrostep commits.
 
 ```clojure
-{:actions {:kick (fn [_] {:fx [[:raise [:tick]]]})}}
+{:fx [[:raise [:check-complete]]]}
 ```
 
-See [`[:raise event-vec]`](../api/re-frame.machines.md#raise-event-vec);
-[When the machine grows](concepts.md#when-the-machine-grows).
+See [When the table grows](concepts.md#when-the-table-grows).
 
 ### **:internal-events**
 
-Top-level **set** of event ids that are machine plumbing — raised at itself, not
-for external dispatch. External dispatch is refused
-(`:rf.error/machine-internal-event-external-dispatch` trace).
+A top-level set of event ids that may be raised internally but are refused
+when dispatched from outside the machine.
 
-```clojure
-{:internal-events #{:check-complete}
- :states {...}}
-```
+See [When the table grows](concepts.md#when-the-table-grows).
 
-See [When the machine grows](concepts.md#when-the-machine-grows).
+## Runtime terms
 
-## Tags
+### **run-to-completion**
 
-### **state tag**
-
-Label like `:auth/busy` on several [states](#state); active tags ride the
-[snapshot](#snapshot). Views ask
-[`[:rf.machine/has-tag? …]`](../api/re-frame.machines.md#rfmachinehas-tag-machine-id-tag)
-instead of enumerating names. Across [parallel regions](#region), tags union onto
-one snapshot.
-
-```clojure
-(when @(rf/subscribe [:rf.machine/has-tag? :auth.login/flow :auth/busy])
-  [spinner])
-```
-
-See [Tags](tags.md).
-
-## The runtime model
-
-Vocabulary for ordering and atomicity — and what the [trace stream](../core/glossary.md#trace-stream)
-shows. You can ship machines without memorising these.
-
-### **drain**
-
-Deterministic ordering of effects at four levels: within one action's `:fx`
-(`:data` before `:fx`); across `:exit` → `:action` → `:entry`; within one machine
-event ([microstep](#microstep) over [`:always`](#eventless-transition-always) and
-[`:raise`](#raise)); across the per-frame queue (FIFO, with machine continuations
-leap-frogging so a [macrostep](#macrostep) settles first). Source order is runtime
-order.
+The guarantee that one machine event settles all `:always` transitions and
+raised events before the next external event is observed.
 
 ### **microstep**
 
-One settle-loop iteration inside a machine event: prefer an enabled
-[`:always`](#eventless-transition-always); else dequeue one [`:raise`](#raise)
-(FIFO). Loops to fixed point. Not separately observable; composes one
-[macrostep](#macrostep). Bounded at depth 16.
+One internal step inside a macrostep: an `:always` transition or a raised
+event.
 
 ### **macrostep**
 
-Whole machine event — resolving transition plus every microstep and raise — as
-**one** logical step outside: one [commit](#commit), one trace row, one
-[epoch](../core/glossary.md#epoch). External observers see only the post-commit
-snapshot. This is [run-to-completion](#run-to-completion).
+The full processing of one machine event, including all microsteps, ending in
+one committed snapshot.
 
 ### **commit**
 
-Single deferred [runtime-db](../core/glossary.md#runtime-db) write of a
-[macrostep](#macrostep)'s settled [snapshot](#snapshot) at
-`[:rf.runtime/machines :snapshots <id>]` — once per transition. Boundary for
-[`:schemas :data`](concepts.md#validating-a-machines-data) (violation rolls back)
-and for subscription re-fire. (Framework [commit](../core/glossary.md#commit).)
+The single runtime-db write that stores the settled snapshot.
 
-### **LCCA (least common compound ancestor)**
+### **LCA / LCCA**
 
-Also **LCA**. For a [transition](#transition) from path A to B inside a
-[compound](#compound-state), the deepest state that stays active — neither exits
-nor enters. Exit cascade: leaf up to (not including) LCCA, deepest-first. Entry:
-just below LCCA down to B's leaf, shallowest-first. Transition `:action` once at
-the boundary. Flat machine: LCCA is the root → plain exit → action → entry.
+Least common compound ancestor. The deepest state that remains active while
+moving from one hierarchical path to another. Exit actions run up to it; entry
+actions run down from it.
+
+See [Entry/exit cascading](hierarchical-states.md#entryexit-cascading-along-the-lca).
+
+### **runtime-db**
+
+The framework-owned state partition where machine snapshots live. It is
+separate from app-db.
+
+See [runtime-db](../core/glossary.md#runtime-db).
+
+### **unhandled event**
+
+An event the current machine configuration does not handle. It is a no-op, not
+an exception.
+
+### **fail loud**
+
+The design posture for invalid definitions: unresolved targets, missing
+guards/actions, bad timeout shapes, invalid final states, and similar mistakes
+fail at registration rather than later.
+
+See [fail loud](../core/glossary.md#fail-loud-not-silent).

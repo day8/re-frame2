@@ -1,424 +1,246 @@
-# Hierarchical (compound) states
+# Hierarchical states
 
-Flat machines ([the model](concepts.md)) put every state at one level. A
-**compound** state holds sub-states — factor shared transitions into a parent,
-cascade entry into an `:initial` child, and finish a sub-flow without ending the
-whole machine.
+A flat machine has one active state at a time. A hierarchical machine lets a
+state contain its own child states.
 
-A flat list of states, one active at a time, carries most flows. Some states are
-really a *cluster*: three leaves that share a resource, a sub-flow with its own
-beginning and end, a family that should answer the same event the same way. A
-**compound state** contains its own `:states` map — a little machine nested inside
-one state of the bigger one.
+Use hierarchy when several states form a sub-flow or share a lifecycle — every
+authenticated screen handles `:logout` the same way, or checkout is a nested
+flow inside shopping.
 
-Reach for hierarchy when:
+## A compound state
 
-- **Several leaves share a lifecycle or a resource.** A WebSocket's
-  `:connecting → :authenticating → :connected` happy path all ride *one* live
-  socket — three phases of being *connected*. Nest them under one `:active` parent
-  and the socket spans all three.
-- **You want to factor a transition to a parent.** Every authenticated screen
-  should honour `:logout` the same way. Declare it *once* on the parent; every
-  descendant inherits it ([parent-fallthrough](#transition-resolution-deepest-wins-with-parent-fallthrough)).
-  No restating, no drift.
-- **A sub-flow has a clear "done."** A checkout collects, submits, confirms — then
-  the outer flow moves on. Mark the sub-flow's terminal leaf and the parent
-  advances ([done signal](#when-a-sub-flow-finishes-nested-final-states)).
-
-The grammar recurses: a substate is a **leaf** (no `:states`) or another
-**compound** (has `:states` and must declare `:initial`). You only pay for
-hierarchy where you use it.
-
-Canonical example: the connection machine in
-[`../../examples/patterns/websocket/`](../../examples/patterns/websocket) — `:active`
-parents the three happy-path leaves. Snippets below are simplified from it. Flat
-grammar: [The model](concepts.md). Spawned sockets on a parent: [Actors](actors.md).
-
----
-
-## Anatomy of a compound state
-
-Here is the shape, lifted and trimmed from the WebSocket connection machine.
-The three happy-path leaves live *inside* `:active`, because they share the one
-thing they can't do without: the live socket, spawned on the parent.
+A state with `:states` is a compound state. It must declare `:initial`.
 
 ```clojure
-(rf/reg-machine :ws/connection
-  {:initial :disconnected
-   :data    {:url nil :socket-id nil :queue []}
-
-   :actions
-   {:record-opts (fn [{data :data [_ {:keys [url]}] :event}]
-                   {:data (assoc data :url url)})
-    :send-now    (fn [{data :data [_ msg] :event}]
-                   {:fx [[:dispatch [(:socket-id data) [:send msg]]]]})
-    :enqueue     (fn [{data :data [_ msg] :event}]
-                   {:data (update data :queue conj msg)})}
-
-   :states
-   {:disconnected
-    {:on {:ws/connect {:target :active :action :record-opts}}}
-
-    :active                                   ;; ← compound: the socket's home
-    {:initial :connecting                     ;; required — every compound declares it
-
-     ;; One socket actor, spawned on the PARENT, so it spans all three leaves
-     ;; below without re-spawning on each leaf transition. (See Actors.)
-     :spawn {:machine-id :websocket/socket}
-
-     ;; Transitions every leaf inherits. A leaf may override any of them; what
-     ;; a leaf doesn't handle falls through to here.
-     :on    {:ws/closed     {:target :reconnecting}
-             :ws/send       {:action :enqueue}    ;; default: queue while not yet connected
-             :ws/disconnect {:target :disconnected}}
-
-     :states
-     {:connecting     {:tags #{:ws/connecting}
-                       :on   {:ws/opened {:target :authenticating}}}
-
-      :authenticating {:tags  #{:ws/authenticating}
-                       :on    {:ws/auth-ok     {:target :connected}
-                               :ws/auth-failed {:target [:failed]}}}  ;; ← vector! (root-level)
-
-      :connected      {:tags #{:ws/connected}
-                       :on   {:ws/send {:action :send-now}}}}}        ;; ← overrides parent :ws/send
-
-    :reconnecting {:on {:ws/connect {:target :active}}}
-    :failed       {:on {:ws/connect {:target :active}}}}})
-```
-
-Three things to notice, each expanded below:
-
-1. `:active` declares `:initial :connecting` — entering `:active` lands you in
-   `:connecting`, never in `:active` "bare."
-2. `:ws/auth-failed` targets `[:failed]` (a **vector**), because `:failed` lives
-   at the root, not as a sibling inside `:active`.
-3. `:connected` redeclares `:ws/send` — it **overrides** the parent's default
-   for that one event while it's the active leaf.
-
----
-
-## The snapshot becomes a path
-
-A flat machine's snapshot `:state` is a single keyword (`:disconnected`). For a
-**compound** machine, `:state` is a **vector path** from the root down to the
-active leaf:
-
-```clojure
-@(rf/subscribe [:rf/machine :ws/connection])
-;; flat-ish state:   {:state :disconnected         :data {…} :tags #{}}
-;; compound state:   {:state [:active :connected]  :data {…} :tags #{:ws/connected}}
-```
-
-`:data` is the machine's extended state — one shared map, not per-state. `:tags`
-is the **union** of the `:tags` sets on every active node along the path. A
-single keyword `:K` read against a hierarchical definition is treated as the
-path `[:K]` (it must name a leaf at the root).
-
-The practical upshot: **views ask about tags, not paths.** Don't unfold the
-`:state` vector in a view to discover "are we connected?" — ask the tag:
-
-```clojure
-(when @(rf/subscribe [:rf.machine/has-tag? :ws/connection :ws/connected])
-  [send-box])
-```
-
-The view doesn't care *which* leaf carries the `:ws/connected` intent, only that
-the tag is present — so you can re-shape the hierarchy later without touching
-the view. (See the [snapshot](glossary.md#snapshot) and
-[state tag](glossary.md#state-tag) glossary entries; the snapshot lives in the
-framework's [runtime-db](../core/glossary.md#runtime-db), read like any other
-[subscription](../core/subscriptions.md).)
-
----
-
-## Initial-state cascading
-
-**Every compound state MUST declare `:initial`** — the substate to enter when
-control reaches the compound without a deeper target. Entering a compound
-*cascades down its `:initial` chain* until it reaches a leaf:
-
-```clojure
-{:initial :outer
- :states  {:outer {:entry   :enter-outer        ;; fires first
-                   :initial :mid
-                   :states  {:mid  {:entry   :enter-mid     ;; then this
-                                    :initial :leaf
-                                    :states  {:leaf {:entry :enter-leaf}}}}}}}
-;; Targeting :outer lands the snapshot at [:outer :mid :leaf].
-;; Entry actions fire shallowest-first: :enter-outer, :enter-mid, :enter-leaf.
-```
-
-So in the WebSocket machine, `{:target :active}` resolves to `[:active :connecting]`,
-and the cascade fires `:active`'s entry slots (including its `:spawn`) and then
-`:connecting`'s — shallowest-first — as the path lengthens.
-
-A compound state *without* `:initial` is a registration error
-(`:rf.error/machine-compound-state-missing-initial`) — it fails loud at
-`reg-machine` time, not on the unlucky dispatch.
-
-!!! note "The initial cascade also runs at birth"
-
-    When a machine first comes to
-    life — a singleton on its first dispatched event, or a spawned actor — the
-    whole `:initial` chain's `:entry` actions fire once, shallowest-first, as part
-    of bringing it into existence — *every* level along the chain, not just the
-    leaf.
-
----
-
-## Targets: vector vs keyword
-
-A transition's `:target` admits two forms, and the difference is *where the
-target is resolved from*:
-
-| Form | Means | Example |
-|---|---|---|
-| **Vector** `[:a :b]` | **Absolute path from the root**, no matter where the transition is declared. Unambiguous; the recommended form for cross-level jumps. | `:ws/auth-failed {:target [:failed]}` |
-| **Keyword** `:b` | **Relative — a sibling** of the state that *declares* the transition (resolved against the declaring state's parent's `:states`). | `:ws/opened {:target :authenticating}` |
-
-The "declaring state" is the node that **owns the `:on` map** — not whatever
-leaf the machine happens to sit in at runtime. It's a static rule you can read
-straight off the transition table.
-
-This is exactly the WebSocket gotcha. From inside `:authenticating` (a child of
-`:active`), a bare `:auth-failed {:target :failed}` would resolve to the
-*sibling* `[:active :failed]` — which doesn't exist. The absolute vector
-`[:failed]` says "from the root, please":
-
-```clojure
-:authenticating
-{:on {:ws/auth-ok     {:target :connected}       ;; keyword: sibling inside :active → [:active :connected]
-      :ws/auth-failed {:target [:failed]}}}       ;; vector: root-level [:failed]
-```
-
-A target naming a **compound** state implicitly cascades through its `:initial`
-chain (above). To land on a *specific* leaf inside a compound, name it with a
-vector: `:target [:active :connected]`.
-
-Flat-machine targets you've already written (`{:target :editing}`) are keyword
-form, root-relative — unchanged, because in a flat machine the declaring state's
-parent *is* the root.
-
----
-
-## Transition resolution: deepest-wins with parent fallthrough
-
-When an event arrives, the runtime walks the active path **from the leaf up to
-the root**, and the first node that *enables* a transition for the event wins.
-Within each node it tries three descriptor tiers in priority order before moving
-up: the **exact** key, then the namespace wildcard `:ns/*`, then the total
-wildcard `:*`. A guard-blocked candidate is **not** enabled, so it doesn't end
-the search — resolution keeps falling through.
-
-Two consequences make hierarchy pay off:
-
-- **A child overrides a parent.** `:connected` redeclares `:ws/send` to send
-  immediately; while connected, that leaf wins and the parent's "enqueue"
-  default never runs. Same event, different answer depending on where you are.
-- **A parent factors a common transition.** `:active` declares `:ws/closed`,
-  `:ws/disconnect`, and the `:ws/send` default *once*; every leaf that doesn't
-  handle them inherits them. Add a fourth leaf and it inherits them too, for
-  free.
-
-```clojure
-;; While the snapshot is [:active :connected], dispatching :ws/disconnect:
-;;   :connected   — no :ws/disconnect  → keep walking up
-;;   :active       — match!             → {:target :disconnected}
-;; Dispatching :ws/send instead resolves at :connected (override → :send-now).
-```
-
-### Opting a child OUT of an inherited transition
-
-Sometimes a child needs the *inverse* of inheritance — to **block** a
-factored-to-parent transition while it's active, without replacing it. Because
-the walk stops at the first *enabled* match, a child can declare a matching
-**internal no-op** that consumes the event so the parent is never reached:
-
-```clojure
-:modal {:on {:logout {}            ;; FORBIDDEN: matching internal no-op, halts the walk
-             ;; equivalently:  :logout nil
-             :close  :dashboard}}
-```
-
-While the machine rests in `:modal`, `:logout` resolves *at* `:modal` to a no-op
-and the parent's `:logout` is **not** inherited. Leave `:modal` and it's
-inherited again. Both spellings — the empty map `{}` and a present key with
-`nil` value — normalise to the same blocking no-op.
-
-The block turns entirely on the key being **present**. A child with *no*
-`:logout` entry keeps falling through (absence means "I don't handle this");
-a deliberately-`nil` key blocks (presence means "I consume this here").
-
-### Unhandled events are a benign no-op
-
-If *no* level enables a transition for an unknown event, the snapshot is
-unchanged and the runtime emits a benign `:rf.machine.event/unhandled-no-op`
-trace. Nothing throws — but benign is not invisible: the trace lets a debugger
-report that an event arrived and was ignored. To "fail loud on unknown," declare
-a `:*` wildcard whose action throws.
-
----
-
-## Entry/exit cascading along the LCA
-
-Moving from one path to another isn't a single hop — it fires a *cascade* of
-`:exit` and `:entry` actions for every state you actually leave and enter. The
-runtime computes the **LCA** (least common compound ancestor — the deepest
-compound state that is a proper ancestor of both the source leaf and the target
-node), then fires three boundaries in order:
-
-1. **Exit cascade** — walk the source path from the leaf back toward the LCA,
-   firing each state's `:exit` action, **deepest-first**. Stop *below* the LCA
-   (you aren't leaving it).
-2. **Transition `:action`** — runs once, at the LCA boundary, between exit and
-   entry.
-3. **Entry cascade** — walk the target path from just below the LCA down to the
-   target node, firing each `:entry` action, **shallowest-first**. If the target
-   is itself compound, keep cascading through its `:initial` chain.
-
-For the common case — source and target in disjoint subtrees — the LCA is simply
-the longest common prefix of the two paths.
-
-Take this auth-flow machine (a compound `:authenticated` over a `:dashboard` /
-`:settings` / `:cart` sub-tree, with `:cart` itself compound):
-
-```clojure
-(rf/reg-machine :shop
+(rf/defmachine shop
   {:initial :unauthenticated
+
    :states
    {:unauthenticated
-    {:on {:login [:authenticated]}}              ;; vector target — absolute from root
+    {:on {:login [:authenticated]}}
 
     :authenticated
     {:initial :dashboard
-     :on      {:logout [:unauthenticated]}       ;; factored to the parent — every descendant inherits
+     :tags    #{:auth/logged-in}
+     :on      {:logout [:unauthenticated]}  ;; inherited by descendants
+
      :states
-     {:dashboard {:on {:open-settings :settings  ;; keyword target — sibling of :dashboard
-                       :open-cart     :cart}}
-      :settings  {:on {:close :dashboard}}
-      :cart      {:initial :browsing
-                  :on      {:close :dashboard}
-                  :states  {:browsing  {:on {:checkout :paying}}
-                            :paying    {:on {:success :confirmed
-                                             :failure :browsing}}
-                            :confirmed {}}}}}}})
+     {:dashboard
+      {:on {:open-settings :settings
+            :open-cart     :cart}}
+
+      :settings
+      {:on {:close :dashboard}}
+
+      :cart
+      {:initial :browsing
+       :on      {:close :dashboard}
+       :states
+       {:browsing  {:on {:checkout :paying}}
+        :paying    {:on {:success :confirmed
+                         :failure :browsing}}
+        :confirmed {}}}}}}})
+
+(rf/reg-machine :shop shop)
 ```
 
-| Event | Source path | Target path | What fires |
-|---|---|---|---|
-| `:login` | `[:unauthenticated]` | `[:authenticated :dashboard]` | LCA is the root: exit `:unauthenticated`. Target `[:authenticated]` cascades `:initial :dashboard`, so entry is `:authenticated`, then `:dashboard`. |
-| `:open-cart` | `[:authenticated :dashboard]` | `[:authenticated :cart :browsing]` | Keyword `:cart` = sibling of `:dashboard`; cascades `:initial :browsing`. LCA is `:authenticated`: exit `:dashboard`; enter `:cart`, `:browsing`. |
-| `:checkout` | `[:authenticated :cart :browsing]` | `[:authenticated :cart :paying]` | Sibling hop inside `:cart`. LCA `:cart`: exit `:browsing`; enter `:paying`. |
-| `:logout` | `[:authenticated :cart :paying]` | `[:unauthenticated]` | Deepest-wins walks `:paying` (no match), `:cart` (no), `:authenticated` (match). LCA is the root: exit `:paying → :cart → :authenticated` (deepest-first); enter `:unauthenticated`. |
+Entering `:authenticated` does not stop at the parent. The machine follows the
+`:initial` chain to `[:authenticated :dashboard]`.
 
-> This generalises the flat `exit → action → entry` rule: in a flat machine the
-> path length is 1 and the LCA is always the root.
+## The snapshot state becomes a path
 
-Actions are **pure returns**, not imperative writes: an `:entry` /
-`:exit` / transition `:action` is `(fn [{:keys [data event state]}] effects)`
-returning `{:data … :fx …}`. The `:fx` flow through the ordinary
-[event pipeline](../core/introduction.md) like any handler's.
+A hierarchical snapshot uses a vector path from the root to the active leaf:
 
----
+```clojure
+@(rf/subscribe [:rf/machine :shop])
+;; => {:state [:authenticated :cart :paying]
+;;     :data  {...}
+;;     :tags  #{:auth/logged-in}}
+```
+
+A flat root state is treated as a one-element path internally, but flat machines
+still present a single keyword. `:data` is one shared map, not per-state.
+`:tags` is the union of every active node along the path.
+
+Avoid matching long paths in views. Put `:tags` on states and ask semantic
+questions:
+
+```clojure
+(when @(rf/subscribe [:rf.machine/has-tag? :shop :auth/logged-in])
+  [account-menu])
+```
+
+## Initial cascading
+
+Every compound state declares the child to enter when it is targeted without a
+deeper path.
+
+```clojure
+:authenticated
+{:initial :dashboard
+ :states  {:dashboard {}
+           :settings  {}}}
+```
+
+Targeting `[:authenticated]` lands at `[:authenticated :dashboard]`.
+
+If there are several nested compounds, the cascade continues until a leaf is
+reached. Entry actions fire shallowest first.
+
+```clojure
+{:initial :outer
+ :states
+ {:outer {:entry   :enter-outer
+          :initial :inner
+          :states  {:inner {:entry   :enter-inner
+                            :initial :leaf
+                            :states  {:leaf {:entry :enter-leaf}}}}}}}
+```
+
+Birth follows the same rule. When a machine first starts, the whole initial
+path is entered.
+
+A compound without `:initial` is a registration error:
+`:rf.error/machine-compound-state-missing-initial`.
+
+## Target forms
+
+A target can be a keyword or a vector.
+
+| Form | Meaning |
+|---|---|
+| `:settings` | sibling of the state that declares the transition |
+| `[:authenticated :settings]` | absolute path from the root |
+
+Use vector targets for cross-level jumps. They are unambiguous. In the shop
+machine, `:open-settings :settings` is a sibling of `:dashboard`;
+`:login [:authenticated]` is an absolute path from the root.
+
+A keyword target is resolved relative to the declaring state's parent, not the
+currently active leaf. That is a static rule. A target that names a compound
+enters its `:initial` child; to land on a particular leaf, use a vector path.
+
+## Deepest wins, then parent fallthrough
+
+When an event arrives, the runtime starts at the active leaf and walks up
+toward the root.
+
+The first state that handles the event wins.
+
+That gives two useful patterns:
+
+```clojure
+:authenticated
+{:on {:logout :unauthenticated}     ;; factored to parent
+ :states
+ {:dashboard {}
+  :settings  {}
+  :modal     {:on {:logout {}}}}}    ;; child consumes and blocks logout
+```
+
+- A parent can factor common transitions.
+- A child can override or block them.
+
+The empty map `{}` is a [forbidden transition](glossary.md#forbidden-transition)
+— a deliberate internal no-op. It consumes the event so the parent does not see
+it. A present `nil` value means the same thing.
+
+If no level handles the event, it is an unhandled no-op
+(`:rf.machine.event/unhandled-no-op`).
+
+## Wildcards and hierarchy
+
+At each level, event resolution checks:
+
+1. exact event id;
+2. namespace wildcard, such as `:mouse/*`;
+3. total wildcard `:*`.
+
+Only then does it move to the parent.
+
+A guard-blocked candidate does not count as handled, so the search can continue
+to a coarser wildcard or parent transition. A deliberate no-op block does count
+as handled.
+
+<a id="entryexit-cascading-along-the-lca"></a>
+
+## Entry/exit cascading along the LCA
+
+Moving from one path to another fires exits and entries along the least common
+compound ancestor.
+
+From `[:authenticated :cart :paying]` to `[:authenticated :dashboard]`, the
+least common active ancestor is `:authenticated`.
+
+The cascade is:
+
+1. exit `:paying`;
+2. exit `:cart`;
+3. run the transition action;
+4. enter `:dashboard`.
+
+The ancestor that remains active is not exited or re-entered.
+
+For a flat machine this collapses to the familiar `exit → action → entry`.
+
+## Parent lifecycle spans child states
+
+Put lifecycle work on the parent when it should span several child states.
+
+```clojure
+;; cf. examples/patterns/websocket
+:active
+{:spawn {:machine-id :websocket/socket}
+ :on    {:ws/disconnect :disconnected}
+
+ :states
+ {:connecting     {:on {:ws/opened :authenticating}}
+  :authenticating {:on {:ws/auth-ok :connected}}
+  :connected      {:on {:ws/send {:action :send-now}}}}}
+```
+
+The socket actor is spawned when `:active` is entered and destroyed when
+`:active` is left. Moving from `:connecting` to `:connected` does not restart
+it. See [Actors](actors.md).
+
+<a id="when-a-sub-flow-finishes-nested-final-states"></a>
 
 ## When a sub-flow finishes: nested final states
 
-A compound state often *is* a sub-flow with a clear end: collect, submit, paid.
-re-frame2 ships the statechart pattern for "the sub-flow finished, now advance
-the outer flow" — and **the machine keeps running**.
-
-Mark the sub-flow's terminal leaf `:final? true`. The moment a compound's active
-child becomes that final leaf, the engine raises a synthetic, transitionable
-event `[:rf.machine/done <compound-path>]`, and the compound's **`:on-done`**
-takes it:
+A `:final?` leaf inside a compound means the compound's sub-flow is complete.
+The machine itself keeps running.
 
 ```clojure
 (rf/reg-machine :checkout
   {:initial :flow
    :states
-   {:flow {:initial :collecting
-           :on-done :next                        ;; ← fires when :flow reaches its :final? child
-           :states  {:collecting {:on {:submit :submitting}}
-                     :submitting {:on {:ok :paid}}
-                     :paid       {:final? true}}} ;; ← embedded final = "sub-flow done"
-    :next {:on {:reset [:flow]}}}})
+   {:flow
+    {:initial :collecting
+     :on-done :next
+     :states  {:collecting {:on {:submit :submitting}}
+               :submitting {:on {:ok :paid}}
+               :paid       {:final? true}}}
+
+    :next
+    {:on {:reset [:flow]}}}})
 ```
 
-When `:flow` reaches `[:flow :paid]`, `:on-done :next` advances the machine to
-the sibling `:next` — **in the same macrostep**, no teardown. `:on-done` on a
-compound is an ordinary `:on`-shaped transition spec (a keyword sibling target,
-a vector path, or a full `{:target :guard :action}` / candidate vector), and a
-keyword target resolves as a **sibling of the compound** — the natural "advance
-the outer flow" placement.
+When the active child reaches `[:flow :paid]`, the runtime raises an internal
+done event for `:flow`, and `:on-done` moves to `:next` in the same macrostep.
+A keyword `:on-done` target is a sibling of the compound.
 
-> The node id rides as the raised event's single argument so the `:on` table
-> stays keyed on one reserved keyword. The raise lands in the same internal FIFO
-> queue an action's `[:raise …]` uses, drained before the macrostep settles.
-
-There's also a lower-level escape hatch: if the done node declares no `:on-done`,
-the raised `[:rf.machine/done <path>]` walks the active path leaf→root like any
-event, so an **ancestor** can catch it with an explicit
-`:on {:rf.machine/done {:guard … :target …}}` — a guard reads the raised path off
-`:event` to disambiguate *which* node is done.
-
-### Depth decides the meaning — embedded vs whole-machine final
-
-The same `:final?` key means two different things depending on **how deep the
-leaf sits:**
-
-| `:final?` leaf placement | Meaning | Effect |
-|---|---|---|
-| **Embedded inside a compound** (path length ≥ 2) | the *compound* is done | raises `[:rf.machine/done <compound>]`; the enclosing `:on-done` advances; **the machine keeps running** |
-| **Direct child of the root** (path length 1) | the *whole machine* is done | **auto-destroys** (a singleton tears itself down; a spawned child notifies its parent — below) |
-
-So you do **not** have to *avoid* `:final?` to keep a machine alive after a
-sub-flow completes — you put the final leaf *inside* the compound. A final leaf
-at the root, by contrast, ends the actor.
-
-!!! note "Final means final"
-
-    A *singleton* (top-level, un-spawned) machine that
-    reaches a **root-level** `:final?` leaf auto-destroys — the snapshot is gone.
-    If you want a state the machine rests in indefinitely (an `:authed`
-    end-screen), use an ordinary leaf and **omit `:final?`**. `:final?` is for
-    "this run is over," not "this is the last screen."
-
-### Reporting a result to a spawning parent: `:output-key`
-
-The *whole-machine* final case is how a **spawned child** reports back: the
-child marks its terminal leaf `:final?` and names the `:data` slot to hand up
-with `:output-key`; the parent's **`:spawn :on-done`** callback receives it as
-`result`, and the runtime then tears the child down. That protocol — including
-the `:on-error` failure path — is worked in
+A root-level `:final?` leaf is different: it means the whole machine is done
+and should be destroyed. For a resting end-screen, omit `:final?`. A spawned
+child's root-level `:final?` is how it reports back — see
 [Actors → When a child finishes](actors.md#when-a-child-finishes).
 
-Two distinct `:on-done` hooks, then, named the same on purpose because they're
-the same idea at two scopes:
+## Troubleshooting
 
-- **`:on-done` on a compound node** — the *transitionable in-machine* signal
-  (`done.state.<compound>`). Advances the outer flow; machine survives.
-- **`:on-done` on a parent's `:spawn` map** — the *actor-teardown notification*
-  `(fn [{:keys [data result]}] new-data)` a parent gets when a spawned child
-  reaches a root-level `:final?` and is then destroyed.
-
-### `:final?` constraints
-
-A `:final?` state fails loud at registration if you break these:
-
-- **Leaf-only.** No `:states` / `:initial` on a final state — a compound can't
-  be final; its finality is a leaf *inside* it. (`:rf.error/machine-final-state-compound`)
-- **No further transitions.** No `:on` / `:always` / `:after` / `:spawn` /
-  `:spawn-all` on a final state — final means final. (`:rf.error/machine-final-state-has-transitions`)
-  `:entry` and `:exit` *are* allowed (entry runs in the cascade; exit runs from
-  teardown).
-- **`:output-key` requires `:final?`.** A non-final state declaring
-  `:output-key` is an error (`:rf.error/machine-output-key-without-final`). On a
-  final leaf it's optional — absent, the parent's `result` is `nil`.
-
-(Inside a parallel-region machine, a `:final?` leaf means "*this region* is
-done"; the machine as a whole is done only when *every* region is final.
-Parallel regions are a separate axis — they're for orthogonal concerns that
-*don't* share a sub-tree — covered in [Parallel states](parallel-states.md).)
-
----
+| Symptom | Cause | Fix |
+|---|---|---|
+| `reg-machine` throws `:rf.error/machine-compound-state-missing-initial` | A `:states` map with no `:initial` | Name the child to enter when the compound is targeted |
+| `reg-machine` throws `:rf.error/machine-unresolved-target` | A keyword target that is not a sibling of the declaring state | Use a vector path for a cross-level jump |
+| Landed in the wrong leaf | The target named a compound, so `:initial` cascaded | Target the leaf with a vector path |
+| `:logout` does nothing in one child | That child declares `:logout {}` or `:logout nil` | Remove the key to inherit; keep it only to block |
+| View broke after reshaping the tree | The view matched a long `:state` path | Ask a tag: `@(rf/subscribe [:rf.machine/has-tag? id tag])` |
+| Machine vanished after the "last screen" | A root-level `:final?` auto-destroys | Omit `:final?` on a resting leaf |
