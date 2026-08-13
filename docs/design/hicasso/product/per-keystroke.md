@@ -380,9 +380,13 @@ then contained; run 7 added three per-subscription attributions for `+26`.
 
 **Run 8's arithmetic is checkable against a figure this page did not produce.**
 `rf2-hic-036`'s tournament landed on `main` between run 7 and the rebase, and
-[its own §2.1](topology-tournament.md) publishes the lane at **1,500 tests /
+[its own §2.1](topology-tournament.md) published the lane at **1,500 tests /
 9,482 assertions** on that base. Run 8 reads 1,502 / 9,508 — the same `+2` and
-`+26`, arrived at from a control another worker measured.
+`+26`, arrived at from a control another worker measured. **That page has since
+re-taken its own lane** on a later base and now publishes a larger total, so the
+cross-check reproduces against the reading quoted here rather than against its
+current head. The `+2` and `+26` are the claim; the absolute totals are only the
+two endpoints the difference was measured between.
 
 **Run 6 is the sabotage control, and it is why run 5 and run 7 mean anything.**
 Inverting one figure produced a captured failure naming it:
