@@ -62,9 +62,12 @@
             [re-frame.ui.reactive  :as reactive]))
 
 (use-fixtures :each
+  ;; `:async?` declares async-CAPABILITY; `make-reset-runtime-fixture` picks
+  ;; the shape per host (rf2-e8ea) — the map on CLJS, the fn-form on the JVM,
+  ;; where `clojure.test` would silently swallow a map fixture. So this is a
+  ;; plain option, not the reader-conditional `cond->` dance it used to be.
   (test-support/make-reset-runtime-fixture
-   (cond-> {:adapter ui/adapter :ambient-frame nil}
-     #?(:clj false :cljs true) (assoc :async? true)))
+   {:adapter ui/adapter :ambient-frame nil :async? true})
   #?(:clj
      (fn [f]
        (reactive/reset-scheduler!)

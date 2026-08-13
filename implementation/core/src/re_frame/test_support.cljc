@@ -685,15 +685,28 @@
                     per-frame schemas, so they're restored on the way
                     out — they only disappear for the duration of the
                     test.
-    :async?       — boolean (default false). Select the RETURN SHAPE:
-                    false → the synchronous fn-form fixture `(fn [test-fn]
-                    …)` (the default — for sync `cljs.test` / `clojure.test`
-                    suites); true → a `cljs.test` map-form fixture
-                    `{:before … :after …}` for suites with ASYNC tests. See
-                    §Async map-form variant below for why async suites NEED
-                    this and what changes.
+    :async?       — boolean (default false). Declare the suite ASYNC-CAPABLE.
+                    The RETURN SHAPE that delivers that is PLATFORM-DECIDED
+                    (rf2-e8ea), not something the caller picks:
+                      • `:cljs` → the map-form fixture `{:before … :after …}`,
+                        the only shape `cljs.test` will run an `(async done …)`
+                        row under (§Async map-form variant below).
+                      • `:clj`  → INERT; the fn-form is returned regardless.
+                        `clojure.test` has no async tests to be capable OF,
+                        and no map-fixture support at all — it INVOKES a
+                        fixture, and a Clojure map is `IFn`, so a `{:before …}`
+                        fixture composes to a key lookup returning nil and the
+                        test body NEVER RUNS ("Ran 0 tests", silent GREEN).
+                        The fn-form IS the correct async-capable JVM shape.
+                    So a `.cljc` suite with async CLJS rows writes a plain
+                    `:async? true` — no reader conditional at the call site,
+                    and the map-on-JVM silent swallow is unrepresentable.
 
-  ## Async map-form variant (`:async? true`)
+  ## Async map-form variant (`:async? true`, CLJS)
+
+  This whole section is about CLJS. On the JVM `:async? true` selects nothing
+  — see the option's entry above — so everything below describes what
+  `:async? true` does when the host is `:cljs`.
 
   `cljs.test` HARD-ERRORS on a fn-form fixture for an `(async done …)` test
   (\"Async tests require fixtures to be specified as maps\" / \"Fixtures may
@@ -733,8 +746,10 @@
   via the recover-and-emit `:rf.error/frame-destroyed` path. Re-ensuring the
   frame in `:before` is what closes that gap.)
 
-  Returns a fixture fn (`:async?` false) or a `{:before :after}` map
-  (`:async?` true), each suitable for `(use-fixtures :each …)`.
+  Returns a `{:before :after}` map when `:async? true` AND the host is CLJS;
+  a fixture fn otherwise — which is the default on both hosts, and the ONLY
+  shape ever returned on the JVM. Either is suitable for
+  `(use-fixtures :each …)` on its own host.
 
   Example (CLJS):
 
@@ -772,7 +787,14 @@
               (rf/dispatch-sync [:counter/inc])
               (is (= 1 (:n (rf/app-db-value :rf/default))))
               (done))
-            0)))"
+            0)))
+
+  Example (`.cljc`, a cross-host suite whose CLJS rows are async) — the SAME
+  plain `:async? true`, because the shape is platform-decided for you:
+
+      (use-fixtures :each
+        (test-support/make-reset-runtime-fixture
+          {:adapter plain-atom/adapter :async? true}))"
   ([] (make-reset-runtime-fixture {}))
   ([{:keys [adapter init-fn] :as opts}]
    ;; `:ambient-frame` (EP-0002, rf2-9o48ih): the frame the fixture establishes
@@ -814,8 +836,34 @@
          ;; `:rf.error/no-frame-context`. For the fn-form that scope is the
          ;; enclosing `binding`; for the async map-form it is the persistent
          ;; `set!` already in effect when this runs.
-         run-init!             (fn [] (when init-fn (init-fn)))]
-     (if (:async? opts)
+         run-init!             (fn [] (when init-fn (init-fn)))
+         ;; rf2-e8ea — `:async?` declares the suite ASYNC-CAPABLE; the SHAPE
+         ;; that delivers that is decided HERE, per host, because the two
+         ;; runners disagree about what a fixture even is:
+         ;;
+         ;;   • `cljs.test` — `execution-strategy` classifies an ns's fixtures
+         ;;     (`{:map :async :fn :sync}`); a `:sync` ns whose body returns an
+         ;;     async object throws `::async-disabled`, which `test-var-block*`
+         ;;     catches and RE-THROWS as "Async tests require fixtures to be
+         ;;     specified as maps.  Testing aborted." — outside per-test
+         ;;     accounting, so it unwinds the whole bundle. On CLJS an async-
+         ;;     capable fixture MUST therefore be the map.
+         ;;   • `clojure.test` — has no map-fixture support at all. Its
+         ;;     `compose-fixtures` INVOKES each fixture (`(f1 (fn [] (f2 g)))`)
+         ;;     and a Clojure map is `IFn`, so a `{:before …}` fixture composes
+         ;;     to a key lookup returning nil and the test body NEVER RUNS: the
+         ;;     namespace reports "Ran 0 tests" and reads GREEN. (Hit in-tree
+         ;;     while implementation/ssr/test/re_frame/ssr/streaming_component_
+         ;;     cljs_test.cljc was being written — see its comment.) And
+         ;;     `clojure.test` has no async tests to be capable OF, so the
+         ;;     fn-form IS the correct async-capable JVM shape.
+         ;;
+         ;; Guarding here rather than at the call site makes the map-on-JVM
+         ;; silent swallow UNREPRESENTABLE: a `.cljc` suite with async CLJS
+         ;; rows writes a plain `:async? true` and gets the right shape on each
+         ;; host by construction, with no reader conditional to get wrong.
+         map-shape?            #?(:clj false :cljs (boolean (:async? opts)))]
+     (if map-shape?
        ;; ---- async map-form (cljs.test only) — see §Async map-form variant.
        ;; cljs.test runs tests sequentially (each async test's `done` gates the
        ;; next), so the :before/:after pair never overlaps and a single atom
