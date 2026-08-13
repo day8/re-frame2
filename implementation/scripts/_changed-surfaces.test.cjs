@@ -4063,6 +4063,81 @@ function writeFileP(root, relPath, contents) {
   fs.writeFileSync(abs, contents);
 }
 
+// ─── rf2-34yg — THE LAUNCHER'S ENV TRANSPORT ────────────────────────────────
+//
+// The three environment values the git-discovery tests below CONTROL. Every one
+// of them is read by report-changed-surfaces.sh's base-resolution block, and a
+// test that sets one and has it arrive empty does not fail — it silently
+// exercises the HEAD^ fallback instead, which looks exactly like correct
+// behaviour.
+const LAUNCHER_TRANSPORTED_ENV = Object.freeze([
+  'GITHUB_EVENT_NAME',
+  'GITHUB_BASE_REF',
+  'CHANGED_SURFACES_BASE_REF',
+]);
+
+/**
+ * The environment to hand `execFileSync('bash', ...)` so the child actually
+ * SEES the values above.
+ *
+ * WHY THIS EXISTS. On Windows, `bash` is resolved by the OS from PATH, and
+ * which bash.exe answers is not this suite's choice: `C:\Windows\System32\
+ * bash.exe` (the WSL launcher) ships with Windows and sits in System32, ahead
+ * of `C:\Program Files\Git\bin\bash.exe` on a default PowerShell PATH — on the
+ * host this was found, Git Bash is not on that PATH at all. WSL does NOT
+ * inherit the Windows environment: it imports only the variables NAMED in
+ * WSLENV. So `env:` values handed to the child crossed into Git Bash and into
+ * Linux CI, and vanished into WSL. Measured directly, before this fix: all
+ * three read empty in the child, the classifier fell back to HEAD^ exactly as
+ * it is designed to when handed no base, and two of the rf2-34yg push cases
+ * went red while the other three went green FOR THE WRONG REASON — they assert
+ * `false`, which is also what a dropped base produces. The identical suite
+ * passed all 354 cases under Git Bash. A gate whose verdict depends on which
+ * bash.exe the OS finds first is not a gate, and the failing direction is the
+ * quiet one.
+ *
+ * WHY WSLENV AND NOT A WRAPPER. The audit offered two shapes — extend WSLENV,
+ * or wrap the script in an argv/stdin `export` preamble. WSLENV was measured
+ * sufficient (all three arrive with their exact supplied values), so the
+ * wrapper is not built: it would need shell quoting for values that reach the
+ * child today without any, which is the hand-rolled quoting `classify()` above
+ * was deliberately retired to avoid.
+ *
+ * PRESERVES GIT BASH AND LINUX. The WSLENV entry is added only on win32, and
+ * even there it is inert for a Git Bash child (verified: the values cross with
+ * or without it, WSLENV being meaningless to msys2). On Linux — every CI
+ * runner — the env is returned untouched.
+ *
+ * NAMES ONLY WHAT IS SET, which is not a micro-optimisation. WSLENV naming a
+ * variable ABSENT from the Windows environment makes WSL export it as the
+ * EMPTY STRING rather than leaving it unset (verified). The callers below
+ * `delete` GITHUB_EVENT_NAME and GITHUB_BASE_REF precisely to make the child
+ * see them unset, so naming them unconditionally would hand WSL a different
+ * environment from the one Git Bash and Linux get. Filtering to the values
+ * actually present keeps all three launchers byte-equivalent for this script.
+ *
+ * `platform` is a parameter, not a read of `process.platform`, so the win32
+ * branch is unit-testable from a Linux runner — which is the only reason CI
+ * can protect a Windows-only code path at all.
+ */
+function launcherEnv(env, platform = process.platform) {
+  if (platform !== 'win32') return env;
+  const present = LAUNCHER_TRANSPORTED_ENV.filter((name) => env[name] !== undefined);
+  if (present.length === 0) return env;
+  // A WSLENV entry is `NAME` or `NAME/flags`; the flags request path
+  // translation, which none of these want (a SHA, a branch name and an event
+  // name are not paths). Existing entries are kept — the ambient WSLENV is the
+  // terminal's, and dropping it would change unrelated behaviour.
+  const entries = String(env.WSLENV || '')
+    .split(':')
+    .filter(Boolean);
+  const named = new Set(entries.map((entry) => entry.split('/')[0]));
+  for (const name of present) {
+    if (!named.has(name)) entries.push(name);
+  }
+  return { ...env, WSLENV: entries.join(':') };
+}
+
 // Build a real two-commit repo via `buildHistory`, then invoke the script in
 // its Git-derived (local, HEAD^ HEAD) discovery mode with NO explicit paths and
 // return the parsed classifier outputs. GITHUB_* is cleared so the script takes
@@ -4108,7 +4183,10 @@ function classifyViaGitDiscovery(buildHistory, envFor) {
     }
     const out = execFileSync('bash', ['-s'], {
       cwd: tmp,
-      env,
+      // rf2-34yg — `launcherEnv`, not `env`. On a WSL launcher the three values
+      // above do not cross into the child unless WSLENV names them, and a base
+      // that arrives empty silently demotes this to the HEAD^ fallback.
+      env: launcherEnv(env),
       encoding: 'utf8',
       input: fs.readFileSync(SCRIPT_PATH),
     });
@@ -4357,6 +4435,152 @@ test('PUSH: a pull_request is unaffected — base...HEAD still wins (rf2-34yg)',
   for (const key of UI_GATE_KEYS) {
     assert.equal(result[key], 'false', `a pull_request must not take the push branch (${key})`);
   }
+});
+
+// ─── rf2-34yg — THE TRANSPORT ITSELF, PINNED ────────────────────────────────
+//
+// Every push case above SUPPLIES a base and then reads the classifier's
+// verdict. That is an indirect measurement: if the base never reaches the
+// child, the classifier does the right thing with the nothing it was given and
+// falls back to HEAD^ — so three of the five cases stay green while proving
+// nothing at all. These four pin the transport DIRECTLY, and positively: the
+// child is asked what it received, and must say the exact value handed to it.
+
+// Ask the child shell what it can see. Reports the shell family too, because
+// WSL and Git Bash disagree about this and the disagreement IS the defect.
+const LAUNCHER_PROBE = ['printf "uname=%s\\n" "$(uname -s)"']
+  .concat(LAUNCHER_TRANSPORTED_ENV.map((name) => `printf "${name}=%s\\n" "\${${name}:-}"`))
+  .join('\n');
+
+function probeLauncher(env) {
+  const out = execFileSync('bash', ['-s'], { env, encoding: 'utf8', input: `${LAUNCHER_PROBE}\n` });
+  return Object.fromEntries(
+    out
+      .trim()
+      .split(/\r?\n/)
+      .filter(Boolean)
+      .map((line) => {
+        const at = line.indexOf('=');
+        return [line.slice(0, at), line.slice(at + 1)];
+      }),
+  );
+}
+
+const PROBE_BASE = 'feedfacefeedfacefeedfacefeedfacefeedface';
+
+test('LAUNCHER: the child actually RECEIVES the supplied base (rf2-34yg — the pin)', () => {
+  // THE POSITIVE ASSERTION the push cases cannot make. Not "the outputs
+  // changed", but "the child echoed back the exact 40 hex characters we handed
+  // it". Red under WSL before the WSLENV extension, green under Git Bash and
+  // Linux with or without it.
+  const seen = probeLauncher(
+    launcherEnv({
+      ...process.env,
+      GITHUB_EVENT_NAME: 'push',
+      GITHUB_BASE_REF: 'main',
+      CHANGED_SURFACES_BASE_REF: PROBE_BASE,
+    }),
+  );
+  assert.equal(
+    seen.CHANGED_SURFACES_BASE_REF,
+    PROBE_BASE,
+    `the child shell (${seen.uname}) must see the supplied base — an empty ` +
+      'value here means every push case above is silently exercising the HEAD^ ' +
+      'fallback instead of the branch it names',
+  );
+  assert.equal(seen.GITHUB_EVENT_NAME, 'push', 'the event name must cross too, or the push branch is never taken');
+  assert.equal(seen.GITHUB_BASE_REF, 'main', 'the third transported value must cross');
+});
+
+test('LAUNCHER: the CONTROL — with the transport removed, WSL drops the base (rf2-34yg)', () => {
+  // The property removed. `launcherEnv` is bypassed AND the ambient WSLENV is
+  // cleared, so this is "no transport at all" rather than "whatever this
+  // terminal happens to export". Both branches assert something real: the fix
+  // is necessary on exactly one of the three launchers, and this says which.
+  const raw = {
+    ...process.env,
+    GITHUB_EVENT_NAME: 'push',
+    GITHUB_BASE_REF: 'main',
+    CHANGED_SURFACES_BASE_REF: PROBE_BASE,
+  };
+  delete raw.WSLENV;
+  const seen = probeLauncher(raw);
+  const isWsl = process.platform === 'win32' && seen.uname === 'Linux';
+  if (isWsl) {
+    assert.equal(
+      seen.CHANGED_SURFACES_BASE_REF,
+      '',
+      'a WSL launcher imports ONLY what WSLENV names — if the base crosses ' +
+        'without it, the pin above has stopped measuring anything',
+    );
+  } else {
+    assert.equal(
+      seen.CHANGED_SURFACES_BASE_REF,
+      PROBE_BASE,
+      `a ${seen.uname} launcher inherits the environment directly and needs no ` +
+        'transport — the WSLENV extension must stay inert here, not become a ' +
+        'dependency',
+    );
+  }
+});
+
+test('LAUNCHER: launcherEnv names every transported value in WSLENV on win32 (rf2-34yg)', () => {
+  // THE MECHANISM, unit-tested through the `platform` parameter so a Linux CI
+  // runner — which never spawns a WSL launcher and would pass the two cases
+  // above no matter what — still protects the Windows-only branch.
+  const win = launcherEnv(
+    {
+      WSLENV: 'WT_SESSION:WT_PROFILE_ID:',
+      GITHUB_EVENT_NAME: 'push',
+      GITHUB_BASE_REF: 'main',
+      CHANGED_SURFACES_BASE_REF: PROBE_BASE,
+    },
+    'win32',
+  );
+  const named = win.WSLENV.split(':').filter(Boolean);
+  for (const name of LAUNCHER_TRANSPORTED_ENV) {
+    assert.ok(
+      named.includes(name),
+      `${name} must be named in WSLENV verbatim — bare, because a /p flag ` +
+        'would path-translate a SHA, a branch name or an event name',
+    );
+  }
+  assert.ok(named.includes('WT_SESSION'), 'the ambient WSLENV must be preserved, not replaced');
+
+  // Idempotent: the suite builds this env once per spawn, but a nested call
+  // must not grow WSLENV by re-naming what is already there.
+  assert.deepEqual(launcherEnv(win, 'win32').WSLENV, win.WSLENV, 'launcherEnv must be idempotent');
+
+  // An ABSENT value is not named, and that is load-bearing: WSLENV exports a
+  // named-but-unset variable as the EMPTY STRING, where Git Bash and Linux
+  // leave it unset. classifyViaGitDiscovery `delete`s GITHUB_EVENT_NAME and
+  // GITHUB_BASE_REF precisely so the child sees them unset.
+  const partial = launcherEnv({ CHANGED_SURFACES_BASE_REF: PROBE_BASE }, 'win32');
+  assert.deepEqual(
+    partial.WSLENV.split(':').filter(Boolean),
+    ['CHANGED_SURFACES_BASE_REF'],
+    'only values actually present may be named, or a deleted variable comes ' +
+      'back as an empty string on WSL and the three launchers stop agreeing',
+  );
+
+  // Off win32 the env is returned by IDENTITY — every CI runner is Linux and
+  // must be byte-identical to what it saw before this fix.
+  const posix = { GITHUB_EVENT_NAME: 'push', CHANGED_SURFACES_BASE_REF: PROBE_BASE };
+  assert.equal(launcherEnv(posix, 'linux'), posix, 'non-win32 platforms must be untouched');
+  assert.equal(launcherEnv(posix, 'darwin'), posix, 'non-win32 platforms must be untouched');
+});
+
+test('LAUNCHER: the discovery launcher goes THROUGH launcherEnv (rf2-34yg — the caller half)', () => {
+  // The caller half, for the same reason the test.yml `env:` case below exists:
+  // reverting `env: launcherEnv(env)` to `env` restores the defect with every
+  // Linux CI case still green, because on Linux the two are the same value.
+  // Reading the function's own source is the only assertion that survives that.
+  assert.match(
+    classifyViaGitDiscovery.toString(),
+    /env:\s*launcherEnv\(/,
+    'classifyViaGitDiscovery must hand its child the launcherEnv-wrapped ' +
+      'environment, or the base silently stops crossing on a WSL launcher',
+  );
 });
 
 test('test.yml hands the classifier the accepted base via env: (rf2-34yg)', () => {
