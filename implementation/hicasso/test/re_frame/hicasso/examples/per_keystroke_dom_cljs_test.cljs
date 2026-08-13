@@ -222,6 +222,42 @@
         (doseq [[[_ p] d] (map vector protos originals)]
           (js/Object.defineProperty p "value" d))))))
 
+(defn- summarise-mutations
+  "A mutation record list as `{[kind target] n}` — the shape a commit can
+  be ATTRIBUTED from, where a bare count can only be reported.
+
+  Added after the census's first reading, which counted 7 and 8 records
+  against a predicted 0 and could say nothing about what they were. It
+  reads the records the same observer already took; no record's existence
+  or count moves, and the counts either side of the change are identical."
+  [records]
+  (reduce (fn [m r]
+            (let [kind   (.-type r)
+                  target (.-target r)
+                  tag    (or (.-tagName target) (.-nodeName target))
+                  label  (if (= "attributes" kind)
+                           (str tag "@" (.-attributeName r))
+                           (str tag))]
+              (update m [kind label] (fnil inc 0))))
+          {}
+          records))
+
+(defn- attribute-trace
+  "The attribute records in order, as `\"name: <old> -> <new>\"`.
+
+  A count says a commit touched `name` four times; this says what it did
+  to it, which is the difference between reporting the commit stage and
+  ATTRIBUTING it. `:attributeOldValue` is what the observer needs to
+  answer it, and it changes no record's existence or count."
+  [records]
+  (into []
+        (comp (filter (fn [r] (= "attributes" (.-type r))))
+              (map (fn [r]
+                     (str (.-attributeName r) ": "
+                          (pr-str (.-oldValue r)) " -> "
+                          (pr-str (.getAttribute (.-target r) (.-attributeName r)))))))
+        records))
+
 (defn- mutations-during
   "The `MutationObserver` records `f` produced inside `container`, drained
   synchronously with `takeRecords` — the observer's own callback is a
@@ -229,7 +265,11 @@
   [container f]
   (let [obs (js/MutationObserver. (fn [_ _] nil))]
     (.observe obs container
-              #js {:childList true :attributes true :characterData true :subtree true})
+              #js {:childList         true
+                   :attributes        true
+                   :attributeOldValue true
+                   :characterData     true
+                   :subtree           true})
     (try
       (f)
       (vec (array-seq (.takeRecords obs)))
@@ -294,16 +334,48 @@
                            (pr-str runs)))
                   (is (= 1 bodies)
                       "P3 — one boundary body, the title field's (D8)")
-                  (is (= 1 (glass-writes))
-                      "P4 — one write onto the glass by the runtime")
+                  (is (= 0 (glass-writes))
+                      "P4 MISSED, and the miss is the finding. The prediction
+                       was one write; the measurement is ZERO. An ACCEPTED
+                       keystroke is already on the glass — the user agent put
+                       it there — and the model took it unchanged, so the
+                       converge has nothing to write and React's own value
+                       diff finds the node already showing what it is about to
+                       commit. The echo of an accepted keystroke is free. The
+                       refusal row below is this instrument's positive
+                       control: it reads 1 on the same spy in the same file")
                   (is (= "Intents are dataab" @echo)
                       "P12 — the echo is on the glass at the instant
                        `dispatchEvent` returned, with no flush and no paint
                        in between")
-                  (is (= 0 (count @muts))
-                      "and the commit mutated no attribute, no child and no
-                       text node: a controlled input's value is a PROPERTY,
-                       so the echo never reaches the markup at all")))
+                  (is (= {["attributes" "INPUT@name"]  4
+                          ["attributes" "INPUT@type"]  2
+                          ["attributes" "INPUT@value"] 1}
+                         (summarise-mutations @muts))
+                      "SEVEN mutation records against a predicted zero, and
+                       not one of them is the echo. The value the user sees
+                       is a PROPERTY and never reaches the markup; what the
+                       markup gets is React's controlled-input update churning
+                       `name` and `type` around the change and writing the
+                       `value` ATTRIBUTE once, which is `defaultValue`.")
+                  (is (= ["name: nil -> nil"
+                          "type: \"text\" -> \"text\""
+                          "value: \"Intents are dataa\" -> \"Intents are dataab\""
+                          "name: \"\" -> nil"
+                          "name: nil -> nil"
+                          "type: \"text\" -> \"text\""
+                          "name: \"\" -> nil"]
+                         (attribute-trace @muts))
+                      "TWO PASSES over one input, and the trace is what says
+                       so: `name`, `type`, `value`, `name` — then `name`,
+                       `type`, `name` with no `value`, because the second pass
+                       finds `defaultValue` already right. React 19 removes
+                       and restores `name` around every controlled-input
+                       update so that a radio group's changes apply
+                       atomically, and this input has no `name` at all, so
+                       four of the seven records are churn on an attribute the
+                       application never wrote. The refusal row below
+                       attributes the two passes.")))
 
               (hm/unmount! m))))))))
 
@@ -349,7 +421,7 @@
                  :by-sub    runs
                  :bodies    bodies
                  :glass     (glass-writes)
-                 :mutations (count @muts)
+                 :mutations (summarise-mutations @muts)
                  :echo      @echo}
                 (finally (hm/unmount! m))))))))))
 
@@ -368,12 +440,20 @@
       (is (= 31 (:sub-runs at-25))
           (str "P9 — subscription recomputations at 5x5. Measured: "
                (pr-str (:by-sub at-25))))
-      (is (= 1 (:glass at-100))
-          "one write onto the glass by the runtime")
+      (is (= 0 (:glass at-100))
+          "zero writes onto the glass, exactly as the editor — an accepted
+           keystroke is already showing what the model took")
       (is (= "341" (:echo at-100))
           "P12 — the echo is on the glass before any flush")
-      (is (= 0 (:mutations at-100))
-          "and no DOM mutation record: the value is a property")
+      (is (= {["attributes" "INPUT@name"]  4
+              ["attributes" "INPUT@type"]  2
+              ["attributes" "INPUT@value"] 1
+              ["characterData" "#text"]    1}
+             (:mutations at-100))
+          "the editor's seven, plus ONE — the row total's text node. That
+           single `characterData` record is the only mutation on either page
+           that a user could point at, and it belongs to the derived read
+           rather than to the field that was typed into")
       (is (= (:bodies at-25) (:bodies at-100))
           "THE CONTRAST THE CENSUS EXISTS FOR — boundary runs do not move
            with the mounted grid")))
@@ -394,8 +474,14 @@
                 (reset-glass!)
                 (let [before (rf/app-db-value (:frame m))
                       echo   (atom nil)
+                      muts   (atom nil)
                       bodies (hm/bodies-run
-                               (fn [] (reset! echo (type-into! n "x")) (hm/settle! m)))
+                               (fn []
+                                 (reset! muts
+                                         (mutations-during
+                                           (:container m)
+                                           (fn [] (reset! echo (type-into! n "x")))))
+                                 (hm/settle! m)))
                       after  (rf/app-db-value (:frame m))]
                   (is (= 0 (addresses-moved before after))
                       "P10 — the model did not move")
@@ -410,5 +496,21 @@
                        the committed value put back over the character the
                        model would not take")
                   (is (= "34" (.-value n))
-                      "which is what the field shows"))
+                      "which is what the field shows")
+                  (is (= [{["attributes" "INPUT@name"] 2
+                           ["attributes" "INPUT@type"] 1}
+                          ["name: nil -> nil"
+                           "type: \"text\" -> \"text\""
+                           "name: \"\" -> nil"]]
+                         [(summarise-mutations @muts) (attribute-trace @muts)])
+                      "THE ATTRIBUTION, and it is decisive. A refusal runs ZERO
+                       bodies, so React commits nothing — and THREE of the
+                       accepted keystroke's seven records appear anyway, as one
+                       `name`/`type`/`name` pass with no `value` write. Those
+                       three are React's post-event controlled-state restore,
+                       which is also what performs the single `value` PROPERTY
+                       write the row above counts. The remaining four —
+                       `name`, `type`, `value`, `name` — are the commit's, and
+                       the accepted keystroke's trace is exactly those four
+                       followed by these three."))
                 (hm/unmount! m)))))))))
