@@ -48,6 +48,23 @@
   platform's door on the way out rather than letting React drop it. That
   one line is the whole of \"focus restore\".
 
+  ## The one keyboard handler, and why the modal alone carries it
+
+  `showModal` makes the rest of the document inert, so the engine owns
+  everything about the trap except its last inch: the wrap off the
+  panel's final control goes through the document's own end-of-scope
+  step, parking focus on `<body>` — nowhere — for one press. The modal
+  therefore renders one `onKeyDown` prop that closes those two edges and
+  nothing else; see [[wrap-tab!]] for the measurement. The popover
+  renders none, because a popover is deliberately not a trap.
+
+  It costs no idle listener: `keydown` bubbles, so React delegates it at
+  the root it already owns rather than attaching anything to the element,
+  and `:open?` false renders no element to hold a prop in the first
+  place. It also means `:on-key-down` written on the modal ELEMENT is the
+  module's, the way `:on-cancel` there already is — an author's key
+  handling belongs on the controls inside, where this one yields to it.
+
   ## Why the open flag can never acquire a second owner
 
   `:open?` false renders nil, so a closed overlay has no element at all.
@@ -190,6 +207,91 @@
   nil)
 
 ;; ---------------------------------------------------------------------------
+;; The trap's last inch — Tab at the modal's two edges
+;; ---------------------------------------------------------------------------
+;;
+;; THE ONE THING THE ENGINE'S OWN TRAP DOES NOT DO, measured rather than
+;; assumed. `showModal` makes the rest of the document inert, so Tab
+;; cannot reach a control behind the panel — that half is the engine's
+;; and this module adds nothing to it. But the WRAP off the panel's last
+;; control goes through the document's own end-of-scope step, and for one
+;; press `document.activeElement` is `<body>`: focus rests nowhere, the
+;; focus ring vanishes, and in a browser with UI that step is the browser
+;; UI rather than the page. Pressed in this repo's Chromium, headless and
+;; headed alike, over a three-control modal starting at the first:
+;;
+;;     Tab       → reason, cancel, BODY, confirm, reason …
+;;     Shift+Tab → BODY, cancel, reason, confirm …
+;;
+;; Four stops for three controls, and headed Chromium does not even do it
+;; consistently — the second backward lap dropped the waypoint. A modal
+;; is bought for "focus cannot Tab outside it", which the guide promises
+;; and rf2-hic-052 owns, so the two edges are closed here.
+;;
+;; This is a WRAP AT TWO EDGES and not a focus manager. It computes no
+;; order, tracks no state, and does not run for any key but Tab: between
+;; the edges the engine moves focus exactly as it always did.
+
+(def ^:private tab-stop-selector
+  "Everything the engine could make a tab stop of, as a selector.
+
+  A superset on purpose. It is filtered down by [[tab-stop?]] asking the
+  properties the engine itself decides tabbability by, and the two are
+  used only to recognise the panel's FIRST and LAST stop. A candidate
+  this misses therefore costs a wrap that does not fire — the engine's
+  own conduct, unchanged — and never a wrap that fires at the wrong
+  place, because the set can only be too large."
+  (str "a[href],area[href],button,input,select,textarea,summary,"
+       "iframe,object,embed,audio[controls],video[controls],"
+       "[contenteditable],[tabindex]"))
+
+(defn- tab-stop?
+  "Would Tab stop here? Disabled elements take no focus, a negative
+  `tabIndex` is reachable only programmatically, and an element with no
+  client rect is not rendered at all — `display:none`, `hidden`, or
+  inside a closed `<details>`."
+  [^js el]
+  (and (not (.-disabled el))
+       (not (neg? (.-tabIndex el)))
+       (pos? (.-length (.getClientRects el)))))
+
+(defn- tab-stops
+  "`panel`'s own tab stops, in document order."
+  [^js panel]
+  (filterv tab-stop? (array-seq (.querySelectorAll panel tab-stop-selector))))
+
+(defn- wrap-tab!
+  "Tab off the panel's last stop lands on its first; Shift+Tab off its
+  first lands on its last. Every other press falls through untouched.
+
+  **The engine confirms the landing before the default action is taken
+  away.** `HTMLElement.focus()` on an element that cannot be focused —
+  `visibility:hidden`, inert because a nested modal is open above it — is
+  a no-op that leaves `activeElement` where it was, so the move is
+  attempted first and `preventDefault` follows only if it took. A wrap
+  that could not land therefore degrades to exactly the engine's own
+  conduct rather than to a Tab that does nothing.
+
+  A press a control inside the panel has already claimed is left alone:
+  the native event's `defaultPrevented` is read rather than the synthetic
+  event's copy, which React takes at construction and which a child's
+  `preventDefault` during the same dispatch would not update."
+  [^js e]
+  (when (and (= "Tab" (.-key e))
+             (not (.. e -nativeEvent -defaultPrevented)))
+    (let [^js panel (.-currentTarget e)
+          stops     (tab-stops panel)]
+      (when (seq stops)
+        (let [back? (.-shiftKey e)
+              edge  (if back? (first stops) (peek stops))
+              land  (if back? (peek stops) (first stops))]
+          (when (identical? edge (.-target e))
+            (.focus land)
+            (when (identical? land (.. panel -ownerDocument -activeElement))
+              (.preventDefault e)))))))
+  nil)
+
+;; ---------------------------------------------------------------------------
 ;; The two platform doors
 ;; ---------------------------------------------------------------------------
 
@@ -203,7 +305,12 @@
    :event     :on-cancel
    ;; `cancel` fires only for a close request — never on the way in, and
    ;; never for a programmatic `close()` — so it needs no filter at all.
-   :closed-only? false})
+   :closed-only? false
+   ;; The modal's alone. A popover is deliberately NOT a trap — a filter
+   ;; menu a keyboard cannot tab out of is a defect — so it takes no
+   ;; keyboard handler at all and `overlay-focus-dom-cljs-test` holds that
+   ;; contrast.
+   :key-down  wrap-tab!})
 
 (def ^:private popover-ops
   {:tag       :div
@@ -298,7 +405,7 @@
       (seq style) (assoc :style style))))
 
 (defn- body
-  [{:keys [tag event closed-only?] :as ops} dismissal-attrs js-props]
+  [{:keys [tag event closed-only? key-down] :as ops} dismissal-attrs js-props]
   (let [props    (or (unchecked-get js-props "rfProps") {})
         ;; Hook 1 — the frame, classified through the shared reader so a
         ;; no-provider sentinel resolves to nil ("no scope") rather than
@@ -323,6 +430,9 @@
               extra    (cond-> (assoc (dismissal-attrs props)
                                       :ref   (unchecked-get cell "ref")
                                       event  (dismissal-handler dispatch (:on-dismiss props) closed-only?))
+                         (some? key-down)
+                         (assoc :on-key-down key-down)
+
                          (some? (:label props))
                          (assoc :aria-label (:label props))
 

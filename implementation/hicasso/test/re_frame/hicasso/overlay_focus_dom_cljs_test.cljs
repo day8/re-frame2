@@ -24,7 +24,7 @@
   | a real `<dialog>` traps focus when it is MODAL, and does not when it is merely shown | [[the-instrument-tells-a-trap-from-its-absence]] |
   | the module's modal is the trapping kind: the reachable set becomes EXACTLY the panel's controls | [[an-open-modal-is-the-whole-of-what-a-keyboard-can-reach]] |
   | the module's popover is NOT a trap, and must not be read as one | [[an-open-popover-leaves-the-page-behind-it-reachable]] |
-  | a REAL Tab cycles inside the trap, and a REAL Escape lets the page back out | [[a-real-tab-cycles-within-the-modal-and-a-real-escape-gives-the-page-back]] |
+  | a REAL Tab and a REAL Shift+Tab cycle inside the trap, and a REAL Escape lets the page back out | [[a-real-tab-cycles-within-the-modal-and-a-real-escape-gives-the-page-back]] |
 
   The middle claim is an emptiness claim about everything outside a
   dialog, and an emptiness claim is exactly the shape that passes
@@ -64,14 +64,19 @@
   `scripts/run-browser-tests.cjs`) and finds it CYCLING — off the last
   panel control back onto the first, never onto `before`, `trigger` or
   `after` — which is the property a modal is actually bought for and the
-  one an emptiness claim over `reachable` can only approximate. The same
-  row then presses a real Escape and gets the page back.
+  one an emptiness claim over `reachable` can only approximate. It
+  presses BOTH directions, because a wrap is two edges. The same row then
+  presses a real Escape and gets the page back.
 
-  It also found something no amount of asking would have: the wrap goes
-  through the DOCUMENT. `document.activeElement` reads `<body>` for one
-  step between the panel's last control and its first, so the cycle is
-  four stops for three controls. That is recorded on the row itself,
-  because it is the engine's conduct and not this module's.
+  It also found something no amount of asking would have, and rf2-hic-052
+  then fixed rather than blessed: left to itself the engine wraps through
+  the DOCUMENT, and `document.activeElement` reads `<body>` for one press
+  between the panel's last control and its first — focus resting nowhere,
+  which in a browser with UI is the browser's own UI. Inertness was never
+  in question; the WRAP was, and `impl.overlay/wrap-tab!` now closes both
+  edges. The row asserts the three-stop cycle, so it reddens the day that
+  handler stops working — and the version of it that recorded `<body>` as
+  a waypoint is what the audit of #8058 correctly refused to accept.
 
   `overlay-dom-cljs-test` holds the synthetic-versus-trusted comparison
   for Escape itself; this file does not re-litigate it.
@@ -347,52 +352,80 @@
                 (str "premise: on the panel's first control. Active: "
                      (label-of (active))))
 
-            ;; FIVE, so the sequence closes: four presses is a wrap, five is
-            ;; a CYCLE, and only the second rules out a one-off excursion
-            ;; that happened to come back.
+            ;; FIVE, so the sequence closes: three presses is a wrap, five
+            ;; is a CYCLE with its start repeated, and only the second
+            ;; rules out a one-off excursion that happened to come back.
             (trusted/walk!
               "Tab" 5
               (fn [] (some-> (active) label-of))
-              (fn [landings]
+              (fn [forward]
                 (try
-                  (is (= ["reason" "cancel" "body" "confirm" "reason"] landings)
-                      (str "THE CYCLE, AS THE ENGINE ACTUALLY PERFORMS IT. From "
-                           "the panel's first control, Tab runs to its last and "
-                           "then wraps back to its first — never to `before`, "
-                           "`trigger` or `after`, and the fifth press repeats "
-                           "the second, so this closes rather than merely "
-                           "returning once.\n"
-                           "  MEASURED, AND NOT WHAT WAS PREDICTED: the wrap "
-                           "goes through the DOCUMENT. Off the last control, "
-                           "`document.activeElement` is `<body>` for one step — "
-                           "the nothing-is-focused reading — and the step after "
-                           "re-enters the panel. So a modal's cycle is four "
-                           "stops for three controls. That waypoint is not a "
-                           "leak: `<body>` is not a control, it is what "
-                           "`activeElement` says when focus rests nowhere, and "
-                           "the next press proves the scope never widened. A "
-                           "row that had asserted the tidier "
-                           "`[reason cancel confirm]` would have been asserting "
-                           "a guess about the engine. Pressed: " (pr-str landings)))
-                  (is (empty? (filter #{"before" "trigger" "after"} landings))
+                  (is (= ["reason" "cancel" "confirm" "reason" "cancel"] forward)
+                      (str "THE CYCLE, FORWARD. From the panel's first "
+                           "control, Tab runs to its last and then lands "
+                           "DIRECTLY on its first — never on `before`, "
+                           "`trigger` or `after`, and never on `<body>`. "
+                           "Three controls, three stops, and the fourth "
+                           "press repeats the first, so this closes rather "
+                           "than merely returning once.\n"
+                           "  THE THIRD STOP IS THE WHOLE ROW. Left to "
+                           "itself the engine wraps through the document's "
+                           "end-of-scope step, and `document.activeElement` "
+                           "reads `<body>` there for one press — focus "
+                           "resting nowhere, which in a browser with UI is "
+                           "the browser's own UI rather than the page. That "
+                           "is what `impl.overlay/wrap-tab!` closes, and "
+                           "this row is what reddens if it stops. Pressed: "
+                           (pr-str forward)))
+                  (is (empty? (filter #{"before" "trigger" "after" "body"} forward))
                       (str "and not one landing was a control of the page "
-                           "behind — the leak a keyboard user tabs straight "
-                           "out of. Pressed: " (pr-str landings)))
+                           "behind, nor the nowhere between them. Pressed: "
+                           (pr-str forward)))
 
-                  (trusted/press-once!
-                    "Escape"
-                    (fn []
+                  ;; Back to the first control, so the backward lap is
+                  ;; measured from the edge Shift+Tab has to wrap AT rather
+                  ;; than from wherever the forward lap finished.
+                  (.focus ($ m "#confirm"))
+                  (is (= "confirm" (label-of (active)))
+                      "premise: back on the panel's first control")
+
+                  (trusted/walk!
+                    "Shift+Tab" 5
+                    (fn [] (some-> (active) label-of))
+                    (fn [backward]
                       (try
-                        (hm/settle! m)
-                        (testing "AND OUT: the platform's own dismissal, which
-                                  is the only exit a trap has. The panel goes,
-                                  and the page comes back exactly as
-                                  [[an-open-modal-is-the-whole-of-what-a-keyboard-can-reach]]
-                                  found it after a programmatic close"
-                          (is (nil? ($ m "dialog")))
-                          (is (= ["before" "trigger" "after"]
-                                 (reachable (:container m)))))
-                        (finally (finish)))))
+                        (is (= ["cancel" "reason" "confirm" "cancel" "reason"] backward)
+                            (str "THE CYCLE, BACKWARD, and it is a separate "
+                                 "claim: a wrap is two edges and the engine "
+                                 "parks focus on `<body>` at both of them. "
+                                 "Shift+Tab off the panel's FIRST control "
+                                 "lands directly on its last. Pressed: "
+                                 (pr-str backward)))
+                        (is (empty? (filter #{"before" "trigger" "after" "body"} backward))
+                            (str "and the backward lap leaves the panel no "
+                                 "more than the forward one does. Pressed: "
+                                 (pr-str backward)))
+
+                        (trusted/press-once!
+                          "Escape"
+                          (fn []
+                            (try
+                              (hm/settle! m)
+                              (testing "AND OUT: the platform's own dismissal,
+                                        which is the only exit a trap has — and
+                                        it still is, because the wrap answers
+                                        Tab and nothing else. The panel goes,
+                                        and the page comes back exactly as
+                                        [[an-open-modal-is-the-whole-of-what-a-keyboard-can-reach]]
+                                        found it after a programmatic close"
+                                (is (nil? ($ m "dialog")))
+                                (is (= ["before" "trigger" "after"]
+                                       (reachable (:container m)))))
+                              (finally (finish)))))
+                        (catch :default e
+                          (is false (str "the backward cycle assertion threw: "
+                                         (.-message e)))
+                          (finish)))))
                   (catch :default e
                     (is false (str "the cycle assertion threw: " (.-message e)))
                     (finish)))))
@@ -436,3 +469,44 @@
         (is (= ["before" "trigger" "after"] (reachable (:container m))))
 
         (finally (hm/unmount! m))))))
+
+(deftest a-real-tab-leaves-an-open-popover
+  ;; THE FENCE ON THE MODAL'S WRAP, and the row above cannot stand in for
+  ;; it. `reachable` asks each element whether it would take focus, and
+  ;; `impl.overlay/wrap-tab!` changes no element's focusability whatever —
+  ;; it changes where Tab GOES at one edge. So a wrap that had been wired
+  ;; into the popover as well as the modal would leave every assertion in
+  ;; this file green except this one, which presses a real Tab off the
+  ;; panel's last control and requires it to land on the page behind.
+  ;;
+  ;; That is not a defect being tolerated: a filter menu a keyboard user
+  ;; cannot tab out of is the defect, and the module withholds the handler
+  ;; from the popover for exactly that reason.
+  (if-not (browser?)
+    (skip! ":node-test has no popover, and no engine to press a key at")
+    (if-not (trusted/bridge?)
+      (trusted/unwitnessed! "a popover's deliberate lack of a trap")
+      (async done
+        (let [m      (hm/mount! [a-page-with-a-popover {}])
+              finish (fn [] (hm/unmount! m) (done))]
+          (try
+            (open! m)
+            (.focus ($ m "#cancel"))
+            (is (= "cancel" (label-of (active)))
+                (str "premise: on the panel's last control. Active: "
+                     (label-of (active))))
+
+            (trusted/press-once!
+              "Tab"
+              (fn []
+                (try
+                  (is (= "after" (label-of (active)))
+                      (str "A REAL TAB OFF THE PANEL'S LAST CONTROL LEAVES "
+                           "IT, and lands at the panel's own place in the "
+                           "DOM — `after`, the control the author wrote "
+                           "next. The modal's two-edge wrap is the modal's "
+                           "alone. Active: " (label-of (active))))
+                  (finally (finish)))))
+            (catch :default e
+              (is false (str "the popover row threw: " (.-message e)))
+              (finish))))))))

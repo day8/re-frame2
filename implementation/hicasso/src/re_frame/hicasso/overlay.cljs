@@ -31,8 +31,9 @@
   IMPERATIVE CALL.**
 
   Every part of an overlay has an owner already. `<dialog>` owns modality
-  — the page behind it goes inert and focus cannot leave it, enforced by
-  the engine and not by a key handler. `popover` owns light dismiss and
+  — the page behind it goes inert, enforced by the engine and not by a
+  key handler, so no Tab can reach a control behind an open modal.
+  `popover` owns light dismiss and
   the auto stack. The top layer owns paint order, so no ancestor's
   `overflow`, `transform` or `z-index` can clip or out-stack an overlay
   and no z-index ladder is needed to try. CSS anchor positioning owns
@@ -54,6 +55,18 @@
   one of them is a failure mode the corpus actually shipped. This is not a
   floating-UI library and is not on its way to becoming one.
 
+  **The one exception is two presses wide, and it was measured rather
+  than assumed.** The engine's inertness is complete — no Tab reaches a
+  control behind an open modal — but its WRAP is not: off the panel's
+  last control, one Tab parks focus on `<body>`, which is `activeElement`
+  saying focus rests nowhere, and in a browser with UI is the browser's
+  own UI rather than the page. So `overlay/modal` renders a single
+  `onKeyDown` that sends Tab off the last stop to the first and Shift+Tab
+  off the first to the last, and does nothing on any other press. It is
+  not a focus-trap loop: it holds no state, computes no traversal, and
+  between those two edges the engine moves focus exactly as it always
+  did. `overlay/popover` has none of it, because a popover is not a trap.
+
   ## What follows from the posture, and is witnessed
 
   `re-frame.hicasso.overlay-dom-cljs-test` is the witness; each claim
@@ -74,7 +87,9 @@
   nothing to `window`, to `document` or to any ancestor — not while
   closed, not while open, not while the page scrolls under an anchored
   panel. Its listeners are the ones React attaches to the overlay element
-  itself for `cancel` / `toggle`, and they leave with the node.
+  itself for `cancel` / `toggle`, and they leave with the node. The
+  modal's Tab wrap adds none of its own: `keydown` bubbles, so React
+  delegates it at the root it already owns.
 
   **Anchor tracking is priced at zero because it is not work.**
   `:placement` becomes a CSS `position-area` against an anchor named on
@@ -132,7 +147,11 @@
   Every other key is an ordinary attribute and reaches the element
   unrenamed, so `:class`, `:style`, `:role`, `:id`, `:data-*` and the
   platform's own event attributes all work exactly as they do at a native
-  tag.
+  tag — with the two the module answers on: `:on-cancel` on a modal and
+  `:on-before-toggle` on a popover are how dismissal is routed, and
+  `:on-key-down` on a MODAL is its Tab wrap. Key handling belongs on the
+  controls inside anyway, and the wrap yields to a press one of them has
+  already claimed with `preventDefault`.
 
   ## Two things this bead deliberately did not do
 
@@ -187,8 +206,11 @@
   A legal hiccup head, marked the same way a `defview` product is. `:open?`
   false renders nothing at all.
 
-  Modality is the engine's: the rest of the document is inert, focus
-  cannot leave the dialog, and `::backdrop` is a real CSS selector. Escape
+  Modality is the engine's: the rest of the document is inert and
+  `::backdrop` is a real CSS selector. Focus cannot Tab out of the dialog
+  — inertness is what stops it reaching the page, and the module's own
+  two-edge wrap is what makes the last control Tab straight back to the
+  first rather than through `<body>`. Escape
   dispatches `:on-dismiss`; a backdrop click does so only with
   `:light-dismiss? true`, because a destructive confirmation must not go
   away on a stray click. Without `:on-dismiss` the dialog honours no close
