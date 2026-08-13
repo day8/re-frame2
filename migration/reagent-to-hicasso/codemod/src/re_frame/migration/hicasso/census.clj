@@ -38,9 +38,10 @@
   not double-counted because they are not the same count.
 
   **A CALL site is source that RUNS**, so `#_(r/atom 0)`, `'(r/atom 0)`
-  and `(comment (r/atom 0))` are not among them and [[inert?]] prunes
-  them. An advertised estimand a reader can construct a counterexample to
-  in one line is worse than a vaguer one honestly stated.
+  and `(comment (r/atom 0))` are not among them and
+  [[re-frame.migration.hicasso.rewrite/inert?]] prunes them. An advertised
+  estimand a reader can construct a counterexample to in one line is worse
+  than a vaguer one honestly stated.
 
   ## The law this file exists to obey
 
@@ -227,13 +228,6 @@
 ;; The walk
 ;; ---------------------------------------------------------------------------
 
-(defn- head-symbol
-  "This node's head, when it is a call through a symbol."
-  [nd]
-  (when (rw/list-node? nd)
-    (let [h (rw/sexpr-safe (rw/element-at nd 0))]
-      (when (symbol? h) h))))
-
 (defn- roster-name
   "The roster key this node's head spells, whether or not it resolves.
 
@@ -243,45 +237,10 @@
   roster key is then the ORIGINAL name, which is the only one the roster
   has a class and a recovery sentence for."
   [nd ctx]
-  (when-let [h (head-symbol nd)]
+  (when-let [h (rw/head-symbol nd)]
     (let [k (or (when-not (namespace h) (get (:renamed ctx) h))
                 (symbol (name h)))]
       (when (contains? surface k) k))))
-
-(def ^:private inert-heads
-  "Heads whose whole form is source that never runs."
-  '#{comment clojure.core/comment quote})
-
-(defn- inert?
-  "Is this node source the reader parses and the program never evaluates?
-
-  A census of CALL SITES must not count one. `#_(r/atom 0)`, `'(r/atom
-  0)` and `(comment (r/atom 0))` each parse into the same nodes a live
-  call does, and an unconditional walk reported all four identically
-  (merged-PR audit #8140). Nothing is being migrated in any of them, so
-  each is a false blocker on a report whose only job is to be believed.
-
-  The three shapes are finite and this is not a Clojure evaluator: a
-  syntax-quote is deliberately NOT here, because a macro's template
-  emits real call sites and its `~unquote`s run at expansion. Neither is
-  a `(when false …)`, a dead `cond` branch or an unreachable `defn` —
-  deciding those is the general problem, and the tool stops at the three
-  shapes whose whole purpose is to not be code."
-  [nd]
-  (or (contains? #{:uneval :quote} (n/tag nd))
-      (contains? inert-heads (head-symbol nd))))
-
-(defn- past-subtree
-  "The next location the walk should visit AFTER this node's subtree, or
-  `nil` when the subtree ends the file.
-
-  Right sibling if there is one, else up until there is — the ordinary
-  way to prune a depth-first walk. Deliberately not `(z/next …)`: `next`
-  descends into a branch, which is the very thing being skipped."
-  [loc]
-  (loop [l loc]
-    (or (z/right l)
-        (when-let [u (z/up l)] (recur u)))))
 
 (defn- entry
   [{:keys [class verdict]} file line col form detail]
@@ -303,7 +262,7 @@
   and irrelevant* — the fixer's report already carries `:sites-left-alone`
   for the same reason.
 
-  **CALL sites, so [[inert?]] subtrees are pruned rather than walked.**
+  **CALL sites, so inert subtrees are pruned rather than walked.**
   The population is what the program runs, and a discard, a quote and a
   `(comment …)` body are none of it."
   [source file]
@@ -319,8 +278,8 @@
            ns-said? false]
       (if (or (nil? loc) (z/end? loc))
         {:entries entries :reagent? reagent? :unresolved? unresolved?}
-        (if (inert? (z/node loc))
-          (recur (past-subtree loc) entries ns-said?)
+        (if (rw/inert? (z/node loc))
+          (recur (rw/past-subtree loc) entries ns-said?)
           (let [nd         (z/node loc)
                 k          (roster-name nd ctx)
                 ns-here?   (and unresolved? (not ns-said?) (ns-node? nd))
@@ -356,12 +315,12 @@
                ;; `rdc/render` that IS the finding. Reporting both makes the
                ;; real one harder to see, which is the only thing a census
                ;; owes anybody.
-               (and unresolved? (namespace (head-symbol nd)))
+               (and unresolved? (namespace (rw/head-symbol nd)))
                (conj entries (entry {:class   :unresolved-alias
                                      :verdict :runtime-blocker}
                                     file line col (excerpt loc)
                                     {:api    (str k)
-                                     :symbol (str (head-symbol nd))}))
+                                     :symbol (str (rw/head-symbol nd))}))
 
                :else entries)
              (or ns-said? ns-here?))))))))

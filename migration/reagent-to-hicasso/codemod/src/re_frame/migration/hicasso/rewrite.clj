@@ -41,7 +41,8 @@
             [re-frame.migration.hicasso.dest :as dest]
             [re-frame.migration.hicasso.donor :as donor]
             [rewrite-clj.node :as n]
-            [rewrite-clj.parser :as p]))
+            [rewrite-clj.parser :as p]
+            [rewrite-clj.zip :as z]))
 
 ;; ---------------------------------------------------------------------------
 ;; Node helpers
@@ -130,6 +131,66 @@
 (defn- map-node? [node] (tag= node :map))
 (defn- vector-node? [node] (tag= node :vector))
 (defn list-node? [node] (tag= node :list))
+
+(defn head-symbol
+  "This node's head, when it is a call through a symbol."
+  [nd]
+  (when (list-node? nd)
+    (let [h (sexpr-safe (element-at nd 0))]
+      (when (symbol? h) h))))
+
+;; ---------------------------------------------------------------------------
+;; Inert source — the ONE spelling of "this never runs"
+;; ---------------------------------------------------------------------------
+;;
+;; Both halves of the artefact walk a consumer's tree looking for something,
+;; and neither wants what it finds inside a discard, a quote or a
+;; `(comment …)` body. The census wants CALL sites (rf2-hic-055, merged-PR
+;; audit #8140); the fixer wants `[:>]`-family CROSSING sites (rf2-xc11).
+;; Different populations, one question about the source — so one answer,
+;; here, rather than a copy in each namespace that can drift from the other.
+;;
+;; [[past-subtree]] takes a zipper LOCATION rather than a node, which is the
+;; single place this namespace steps outside "pure functions over nodes". It
+;; lives here anyway because it is the other half of one idiom: `inert?`
+;; decides, `past-subtree` is what deciding *yes* means for a walk. Splitting
+;; them across namespaces would leave the decision without its consequence.
+
+(def ^:private inert-heads
+  "Heads whose whole form is source that never runs."
+  '#{comment clojure.core/comment quote})
+
+(defn inert?
+  "Is this node source the reader parses and the program never evaluates?
+
+  `#_(r/atom 0)`, `'(r/atom 0)` and `(comment (r/atom 0))` each parse into
+  the same nodes a live form does, so an unconditional walk reports all
+  four identically.
+
+  The three shapes are finite and this is not a Clojure evaluator: a
+  syntax-quote is deliberately NOT here, because a macro's template emits
+  real sites and its `~unquote`s run at expansion. Neither is a
+  `(when false …)`, a dead `cond` branch or an unreachable `defn` —
+  deciding those is the general problem, and the tool stops at the three
+  shapes whose whole purpose is to not be code."
+  [nd]
+  (or (contains? #{:uneval :quote} (n/tag nd))
+      (contains? inert-heads (head-symbol nd))))
+
+(defn past-subtree
+  "The next location a walk should visit AFTER this node's subtree, or
+  `nil` when the subtree ends the file.
+
+  Right sibling if there is one, else up until there is — the ordinary way
+  to prune a depth-first walk. Deliberately not `(z/next …)`: `next`
+  descends into a branch, which is the very thing being skipped.
+
+  Callers must handle the `nil`: a walk that guards only on `z/end?` will
+  fault on a file whose LAST form is inert."
+  [loc]
+  (loop [l loc]
+    (or (z/right l)
+        (when-let [u (z/up l)] (recur u)))))
 
 (defn pairs
   "A literal map node as `[[key-node value-node index] ...]`, where index
