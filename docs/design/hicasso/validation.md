@@ -792,10 +792,13 @@ rather than summarised:
 
 **The scoreboard's non-kill rows are unchanged too**, and the ruling closes none
 of them: the read-free boundary shell is still red against its registered `1 KB`
-paper line and is owned by the Phase 1 substrate adjudication, the correctness
-risk register is still open, and the open proof obligations — a full application
-witness, a serious vendor integration, the WebKit matrix — are execution risks
-inside the selected direction rather than discharged ones.
+paper line and is owned by `rf2-0xx2`, the prospective operator disposition the
+Phase 1 substrate adjudication refused to take and handed up (its
+[deferred row](product/correction-ledger.md#deferred-items-and-the-release-decision)
+names what discharges it); the correctness risk register is still open; and the
+open proof obligations — a full application witness, a serious vendor
+integration, the WebKit matrix — are execution risks inside the selected
+direction rather than discharged ones.
 
 ## Timing (HD-015)
 
