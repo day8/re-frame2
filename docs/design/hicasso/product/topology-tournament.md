@@ -434,7 +434,7 @@ rests on, which is where the changed-set control was degenerate:
 Exit code **1**, captured from the runner itself — a control that refuses any
 arm refuses the run.
 
-**The diagnosis of the first refusal is confirmed by the third arm here.**
+**The diagnosis of the first refusal is confirmed directly.**
 `fine` is the one arm both controls could address, and it moved from 1.325–1.471
 under the changed-set form to 1.9331–2.2588 under this one. The only thing that
 changed is that the handler and the subscription layer now scale with the
