@@ -256,7 +256,7 @@
                           {}
                           frames)
         unnamed   (get folded ::unnamed-runs 0)
-        unskipped (get folded ::unnamed-skips 0)
+        unnamed-sk (get folded ::unnamed-skips 0)
         by-read   (dissoc folded ::unnamed-runs ::unnamed-skips)
         retained  (reduce + 0 (map (comp count val) windows))]
     {:schema        timing-schema
@@ -281,10 +281,10 @@
      ;; know whether the untagged half of this window was work or was the
      ;; absence of work — which is the very distinction the fold above
      ;; collapsed (audit #8063). `hicasso-causal`'s link 2 states the same
-     ;; pair as `:skipped {:count …}` over `:sub-ids [] `.
-     :unnamed-skips unskipped
-     :unnamed-skip-loss (when (pos? unskipped)
-                          {:reason :uncorrelated :dropped unskipped})}))
+     ;; pair as a `:skipped :count` its `:sub-ids` cannot account for.
+     :unnamed-skips unnamed-sk
+     :unnamed-skip-loss (when (pos? unnamed-sk)
+                          {:reason :uncorrelated :dropped unnamed-sk})}))
 
 ;; ---------------------------------------------------------------------------
 ;; The join — a boundary's read edges, priced
