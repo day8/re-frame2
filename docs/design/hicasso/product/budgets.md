@@ -345,6 +345,75 @@ and its verdict is recorded there.
 > page edited to look as though it had always known the answer stops being a
 > record of how the answer was reached.
 
+> **AMENDED 2026-08-13 — the breach is ACCEPTED, SCOPED. The line is UNMOVED.**
+> The separate prospective disposition
+> [`specification.md` §6](specification.md#6-performance-contract) requires —
+> the one [the substrate decision's §5.2](substrate-decision.md#52-the-read-free-boundary-shell--the-disposition)
+> refused to draft and handed up — has been taken on `rf2-0xx2`. It is a
+> **delegated ruling**: recorded by a decision agent under operator-authorised
+> delegation after the reviewed dossier, and **reversible** by the operator. It
+> is written here because this is the section the ledger rows `S1`, `S2` and
+> `C5` are dispositioned into.
+>
+> **Read first what it does not do.** The `1,024 B` line frozen above stays
+> registered, and stays at `1,024 B`. No figure on this page moves and no
+> threshold widens. `S1`, `S2` and `C5` stay `BREACH` in §9's ledger — **red,
+> now carrying a disposition** — because this record *prices* the breach and
+> does not *pass* it. That is the K1 pattern: acceptance of a price is not a
+> pass. Nor does it licence engineering: the propagation is **records-only** —
+> do not remove the wrapper, do not adopt the frame-prop shell, do not
+> introduce a `:memo` configuration, do not commission byte-shaving to change a
+> ledger colour.
+>
+> The five fields `specification.md` §6 requires, as ruled:
+>
+> - **REASON**: Retain HD-028's value-equality memo wrapper as the internal
+>   default: it removes measured parent-driven body cascades (under HD-006, one
+>   page-chrome write re-rendered 300 value-equal card boundaries) without an
+>   author-facing switch, and meeting 1,024 B today would require overturning
+>   that ruled, evidence-driven default — the "breaking a higher-order law"
+>   condition §6 sets. The registered estimand prices the design at the one rung
+>   it is deliberately worst at: per-boundary machinery paid by a boundary that
+>   reads nothing, the same structural choice that wins −692 B on every read
+>   against the spine donor. The line stays registered at 1,024 B precisely
+>   because it is reached by the unwrapped shell (994/992 B) — unreached, not
+>   unreachable. This record prices the breach; it does not pass it (the K1
+>   pattern: acceptance of a price is not a pass).
+> - **CEILING**: Unchanged at 1,024 B. The acceptance covers the measured
+>   breach only: up to 1,107 B (Reagent segment) and 1,101 B (UIx segment) — the
+>   pinned bands' upper edges on the same instrument. These are acceptance
+>   bounds, not replacement pass lines. Any same-instrument reading beyond
+>   either bound is an unaccepted, undispositioned plain red this record cannot
+>   be cited against.
+> - **EFFECTIVE REVISION**: The 2026-08-12 package re-pin (rf2-fe0l, PRs
+>   #7939/#7941; S1/S2 = 1,100/1,095 B as pinned in budgets.md §4; package
+>   evidence anchor ce31a30b77). Operative from this ruling (2026-08-13), and
+>   only while the shell, wrapper, comparator, React version (19.2.0), build
+>   mode, and measurement contract remain materially equivalent.
+> - **REOPEN CONDITIONS**: The next measured shell arm on the package (any
+>   S1/S2 re-take); HD-028 reopened, amended, or overturned; any
+>   substrate-decision §3 reopen condition firing; any material change to the
+>   effective-revision inputs; a package A/B showing a cheaper design with the
+>   same correctness and authoring properties; or real application/pilot
+>   evidence that fixed shell retention is a meaningful constraint. NOT a
+>   reopen: the mere existence of an unmeasured byte-saving idea.
+> - **REVERT TRIGGER**: The acceptance is deleted — never kept as a floor — the
+>   moment a qualifying shell arm lands under 1,024 B on the package: full band
+>   at or below 1,024 B on BOTH canonical segments, with the
+>   memo/correctness/browser witnesses preserved (equal-prop bail-out,
+>   subscription/context propagation, changed-prop rendering, teardown). The
+>   registered line then governs without exception and the Phase 1 exit's first
+>   disjunct is met. Conversely the acceptance lapses immediately if a
+>   same-instrument reading exceeds the scoped ceiling, whereupon the
+>   undispositioned plain red resumes.
+>
+> The evidence bar for any later claim that the exception can be removed is one
+> production-build package A/B/A run carrying the existing known-size, donor,
+> floor, structural and arm-order controls, plus the mounted package witnesses
+> named in the revert trigger. A point estimate is not sufficient, and neither
+> is a green ledger-consistency gate. The third closure path — a shell arm
+> landing under the line — stays live and deliberately unowned.
+
 ### What the package reading does to this row
 
 The shell has now been measured on `implementation/hicasso` itself
@@ -427,6 +496,16 @@ the substrate arm is refused on the evidence, the breach is carried red, and the
 line is not re-registered. The row here is never silently normalised into a
 percentage allowance — §6 says in terms that a relative regression allowance
 cannot recolour the red shell row.
+
+**[Amended 2026-08-13.]** The pressure stands and every figure above is
+unchanged. What has changed is that the pressure now carries a **disposition**:
+`rf2-0xx2`'s scoped acceptance, recorded in this section's head-note on the five
+fields `specification.md` §6 requires. Read the difference precisely — the
+ceiling is still `1,024 B`, the acceptance reaches only as far as the measured
+breach (`1,107 B` Reagent, `1,101 B` UIx, the pinned bands' upper edges), it is
+deleted rather than kept as a floor the moment a shell arm lands under the line,
+and `S1`, `S2` and `C5` stay `BREACH`. A priced breach is not a normalised one,
+and the percentage allowance §6 forbids is still forbidden.
 
 One drift is recorded rather than smoothed. The baseline's pinned Reagent
 figure was `1,103 B`; the ladder's later paired re-takes on the shipping bench
@@ -701,8 +780,8 @@ today. *Disposition* is a link that must resolve to a section naming the row.
 | D14 | 0 wrappers between the element type React reconciles and the author's own function, declared island | 0 — the type is `identical?` to the function, on the native and handwritten-React routes alike; UIx's is a generated component | package | `MET` | `implementation/hicasso/test/re_frame/hicasso/three_way_parity_cljs_test.cljs` (PR gate) | `rf2-hic-034` | — |
 | D15 | 1 slot on the props object React carries, and it is the author's own | 1 — `label`, the name the call site wrote; UIx also reads 1, and it is the `argv` carrier | package | `MET` | `implementation/hicasso/test/re_frame/hicasso/three_way_parity_cljs_test.cljs` (PR gate) | `rf2-hic-034` | — |
 | D16 | 0 unwrapping hops per render, per component, native and handwritten React | 0 — the UIx route reads 1, opening `argv` | package | `MET` | `implementation/hicasso/test/re_frame/hicasso/three_way_parity_cljs_test.cljs` (PR gate) | `rf2-hic-034` | — |
-| S1 | 1,024 B, R=0 shell, Reagent segment | 1,100 B [1,091–1,107] | package | `BREACH` | P0 heap ladder, package candidate arm (P-DEV-1 evidence run) | `rf2-0xx2` | [substrate-decision §5.2](substrate-decision.md#52-the-read-free-boundary-shell--the-disposition) |
-| S2 | 1,024 B, R=0 shell, UIx segment | 1,095 B [1,087–1,101] | package | `BREACH` | P0 heap ladder, package candidate arm (P-DEV-1 evidence run) | `rf2-0xx2` | [substrate-decision §5.2](substrate-decision.md#52-the-read-free-boundary-shell--the-disposition) |
+| S1 | 1,024 B, R=0 shell, Reagent segment | 1,100 B [1,091–1,107] | package | `BREACH` | P0 heap ladder, package candidate arm (P-DEV-1 evidence run) | `rf2-0xx2` | [substrate-decision §5.2](substrate-decision.md#52-the-read-free-boundary-shell--the-disposition); scoped acceptance 2026-08-13, [§5](budgets.md#5-the-read-free-boundary-shell-the-byte-exact-line-now-frozen-at-1024-b) — ceiling unchanged at 1,024 B, accepted to 1,107 B |
+| S2 | 1,024 B, R=0 shell, UIx segment | 1,095 B [1,087–1,101] | package | `BREACH` | P0 heap ladder, package candidate arm (P-DEV-1 evidence run) | `rf2-0xx2` | [substrate-decision §5.2](substrate-decision.md#52-the-read-free-boundary-shell--the-disposition); scoped acceptance 2026-08-13, [§5](budgets.md#5-the-read-free-boundary-shell-the-byte-exact-line-now-frozen-at-1024-b) — ceiling unchanged at 1,024 B, accepted to 1,101 B |
 | S3 | ≤ 10% regression on the same pinned witness | 1,417 vs Reagent 948 per read | package | `UNRESOLVED` | P0 heap ladder, package candidate arm (P-DEV-1 evidence run) | `rf2-hic-085` | [substrate-decision §6](substrate-decision.md#6-what-this-page-does-not-decide) |
 | S4 | ≤ 10% regression on the same pinned witness | 2,115 vs UIx 2,980 per read | package | `MET` | P0 heap ladder, package candidate arm (P-DEV-1 evidence run) | `rf2-hic-070` | — |
 | S5 | teardown retained indistinguishable from 0 | indistinguishable from 0; all ten rungs' bands straddle it | package | `MET` | P0 heap ladder, package candidate arm (P-DEV-1 evidence run) | `rf2-hic-089` | — |
@@ -718,7 +797,7 @@ today. *Disposition* is a link that must resolve to a section naming the row.
 | C2 | 1.10x cold mount, the registered line | see S6 | bench-tree | `BREACH` | final K1 estimator (P-DEV-1 evidence run) | `rf2-hic-085` | [§9.2](budgets.md#92-what-each-not-green-row-is-waiting-on) |
 | C3 | ≤ 1.25x the best relevant adapter on broad updates | — | — | `UNPINNED` | — (none) | `rf2-hic-071` | [§9.2](budgets.md#92-what-each-not-green-row-is-waiting-on) |
 | C4 | no sustained 1.5x as ordinary Hicasso | — | — | `UNPINNED` | — (none) | `rf2-hic-071` | [§9.2](budgets.md#92-what-each-not-green-row-is-waiting-on) |
-| C5 | 1,024 B byte-exact, not governed by baseline-plus-10% | 1,100 B / 1,095 B [1,087–1,107] | package | `BREACH` | P0 heap ladder, package candidate arm (P-DEV-1 evidence run) | `rf2-0xx2` | [§9.2](budgets.md#92-what-each-not-green-row-is-waiting-on) |
+| C5 | 1,024 B byte-exact, not governed by baseline-plus-10% | 1,100 B / 1,095 B [1,087–1,107] | package | `BREACH` | P0 heap ladder, package candidate arm (P-DEV-1 evidence run) | `rf2-0xx2` | [§9.2](budgets.md#92-what-each-not-green-row-is-waiting-on); scoped acceptance 2026-08-13, [§5](budgets.md#5-the-read-free-boundary-shell-the-byte-exact-line-now-frozen-at-1024-b) — ceiling unchanged at 1,024 B, accepted to 1,107 B / 1,101 B |
 | C6 | ≤ 10% per-read regression on the same pinned witness | see S3 / S4 | package | `UNRESOLVED` | P0 heap ladder, package candidate arm (P-DEV-1 evidence run) | `rf2-hic-085` | [§9.2](budgets.md#92-what-each-not-green-row-is-waiting-on) |
 | C7 | a native island within 5% or 1 ms of the same component mounted directly | — | — | `UNPINNED` | — (none) | `rf2-hic-071` | [§9.2](budgets.md#92-what-each-not-green-row-is-waiting-on) |
 | C8 | an escape recovers ≥ 20%, saves ≥ 2 ms p95, or flips a failed budget | — | — | `UNPINNED` | — (none) | `rf2-hic-071` | [§9.2](budgets.md#92-what-each-not-green-row-is-waiting-on) |
@@ -750,6 +829,13 @@ where the shell breach was carried red on the evidence, and `S3` at
 (`rf2-l50z`) — an attribution, not a change to the figure, so `S3` is still
 `UNRESOLVED` against its own rule. Every other row that is not `MET`
 points here, and here is what each is waiting on.
+
+**[Amended 2026-08-13.]** `S1` and `S2` now name a second disposition beside
+that one: the scoped acceptance ruled on `rf2-0xx2` and recorded in
+[§5](budgets.md#5-the-read-free-boundary-shell-the-byte-exact-line-now-frozen-at-1024-b).
+It moves neither reading and neither status — both rows stay `BREACH` against
+the unmoved `1,024 B` line, and the acceptance reaches no further than the
+pinned bands' upper edges, `1,107 B` and `1,101 B`.
 
 - **No package-resident clock instrument exists.** `U1`, `U2`, `U3` and `U4`
   are latency budgets, and §4 says in terms that they cannot be pinned until
@@ -798,6 +884,15 @@ points here, and here is what each is waiting on.
   under it, so the two rows point here rather than borrowing a disposition
   that was not made about them. `C5` is settled the day a shell arm lands
   under `1,024 B` on the package; `C6` the day the K3 record is taken.
+  **[Amended 2026-08-13.]** `C5` now carries a disposition made about the rule
+  as well as its readings: the scoped acceptance ruled on `rf2-0xx2` and
+  recorded in
+  [§5](budgets.md#5-the-read-free-boundary-shell-the-byte-exact-line-now-frozen-at-1024-b),
+  on the five fields `specification.md` §6 requires. It prices the breach and
+  does not pass it — `C5` stays `BREACH`, the registered line stays `1,024 B`,
+  and the sentence above still holds without amendment: `C5` is settled the day
+  a shell arm lands under `1,024 B` on the package, and on that day the
+  acceptance is deleted rather than kept as a floor.
 
 ### 9.3 Where this ledger stops and rf2-hic-071 begins
 
