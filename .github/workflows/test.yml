@@ -102,8 +102,31 @@ jobs:
         with:
           fetch-depth: 0
 
+      # rf2-34yg — hand the classifier the event's ACCEPTED BASE so a
+      # MULTI-COMMIT push to main is classified over the WHOLE push rather than
+      # over its tip alone. One push produces one run, at the tip, so the
+      # script's HEAD^ default saw only the last commit of a rebase-merged PR
+      # and commits 1..N-1 reached main having armed nothing — measured at 5
+      # code-carrying commits in 60. `github.event.before` is the tip main
+      # pointed at before this push; it is empty on a pull_request (that branch
+      # of the script is unchanged and was always correct) and all-zeros on a
+      # first push to a fresh ref, both of which the script folds back to its
+      # HEAD^ default.
+      #
+      # Via `env:`, never interpolated into the run body — portability.yml's
+      # rule for the same context value on the ai/ ratchet, so the step is
+      # injection-safe whatever the event carries.
+      #
+      # The `fetch-depth: 0` above is what makes the base resolvable without a
+      # fetch: it can be arbitrarily deep. (portability.yml checks out at depth
+      # 2 and so must fetch its base by name; this job need not.) GitHub already
+      # evaluates this workflow's own push `paths-ignore` filter across the
+      # whole push, so the trigger and the classifier now agree about what the
+      # push changed.
       - name: Classify changed surfaces
         id: detect
+        env:
+          CHANGED_SURFACES_BASE_REF: ${{ github.event.before }}
         run: ./.github/scripts/report-changed-surfaces.sh
 
   # PR-time drift detection for the lockstep-version contract
