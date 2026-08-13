@@ -1,0 +1,11 @@
+/* Generic system-UI text face. `theme.font: false` in mkdocs.yml keeps
+ * Material from loading Roboto off Google Fonts; this stack lets every
+ * platform render its native face instead. Material defines
+ * --md-text-font-family on `body` (not :root), so the override must sit on
+ * `body` too — a :root definition would lose to the theme's own. Code blocks
+ * are untouched: --md-code-font-family keeps Material's monospace fallbacks.
+ */
+body {
+  --md-text-font-family: -apple-system, BlinkMacSystemFont, "Segoe UI",
+    Roboto, Oxygen, Ubuntu, Cantarell, "Helvetica Neue", Arial, sans-serif;
+}
