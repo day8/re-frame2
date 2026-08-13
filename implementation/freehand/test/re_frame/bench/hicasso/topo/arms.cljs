@@ -176,13 +176,14 @@
   `:boundaries` counts registrations holding at least one read edge — the
   list plus, per arm, its row or chunk boundaries. A `coarse` page is one
   boundary because there is nothing beneath it holding a read."
-  [arm b]
-  (let [rendered (m/rendered-rows arm b)]
-    {:rendered-rows rendered
-     :elements      (m/elements-for rendered)
-     :edges         (inc (m/memberships arm b))
-     :boundaries    (case arm
-                      :fine    (inc b)
-                      :coarse  1
-                      :chunked (inc (long (Math/ceil (/ b m/chunk-size))))
-                      :virtual (inc (min b m/window-size)))}))
+  ([arm b] (expected arm b m/window-size))
+  ([arm b w]
+   (let [rendered (m/rendered-rows arm b w)]
+     {:rendered-rows rendered
+      :elements      (m/elements-for rendered)
+      :edges         (inc (m/memberships arm b w))
+      :boundaries    (case arm
+                       :fine    (inc b)
+                       :coarse  1
+                       :chunked (inc (long (Math/ceil (/ b m/chunk-size))))
+                       :virtual (inc (min b w)))})))

@@ -101,12 +101,19 @@
    :n     (mod (* 7 i) 23)})
 
 (defn seed-db
-  "`b` rows, in index order, with empty drafts."
-  [b]
-  {:rows   (into {} (map (fn [i] [i (row i)])) (range b))
-   :order  (vec (range b))
-   :draft  {}
-   :b      b})
+  "`b` rows, in index order, with empty drafts.
+
+  `w` is the windowed arm's window, seeded rather than read from
+  [[window-size]] so that a control can scale the ONE quantity that arm's
+  cost is proportional to. It defaults to [[window-size]], so every
+  caller that does not care reads exactly the numbers it read before."
+  ([b] (seed-db b window-size))
+  ([b w]
+   {:rows   (into {} (map (fn [i] [i (row i)])) (range b))
+    :order  (vec (range b))
+    :draft  {}
+    :b      b
+    :w      w}))
 
 ;; ---------------------------------------------------------------------------
 ;; Subscriptions — the four topologies' reads
@@ -150,13 +157,13 @@
 ;; different lever from how many read edges exist (the worksheet's N2).
 (rf/reg-sub :topo/visible
   (fn [db _]
-    (subvec (:order db) 0 (min (count (:order db)) window-size))))
+    (subvec (:order db) 0 (min (count (:order db)) (:w db window-size)))))
 
 ;; ---------------------------------------------------------------------------
 ;; Events — the four operations, plus the seed and the control's write
 ;; ---------------------------------------------------------------------------
 
-(rf/reg-event :topo/seed (fn [_ [_ b]] {:db (seed-db b)}))
+(rf/reg-event :topo/seed (fn [_ [_ b w]] {:db (seed-db b (or w window-size))}))
 
 (rf/reg-event :topo/bump
   ;; **SPARSE.** One row's data moves. Nothing else in app-db is touched,
@@ -200,6 +207,28 @@
                    (reduce-kv (fn [m i r] (assoc m i (cond-> r (zero? (mod i stride)) (update :n inc))))
                               {} rs)))}))
 
+(rf/reg-event :topo/bump-indexed
+  ;; **THE RENDERED-SCALE CONTROL'S WRITE** (rf2-m6i0).
+  ;;
+  ;; Every `stride`-th row below `limit` moves, written by INDEX rather
+  ;; than by rebuilding the table. That is the whole difference from
+  ;; [[:topo/bump-stride]] above, and it is the difference the tournament's
+  ;; refused control turned on: `bump-stride` `reduce-kv`s all `B` rows
+  ;; whichever stride runs, so its handler costs the same at both halves of
+  ;; the manipulation and contributes a shared constant that compresses the
+  ;; measured ratio toward 1. This handler costs `limit/stride` — it is
+  ;; proportional to the CHANGED SET, which is the first of the two
+  ;; conditions rf2-m6i0's diagnosis named.
+  ;;
+  ;; `limit` is the arm's own RENDERED row count, never `B`: on the
+  ;; windowed arm a write striding over all `B` rows would again be a
+  ;; constant term, because that arm renders `w` rows however large the
+  ;; table is.
+  (fn [{:keys [db]} [_ limit stride]]
+    {:db (reduce (fn [d i] (update-in d [:rows i :n] inc))
+                 db
+                 (range 0 limit stride))}))
+
 (rf/reg-event :topo/noop-write
   ;; **THE NEGATIVE CONTROL.** Moves a key no arm reads, so a witness that
   ;; counts zero bodies here is counting rather than failing to look.
@@ -210,18 +239,21 @@
 ;; ---------------------------------------------------------------------------
 
 (defn make-frame!
-  "Create (or idempotently replace) `frame-id`, seeded with `b` rows."
-  [frame-id b]
-  (rf/make-frame {:id frame-id :initial-events [[:topo/seed b]]})
-  frame-id)
+  "Create (or idempotently replace) `frame-id`, seeded with `b` rows and
+  a window of `w` (default [[window-size]])."
+  ([frame-id b] (make-frame! frame-id b window-size))
+  ([frame-id b w]
+   (rf/make-frame {:id frame-id :initial-events [[:topo/seed b w]]})
+   frame-id))
 
 (defn reseed!
   "Return the frame to its seeded state. `make-frame!` is idempotent and
   will NOT replay its initial events for an id that already exists, so
   both halves are needed."
-  [frame-id b]
-  (rf/with-frame frame-id (rf/dispatch-sync [:topo/seed b]))
-  nil)
+  ([frame-id b] (reseed! frame-id b window-size))
+  ([frame-id b w]
+   (rf/with-frame frame-id (rf/dispatch-sync [:topo/seed b w]))
+   nil))
 
 ;; ---------------------------------------------------------------------------
 ;; The arithmetic a witness predicts rather than accepts
@@ -244,19 +276,25 @@
 
 (defn rendered-rows
   "How many rows an arm puts in the DOM at `b`. Three arms render every
-  row; the windowed arm renders at most [[window-size]] — which is the
-  arm's entire purpose and the reason it is not DOM-comparable with the
-  other three."
-  [arm b]
-  (if (= :virtual arm) (min b window-size) b))
+  row; the windowed arm renders at most `w` — which is the arm's entire
+  purpose and the reason it is not DOM-comparable with the other three.
+
+  **This function is also the control's scale parameter** (rf2-m6i0). A
+  positive control has to double the quantity the arm's commit cost is
+  proportional to, and this is that quantity: `B` for three arms, `w` for
+  the fourth. Doubling `B` on the windowed arm moves nothing it renders,
+  which is why one page-size control cannot serve all four."
+  ([arm b] (rendered-rows arm b window-size))
+  ([arm b w] (if (= :virtual arm) (min b w) b)))
 
 (defn memberships
   "The read edges the arm's row family contributes at `b` — the
   worksheet's `B·R` column, computed from the same arithmetic so the two
   can be compared rather than asserted equal."
-  [arm b]
-  (case arm
-    :fine    (* 2 b)
-    :coarse  0
-    :chunked (long (Math/ceil (/ b chunk-size)))
-    :virtual (* 2 (min b window-size))))
+  ([arm b] (memberships arm b window-size))
+  ([arm b w]
+   (case arm
+     :fine    (* 2 b)
+     :coarse  0
+     :chunked (long (Math/ceil (/ b chunk-size)))
+     :virtual (* 2 (min b w)))))
