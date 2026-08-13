@@ -300,6 +300,24 @@ def read_src():
 
 
 def self_test():
+    # THIS SELF-TEST'S OWN CLAIMS MUST NOT BE DELETABLE (rf2-uyhh). `python -O`
+    # — and `PYTHONOPTIMIZE` in the environment, which needs no flag at the
+    # call site — strips every `assert` below, leaving a function that runs to
+    # its success line having verified nothing. That is a control failing
+    # GREEN, which is this gate's own subject: rf2-df9b below is the same
+    # shape one level down, a form the reader drops still counted as a claim.
+    # The check is empirical rather than a reading of `__debug__`, so it also
+    # catches a `.pyc` compiled under `-O` and run without it.
+    try:
+        assert False
+    except AssertionError:
+        pass
+    else:
+        raise SystemExit(
+            "assertions are disabled (python -O / PYTHONOPTIMIZE), so this "
+            "self-test would prove nothing. Re-run without -O."
+        )
+
     door = "re-frame.hicasso.motion"
     engine = "re-frame.hicasso.impl.presence-react"
 
