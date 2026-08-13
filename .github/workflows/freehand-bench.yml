@@ -26,6 +26,60 @@ name: freehand bench
 #     distributions are published evidence with no automatic numeric
 #     pass/fail.
 #
+# AND YET THIS FILE IS LOAD-BEARING FOR THE MERGE GATE (rf2-vyqq). Nothing in
+# it gates a merge; DELETING it reds something that does, and the file said so
+# nowhere. `scripts/check_gate_scheduling.py` requires every `test:` / `bench:`
+# / `build:` script in `implementation/package.json` to be reachable from an
+# executable `run:` in some workflow, or to carry a checked `DISPOSITIONS`
+# entry. FOUR are reachable from here and from nowhere else:
+#
+#   bench:freehand-browser   the browser lane's run step
+#   bench:freehand-node      the ClojureScript lane's run step
+#   build:freehand-matched   B5's matched-pair build
+#   test:freehand            B5's capture step
+#
+# `test.yml` NAMES the last two in prose, which is precisely what that checker
+# stopped counting under rf2-6ckzl — a `run:` deleted while its paragraph stays
+# put is how a gate loses its home in the first place. A fifth script,
+# `clean:freehand-matched`, is sole-homed here too and goes unremarked only
+# because its prefix is outside the scanned families.
+#
+# That checker runs as a step of `test.yml`'s `verify-skill-mcp-drift` job,
+# which is a `needs:` of `all-required-passed` — and `All required checks
+# passed` is one of the three status contexts the branch ruleset on `main`
+# requires. Read off the ruleset rather than off a PR rollup, where every
+# workflow that ran appears whether required or not: `gh api
+# repos/day8/re-frame2/rules/branches/main` returns that context, `Lint
+# required` and `Docs required`, and `gh api
+# repos/day8/re-frame2/branches/main/protection` returns 404, so no classic
+# branch protection adds a fourth. This workflow's own job names are NOT among
+# them and cannot be — `needs:` does not span workflow files, as the bullet
+# above says. The coupling is the file's EXISTENCE, not its results.
+#
+# So a PR deleting this file and nothing else reds a required check the moment
+# it lands on main, and blocks every open PR until it is fixed. Loud, not
+# silent — but discovered on CI rather than here, which is the only reason this
+# paragraph exists.
+#
+# A RETIREMENT PR THEREFORE REMOVES THIS FILE AND THOSE SCRIPTS TOGETHER, in
+# one commit, and two more things travel with them: the `bench:hicasso`
+# disposition in that same checker gives its reason as "its sibling
+# `bench:freehand-browser` DOES yield a verdict, which is why that one is
+# scheduled (freehand-bench.yml)" — a bare `not-a-gate` declaration, so it rots
+# rather than reddens — and `implementation/scripts/
+# _rigorous-local-inventory.test.cjs` pins three claims about this file being
+# those commands' sole scheduled home.
+#
+# AND THE BUILD ID GOES TOO, or the removal trades one red for another.
+# `implementation/scripts/_browser-dom-lane-partition.test.cjs` holds
+# `:browser-test-freehand-bench` to having an executor (rf2-j8os), and
+# `bench:freehand-browser` IS that executor. That red is deliberate: the seven
+# `re-frame.freehand.bench.*` DOM suites run in a browser HERE and nowhere else
+# in CI, because `:browser-test` excludes them by negative lookahead
+# (rf2-mf4uy), so retiring their runner without deciding what becomes of them
+# is the one outcome nothing else would have announced. The staged order lives
+# in rf2-8z9q; this comment does not authorise any part of it.
+#
 # THE PIN. `runs-on` names an explicit runner image rather than
 # `ubuntu-latest`, and `RF2_HARDWARE_CLASS` names the class the numbers may
 # be compared within. Successive results are only comparable because both
