@@ -93,19 +93,33 @@ ordering wearing a clock's clothes.
 Each arm carries both. A published clock figure requires **both** to pass for
 that arm at that row count; either failing withholds the figure.
 
-**Positive control — the changed-set doubling.** Page size is held fixed and
-the *changed set* is doubled: update every 10th row, then every 5th row, on the
-same table. Element count, layout and paint are constant; only the commit-side
-work doubles, so the prediction is **2.00x**, adjudicated on a band registered
-here before the run: **[1.60x, 2.50x]**, and the difference and the slope must
-both be **positive** (a control certifying that more dirty work reads *faster*
-is refused on the sign, which is the fix `rf2-7iqb5` landed in PR #7634).
+**Positive control — the rendered-scale doubling** (`rf2-m6i0`; it replaces the
+changed-set doubling registered here first, which was run, refused, and is
+recorded with its refusal in [§2.6](#26-the-clock-half--the-first-control-refused-the-replacement-certifies-three-arms-of-four)).
+The arm's **rendered page** is doubled and every 5th rendered row is written by
+index, so the event handler, the subscription layer and the render all scale
+together. The predicted factor is **derived from `model/elements-for`** at the
+two rendered row counts rather than assumed to be 2.00 — the `ul` does not
+double — and it is adjudicated on the lane's standing `CONTROL_SLACK` of ±25%
+under the strict rule that **every** round must sit inside:
 
-This is deliberately not the control this lane used before. Every earlier
-positive control for a bulk or update row **scaled the page**, and `rf2-7iqb5`
-records why that cannot certify an update row: the work does not scale with the
-page, so even a perfect instrument reads below the predicted factor. The
-changed-set form is that bead's own prescribed repair.
+| arm | scaled | small → large | predicted | band |
+|---|---|---|---|---|
+| `fine` | `B` | 500 → 1000 | 1.9996 | [1.4997, 2.4995] |
+| `coarse` | `B` | 500 → 1000 | 1.9996 | [1.4997, 2.4995] |
+| `chunked` | `B` | 500 → 1000 | 1.9996 | [1.4997, 2.4995] |
+| `virtual` | `w` | 20 → 40 | 1.9901 | [1.4926, 2.4876] |
+
+The measured ratio must also be **positive** in every round (a control
+certifying that more work reads *faster* is refused on the sign, which is the
+fix `rf2-7iqb5` landed in PR #7634), and the run must read back **0 unverified
+of M** cell-addressed probes, or the clock measured a page that did not commit.
+
+**Why the scaled quantity is `rendered-rows` and not `B`.** Doubling `B` on the
+windowed arm moves nothing it renders, so that arm's page is its *window* and
+the window is what doubles. This is the mirror image of the fault that refused
+the changed-set control, and it is why no single scaled quantity serves all
+four arms.
 
 **Sabotage control — the topology witness must bite.** The deterministic census
 is itself the sabotage detector for the arms: an arm is planted with a defect
@@ -167,8 +181,16 @@ There is no third disposition, and no cell carries "needs more investigation".
 
 Two halves were attempted and they came back differently, which is the honest
 headline: **the deterministic half is complete at all 48 cells and publishes;
-the clock half does not publish, and the reason is a control, not a judgement
-about the machine.**
+the clock half still publishes no cell, and the reason is a control and a
+missing driver, not a judgement about the machine.**
+
+That second clause has moved once since this page was first published, and
+only part of the way. `rf2-m6i0` replaced the refused control with one that
+**passes on three of the four arms** ([§2.6](#26-the-clock-half--the-first-control-refused-the-replacement-certifies-three-arms-of-four)),
+so *want of a control* no longer withholds `fine`, `coarse` and `chunked`.
+What withholds every cell now is narrower and more ordinary: **the tournament's
+clock cells were never instrumented.** Only the control was built, it refused
+first, and no driver for the 4 arms × 4 operations table exists to run.
 
 ### 2.1 What ran, and on what
 
@@ -176,8 +198,8 @@ about the machine.**
 |---|---|
 | instrument | `implementation/freehand/test/re_frame/bench/hicasso/topo/census_dom_cljs_test.cljs` |
 | substrate | the bench's **arm-1** runtime, not `implementation/hicasso` |
-| witness | `npm run test:browser` (Chromium, real DOM), 1,500 tests / 9,482 assertions, 0 failures / 0 errors |
-| clock control | `topo/control_app.cljs` via the lane's generic `run.cjs` — **run, and refused**; see §2.6 |
+| witness | `npm run test:browser` (Chromium, real DOM), 1,507 tests / 9,533 assertions, 0 failures / 0 errors |
+| clock control | `topo/control_app.cljs` via the lane's generic `run.cjs` — the changed-set form **refused**; its rendered-scale replacement **certifies `fine`, `coarse` and `chunked`, and refuses `virtual`**; see §2.6 |
 | profile | P-DEV-1 |
 | box | `\System\Processor Queue Length` read **0.00** on every sample taken before, during and after both runs |
 
@@ -307,13 +329,15 @@ for the other:
 Closing that gap is `rf2-hic-071`/`rf2-hic-089`'s, since they own turning these
 rows into gates, and it is filed rather than patched here.
 
-### 2.6 The clock half — REFUSED, and on what
+### 2.6 The clock half — the first control refused; the replacement certifies three arms of four
 
-**No clock cell is published. The control was built, run on a verified-quiet
-box, and REFUSED — so the refusal is a measurement, not an opinion about the
-machine.**
+**No clock cell is published, and two different things are responsible at two
+different times.** The control registered first was built, run on a
+verified-quiet box, and REFUSED. Its replacement (`rf2-m6i0`) was built, run on
+a verified-quiet box, and **passes on `fine`, `coarse` and `chunked` while
+refusing `virtual`**. Both are measurements, not opinions about the machine.
 
-#### The run
+#### The first control's run — the changed-set doubling
 
 `topo/control_app.cljs`, driven by the lane's generic `run.cjs`, Chromium
 147.0.7727.15 headless, `:advanced`, `goog.DEBUG false`, 24 threads / 32 GB.
@@ -371,10 +395,69 @@ from any clock: **the control is degenerate on two of the four arms.**
 `coarse` and `chunked` rebuild every row whichever stride runs, so doubling the
 changed set doubles nothing they do. A control predicting 2.00x on those arms
 would refuse a healthy instrument; a control predicting 1.00x on them
-discriminates nothing and certifies nothing. **Either way those two arms have
-no positive control, so no clock figure of theirs may publish** — and since
-every interesting comparison in this tournament crosses between a fine-family
-arm and a coarse-family one, that withholds the clock table entire.
+discriminates nothing and certifies nothing. **Either way those two arms had no
+positive control at all**, and since every interesting comparison in this
+tournament crosses between a fine-family arm and a coarse-family one, that
+withheld the clock table entire.
+
+That table is measured rather than argued, and it stays measured:
+`topo/control_witness_dom_cljs_test.cljs` asserts it as exact integers on every
+PR, so the degeneracy above cannot quietly stop being true.
+
+#### The replacement — the rendered-scale doubling (`rf2-m6i0`)
+
+Same lane, same driver, same box discipline: Chromium 147.0.7727.15 headless,
+`:advanced`, `goog.DEBUG false`, 24 threads / 32 GB, `\System\Processor Queue
+Length` **0.00** on every sample before, during and after. 20 commits under one
+clock, 12 samples × 5 rounds, the two page sizes interleaved in `slot-order`,
+**the arm-order guard `[ok] by predecessor` on all four arms**, and **0
+unverified of 300** probes on all four.
+
+Each arm's page was checked against its own arithmetic before its clock started,
+and each matched exactly — including the rows-of-markup asymmetry the prediction
+rests on, which is where the changed-set control was degenerate:
+
+| arm | boundaries | read edges | elements | markup built per commit |
+|---|---|---|---|---|
+| `fine` | 501 → 1001 | 1001 → 2001 | 2501 → 5001 | 100 → 200 |
+| `coarse` | 1 → 1 | 1 → 1 | 2501 → 5001 | 500 → 1000 |
+| `chunked` | 21 → 41 | 21 → 41 | 2501 → 5001 | 500 → 1000 |
+| `virtual` | 21 → 41 | 41 → 81 | 101 → 201 | 4 → 8 |
+
+| arm | predicted | band | round ratios | verdict |
+|---|---|---|---|---|
+| `fine` | 1.9996 | [1.4997, 2.4995] | 1.9331 / 2.0296 / 2.0856 / 2.2588 / 2.0972 | **PASS** |
+| `coarse` | 1.9996 | [1.4997, 2.4995] | 2.1029 / 2.0024 / 2.0459 / 1.9853 / 2.0877 | **PASS** |
+| `chunked` | 1.9996 | [1.4997, 2.4995] | 2.0236 / 2.0816 / 2.1415 / 2.1876 / 2.1802 | **PASS** |
+| `virtual` | 1.9901 | [1.4926, 2.4876] | 1.5490 / 1.5577 / 1.5200 / 1.4600 / 1.5111 | **REFUSED ON THE BAND** |
+
+Exit code **1**, captured from the runner itself — a control that refuses any
+arm refuses the run.
+
+**The diagnosis of the first refusal is confirmed by the third arm here.**
+`fine` is the one arm both controls could address, and it moved from 1.325–1.471
+under the changed-set form to 1.9331–2.2588 under this one. The only thing that
+changed is that the handler and the subscription layer now scale with the
+manipulation instead of standing still. That is the shared constant term being
+removed, watched directly.
+
+**Why `virtual` refuses, and why it is not the same fault.** Its ratios are
+tight (1.46–1.5577 across five rounds), correctly signed, guard-clean and
+fully verified — a stable signal that is not 1.99, exactly as the first refusal
+was. But its cause is the clock rather than the model: the windowed arm's whole
+commit is **0.125 ms** at `w = 20` and **0.195 ms** at `w = 40`, which is one
+to two of Chrome's 100 µs `performance.now()` quanta. The per-commit floor —
+dispatch, the `flushSync` boundary, the commit React schedules regardless — does
+not double, and on a commit this small it is a large fraction of the reading.
+Its *work* doubles exactly (4 → 8 rows of markup, 21 → 41 boundaries, 41 → 81
+read edges); the instrument cannot resolve that at this size.
+
+**Nothing is widened and nothing is re-derived.** `virtual`'s band was
+registered before the run, from the same `elements-for` arithmetic as the other
+three, and it stands. The windowed arm's clock cells remain unpublished and the
+arm needs a different instrument — a larger window, or many more operations
+under one clock — which is filed rather than attempted here, because adding a
+rung between runs would make the series two instruments.
 
 This sits on top of a refusal the lane already carried, which this window
 verified rather than assumed:
