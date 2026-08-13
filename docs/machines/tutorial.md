@@ -3,8 +3,8 @@
 <a id="tutorial"></a>
 <a id="tutorial-build-a-login-machine"></a>
 
-This page builds one **singleton** login machine — one registered id, one live
-instance. Later pages grow that same flow.
+This page builds one [**singleton**](glossary.md#singleton) login machine.
+Later pages grow that same flow.
 
 By the end you will have:
 
@@ -69,8 +69,9 @@ You do not `send` to the machine. You `dispatch`, as you would to any handler.
 
 The outer vector is a re-frame2 **event**. `:auth.login/flow` is the event id.
 It is also the machine id you registered, so the handler that runs is the table.
-This id is a **singleton**: one live instance. The snapshot is `nil` until
-this first dispatch.
+This id is a **singleton**: one registered id, one live instance per
+[frame](../core/glossary.md#frame). The snapshot lives in that frame's
+runtime-db and is `nil` until this first dispatch.
 
 `[:auth.login/submit {…}]` is the **trigger** — the thing the table matches.
 `:auth.login/submit` is the `:on` key. The map is payload; a guard or action

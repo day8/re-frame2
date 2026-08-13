@@ -18,9 +18,6 @@ instances, not a third kind. This guide says **singleton** and **spawned**.
 Login stays the singleton. The HTTP request becomes a spawned child: it
 starts when `:submitting` is entered and is destroyed on every exit.
 
-Assumes the [flat table](concepts.md). Child completion often uses
-[final states](concepts.md#final-states).
-
 ## State-bound spawn
 
 Put `:spawn` on a state node. Entering the state creates the child. Leaving the
@@ -259,9 +256,9 @@ is also at `[:rf.runtime/machines :spawned <parent-id> <invoke-id>]` for reads
 
 ## When a child finishes
 
-A one-shot child reports success by entering a **root-level** `:final?` leaf
-and naming the `:data` slot to hand up with `:output-key`. The parent folds
-that value in `:on-done`:
+A one-shot child reports success by entering a **root-level**
+[`:final?`](concepts.md#final-states) leaf and naming the `:data` slot to hand
+up with `:output-key`. The parent folds that value in `:on-done`:
 
 ```clojure
 (rf/reg-machine :auth/request
