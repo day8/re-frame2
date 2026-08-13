@@ -53,6 +53,9 @@ const {
   ladderPlan,
   allocArmSizing,
   ALLOC_MIN_WRITES,
+  allocPrimeSplit,
+  ALLOC_PRIME_WRITES,
+  ALLOC_WINDOW_WRITES,
   ALLOC_WRITE_SPECS,
   ALLOC_PLAN_SHAPES,
   allocPlanArms,
@@ -529,8 +532,21 @@ test('the tolerance is CALIBRATED, pinned, and has no dial on it', () => {
   );
   // And the driver reads the module constant at every measurement site: the
   // `tolerance` parameter exists for the τ sweep below and for nothing else.
-  has(/const s = allocSteps\(w\.samples\);/, 'the control windows take the shipped τ');
-  has(/const s = allocSteps\(win\.samples\);/, 'and so do the arm windows');
+  // Both sites split the prime off first (rf2-oiy1) and then adjudicate the
+  // MEASURED region — one adjudicator, one τ, two windows.
+  has(
+    /const \{ primeLegs, measured \} = allocPrimeSplit\(w\.samples\);/,
+    'the control windows split the prime off'
+  );
+  has(
+    /const \{ primeLegs, measured \} = allocPrimeSplit\(win\.samples\);/,
+    'and so do the arm windows'
+  );
+  has(/const s = allocSteps\(measured\);/, 'and what is adjudicated is the measured region');
+  lacks(
+    /allocSteps\(win\.samples\)|allocSteps\(w\.samples\)/,
+    'nothing adjudicates the raw window any more — the prime leg is not a work leg'
+  );
 });
 
 test('the retired masking budget is GONE, not widened', () => {
@@ -677,6 +693,161 @@ test('LEGS AND GAPS are read apart, and only the legs are adjudicated', () => {
   assert.deepStrictEqual(s.legs, [1000, 2000, 3000], 'one leg per iteration');
   assert.deepStrictEqual(s.gaps, [0, 0, 0], 'and nothing happens between them');
   assert.strictEqual(s.rise, 6000, 'rise is unchanged by the split');
+});
+
+// ===========================================================================
+// THE PRIME WORK UNIT — rf2-oiy1
+// ===========================================================================
+//
+// THE DEFECT THIS PINS. rf2-2rtt6.140's V1/V2/V3 window measured 336 arm
+// windows across eight browser runs and every one carried a POSITIVE first-leg
+// excess over its own cohort median — median 6,966 B, constant in absolute
+// bytes across a 24x page range, identical under both writes. At τ = 0.25 a
+// fixed ~7 KB excess refuses every window whose leg median is under ~27,900 B,
+// which is every floor window at every page size; and `arm − floor` is the
+// quantity every witness on this row is stated over, so the ladder went with
+// it.
+//
+// WHICH CAUSE IT IS, FROM THAT WINDOW'S OWN NUMBERS. The tail legs of a clean
+// window are byte-identical, so steady state arrives after ONE work unit
+// inside the window; eighteen work units already run immediately before it, in
+// three full-size warm-up windows, and the excess survives all of them; and
+// the only thing between the last of those and leg 1 is the driver's own
+// `gc()`. One after clears it, eighteen before do not — so the collection
+// creates it, and a fourth warm-up (the bead's branch (a)) cannot reach it.
+//
+// THE REPAIR IS NOT A WIDENING AND NOT A DISCARD. The window drives one extra
+// work unit; the first is a PRIME, sampled and reported and excluded from
+// every published quantity and from the certificate. τ is untouched.
+// `allocSteps` is untouched — every pin above it stands unedited — because the
+// split hands it a shorter stream in the same shape.
+
+test('THE SPLIT — the measured region is a well-formed stream in the same shape', () => {
+  // `[s0, pre0, post0, pre1, post1, ...]`. Dropping `2·prime` leading samples
+  // leaves the last prime leg's `post` standing as the measured region's `s0`,
+  // so nothing is fabricated and nothing is re-based. That is the whole reason
+  // `allocSteps` needs no knowledge of any of this.
+  const raw = stream([9000, 1000, 1000, 1000]);
+  const { primeLegs, measured } = allocPrimeSplit(raw, 1);
+  assert.deepStrictEqual(primeLegs, [9000], 'the prime leg is READ, not thrown away');
+  assert.deepStrictEqual(measured, raw.slice(2));
+  const s = allocSteps(measured);
+  assert.deepStrictEqual(s.legs, [1000, 1000, 1000], 'and the measured legs are the rest');
+  assert.deepStrictEqual(s.gaps, [0, 0, 0], 'including the true gap out of the prime');
+  assert.strictEqual(s.rise, 3000, 'the prime`s 9000 B is in no rising sum');
+  assert.strictEqual(s.falls, 0);
+});
+
+test('THE BEAD`S OWN WINDOW — refused before the prime, certified after', () => {
+  // The B = 4 floor window quoted verbatim on rf2-oiy1:
+  // [26044, 19256, 19256, 19256, 19256, 19256]. Six alike legs with the first
+  // 6,788 B high — 35% of a 19,256 B cohort, against a 25% tolerance.
+  const OBSERVED = [26044, 19256, 19256, 19256, 19256, 19256];
+  // WRONG BEFORE. Adjudicated whole, exactly as the driver did until this
+  // bead, it refuses — and on the first leg, which is the only deviant one.
+  const before = allocSteps(stream(OBSERVED));
+  assert.strictEqual(before.certified, false, 'this is the window the row could not certify');
+  assert.strictEqual(before.refusals.length, 1, JSON.stringify(before.refusals));
+  assert.match(before.refusals[0], /leg 1 of 6/);
+  assert.strictEqual(before.legMedian, 19256);
+
+  // RIGHT AFTER. The same six work units with a prime in front of them: the
+  // prime absorbs the excess, the six measured legs are byte-identical, and
+  // the window certifies. The tail is byte-identical in the MEASURED data —
+  // that is the observation the whole repair rests on, and it is why one
+  // priming unit is enough.
+  const primed = allocPrimeSplit(stream([26044, ...OBSERVED.slice(1), 19256]), 1);
+  const after = allocSteps(primed.measured);
+  assert.deepStrictEqual(primed.primeLegs, [26044]);
+  assert.deepStrictEqual(after.legs, [19256, 19256, 19256, 19256, 19256, 19256]);
+  assert.strictEqual(after.certified, true, 'six repetitions of one work unit certify');
+  assert.strictEqual(after.legWorstDeviation, 0);
+  assert.strictEqual(after.rise, 6 * 19256, 'and the prime is in no published byte');
+  // The excess is still MEASURED. This is what makes the repair a report
+  // rather than a discard, and it is the figure rf2-e9wr's calibration wants.
+  assert.strictEqual(primed.primeLegs[0] - after.legMedian, 6788);
+});
+
+test('THE PRIME IS NOT AN AMNESTY — a deviant MEASURED leg still refuses', () => {
+  // A rule that cannot fail has adjudicated nothing. The prime takes exactly
+  // one work unit out of the cohort; everything the leg witness refused before
+  // it, it refuses after.
+  const masked = allocPrimeSplit(stream([26044, 200000, 200000, 0, 200000], [0, 0, 0, 200000, 0]));
+  const s = allocSteps(masked.measured);
+  assert.strictEqual(s.certified, false, 'a masked leg in the measured region still refuses');
+  assert.ok(s.legWorstDeviation < 0, 'and it is BELOW its cohort, which is the signature');
+  // And a SECOND high leg — one the prime does not cover — refuses too.
+  const twoHigh = allocPrimeSplit(stream([26044, 26044, 19256, 19256, 19256, 19256, 19256]));
+  assert.strictEqual(
+    allocSteps(twoHigh.measured).certified,
+    false,
+    'the prime covers ONE work unit, not "the high ones"'
+  );
+});
+
+test('the prime is CONFIGURED IN ONE PLACE and the divisor is not it', () => {
+  assert.strictEqual(typeof ALLOC_PRIME_WRITES, 'number');
+  assert.ok(ALLOC_PRIME_WRITES >= 1, 'a prime of zero is the shape the bead refutes');
+  assert.strictEqual(
+    ALLOC_WINDOW_WRITES - ALLOC_MIN_WRITES,
+    ALLOC_PRIME_WRITES,
+    'the window drives the averaging floor PLUS the prime'
+  );
+  // THE AVERAGING FLOOR IS UNMOVED (rf2-2rtt6.142). Excluding a leg from a
+  // six-write window would have left five averaged writes, under the floor.
+  // Averaging six means driving seven, and this is the arithmetic that says so.
+  assert.strictEqual(ALLOC_MIN_WRITES, 6);
+  // The published quantity is per MEASURED write. A divisor of
+  // `ALLOC_WINDOW_WRITES` would have folded the prime back into every figure.
+  has(/perWrite: s\.rise \/ ALLOC_WRITES,/, 'the arm figure divides by the measured writes');
+  has(/perIter: s\.rise \/ ALLOC_WRITES,/, 'and so does the control figure');
+  // And the window is driven at the full count at every site, warm-ups
+  // included — a warm-up smaller than the window is the defect the warm-up
+  // pass exists to avoid.
+  lacks(
+    /allocPrepare\(dd?, n\), \[[^\]]*ALLOC_WRITES\]/,
+    'no sample buffer is sized for the measured writes alone'
+  );
+  has(/\[ALLOC_WINDOW_WRITES, drain, ALLOC_WRITE_SPEC\.kind\]/, 'the window drives the full count');
+  // NO DIAL. The prime decides what a window MEANS, so it is a constant for
+  // `ALLOC_LEG_TOLERANCE`'s reason: a knob on it is a knob on the certificate.
+  lacks(/P0_ALLOC_PRIME|P0_ALLOC_WINDOW_WRITES/, 'the prime has no env dial on it');
+});
+
+test('THE PRIME IS LIVE THROUGH THE SHIPPED CONFIGURATION ROUTE, not just declared', () => {
+  // DRIVEN, in a fresh process, through the same env surface an operator
+  // configures: configuration is read exactly once at require, so this is the
+  // shipped derivation rather than a restatement of it. `constUnderEnv` is
+  // hoisted from further down this file — the same helper the write and plan
+  // switches are pinned with.
+  assert.strictEqual(constUnderEnv('ALLOC_PRIME_WRITES', {}), ALLOC_PRIME_WRITES);
+  assert.strictEqual(
+    constUnderEnv('ALLOC_WINDOW_WRITES', {}),
+    ALLOC_MIN_WRITES + ALLOC_PRIME_WRITES,
+    'the default window drives the averaging floor plus the prime'
+  );
+  // And it tracks a stated window rather than sitting at a literal: a run that
+  // asked for more averaging gets more averaging AND its prime, not one of the
+  // two.
+  assert.strictEqual(
+    constUnderEnv('ALLOC_WINDOW_WRITES', { P0_ALLOC_WRITES: '10' }),
+    10 + ALLOC_PRIME_WRITES
+  );
+  assert.strictEqual(constUnderEnv('ALLOC_WRITES', { P0_ALLOC_WRITES: '10' }), 10);
+});
+
+test('the prime is CLAMPED, so a short stream cannot read off the end', () => {
+  // Defensive, and cheap: a window with fewer legs than the prime yields no
+  // measured legs rather than an undefined subtraction.
+  const short = allocPrimeSplit(stream([1000]), 1);
+  assert.deepStrictEqual(short.primeLegs, [1000]);
+  assert.deepStrictEqual(allocSteps(short.measured).legs, []);
+  const none = allocPrimeSplit(stream([]), 1);
+  assert.deepStrictEqual(none.primeLegs, [], 'nothing to prime is not a negative index');
+  // A prime of zero is the pre-bead shape, and the split is the identity on it
+  // — which is what lets every `allocSteps` pin above stand unedited.
+  const raw = stream([1000, 1000]);
+  assert.deepStrictEqual(allocPrimeSplit(raw, 0), { primeLegs: [], measured: raw });
 });
 
 // --- the row-level witness the driver actually exits on --------------------
@@ -1239,7 +1410,15 @@ test('the narrow plans SUBTRACT arms — they add none, move none and reorder no
 // The fields `summariseAlloc` reads, and no more. `arms` is what the plan
 // shape decides, so it is the parameter.
 function allocSummaryFor(planName, arms = {}) {
-  const ctl = (perIter) => ({ perIter, ...allocSteps(stream([20000, 20000, 20000, 20000])) });
+  // The control windows carry a prime too and it costs them nothing — the
+  // studio page records their worst leg deviation at <= 1% against the arms'
+  // 26-46%, which is the contrast that located the term in the first place.
+  const ctl = (perIter) => ({
+    perIter,
+    primeLegs: [20000],
+    primeExcess: 0,
+    ...allocSteps(stream([20000, 20000, 20000, 20000])),
+  });
   const row = {
     roots: 4,
     boundaries: 24,
@@ -1247,6 +1426,8 @@ function allocSummaryFor(planName, arms = {}) {
     publishedPerRoot: { grid: 300 },
     arm: { cells: 6, roots: 4, boundaries: 24, writes: 6 },
     writes: 6,
+    primeWrites: ALLOC_PRIME_WRITES,
+    windowWrites: ALLOC_WINDOW_WRITES,
     warmups: 3,
     rounds: 2,
     writeSelector: 'page',
@@ -1286,6 +1467,9 @@ const FLOOR_ARMS = () =>
         reads: 0,
         boundaries: 24,
         ...allocSteps(stream([5000, 5000, 5000, 5000])),
+        // The bead's own excess, 6,788 B, riding on a synthetic floor window.
+        primeLegs: [11788],
+        primeExcess: 6788,
         perWrite: 5000,
         perBoundaryPerWrite: 208,
       },
@@ -1305,6 +1489,11 @@ test("V3's CONTROLS-ONLY summary RUNS, and states absence rather than zero", () 
   assert.strictEqual(row.controlVerdict.ok, true, 'the positive control still decides');
   assert.strictEqual(row.fallsInMeasuredWindows, 0);
   assert.match(out, /control D=1000: predicted 8000 B/);
+  // With no arm mounted the prime is reported off the CONTROL windows, which
+  // is the population a controls-only run has. Their prime costs nothing, and
+  // a run that printed no prime line at all would be hiding the one term this
+  // instrument now has a name for.
+  assert.match(out, /prime excess over the measured cohort median: 0 B mean/);
 });
 
 test("V1's FLOOR-ONLY summary RUNS, prints the floor, and prints no rung", () => {
@@ -1317,6 +1506,22 @@ test("V1's FLOOR-ONLY summary RUNS, prints the floor, and prints no rung", () =>
   assert.doesNotMatch(out, /hicasso\s+\d/, 'but no rung row is');
   assert.match(out, /NO FITTED LINE/, 'and nothing is regressed through one arm');
   assert.match(out, /THE PLAN IS `floor`/);
+  // THE PRIME LEG IS PRINTED, not merely excluded (rf2-oiy1). This is what
+  // separates the repair from "discard leg 1": the term that made every floor
+  // window uncertifiable is still measured, on every window, and is readable
+  // beside the cohort it used to contaminate — which is the figure rf2-e9wr's
+  // τ calibration needs.
+  assert.match(out, /THE PRIME LEG \(excluded from every figure\)/);
+  assert.match(
+    out,
+    /prime excess over the measured cohort median: 6788 B mean \[6788–6788\] across 4 windows/,
+    'the excess is REPORTED, per window, in bytes'
+  );
+  assert.match(
+    out,
+    new RegExp(`The window drives ${ALLOC_WINDOW_WRITES} — the first ${ALLOC_PRIME_WRITES} is a PRIME`),
+    'and the header says how many work units ran against how many are published'
+  );
 });
 
 test('the DRIVER honours both switches — the write, the plan, and the record', () => {
@@ -1327,9 +1532,12 @@ test('the DRIVER honours both switches — the write, the plan, and the record',
   // the more dangerous of the two to lose, because a site warmed under one
   // write and measured under the other reads its settled value for neither.
   // (`b8-alloc`'s driver watched a first window read 5.3x its settled value.)
+  // `ALLOC_WINDOW_WRITES` at both, since rf2-oiy1: the window drives the
+  // measured writes PLUS the prime, and a warm-up shorter than the window is
+  // the very defect the warm-up pass exists to avoid.
   assert.strictEqual(
     (SRC.match(
-      /window\.P0H\.allocWindow\(n, k, d\),\s*\[ALLOC_WRITES, drain, ALLOC_WRITE_SPEC\.kind\]/g
+      /window\.P0H\.allocWindow\(n, k, d\),\s*\[ALLOC_WINDOW_WRITES, drain, ALLOC_WRITE_SPEC\.kind\]/g
     ) || []).length,
     2,
     'the warm-up AND the measured window both drive the SELECTED write'
