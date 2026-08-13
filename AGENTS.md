@@ -68,10 +68,17 @@ scratchpad collisions (next section) were caught by a worker reading
 
 **Every other gate prints no banner at all** — not one of the
 `scripts/check_*.py` gates, nor their `check-*.sh` siblings, and several print
-nothing whatever on success. Nor do they pin themselves to the script's own
-location the way `${BASH_SOURCE[0]}` does: the Python gates resolve their
-rosters against the **cwd**, so invoking one by absolute path buys no
-protection the `cd` did not already give. There the proof is the same shape
+nothing whatever on success. They do pin themselves to the script's own
+location, and harder than `${BASH_SOURCE[0]}` manages — their repo root
+defaults to `Path(__file__).resolve().parent.parent`, absolute by
+construction — which makes the absolute path matter MORE here rather than
+less: `python scripts/check_….py` resolves that RELATIVE script path against
+the cwd first, so a leaked cwd hands the interpreter the SIBLING'S copy, and
+the script then pins faithfully to the sibling's tree and returns a verdict
+about somebody else's work. Given the absolute path it scans YOUR checkout
+from any cwd at all — measured 2026-08-13 by running `check_doc_slugs.py`
+from a directory outside every checkout and watching it name a fault planted
+only in one worktree. There the proof is the same shape
 drawn from a different source — **plant a fault at a line you are already
 editing and run the gate red.** Do not expect the failure to name your
 worktree; `check_doc_slugs.py` reports repo-relative paths, which cannot tell
