@@ -108,17 +108,17 @@
                    (assoc (db/draft-for db slug) :published? (boolean published?)))}))
 
 (rf/reg-event ::discard
-  {:doc "Throw a draft away and re-baseline its fields — the reset."}
+  {:doc "Throw a draft away — the reset, and it is one move."}
   (fn [{:keys [db]} [_ {:keys [slug]}]]
-    ;; Two moves, and both are needed. Dropping the draft moves the MODEL
-    ;; back to the article; bumping the revision is what tells the
-    ;; controlled fields to take it (HD-019's reset law). Without the bump
-    ;; the fields keep showing what the user typed, because the value they
-    ;; are handed is the one they were handed last render and React sees
-    ;; nothing to do.
+    ;; ONE move on the model, and no `::h/revision` counter beside it.
+    ;; This handler carried one until rf2-36bd deleted the bump and the
+    ;; browser lane did not move: dropping the draft is already three
+    ;; changes the editor's body reads, so the body re-runs and the commit
+    ;; re-asserts the model over the fields without being told to. See
+    ;; `db`'s namespace docstring for the measurement and for the shape
+    ;; that DOES need a counter.
     {:db (-> db
              (update :drafts dissoc slug)
-             (update-in [:revision slug] (fnil inc 0))
              (assoc :save {:status :idle}))}))
 
 ;; ---------------------------------------------------------------------------

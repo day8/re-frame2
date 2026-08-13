@@ -343,7 +343,6 @@
 
 (def ^:private editor-base-subs
   {[::subs/draft "intents"]      {:title "T" :body "B" :published? true}
-   [::subs/revision "intents"]   0
    [::subs/dirty? "intents"]     false
    [::subs/t :editor/heading]    "Edit"
    [::subs/t :editor/title]      "Title"
@@ -373,15 +372,20 @@
     (is (= [::events/edit "intents" :body :re-frame.hicasso/value]
            (:on-input (ht/attrs body))))))
 
-(deftest the-reset-trigger-rides-both-fields
+(deftest neither-text-field-carries-a-reset-trigger
+  ;; The ABSENCE, pinned at the tier that can read a marker off an authored
+  ;; form — because an absence nothing asserts is an absence somebody
+  ;; re-adds. rf2-36bd deleted the counter's bump from `::discard` and the
+  ;; browser lane did not move: a discard already re-runs this body three
+  ;; times over, and the commit re-asserts the model on its own.
   (is (= 0 (ht/revision [:input {:value "T" :re-frame.hicasso/revision 0}]))
-      "the kit reads the trigger off an authored form")
-  (let [tree (editor-tree {:status :idle :problem nil} {[::subs/revision "intents"] 3})]
-    ;; The tree records the marker as an ordinary attribute, which is what
-    ;; makes it assertable here: both fields carry the SAME revision, so a
-    ;; discard re-baselines the whole form rather than half of it.
-    (is (= [3 3] (mapv #(:re-frame.hicasso/revision (ht/attrs %))
-                       [(classed tree "field-title") (classed tree "field-body")])))))
+      "the kit CAN read a trigger off an authored form, which is what makes
+       the two readings below a finding rather than a blind spot")
+  (let [tree (editor-tree {:status :idle :problem nil} {})]
+    (is (= [nil nil] (mapv #(:re-frame.hicasso/revision (ht/attrs %))
+                           [(classed tree "field-title") (classed tree "field-body")]))
+        "and neither field authors one — see `views/editor` for the
+         population that does need `::h/revision`")))
 
 (deftest the-checkbox-takes-the-checked-marker
   (let [box (ht/find (editor-tree {:status :idle :problem nil} {})

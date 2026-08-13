@@ -172,10 +172,11 @@
   (let [db' (db/commit db/seed "intents" {:title "Renamed" :body "New body" :published? false})]
     (is (= "Renamed" (:title (db/article db' "intents"))))
     (is (false? (db/dirty? db' "intents")))
-    (is (= 1 (db/revision db' "intents"))
-        "the revision moves on a successful save too — the field is now
-         showing a value the model agrees with, and the next discard has
-         to be able to move it again")))
+    (is (= #{:articles :order :drafts :save :digest :locale :theme}
+           (set (keys db')))
+        "a commit moves two keys and mints none — in particular no
+         `:revision` counter, which this application measured and does not
+         carry (rf2-36bd; see db's namespace docstring)")))
 
 ;; ---------------------------------------------------------------------------
 ;; i18n — a hole is visible
@@ -219,17 +220,17 @@
            would land in an empty map and blank them")
       (is (true? (read-sub frame [::subs/dirty? "intents"]))))))
 
-(deftest discarding-restores-the-article-and-bumps-the-revision
+(deftest discarding-restores-the-article
   (with-app
     (fn [frame]
       (rf/dispatch-sync [::events/edit "intents" :title "typed"] {:frame frame})
-      (is (= 0 (read-sub frame [::subs/revision "intents"])))
+      (is (true? (read-sub frame [::subs/dirty? "intents"])))
       (rf/dispatch-sync [::events/discard {:slug "intents"}] {:frame frame})
-      (is (= "Intents are data" (:title (read-sub frame [::subs/draft "intents"]))))
-      (is (false? (read-sub frame [::subs/dirty? "intents"])))
-      (is (= 1 (read-sub frame [::subs/revision "intents"]))
-          "the counter is what re-baselines the controlled field; the model
-           alone moved back to a value the field was already showing"))))
+      (is (= "Intents are data" (:title (read-sub frame [::subs/draft "intents"])))
+          "the MODEL moved, which is the whole of the reset here — the
+           counter this handler used to bump beside it was measured inert
+           and removed (rf2-36bd)")
+      (is (false? (read-sub frame [::subs/dirty? "intents"]))))))
 
 (deftest a-local-problem-never-reaches-the-server
   (with-app

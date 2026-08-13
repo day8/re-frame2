@@ -4,8 +4,9 @@
   One complete pass through the application on a real React root: the
   feed, a real click on a real route-link, the editor's controlled
   fields under real keystrokes, a save the stand-in server REFUSES, the
-  error region, a retry that succeeds, and a discard that re-baselines
-  the field. Every row ends at `hm/assert-clean!`.
+  error region, a retry that succeeds, and a discard that restores the
+  fields — including one the model never agreed to. Every row ends at
+  `hm/assert-clean!`.
 
   ## This file reaches no internal namespace either
 
@@ -375,10 +376,27 @@
         (finish m done)))))
 
 ;; ---------------------------------------------------------------------------
-;; 4 — the reset, in a real field
+;; 4 — the reset, in a real field, and why this application carries no
+;;     `::h/revision` (rf2-36bd)
+;;
+;; The two rows below are a PAIR, and the second is the reason the first can
+;; say what it says.
+;;
+;; This section used to be one row, and it claimed the reset law: "the model
+;; moved back to a value the field was already showing, so React alone sees
+;; nothing to do — the changed `::h/revision` is what re-baselines it". The
+;; claim was measured by deleting the counter's bump from `::discard`, and the
+;; row stayed green. It had never witnessed the revision; it witnesses the
+;; MODEL MOVING, which is a different fact and a true one.
+;;
+;; So the counter came out of the application, and the second row is what
+;; keeps it out: it drifts the DOM by a route React cannot see and shows the
+;; discard repairing that too. `impl.codec`'s `revision-key` says why — the
+;; whole of a revision's delivery is that its change re-runs the body, and a
+;; discard re-runs this body three times over.
 ;; ---------------------------------------------------------------------------
 
-(deftest discarding-re-baselines-the-field-without-remounting-it
+(deftest discarding-moves-the-model-back-without-remounting-the-field
   (if-not (browser?)
     (skip! ":node-test has no React DOM")
     (async done
@@ -391,15 +409,56 @@
         (let [before (node m ".field-title")]
           (click! m ".discard")
           (is (= "Intents are data" (.-value (node m ".field-title")))
-              "THE RESET LAW (HD-019): the model moved back to a value the
-               field was already showing, so React alone sees nothing to
-               do — the changed `::h/revision` is what re-baselines it")
+              "the draft is gone, so the model is the article's title again
+               — a value DIFFERENT from the one the field was handed last
+               render, which is all React's own commit needs")
           (is (identical? before (node m ".field-title"))
               "and it is the SAME element: re-baselined, not remounted, so
                focus, selection and scroll position survive a discard"))
 
         (is (false? (read-sub m [::subs/dirty? "intents"])))
         (is (true? (.-disabled (node m ".discard"))))
+        (finish m done)))))
+
+(deftest a-discard-repairs-a-field-the-model-never-agreed-to
+  ;; THE ROW THAT KEEPS THE COUNTER OUT. Its control is
+  ;; `(update :drafts dissoc slug)` in `::discard`: delete that and this
+  ;; row reds, because nothing the editor's body reads would move and the
+  ;; body would not re-run. That is the same control the row above has, and
+  ;; it is the whole point — there is no third state for a revision to
+  ;; occupy.
+  (if-not (browser?)
+    (skip! ":node-test has no React DOM")
+    (async done
+      (let [m (at-article! "intents")]
+        ;; Dirty the form through the OTHER field, so the title's MODEL does
+        ;; not move across the discard at all.
+        (type-into! m ".field-body" "rewritten, then regretted")
+
+        ;; An EVENTLESS value write — the shape a password manager, an
+        ;; autofill or a translation extension has. No `input` event, so no
+        ;; handler runs, no subscription fires and no commit is scheduled:
+        ;; the field now shows a string `app-db` has never held. Written
+        ;; through the PROTOTYPE setter for the reason `type-into!` gives.
+        (let [n (node m ".field-title")
+              d (js/Object.getOwnPropertyDescriptor
+                  js/HTMLInputElement.prototype "value")]
+          (.call (.-set d) n "pasted by something else"))
+        (is (= "pasted by something else" (.-value (node m ".field-title")))
+            "the drift landed, and nothing in the application knows")
+        (is (= "Intents are data" (:title (read-sub m [::subs/draft "intents"])))
+            "the model is exactly where it was — this is the state a reset
+             trigger would exist for")
+
+        (click! m ".discard")
+        (is (= "Intents are data" (.-value (node m ".field-title")))
+            "and the discard repairs it with NO `::h/revision` anywhere.
+             The body re-ran because the draft, the dirty flag and the save
+             status all moved; the commit that followed re-asserted the
+             model over a DOM React had never been told about. A counter
+             here would have had nothing left to do — which is why this
+             application does not carry one")
+
         (finish m done)))))
 
 ;; ---------------------------------------------------------------------------
