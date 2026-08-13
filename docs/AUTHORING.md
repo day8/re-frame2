@@ -241,9 +241,10 @@ If the page is trying to be both a tutorial and a reference catalogue, split it.
 
 If the page cannot be described in one sentence, reconsider the scope.
 
-**Index pages** (corpus home pages) state prerequisites, when not to use the
-artefact, and the page's own job. They do not restate the left-hand nav as a
-roster or a "start here" reading-order list. MkDocs already lists the pages.
+**Index pages** (corpus home pages) state when not to use the artefact, and
+the page's own job. They do not list prerequisites. They do not restate the
+left-hand nav as a roster or a "start here" reading-order list. MkDocs already
+lists the pages and their order.
 
 ---
 
@@ -406,7 +407,8 @@ Every example should:
 * be valid ClojureScript
 * demonstrate the recommended approach
 * contain enough surrounding code to make sense
-* avoid hidden prerequisites where practical
+* avoid hidden code prerequisites where practical (an undeclared require
+  or a missing registration)
 
 Never invent an API because it makes the example easier to explain.
 
@@ -733,6 +735,17 @@ Avoid:
 * "Next, read…" footers
 * "What's next" sections
 * lists of neighbouring chapters purely for navigation
+* **Prerequisites.** blocks that tell the reader which earlier page to have
+  read
+
+MkDocs already orders the section. A landing page that is first in the nav,
+or a numbered tutorial title, already says what comes first. Do not open a
+page with:
+
+> **Prerequisites.** The [Core introduction](core/introduction.md).
+
+If a later page uses a fact from another corpus, link that fact when it is
+used — not as a reading-order header.
 
 Use inline links when they help explain the current topic:
 
@@ -759,6 +772,10 @@ Before a page is finished, ask:
 ### Can a developer find the normal code quickly?
 
 If not, move code earlier.
+
+### Does the page open with a Prerequisites block?
+
+If the left-hand nav already implies the reading order, delete the block.
 
 ### Does the page introduce machinery before the reader needs it?
 
