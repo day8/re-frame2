@@ -186,7 +186,7 @@ Some data lives *inside* a runtime subsystem — a [machine](../../machines/glos
    :schemas   {:data [:map [:payment [:map [:token :string] [:receipt-pdf :bytes]]]]}
    :initial :collecting
    :states  {:collecting {:on {:submit :charging}}
-             :charging   {:spawn {:src :checkout/charge :on-done :done}}
+             :charging   {:spawn {:machine-id :checkout/charge :on-done :done}}
              :done       {}}})
 ```
 
