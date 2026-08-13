@@ -47,7 +47,7 @@ Each stage of the path gets exactly one instrument, and no stage gets two.
 | Subscription recomputations | a counting wrapper installed on the registrar's `:handler-fn` before mount, removed after | one invocation of the author's own computation fn |
 | Boundary runs | [`hm/bodies-run`][kit] | one `defview` body React actually ran |
 | Commit — glass writes | a spy on the `value` property setter of `HTMLInputElement.prototype` / `HTMLTextAreaElement.prototype`, restored in a `finally` | one write of a value onto a live control |
-| Commit — DOM mutations | a `MutationObserver` over the container (`childList`, `attributes`, `characterData`) | one mutation record |
+| Commit — DOM mutations | a `MutationObserver` over the container (`childList`, `attributes`, `attributeOldValue`, `characterData`) | one mutation record |
 | Visible echo | the typed control's `.value`, read at the instant `dispatchEvent` returns | — |
 
 Two of these deserve their definition stated rather than assumed.
@@ -57,9 +57,15 @@ keystroke reaches the same code path a real one does only by writing through the
 element prototype's own `value` setter and then firing a real `input` event
 (`editor.flow-dom-cljs-test/type-into!` established this). That first write is
 the *user agent's*, not the runtime's, so [the census][census] performs it
-through a setter captured at namespace load, outside the spy's reach by
-construction rather than by subtracting one and hoping the subtrahend never
-changes.
+through a setter captured **on first browser use, before the spy** — the spy
+forces the capture at its own top, ahead of replacing any descriptor. Both
+halves of that ordering are load-bearing. Capturing at namespace load instead
+takes the node lane down with it — §7 records that this census had exactly that
+defect and fixed it — and capturing lazily on the first *keystroke* would capture
+the spy's own setter, because every keystroke here is typed inside one, turning
+the accepted keystroke's measured zero into a one. So the user agent's write is
+outside the count by construction rather than by subtracting one and hoping the
+subtrahend never changes.
 
 **The echo is read before any flush.** Every existing mounted witness in the tree
 calls `hm/settle!` and then asserts the glass. That is right for a correctness
@@ -226,11 +232,30 @@ They are attributed by an experiment the census can run because the grid refuses
 non-digits: **a refused keystroke runs zero bodies**, so React commits nothing —
 and three of the seven records appear anyway.
 
-| Records | Whose | What they are |
+**What a mutation record can and cannot say, because the table below is read
+through it.** A `MutationRecord` for an attribute carries that attribute's value
+*before* the record and nothing else. There is no new-value field, and reading
+one back off the element answers what the attribute holds *now* rather than what
+that record wrote — which is why [the census's][census] raw trace shows its
+`name` records as `nil -> nil`, both sides being the attribute as it finally
+stands. **No arrow the instrument prints is an observed transition, and this page
+does not present one as such.** What the observer does witness, exactly, is the
+*order* of the attribute names and each record's old value; so the table below is
+read forwards through those old values, and what a record did is named by the
+*next* record's.
+
+| Records | Whose | The attributes in order, and what each held before its record |
 |---:|---|---|
-| 4 | the commit | `name: nil → ""`, `type`, `value` (i.e. `defaultValue`), `name: "" → removed` |
-| 3 | React's post-event controlled-state restore | the same churn without the `value` write, `defaultValue` already being right |
+| 4 | the commit | `name` (absent), `type`, `value` — i.e. `defaultValue` — (the pre-keystroke text), `name` (`""`) |
+| 3 | React's post-event controlled-state restore | `name` (absent), `type`, `name` (`""`) — the same churn without the `value` write, `defaultValue` already being right |
 | 1 | the commit, grid only | `characterData` on the row total's text node |
+
+**Read forwards, those old values are what say `name` churns.** It is absent, a
+record writes it, and the record that removes it reports `""` as what it
+removed — so React added an empty `name` and took it away again, once per pass,
+and `name` is absent again by the end. The transient `""` is therefore
+*witnessed*, one record later than the record that wrote it, rather than shown
+as a transition the observer never saw.
 
 **Four of the editor's seven records are churn on an attribute the application
 never wrote.** React 19 removes and restores `name` around every controlled-input
