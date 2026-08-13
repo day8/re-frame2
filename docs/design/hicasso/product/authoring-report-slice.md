@@ -21,7 +21,9 @@ The most useful single fact for a facade freeze is the list of doors an ordinary
 | `root!` / `render!` / `unmount!` | the entry point and its `^:dev/after-load` hook |
 | `::h/value` · `::h/checked` | the two controlled text fields, and the checkbox |
 
-**Never reached, in an application deliberately chosen to be broad:** `portal`, `as-element`, `as-component`, `defhost`, `hfn`, `hframe`, `motion/presence`, and the whole native tier. `::h/revision` belongs on this list too, and the story of how it got there is finding 5: it was reached for, written into two fields and two handlers, and then measured to be doing nothing. Each has a real use case named in the specification; none of them is *ordinary*. `hfn` is the sharpest of these — it is the one callback form, and an application with two text fields, a checkbox, a select and five buttons never needed one, because an intent vector said everything.
+**Never reached, in an application deliberately chosen to be broad:** `portal`, `as-element`, `as-component`, `defhost`, `hfn`, `hframe`, `motion/presence`, and the whole native tier. Each has a real use case named in the specification; none of them is *ordinary*. `hfn` is the sharpest of these — it is the one callback form, and an application with two text fields, a checkbox, a select and five buttons never needed one, because an intent vector said everything.
+
+`::h/revision` belongs on that list too, and it arrived there by a different road: it was reached for, written into two fields and two handlers, believed, and then measured to be doing nothing. That is finding 5.
 
 The import discipline is asserted mechanically rather than reviewed: `surface-cljs-test` reads each application namespace's `:requires` / `:require-macros` / `:uses` / `:use-macros` off the ClojureScript analyzer and pins that roster of four, so a fifth door cannot arrive quietly.
 
