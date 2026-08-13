@@ -50,6 +50,11 @@ theme:
     logo: material/home
     repo: fontawesome/brands/git-alt
   language: en
+  # No webfont download: `false` stops Material loading its stock Roboto pair
+  # from Google Fonts. The text face is the generic system-UI cascade set in
+  # docs/stylesheets/fonts.css (see extra_css below); code blocks fall back to
+  # Material's stock monospace stack.
+  font: false
   # Light/dark palette toggle (rf2-q0n02). Two schemes share the existing
   # blue brand colour; `media` seeds the initial scheme from the reader's OS
   # preference, and each `toggle` adds a manual switch in the header. The
@@ -150,6 +155,7 @@ extra_javascript:
 
 extra_css:
   - cljs/playground.css
+  - stylesheets/fonts.css
 
 extra:
   generator: false
