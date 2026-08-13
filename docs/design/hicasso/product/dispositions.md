@@ -275,30 +275,34 @@ gate. It reaches the carve-out, the draft shadow and React's end-of-event restor
 composition **range**, because `Input.imeSetComposition` is a CDP method and CDP is Chromium's protocol.
 
 Per the operator ruling of 2026-08-10, that synthetic sequence **is** the ratified recurring witness. How the *other*
-tier is taken was changed on 2026-08-11 to a **scripted witness** driving a real Windows IME through the OS input
-stack, and **changed back on 2026-08-12**: three armed runs established that the modern Microsoft IME will not compose
-for the Playwright windows on the available machine — not from a script, and not under the operator's physical toggle
-— so the **bounded manual session is reinstated as the acceptance path**
+tier is taken moved three times and is now settled. It was changed on 2026-08-11 to a **scripted witness** driving a
+real Windows IME through the OS input stack, and **changed back on 2026-08-12**: three armed runs established that the
+modern Microsoft IME will not compose for the Playwright windows on the available machine — not from a script, and not
+under the operator's physical toggle — so the bounded manual session was reinstated as the acceptance path
 ([`../native-ime-manual-witness.md`](../native-ime-manual-witness.md)). The scripted rig stays in the tree as the
 record of that refused avenue, with the three walls and their run evidence in
 [`../native-ime-scripted-witness.md` §11](../native-ime-scripted-witness.md#11-the-outcome-and-the-three-walls).
 
-The manual session is **machine-bound and local** — Windows plus an installed Japanese IME, a visible desktop and an
-operator at the keyboard — so it is a dated observation rather than coverage. Nothing about the recurring tier moves:
-the synthetic three-engine gate is still what reds when the carve-out breaks. Engine builds are those the pinned
-Playwright 1.59.1 installs.
+**And on 2026-08-13 the operator ruled the block closed.** The reinstated manual session was attempted and abandoned in
+its turn — switching the machine's OS to Japanese proved impractical — and rather than hold a P1 programme on a session
+that will not happen, the operator ruled the two remaining cells **green** and closed `rf2-hic-016`. The session is not
+outstanding and is not scheduled: there is no manual native-IME session in this programme's future, and
+[`../native-ime-manual-witness.md`](../native-ime-manual-witness.md) is now the record of a checklist that was written
+and not run. Nothing about the recurring tier moves: the synthetic three-engine gate is still what reds when the
+carve-out breaks. Engine builds are those the pinned Playwright 1.59.1 installs.
 
 | Engine | Playwright build | Synthetic sequence | Native IME | Session date |
 |---|---|---|---|---|
 | Chromium | `chromium-1217` (147.0.7727.15) | Green | **Witness-verified** — real composition ranges driven over CDP by `bench/hicasso/ime_run.cjs` | n/a — automated |
-| Firefox | `firefox-1511` (148.0.2) | Green | **Pending the manual session** | — |
-| WebKit | `webkit-2272` (26.4) | Green | **Pending the manual session** | — |
+| Firefox | `firefox-1511` (148.0.2) | Green | **Green** — by operator ruling of 2026-08-13 (`rf2-hic-016`) | n/a — no session |
+| WebKit | `webkit-2272` (26.4) | Green | **Green** — by operator ruling of 2026-08-13 (`rf2-hic-016`) | n/a — no session |
 
-`rf2-hic-016` closes when those two cells are filled from the operator's **manual session** on Firefox and WebKit, with
-the date and both engine builds, not before. **Chromium stays the witnessed control.** Anything the session finds
-strange becomes a bead, one per finding, with the engine name on it. No cell here is ever filled from the scripted rig:
-across three armed runs it reached a definite verdict on no engine, and by the 2026-08-12 ruling it will not be run
-again.
+`rf2-hic-016` is **closed**, on that ruling rather than on a session result, and the two cells above are the ruling's.
+**Chromium stays the witnessed control**, and what the bead delivered before the block was ruled is measured rather
+than ruled: the three-browser matrix under PR #7992 — echo, rejection, caret preservation, selection range and
+direction, revision reset, and the blur and unmount edges — was verified on all three engines and is unaffected by any
+of the above. No cell here was ever filled from the scripted rig: across three armed runs it reached a definite verdict
+on no engine, and by the 2026-08-12 ruling it will not be run again.
 
 ### 2.4 The default rule and how a row is upgraded
 

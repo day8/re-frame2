@@ -1,22 +1,35 @@
 # Native IME on Firefox and WebKit — the one bounded manual witness
 
-> **REINSTATED AS THE ACCEPTANCE PATH (operator ruling, 2026-08-12).** This session is the witness again, and the
+> **THE SESSION WAS NOT RUN, AND WILL NOT BE** (operator ruling, 2026-08-13). It was attempted and abandoned —
+> switching the machine's OS to Japanese proved impractical — and rather than hold a P1 programme on a session that
+> will not happen, the operator ruled the Firefox and WebKit native-IME cells of
+> [`product/dispositions.md` §2.3](product/dispositions.md#23-per-control-and-dom-conformance-dispositions) **green**
+> and closed `rf2-hic-016` on that ruling. **Nothing in this document is outstanding, owed, or scheduled.** It is the
+> checklist as it was written — the record of a bounded session sanctioned twice, attempted once, and then ruled
+> unnecessary — rather than an instruction to run one. Read §5 for what each of the eight checks *means*, which field
+> it reads and why that field and not another; read §3.1 before running any `playwright install`, because that hazard
+> is unchanged, applies to anyone installing browsers for any reason, and is still stated only here.
+>
+> **What the ruling does not touch.** The three-browser matrix `rf2-hic-016` delivered under PR #7992 — echo,
+> rejection, caret preservation, selection range and direction, revision reset, and the blur and unmount edges — is
+> witnessed by measurement on all three engines and is untouched by any of this. So is the recurring synthetic gate.
+> Only the native-IME row's disposition moved, and it moved by ruling.
+
+> **REINSTATED AS THE ACCEPTANCE PATH (operator ruling, 2026-08-12; superseded on 2026-08-13 by the note above, which
+> retired the session altogether).** This session is the witness again, and the
 > results that fill §2.3 come from running it. The 2026-08-11 ruling that retired it in favour of a scripted witness is
 > **superseded**: three armed runs established that the modern Microsoft IME will not compose for the Playwright
 > windows on this machine — not from a script, and **not under the operator's physical toggle** — so the 2026-08-10
 > fence quoted in §1 below is restored and real-IME automation is again classified as over-engineering. The scripted
 > rig stays in the tree as the record of that refused avenue; its outcome section
 > ([`native-ime-scripted-witness.md` §11](native-ime-scripted-witness.md#11-the-outcome-and-the-three-walls)) carries
-> the three walls and their run evidence. **Do not attempt further IME automation.**
->
-> **Run this document.** Read §5 for the checks, §6 for the result table, and §7 for what to do with the results. Read
-> §3.1 before running any `playwright install` — that hazard is unchanged and is still stated only here. It also
-> remains the prose statement of what each of the eight checks *means*, which field it reads and why that field and not
-> another.
+> the three walls and their run evidence. **Do not attempt further IME automation.** That last fence is the one part of
+> this note the 2026-08-13 ruling leaves fully operative.
 
-A checklist for a single operator session. It is run **once**, by hand, and its results are written into
-[`product/dispositions.md` §2.3](product/dispositions.md#23-per-control-and-dom-conformance-dispositions). It is not a
-gate, it does not run in CI, and nothing here is scheduled to repeat.
+A checklist written for a single operator session. It was to be run **once**, by hand, with its results written into
+[`product/dispositions.md` §2.3](product/dispositions.md#23-per-control-and-dom-conformance-dispositions); the
+2026-08-13 ruling filled those cells instead. It was never a gate, it never ran in CI, and nothing here was ever
+scheduled to repeat.
 
 ## 1. Why this is a manual session and not a test
 
@@ -251,6 +264,11 @@ happened to accept the draft.
 
 Tick both engines for each check. A cross is as valuable as a tick — it is the finding.
 
+**The table below was never filled, and no later reader should expect it to be.** Its boxes are empty because the
+session was abandoned and then retired by the 2026-08-13 ruling, not because it is waiting on anyone. The disposition
+those boxes were to feed is settled in
+[`product/dispositions.md` §2.3](product/dispositions.md#23-per-control-and-dom-conformance-dispositions).
+
 | # | Check | Firefox | WebKit | Note |
 |---|---|---|---|---|
 | 1 | Draft text visible during composition | [ ] | [ ] | |
@@ -271,9 +289,10 @@ Session date: ______________  Firefox build: ______________  WebKit build: _____
    native-IME block appended there, with the date and both engine builds.
 2. **Anything strange becomes a bead** — per the ruling. One bead per finding, with the engine name on it. A cross in
    the table is not a reason to re-run the session until it passes; it is a defect report with an engine name on it.
-3. `rf2-hic-016` closes when **these** results — this session's, for **Firefox and WebKit** — are recorded in §2.3 with
-   the date and both engine builds. **Chromium stays the witnessed control** and needs nothing from this session. Until
-   then the bead stays open, whatever else has landed against it.
+3. `rf2-hic-016` did not close this way, and no reader should wait for it to. It closed on the operator's ruling of
+   **2026-08-13**, which filled the Firefox and WebKit cells green without a session — see the head note. **Chromium
+   was and remains the witnessed control**, and needed nothing from this session either way. Steps 1 and 2 stand as
+   what would have been done with results this session never produced.
 
 If an engine turns out not to accept Windows IME input at all — the Playwright WebKit shell is a plausible candidate —
 that is itself the finding. Record it as such and file the bead. It is not a reason to start automating.

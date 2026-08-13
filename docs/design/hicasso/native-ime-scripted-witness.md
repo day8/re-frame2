@@ -1,5 +1,16 @@
 # Native IME on Firefox and WebKit — the scripted witness
 
+> **AND THE MANUAL SESSION THIS DOCUMENT HANDS ACCEPTANCE BACK TO WAS ITSELF RETIRED** (operator ruling, 2026-08-13).
+> The session was attempted and abandoned — switching the machine's OS to Japanese proved impractical — and the
+> operator ruled the Firefox and WebKit native-IME cells of
+> [`product/dispositions.md` §2.3](product/dispositions.md#23-per-control-and-dom-conformance-dispositions) **green**,
+> closing `rf2-hic-016` on that ruling. So where this document says acceptance goes back to the manual session — the
+> 2026-08-12 note immediately below, [§1](#1-read-this-before-you-quote-it-as-coverage), [§9](#9-recording-the-results),
+> [§11.5](#115-where-acceptance-goes) — read it as the disposition of **2026-08-12**, superseded the next day: there is
+> no manual native-IME session outstanding and none is scheduled. **Nothing else in this document moves.** The three
+> walls are findings about a machine and are unaffected by a later ruling about a programme, and the fence against
+> further IME automation is if anything firmer than before.
+
 > **THE AVENUE IS REFUSED, AND THIS IS THE RECORD OF HOW** (operator ruling, 2026-08-12). The rig was built to replace
 > the human at the keyboard. Three armed runs established that the OS will not permit that on this machine — the modern
 > Microsoft IME never composed for the Playwright windows, **not even under the operator's physical toggle**. Acceptance
@@ -23,7 +34,7 @@ native-IME session of [`native-ime-manual-witness.md`](native-ime-manual-witness
 | | |
 |---|---|
 | **Is** | the record of a **refused avenue** — a scripted attempt at the one bounded operator session, and the three walls it found ([§11](#11-the-outcome-and-the-three-walls)) |
-| **Is not** | the acceptance path. That is the manual session at [`native-ime-manual-witness.md`](native-ime-manual-witness.md), reinstated on 2026-08-12 |
+| **Is not** | the acceptance path. That went back to the manual session at [`native-ime-manual-witness.md`](native-ime-manual-witness.md) on 2026-08-12, and on 2026-08-13 the operator ruled that session retired and the two cells green — so acceptance is a ruling, and no session is outstanding |
 | **Is not** | a CI gate. It cannot become one |
 | **Was built to need** | Windows, an **installed Japanese IME**, a visible desktop session, and the machine's keyboard focus. All were satisfied, and it still could not compose |
 | **Recurring regression net** | unchanged — the synthetic three-engine gate `implementation/hicasso/testbed/spec.cjs`, driven by `serve-and-run-hicasso-controlled-testbed.cjs` in the required `cljs-hicasso-controlled` job, at **97 checks × 3 engines** per PR |
@@ -194,10 +205,11 @@ handler reds it with the diagnosis in the message.
 
 ## 8. Check 5, and the observation it exists to resolve
 
-> **The observation is no longer this document's to resolve.** Per the 2026-08-12 ruling it is answered by the manual
-> session's **check 5** — see [`native-ime-manual-witness.md` §5](native-ime-manual-witness.md#5-the-checks). What
-> follows is why the script would have been the sharper instrument for it, which remains true and is part of why the
-> avenue was worth trying.
+> **The observation is no longer this document's to resolve, and as of 2026-08-13 it is nobody's.** The 2026-08-12
+> ruling handed it to the manual session's **check 5** ([`native-ime-manual-witness.md` §5](native-ime-manual-witness.md#5-the-checks));
+> the 2026-08-13 ruling retired that session unrun, so the observation **stands unresolved** rather than pending. It is
+> not owed and no work is scheduled against it. What follows is why the script would have been the sharper instrument
+> for it, which remains true and is part of why the avenue was worth trying.
 
 During the operator's partial manual session on 2026-08-11, typing in the `plain` field and pressing ESC **discarded
 nothing — the draft stayed**. The engine was not recorded and the underline / candidate-window discriminator was never
@@ -226,17 +238,22 @@ testbed app is unmodified: the same bundle a human would open, and the trace tab
 ## 9. Recording the results
 
 > **No cell is ever filled from this rig.** It never reached a definite verdict on any engine, and by the 2026-08-12
-> ruling it will not be run again. The cells are filled from the manual session — the close rule below is the amended
-> one, and [§11.5](#115-where-acceptance-goes) is where it is stated in full.
+> ruling it will not be run again. That much is unchanged. What has changed is where the cells came from instead: the
+> 2026-08-12 answer was the manual session, and the **2026-08-13 ruling retired that session and filled the cells
+> green itself**. The numbered close rule below is therefore the amended rule of 2026-08-12 and not what happened; see
+> [§11.5](#115-where-acceptance-goes).
 
 1. The run prints, per engine, a ready-made cell for
    [`product/dispositions.md` §2.3](product/dispositions.md#23-per-control-and-dom-conformance-dispositions) with the
    engine build and the date. It says **Witness-verified** only when every check on the roster reached a definite
    verdict and none crossed; a crossed run reads **Divergence** and an undecided one reads **Not established**. Across
    three armed runs it printed no such cell, because no run was ever complete.
-2. **One bead per finding**, with the engine name on it. Unchanged, and it applies to the manual session.
+2. **One bead per finding**, with the engine name on it. Unchanged as a rule; the manual session it was extended to
+   never ran.
 3. `rf2-hic-016` closes when the **operator's manual session** results for **Firefox and WebKit** are recorded in
-   §2.3 with **date and engine builds**. **Chromium stays the witnessed control.**
+   §2.3 with **date and engine builds**. **Chromium stays the witnessed control.** — *This was the rule as of
+   2026-08-12 and it is not how the bead closed. The session was abandoned, and on 2026-08-13 the operator closed
+   `rf2-hic-016` on a ruling that carries both cells green.*
 
 If an engine turns out not to accept Windows IME input at all — the Playwright WebKit shell is the plausible
 candidate — **that is itself the finding.** Record it, file the bead, and do not go looking for a way around it. That
@@ -349,6 +366,14 @@ work or IME-automation attempt is sanctioned.
 
 ### 11.5 Where acceptance goes
 
+> **Where it actually went (operator ruling, 2026-08-13).** The bounded manual session named below was attempted and
+> abandoned — switching the machine's OS to Japanese proved impractical — and the operator ruled the Firefox and WebKit
+> native-IME cells **green** and closed `rf2-hic-016` rather than hold the programme on a session that will not happen.
+> So the destination this section hands acceptance to no longer exists as an obligation: no session is scheduled, none
+> is owed, and the paragraphs below record where 2026-08-12 pointed rather than where the record now stands. The
+> expectation stated further down — that the first thing the session must record is whether the IME engages at all —
+> was never put to the test, and the honest reading of wall 3 is unchanged by that.
+
 **Back to the bounded manual session.** [`native-ime-manual-witness.md`](native-ime-manual-witness.md) — with its trace
 table, its armed buttons and its discriminating check 7 — **is** the witness. Eight checks per engine, Firefox and
 WebKit, once.
@@ -362,15 +387,22 @@ hardware typing composes in these shells, and given wall 3 the honest expectatio
 session must record is whether the IME engages at all.** That is the finding either way: an engine in which the
 Playwright shell will not accept Windows IME input is a recorded cross and a bead, not a reason to re-run.
 
-The amended, final close rule:
+The close rule as amended on 2026-08-12 — **which is not the rule the bead closed under**:
 
 > `rf2-hic-016` closes when the operator's **manual session** results for **Firefox and WebKit** are recorded in
 > [`product/dispositions.md` §2.3](product/dispositions.md#23-per-control-and-dom-conformance-dispositions) with
 > **date and engine builds**. **Chromium stays the witnessed control.** Any oddity is **one bead per finding, with the
 > engine name on it.**
 
-The operator's unresolved 2026-08-11 ESC observation ([§8](#8-check-5-and-the-observation-it-exists-to-resolve)) is
-resolved by the manual session's **check 5**, per that document.
+**What closed it, on 2026-08-13.** An operator ruling, with no session behind it. The cells carry green by that ruling;
+`rf2-hic-016` is closed; the manual session is retired unrun. What the bead delivered *by measurement* is separate and
+stands: the three-browser matrix under PR #7992 — echo, rejection, caret preservation, selection range and direction,
+revision reset, and the blur and unmount edges — plus the recurring synthetic gate, neither of which this ruling
+touches.
+
+The operator's unresolved 2026-08-11 ESC observation ([§8](#8-check-5-and-the-observation-it-exists-to-resolve)) was to
+have been resolved by the manual session's **check 5**. With that session retired it is not resolved and is not owed to
+anyone: it stays recorded here as an observation whose two readings were never discriminated.
 
 ### 11.6 What becomes of this rig
 
