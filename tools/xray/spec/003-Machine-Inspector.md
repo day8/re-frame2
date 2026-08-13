@@ -1325,7 +1325,9 @@ The user's Static-Machines state survives reloads via **two** localStorage slots
 | `xray.static.machines.selected-id` | bare string (machine-id keyword name; namespaced ids store as `ns/name`) | currently selected machine-id; mirrors the `xray.mode` pattern — bare string keeps it cheap to inspect from devtools |
 | `xray.static.machines.sub-mode-by-id` | EDN map `{machine-id sub-mode}` | per-machine sub-mode choice. EDN because the map will grow new keys as new sub-modes land; modes are an enum but the per-machine keying needs structured serialisation |
 
-`hydrate!` is called on Static-Machines `install!` so the first render after a reload restores the prior selection + per-machine sub-mode choices. Test fixtures call `clear!` in their `:each` setup.
+Both slots are lifted into `:rf/xray`'s app-db by `mount.cljs`'s `::hydrate-static-machines` first-mount hook, so the first render after a reload restores the prior selection + per-machine sub-mode choices. Test fixtures call `clear!` in their `:each` setup.
+
+**The hook is the landing site, not `install!` (rf2-qw0o).** Static-Machines `install!` also calls `hydrate!`, but `install!` runs from `registry/register-xray-handlers!` — orchestrator time, *before* `mount/ensure-xray-frame!` has registered `:rf/xray`. A dispatch naming a frame that does not exist is not queued for replay: it is refused with a promoted `:rf.error/frame-destroyed` and dropped. Pre-fix this section promised a restore that never happened — the selection was silently discarded on every reload, and the refusal surfaced one console error per Xray-preloaded dev page load. `hydrate!` therefore guards on the frame being registered (the same guard its two siblings `views.resizable-table/hydrate!` and `frame-switcher/hydrate!` already carry), which makes the `install!` call an honest no-op on the production path and a live hydrate wherever the frame already exists — a shadow-cljs `:after-load`, or a test installing handlers against a live frame. Durable-preference hooks are ordered after the transient-filter reset; see [`018-Event-Spine.md`](018-Event-Spine.md) §2.5 for the durable-vs-transient split.
 
 ### Frame isolation
 
