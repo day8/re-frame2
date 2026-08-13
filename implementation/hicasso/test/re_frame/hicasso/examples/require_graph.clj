@@ -65,14 +65,35 @@
   application is on that chain by construction — that is what wiring it
   in means — and the commit that wires it recompiles the consumer.
 
+  ## And the WARM-CACHE boundary, which is worth stating exactly
+
+  [[re-frame.hicasso.examples.typeahead.census]] gives the structural
+  argument these expansions rest on: the calling test `:require`s every
+  namespace it reads about, so editing one recompiles the test and
+  re-expands the macro against the new bytes. That argument covers an
+  EDIT to a namespace already on the chain. It does not cover a file
+  APPEARING in or DISAPPEARING from the directory while nothing on the
+  chain changes, because shadow-cljs keys its cache on source hashes and
+  a directory listing is not one — observed while rf2-ccuw was written:
+  a plant deleted from disk was still named by a warm expansion.
+
+  The boundary is narrow and it falls on the safe side. CI compiles
+  cold, so the gate is always read from the directory as it is. Locally,
+  a file that is genuinely joining an application is joining it by being
+  `:require`d — an edit on the chain — which re-expands this macro in
+  the same compile. The residue is a file that no namespace references
+  at all, and until something references it, it is not what the fence is
+  a claim about.
+
   ## Why it sits at the `examples/` root (rf2-urgk)
 
   It was written twice. rf2-hic-025 wrote it for the slice, rf2-hic-086
   wrote it again for the Todo witness, and neither branch could
   `:require` the other's namespace because the two beads ran in parallel
   off one base. Both copies were the same file bar the docstring. This
-  is the one copy, at the root both applications sit under, consumed by
-  all three `surface-cljs-test` namespaces.
+  is the one copy, at the root every witness sits under, consumed by all
+  six `surface-cljs-test` namespaces — the slice, the Todo, the forms
+  recipes, the ledger, the typeahead, and the editor/grid pair.
 
   ## Scope
 
