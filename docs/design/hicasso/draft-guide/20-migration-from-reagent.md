@@ -67,14 +67,21 @@ contract against the component library's documentation.
 
 Everything above describes the **fixer**, and its population — the `[:>]`
 family — is not what a Reagent codebase is mostly made of. Run over this
-repository's own 81-file example corpus the fixer reports **zero entries**,
+repository's own 88-file example corpus the fixer reports **zero entries**,
 because the corpus crosses into React nowhere. A migrator reading only that
-sees 81 files the report never mentions.
+sees 88 files the report never mentions.
 
 So the same run also emits a **census**, under `:census`, whose population is
 the Reagent API **call site**: `r/atom`, `r/with-let`, `r/create-class`,
 `r/as-element`, `r/cursor`, `r/reactify-component`, root mounting, and the rest
-of the roster. On that same corpus it reports **62 sites across 28 files**.
+of the roster. On that same corpus it reports **59 sites across 28 files**.
+Both figures are measurements of a corpus that keeps growing; these were taken
+at `e337a1d`.
+
+A **call site is source that runs**. `#_(r/atom 0)`, `'(r/atom 0)` and
+`(comment (r/atom 0))` parse into the same nodes a live call does, and the
+census prunes all three rather than counting them. A syntax-quote is not
+pruned: a macro's template emits real call sites at every expansion.
 
 | Half | Population | Addressed at | Verdicts |
 | --- | --- | --- | --- |
@@ -96,6 +103,12 @@ Reagent's — a vendored inlined copy, for instance — is
 `:unresolved-reagent-require` at the `ns` form, and every roster-named call in
 that file is `:unresolved-alias`. The tool does not guess that such a copy is
 `reagent.core`, because a wrong binding rewrites working code.
+
+Every legal way of binding the Reagent name is read: an alias, a `:refer` list,
+`:refer :all`, a `:rename`, and any of them behind a reader conditional. A
+`:rename` reports under the roster name rather than the local spelling, and it
+releases the original — after `:refer [atom] :rename {atom ratom}`, `(ratom 0)`
+is Reagent's and a bare `(atom 0)` is `clojure.core`'s.
 
 What it cannot name it does not count, and says so. A Form-2 component is a
 `defn` returning a `fn` with nothing else marking it, so the census counts the

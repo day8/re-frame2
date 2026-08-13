@@ -299,6 +299,114 @@
       (is (= [:local-reactive-cell] (classes src "app/util.cljs"))))))
 
 ;; ---------------------------------------------------------------------------
+;; A call SITE is source that runs (merged-PR audit #8140)
+;; ---------------------------------------------------------------------------
+
+(deftest inert-source-is-not-a-call-site
+  (testing "MERGED-PR AUDIT #8140's first finding. The walk advanced with an
+            unconditional `z/next`, so a discard, a quote and a `(comment …)`
+            body — each of which parses into the same nodes a live call does —
+            reported IDENTICALLY to the live call. None is a call site, and a
+            census of call sites that cannot tell them apart is a census whose
+            every number is an upper bound nobody stated."
+    (let [hdr "(ns app.p\n  (:require [reagent.core :as r]))\n"]
+      (is (= [:local-reactive-cell] (classes (str hdr "(def a (r/atom 0))\n") "app/p.cljs"))
+          "the live call is the control this is measured against")
+      (is (= [] (classes (str hdr "(def a '(r/atom 0))\n") "app/p.cljs"))
+          "reader quote")
+      (is (= [] (classes (str hdr "(def a (quote (r/atom 0)))\n") "app/p.cljs"))
+          "the `quote` special form spells the same thing")
+      (is (= [] (classes (str hdr "(def a 1)\n#_(r/atom 0)\n") "app/p.cljs"))
+          "`#_` discard")
+      (is (= [] (classes (str hdr "(comment (r/atom 0))\n") "app/p.cljs"))
+          "`(comment …)` body")))
+
+  (testing "pruning a subtree must not prune what FOLLOWS it — the walk resumes
+            at the next sibling, and at the enclosing form's next sibling when
+            the inert form was last"
+    (let [hdr "(ns app.p\n  (:require [reagent.core :as r]))\n"]
+      (is (= [:local-reactive-cell]
+             (classes (str hdr "#_(r/atom 0)\n(comment (r/atom 1))\n'(r/atom 2)\n"
+                           "(def z (r/atom 3))\n")
+                      "app/p.cljs"))
+          "three inert forms in a row, then the live one")
+      (is (= [:with-let]
+             (classes (str hdr "(defn f []\n  (comment (r/atom 0))\n"
+                           "  (r/with-let [_ 1] [:div]))\n")
+                      "app/p.cljs"))
+          "inert form NESTED inside a live one")
+      (is (= [:local-reactive-cell]
+             (classes (str hdr "(def z (r/atom 3))\n(comment (r/atom 0))\n") "app/p.cljs"))
+          "the inert form ends the file: the walk terminates rather than looping"))))
+
+(deftest a-syntax-quote-is-still-a-call-site
+  (testing "the boundary, stated as a test so it is a decision and not an
+            oversight. `#_`, `'` and `(comment …)` exist to NOT be code. A
+            syntax-quote is a macro's template: the form it emits is a real
+            call site at every expansion, and its `~unquote`s run outright.
+            The tool prunes the three and stops."
+    (let [src (str "(ns app.p\n  (:require [reagent.core :as r]))\n"
+                   "(defmacro m [] `(r/atom 0))\n")]
+      (is (= [:local-reactive-cell] (classes src "app/p.clj"))))))
+
+;; ---------------------------------------------------------------------------
+;; Legal libspec options that bound nothing (merged-PR audit #8140)
+;; ---------------------------------------------------------------------------
+
+(deftest refer-all-binds-the-whole-roster
+  (testing "`:refer :all` is legal and this repository writes none, so nothing
+            reached it: `ns-context` took `:refer` only when it was a
+            collection, `:all` fell through, and every bare Reagent call in
+            such a file went unreported with no diagnostic at all."
+    (let [src (str "(ns app.p\n"
+                   "  (:require [reagent.core :refer :all]))\n"
+                   "\n"
+                   "(def a (atom 0))\n"
+                   "(defn f [] (with-let [_ 1] [:div]))\n")]
+      (is (= [:local-reactive-cell :with-let] (classes src "app/p.clj")))))
+
+  (testing "and it binds only the namespace it is written on"
+    (let [src (str "(ns app.p\n"
+                   "  (:require [clojure.string :refer :all]))\n"
+                   "\n"
+                   "(def a (atom 0))\n")]
+      (is (= [] (classes src "app/p.clj"))))))
+
+(deftest a-rename-binds-the-new-spelling-and-releases-the-old
+  (testing "`:refer [atom] :rename {atom ratom}` binds `ratom` to
+            `reagent.core/atom`. The tool bound `atom` — a name the file no
+            longer uses for Reagent — so the finding was missed at the call
+            AND invented at the one place `clojure.core/atom` still lives."
+    (let [src (str "(ns app.p\n"
+                   "  (:require [reagent.core :refer [atom] :rename {atom ratom}]))\n"
+                   "\n"
+                   "(def a (ratom 0))\n"
+                   "(def b (atom 0))\n")
+          {:keys [entries]} (census/scan src "app/p.clj")]
+      (is (= [:local-reactive-cell] (mapv :class entries)))
+      (is (= [4] (mapv :line entries)) "the renamed call, not the core one")
+      (testing "and it is reported under the ROSTER name, which is the only one
+                with a class and a recovery sentence"
+        (is (= {:api "atom"} (:detail (first entries)))))))
+
+  (testing "the two compose: `:refer :all` binds everything the rename did not
+            take away"
+    (let [src (str "(ns app.p\n"
+                   "  (:require [reagent.core :refer :all :rename {atom ratom}]))\n"
+                   "\n"
+                   "(def a (ratom 0))\n"
+                   "(def b (atom 0))\n")]
+      (is (= [4] (mapv :line (:entries (census/scan src "app/p.clj")))))))
+
+  (testing "a `:rename` with no `:refer` binds nothing, which is the effect
+            Clojure gives it"
+    (let [src (str "(ns app.p\n"
+                   "  (:require [reagent.core :as r :rename {atom ratom}]))\n"
+                   "\n"
+                   "(def a (ratom 0))\n")]
+      (is (= [] (classes src "app/p.clj"))))))
+
+;; ---------------------------------------------------------------------------
 ;; Determinism, and a summary that cannot hide an empty bucket
 ;; ---------------------------------------------------------------------------
 

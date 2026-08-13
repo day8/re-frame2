@@ -431,36 +431,70 @@
   the exact roster in `reagent-namespaces` binds, so re-frame-10x's
   vendored `day8.re-frame-10x.inlined-deps.reagent.v1v2v0.reagent.core`
   still binds NOTHING and is still reported unresolved by the census. That
-  is a different case and the tool must not guess at it."
+  is a different case and the tool must not guess at it.
+
+  **`:refer :all` and `:rename` bind too, and both used to go silently
+  missing** (merged-PR audit #8140). They are legal libspec options this
+  repository happens not to write, so nothing here reached them: the tool
+  answered `#{}` for the one and bound the wrong spelling for the other,
+  and a file's whole Reagent surface read as clean. Two more keys carry
+  them, each read as Clojure reads it:
+
+  * `:refer-all? true` — every roster name in this file is Reagent's.
+  * `:renamed {local original}` — `:refer [atom] :rename {atom ratom}`
+    binds `ratom` and leaves `atom` as `clojure.core`'s, so the original
+    is dropped from `:referred` rather than left sitting in it. A
+    `:rename` with no `:refer` binds nothing, which is the effect Clojure
+    gives it."
   [root-node]
   (reduce
    (fn [acc spec]
      (let [spec (if (symbol? spec) [spec] spec)]
        (if (and (sequential? spec) (contains? reagent-namespaces (first spec)))
-         ;; Pairwise rather than `(apply hash-map …)`, and `:refer` taken
-         ;; only when it is a collection: this reads source nobody in this
-         ;; repository wrote, and a lone trailing option or `:refer :all`
+         ;; Pairwise rather than `(apply hash-map …)`: this reads source
+         ;; nobody in this repository wrote, and a lone trailing option
          ;; must leave the tool answering less, never throwing.
-         (let [opts (into {} (comp (partition-all 2) (filter #(= 2 (count %))) (map vec))
-                          (rest spec))]
+         (let [opts       (into {} (comp (partition-all 2) (filter #(= 2 (count %))) (map vec))
+                                (rest spec))
+               refer-all? (= :all (:refer opts))
+               referred   (when (sequential? (:refer opts))
+                            (filter symbol? (:refer opts)))
+               renamed    (when (and (or refer-all? referred) (map? (:rename opts)))
+                            (into {} (for [[from to] (:rename opts)
+                                           :when (and (symbol? from) (symbol? to))]
+                                       [to from])))]
            (cond-> (update acc :aliases conj (first spec))
-             (symbol? (:as opts))          (update :aliases conj (:as opts))
-             (sequential? (:refer opts))   (update :referred into (:refer opts))))
+             (symbol? (:as opts)) (update :aliases conj (:as opts))
+             referred             (update :referred into
+                                          (remove (set (vals renamed)) referred))
+             refer-all?           (assoc :refer-all? true)
+             (seq renamed)        (update :renamed merge renamed)))
          acc)))
-   {:aliases #{} :referred #{}}
+   {:aliases #{} :referred #{} :refer-all? false :renamed {}}
    (map sexpr-safe (some-> (ns-form-node root-node) require-specs))))
 
 (defn reagent-call?
-  "Is `node` a literal call to Reagent's `sym`, through an alias this
-  file's `ns` form actually binds?"
-  [node sym {:keys [aliases referred]}]
+  "Is `node` a literal call to Reagent's `sym`, through a symbol this
+  file's `ns` form actually binds?
+
+  Three ways a bare head can be Reagent's, and only three: the `ns` form
+  `:refer`red the name, it `:refer :all`ed the namespace, or it renamed
+  the name to this spelling. The rename case is the one where the head
+  and the roster key DIFFER — `(ratom 0)` is `reagent.core/atom` — and
+  the same rename is what takes the ORIGINAL spelling away, so under
+  `:refer :all :rename {atom ratom}` a bare `(atom 0)` is
+  `clojure.core`'s again."
+  [node sym {:keys [aliases referred refer-all? renamed]}]
   (and (list-node? node)
        (let [h (sexpr-safe (element-at node 0))]
          (and (symbol? h)
-              (= (name h) (name sym))
               (if-let [q (namespace h)]
-                (contains? aliases (symbol q))
-                (contains? referred sym))))))
+                (and (= (name h) (name sym)) (contains? aliases (symbol q)))
+                (or (= sym (get renamed h))
+                    (and (= (name h) (name sym))
+                         (or (contains? referred sym)
+                             (and refer-all?
+                                  (not (contains? (set (vals renamed)) h)))))))))))
 
 (defn- subtree-has-reagent-call?
   [node sym ctx]

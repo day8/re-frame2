@@ -33,17 +33,19 @@ consumer's code needs a human decision is a tool that gets run once.**
 
 Everything below this section is about the **fixer**, whose population is the
 `[:>]`-family crossing. That population is not a Reagent codebase, and the
-difference is not small. Run over this repository's own 81-file example corpus
+difference is not small. Run over this repository's own 88-file example corpus
 the fixer reports **zero entries** — the corpus crosses into React nowhere — and
-a migrator reading that report sees eighty-one files that are not mentioned.
+a migrator reading that report sees eighty-eight files that are not mentioned.
 
 So the same run also produces a **census**, under `:census` in the report, whose
 population is the **Reagent API call site**: `r/atom`, `r/with-let`,
 `r/create-class`, `r/as-element`, `r/cursor`, `r/reactify-component`, root
 mounting, and the rest of the roster in
 `src/re_frame/migration/hicasso/census.clj`. On that same corpus it reports
-**62 sites across 28 files**, one of them the `with-let` whose teardown no
-mechanical edit can carry.
+**59 sites across 28 files**, one of them the `with-let` whose teardown no
+mechanical edit can carry. Both are measurements of a corpus that keeps
+growing, taken here at `e337a1d`; the corpus was 81 files when the census
+landed.
 
 | Half | Population | Addressed at | Verdicts |
 |---|---|---|---|
@@ -75,6 +77,25 @@ name, such as `day8.re-frame-10x.inlined-deps.reagent.v1v2v0.reagent.core` — i
 roster-named call in the file reported as `:unresolved-alias`. The tool does not
 guess that such a copy is `reagent.core`: a wrong binding rewrites working code,
 which is worse than naming what it cannot resolve.
+
+**Every legal way of binding the name is read.** An alias, a `:refer` list,
+`:refer :all`, a `:rename`, and any of them behind a reader conditional.
+`:refer :all` and `:rename` are shapes nobody in this repository writes, so
+nothing here reached them and both bound nothing at all — one file's whole
+Reagent surface reading as clean, with no diagnostic (merged-PR audit #8140). A
+renamed call reports under its ROSTER name, which is the only one with a class
+and a recovery sentence, and the rename releases the original: after
+`:refer [atom] :rename {atom ratom}`, `(ratom 0)` is Reagent's and a bare
+`(atom 0)` is `clojure.core`'s again.
+
+**A CALL site is source that RUNS.** `#_(r/atom 0)`, `'(r/atom 0)` and
+`(comment (r/atom 0))` parse into exactly the nodes a live call does, and the
+census used to report all four identically — an advertised estimand with a
+one-line counterexample (merged-PR audit #8140). The three are pruned. A
+syntax-quote deliberately is not: a macro's template emits real call sites at
+every expansion, and its `~unquote`s run outright. The tool stops at the three
+shapes whose whole purpose is to not be code; a `(when false …)` or a dead
+`cond` branch is the general problem and this is not an evaluator.
 
 **What it cannot name, it does not count.** A Form-2 component is a `defn`
 returning a `fn` and nothing else marks it; a structural test for that would
@@ -249,6 +270,14 @@ census against the text it is supposed to outperform: `^:cljstyle/ignore (ns …
 was not being read as an `ns` form at all, so **the whole file's aliases went
 unbound** — W4 and W5 dead in it, every Reagent API in it unnamed, and nothing
 looking wrong.
+
+Merged-PR audit #8140 added five direct controls, because the suite that was
+green over all of the above had no case for any of them: the three inert
+extents, `:refer :all`, and `:rename`. Each is one line of source a reader can
+write, and each is a place the advertised estimand was false — three counted,
+two missed. The controls that PRUNE come paired with controls that the pruning
+does not over-reach, since a walk that skips too much is the first failure
+mode arriving from the other side.
 
 ## One dependency, deliberately
 
