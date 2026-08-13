@@ -30,8 +30,10 @@
 
   ## Waiting
 
-  On the condition, never on a duration: `re-frame.test-support/poll-until`,
-  for the same reason the slice's flow suite gives. The stand-in service
+  On the condition, never on a duration: `hm/settle-until!`, the
+  facade's door for work the router has merely enqueued (a bounded
+  `re-frame.test-support/poll-until` and then the flush), for the same
+  reason the slice's flow suite gives. The stand-in service
   replies through `rf/dispatch`, exactly as a real HTTP client does, so
   every reply arrives through a router drain that `hm/settle!` cannot
   reach and a virtual clock deliberately does not drive.
@@ -127,10 +129,6 @@
    (hm/mount! [:> react/StrictMode {} [views/screen {}]]
               {:initial-events initial-events})))
 
-(defn- settled [m pred label]
-  (-> (test-support/poll-until pred {:label label})
-      (.then (fn [_] (hm/settle! m)))))
-
 ;; ---------------------------------------------------------------------------
 ;; The premise — the page really is a typeahead
 ;; ---------------------------------------------------------------------------
@@ -145,7 +143,8 @@
       (let [m (mount-screen!)]
         (type-into! m "ca")
         (is (nil? (node m ".suggestion")) "nothing is on screen yet")
-        (-> (settled m #(node m ".suggestion") "the debounced search replies")
+        (-> (hm/settle-until! m #(node m ".suggestion")
+                              {:label "the debounced search replies"})
             (.then (fn [_]
                      (is (= 1 (count (searches))) "one keystroke burst, one request")
                      (is (= 3 (count (nodes m ".suggestion")))
@@ -154,7 +153,8 @@
                      (hm/settle! m)
                      (is (nil? (node m ".suggestion"))
                          "choosing closes the panel, so the suggestion read is gone")
-                     (settled m #(node m ".detail-name") "the detail replies")))
+                     (hm/settle-until! m #(node m ".detail-name")
+                                       {:label "the detail replies"})))
             (.then (fn [_]
                      (is (= "Cataract" (text m ".detail-name")))
                      (-> (hm/unmount! m) (hm/assert-clean!))))
@@ -188,7 +188,8 @@
         (hm/dispatch-and-settle! m [::events/focus])
         (is (= 1 (count (searches)))
             "an intent acquires; a commit does not")
-        (-> (settled m #(node m ".suggestion") "the reply lands")
+        (-> (hm/settle-until! m #(node m ".suggestion")
+                              {:label "the reply lands"})
             (.then (fn [_] (-> (hm/unmount! m) (hm/assert-clean!))))
             (.then done))))))
 
@@ -250,7 +251,8 @@
     (async done
       (let [m (mount-strict!)]
         (type-into! m "ca")
-        (-> (settled m #(node m ".suggestion") "the debounced search replies")
+        (-> (hm/settle-until! m #(node m ".suggestion")
+                              {:label "the debounced search replies"})
             (.then (fn [_]
                      (is (= 1 (count (searches)))
                          "one request, although every body on the page ran

@@ -10,13 +10,14 @@
       (:require [re-frame.hicasso.test :as ht]        ;; L1–L2
                 [re-frame.hicasso.test.mounted :as hm]) ;; L3
 
-  ## Eight doors and one handle
+  ## Nine doors and one handle
 
       (hm/mount! form opts)             → handle
       (hm/hydrate! form opts)           → promise of handle
       (hm/render! handle form)          → handle
       (hm/dispatch-and-settle! h event) → handle
       (hm/settle! handle)               → handle
+      (hm/settle-until! handle pred)    → promise of handle
       (hm/advance-clock! handle ms)     → handle
       (hm/unmount! handle)              → handle
       (hm/assert-clean! handle)         → promise of the residue report
@@ -99,8 +100,8 @@
   user-event sequence, a raw `.click`, a timer you fired yourself — call
   [[settle!]] before you assert. It commits what already reached React
   and no more: work the router has merely ENQUEUED — a route-link click,
-  any async reply — lands on a later task, and [[settle!]] names what to
-  wait on instead.
+  any async reply — lands on a later task, and [[settle-until!]] is the
+  door for that.
 
   ## Settled, not `act`
 
@@ -190,6 +191,7 @@
             [re-frame.hicasso.impl.inventory :as inventory]
             [re-frame.hicasso.impl.mount :as mount]
             [re-frame.hicasso.impl.roots :as roots]
+            [re-frame.test-support :as test-support]
             ["react-dom" :as react-dom]
             ["react-dom/client" :as react-dom-client]))
 
@@ -1009,18 +1011,78 @@
   and [[advance-clock!]] deliberately does not drive the task the drain
   rides on.
 
-  So wait on the CONDITION rather than on this door.
-  `re-frame.test-support/poll-until` is the supported condition-poll —
-  a published core door, not an internal — and it returns a promise that
-  composes with `cljs.test/async`. This facade has no verb of its own
-  for *work is enqueued in the router; let it land*, and whether it
-  should is **rf2-6m4w**, which owns that question.
+  So wait on the CONDITION rather than on this door: [[settle-until!]] is
+  this facade's verb for *work is enqueued in the router; let it land*,
+  and it is this flush with a bounded condition-poll in front of it.
 
   The flush is React's and is therefore page-wide; the handle is taken so
   that every door in this facade reads the same way."
   [handle]
   (mount/settle!)
   handle)
+
+(defn settle-until!
+  "**Wait for `pred` to hold, then [[settle!]] once, and answer a promise
+  of the SAME handle.** The third work-kind's door: [[settle!]] commits
+  work React already holds, [[dispatch-and-settle!]] drives a dispatch
+  this facade makes itself, and this one waits out work the router has
+  merely ENQUEUED.
+
+      (.click (node m \".article-link\"))
+      (-> (hm/settle-until! m #(= routes/article (read-sub m [:rf.route/id]))
+                            {:label \"the route-link's navigate to drain\"})
+          (.then (fn [m] (is (= \"Intents are data\" (text m \".article-title\")))))
+          (.catch (fn [e] (is false (ex-message e)) nil))
+          (.then (fn [_] (-> (hm/unmount! m) (hm/assert-clean!) (.then done)))))
+
+  `opts` is `re-frame.test-support/poll-until`'s, passed through
+  UNCHANGED — `:timeout-ms` (default 2000), `:interval-ms`, `:label` —
+  and so is the rejection: a condition that never holds fails at the
+  deadline with that poll's own canonical
+  `:rf.error/poll-until-timeout`, carrying `:elapsed-ms` and the
+  `:label` that names the assertion site. Nothing here retries,
+  schedules or times anything; the core `poll-until` suite is the
+  authority for all three, and this door COMPOSES it rather than
+  copying it (`88b20f1d22` deleted exactly such a duplicate).
+
+  ## Why the trailing flush is a correctness step and not sugar
+
+  The condition reads app-db, which moves when the drained router
+  handlers run — but React's commit for the store notification may still
+  be pending at the instant the poll answers, so a DOM read on the next
+  line flakes without a flush. Poll-then-flush is the pairing this door
+  packages, exactly as [[settle!]] packages one `flushSync`. Five test
+  suites had spelled it locally before it lived here.
+
+  ## Condition and deadline — which is why it is not `drained`
+
+  There is no fixed tick count to wait: an fx that replies with a
+  dispatch may itself schedule another, so *how many drains* is a guess
+  and a guess is the flake this facade exists to keep out. What a caller
+  can honestly state is a CONDITION and a DEADLINE, and that is all this
+  door takes. `drained` / `drain!` would promise queue QUIESCENCE, which
+  is neither what is waited for nor what is answered; `settle-until!`
+  says the true thing and composes with [[settle!]]'s vocabulary
+  (naming ledger, row 42).
+
+  ## It answers a promise, and that is the facade's existing line
+
+  The drain rides `interop/next-tick`, a MACROTASK, so no synchronous
+  door could reach it and a `.then` alone cannot either — a microtask
+  checkpoint runs ahead of the task. `{:clock true}` is not an answer
+  either: the clock replaces the very `setTimeout` this poll's interval
+  uses, and firing a timer only ENQUEUES the reply. A clocked mount and
+  wall-clock polling are alternative test strategies, not a pair.
+
+  So this door falls where [[hydrate!]], [[residue]] and
+  [[assert-clean!]] already are — the promise side of the facade's
+  sync/promise line — and keeps the handle-first threading with them.
+  Put the rejection handler UPSTREAM of the single trailing step that
+  calls `done`; `re-frame.test-support/poll-until` says why."
+  ([handle pred] (settle-until! handle pred nil))
+  ([handle pred opts]
+   (.then (test-support/poll-until pred opts)
+          (fn [_] (settle! handle)))))
 
 (defn advance-clock!
   "Move this mount's virtual clock forward by `ms`, run everything that

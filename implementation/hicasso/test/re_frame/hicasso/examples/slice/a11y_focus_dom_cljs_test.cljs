@@ -89,14 +89,6 @@
 
 (defn- read-sub [m query-v] (rf/subscribe-once query-v {:frame (:frame m)}))
 
-(defn- drained
-  "Wait for `pred`, then flush React — the router-drain counterpart of
-  `hm/settle!`, for the one row here whose reply arrives on a macrotask.
-  `flow-dom-cljs-test`'s helper of the same name and for the same reason."
-  [m pred label]
-  (-> (test-support/poll-until pred {:label label})
-      (.then (fn [_] (hm/settle! m)))))
-
 (defn- finish-after
   "End the row when `p` settles, reporting a rejection as a failure
   rather than letting a deadline hang the run — and tearing the mount
@@ -286,9 +278,10 @@
         ;; wait for the region to leave `:saving`, then assert the button
         ;; came BACK, which is what makes the row above about a transition
         ;; rather than about a button that is simply always disabled.
-        (-> (drained m
-                     #(not= :saving (:status (read-sub m [::subs/save-state "intents"])))
-                     "the stand-in server's reply for intents")
+        (-> (hm/settle-until!
+              m
+              #(not= :saving (:status (read-sub m [::subs/save-state "intents"])))
+              {:label "the stand-in server's reply for intents"})
             (.then (fn [_]
                      (is (false? (.-disabled (node m ".save"))))
                      (is (contains? (set (focus-order m)) "save"))))
