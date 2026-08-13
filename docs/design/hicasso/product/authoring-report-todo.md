@@ -82,7 +82,9 @@ The slice found this on a save and a discard against a stand-in server, and its 
 
 So the finding is wider than the slice could show: the missing L3 door is needed by an application that never talks to anything. The mounted suite here uses `re-frame.test-support/poll-until` through one helper, `drained`, for the same reason.
 
-*The candidate remedy stands unchanged and belongs to rf2-hic-027:* an `hm/drain!`, or a `:until` option on `settle!`.
+*The candidate remedy stands unchanged:* an `hm/drain!`, or a `:until` option on `settle!`.
+
+**Owner: rf2-6m4w.** This line first named `rf2-hic-027`, which had closed on 2026-08-10 — before this report was written — so the remedy was assigned to a bead that could not carry it. rf2-jljf corrected `settle!`'s docstring and filed rf2-6m4w as the owner; the reasons neither candidate spelling survives as written are recorded there.
 
 ### 7. The virtual clock and `poll-until` cannot be used together — CONFIRMED by construction
 
