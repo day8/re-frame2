@@ -250,11 +250,16 @@ the editor's reads has already done it. `::h/revision`'s population is therefore
 every other read the body makes `=`**, which is neither report's original statement and is now in
 [`facade-freeze.md` §5](facade-freeze.md#5-what-is-not-in-the-ordinary-surface).
 
-**One thing the fix opened and did not close**, recorded here because it is this section's business:
-the corrective worker found that `examples/editor`'s `what-the-revision-bump-is-actually-load-bearing-FOR`
-presents itself as the measured counterpart to this finding and **stayed green on a deleted bump too**.
-That is `rf2-5h9k`, it is outside Phase 2's witnesses, and the slice report now carries a caution
-against writing the guide row from it until it is settled.
+**One thing the fix opened, and it has since closed**, recorded here because it is this section's
+business: the corrective worker found that `examples/editor`'s
+`what-the-revision-bump-is-actually-load-bearing-FOR` presented itself as the measured counterpart to
+this finding and **stayed green on a deleted bump too**. That was `rf2-5h9k`, outside Phase 2's
+witnesses, and it no longer holds. PR #8087 **replaced** the row rather than repairing it: the old row
+typed into the field, and a keystroke's divergence is converged inside the turn that typed it, so the
+row re-read a value nothing had disturbed. The replacement drifts the field with an **eventless**
+write and dirties the form from another field, which leaves `::subs/revision` the only one of that
+boundary's two reads the discard touches — and it reds by name with the bump deleted. The caution the
+slice report carried is released there too.
 
 ## 5. The misses
 
