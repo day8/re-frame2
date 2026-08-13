@@ -19,8 +19,8 @@
 # site: on failure the step now says, on the checks page, that no gate ran.
 #
 # "No gate ran" is the whole of the claim. It is deliberately NOT "not this
-# diff" — see the next section, which is the correction the merged-PR audit of
-# #8061 reopened this bead for.
+# diff" — see "What the annotation can support" below, which is the correction
+# the merged-PR audit of #8061 reopened this bead for.
 #
 # Every call site is one line:
 #
