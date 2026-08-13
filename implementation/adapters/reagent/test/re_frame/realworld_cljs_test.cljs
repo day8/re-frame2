@@ -1829,8 +1829,12 @@
                  draft)
               "…nor rewrite beta's draft, asserted whole because the bug is never the
                leaf you looked at")
-          (is (= draft (:baseline slice))
-              "…nor beta's baseline, which is what dirty-detection compares against")
+          (is (= {:title "Beta" :description "About beta" :body "Body of beta" :tagList "beta"}
+                 (:baseline slice))
+              "…nor beta's baseline, which is what dirty-detection compares against —
+               named whole and INDEPENDENTLY of the draft, because the leafwise seed
+               moves the two in lockstep, so a `(= draft baseline)` assertion would
+               still pass with both rewritten to alpha's")
           (is (false? (rf/compute-sub [:editor/dirty?] (rf/frame-state-value f)))
               "so the form stays clean and `:can-leave` still lets the reader go")
           (is (empty? (:touched slice))
