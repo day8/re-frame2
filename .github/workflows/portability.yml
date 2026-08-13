@@ -33,6 +33,17 @@
 # base-branch tip on a PR merge commit and the previous tip on a push, so
 # the same one rule covers both without a second code path.
 #
+# THIS WORKFLOW IS IN NO RETIREMENT STAGE, and that is a measured conclusion
+# rather than an omission. It was audited alongside `freehand-bench.yml` and
+# `freehand-conformance.yml`, whose staged retirement order lives in
+# `TESTING.md` § "Retirement order for the Freehand CI lanes"; all three jobs
+# here enforce live recorded rules over the whole tracked tree, so none of them
+# is retirable at any stage. The audit reached this file only because the
+# third job needed retitling (rf2-p3zf, done). One trap for a future reader:
+# the ai/ ratchet's declared end state is REACHED — `git ls-files ai/` is empty
+# — and the ratchet is now the only thing holding it there, which is a reason
+# to keep the job, not a reason to conclude it has nothing left to do.
+#
 # NOTE for post-merge-workflow-sanity.yml: this workflow already runs on
 # push to main, so it is on that canary's EXCLUDE list — re-dispatching it
 # would only duplicate the push run.

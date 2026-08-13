@@ -77,8 +77,16 @@ name: freehand bench
 # `re-frame.freehand.bench.*` DOM suites run in a browser HERE and nowhere else
 # in CI, because `:browser-test` excludes them by negative lookahead
 # (rf2-mf4uy), so retiring their runner without deciding what becomes of them
-# is the one outcome nothing else would have announced. The staged order lives
-# in rf2-8z9q; this comment does not authorise any part of it.
+# is the one outcome nothing else would have announced.
+#
+# THAT DECISION IS THIS FILE'S RETIREMENT TRIGGER, and it is written down:
+# `TESTING.md` § "Retirement order for the Freehand CI lanes" carries the four
+# stages and a checkable trigger for each. This file is STAGE 1, and its trigger
+# is "the seven `re-frame.freehand.bench.*` DOM suites have a ruled
+# destination" — the coverage question above, not a date and not a citation
+# count, which the same section explains is already satisfied and therefore
+# decides nothing. Stage 1 does NOT wait for the freehand source tree to go
+# (that is stage 2). This comment does not authorise any part of it.
 #
 # THE PIN. `runs-on` names an explicit runner image rather than
 # `ubuntu-latest`, and `RF2_HARDWARE_CLASS` names the class the numbers may
