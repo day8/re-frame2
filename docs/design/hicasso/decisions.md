@@ -1165,7 +1165,10 @@ baseline, but "composition survives value reassertion" is false for every
 implementation the moment the model disagrees. Whether to suspend convergence
 until `compositionend` is a behavioural choice inside this exception's scope and
 is unruled (`rf2-digtt`); until it is settled, K4's IME half is open rather than
-green. On a PATCH back end the restore obligation transfers to the renderer
+green.
+**[Settled 2026-08-03, carve-out IN (`rf2-digtt`) — see this entry's addendum
+above; the open status this sentence records ended that day.]**
+On a PATCH back end the restore obligation transfers to the renderer
 (architecture.md, hard gate).
 **Rationale.** The harness's trap table is explicit: any design where the input
 value round-trips through an external store must *name* its synchronous door.
@@ -1191,6 +1194,7 @@ goes red — React mirroring controlled text into `defaultValue` is what makes
 the node-held record valid, and it is not a public React guarantee — or if any
 candidate second call site appears. The composition value path reopens on
 `rf2-digtt`'s ruling, whichever way it goes.
+**[This trigger fired 2026-08-03; the addendum above is its record.]**
 
 > **Addendum, 2026-08-07 — the reset law is applied at the element as
 > `::h/revision` (`rf2-zq8kh`).** The trigger sentence above — *resets are by
