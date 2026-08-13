@@ -111,7 +111,9 @@ The same is true of any **async mutation reply**, and there it is the applicatio
 
 Neither of those is a defect on its own. What is missing is a door: **the L3 facade has `settle!` for React's work and `dispatch-and-settle!` for a dispatch it makes itself, and nothing for "work is enqueued in the router; let it land."** The slice uses `re-frame.test-support/poll-until`, which is the supported condition-poll and composes with `cljs.test/async`, and states the rule in its own namespace docstring.
 
-*Candidate for the freeze, and it belongs to rf2-hic-027 rather than to the facade:* an `hm/drain!` or a `:until` option on `settle!`, so the L3 vocabulary covers the async half of the runtime it is a facade for.
+*Candidate for the freeze, and it belongs to the L3 test facade rather than to the product door:* an `hm/drain!` or a `:until` option on `settle!`, so the L3 vocabulary covers the async half of the runtime it is a facade for.
+
+**Owner: rf2-6m4w.** This line first named `rf2-hic-027`, which had closed on 2026-08-10 — before this report was written — so the checkpoint's most-confirmed finding was assigned to a bead that could not carry it. rf2-jljf corrected `settle!`'s docstring, filed rf2-6m4w as the owner, and recorded there why neither candidate spelling survives as written: the router drain is a macrotask, so no synchronous `drain!` is possible and a `:until` option would make the one synchronous door conditionally asynchronous.
 
 ### 7. The virtual clock and `poll-until` cannot be used together
 

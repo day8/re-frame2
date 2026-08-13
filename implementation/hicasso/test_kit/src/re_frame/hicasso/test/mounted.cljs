@@ -97,7 +97,10 @@
 
   After anything that stimulates the page from OUTSIDE a facade door — a
   user-event sequence, a raw `.click`, a timer you fired yourself — call
-  [[settle!]] before you assert.
+  [[settle!]] before you assert. It commits what already reached React
+  and no more: work the router has merely ENQUEUED — a route-link click,
+  any async reply — lands on a later task, and [[settle!]] names what to
+  wait on instead.
 
   ## Settled, not `act`
 
@@ -976,9 +979,42 @@
   handle. The empty `flushSync` — no work of its own.
 
   Call it after anything that stimulated the page from outside a facade
-  door: a `user-event` sequence, a raw `.click`, a resolved promise, a
-  timer you fired yourself. After it returns the DOM is the one a user
-  would be looking at.
+  door and whose handlers have ALREADY RUN: a `user-event` sequence, a
+  raw `.click` on an element carrying a Hicasso intent, a timer you
+  fired yourself. An intent lowered in a body dispatches through the
+  arm's frame-locked SYNCHRONOUS door, so by the time the click returns
+  the handlers have run and app-db has moved; this commits the echo, and
+  the next line reads the DOM a user would be looking at.
+
+  ## It cannot reach work that is merely ENQUEUED
+
+  That promise is about React, and it is only as good as what reached
+  React before the flush. **Two ordinary clicks on one page settle
+  differently, and nothing at either call site says which is which.**
+
+  - A **route-link** click ends in `re-frame.routing/activate-link!`,
+    which ends in `router/dispatch!` — the ASYNC door. The navigation is
+    enqueued and the router drains it on `interop/next-tick`, a
+    next-turn TASK, so at this line nothing is scheduled in React and
+    the flush has nothing to flush.
+  - Every **async reply** arrives the same way, and there it is the
+    application being ordinary rather than routing being special: an fx
+    that replies with `rf/dispatch` after the drain that started it has
+    finished — an HTTP response, a `.then`, a `setTimeout` — enqueues
+    rather than runs.
+
+  Awaiting a promise does not close the gap either, because the drain is
+  a MACROTASK and a `.then` runs at the microtask checkpoint ahead of
+  it. Nor does `{:clock true}`: firing a timer only enqueues the reply,
+  and [[advance-clock!]] deliberately does not drive the task the drain
+  rides on.
+
+  So wait on the CONDITION rather than on this door.
+  `re-frame.test-support/poll-until` is the supported condition-poll —
+  a published core door, not an internal — and it returns a promise that
+  composes with `cljs.test/async`. This facade has no verb of its own
+  for *work is enqueued in the router; let it land*, and whether it
+  should is **rf2-6m4w**, which owns that question.
 
   The flush is React's and is therefore page-wide; the handle is taken so
   that every door in this facade reads the same way."
