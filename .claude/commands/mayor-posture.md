@@ -1,7 +1,7 @@
 ---
-description: Mayor Loop — posture reread + reassert (≈60m cadence). One-line confirmation unless drift.
+description: Mayor Loop — posture reread + reassert, then the stranded sweep (≈60m cadence). One-line confirmation unless drift.
 ---
-MAYOR LOOP (posture reread + reassert). Re-read docs/the-mayor-method/bootstrap.md and docs/the-mayor-method/dispatch-prompt-template.md.
+MAYOR LOOP (posture reread + reassert, then the stranded sweep) — `docs/the-mayor-method/loops.md` §4 is the generic body for BOTH halves; this file pins the concrete commands. Re-read docs/the-mayor-method/bootstrap.md and docs/the-mayor-method/dispatch-prompt-template.md.
 
 **THE STANCE — paste this block VERBATIM into every dispatch preamble.** This file is its single source of truth. Paste it; do not summarise it:
 
@@ -15,4 +15,14 @@ MAYOR LOOP (posture reread + reassert). Re-read docs/the-mayor-method/bootstrap.
 
 If recent dispatches have drifted from this posture — mayor coding, missing worktree-boundary block, stance absent from preambles, stance PARAPHRASED rather than pasted, `--admin` misuse, minutiae actioned instead of closed, an audit finding dispatched without its premise checked at source — flag it explicitly and name the dispatch. Otherwise a one-line "posture holding" confirmation is enough.
 
-*Reasoning lives in docs/the-mayor-method/bootstrap.md; this file carries the operational block.*
+**THEN RUN THE STRANDED SWEEP — this loop's second half.** It shares a tick with the posture reassert because `docs/the-mayor-method/loops.md` §4 is one loop, not two; it is written out here because an inline copy in a scheduler prompt is a second copy of a rule that no change can reach, and two copies of one rule disagree within days. §4 owns the reasoning; do not restate it below.
+
+Read the in-progress beads: `bd list --status in_progress --limit 0 --flat --no-pager`. For each, ask whether a live worker still holds it. **Discriminate before acting** — a long-running worker and a stranded one look identical from outside, and both readings went wrong in a single day here, in opposite directions.
+
+1. **Has that bead's branch TIP SHA moved since the last tick?** `git ls-remote origin refs/heads/worker/<name>`, against the SHA you recorded last tick. **Never a commit count, and never `%ar`.** `mayor-hygiene.md` carries why each misleads and is the one place that reasoning lives — the short of it is that the ahead count and the author date are both replayed unchanged by a rebase, while the tip SHA and `%cI` move (rf2-0vvw). Ask the REMOTE; a fetch first reads what the shared `.git/FETCH_HEAD` left behind.
+2. **Is there a live task to message?** Message before you redispatch — resuming beats redispatching, because the worker's context is still there. `SendMessage`'s response shape answers it: *"queued for delivery"* = alive; *"had no active task; resumed from transcript"* = idle. **The commonest strand by far is a worker that detached a long gate and then ended its turn**, waiting for a completion event nothing sends; seven such incidents in one day, every one recovered intact the moment somebody asked for a status.
+3. **Only when there is no live task AND no movement in the tip:** push whatever commits the branch already carries — pure durability — then `bd update <id> --status open` with a note saying what was found and what was salvaged, and redispatch.
+
+**A MOVED SHA says alive; a STILL SHA authorises nothing on its own.** It is not a reap proxy: reaping is `mayor-hygiene.md`'s question and its test is still the agent's own completion report. And **never build a commit from someone else's uncommitted work** — only that worker knows whether it forms a coherent change.
+
+*Reasoning lives in docs/the-mayor-method/bootstrap.md and docs/the-mayor-method/loops.md §4; this file carries the operational block.*
