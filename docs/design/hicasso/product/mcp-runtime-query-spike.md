@@ -128,6 +128,8 @@ Every id in the right-hand column was registered by `rf2-hic-025` for another pu
 
 The shell's reads (`::subs/token`) stay held across the route change, which is what makes the roster row a *difference* rather than a reset.
 
+> **The roster row's "answer after" is a measurement and stands as taken, but the application under it has since moved.** rf2-36bd removed `::subs/revision` from the slice — the counter behind it was measured inert and the finding it supported was withdrawn — so the article route now holds three of those reads rather than four. Nothing about the divergence the row demonstrates changes; the read that left was one of the three that stayed different.
+
 ### What the run found that reading the source does not give
 
 The slice's root boundary **holds a string-table edge**. `views/app` reads two theme tokens and the route id; it also reads `[::subs/t :app/pane-error]`, because the `h/error-boundary` fallback is markup written in the root's own body and is therefore evaluated when the root runs, not when a pane throws. So the root re-stamps on every locale change, for a sentence that reaches the screen only after a failure.

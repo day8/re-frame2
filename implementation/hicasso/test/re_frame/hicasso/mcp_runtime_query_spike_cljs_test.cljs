@@ -324,9 +324,11 @@
       (testing "what only the feed holds"
         (is (contains? feed-ids ::subs/feed))
         (is (not (contains? art-ids ::subs/feed))))
-      (testing "what only the article holds — the editor's four reads"
+      ;; THREE, and it was four until rf2-36bd. `::subs/revision` was the
+      ;; fourth, and the slice no longer has one: the counter behind it was
+      ;; measured inert and removed. See the slice's `db` namespace docstring.
+      (testing "what only the article holds — the editor's three reads"
         (is (contains? art-ids ::subs/draft))
-        (is (contains? art-ids ::subs/revision))
         (is (contains? art-ids ::subs/dirty?))
         (is (contains? art-ids ::subs/save-state))
         (is (not (contains? feed-ids ::subs/draft))))
