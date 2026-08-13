@@ -201,7 +201,7 @@ jobs:
       # none of Chromium's shared libraries.
       - name: Install Playwright chromium (for the emitted browser proofs)
         working-directory: implementation
-        run: npx playwright install --with-deps chromium
+        run: npx playwright install --with-deps chromium || "$GITHUB_WORKSPACE/.github/scripts/playwright-install-failed.sh"
 
       # rf2-ek857f F1 — RF2_TEMPLATE_RUN_EMITTED_TESTS=1 flips the
       # behavioural emitted-app tier ON (default-off for the local fast

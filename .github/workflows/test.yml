@@ -1319,7 +1319,7 @@ jobs:
         run: npm ci
 
       - name: Install pinned Chromium
-        run: npx playwright install --with-deps chromium
+        run: npx playwright install --with-deps chromium || "$GITHUB_WORKSPACE/.github/scripts/playwright-install-failed.sh"
 
       - name: G-13 exact push-economics and advanced-elision gate
         run: npm run test:ui-g13
@@ -1391,7 +1391,7 @@ jobs:
             ${{ runner.os }}-playwright-
 
       - name: Install pinned Chromium + WebKit
-        run: npx playwright install --with-deps chromium webkit
+        run: npx playwright install --with-deps chromium webkit || "$GITHUB_WORKSPACE/.github/scripts/playwright-install-failed.sh"
 
       - name: G-8 controlled-input correctness gate (Chromium + WebKit)
         run: npm run test:ui-g8
@@ -1493,7 +1493,7 @@ jobs:
       # Do not move this step out of `implementation`, and do not reorder it
       # before `npm ci`.
       - name: Install pinned Chromium + Firefox + WebKit
-        run: npx playwright install --with-deps chromium firefox webkit
+        run: npx playwright install --with-deps chromium firefox webkit || "$GITHUB_WORKSPACE/.github/scripts/playwright-install-failed.sh"
 
       - name: I15 three-engine controlled-input gate
         run: npm run test:hicasso-controlled
@@ -1603,7 +1603,7 @@ jobs:
       # this step out of `implementation`, and do not reorder it before
       # `npm ci`.
       - name: Install pinned Chromium + Firefox + WebKit
-        run: npx playwright install --with-deps chromium firefox webkit
+        run: npx playwright install --with-deps chromium firefox webkit || "$GITHUB_WORKSPACE/.github/scripts/playwright-install-failed.sh"
 
       - name: HMR contract gate — 36 real shadow reloads in three engines
         run: npm run test:hicasso-hmr
@@ -3179,7 +3179,7 @@ jobs:
             ${{ runner.os }}-playwright-
 
       - name: Install Playwright (Chromium + system deps)
-        run: npx playwright install --with-deps chromium
+        run: npx playwright install --with-deps chromium || "$GITHUB_WORKSPACE/.github/scripts/playwright-install-failed.sh"
 
       - name: Compile :browser-test, serve, and run Playwright runner
         run: npm run test:browser
@@ -3384,7 +3384,7 @@ jobs:
             ${{ runner.os }}-playwright-
 
       - name: Install Playwright (Chromium + system deps)
-        run: npx playwright install --with-deps chromium
+        run: npx playwright install --with-deps chromium || "$GITHUB_WORKSPACE/.github/scripts/playwright-install-failed.sh"
 
       # Production-mode CLJS smoke for `:rf.schema/at-boundary`
       # (Spec 010 §Production builds, rf2-r2uh / rf2-84e9). Compiles
@@ -3448,7 +3448,7 @@ jobs:
             ${{ runner.os }}-playwright-
 
       - name: Install Playwright (Chromium + system deps)
-        run: npx playwright install --with-deps chromium
+        run: npx playwright install --with-deps chromium || "$GITHUB_WORKSPACE/.github/scripts/playwright-install-failed.sh"
 
       # Production-mode CLJS elision smokes:
       #   - rf2-2zdu: re-frame.trace/emit! must NOT fire under :advanced +
@@ -3972,7 +3972,7 @@ jobs:
             ${{ runner.os }}-playwright-
 
       - name: Install Playwright (Chromium + system deps)
-        run: npx playwright install --with-deps chromium
+        run: npx playwright install --with-deps chromium || "$GITHUB_WORKSPACE/.github/scripts/playwright-install-failed.sh"
 
       # rf2-9grp6 — narrow scope. The orchestrator at
       # implementation/adapters/scripts/serve-and-run-adapter-smokes.cjs supports a
@@ -4057,7 +4057,7 @@ jobs:
             ${{ runner.os }}-playwright-
 
       - name: Install Playwright (Chromium + system deps)
-        run: npx playwright install --with-deps chromium
+        run: npx playwright install --with-deps chromium || "$GITHUB_WORKSPACE/.github/scripts/playwright-install-failed.sh"
 
       - name: Compile the re-frame.ui smoke, serve, and run its Playwright spec
         env:
@@ -4147,7 +4147,7 @@ jobs:
             ${{ runner.os }}-playwright-
 
       - name: Install Playwright (Chromium + system deps)
-        run: npx playwright install --with-deps chromium
+        run: npx playwright install --with-deps chromium || "$GITHUB_WORKSPACE/.github/scripts/playwright-install-failed.sh"
 
       # PR-smoke tier (rf2-wa3oo + rf2-og36y). The full feature-load +
       # full Xray matrix + Story static-export sweep sat on the critical
@@ -4393,7 +4393,7 @@ jobs:
       # on the hermetic re-frame2-pair-mcp Playwright install.
       - name: Install Playwright (Chromium + system deps)
         timeout-minutes: 5
-        run: npx playwright install --with-deps chromium
+        run: npx playwright install --with-deps chromium || "$GITHUB_WORKSPACE/.github/scripts/playwright-install-failed.sh"
 
       - name: Run Reagent Slim client-runtime browser smoke
         run: npm run test:reagent-slim:smoke
@@ -4462,7 +4462,7 @@ jobs:
       # wait into a re-runnable FAILURE instead of an open-ended block.
       - name: Install Playwright (Chromium + system deps)
         timeout-minutes: 5
-        run: npx playwright install --with-deps chromium
+        run: npx playwright install --with-deps chromium || "$GITHUB_WORKSPACE/.github/scripts/playwright-install-failed.sh"
 
       # rf2-h5e3v7 — ARM the tenant-switcher testbed browser smoke in PR CI.
       # The dedicated runner (serve-and-run-tenant-switcher-testbed.cjs)
@@ -5019,7 +5019,7 @@ jobs:
       # properly.
       - name: Install Playwright chromium (for the emitted browser proofs)
         working-directory: implementation
-        run: npx playwright install --with-deps chromium
+        run: npx playwright install --with-deps chromium || "$GITHUB_WORKSPACE/.github/scripts/playwright-install-failed.sh"
 
       # tools/template is a deps-new template (rf2-dolpf §2; clj-new
       # body dropped in §2.5 / rf2-40vmd) — its tests
@@ -5528,7 +5528,7 @@ jobs:
       - name: Install Playwright chromium (for hermetic browser preload)
         working-directory: implementation
         timeout-minutes: 5
-        run: npx playwright install --with-deps chromium
+        run: npx playwright install --with-deps chromium || "$GITHUB_WORKSPACE/.github/scripts/playwright-install-failed.sh"
 
       # rf2-e6enf — backstop the orchestrator's own internal watchdog
       # (HERMETIC_TIMEOUT_MS = 9 min in run-re-frame2-pair-live-hermetic-suite.cjs,
@@ -5934,7 +5934,7 @@ jobs:
         run: npm ci
 
       - name: Install Playwright (Chromium + system deps)
-        run: npx playwright install --with-deps chromium
+        run: npx playwright install --with-deps chromium || "$GITHUB_WORKSPACE/.github/scripts/playwright-install-failed.sh"
 
       # Build BOTH bundles from source — the committed esbuild bootstrap
       # (playground.js + playground.css) and the untracked, generated
