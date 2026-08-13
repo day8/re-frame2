@@ -221,6 +221,7 @@ does not require another overlay primitive.
         active     (h/sub [:combo/active id])
         values     (mapv :value items)
         trigger-id (str "combo-" id "-trigger")
+        listbox-id (str "combo-" id "-listbox")
         option-id  (fn [v] (str "combo-" id "-opt-" v))
         label      (or (some #(when (= value (:value %))
                                (:label %))
@@ -229,8 +230,10 @@ does not require another overlay primitive.
     [:div.combo
      [:button
       {:id trigger-id
+       :role "combobox"
        :aria-haspopup "listbox"
        :aria-expanded open?
+       :aria-controls (when open? listbox-id)
        :aria-activedescendant
        (when (and open? active)
          (option-id active))
@@ -246,20 +249,43 @@ does not require another overlay primitive.
        :on-dismiss [:combo/dismissed id]
        :anchor     trigger-id
        :placement  :bottom-start}
-      [:ul {:role "listbox"}
-       (for [{:keys [value label]} items]
+      [:ul {:id listbox-id
+            :role "listbox"}
+       (for [{v :value l :label} items]
          [:li
-          {:key value
-           :id (option-id value)
+          {:key v
+           :id (option-id v)
            :role "option"
-           :aria-selected (= value active)
-           :on-click [:combo/selected id on-commit value]}
-          label])]]]))
+           :aria-selected (= v value)
+           :on-click [:combo/selected id on-commit v]}
+          l])]]]))
 ```
 
 Escape is not listed in the key map because the native popover owns Escape and
 dispatches `:on-dismiss`. Focus stays on the trigger. There is no document
 listener or portal.
+
+Four details make the active-descendant model announceable, and each one is
+load-bearing:
+
+- `:role "combobox"` on the trigger. `:aria-activedescendant` is defined
+  against a fixed set of roles, and a plain button is not among them.
+- `:aria-controls` naming the listbox. That is the ownership edge the platform
+  resolves the pointer through; without it the id names an element the trigger
+  has no stated relationship to.
+- Both are emitted only while the list is open, because a closed overlay has no
+  DOM node. An unconditional `:aria-controls` would spend most of its life
+  pointing at nothing.
+- `:aria-selected` follows the committed `value`, while
+  `:aria-activedescendant` follows the transient `active`. Selection does not
+  follow focus here, so those are two different options for as long as the user
+  is arrowing around, and collapsing them announces a choice nobody has made.
+
+None of the four is visible on screen or reachable by a click-driven test. The
+witness that decides them —
+[`combobox_keyboard_dom_cljs_test.cljs`](../../../../implementation/hicasso/test/re_frame/hicasso/combobox_keyboard_dom_cljs_test.cljs)
+— audits this markup against the same view with the repair removed, so each
+claim is shown failing as well as passing.
 
 The same event-and-address model works for a toggletip, command menu, or other
 popover-shaped control.
