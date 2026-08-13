@@ -54,6 +54,8 @@
             [day8.re-frame2-xray.shell :as shell]
             [day8.re-frame2-xray.spine :as spine]
             [day8.re-frame2-xray.spine-filters :as spine-filters]
+            [day8.re-frame2-xray.static.machines.persistence
+             :as static-machines-persistence]
             [day8.re-frame2-xray.static.persistence :as static-persistence]
             [day8.re-frame2-xray.self-noise :as self-noise]
             [day8.re-frame2-xray.theme.global-styles :as global-styles]
@@ -748,6 +750,31 @@
   (fn [frame-id]
     (rf/with-frame frame-id
       (rf/dispatch-sync [:rf.xray/set-mode (static-persistence/load)]))))
+
+(register-first-mount-hook!
+  ::hydrate-static-machines
+  ;; Hydrate the Static Machines selection + per-machine sub-mode slots
+  ;; from localStorage (rf2-qw0o). Durable preferences, exactly like the
+  ;; column widths and the Dynamic ↔ Static mode above — the operator's
+  ;; last-inspected machine is a reading position, not a transient
+  ;; exploration filter, so it carries across sessions.
+  ;;
+  ;; This hook is the FIX for the bead. `static/machines/panel.cljs`'s
+  ;; `install!` already called `persistence/hydrate!`, but `install!`
+  ;; runs from `registry/register-xray-handlers!` — orchestrator time,
+  ;; before this fn has registered the frame. The hydrate dispatch
+  ;; therefore named a frame that did not exist yet and was refused with
+  ;; a promoted `:rf.error/frame-destroyed`: the selection was silently
+  ;; dropped and never restored, and every Xray-preloaded dev page load
+  ;; emitted that refusal to the console. `hydrate!` now carries the same
+  ;; frame guard its two siblings carry, so the orchestrator-time call
+  ;; short-circuits cleanly and THIS hook is the landing site.
+  ;;
+  ;; Ordered after `::hydrate-static-mode` for reading order (both are
+  ;; Static-surface durable prefs); the two slots are independent, so
+  ;; the sequencing is not load-bearing.
+  (fn [frame-id]
+    (static-machines-persistence/hydrate! frame-id)))
 
 (register-first-mount-hook!
   ::auto-open-watcher

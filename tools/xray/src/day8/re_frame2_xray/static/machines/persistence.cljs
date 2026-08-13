@@ -37,6 +37,7 @@
   their `:each` fixture."
   (:require [cljs.reader :as reader]
             [re-frame.core :as rf]
+            [re-frame.frame :as frame]
             [day8.re-frame2-xray.defaults :as defaults]
             [day8.re-frame2-xray.local-storage :as ls]
             [day8.re-frame2-xray.static.machines.helpers :as h]))
@@ -130,19 +131,58 @@
   nil)
 
 (defn hydrate!
-  "Dispatch a hydrate event carrying the persisted selection + sub-mode
-  map. Runs once at install! time. Safe to call before frame
-  `:rf/xray` is mounted — `dispatch` queues the event; it lands after
-  the frame is registered. Per `mount.cljs/ensure-xray-frame!` the
-  registry handlers install before the frame mounts, so the dispatch
-  goes through the standard queue and is replayed against the new
-  frame on the first dispatch-cycle."
-  []
-  ;; Init-time hydration targets the production Xray shell frame via the
-  ;; named `defaults/default-frame-id` Var (production-singleton seam),
-  ;; not a `{:frame :rf/xray}` literal.
-  (rf/dispatch [:rf.xray.static.machines/hydrate
-                {:selected-id    (load-selected-id)
-                 :sub-mode-by-id (load-sub-mode-by-id)}]
-               {:frame defaults/default-frame-id})
-  nil)
+  "Lift the persisted selection + per-machine sub-mode map into the
+  shell frame's app-db, so a reload restores the operator's last
+  choices.
+
+  Mirrors `views.resizable-table/hydrate!` and `frame-switcher/
+  hydrate!`: re-entrant; safe to call from `install!` (orchestrator
+  time, before the frame is registered) AND from `mount.cljs/
+  ensure-xray-frame!`'s `::hydrate-static-machines` first-mount hook
+  (first open, frame registered). Both invocations converge on the
+  same slots because:
+
+    - both loads are pure reads;
+    - the hydrate event assocs each slot wholesale, so re-running
+      against the same source produces the same app-db;
+    - the frame guard short-circuits the pre-mount call without
+      losing state — localStorage is still readable at the second
+      call.
+
+  ## Why the frame guard is load-bearing (rf2-qw0o)
+
+  This fn used to dispatch UNGUARDED, on the documented premise that
+  `dispatch` queues an event aimed at a not-yet-registered frame and
+  replays it once that frame exists. It does not. `install!` runs from
+  `registry/register-xray-handlers!`, which is orchestrator-time —
+  well before `ensure-xray-frame!` registers `:rf/xray` — so the
+  dispatch named a frame that did not exist, was refused with a
+  promoted `:rf.error/frame-destroyed`, and was DROPPED. The persisted
+  selection therefore never restored (silent state loss on every
+  reload), and the refusal surfaced one promoted console error on every
+  Xray-preloaded dev page load. Guarding here makes the early call an
+  honest no-op; the first-mount hook is what lands the restore.
+
+  `frame-id` (rf2-lnluk) defaults to the production singleton
+  `defaults/default-frame-id` (`:rf/xray`). A second shell instance
+  passes its own frame-id (threaded by `ensure-xray-frame!`'s
+  first-mount hook) so the durable slots land on that instance's app-db.
+
+  `dispatch-sync` because this runs at boot — the first subscribe must
+  see the hydrated value rather than the registry default.
+
+  Returns nil. No-op when neither slot holds anything to restore."
+  ([] (hydrate! defaults/default-frame-id))
+  ([frame-id]
+   (let [selected-id    (load-selected-id)
+         sub-mode-by-id (load-sub-mode-by-id)]
+     ;; Nothing persisted → no dispatch at all. The hydrate event would
+     ;; be a pure no-op on empty slots, and Xray's own trace ring is the
+     ;; surface it inspects; a boot-time write of nothing is noise.
+     (when (and (or (some? selected-id) (seq sub-mode-by-id))
+                (some? (frame/frame frame-id)))
+       (rf/with-frame frame-id
+         (rf/dispatch-sync [:rf.xray.static.machines/hydrate
+                            {:selected-id    selected-id
+                             :sub-mode-by-id sub-mode-by-id}]))))
+   nil))
