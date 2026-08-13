@@ -188,9 +188,17 @@ That second clause has moved once since this page was first published, and
 only part of the way. `rf2-m6i0` replaced the refused control with one that
 **passes on three of the four arms** ([§2.6](#26-the-clock-half--the-first-control-refused-the-replacement-certifies-three-arms-of-four)),
 so *want of a control* no longer withholds `fine`, `coarse` and `chunked`.
-What withholds every cell now is narrower and more ordinary: **the tournament's
-clock cells were never instrumented.** Only the control was built, it refused
-first, and no driver for the 4 arms × 4 operations table exists to run.
+What withholds those three cells now is narrower and more ordinary: **the
+tournament's clock cells were never instrumented.** Only the control was built,
+it refused first, and no driver for the 4 arms × 4 operations table exists to
+run.
+
+The fourth arm is withheld for a different and now settled reason. `rf2-4t36`
+ruled on `virtual`'s refusal without taking a new measurement: at the window
+this tournament commits to, the control has **no discriminating power on that
+arm in either direction**, so its clock cells are **unaddressed** rather than
+pending an instrument. The arithmetic and the two rejected repairs are in
+[§2.6](#26-the-clock-half--the-first-control-refused-the-replacement-certifies-three-arms-of-four).
 
 ### 2.1 What ran, and on what
 
@@ -444,20 +452,107 @@ removed, watched directly.
 **Why `virtual` refuses, and why it is not the same fault.** Its ratios are
 tight (1.46–1.5577 across five rounds), correctly signed, guard-clean and
 fully verified — a stable signal that is not 1.99, exactly as the first refusal
-was. But its cause is the clock rather than the model: the windowed arm's whole
-commit is **0.125 ms** at `w = 20` and **0.195 ms** at `w = 40`, which is one
-to two of Chrome's 100 µs `performance.now()` quanta. The per-commit floor —
-dispatch, the `flushSync` boundary, the commit React schedules regardless — does
-not double, and on a commit this small it is a large fraction of the reading.
-Its *work* doubles exactly (4 → 8 rows of markup, 21 → 41 boundaries, 41 → 81
-read edges); the instrument cannot resolve that at this size.
+was. Its *work* doubles exactly (4 → 8 rows of markup, 21 → 41 boundaries,
+41 → 81 read edges), so the prediction is not a model error. The cause is a
+**per-commit floor** — dispatch, the `flushSync` boundary, the commit React
+schedules regardless — which does not double, and which against a whole commit
+of **0.125 ms** at `w = 20` and **0.195 ms** at `w = 40` is close to half the
+reading.
+
+**It is not the `performance.now()` clamp**, and `rf2-4t36` corrects this page
+on that point. `batch-k` is 20, so the clock is read once per twenty commits —
+`topo/control_app.cljs`'s `window!` takes one `now-ms` pair around the whole
+batch — and the readings are **2.50 ms** and **3.90 ms**, twenty-five and
+thirty-nine of Chrome's 100 µs quanta. Quantisation can move a reading by at
+most one quantum: ≤ 4.0% of the small window and ≤ 2.6% of the large, against a
+measured compression of 24%. The batch had already lifted the window clear of
+the clamp. What a batch cannot lift is a cost paid *per commit*, because
+batching scales that with everything else.
 
 **Nothing is widened and nothing is re-derived.** `virtual`'s band was
 registered before the run, from the same `elements-for` arithmetic as the other
-three, and it stands. The windowed arm's clock cells remain unpublished and the
-arm needs a different instrument — a larger window, or many more operations
-under one clock — which is filed rather than attempted here, because adding a
-rung between runs would make the series two instruments.
+three, and it stands. What to do about the refusal was filed rather than
+attempted here — adding a rung between runs would make the series two
+instruments — and it is ruled on next.
+
+#### The ruling on the windowed arm (`rf2-4t36`) — its clock cells are UNADDRESSED
+
+`rf2-m6i0` filed three candidate repairs and attempted none, which was correct:
+improving a rig mid-window makes the series two instruments. They are ruled on
+here, from the arithmetic of the run above and from this page's own
+pre-registration. **The ruling is the third. The windowed arm's clock cells are
+not resolvable on this instrument at the window this tournament commits to, and
+they are handed to `rf2-hic-080` phase 2 as unaddressed** under
+[§1.4](#14-the-estimand-and-the-one-substitution-that-is-refused)'s disposition
+for exactly this case. No new measurement was taken and none is owed.
+
+**The finding is not the refusal; it is that this control has no discriminating
+power on this arm, in either direction.** Fit the lane's own additive constant —
+`census_clock_run.cjs`'s `c = tared × (P − R) / (P − 1)` — to the run above and
+it gives **c ≈ 0.059 ms against a 0.125 ms commit, 47% of the reading**. (The
+straight two-point fit on the rounded per-commit figures gives 0.055 ms, 44%;
+the two agree to rounding.) An affine cost of that shape predicts a ratio of
+**1.52**, which is what was measured — and 1.52 sits just **1.8% above the band
+floor of 1.4926**, or **0.70** of the run's own round-to-round standard
+deviation of 0.0385. Under the strict every-round rule over five rounds, a
+perfectly healthy instrument on a perfectly quiet box therefore certifies this
+arm about **one run in four**. A control that refuses three healthy runs in four
+is not adjudicating the instrument, it is adjudicating noise — and a PASS from
+it would have been exactly as uninformative as this refusal.
+
+**Candidate 1, a larger window pair, is rejected because it certifies the wrong
+regime.** The margin is genuinely recoverable: with the floor above and a
+per-row scaling cost of 0.0033–0.0035 ms, the expected ratio reaches 1.75 at
+`w ≈ 50` and comes within 5% of its prediction at `w ≈ 160–180`, so `w = 100 →
+200` would pass comfortably. But this tournament's committed window is **20**,
+and the cells the control exists to license are taken there. At `w = 100` the
+floor is about 15% of the reading; at `w = 20` it stays at 47%. That is a green
+light issued in one regime over cells published in another — the precise failure
+a positive control exists to prevent. The objection is not that it is
+unfaithful. It is that it would certify nothing about the cells.
+
+**Candidate 2, subtracting a separately-measured floor, is rejected on three
+counts, any one sufficient.**
+
+- **The band cannot see the correction.** Adjudicating
+  `R′ = (t_large − c) / (t_small − c)` against [1.4926, 2.4876] admits any `c`
+  in **[−0.007, 0.081] ms** against a true value near 0.059 — everything from
+  *no correction at all* to a 37% over-correction certifies. Such a control
+  tests whether the floor estimate is right to within roughly a factor of two.
+  It does not test whether the clock can see the arm's work double.
+- **There is no stable floor to measure.** The same formula on the three
+  certified arms returns **negative** constants — `fine` −8.1%, `coarse` −4.5%,
+  `chunked` −12.3% of their small reading — because all three read *above* their
+  derived prediction rather than below it. A quantity that is +47% on one arm
+  and negative on three is the intercept of an assumed cost model, not a
+  property of the rig that can be measured once and subtracted.
+- **This page forbade it in advance.**
+  [§1.7](#17-what-this-page-will-not-do): *"It will not add an instrument, a
+  rung or an estimator mid-series."* A subtracted floor is an estimator, and one
+  registered after the data.
+
+The other half of candidate 2 — *many more operations under one clock* — is
+**arithmetically inert**. The floor is paid per commit, so a window of `N`
+commits reads `N(c + s)` and the ratio `(c + P·s)/(c + s)` does not depend on
+`N` at all. Raising `batch-k` from 20 to 200 would change nothing but
+quantisation, which is already negligible.
+
+**What holds the refusal in place, and it is not this page.** No gate was
+loosened and none needed to be:
+`topo/control_witness_dom_cljs_test.cljs` already asserts `(< 1.471 lo)` on
+every arm's band floor, and admitting `virtual`'s low round of 1.4600 requires a
+floor below 1.471. **The widening this ruling declines is already red in CI**,
+on every PR, without a browser and without a quiet box.
+
+**What this ruling does not conclude.** It does not say the windowed arm is
+unmeasurable, only that *this* control cannot license *these* cells: a different
+instrument — one that does not pay a per-commit floor, or one that states the
+arm at a window where the floor is small — remains open, and is `rf2-hic-080`
+phase 2's to choose or decline. It does not re-open the three certified arms,
+whose verdicts stand untouched. And it takes no position on why those three read
+2.04–2.12 against a derived 1.9996; that they run consistently *above* their
+prediction is visible in the table and unexplained here, in band and therefore
+not this page's to chase.
 
 This sits on top of a refusal the lane already carried, which this window
 verified rather than assumed:
