@@ -96,6 +96,24 @@ THE RULES
                      §2 and §7 mechanised, and it is what stops the 5%
                      heap comparison being wired to a hosted runner by a
                      later worker acting in good faith.
+  L7  A SCALING CLAIM IS DECIDED ON TWO COUNTERS.
+                     A registered line saying work *scales with changed rows*
+                     must name a companion ledger row carrying a second,
+                     DIFFERENT work counter — deterministic, in the `PR gate`
+                     lane, with a witness that exists — and must name it where
+                     a reader of the row will reach it. `U5` was registered on
+                     boundary bodies alone and read `MET` on a coarse
+                     view-model arm that rebuilds every mounted row for a
+                     one-row change, because the arm does its rows INSIDE one
+                     body and the instrument counts 1. That is a FAIL-OPEN:
+                     not a row recorded wrongly, but a row that could not be
+                     recorded wrongly, its estimand being blind to the
+                     failure. Both directions are checked — a scaling row
+                     with one counter reds, and so does a registered pair
+                     whose line has been rewritten to stop stating the claim.
+                     The repair is a second counter and never a wider line:
+                     nothing here moves a threshold, and a coarse topology
+                     that is genuinely cheap passes on both readings.
 
 WHAT L6 DELIBERATELY DOES NOT CHECK is that a distributional row's
 instrument is absent from the repository. The P0 heap ladder lives in
@@ -155,18 +173,20 @@ LANES = ("PR gate", "P-DEV-1 evidence run", "none")
 # and D9), which is why they sit on the deterministic side here.
 #
 # This is a REGISTRY, not a rule: it transcribes which ids §3 registers, so it
-# grows when §3 does.  `rf2-hic-033` added D10–D13, the direct-return delta,
-# and `rf2-hic-034` added D14–D16, the island band's structural half — element
-# type identity, props-object slots and the unwrapping hop those two price.
-# §3 states the test this list applies in terms — *they are counts, not
-# clocks, so they are deterministic and carry no hardware profile; that is
-# what lets them sit in this section rather than §4*.  Note which way the
-# entry cuts: a row NAMED here must run in the `PR gate` lane and must name a
-# witness file that exists, while a row omitted from it is merely forbidden
+# grows when §3 does.  `rf2-hic-033` added D10–D13, the direct-return delta;
+# `rf2-hic-034` added D14–D16, the island band's structural half — element
+# type identity, props-object slots and the unwrapping hop those two price;
+# `rf2-hic-045` added D17–D25, the per-keystroke census's remaining five
+# stages; and `rf2-mwr2` added D26, the rows-of-markup counter U5's estimand
+# was missing.  §3 states the test this list applies in terms — *they are
+# counts, not clocks, so they are deterministic and carry no hardware profile;
+# that is what lets them sit in this section rather than §4*.  Note which way
+# the entry cuts: a row NAMED here must run in the `PR gate` lane and must name
+# a witness file that exists, while a row omitted from it is merely forbidden
 # that lane and has its witness checked not at all.  Adding an id tightens
 # this gate; leaving a deterministic id out is the loophole.
 DETERMINISTIC_IDS = frozenset(
-    ["D%d" % n for n in range(1, 17)] + ["U5", "U6", "I9"])
+    ["D%d" % n for n in range(1, 27)] + ["U5", "U6", "I9"])
 
 # L4.  Rows registered somewhere other than budgets.md, with the anchor that
 # registers them.  Held here rather than in a ledger column because it is a
@@ -181,15 +201,25 @@ EXTRA_ROWS = {
 # is a deliberate act — a new measurement window and an edit here — which is
 # the whole point.  D10–D13 and D14–D16 join the D rows' `package` pin on the
 # same terms: `rf2-hic-033` and `rf2-hic-034` took them on
-# `implementation/hicasso` and §3's heading is what they landed under.  An
-# unpinned row is the hole this constant exists to close, so a new row is
-# pinned as it lands rather than later.  `S8` — the direct-return escape's
-# clock, `rf2-5yn9` — is pinned `package` on that rule: the instrument that
-# read it lives in the bench tree, as the P0 heap ladder behind S1–S5 does,
-# but the SUBJECT is `implementation/hicasso`, and this column names the
-# subject rather than the instrument's address.
+# `implementation/hicasso` and §3's heading is what they landed under, and
+# D17–D25 join them on it — `rf2-hic-045`'s per-keystroke census ran on the two
+# public-package witness applications.  An unpinned row is the hole this
+# constant exists to close, so a new row is pinned as it lands rather than
+# later.  `S8` — the direct-return escape's clock, `rf2-5yn9` — is pinned
+# `package` on that rule: the instrument that read it lives in the bench tree,
+# as the P0 heap ladder behind S1–S5 does, but the SUBJECT is
+# `implementation/hicasso`, and this column names the subject rather than the
+# instrument's address.
+#
+# `D26` is the one deterministic row pinned `bench-tree`, and the same rule is
+# what puts it there rather than an exception to it: its subject really is the
+# bench tree.  `rf2-hic-036`'s tournament reads four topologies mounted on the
+# `arm1` prototype runtime, and the package ships one topology and cannot mount
+# four.  Promoting it by rewriting the cell would claim a package reading that
+# nothing took.
 POPULATION_PIN = dict(
-    [("D%d" % n, "package") for n in range(1, 17)]
+    [("D%d" % n, "package") for n in range(1, 26)]
+    + [("D26", "bench-tree")]
     + [("S%d" % n, "package") for n in range(1, 6)]
     + [("S6", "bench-tree"), ("S7", "bench-tree"), ("S8", "package")]
     + [("U%d" % n, "—") for n in range(1, 5)]
@@ -224,6 +254,36 @@ LINE_FORBIDDEN = {
 # registered line, whatever number it carries.
 PROPOSAL_MARKERS = ("subject to ratification", "pending ratification",
                     "proposal", "not yet ratified", "unratified")
+
+# L7.  The shape of a line that claims work SCALES.  This is matched on the
+# line's own English rather than on an id, because the defect it closes is
+# precisely that a row's English claimed more than its estimand could see —
+# so the English is the thing to key on, and a new row spelling the same claim
+# is caught without anyone remembering to add it.
+SCALING_CLAIM_RE = re.compile(r"scales?\s+with\s+changed\s+rows", re.IGNORECASE)
+
+# L7.  Which second counter each scaling row is decided on, alongside its
+# first.  `rf2-hic-036`'s topology tournament measured a coarse view-model arm
+# that rebuilds ALL `B` mounted rows for a one-row change and runs exactly ONE
+# boundary body — it does its rows *inside* that body — so `U5`, registered on
+# boundary bodies alone, read `MET` on the behaviour its own line forbids, at
+# every row count and untunably (`rf2-mwr2`).  D3/D4 do not already cover it:
+# they catch a coarse shape because THEIR witness keeps per-cell boundaries to
+# count, and a coarse shape with no boundaries beneath the family has nothing
+# for that instrument to see.
+#
+# The repair is a SECOND COUNTER, never a wider line.  No threshold moves here
+# and a genuinely cheap coarse topology still passes both readings; what the
+# rule removes is the option of registering a scaling claim that only one
+# instrument is asked about.
+SECOND_COUNTER = {"U5": "D26"}
+
+# L7.  The counter every scaling row is registered on first.  A companion whose
+# own line is another body count would satisfy the rule while measuring the
+# same thing twice — and the arm this rule exists to catch is invisible to that
+# instrument, so two readings of it are worth exactly one.  Both numbers of the
+# noun, because `1 body` and `2 bodies` are the same instrument.
+FIRST_COUNTER_RE = re.compile(r"\bbod(?:y|ies)\b", re.IGNORECASE)
 
 _ROW_ID_RE = re.compile(r"^\|\s*([DSUCI]\d+)\s*\|")
 # L2 reads BYTE ceilings only.  `2 bodies` and `100 ms p95` are not byte
@@ -555,6 +615,47 @@ def check(rows, registered, sections, existing_files):
             failures.append(
                 "L4 %s cites the provenance anchor %s, a section that never "
                 "names it" % (rid, EXTRA_ROWS[rid]))
+
+    # --- L7: a scaling claim is decided on two counters ------------------
+    scaling = set(rid for rid, row in by_id.items()
+                  if SCALING_CLAIM_RE.search(row["line"]))
+    for rid in sorted((set(SECOND_COUNTER) & set(by_id)) - scaling):
+        failures.append(
+            "L7 %s is registered with a second counter and its line no longer "
+            "states the scaling claim. Rewriting the line is the way out from "
+            "under this rule" % rid)
+    for rid in sorted(scaling):
+        row = by_id[rid]
+        companion = SECOND_COUNTER.get(rid)
+        if companion is None:
+            failures.append(
+                "L7 %s registers a scaling claim and names no second counter. "
+                "A body count alone reads 1 on a coarse arm that rebuilds every "
+                "mounted row inside one body, so it passes the line it breaks "
+                "(rf2-mwr2)" % rid)
+            continue
+        other = by_id.get(companion)
+        if other is None:
+            failures.append(
+                "L7 %s names %s as its second counter and %s has no ledger row. "
+                "A counter nothing records is not a second reading"
+                % (rid, companion, companion))
+            continue
+        if companion not in DETERMINISTIC_IDS:
+            failures.append(
+                "L7 %s's second counter %s is not a deterministic row, so "
+                "nothing makes a pull request run it" % (rid, companion))
+        if FIRST_COUNTER_RE.search(other["line"]):
+            failures.append(
+                "L7 %s's second counter %s registers another BODY count. Two "
+                "readings of one instrument are one counter, and the topology "
+                "this rule exists to catch is invisible to that instrument"
+                % (rid, companion))
+        if companion not in row["current"]:
+            failures.append(
+                "L7 %s does not name %s in its current value. A second counter "
+                "a reader of the row never reaches is not a second reading"
+                % (rid, companion))
     return failures
 
 
@@ -730,6 +831,29 @@ def self_test():
     # ...and a lane nobody registered.
     red("L6", rows=patched("D1", instrument="`x` (some other lane)"))
 
+    # L7 — the fail-open `rf2-mwr2` found, driven from every direction a
+    # later edit could reopen it.  The first is the defect as it stood: U5
+    # registered on bodies alone, its second counter absent from the ledger.
+    red("L7", rows=[dict(row) for row in rows if row["id"] != "D26"])
+    # ...the companion present but unreachable from the row a reader is on...
+    red("L7", rows=patched("U5", current="2 bodies at 25 cells and at 100"))
+    # ...the companion demoted to a second reading of the SAME instrument,
+    # which is the way to satisfy this rule while changing nothing...
+    red("L7", rows=patched("D26", line="1 body per one-row write, fine topology"))
+    # ...the scaling claim edited out of the line so the rule stops applying,
+    # which is L2's ceiling-without-a-band from the other end...
+    red("L7", rows=patched("U5", line="body work is narrow"))
+    # ...and a NEW scaling row registered on one counter, which is how a later
+    # worker reintroduces the hole in good faith rather than by evasion.
+    red("L7",
+        rows=rows + [dict(rows[0], id="D42",
+                          line="work scales with changed rows, not mounted rows")],
+        registered=registered | {"D42"})
+    # ...and the eager direction: the rule is about the companion being NAMED,
+    # not about the sentence it is named in, so a differently worded current
+    # value that still reaches D26 must pass.
+    green(rows=patched("U5", current="2 at 25 and at 100 — second counter D26"))
+
     counts = tally(rows)
     print("OK: check_budget_ledger self-test passed "
           "(%d rows: %s)"
@@ -768,7 +892,8 @@ def main(argv=None):
     print("Every registered line has a row; every row that is not MET names "
           "a bead id and a disposition that resolves;")
     print("no band crossing its line is recorded as a pass; no distributional "
-          "row is wired to a pull-request gate.")
+          "row is wired to a pull-request gate;")
+    print("no row claiming that work SCALES is decided on one counter.")
     print("An Authority cell is read for SHAPE, not for life. This gate reads "
           "two markdown files and has no tracker access, so it cannot see "
           "that a named bead has closed:")
