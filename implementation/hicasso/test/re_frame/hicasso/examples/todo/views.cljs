@@ -33,9 +33,8 @@
      door tells authors they never need to open. That was rf2-lu0s, and
      it is fixed: `defview`'s docstring now carries a *FOUR shapes*
      section with this Enter/Escape example and the central composition
-     gate named. (The draft guide and
-     `docs/design/hicasso/authoring.md` teach it too; neither is what an
-     editor shows on `h/`.)
+     gate named. (The draft guide and `docs/design/hicasso/authoring.md`
+     teach it too; neither is what an editor shows on `h/`.)
 
   3. **A `:ref` must be a STABLE function**, so [[focus-on-mount]] is a
      top-level `def`. React detaches and re-attaches a ref whose identity
