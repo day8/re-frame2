@@ -102,15 +102,16 @@ Three conveniences worth knowing:
 
 ## Handling the reply
 
-Every reply is the one **canonical reply envelope** — a plain map with a closed `:status`:
+Every reply is the one **canonical reply envelope** — a plain map with a closed `:status`. The framework-wide set has [five members](continuations-are-data.md#one-envelope-under-every-async-surface); managed HTTP produces four of them (`:partial` belongs to protocols that return data *and* problems in one response — plain HTTP never emits it):
 
 | `:status` | Shape | Notes |
 |---|---|---|
 | `:ok` | `{:status :ok :value value …}` | `value` is the decoded 2xx body. If you supplied `:accept`, this is the value inside `{:ok value}`. |
 | `:error` | `{:status :error :error failure-map …}` | `failure-map` is one of the [category maps below](#failures-are-a-closed-set). Branch on `(-> reply :error :kind)`. |
 | `:cancelled` | `{:status :cancelled :error {:kind :rf.http/aborted …} …}` | An aborted request — the `:rf.http/aborted` map rides under `:error`, with `:cancel/reason` alongside. |
+| `:stale` | `{:status :stale :stale? true :rf.reply/stale-reason reason …}` | The request's correlation went obsolete before delivery — a [superseded `:request-id`](#cancellation-supersession-and-abort), an epoch restore, or an actor destroy whose reply addressed the destroyed actor. **Never dispatched to your handler**; it is trace-only. Carries no `:value`. |
 
-So the *reply's* `:status` tells you which path (`:ok` / `:error` / `:cancelled`), and a failure's inner `:error` map carries its **own** `:kind` — the category. This is the one reply contract every async surface shares — the full envelope (`:work/id`, `:completed-at`, …) lives in [Why no await](continuations-are-data.md#one-envelope-under-every-async-surface); everyday requests read only `:status` / `:value` / `:error`.
+So the *reply's* `:status` tells you which path (`:ok` / `:error` / `:cancelled` — `:stale` never arrives), and a failure's inner `:error` map carries its **own** `:kind` — the category. This is the one reply contract every async surface shares — the full envelope (`:work/id`, `:completed-at`, …) lives in [Why no await](continuations-are-data.md#one-envelope-under-every-async-surface); everyday requests read only `:status` / `:value` / `:error`.
 
 Every request **addresses its reply** — there is no implicit default. There are two **equal** ways to do it — pick by fit, not correctness.
 
@@ -175,7 +176,7 @@ The first time it runs there is no `reply`, so the handler issues the request. W
 
 - **Reply targets must be event vectors.** When you supply `:reply-to`, `:on-success`, or `:on-failure`, each must be an event vector. `nil` means "silence this side"; a keyword, map, string, or any other non-vector value is rejected when that side's reply is dispatched, with `:rf.error/http-bad-reply-target`, so a misshaped continuation cannot be silently rerouted.
 - **The reply lands in the same [frame](../core/frames.md) the request went out from.** The fx carries the frame from the original dispatch through to the reply, so a frame leak — a dispatch firing after the frame has unwound — cannot happen here. ([Frame identity is carried, not found](../core/glossary.md#frame-identity-is-carried-not-found).)
-- **A stale reply is never delivered.** A reply from a superseded request ([below](#cancellation-supersession-and-abort)) does not reach your app at all; it is trace-only.
+- **A stale reply is never delivered.** A reply whose correlation went obsolete before delivery ([below](#cancellation-supersession-and-abort)) — a superseded `:request-id`, or an actor destroy whose reply addressed the destroyed actor — does not reach your app at all; it is trace-only.
 
 ### Timestamps come from a coeffect
 
@@ -316,7 +317,11 @@ Three related surfaces, one per situation.
 
 !!! note "Requests that die with their machine"
 
-    There's a third `:reason`, `:actor-destroyed`. A `:rf.http/managed` request issued from *inside* a spawned [state-machine](../machines/concepts.md) actor is aborted automatically when that actor is destroyed — its outstanding work dies with it, no manual abort needed. Requests dispatched from ordinary event handlers have no such lifecycle peg and are not auto-cancelled; that's deliberate, and `:request-id` remains your app-level cancel handle for them.
+    There's a third `:reason`, `:actor-destroyed`. A `:rf.http/managed` request issued from *inside* a spawned [state-machine](../machines/concepts.md) actor is aborted automatically when that actor is destroyed — its outstanding work dies with it, no manual abort needed.
+
+    The request is always aborted, but a reply is not always delivered. A reply addressed to an ordinary event dispatches as `:status :cancelled` with `{:kind :rf.http/aborted :reason :actor-destroyed}` under `:error`. A reply addressed **back to the actor being destroyed** — the `[(:rf/self-id data) …]` shape — is never dispatched: the runtime classifies it `:status :stale` and records a `:rf.http/stale-suppressed` trace row. Expect no reply on that shape; clean up in the child's `:exit`, or address the reply to an event outside the actor. [Actors — Cancellation](../machines/actors.md#cancellation) has the actor-side detail.
+
+    Requests dispatched from ordinary event handlers have no such lifecycle peg and are not auto-cancelled; that's deliberate, and `:request-id` remains your app-level cancel handle for them.
 
 The [managed-http counter example](../../examples/core/managed_http_counter) demonstrates the manual-abort path end-to-end — plus the 404-is-not-a-decode-failure rule — in one small file.
 
