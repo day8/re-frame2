@@ -598,6 +598,23 @@ def _write(path, text):
 
 def self_test():
     """Every assertion here is a case the live run must be able to fail on."""
+    # AND EVERY ONE OF THEM MUST BE UNDELETABLE (rf2-uyhh). `python -O` — and
+    # `PYTHONOPTIMIZE` in the environment, which needs no flag at the call
+    # site — strips every `assert` below, leaving a function that runs to its
+    # success line having verified nothing. That is a control failing GREEN,
+    # the one direction that never announces itself. The check is empirical
+    # rather than a reading of `__debug__`, so it also catches a `.pyc`
+    # compiled under `-O` and run without it.
+    try:
+        assert False
+    except AssertionError:
+        pass
+    else:
+        raise SystemExit(
+            "assertions are disabled (python -O / PYTHONOPTIMIZE), so this "
+            "self-test would prove nothing. Re-run without -O."
+        )
+
     assert read_edn('{:a "x" :b [1 2] :c true}') == {":a": "x", ":b": [1, 2], ":c": True}
     assert read_edn(";; lead comment\n{:a 1}") == {":a": 1}
     assert read_edn('{:s re-frame.hicasso.impl.codec}')[":s"] == "re-frame.hicasso.impl.codec"

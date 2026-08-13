@@ -12,6 +12,11 @@ Two findings, and they are separate:
    [adversarial risk register](lanes/adversarial-risks.md#phase-1-kernel-risks) map to landed witnesses;
    seven of the eight now carry an **executing** sabotage control, and the eighth's — row 5's — was
    re-run by hand by this checkpoint and reddened. Nothing in the four suites indicts the kernel.
+   **The confirmation is bounded in one place, and the boundary is one of measurement**: row 5's
+   native-IME half is carried green by [operator ruling](#21-row-5-carries-green-on-an-operator-ruling)
+   and not by measurement, and the control planted for it drives a *synthetic* composition sequence, so
+   what reddened is the guard rather than native IME conduct
+   ([§4.1](#41-the-one-control-that-had-to-be-planted)).
 2. **The exit is a conjunction, and its second conjunct is open.**
    [Specification §12 Phase 1](specification.md#phase-1--make-the-reactive-kernel-trustworthy) exits
    "at zero stale reads, cross-frame operations, tears, or residual ownership **and only when the shell
@@ -21,6 +26,21 @@ Two findings, and they are separate:
 **No row in [§2](#2-the-eight-kernel-rows-one-by-one) reads `pass` unqualified**, and Phase 1 may not be
 declared exited on this record. What changed since 2026-08-11 is that the kernel's correctness can now
 be spoken about at all: the previous checkpoint could not adjudicate it, and this one can.
+
+> **Amended 2026-08-13**, after publication, by the merged-PR audits of #8069 and #8070. Three sentences
+> had aged out from under this record while it sat on `main`:
+> [§2](#2-the-eight-kernel-rows-one-by-one)'s row-5 verdict cell gave a reader scanning the table no sign
+> that the operator has since ruled the row green, [§5.1](#51-filed-by-this-run)'s three findings still
+> read as live after all three landed and closed, and [§8](#8-what-this-record-is-not) still called row
+> 2's record an open PR after [§2.2](#22-row-2s-record-has-landed) had recorded it landed. Each now
+> carries its later state **beside** the finding as filed rather than in place of it, because a record
+> that AGED is not a record that was WRONG.
+>
+> **What did not move is the measurement.** No suite was re-run for this amendment; no figure, exit code,
+> verdict or line-number citation changed; and the distinction this page turns on — green *by operator
+> ruling* is not green *by measurement* — is kept everywhere it appears, including in the row-5 verdict
+> label itself. Re-adjudicating the exit is a checkpoint run's work and not an amendment's, so
+> [§1.2](#12-the-shell-half) and the verdict above stand exactly as written.
 
 ## Where each fact lives
 
@@ -76,7 +96,9 @@ The verdict vocabulary:
   control for the family exists and was seen to bite; the suites carrying it ran green here.
 - **WITNESSED, record in flight** — as above, but a §1 artefact the row's bead owes is not yet on `main`.
 - **ASSUMED IN PART** — a named scenario of the row has no measurement and is closed on an operator
-  ruling rather than on evidence.
+  ruling rather than on evidence. This column reports **measurement**, never the programme's
+  disposition, and the two can differ: a row carried green by ruling still reads `ASSUMED IN PART` here,
+  which is exactly row 5's case ([§2.1](#21-row-5-carries-green-on-an-operator-ruling)).
 
 | # | Kernel risk | Witness set | §2 sabotage control | Row verdict |
 |---|---|---|---|---|
@@ -84,7 +106,7 @@ The verdict vocabulary:
 | 2 | Process-global ownership | complete (`rf2-hic-012`, `rf2-hic-017`) | executing — `public_root_lifecycle_dom` W3 | WITNESSED |
 | 3 | Speculative render leakage | complete (`rf2-hic-010`, `rf2-hic-014`) | executing — `kernel_commit_owns_cljs` residue-census control | WITNESSED |
 | 4 | Ambient-read extent | complete (`rf2-hic-011`) | executing — exact-refusal-map rows, both-ways witness | WITNESSED |
-| 5 | Controlled-input portability | complete for the synthetic tier (`rf2-hic-016`) | hand-run, **re-run by this checkpoint** | **ASSUMED IN PART** |
+| 5 | Controlled-input portability | complete for the synthetic tier (`rf2-hic-016`) | hand-run, **re-run by this checkpoint** | **ASSUMED IN PART** — carried [green by ruling](#21-row-5-carries-green-on-an-operator-ruling) |
 | 6 | HMR identity | complete (`rf2-hic-015`) | executing — `lost-cleanup-sabotage`, `a-leaked-stale-registration-turns-the-cleanup-witness-red` | WITNESSED |
 | 7 | Callback identity and retirement | complete (`rf2-hic-013`, `rf2-hic-029`) | executing — the unpinned-capture negative control | WITNESSED |
 | 8 | Hydration isolation | complete (`rf2-hic-012`) | executing — `roots_frames_hydration_dom` H6 | WITNESSED |
@@ -241,12 +263,20 @@ sequence rather than a real one — see [§2.1](#21-row-5-carries-green-on-an-op
 
 | bd id | Protocol section | Severity | One line |
 |---|---|---|---|
-| `rf2-aubc` | §1 Completeness | correctness | Six records still promise a native-IME session the operator ruled will not happen |
-| `rf2-zk87` | §1 Completeness | coverage | The byte-exact shell disposition is a Phase 1 exit conjunct with no owner and no ledger row |
-| `rf2-ltmd` | §1 Completeness | coverage | All seven non-`MET` budget rows name a closed bead as the authority owning them "today" |
+| `rf2-aubc` | §1 Completeness | correctness | Six records promised a native-IME session the operator ruled will not happen. **Fixed and `closed`** — PR #8069 |
+| `rf2-zk87` | §1 Completeness | coverage | The byte-exact shell disposition was a Phase 1 exit conjunct with no owner and no ledger row. **Fixed and `closed`** — PR #8072 |
+| `rf2-ltmd` | §1 Completeness | coverage | All seven non-`MET` budget rows named a closed bead as the authority owning them "today". **Fixed and `closed`** — PR #8073 |
 
 None of the three is a defect in the kernel. All three are the governance layer describing the kernel
 inaccurately, which is the failure class this programme treats as load-bearing.
+
+**All three have since closed**, each re-run against the landed fix by the ledger keeper, who wrote none
+of them; the evidence is in the [ledger rows](correction-ledger.md#the-ledger). One of the three did not
+close by being met: `rf2-aubc`'s **premise was withdrawn**. `rf2-hic-016`'s later ruling of the same day
+supersedes the close note this record quotes, so the "assumed, not witnessed" caveat those six documents
+were told to carry is not owed and its absence from them is correct —
+[§2.1](#21-row-5-carries-green-on-an-operator-ruling) is written under that later ruling. None of the
+three closures re-adjudicates the exit, and [§1.2](#12-the-shell-half) stands as written.
 
 ### 5.2 Closed by this run
 
@@ -309,10 +339,12 @@ carried forward whole — it is that checkpoint's work and remains true — and 
 
 It is not a declaration that Phase 1 has exited: [§1.2](#12-the-shell-half) is why, and no amount of green
 in [§3](#3-what-was-re-run-and-what-it-measures) reaches it. It is not evidence about native IME conduct on
-Firefox or WebKit, which nothing has measured. It is not a `pass` on row 2's record, which is on an open
-PR. It is the honest state of Checkpoint 1 on `main`@`d079143b91`: a kernel whose correctness the suites
-now support, three governance misses filed, five earlier misses closed with evidence, and an exit clause
-waiting on a decision only the operator can take.
+Firefox or WebKit, which nothing has measured. It was not a `pass` on row 2's record, which was on an
+open PR when this record was written — [§2.2](#22-row-2s-record-has-landed) records that #8066 has since
+landed and that the row now reads **WITNESSED**. It is the honest state of Checkpoint 1 on
+`main`@`d079143b91`: a kernel whose correctness the suites now support, three governance misses filed,
+five earlier misses closed with evidence, and an exit clause waiting on a decision only the operator can
+take.
 
 ## 9. Where this page's words came from
 

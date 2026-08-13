@@ -393,6 +393,23 @@ def read_all():
 # ---------------------------------------------------------------------------
 
 def self_test():
+    # THIS SELF-TEST'S OWN CLAIMS MUST NOT BE DELETABLE (rf2-uyhh). `python -O`
+    # — and `PYTHONOPTIMIZE` in the environment, which needs no flag at the
+    # call site — strips every `assert` below, leaving a function that runs to
+    # its success line having verified nothing. That is a control failing
+    # GREEN, the one direction that never announces itself. The check is
+    # empirical rather than a reading of `__debug__`, so it also catches a
+    # `.pyc` compiled under `-O` and run without it.
+    try:
+        assert False
+    except AssertionError:
+        pass
+    else:
+        raise SystemExit(
+            "assertions are disabled (python -O / PYTHONOPTIMIZE), so this "
+            "self-test would prove nothing. Re-run without -O."
+        )
+
     assert mask('(fail! :rf.error/a "text :rf.error/in-a-string")') \
         .count(":rf.error/") == 1, "a string literal must not emit an id"
     assert ":rf.error/" not in mask("; :rf.error/in-a-comment\n"), \

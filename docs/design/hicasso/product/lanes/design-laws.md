@@ -25,7 +25,7 @@ These laws define the product and constrain every implementation choice.
 1. Hiccup and ordinary intent are data; executable host behavior uses explicit functions.
 2. A `defview` is always a boundary and an ordinary `defn` is always inline composition.
 3. One props map, stable keys, value-equality memoization and explicit controlled revision are the default laws.
-4. Prevention is explicit and uniform. The same handler form never changes meaning by position.
+4. Prevention is explicit at every position except `:on-submit`, whose data spelling auto-prevents; no second auto-preventing position may be added. The same *function* form never changes meaning by position: a callback owns its own event everywhere and is never auto-prevented.
 5. Foreign React positions are declared by their real ABI: event, ReactNode/slot, render callback, ref, children and server policy. Arbitrary host data is not deeply converted.
 6. Unsupported behavior fails with a stable id, source, path/position, offending value and recovery.
 7. Applications get one obvious facade; optional namespaces are separately reachable and erase when absent.

@@ -114,6 +114,8 @@ An author who reads only the door and needs Enter-and-Escape reaches for the one
 
 *Candidate remedy:* one paragraph on the door — most naturally in `defview`'s docstring beside the intent-vector example — stating the four shapes a value at an `on-*` prop may take. Nothing about the runtime changes.
 
+*Since closed (2026-08-13).* The freeze filed this as `rf2-lu0s` and PR #8088 took the candidate remedy as written: `defview`'s docstring now carries a *FOUR shapes* section with the Enter/Escape key-map example and the central composition gate named. **The finding above stands unedited** — it records what the door was when this application was authored, which is the only thing a witness report is for.
+
 ### N2. A `reg-state` concern belongs to neither `subs` nor `events`, and the door does not say where to put it
 
 `h/reg-state` mints a subscription **and** an event under one keyword, so the keyword has no home in the two-namespace split every ordinary re-frame2 application uses. Declare it in `subs` and every write reads `[::subs/draft id text]`; declare it in `events` and every read reads `(h/sub [::events/draft id])`. Half the call sites are wrong either way, and the slice's `tags-open?` shows the first form.

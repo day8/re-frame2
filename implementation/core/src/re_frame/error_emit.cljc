@@ -54,6 +54,7 @@
   redaction surface on this path."
   (:require [re-frame.elision        :as elision]
             [re-frame.emit-substrate :as emit]
+            [re-frame.interop        :as interop]
             [re-frame.late-bind      :as late-bind]
             [re-frame.source-coords  :as source-coords]
             [re-frame.trace          :as trace]))
@@ -85,6 +86,96 @@
   "Drop every registered listener. Test-isolation only; production
   code should never call this. Returns nil."
   (:clear registry))
+
+;; ---- unowned-error dev console fallback (rf2-fu75) ------------------------
+;;
+;; RULED (rf2-fu75, 2026-08-13): an UNTOOLED dev build DOES surface a
+;; framework refusal. Before this, a captured refusal reached NO channel at
+;; all unless the app had attached an `:errors` listener — measured, not
+;; inferred: `dispatch` / `dispatch-sync` return normally (the interceptor
+;; chain captures into `:rf/interceptor-error`; `router/emit-pipeline-
+;; exception!` states the reason — "the drain must not abort"), nothing is
+;; thrown, and nothing was printed. A typo'd event id produced literally
+;; nothing. That trap cost rf2-06lp four browser runs and rf2-e4y9 a full
+;; escalate-investigate-exonerate cycle.
+;;
+;; The fallback is deliberately the narrowest thing that removes it:
+;;
+;;   * `console.error`, NOT `js/reportError`. `reportError` reports "in the
+;;     same fashion as an unhandled exception" (HTML Standard) — it
+;;     dispatches a genuine window `error` event, and
+;;     `implementation/scripts/run-browser-tests.cjs` treats console output
+;;     as diagnostic-only but FAILS an otherwise-green run on ANY
+;;     `pageerror` ("only pageerror is fatal", rf2-mwx08). Several suites
+;;     exercise promoted refusals on purpose, so `reportError` would convert
+;;     expected framework outcomes into runner failures. It is also
+;;     semantically false here: a refusal is CAUGHT and normalised, and
+;;     categories such as `:rf.error/no-such-handler` carry no exception at
+;;     all, so it would synthesise an `Error` whose stack points at the
+;;     reporting site rather than at the cause. (The two in-repo
+;;     `reportError` sites — `freehand/root.cljs`, `substrate/spine.cljs` —
+;;     preserve React's OWN default for uncaught / recoverable React
+;;     callback errors. Different situation; untouched by this.)
+;;
+;;   * ONLY while the listener registry is EMPTY. Registering ANY `:errors`
+;;     listener (`rf/register-listener! :errors …` →
+;;     [[register-error-listener!]]) takes corpus-wide OWNERSHIP and the
+;;     fallback goes quiet — even if that listener ignores this category or
+;;     itself throws. That self-suppression is what keeps this from being a
+;;     nag-diagnostic, and it is why there is NO suppression knob and no new
+;;     API: the off-switch is the listener an owning app already has.
+;;     Dropping the last listener resumes the fallback. Xray does NOT
+;;     populate this registry (it rides the dev-only TRACE axis — `router`
+;;     forwards to `trace/emit-error!`), so a console line may coexist with
+;;     an Xray row; the tutorial already frames console + Xray as
+;;     complementary and the duplication is accepted.
+;;
+;;   * DEV + BROWSER-HOSTED only. `interop/debug-enabled?` (`@define`
+;;     `goog/DEBUG`) is the outer gate, so `:advanced` + `goog.DEBUG=false`
+;;     constant-folds the entire body away — neither the prefix literal nor
+;;     the call path survives into a production artefact. A bare
+;;     `#?(:cljs …)` would be too broad: Node-targeted CLJS and CLJS SSR
+;;     have a console too and stay listener-only, for exactly the reason the
+;;     JVM lane does — those are REPL / test / server lanes where the caller
+;;     observes the dispatch directly and a listener is one line, and
+;;     neither measured incident happened there. `js/document` presence is
+;;     this repo's DOM-host discriminator (see
+;;     `resources/revalidate_listeners.cljc`).
+;;
+;; The record goes to the console AS A VALUE, with the original
+;; `:exception` object as its own separate argument when the category
+;; carries one — never a flattened string, so the host's inspector renders
+;; the structure and the real stack survives. Consequence, accepted rather
+;; than engineered around: the record's raw `:exception` (the deliberate
+;; advanced-listener contract) now also reaches a local dev console.
+;; Per-category ownership, sink discovery, a formatter, deduplication and a
+;; suppression setting all stay REJECTED as premature.
+;;
+;; Everything is try/catch wrapped: observability must never abort the drain.
+
+(defn- report-unowned-error!
+  "Print `record` to the browser console when NOTHING owns it. Dev builds
+  only, browser hosts only, and only while the corpus-wide `:errors`
+  listener registry is EMPTY — see §Unowned-error dev console fallback
+  above for why each of those three conditions is load-bearing.
+
+  A no-op on the JVM, on Node-targeted CLJS (and CLJS SSR), and in any
+  `goog.DEBUG=false` build, where the whole body constant-folds away.
+  Never throws. Returns nil."
+  [record]
+  #?(:clj nil
+     :cljs
+     (when interop/debug-enabled?
+       (try
+         (when (and (empty? @listeners)
+                    (exists? js/document)
+                    (exists? js/console)
+                    (fn? (.-error js/console)))
+           (if-some [ex (:exception record)]
+             (.error js/console "[re-frame2]" record ex)
+             (.error js/console "[re-frame2]" record)))
+         (catch :default _ nil))
+       nil)))
 
 ;; ---- kind-aware source-coord lookup --------------------------------------
 ;;
@@ -428,6 +519,11 @@
            ;; Elision is callback-bearing. Corpus sibling fanout is one
            ;; already-linearized publication; frame routing is a later one.
            (when (trace/continuation-live?)
+             ;; rf2-fu75 — decided immediately before publication, under the
+             ;; SAME continuation/ownership conditions, exactly once per
+             ;; fully built record. Fires only when the registry is empty, so
+             ;; the fan-out below is a no-op whenever this printed.
+             (report-unowned-error! record)
              ((:fan-out registry) record trace/continuation-live?)
              ;; EP-0015 §9: frame-owned observability sink route. Pass the RAW
              ;; event so the sink projects under its own egress profile rather
@@ -669,6 +765,11 @@
   but the bare frame id can no longer name A's sink policy and must not resolve
   to a same-id successor B."
   [record route-frame?]
+  ;; rf2-fu75 — the union-record fan-out site's half of the unowned-error dev
+  ;; console fallback. Same rule as `dispatch-on-error!`: immediately before
+  ;; publication, under the same (here unconditional) conditions, exactly once
+  ;; per record, and only while the registry is empty.
+  (report-unowned-error! record)
   ((:fan-out registry) record trace/continuation-live?)
   (when (and route-frame? (trace/continuation-live?))
     (when-let [route-error-record! (late-bind/get-fn-cached

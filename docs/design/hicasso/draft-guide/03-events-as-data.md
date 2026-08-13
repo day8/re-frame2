@@ -46,18 +46,20 @@ round trip from subscription value to browser event and back.
 
 ## Prevent browser defaults explicitly
 
-An intent does not automatically call `preventDefault`, including at
-`:on-submit`. Wrap the intent when the browser default must be prevented:
+Prevention is explicit, with exactly one exception — and the exception needs
+nothing written. An intent at `:on-submit` prevents the browser submission for
+you, because a form that dispatches and then reloads the page is never what the
+application meant.
 
 ```clojure
-[:form {:on-submit [::h/prevent [:todo/submit]]}
+[:form {:on-submit [:todo/submit]}
  [:input {:value    (h/sub [:todo.ui/draft])
           :on-input [:todo.ui/set-draft ::h/value]}]
  [:button {:type :submit} "Add todo"]]
 ```
 
-`[::h/prevent INTENT]` prevents the default and dispatches the one inner intent.
-It also works for an anchor being used as an application control:
+At every other position, wrap the intent when the browser default must be
+prevented — most often an anchor being used as an application control:
 
 ```clojure
 [:a.nav-link
@@ -66,14 +68,19 @@ It also works for an anchor being used as an application control:
  "Active"]
 ```
 
+`[::h/prevent INTENT]` prevents the default and dispatches the one inner intent.
 A real navigation link should normally use the routing module rather than this
 pattern. A modifier-click on a real link must remain available to the browser,
-which is why Hicasso does not prevent clicks or submits by default.
+which is why Hicasso does not prevent clicks by default — and why submit is the
+only position that does. No second auto-preventing position will be added.
 
-!!! warning "A bare submit intent still performs the browser submission"
-    `{:on-submit [:todo/submit]}` dispatches the event and then allows the
-    browser default. If the page reloads, wrap the intent with `::h/prevent`.
-    Omit the wrapper only when a real browser form submission is intended.
+!!! note "The exception is the data spelling only"
+    A callback always owns its own event. `{:on-submit (h/fn [e] …)}` is handed
+    the event and is **not** auto-prevented: call `.preventDefault` yourself, or
+    leave it out when a real browser submission is intended. That escape is how
+    a form that must really submit opts out. Writing
+    `{:on-submit [::h/prevent [:todo/submit]]}` still composes and still works;
+    it is simply saying what the data spelling already does.
 
 The wrapper must contain exactly one inner intent vector. A keyword instead of
 a vector, a second payload, or a nested decorator raises
@@ -258,7 +265,7 @@ surface rather than a custom click handler.
 
 | Symptom | Error or cause | Fix |
 | --- | --- | --- |
-| A form dispatches and then reloads the page | Browser submission was not prevented | Use `{:on-submit [::h/prevent [:todo/submit]]}` |
+| A form dispatches and then reloads the page | An `h/fn` or plain-function `:on-submit` — a callback owns its own event and is never auto-prevented | Call `.preventDefault` in the callback, or use the data spelling `{:on-submit [:todo/submit]}`, which prevents for you |
 | Rendering reports a malformed prevent wrapper | `:rf.error/hicasso-malformed-prevent` | Wrap exactly one inner intent vector; do not nest decorators or add a second payload |
 | A handler receives the literal `::h/value` keyword | The marker was nested below the vector's top level | Keep the marker at top level or calculate the payload with `h/fn`/the event handler |
 | A foreign callback rejects an intent that needs the event | `:rf.error/hicasso-intent-needs-the-event` | The callback is value-first. Use `h/fn` and receive its actual arguments |

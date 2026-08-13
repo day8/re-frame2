@@ -175,13 +175,105 @@ NS_FORM = re.compile(r"\(ns\s+([A-Za-z0-9_.*+!?<>=$%&/-]+)")
 def ns_of(text):
     """The namespace a source file declares, or None. Read from code rather
     than prose for the same reason the requires are — a docstring here opens
-    with `(ns my.app …)` as its usage example."""
+    with `(ns my.app …)` as its usage example.
+
+    The FIRST `(ns …)` in the live text, which is only the file's own because
+    [[code_only]] has already dropped the forms the reader discards.  Before
+    it did, a `#_(ns re-frame.hicasso.motion)` sitting above the real form won
+    the search and [[scan]] then exempted the file as the module's own engine
+    — the whole reachability check switched off for it, silently and green
+    (rf2-df9b).
+    """
     m = NS_FORM.search(code_only(text))
     return m.group(1) if m else None
 
 
+OPENERS = "([{"
+CLOSERS = ")]}"
+
+
+def form_end(text, i):
+    """Index just past the ONE form beginning at or after `text[i]`.
+
+    `text` has already been through [[code_only]]'s string, comment and
+    character-literal passes, so every remaining bracket is structural.
+    """
+    n = len(text)
+    while i < n and text[i].isspace():
+        i += 1
+    if i >= n:
+        return n
+    if text[i] not in OPENERS:  # a bare symbol, keyword or number
+        while i < n and not text[i].isspace() and text[i] not in OPENERS + CLOSERS:
+            i += 1
+        return i
+    depth = 0
+    while i < n:
+        ch = text[i]
+        if ch in OPENERS:
+            depth += 1
+        elif ch in CLOSERS:
+            depth -= 1
+            if depth == 0:
+                return i + 1
+        i += 1
+    return n
+
+
+# `(comment …)` and not `(comment-on …)`: the lookahead is the symbol-tail
+# class, so only the bare core form opens a comment.
+COMMENT_FORM_RE = re.compile(r"\(\s*comment(?![\w.*+!?<>=$%&|:'/-])")
+
+
+def strip_inert(text):
+    """`text` with the three INERT form shapes blanked out (rf2-df9b).
+
+    A form the reader discards is not a claim about anything, and this gate
+    decides two questions from claims — which namespace a file DECLARES, and
+    which it REQUIRES:
+
+        #_(ns re-frame.hicasso.motion)        reader discard
+        (comment (ns re-frame.hicasso.motion))  comment macro
+        '(ns re-frame.hicasso.motion)         quoted
+
+    Those three and no more.  DELIBERATELY NOT HANDLED, because none occurs
+    in this tree and a general Clojure reader is a far larger artefact than
+    this gate deserves: reader conditionals (`#?(:clj …)`), dead-by-value
+    branches (`(when false …)`), stacked discards (`#_#_`), `#_` applied to
+    a set or prefixed form (`#_#{…}`, `#_'x`), a fully-qualified
+    `(clojure.core/comment …)`, and `comment` shadowed by a local binding.
+
+    Blanking preserves length and newlines so the surviving text keeps its
+    offsets, and the walk resumes at the END of each inert form — a live
+    form sitting beside a discarded one still counts, which is what stops
+    this narrowing from becoming a false RED of its own.
+    """
+    chars = list(text)
+    i, n = 0, len(text)
+    while i < n:
+        ch = text[i]
+        if text.startswith("#_", i):
+            start, body = i, i + 2
+        elif ch in "'`" and (i == 0 or text[i - 1].isspace() or text[i - 1] in OPENERS):
+            # `'` is a legal SYMBOL character in Clojure (`next'`), so it
+            # quotes only where a form may start. Without that guard the gate
+            # would blank a LIVE require and report an unreachable module.
+            start, body = i, i + 1
+        elif COMMENT_FORM_RE.match(text, i):
+            start, body = i, i  # the `(comment …)` form is inert entire
+        else:
+            i += 1
+            continue
+        end = form_end(text, body)
+        for j in range(start, end):
+            if chars[j] != "\n":
+                chars[j] = " "
+        i = end
+    return "".join(chars)
+
+
 def code_only(text):
-    """`text` with every string literal and line comment blanked out.
+    """`text` reduced to the forms the reader would actually EVALUATE.
 
     Everything downstream reads CODE, and this is the one place that
     distinction is made.  It has teeth: this package's namespaces document
@@ -195,6 +287,13 @@ def code_only(text):
     `\\"` is a character literal in Clojure, not a string, so a backslash
     outside a string consumes the character after it; inside a string it is
     the escape it looks like.
+
+    Prose is only half of what is not code, though, and the other half read
+    green for longer: a form the reader DISCARDS is not a claim either, so
+    [[strip_inert]] runs last over what survives.  It runs last because the
+    passes above are what make its walk safe — a `)` inside a string or a
+    line comment would otherwise unbalance it — and because by then every
+    character literal is gone, so every remaining bracket is structural.
     """
     out = []
     i, n = 0, len(text)
@@ -224,7 +323,7 @@ def code_only(text):
             continue
         out.append(ch)
         i += 1
-    return "".join(out)
+    return strip_inert("".join(out))
 
 
 def required_namespaces(text):
@@ -300,6 +399,24 @@ def read_src():
 
 
 def self_test():
+    # THIS SELF-TEST'S OWN CLAIMS MUST NOT BE DELETABLE (rf2-uyhh). `python -O`
+    # — and `PYTHONOPTIMIZE` in the environment, which needs no flag at the
+    # call site — strips every `assert` below, leaving a function that runs to
+    # its success line having verified nothing. That is a control failing
+    # GREEN, which is this gate's own subject: rf2-df9b below is the same
+    # shape one level down, a form the reader drops still counted as a claim.
+    # The check is empirical rather than a reading of `__debug__`, so it also
+    # catches a `.pyc` compiled under `-O` and run without it.
+    try:
+        assert False
+    except AssertionError:
+        pass
+    else:
+        raise SystemExit(
+            "assertions are disabled (python -O / PYTHONOPTIMIZE), so this "
+            "self-test would prove nothing. Re-run without -O."
+        )
+
     door = "re-frame.hicasso.motion"
     engine = "re-frame.hicasso.impl.presence-react"
 
@@ -366,6 +483,74 @@ def self_test():
     clean = scan(
         {
             "src/m.cljs": "(ns {}\n  (:require [{} :as p]))".format(door, engine)
+        }
+    )
+    assert clean == [], clean
+
+    # AN INERT FORM IS NOT A DECLARATION (rf2-df9b), and the exemption above
+    # is what gave that teeth: `scan` skips any file whose declared ns the
+    # module owns, so a file that could pass itself off as the engine escaped
+    # the reachability check entirely. `ns_of` took the FIRST `(ns …)` in the
+    # file, and a discarded one sits happily above the real one.
+    #
+    # The rows below share one body and differ only in what precedes it, so
+    # what they compare is the DISGUISE and nothing else.
+    body = "(ns re-frame.hicasso.core\n  (:require [{} :as mo]))".format(door)
+
+    # The honest file is flagged. This row is what keeps the three reds below
+    # honest: a checker that had simply stopped exempting owned modules would
+    # satisfy them all and be worth nothing.
+    flagged = scan({"src/honest.cljs": body})
+    assert len(flagged) == 1, flagged
+    assert door in flagged[0], flagged
+
+    # None of these three declares anything, so none may claim the exemption.
+    # Each was reproduced GREEN — the whole file exempted — against the
+    # landed scanner.
+    for disguise in (
+        "#_(ns {})\n".format(door),
+        "(comment (ns {}))\n".format(door),
+        "(def forms ['(ns {})])\n".format(door),
+    ):
+        evader = scan({"src/evader.cljs": disguise + body})
+        assert len(evader) == 1, (disguise, evader)
+        assert door in evader[0], (disguise, evader)
+
+    # And the exemption still WORKS, which is the half a checker reading
+    # every file would fail: the door declared for real, discard above it.
+    clean = scan(
+        {
+            "src/m.cljs": "#_(ns re-frame.hicasso.core)\n"
+            "(ns {}\n  (:require [{} :as p]))".format(door, engine)
+        }
+    )
+    assert clean == [], clean
+
+    # Blanking stops at the END of the inert form rather than running to the
+    # end of the file — otherwise every file with a `#_` at the top would
+    # lose its ns and be scanned as an anonymous one.
+    assert ns_of("#_(ns {})\n(ns re-frame.hicasso.core)".format(door)) == \
+        "re-frame.hicasso.core"
+
+    # `'` closes over a form only where a form may START, because it is also
+    # a legal symbol character. `next'` must not swallow the require after it
+    # — that direction is a false GREEN, this gate's own subject.
+    flagged = scan(
+        {
+            "src/t.cljs": "(ns re-frame.hicasso.core\n"
+            "  (:require [{} :as mo]))\n(def next' 1)".format(door)
+        }
+    )
+    assert len(flagged) == 1, flagged
+
+    # A require the reader discards is not a require: the module stays absent
+    # from the bundle, so flagging it would be a false RED.
+    clean = scan(
+        {
+            "src/d.cljs": "(ns re-frame.hicasso.core\n"
+            "  (:require #_[{} :as mo] [re-frame.hicasso.impl.codec :as c]))".format(
+                door
+            )
         }
     )
     assert clean == [], clean
