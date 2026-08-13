@@ -696,7 +696,7 @@
                         and no map-fixture support at all — it INVOKES a
                         fixture, and a Clojure map is `IFn`, so a `{:before …}`
                         fixture composes to a key lookup returning nil and the
-                        test body NEVER RUNS ("Ran 0 tests", silent GREEN).
+                        test body NEVER RUNS (\"Ran 0 tests\", silent GREEN).
                         The fn-form IS the correct async-capable JVM shape.
                     So a `.cljc` suite with async CLJS rows writes a plain
                     `:async? true` — no reader conditional at the call site,
