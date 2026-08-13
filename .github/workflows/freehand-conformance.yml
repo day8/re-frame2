@@ -77,6 +77,17 @@ name: freehand-conformance
 # regardless: it is the handle the PR rollup and TESTING.md use, and the string
 # the ruleset would have to name if the context were ever required. Renaming it
 # would not drop a requirement, because there is none to drop.
+#
+# RETIREMENT. This file is STAGE 3 — the LAST — of the staged order in
+# `TESTING.md` § "Retirement order for the Freehand CI lanes", and its trigger
+# is "no `spec/**` page cites an `FH-*` id". Being advisory is what makes the
+# workflow cheap to delete and is NOT what makes it safe to: 28 citations of
+# `conformance-index.md` across eight normative spec files run through
+# `scripts/check_doc_slugs.py`, which `Docs required` genuinely needs, so the
+# INDEX cannot go before the citations do. Deleting the workflow alone strands
+# nothing required and loses something real anyway — the index's internal
+# integrity, which nothing else proves. That asymmetry is why this file is last
+# rather than first, and the section states it in full.
 
 on:
   # BOTH triggers are intentionally UNFILTERED. The PR one for the
