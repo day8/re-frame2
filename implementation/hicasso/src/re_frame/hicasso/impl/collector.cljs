@@ -577,6 +577,19 @@
 ;; `!cells` is public so `re-frame.hicasso.impl.inventory` can count what
 ;; the table retains without this file growing a reader per instrument.
 ;; It is the collector's to WRITE, and every writer is in this file.
+;;
+;; **One table for the whole page, and FRAME-SCOPED anyway** — the sub-key
+;; is `[frame-kw query-v]`, so the same query read under two frames
+;; occupies two cells with two reader lists and two reactions, and a
+;; cross-frame read is not a collision to be prevented but an address that
+;; cannot be spelled. Isolation between roots is a property of this KEYING
+;; and not one React provides — React knows nothing about this table.
+;; `roots_frames_isolation_dom_cljs_test` is the standing witness and reads
+;; the key set rather than the DOM, because a boundary that resolved the
+;; wrong frame still renders a plausible page.
+;; `docs/design/hicasso/product/globals.md` carries the same disposition for
+;; every other module-level owner here — `!entries`, the four flush-extent
+;; refs below, `rstate` and `scratch` (rf2-hic-017).
 (defonce !cells (atom {}))
 (defonce ^:private !dirty (volatile! #{}))
 (defonce ^:private !batching (volatile! false))
