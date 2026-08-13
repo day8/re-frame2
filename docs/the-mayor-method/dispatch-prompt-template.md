@@ -467,11 +467,14 @@ separate invocation starts a *fresh* shell whose status is not the gate's but wh
 typically the directory change: silent, and it yields a plausible zero.
 
 **The number you quote is the one you captured** — never one the harness reports about the same run. That is a
-different measurement and it disagrees routinely rather than rarely: at least fifteen times in three days across
-five workers. Among them a compile failure from an unbalanced parenthesis, a genuine two-assertion failure, and a
+different measurement and it disagrees routinely rather than rarely: at least forty-four times in three days
+across twenty-nine workers, counted from the workers' own completion reports and the merged changes whose bodies
+preserve them. Among them a compile failure from an unbalanced parenthesis, a genuine two-assertion failure, and a
 browser run standing over three real ones. **Every one surfaced as exit 0**, and every one was caught because the
-worker quoted the number it had captured. Twice it happened on a *deliberately sabotaged* run, where believing the
-reported zero would have read as "the control does not bite" and inverted the conclusion.
+worker quoted the number it had captured. **At least twenty-three of the forty-four — more than half — were
+*deliberately sabotaged* runs**, where believing the reported zero would have read as "the control does not bite"
+and inverted the conclusion. Recount that census when you cite it; do not carry it forward by adding the
+instances you have just seen, which is how it came to be understated by two thirds.
 
 **Put every gate artefact where version control ignores it, and name each one for your worktree AND for the
 attempt** — the log and the exit-code file both. Neither half is tidiness; a name missing either fails the gate
