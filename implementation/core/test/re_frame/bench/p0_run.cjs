@@ -1201,6 +1201,82 @@ const ALLOC_MIN_WRITES = 6;
 // than the floor is a measurement configuration's business, not a default's.
 const ALLOC_WRITES = Number(process.env.P0_ALLOC_WRITES || ALLOC_MIN_WRITES);
 
+// ---------------------------------------------------------------------------
+// THE PRIME WORK UNIT — what the driver's own collector costs the first leg
+// (rf2-oiy1)
+// ---------------------------------------------------------------------------
+//
+// THE TERM. rf2-2rtt6.140's V1/V2/V3 window measured 336 arm windows across
+// eight browser runs and EVERY ONE of them carried a positive first-leg excess
+// over its own cohort median — median 6,966 B, p25 6,856, p75 8,056. Constant
+// in ABSOLUTE bytes across B in {4, 24, 96}, identical under `:p0/write-all`
+// and `:p0/write-page` alike, and fatal: at τ = 0.25 a fixed ~7 KB excess
+// refuses every window whose leg median is under ~27,900 B, which is every
+// floor window at every page size. `arm − floor` is the quantity every witness
+// here is stated over, so a floor that never certifies takes the ladder with
+// it.
+//
+// WHICH OF THE TWO CAUSES IT IS, SETTLED FROM THAT WINDOW'S OWN NUMBERS rather
+// than from a new one. The bead left the fork open — warm-up, or re-allocation
+// of something the forced collection reclaimed — and three facts already in
+// the record close it:
+//
+//   1. THE TAIL LEGS ARE BYTE-IDENTICAL. One B = 4 floor window read
+//      [26044, 19256, 19256, 19256, 19256, 19256]. Steady state is therefore
+//      reached after exactly ONE work unit inside the window.
+//   2. EIGHTEEN WORK UNITS ALREADY RUN IMMEDIATELY BEFORE IT — three
+//      full-size warm-up windows of six writes each — and the excess survives
+//      every one of them.
+//   3. The ONLY thing standing between the last warm-up work unit and leg 1 is
+//      `gc()` below: three CDP `HeapProfiler.collectGarbage` calls with an
+//      80 ms beat, which Blink implements as `Isolate::LowMemoryNotification()`
+//      rather than as one collection.
+//
+// One work unit AFTER the collection clears it; eighteen BEFORE it do not. So
+// the excess is created at the collection and re-cleared by the first work
+// unit that follows — the bead's branch (b). Branch (a), a fourth full-size
+// warm-up, is REFUTED rather than merely doubted: another warm-up lands on the
+// wrong side of the collection, where three have already failed.
+//
+// WHAT THE COLLECTION DISCARDS IS NOT IDENTIFIED HERE, and identifying it
+// would take a browser window this package may not spend. It does not have to
+// be: fact 1 says one work unit restores whatever it is.
+//
+// SO THE WINDOW DRIVES ONE EXTRA WORK UNIT AND THE FIRST IS A PRIME. It is
+// SAMPLED, REPORTED and EXCLUDED — from the leg cohort, from `rise`, from
+// `falls`, from `perWrite` and from the certificate. The instrument does not
+// go blind to the term: it publishes it beside the figures as a diagnostic,
+// which is also what puts the number in front of rf2-e9wr's τ calibration.
+//
+// WHY THIS IS NOT A WIDENING, AND WHY IT IS NEITHER OF THE OTHER TWO REPAIRS:
+//
+//   - τ IS UNTOUCHED at its uncalibrated placeholder, and no window refused
+//     today for any other reason is admitted tomorrow. A widening ADMITS the
+//     observation; this removes it from the measured region.
+//   - "DISCARD LEG 1, CERTIFY OVER W − 1" would leave five averaged writes,
+//     under `ALLOC_MIN_WRITES`. Averaging six means driving seven.
+//   - "PRIME OUTSIDE THE WINDOW, UNSAMPLED" costs exactly the same headroom —
+//     the prime's garbage lands in the same uncollected heap either way — and
+//     buys blindness with it. Sampling it is strictly better.
+//
+// WHAT IT COSTS, STATED: one more write's garbage per window, so the heap has
+// ~1/6 more in it before the measured region opens. That is real against the
+// 600,000 B measured collection onset and it is not hidden — a window that
+// then collects is refused by the falls gate exactly as one is today.
+//
+// THE 2τ CERTIFICATE IS RE-DERIVED AND COMES OUT IDENTICAL. Its derivation is
+// per-leg over a cohort of repetitions of one work unit and never referenced
+// how many legs there are or what preceded them. What changes in the
+// antecedent is which region is submitted to the rule — and the prime is what
+// makes "repetitions of ONE work unit" true of that region for the first time.
+// `allocSteps` is not touched: the split hands it a shorter, well-formed
+// sample stream, and every one of its pins stands unedited.
+const ALLOC_PRIME_WRITES = 1;
+
+// What the window actually drives. The DIVISORS stay `ALLOC_WRITES`: the
+// published quantity is per MEASURED write and the prime is not one.
+const ALLOC_WINDOW_WRITES = ALLOC_WRITES + ALLOC_PRIME_WRITES;
+
 // The sizing, as a PURE FUNCTION of the config — the same shape and for the
 // same reason as `allocSteps` and `allocRefusedWindows`: it needs neither a
 // release build nor a Chromium, so it is pinned on every PR by
@@ -1378,8 +1454,33 @@ function median(xs) {
   return s.length % 2 === 1 ? s[mid] : (s[mid - 1] + s[mid]) / 2;
 }
 
+// Split a window's raw samples into the PRIME legs and the MEASURED sample
+// stream (rf2-oiy1). Pure, for `allocSteps`'s reason: the pin can DRIVE it
+// rather than read the source and hope.
+//
+// The stream is `[s0, pre0, post0, pre1, post1, ...]`, so dropping the leading
+// `2·prime` samples leaves `[post_{p−1}, pre_p, post_p, ...]` — WHICH IS THE
+// SAME SHAPE. The last prime leg's `post` becomes the measured region's `s0`,
+// and the measured region's first gap is the true `pre_p − post_{p−1}`.
+// Nothing is fabricated and nothing is re-based, which is exactly why
+// `allocSteps` needs to know none of this and is unchanged by this bead.
+//
+// `prime` is clamped to the legs actually present, so a stream shorter than
+// the prime yields no measured legs rather than reaching off the end. It is a
+// parameter for the pin's benefit; the driver always passes the constant.
+function allocPrimeSplit(samples, prime = ALLOC_PRIME_WRITES) {
+  const p = Math.max(0, Math.min(prime, (samples.length - 1) >> 1));
+  const primeLegs = [];
+  for (let k = 0; k < p; k++) primeLegs.push(samples[2 * k + 2] - samples[2 * k + 1]);
+  return { primeLegs, measured: samples.slice(2 * p) };
+}
+
 // Rising and falling steps, accumulated separately, from one window's raw
 // samples — AND the leg cohort the certificate is read off.
+//
+// IT IS HANDED THE MEASURED REGION, NOT THE WHOLE WINDOW (rf2-oiy1). The
+// window's first work unit is a prime and `allocPrimeSplit` above takes it off
+// before anything here sees it. Everything below is unchanged by that bead.
 //
 // The samples are `[s0, pre0, post0, pre1, post1, ...]`, so leg `k` is
 // `post_k - pre_k` (one per write, the work) and gap `k` is
@@ -1573,10 +1674,10 @@ async function allocRow(chromium) {
   // Without `--enable-precise-memory-info` Chrome quantises the in-page
   // counter to 100 KB buckets and every figure here would be noise. A
   // quantised counter is not a small error; it is a different instrument.
-  await page.evaluate(([d, n]) => window.P0H.allocPrepare(d, n), [ALLOC_D, ALLOC_WRITES]);
+  await page.evaluate(([d, n]) => window.P0H.allocPrepare(d, n), [ALLOC_D, ALLOC_WINDOW_WRITES]);
   const probe = await page.evaluate(
     (n) => window.P0H.allocWindow(n, 'control', 'react'),
-    ALLOC_WRITES
+    ALLOC_WINDOW_WRITES
   );
   const rounded = probe.samples.filter((x) => x % 100000 === 0).length;
   const precise = rounded < probe.samples.length;
@@ -1598,16 +1699,31 @@ async function allocRow(chromium) {
 
     // --- the three controls, in situ, before this round's arms ----------
     const controlOf = async (kind, d) => {
-      await page.evaluate(([dd, n]) => window.P0H.allocPrepare(dd, n), [d, ALLOC_WRITES]);
+      await page.evaluate(([dd, n]) => window.P0H.allocPrepare(dd, n), [d, ALLOC_WINDOW_WRITES]);
       await gc();
       const pre = await read();
       const w = await page.evaluate(
         ([n, k]) => window.P0H.allocWindow(n, k, 'react'),
-        [ALLOC_WRITES, kind]
+        [ALLOC_WINDOW_WRITES, kind]
       );
       const post = await read();
-      const s = allocSteps(w.samples);
-      return { kind, d, ...s, perIter: s.rise / ALLOC_WRITES, cdpBracket: post.cdp - pre.cdp };
+      // The controls take the prime too, and that is the point: one window
+      // shape, not two (rf2-oiy1). Their own first leg carries no measurable
+      // excess — the studio page records the control windows' worst leg
+      // deviation at <= 1% against the arms' 26-46% — so priming them changes
+      // no control figure, and a control taken under a different window shape
+      // from the arms would not be one.
+      const { primeLegs, measured } = allocPrimeSplit(w.samples);
+      const s = allocSteps(measured);
+      return {
+        kind,
+        d,
+        ...s,
+        primeLegs,
+        primeExcess: primeLegs.length ? primeLegs[0] - s.legMedian : null,
+        perIter: s.rise / ALLOC_WRITES,
+        cdpBracket: post.cdp - pre.cdp,
+      };
     };
     const idle = await controlOf('idle', 0);
     const ctl1 = await controlOf('control', ALLOC_D);
@@ -1665,22 +1781,31 @@ async function allocRow(chromium) {
         // varying, and its own instrument pseudo-arm read 9.9x. Warming
         // with anything smaller than the window would leave that inside
         // the first round of every arm.
-        await page.evaluate(([dd, n]) => window.P0H.allocPrepare(dd, n), [0, ALLOC_WRITES]);
+        //
+        // THE WARM-UPS STILL RUN, AND THEY STILL DO NOT REACH THE FIRST LEG
+        // (rf2-oiy1). They land BEFORE the `gc()` below, and the excess this
+        // row carried in 336 of 336 windows survived all three of them. What
+        // clears it is one work unit AFTER the collection, which is what the
+        // window's prime leg is. The warm-ups are what stop the arm's own
+        // cold-start from reaching the window at all, and that job is theirs
+        // still.
+        await page.evaluate(([dd, n]) => window.P0H.allocPrepare(dd, n), [0, ALLOC_WINDOW_WRITES]);
         for (let w = 0; w < ALLOC_WARMUPS; w++) {
           await page.evaluate(
             ([n, d, k]) => window.P0H.allocWindow(n, k, d),
-            [ALLOC_WRITES, drain, ALLOC_WRITE_SPEC.kind]
+            [ALLOC_WINDOW_WRITES, drain, ALLOC_WRITE_SPEC.kind]
           );
         }
         await gc();
         const pre = await read();
         const win = await page.evaluate(
           ([n, d, k]) => window.P0H.allocWindow(n, k, d),
-          [ALLOC_WRITES, drain, ALLOC_WRITE_SPEC.kind]
+          [ALLOC_WINDOW_WRITES, drain, ALLOC_WRITE_SPEC.kind]
         );
         const post = await read();
         await page.evaluate(() => window.P0H.release());
-        const s = allocSteps(win.samples);
+        const { primeLegs, measured } = allocPrimeSplit(win.samples);
+        const s = allocSteps(measured);
         // THE WRITE READ-BACK, and the row exits on it. At R reads of a
         // page whose cells were all written to `v`, a ladder boundary's
         // text is `R·v`; the floor has no subscription and cannot move.
@@ -1703,6 +1828,12 @@ async function allocRow(chromium) {
           boundaries: B,
           text: win.text,
           ...s,
+          // THE PRIME LEG, RECORDED RATHER THAN DISCARDED (rf2-oiy1). It is
+          // in no published quantity and in no certificate, and it is the
+          // term that made every floor window uncertifiable, so the record
+          // carries it and the summary prints it.
+          primeLegs,
+          primeExcess: primeLegs.length ? primeLegs[0] - s.legMedian : null,
           perWrite: s.rise / ALLOC_WRITES,
           perBoundaryPerWrite: s.rise / ALLOC_WRITES / B,
           cdpBracket: post.cdp - pre.cdp,
@@ -1755,6 +1886,12 @@ async function allocRow(chromium) {
     arm: ALLOC_ARM,
     boundaries: B,
     writes: ALLOC_WRITES,
+    // The window drives `writes + primeWrites` and publishes over `writes`
+    // (rf2-oiy1). Both are in the record because a reader of any figure here
+    // has to be able to tell how many work units it was divided by and how
+    // many actually ran.
+    primeWrites: ALLOC_PRIME_WRITES,
+    windowWrites: ALLOC_WINDOW_WRITES,
     warmups: ALLOC_WARMUPS,
     rounds: ALLOC_ROUNDS,
     preciseMemory: precise,
@@ -1790,6 +1927,10 @@ function summariseAlloc(row, refused) {
   console.log(
     `;; ${row.rounds} rounds x ${row.writes} warm bulk writes, after ${row.warmups} full-size ` +
       'warm-up windows. Q = E on every rung.'
+  );
+  console.log(
+    `;; The window drives ${row.windowWrites} — the first ${row.primeWrites} is a PRIME and is in ` +
+      'no figure below (rf2-oiy1).'
   );
   console.log(';; The arm stays MOUNTED across the window: this is what a standing page');
   console.log(';; allocates when it is written to, not what a mount costs.');
@@ -1947,6 +2088,44 @@ function summariseAlloc(row, refused) {
     ';;   above it is a window whose one-work-unit premise failed. An ADMITTED window under-reads'
   );
   console.log(`;;   its true allocation by AT MOST 2τ = ${(row.legTolerance * 200).toFixed(0)}%.`);
+
+  // THE PRIME LEG, PUBLISHED AS A DIAGNOSTIC (rf2-oiy1). It is in no figure
+  // above or below and in no certificate, and printing it is the whole reason
+  // this repair is not "discard leg 1": the term that made every floor window
+  // uncertifiable is still measured, on every window, and is now readable
+  // beside the cohort it used to contaminate. rf2-e9wr's τ calibration wants
+  // exactly this number.
+  const primes = row.perRound.flatMap((r) => {
+    const arms = Object.values(r.arms || {});
+    const from = arms.length ? arms : Object.values(r.controls || {});
+    return from.map((x) => x.primeExcess).filter((x) => typeof x === 'number');
+  });
+  console.log(';;');
+  console.log(
+    `;;   THE PRIME LEG (excluded from every figure): the window's first work unit runs AFTER the`
+  );
+  console.log(
+    `;;   forced collection and before the ${row.writes} measured ones. 336 of 336 windows in the`
+  );
+  console.log(
+    ';;   rf2-2rtt6.140 measurement carried a ~7 KB first-leg excess that three full-size warm-ups'
+  );
+  console.log(
+    ';;   could not reach, because every warm-up lands on the far side of that collection and the'
+  );
+  console.log(
+    ';;   window\'s own tail legs are byte-identical — so ONE work unit after it is what clears it.'
+  );
+  if (primes.length) {
+    const p = stat(primes);
+    console.log(
+      `;;   prime excess over the measured cohort median: ${n0(p.mean)} B mean ` +
+        `[${n0(p.min)}–${n0(p.max)}] across ${primes.length} windows`
+    );
+  } else {
+    console.log(';;   no window carried a prime leg to report.');
+  }
+
   console.log(
     `;;   windows refused: ${refused.length} of ${wins}` +
       (deviations.length
@@ -2535,6 +2714,15 @@ module.exports = {
   allocArmSizing,
   ALLOC_MIN_WRITES,
   ALLOC_ARM,
+  // The prime work unit (rf2-oiy1) — the split as a pure function, and both
+  // counts, so the pin can DRIVE the exclusion rather than read the source and
+  // hope. `ALLOC_WINDOW_WRITES` is what the window drives; `ALLOC_WRITES` is
+  // what every published figure is divided by, and the pin checks they differ
+  // by exactly the prime.
+  allocPrimeSplit,
+  ALLOC_PRIME_WRITES,
+  ALLOC_WRITES,
+  ALLOC_WINDOW_WRITES,
   // The measurement surface (rf2-gxrr), exported so the structural pin can
   // DRIVE it rather than read its source: the tables as values, the plan
   // filter as a pure function, and the two resolved selections so the env

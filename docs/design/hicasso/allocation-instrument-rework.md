@@ -667,6 +667,45 @@ witness together show the operating page is too small for a per-boundary figure
 to be credible — for instance if B lands at 3 or fewer. File it as its own bead
 at that point, with V1's data attached.
 
+## Addendum — the window's first work unit is a PRIME (rf2-oiy1)
+
+Added after V1/V2/V3 ran. It changes the instrument's window shape, so it is
+recorded here rather than left to be read off the source; the validity
+witnesses' own configurations are unchanged in what they ask for.
+
+**What V1/V2/V3 found.** Every one of the 336 arm windows measured, across
+eight browser runs, carried a positive first-leg excess over its own cohort
+median — median 6,966 B, constant in absolute bytes across B ∈ {4, 24, 96} and
+identical under both writes. At τ = 0.25 that refuses every window whose leg
+median is under ≈ 27,900 B, which is every floor window at every page size, and
+`arm − floor` is the quantity every witness here is stated over.
+
+**Which of the two causes it is, from that window's own numbers rather than
+from a new one.** The tail legs of a clean window are byte-identical
+(`[26044, 19256, 19256, 19256, 19256, 19256]`), so steady state arrives after
+*one* work unit inside the window. Eighteen work units already run immediately
+before it — the three full-size warm-up windows this brief specifies — and the
+excess survives all of them. The only thing standing between the last of those
+and leg 1 is the driver's own `gc()`. One work unit *after* the collection
+clears it and eighteen *before* it do not, so the collection is what creates it
+and a fourth warm-up window cannot reach it.
+
+**The repair.** The window drives `ALLOC_WRITES + 1` work units and the first
+is a prime: sampled, reported, and excluded from the leg cohort, from `rise`,
+from `falls`, from `perWrite` and from the certificate. τ is untouched, the
+2τ statement is re-derived unchanged (its derivation is per-leg and never
+referenced how many legs there are), and `ALLOC_MIN_WRITES` still holds six
+*averaged* writes — which is why the window drives seven rather than dropping a
+leg from six. The excess itself is printed beside the figures on every run.
+
+**It also closes the option held in reserve above.** Six single-write windows,
+each with its own forced collection before it, would put the first-leg excess
+on the *only* leg of every one of them — the shape whose leg cohort has nothing
+left to compare against. The reserved option is therefore not available as
+written; it would have to be six *primed two-write* windows, at which point its
+claimed six-fold shrink is a three-fold one and the trigger arithmetic above
+needs redoing.
+
 ## Implementation order
 
 One worker, in this order, so that nothing is measured before the thing that
