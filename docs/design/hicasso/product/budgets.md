@@ -366,7 +366,7 @@ disagreed about, so a remediation landing there would have been decided by a
 coin-flip. It no longer can be.
 
 **The breach is a property of the design, not of the prototype.** That is the
-substantive finding the package re-pin adds, and it is `rf2-hic-018`'s to
+substantive finding the package re-pin adds, and it is `rf2-0xx2`'s to
 disposition.
 
 ### The record: why the freeze was needed
@@ -420,9 +420,9 @@ decision is the operator's.
 ### The breach is carried, never normalised
 
 The current breach stands at **R=0 = 1,100 B / 1,095 B on the package**, against
-the frozen `1,024 B` line. It is a **live pressure owned by `rf2-hic-018`**, not
-a disposition this page may make — that disposition has since been taken, and it
-is [the substrate decision record](substrate-decision.md#52-the-read-free-boundary-shell--the-disposition)'s:
+the frozen `1,024 B` line. It is a **live pressure owned by `rf2-0xx2`**, not a
+disposition this page may make — the substrate arm's disposition has since been
+taken, and it is [the substrate decision record](substrate-decision.md#52-the-read-free-boundary-shell--the-disposition)'s:
 the substrate arm is refused on the evidence, the breach is carried red, and the
 line is not re-registered. The row here is never silently normalised into a
 percentage allowance — §6 says in terms that a relative regression allowance
@@ -556,7 +556,7 @@ and no figure may be scaled from one onto the other.
 |---|---|
 | Deterministic rows D1–D16 | ordinary blocking PR gates; framework in `rf2-hic-089`, full gates in `rf2-hic-071` |
 | Distributional rows S1–S7, U1–U4 | pinned interleaved evidence runs on P-DEV-1; never converted into flaky PR thresholds |
-| Shell breach disposition | `rf2-hic-018` |
+| Shell breach disposition | `rf2-0xx2` |
 | K3 per-read record | `rf2-hic-070` — [`k3-disposition.md`](k3-disposition.md), whose §8 makes the 10% same-witness per-read rule executable for `rf2-hic-071` |
 
 Row by row, with each verdict beside its line, that table is
@@ -792,8 +792,9 @@ points here, and here is what each is waiting on.
 - **`C5` and `C6` are rules whose readings have been dispositioned, and the
   rules have not.** `C5` is the shell rule; its evidence is `S1` and `S2`,
   carried red by the substrate decision's §5.2. `C6` is the per-read rule; its
-  evidence is `S3` and `S4`, and that page's §6 leaves the `S3` move open to
-  `rf2-hic-070`. Neither section adjudicates the *rule*, only the readings
+  evidence is `S3` and `S4`, and that page's §6 has since attributed the `S3`
+  move — `[SETTLED 2026-08-13, rf2-l50z]` — without moving the reading.
+  Neither section adjudicates the *rule*, only the readings
   under it, so the two rows point here rather than borrowing a disposition
   that was not made about them. `C5` is settled the day a shell arm lands
   under `1,024 B` on the package; `C6` the day the K3 record is taken.

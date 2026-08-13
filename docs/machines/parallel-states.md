@@ -140,7 +140,9 @@ That means region order can affect action/data accumulation order, but it does
 not affect which transitions are selected.
 
 A region guard cannot see a sibling region's move from the same broadcast event.
-It sees the sibling state as it was at the start of the macrostep.
+It sees the sibling state as that broadcast's selection froze it. One macrostep
+can run several selections — the broadcast, then parent `:always` rounds, then
+any `:raise` re-broadcast — and each one freezes the view afresh.
 
 Use `:raise` if one region's move should trigger a second broadcast inside the
 same macrostep.
@@ -219,8 +221,10 @@ Use `:all-state` only when exact state names are the contract:
   (= :valid (:form all-state)))
 ```
 
-Both keys are frozen for the broadcast. A same-event move in a sibling region
-is not visible until a later microstep or later event.
+Both keys are frozen for the **selection round** that is currently choosing
+transitions, not for the whole macrostep. Between rounds the view is re-frozen,
+so each round sees the completed result of the one before it. A same-event move
+in a sibling region becomes visible on the next round, not on this one.
 
 ## `:always`, `:after`, and `:spawn` are region-scoped
 
@@ -249,6 +253,9 @@ enable a sibling's `:always`, and that sibling waits for the *next* parent
 round. A tiny case: `:source` writes `:ready?`, `:gate`'s `:always` reads it and
 writes `:cleared?`, `:audit`'s `:always` reads `:cleared?` — one event, two
 parent rounds, then the snapshot commits.
+
+The loop is bounded by `:always-depth-limit` (default 16). The limit counts
+parent **rounds** — a round in which five regions move is one round, not five.
 
 ## Tags compose across regions
 

@@ -79,7 +79,7 @@ The verdict vocabulary:
 | # | Kernel risk | Witness set | §2 sabotage control | Row verdict |
 |---|---|---|---|---|
 | 1 | Frame reincarnation and cached operations | complete (`rf2-hic-013`) | executing — `reincarnation_routing`, `reincarnation_paint_dom` | WITNESSED |
-| 2 | Process-global ownership | complete (`rf2-hic-012`, `rf2-hic-017`) | executing — `public_root_lifecycle_dom` W3 | WITNESSED, record in flight |
+| 2 | Process-global ownership | complete (`rf2-hic-012`, `rf2-hic-017`) | executing — `public_root_lifecycle_dom` W3 | WITNESSED |
 | 3 | Speculative render leakage | complete (`rf2-hic-010`, `rf2-hic-014`) | executing — `kernel_commit_owns_cljs` residue-census control | WITNESSED |
 | 4 | Ambient-read extent | complete (`rf2-hic-011`) | executing — exact-refusal-map rows, both-ways witness | WITNESSED |
 | 5 | Controlled-input portability | complete for the synthetic tier (`rf2-hic-016`) | hand-run, **re-run by this checkpoint** | **ASSUMED IN PART** |
@@ -111,14 +111,24 @@ So the row is not a miss against the code and not a pass either. It is a scenari
 decided to assume. That decision is the operator's to make and this record does not reopen it — but six
 documents still describe the session as pending and owed, which is filed as `rf2-aubc`.
 
-### 2.2 Row 2's record is in flight
+### 2.2 Row 2's record has landed
 
 `rf2-hic-017`'s deliverable is the mutable-global sweep's justification — the page that answers "root-scope
-or justify every one". Its witnesses have landed and are green, but the ledger page itself
-(`product/globals.md`, nineteen owners, zero migrations) is on PR **#8066**, which was open at
-`d079143b91`. §1's "every kernel row maps to a landed witness" is therefore satisfied for row 2's *tests*
-and not yet for its *record*. No bead is filed: the PR is live and owned. **The next reader of this page
-re-checks that #8066 landed.**
+or justify every one". Its witnesses had landed and were green when this checkpoint ran, but the ledger
+page itself was still on PR **#8066**, open at `d079143b91`, which is why row 2 was read as *record in
+flight* rather than as witnessed outright.
+
+**#8066 merged as `a2c00417bb`, and the record it landed was then corrected by #8075 (`1f09c701e3`).** The
+merged-PR audit of #8066 found its census short by two: its four searches could not see a ClojureScript
+dynamic var, which is written by `binding` rather than by any mechanism they modelled.
+[`product/globals.md`](globals.md) therefore now publishes **twenty-one** mutable owners and **zero** that
+need migrating, re-derivable from **six** searches, and it carries the nineteen-to-twenty-one correction on
+its own face. §1's "every kernel row maps to a landed witness" is satisfied for row 2's *tests* and for its
+*record*, and the row's verdict above is **WITNESSED**.
+
+The nineteen-owner figure this checkpoint quoted is left named rather than quietly swapped for the current
+one. The reading was taken at a commit where the record did not exist at all, and a later reader is
+entitled to know which roster was in front of the checkpoint when it wrote the row.
 
 ## 3. What was re-run, and what it measures
 
