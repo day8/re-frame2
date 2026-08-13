@@ -178,8 +178,13 @@
             loss the bead is about: pre-fix the hydrate was refused and
             dropped, so this slot came up nil on every reload."
     (seed-prior-session!)
-    (is (nil? (frame-sub [:rf.xray.static.machines/selected-id]))
-        "precondition: no frame / no app-db slot before boot")
+    ;; Precondition asserted against localStorage, NOT a pre-boot
+    ;; subscribe: subscribing before `:rf/xray` exists is itself a
+    ;; recover-but-emit `:rf.error/frame-destroyed`, which would put a
+    ;; refusal of our own making on the channel the tests below observe.
+    (is (= prior-selection (persistence/load-selected-id))
+        "precondition: the prior session's choice is in storage, and no
+         frame exists yet to have hydrated it")
     (boot!)
     (is (= prior-selection
            (frame-sub [:rf.xray.static.machines/selected-id]))
