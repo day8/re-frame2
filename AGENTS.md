@@ -97,23 +97,46 @@ Never pipe a gate through `tail`, `head` or `grep` — a pipeline's exit status 
 its *last* command's, so a red runner reads green. Redirect to a file, capture
 the runner's own exit code, and quote that number in the PR body. **Every**
 artefact that produces — the log *and* the exit-code file — must land on an
-ignored path (`*.log`, `*.exit` and `*-exit.txt` all are) **and carry your
-worktree's name**:
+ignored path (`*.log`, `*.exit` and `*-exit.txt` all are) and carry **your
+worktree's name AND the number of the attempt that wrote it**:
 
 ```bash
-sh <WORKTREE_ROOT>/scripts/test-fast-pr.sh > gate-fastpr-<worktree>.log 2>&1; echo "$?" > gate-fastpr-<worktree>.exit
+sh <WORKTREE_ROOT>/scripts/test-fast-pr.sh > gate-fastpr-<worktree>-1.log 2>&1; echo "$?" > gate-fastpr-<worktree>-1.exit
 ```
 
-The suffix is not tidiness — a bare name fails the gate open. Concurrent
-workers share one scratchpad directory (its path carries the session id, not
-the worktree), so a peer silently overwrites a bare `gate-fastpr.exit`, and the
-loser then reads an exit code belonging to another worker's run: a `0` somebody
-else earned, quoted as its own green. Two of six workers in a single wave
-collided exactly that way. Confirm a scratch file is your own before believing
-it, and check that the run read *your* worktree — its `gate root:` line where
-the gate prints one, the negative control's red where it does not (the section
-above). That check, not this naming rule, is what caught both observed
-collisions.
+Bump that number on every re-run — `-2`, `-3` — and never write to one twice.
+
+**Neither half is tidiness; a name missing either fails the gate OPEN**, and the
+two close different mechanisms.
+
+*The worktree name stops a peer.* Concurrent workers share one scratchpad
+directory (its path carries the session id, not the worktree), so a peer
+silently overwrites a bare `gate-fastpr.exit`, and the loser then reads an exit
+code belonging to another worker's run: a `0` somebody else earned, quoted as
+its own green. Two of six workers in a single wave collided exactly that way on
+2026-08-12.
+
+*The attempt number stops you.* Both writers are the same worktree here, so the
+suffix cannot help: a process the harness could not kill goes on writing to an
+inherited descriptor after its replacement has started. The ten-minute cap kills
+the *shell*; what that shell spawned survives holding the `.log` the redirect
+had already opened, and writes at *its* offset while the restart writes from
+zero — so the artefact is spliced rather than cleanly clobbered, and the tell is
+a NUL hole in the log, or **two summary lines** where there should be one. The
+`.exit` is opened later, by the `echo "$?"` that runs only once the gate has
+returned, so a surviving *child* corrupts the log alone and leaves stale output
+paired with the replacement's exit code; a surviving *wrapper* can write the
+exit file as well. Measured twice independently on 2026-08-13 —
+`worker/trusted-il7b` left with `exit 0` beside 18 real failures, and
+`worker/tense-cluster` finding an orphaned `node out/node-test.js` still
+reporting from a run already killed. Expect this route more often than the peer
+collision, not less: foreground dies at ten minutes and the spine needs about
+twenty-five, so kill-and-restart is routine rather than exceptional.
+
+Confirm a scratch file is your own before believing it, and check that the run
+read *your* worktree — its `gate root:` line where the gate prints one, the
+negative control's red where it does not (the section above). That check, not
+this naming rule, is what caught both observed peer collisions.
 
 A single untracked leftover makes `git worktree remove` refuse the tree from
 then on, and nine worktrees accumulated exactly that way before anyone worked

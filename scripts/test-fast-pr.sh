@@ -618,9 +618,15 @@ fi
 # in the same tree, and two live spines then share that tree.  Two kinds of
 # damage follow, both seen on real runs:
 #
-#   1. TWO WRITERS, ONE FILE.  AGENTS.md has every worker redirect this script
-#      to a FIXED path (`> gate-fastpr.log`), so the two runs interleave into
-#      it and produce NUL-riddled output in which no line can be trusted.
+#   1. TWO WRITERS, ONE FILE.  When both runs were observed, AGENTS.md had
+#      every worker redirect this script to a path fixed per tree, so the two
+#      interleaved into it and produced NUL-riddled output in which no line
+#      could be trusted.  AGENTS.md now names gate artefacts for the ATTEMPT as
+#      well as the worktree (`gate-fastpr-<worktree>-1.log`, bumped on each
+#      re-run), which sends the survivor's writes to a file nobody quotes.
+#      That NARROWS this damage; it does not remove the need for the reap.  The
+#      rule binds a worker who remembers to bump, the survivor keeps burning a
+#      tree's CPU either way, and damage 2 below is untouched by any naming.
 #   2. A SPURIOUS RED IN THE GATE'S OWN ENVIRONMENT CLASS.  The older run's
 #      `npm run test:cljs` unlinks out/node-test.js underneath the younger
 #      run's live per-namespace isolation sweep, which then fails with "the
