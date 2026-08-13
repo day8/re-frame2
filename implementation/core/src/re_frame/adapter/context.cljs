@@ -249,11 +249,43 @@
 ;;
 ;; UIx renders function components — they have no class-
 ;; component-specific `(.-context cmp)` slot. The substrate-portable
-;; way to observe the active Provider's value is to read
-;; `_currentValue` directly off the shared context object. React
-;; mutates this field as Provider boundaries are entered and exited
-;; during render, so reads from inside a render see the closest
-;; enclosing Provider's value.
+;; way to observe the active Provider's value is to read the context
+;; object's value slot directly. React mutates that field as Provider
+;; boundaries are entered and exited during render, so reads from
+;; inside a render see the closest enclosing Provider's value.
+;;
+;; WHICH SLOT, THOUGH (rf2-5rqn). `createContext` initialises TWO value
+;; slots to the default — `_currentValue` and `_currentValue2` — and a
+;; renderer claims one of them (React 19.2:
+;; packages/react/src/ReactContext.js). The DOM client renderer pushes
+;; and pops `_currentValue`; the Fizz server renderer
+;; (`react-dom/server`) pushes and pops `_currentValue2`
+;; (packages/react-server/src/ReactFizzNewContext.js). A reader that
+;; consults only the primary therefore observes the no-provider sentinel
+;; through an entire server render, and every ambient consumer funnelling
+;; through it refuses with `:rf.error/no-frame-context` beneath a
+;; provider that DID establish a scope. So the reader below falls back to
+;; the secondary slot — and only when the primary is EXACTLY the untouched
+;; sentinel, so a corrupted primary is never masked. Under the client
+;; renderer the secondary is never written and still holds the sentinel,
+;; which classifies to nil, so the fallback changes nothing there.
+;; This is pinned evidence for the React version this repo pins, not a
+;; claim about future React: if an upgrade removes or repurposes the
+;; private slots, thread the public `useContext` return through the hook
+;; surfaces instead (the documented escape hatch, rf2-5rqn's ruling).
+;;
+;; WHERE THE FALLBACK STOPS (measured, rf2-5rqn). Fizz pops the secondary
+;; slot when a render EXITS normally, and does not when a render THROWS —
+;; but the next render pops the abandoned snapshot before running any
+;; component, so no render ever observes another render's frame. The
+;; window is therefore between an aborted render and the next one, and
+;; only a read taken OUTSIDE any render falls in it. That is not what the
+;; ambient tier promises on either renderer: ambient resolution is a
+;; render-time notion, and code running outside a render carries a frame
+;; explicitly or binds one with `with-frame` — tier 1, which outranks both
+;; slots. A stale-slot guard here was ruled out by name as
+;; over-engineering. The behaviour is pinned by part 5 of
+;; `assert-use-subscribe-ambient-under-ssr`.
 ;;
 ;; Per Spec 006 §Frame-provider via React context, this fn is the
 ;; canonical impl that the UIx adapter publishes through the
@@ -315,10 +347,11 @@
     2. The closest enclosing frame boundary via React context — either a
        `frame-provider` (SCOPE) or a `frame-root` (ENSURE); both install
        the same shared context, so a read resolves identically beneath
-       either. Reads `_currentValue` off the shared context object
+       either. Reads the ACTIVE value slot off the shared context object
        directly (the substrate-portable path; UIx's `use-context` is
-       sugar over this read) and classifies
-       it through the shared [[context-value->current-frame]] rules.
+       sugar over this read — which slot is active depends on the renderer,
+       see the NOTE below) and classifies the value it selected, ONCE,
+       through the shared [[context-value->current-frame]] rules.
 
   Returns nil when neither tier names a frame — a component rendered
   beneath neither frame boundary observes the no-provider sentinel, which
@@ -327,13 +360,20 @@
   `frame/require-current-frame!`; low-level readers / tooling model 'no
   context' with the nil directly.
 
-  NOTE (rf2-2rzx0): the direct `_currentValue` slot read is CLIENT-renderer
-  only — React 19.2's `react-dom/server` populates the secondary slot
-  `_currentValue2`, not `_currentValue`. Callers that CAN observe the
-  renderer-agnostic value (a component reading `useContext` inside render,
-  e.g. the compiled ViewCell) pass that value to
-  [[context-value->current-frame]] directly rather than routing through this
-  slot-reading reader."
+  NOTE (rf2-2rzx0, repaired rf2-5rqn): React carries TWO value slots per
+  context — `_currentValue` (primary; the client renderer) and
+  `_currentValue2` (secondary; React 19.2's `react-dom/server` writes and
+  reads THIS one). So tier 2 reads the primary slot and falls back to the
+  secondary ONLY when the primary holds the untouched no-provider sentinel.
+  Under the client renderer the secondary slot is never written, so it still
+  holds `createContext`'s default — the same sentinel — and the fallback is
+  inert. Callers that can observe the renderer-agnostic value (a component
+  reading `useContext` inside render, e.g. the compiled ViewCell) may pass
+  that value to [[context-value->current-frame]] directly instead."
   []
   (or frame/*current-frame*
-      (context-value->current-frame (.-_currentValue ^js frame-context))))
+      (let [primary (.-_currentValue ^js frame-context)]
+        (context-value->current-frame
+          (if (= primary no-provider-sentinel)
+            (.-_currentValue2 ^js frame-context)
+            primary)))))

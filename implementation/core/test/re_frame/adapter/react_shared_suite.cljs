@@ -3608,54 +3608,79 @@
 ;; only node-lane SSR row (`assert-use-subscribe-ssr-render-without-commit-
 ;; nets-zero-at-the-horizon`) drives the EXPLICIT 2-arg probe. So the ambient
 ;; form's server behaviour had never been executed anywhere, and an
-;; application server-rendering a UIx tree meets it on its first page.
+;; application server-rendering a UIx tree met the refusal on its first page.
 ;;
-;; THIS ROW PINS A KNOWN DEFECT, NOT A DESIRED BEHAVIOUR. rf2-5rqn is open and
-;; names three candidate dispositions (repair / document / refuse) without
-;; picking one; picking one changes the SSR contract and is an operator
-;; ruling, so this row records what the runtime DOES today and the mechanism
-;; behind it. Whoever lands the repair should expect part 1 to go red BY
-;; DESIGN and should rewrite it to assert resolution — part 2 is the evidence
-;; that the repair is available and cheap.
+;; WHAT THIS ROW WAS, AND WHAT IT IS NOW. It first landed pinning a DEFECT: the
+;; ambient form refused a server render beneath a provider that had established
+;; a scope, and part 2 measured why. rf2-5rqn ruled disposition (1) REPAIR at
+;; the READER site — `function-component-current-frame` falls back to
+;; `_currentValue2` when `_currentValue` is exactly the no-provider sentinel —
+;; so part 1 is now written the way the header of the defect row said it should
+;; be rewritten: it asserts RESOLUTION. Part 2 is the evidence and survives
+;; unchanged in substance, with the shared reader added to it, because the
+;; measurement is what makes the repair legible. Parts 4 and 5 are the frame
+;; laws the fallback must not have loosened.
+;;
+;; A NOTE ON WHAT WOULD MAKE THIS ROW LIE. The defect is renderer-specific, so
+;; a client-lane approximation of it proves nothing: every part below drives
+;; `react-dom/server`'s `renderToString` directly, and part 2 reads the two
+;; private slots so a green run names WHICH slot answered.
 
 (defn assert-use-subscribe-ambient-under-ssr
-  "rf2-5rqn: the AMBIENT (1-arg) `use-subscribe` cannot resolve a frame under
-  `react-dom/server`, even beneath the adapter's own `frame-provider`.
+  "rf2-5rqn: the AMBIENT (1-arg) `use-subscribe` resolves its frame under
+  `react-dom/server` beneath the adapter's own `frame-provider` — and the
+  frame laws that guard the ambient tier survive the repair that made it so.
 
-  Three parts, measured on the node lane under React 19.2:
+  Five parts, measured on the node lane under React 19.2:
 
-    1. THE SYMPTOM — an ambient `use-subscribe` inside a `frame-provider`
-       REFUSES a server render with `:rf.error/no-frame-context`, an error
-       whose own recovery ladder tells the author to establish a scope with a
-       `frame-provider` they have already established.
+    1. THE REPAIR — an ambient `use-subscribe` inside a `frame-provider`
+       server-renders the subscribed value. It used to throw
+       `:rf.error/no-frame-context`, an error whose own recovery ladder told
+       the author to establish a scope they had already established.
 
     2. THE MECHANISM — during that same server render the shared
-       frame-context's PRIVATE `_currentValue` slot holds the no-provider
+       frame-context's PRIMARY `_currentValue` slot holds the no-provider
        SENTINEL while the SECONDARY `_currentValue2` slot holds the real
        frame, and the PUBLIC `useContext` return answers with the real frame.
        `function-component-current-frame` (the `:adapter/current-frame`
-       reader the whole ambient chain funnels through) reads `_currentValue`,
-       classifies the sentinel as 'no scope', and the refusal follows. This is
-       the same renderer split rf2-2rzx0 already repaired for the compiled
-       ViewCell by sourcing the frame from the `useContext` RETURN — and the
-       spine's 1-arg arm ALREADY calls that hook (for the repaint
-       subscription) and discards its value.
+       reader the WHOLE ambient chain funnels through — 1-arg use-subscribe,
+       `use-frame`, ambient subscribe/dispatch inside render,
+       `rf/current-frame-id`) now reads the primary, sees the untouched
+       sentinel, and falls back to the secondary. Asserting on that reader
+       DIRECTLY, and not only through a hook, is what proves the repair is
+       central rather than one hook's private shortcut.
 
-    3. THE SUPPORTED ROUTE — the EXPLICIT 2-arg form renders the subscribed
-       value under the same server renderer, so the refusal is specific to the
-       ambient tier rather than to SSR, and Spec 002's ladder item (3) 'pass
-       an explicit {:frame <id>}' is a real way out.
+    3. THE OTHER ROUTE — the EXPLICIT 2-arg form renders the subscribed value
+       under the same server renderer. It always did; Spec 002's ladder item
+       (3) 'pass an explicit {:frame <id>}' remains a real way out, and this
+       part pins that the repair did not disturb it.
+
+    4. THE NEGATIVE CONTROLS — the fallback is narrow by construction and
+       these say so: no provider still refuses with
+       `:rf.error/no-frame-context`; the DYNAMIC tier still outranks both
+       slots; a CORRUPTED primary is still reported as
+       `:rf.error/frame-context-corrupted` and is NOT masked by a populated
+       secondary; and a refusing extent still raises
+       `:rf.error/ambient-frame-refused`, because `resolve-current-frame`
+       withdraws the reader entirely rather than gating inside it.
+
+    5. THE ABORTED-RENDER CHECK — the one hazard a private-slot read carries
+       that is cheap to falsify. After a server render that THROWS beneath a
+       provider, the secondary slot must be back at its default and a
+       provider-less render in the same runtime must still refuse. A stale
+       `_currentValue2` would leak one request's frame into the next.
 
   Node-safe: no DOM, no `act()`, no root — `renderToString` only.
 
   cfg keys: `:frame-provider-mount-element`, `:probe-frame-provider-element`,
   `:probe-frame-provider-observed`, `:frame-provider-query`,
   `:probe-ssr-slots-element`, `:ssr-slot-observed`, `:probe-element`,
-  `:refcount-target`, `:us-query`, and `:ssr-ambient-frame` (its own frame)."
+  `:refcount-target`, `:us-query`, `:substrate-kw`, `:ssr-ambient-frame` (its
+  own frame) and `:ssr-dynamic-frame` (the tier-1 contender for part 4b)."
   [{:keys [name frame-provider-mount-element probe-frame-provider-element
            probe-frame-provider-observed ssr-ambient-frame frame-provider-query
-           probe-element refcount-target us-query
-           probe-ssr-slots-element ssr-slot-observed]}]
+           probe-element refcount-target us-query substrate-kw
+           ssr-dynamic-frame probe-ssr-slots-element ssr-slot-observed]}]
   (testing (str name " — ambient use-subscribe under react-dom/server (rf2-5rqn)")
     ;; Clear the fixture's ambient `:rf/default` dynamic scope: the 1-arg form
     ;; resolves tier 1 (dynamic var) FIRST, so a bound `*current-frame*` would
@@ -3670,42 +3695,202 @@
       (rf/dispatch-sync [::ssr-ambient-seed] {:frame ssr-ambient-frame})
       (rf/reg-sub frame-provider-query (fn [db _] (:k db)))
       (rf/reg-sub us-query (fn [db _] (:n db)))
-      (testing "1. the ambient form REFUSES a server render (the defect)"
-        (let [thrown (try (.renderToString react-dom-server
-                            (frame-provider-mount-element
-                              ssr-ambient-frame (probe-frame-provider-element)))
-                          nil
-                          (catch :default e e))]
-          (is (some? thrown)
-              "the server render of an ambient use-subscribe threw")
-          (is (= :rf.error/no-frame-context (:rf.error/id (ex-data thrown)))
-              "and threw the ABSENCE category — under a frame-provider that
-               did establish a scope (rf2-5rqn)")
-          (is (empty? @probe-frame-provider-observed)
-              "the hook never returned a value, so no markup could be produced")))
+      (testing "1. the ambient form RESOLVES under a server render (the repair)"
+        (let [html (.renderToString react-dom-server
+                     (frame-provider-mount-element
+                       ssr-ambient-frame (probe-frame-provider-element)))]
+          (is (str/includes? html "k=:wrapped")
+              "the ambient use-subscribe server-rendered the value it read from
+               the frame the enclosing frame-provider established — this render
+               threw :rf.error/no-frame-context before rf2-5rqn")
+          (is (some #{:wrapped} @probe-frame-provider-observed)
+              "and the hook itself returned that value, so the markup is the
+               hook's output and not an empty render")))
       (testing "2. the MECHANISM — the server renderer populates the SECONDARY slot"
+        (reset! ssr-slot-observed nil)
         (.renderToString react-dom-server
           (frame-provider-mount-element
             ssr-ambient-frame (probe-ssr-slots-element)))
-        (let [{:keys [current-value current-value2 use-context]} @ssr-slot-observed]
+        (let [{:keys [current-value current-value2 use-context reader]} @ssr-slot-observed]
           (is (= adapter-context/no-provider-sentinel current-value)
-              "`_currentValue` — the slot the :adapter/current-frame reader
-               consults — holds the NO-PROVIDER SENTINEL on the server, which
-               classifies to nil ('no scope') and produces the refusal above")
+              "`_currentValue` — the PRIMARY slot, which the client renderer
+               owns — holds the untouched NO-PROVIDER SENTINEL on the server;
+               a reader consulting only it classifies that as 'no scope'")
           (is (= ssr-ambient-frame current-value2)
               "while React's SECONDARY slot `_currentValue2` holds the frame
                the provider established — the value was never absent, only
-               unreachable from the slot the reader reads")
+               unreachable from the slot the reader used to read")
           (is (= ssr-ambient-frame use-context)
-              "and the PUBLIC useContext return — renderer-agnostic, and the
-               hook the spine's 1-arg arm ALREADY calls and discards —
-               resolves the frame correctly under react-dom/server")))
-      (testing "3. the EXPLICIT 2-arg form is the supported route under SSR"
+              "and the PUBLIC useContext return — renderer-agnostic — agrees,
+               which is what makes the secondary slot the right fallback and
+               not a guess")
+          (is (= ssr-ambient-frame reader)
+              "THE SHARED READER — function-component-current-frame, the
+               :adapter/current-frame hook EVERY ambient consumer funnels
+               through — answers with the frame under react-dom/server. This
+               assertion, not part 1, is what proves the repair is central: it
+               calls the reader directly, with no hook in the way")))
+      (testing "3. the EXPLICIT 2-arg form still server-renders (unchanged)"
         (reset! refcount-target ssr-ambient-frame)
         (let [html (.renderToString react-dom-server (probe-element))]
-          (is (re-find #"n=7" html)
+          (is (str/includes? html "n=7")
               "an explicitly-framed use-subscribe server-renders its value —
-               the refusal is specific to the AMBIENT tier, not to SSR"))))))
+               the explicit route the repair had to leave alone")))
+      (testing "4a. NEGATIVE CONTROL — no provider still refuses on the server"
+        (reset! probe-frame-provider-observed [])
+        (let [thrown (try (.renderToString react-dom-server
+                            (probe-frame-provider-element))
+                          nil
+                          (catch :default e e))]
+          (is (= :rf.error/no-frame-context (:rf.error/id (ex-data thrown)))
+              "with NO frame boundary above it the ambient form still fails
+               closed — the fallback reads the secondary slot, it does not
+               synthesise a frame out of one")
+          (is (empty? @probe-frame-provider-observed)
+              "and the hook returned nothing, so nothing rendered")))
+      (testing "4b. NEGATIVE CONTROL — the dynamic tier still outranks both slots"
+        (rf/make-frame {:id ssr-dynamic-frame :doc "rf2-5rqn SSR dynamic-precedence frame"})
+        (reset! ssr-slot-observed nil)
+        (binding [frame/*current-frame* ssr-dynamic-frame]
+          (.renderToString react-dom-server
+            (frame-provider-mount-element
+              ssr-ambient-frame (probe-ssr-slots-element))))
+        (let [{:keys [current-value2 reader]} @ssr-slot-observed]
+          (is (= ssr-ambient-frame current-value2)
+              "the provider did populate the secondary slot, so this is a
+               genuine contest and not a vacuous one")
+          (is (= ssr-dynamic-frame reader)
+              "yet the reader answers with the DYNAMIC frame — tier 1 is
+               consulted before any slot, on the server as on the client")))
+      (testing "4c. NEGATIVE CONTROL — a corrupted primary is not masked by the secondary"
+        ;; The exact-sentinel gate is the whole of what keeps this true: the
+        ;; fallback fires ONLY when the primary holds the untouched default, so
+        ;; a disturbed boundary (rf2-8q66) still reports itself even when a
+        ;; secondary slot is sitting there with a perfectly good frame in it.
+        ;; Asserted against the reader directly, with the SSR slot shape staged
+        ;; by hand, because no renderer produces 'corrupt primary + populated
+        ;; secondary' on its own.
+        (let [ctx       adapter-context/frame-context
+              original  (.-_currentValue  ^js ctx)
+              original2 (.-_currentValue2 ^js ctx)
+              lk        (keyword "re-frame.adapter.react-shared-suite"
+                                 (str "ssr-5rqn-" (clojure.core/name substrate-kw)))
+              traces    (atom [])]
+          (trace-tooling/register-listener! lk (fn [ev] (swap! traces conj ev)))
+          (try
+            (set! (.-_currentValue  ^js ctx) 42)
+            (set! (.-_currentValue2 ^js ctx) ssr-ambient-frame)
+            (is (nil? (adapter-context/function-component-current-frame))
+                "a corrupted PRIMARY resolves to nil even though the secondary
+                 names a real frame — the fallback did not swallow the
+                 corruption")
+            (let [errs (corruption-traces traces)]
+              (is (= 1 (count errs))
+                  "and the distinct :rf.error/frame-context-corrupted category
+                   still fires — the disturbed boundary is reported, not folded
+                   into ordinary 'no scope'")
+              (is (= :number (-> errs first :tags :type))
+                  ":tags :type still names the corrupted shape"))
+            (finally
+              (trace-tooling/unregister-listener! lk)
+              (set! (.-_currentValue  ^js ctx) original)
+              (set! (.-_currentValue2 ^js ctx) original2)))))
+      (testing "4d. NEGATIVE CONTROL — a refusing extent still refuses on the server"
+        ;; `resolve-current-frame` WITHDRAWS the adapter reader for the extent
+        ;; of a refusal (rf2-2rtt6.122) rather than gating inside it, so the
+        ;; secondary-slot fallback cannot route around a substrate that has
+        ;; declared its own read discipline. That is why the repair needed no
+        ;; refusal-awareness of its own — and this part is the proof.
+        (reset! ssr-slot-observed nil)
+        (let [thrown (try (frame/call-with-ambient-frame-refused nil
+                            (fn []
+                              (.renderToString react-dom-server
+                                (frame-provider-mount-element
+                                  ssr-ambient-frame (probe-frame-provider-element)))))
+                          nil
+                          (catch :default e e))]
+          (is (= :rf.error/ambient-frame-refused (:rf.error/id (ex-data thrown)))
+              "inside a refusing extent the ambient form raises REFUSED, not
+               the absence category and not a silent success"))
+        (frame/call-with-ambient-frame-refused nil
+          (fn []
+            (.renderToString react-dom-server
+              (frame-provider-mount-element
+                ssr-ambient-frame (probe-ssr-slots-element)))))
+        (let [{:keys [current-value2 reader] resolved :resolve} @ssr-slot-observed]
+          (is (= ssr-ambient-frame current-value2)
+              "the provider populated the secondary slot inside the refusing
+               extent too, so the withdrawal is what answers below")
+          (is (= ssr-ambient-frame reader)
+              "the raw reader would have answered — the refusal is layered
+               ABOVE it")
+          (is (nil? resolved)
+              "and resolve-current-frame answers nil, having never called the
+               reader at all")))
+      (testing "5. the ABORTED-RENDER check — an aborted render leaks no frame into the next"
+        ;; THE ONE HAZARD A PRIVATE-SLOT READ CARRIES, and the reason rf2-5rqn's
+        ;; ruling made this part a gate rather than a nicety. React pushes the
+        ;; provider's value onto `_currentValue2` on the way into a subtree and
+        ;; pops it on the way out. A render that THROWS mid-tree unwinds by a
+        ;; different path — so ask whether the pop still happens, and, whatever
+        ;; the answer, whether anything can OBSERVE a stale slot. On a server
+        ;; the two questions come apart, and only the second one is a bug.
+        ;;
+        ;; MEASURED (React 19.2.0, this row plus a standalone Fizz probe):
+        ;;   normal render   → the slot is popped back to the default on exit;
+        ;;   throwing render → the slot is LEFT PUSHED after the throw;
+        ;;   the NEXT render → pops the previous snapshot BEFORE running any
+        ;;                     component, so every render observes the context
+        ;;                     its own tree establishes and nothing else.
+        ;;
+        ;; So the stale value exists between an aborted render and the next
+        ;; one, and no render sees it. That is what the three assertions below
+        ;; pin, in that order — including the residual itself, deliberately, so
+        ;; that a React release which starts popping on the error path turns
+        ;; this row red and sends the next reader to this note rather than
+        ;; letting the repair's real boundary drift out of the record.
+        ;;
+        ;; NOT PINNED, because it is outside the ambient tier's contract: a
+        ;; frame-scoped op performed OUTSIDE any render, inside that window,
+        ;; reads the aborted render's frame. Ambient resolution is a
+        ;; render-time notion on both renderers, and server-side ops carry a
+        ;; frame explicitly or bind one with `with-frame` — which outranks both
+        ;; slots (4b). rf2-5rqn ruled OUT stale-slot heuristics by name; a
+        ;; guard here would be exactly that.
+        ;;
+        ;; The throw is staged here rather than borrowed from 4d, so the render
+        ;; immediately preceding these assertions is the aborted one.
+        (let [thrown (try (frame/call-with-ambient-frame-refused nil
+                            (fn []
+                              (.renderToString react-dom-server
+                                (frame-provider-mount-element
+                                  ssr-ambient-frame (probe-frame-provider-element)))))
+                          nil
+                          (catch :default e e))]
+          (is (some? thrown)
+              "the staged render did abort beneath the provider — without a
+               throw here the rest of this part would prove nothing"))
+        (is (= ssr-ambient-frame
+               (.-_currentValue2 ^js adapter-context/frame-context))
+            "MEASURED RESIDUAL, not a requirement: React 19.2 leaves the
+             secondary slot pushed after an aborted server render. If this
+             assertion fails, React changed its error-path unwinding — that is
+             an improvement, not a regression: re-read this part's note, drop
+             this line, and keep the two below")
+        (reset! probe-frame-provider-observed [])
+        (let [thrown (try (.renderToString react-dom-server
+                            (probe-frame-provider-element))
+                          nil
+                          (catch :default e e))]
+          (is (= :rf.error/no-frame-context (:rf.error/id (ex-data thrown)))
+              "THE LOAD-BEARING ONE: a provider-less render in the SAME runtime
+               still refuses, because the next render pops the abandoned
+               snapshot before any component runs — one aborted request cannot
+               leak its frame into the next"))
+        (is (= adapter-context/no-provider-sentinel
+               (.-_currentValue2 ^js adapter-context/frame-context))
+            "and that render left the slot back at createContext's default, so
+             the window closes at the next render rather than persisting")))))
 
 ;; ---- use-frame — capture-frame in hook position (rf2-y6dz8t) ---------------
 
