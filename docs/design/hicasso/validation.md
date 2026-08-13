@@ -760,7 +760,7 @@ as published and are not restated, re-derived or re-adjudicated here:
 > | Mount (K1) | **Missed decisively**: 1.1718x / 1.1976x vs direct UIx, canonical, both intervals above 1.10x — the priced capability premium |
 > | Bulk (K2) | Gated on the Reagent pair only (ruled); all gated intervals straddle 1.0 — unresolved, instrument-limited |
 > | Per-read heap (K3) | Misses the governed Reagent row (~1.4x); beats the UIx parent by ~29% — both reported, disposition owed explicitly |
-> | Controlled input | Strong in Chromium; WebKit matrix open (K4) |
+> | Controlled input | Strong in Chromium; the WebKit half of the matrix is no longer open (K4). Controlled text is verified on all three engines, and the native-IME cells read **Green** — by operator ruling of 2026-08-13 (`rf2-hic-016`) |
 
 What the ruling does and does not do to each, with the record that owns it named
 rather than summarised:
@@ -780,9 +780,17 @@ rather than summarised:
   [`product/k3-disposition.md`](product/k3-disposition.md), the three-scoreboard
   record that is operative by default and operator-overturnable; no denominator
   is substituted and no scoreboard stands in for another.
-- **K4** — the WebKit half of the control matrix is **open and unwitnessed**,
-  which is an evidence limitation the ruling accepts rather than closes; it
-  stays a Phase 1 obligation.
+- **K4** — the WebKit half of the control matrix is **no longer a Phase 1
+  obligation**, and it was not this ruling that discharged it. The
+  controlled-text matrix — echo, rejection, caret preservation, selection range
+  and direction, revision reset, and the blur and unmount edges — was verified
+  on all three engines under PR #7992; the synthetic composition sequence is
+  green on all three; and the two remaining native-IME cells read **Green** — by
+  operator ruling of 2026-08-13 (`rf2-hic-016`), recorded per engine in
+  [`product/dispositions.md` §2.3](product/dispositions.md#23-per-control-and-dom-conformance-dispositions).
+  No manual native-IME session is scheduled. A real composition **range** stays
+  Chromium-only, because `Input.imeSetComposition` is a CDP method. The
+  criterion text is untouched and bites on a red result exactly as registered.
 - **K5** — already removed as an operative kill criterion by operator ruling on
   2026-08-04, and nothing here revives or replaces it (see the note above).
 - **K6** — untouched. The criterion text stands as registered, and the kill
@@ -797,8 +805,9 @@ Phase 1 substrate adjudication refused to take and handed up (its
 [deferred row](product/correction-ledger.md#deferred-items-and-the-release-decision)
 names what discharges it); the correctness risk register is still open; and the
 open proof obligations — a full application witness, a serious vendor
-integration, the WebKit matrix — are execution risks inside the selected
-direction rather than discharged ones.
+integration, the Chromium/Firefox/WebKit control/DOM conformance matrices
+(`rf2-hic-040`, wider than K4's discharged half and separate from it) — are
+execution risks inside the selected direction rather than discharged ones.
 
 **[Amended 2026-08-13.]** One of those rows now carries a disposition, and it is
 still not closed. The read-free boundary shell's prospective disposition — the
