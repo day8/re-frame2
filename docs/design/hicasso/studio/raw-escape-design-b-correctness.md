@@ -68,8 +68,8 @@ interpreted root" but **"this tier carries no such value"** — Spec 011 tiers
 hydration-mismatch detection by render-tree representation rather than by adapter
 brand, and a root React adopts (a compiled `re-frame.ui` root, a native UIx root, or
 a Freehand root) now emits no `:rf/render-hash` and stamps no marker at either end.
-And `83b865f8` was never a fact about the dogfood screen or the Conduit feed: it is
-the FNV-1a-32 of the canonical EDN `[#fn[] {}]`, so **any** unresolved `[<fn> {}]`
+And the hash `83b865f8` was never a fact about the dogfood screen or the Conduit
+feed: it is the FNV-1a-32 of the canonical EDN `[#fn[] {}]`, so **any** unresolved `[<fn> {}]`
 root takes it. This *strengthens* both places the fact is used — O7's fail-open
 obligation, and the §"blind" row below, where the middle column's blindness is
 attributed to canonical EDN rendering every function identically. That attribution
