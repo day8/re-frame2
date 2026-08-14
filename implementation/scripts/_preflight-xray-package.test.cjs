@@ -26,9 +26,10 @@
  *      `:local/root` coordinates by whether the target artefact is publishable
  *      (carries an `:aliases -> :clein/build`), and assert release-xray.yml
  *      rewrites every publishable one and NO unpublishable one.
- *   2. THE UNPUBLISHABLE EDGES — pin the operator decisions that are
- *      deliberately open (rf2-5dut1 for Freehand, rf2-hic-023 for Hicasso), so
- *      neither can be closed by accident in either direction.
+ *   2. THE UNPUBLISHABLE EDGE — pin the operator decision that is
+ *      deliberately open (rf2-hic-023 for Hicasso), so it cannot be closed by
+ *      accident in either direction. It was two until rf2-l86mm; rf2-5dut1's
+ *      Freehand edge was answered by deleting the coordinate.
  *   3. VERDICT — the script's pom parsing and verdict, against fixture poms.
  *
  * # Mechanism for group 3
@@ -66,14 +67,14 @@ const { readEdn, isMap, mapGetKeyword } = require('./lib/edn.cjs');
 
 const VERSION = '0.0.1.alpha';
 
-// The two coordinates that are deliberately NOT rewritten, because neither
-// artefact carries a `:clein/build` and so neither has a Maven coordinate to
-// rewrite TO. Publication of day8/re-frame2-freehand is EP-0036 F6 territory;
+// The one coordinate that is deliberately NOT rewritten, because the artefact
+// carries no `:clein/build` and so has no Maven coordinate to rewrite TO.
 // day8/re-frame2-hicasso arrived with the Hicasso evidence tab (rf2-hic-023)
-// and its release wiring is rf2-hic-008's.
-const FREEHAND = 'day8/re-frame2-freehand';
+// and its release wiring is rf2-hic-008's. It was two until rf2-l86mm removed
+// day8/re-frame2-freehand from tools/xray/deps.edn along with the Views
+// panel's Freehand tool-door sections.
 const HICASSO = 'day8/re-frame2-hicasso';
-const UNPUBLISHABLE = [FREEHAND, HICASSO];
+const UNPUBLISHABLE = [HICASSO];
 
 const tests = [];
 function test(name, fn) {
@@ -177,19 +178,25 @@ test('release-xray.yml rewrites NO unpublishable coordinate', () => {
   );
 });
 
-test('exactly two coordinates are unpublishable, and a bead holds each open', () => {
-  // Pinned in BOTH directions on purpose. If either becomes publishable this
-  // reds and the rewrite roster gains an entry; if a THIRD unpublishable
+test('exactly one coordinate is unpublishable, and a bead holds it open', () => {
+  // Pinned in BOTH directions on purpose. If it becomes publishable this reds
+  // and the rewrite roster gains an entry; if a SECOND unpublishable
   // coordinate appears it reds too, rather than quietly joining a known-bad
-  // set. rf2-hic-023 added the second entry and this line with it — the pin is
-  // a ledger of open operator decisions, not a tolerance for accumulating them.
+  // set. The pin is a ledger of open operator decisions, not a tolerance for
+  // accumulating them.
+  //
+  // Two -> one (rf2-l86mm): `day8/re-frame2-freehand` is gone from
+  // tools/xray/deps.edn. It sat at top-level `:deps` only because
+  // `day8.re-frame2-xray.mounted-views` was in `src`, and that consumer
+  // retired with the Views panel's Mounted Views + Declared View Sites
+  // sections. rf2-5dut1 asked whether Xray should wait for Freehand's
+  // EP-0036 F6 publication or move the edge to late-bind; the edge was
+  // deleted instead, which answers it.
   const { unrewritable } = partitionedCoords();
   assert.deepEqual(
     unrewritable.map((c) => c.lib), UNPUBLISHABLE,
-    'The set of unpublishable in-repo coordinates Xray declares has changed. Two are open. '
-      + `${FREEHAND} (rf2-5dut1): either Xray waits for Freehand's EP-0036 F6 publication, or `
-      + 'the Freehand edge moves to late-bind — Xray\'s only production require on it is '
-      + `day8.re-frame2-xray.mounted-views. ${HICASSO} (rf2-hic-023): the Hicasso tab reads the `
+    'The set of unpublishable in-repo coordinates Xray declares has changed. One is open. '
+      + `${HICASSO} (rf2-hic-023): the Hicasso tab reads the `
       + 'tool door at day8.re-frame2-xray.panels.hicasso-reads; the artefact carries no '
       + ':clein/build and rf2-hic-008 owns its release wiring. Update this pin with the ruling.',
   );
@@ -234,7 +241,7 @@ const THIRD_PARTY = [
   dep('juji', 'editscript', '0.6.5'),
 ];
 
-// The eleven coordinates as the script's derivation emits them:
+// The ten coordinates as the script's derivation emits them:
 // `group/artifact`, one per line, sorted. Kept as a literal so the verdict
 // fixtures below are independent of what deps.edn happens to say today —
 // group 1 is what asserts the two agree.
@@ -242,7 +249,6 @@ const DERIVED_ALL = [
   'day8/re-frame2',
   'day8/re-frame2-epoch',
   'day8/re-frame2-flows',
-  FREEHAND,
   HICASSO,
   'day8/re-frame2-machines',
   'day8/re-frame2-machines-viz',
@@ -262,7 +268,7 @@ function inRepoDeps(libs, version = VERSION) {
 const REWRITTEN = DERIVED_ALL.filter((lib) => !UNPUBLISHABLE.includes(lib));
 
 // What the rewrite step produces today: nine in-repo coordinates at the
-// lockstep version, Freehand and Hicasso still skipped by `clein pom`.
+// lockstep version, Hicasso still skipped by `clein pom`.
 // Verified by running the real rewrite roster + `clojure -M:clein pom`
 // locally.
 const REWRITTEN_POM = pomWith([...THIRD_PARTY, ...inRepoDeps(REWRITTEN)]);
@@ -383,7 +389,7 @@ test('a pom carrying every in-repo coordinate PASSES', () => {
 
 test('the UNREWRITTEN pom fails, naming every skipped in-repo coordinate', () => {
   const fixture = makeFixture({ pom: pomWith(THIRD_PARTY) });
-  const out = expectFail(fixture, 'unrewritten pom', /11 of 11 in-repo coordinate\(s\) are absent/);
+  const out = expectFail(fixture, 'unrewritten pom', /10 of 10 in-repo coordinate\(s\) are absent/);
   for (const lib of DERIVED_ALL) {
     assert.match(
       out, new RegExp(`MISSING the in-repo dependency ${lib.replace('/', '\\/')},`),
@@ -396,23 +402,23 @@ test('the two-coordinate rewrite fails — the shipping state rf2-5dut1 found', 
   const two = ['day8/re-frame2', 'day8/reagent-slim'];
   const out = expectFail(
     makeFixture({ pom: pomWith([...THIRD_PARTY, ...inRepoDeps(two)]) }),
-    'two-of-eleven pom',
-    /9 of 11 in-repo coordinate\(s\) are absent/,
+    'two-of-ten pom',
+    /8 of 10 in-repo coordinate\(s\) are absent/,
   );
   assert.match(out, /day8\/re-frame2-epoch/, `expected epoch among the eight\n${out}`);
 });
 
-// ── Today's state: nine rewritten, two refusals ─────────────────────────
+// ── Today's state: nine rewritten, one refusal ──────────────────────────
 
-test('the nine-coordinate rewrite fails on the two unpublishable coordinates', () => {
+test('the nine-coordinate rewrite fails on the one unpublishable coordinate', () => {
   const out = expectFail(
     makeFixture(),
-    'nine-of-eleven pom',
-    /2 of 11 in-repo coordinate\(s\) are absent from the pom: day8\/re-frame2-freehand, day8\/re-frame2-hicasso/,
+    'nine-of-ten pom',
+    /1 of 10 in-repo coordinate\(s\) are absent from the pom: day8\/re-frame2-hicasso/,
   );
   assert.match(
     out, /NOT A MECHANICAL FIX/,
-    `the Freehand refusal must carry its operator-decision hint, not the generic one\n${out}`,
+    `the Hicasso refusal must carry its operator-decision hint, not the generic one\n${out}`,
   );
   for (const lib of UNPUBLISHABLE) {
     assert.match(

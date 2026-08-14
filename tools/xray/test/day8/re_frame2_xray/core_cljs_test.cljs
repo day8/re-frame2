@@ -145,9 +145,10 @@
   (testing "init! wires the foundation side-effects; second call is no-op"
     ;; First call wires registry + trace-cb + epoch-cb + browser-API
     ;; exports + keybinding. There is no view-evidence acquire step and
-    ;; none is missing (rf2-7gth0): `re-frame.freehand.tool` is a reader
-    ;; with no registry to claim, so the Views panel's subs read it
-    ;; directly and startup has nothing to wire for them.
+    ;; none is missing (rf2-l86mm): the Views panel's reads over the
+    ;; Freehand tool door retired with that substrate, and the Hicasso
+    ;; tab's door is a pure reader with no registry to claim, so startup
+    ;; has nothing to acquire for either.
     ;; The keybinding listener requires js/window which the node-test
     ;; host does not expose; the attach call no-ops on that host (the
     ;; (when (exists? js/window) ...) guard inside keybinding/attach!).

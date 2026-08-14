@@ -155,7 +155,7 @@ with open(os.environ["REQUIRED_FILE"]) as handle:
         group, _, artifact = line.partition("/")
         REQUIRED.add((group, artifact))
 
-FREEHAND = ("day8", "re-frame2-freehand")
+HICASSO = ("day8", "re-frame2-hicasso")
 
 MISSING_HINT = (
     " NB: `clein pom` SKIPS :local/root coordinates outright, so this is"
@@ -167,22 +167,33 @@ MISSING_HINT = (
     " .github/scripts/verify-version-lockstep.sh, in the same PR."
 )
 
-FREEHAND_HINT = (
+HICASSO_HINT = (
     " THIS ONE IS NOT A MECHANICAL FIX AND MUST NOT BE TREATED AS ONE"
-    " (rf2-5dut1). day8/re-frame2-freehand cannot be rewritten to any"
-    " :mvn/version, because implementation/freehand/deps.edn carries no"
-    " :clein/build — deliberately; publication is EP-0036 F6 territory."
+    " (rf2-hic-008). day8/re-frame2-hicasso cannot be rewritten to any"
+    " :mvn/version, because implementation/hicasso/deps.edn carries no"
+    " :clein/build — deliberately; rf2-hic-008 owns its release wiring."
     " Xray therefore declares a RUNTIME dependency on an artefact that is"
-    " not publishable yet. Either Xray is not publishable until Freehand"
-    " ships, or the Freehand edge moves to late-bind — Xray's ONLY"
-    " production require on Freehand is day8.re-frame2-xray.mounted-views,"
-    " which reads re-frame.freehand.tool and re-frame.freehand.evidence."
-    " That is an operator decision; until it is made, this refusal is the"
-    " correct outcome. And do NOT make it go green by rewriting the"
-    " coordinate anyway: a pom naming day8/re-frame2-freehand at a version"
-    " Clojars does not have moves the failure from our release job to the"
-    " consumer's build, where there is no yank to undo it."
+    " not publishable yet. Either Xray is not publishable until Hicasso"
+    " ships, or the Hicasso edge moves to late-bind — Xray's ONLY"
+    " production require on Hicasso is"
+    " day8.re-frame2-xray.panels.hicasso-reads, which reads"
+    " re-frame.hicasso.tool. That is an operator decision; until it is"
+    " made, this refusal is the correct outcome. And do NOT make it go"
+    " green by rewriting the coordinate anyway: a pom naming"
+    " day8/re-frame2-hicasso at a version Clojars does not have moves the"
+    " failure from our release job to the consumer's build, where there is"
+    " no yank to undo it."
 )
+
+# This hint used to name day8/re-frame2-freehand under rf2-5dut1, which asked
+# the same question of the same shape: publish, or move the edge to late-bind.
+# rf2-l86mm answered it a third way — the edge was DELETED, along with the
+# Views panel's Mounted Views + Declared View Sites sections and the
+# day8.re-frame2-xray.mounted-views consumer that was Xray's only production
+# require on Freehand. Hicasso is now the sole unpublishable coordinate, so
+# the guidance follows it; without that the one refusal left would ship the
+# generic hint, which tells the operator to add the coordinate to the rewrite
+# step — exactly what this script and its suite both refuse.
 
 
 def localname(tag):
@@ -239,7 +250,7 @@ for coord in missing:
         "pom is MISSING the in-repo dependency %s/%s, which"
         " tools/xray/deps.edn declares at :local/root.%s%s"
         % (coord[0], coord[1], MISSING_HINT,
-           FREEHAND_HINT if coord == FREEHAND else "")
+           HICASSO_HINT if coord == HICASSO else "")
     )
 
 # Lockstep: every in-repo coordinate that DID land, at the exact VERSION.

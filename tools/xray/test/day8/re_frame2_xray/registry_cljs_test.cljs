@@ -478,23 +478,13 @@
    ;; (`:rf.view/rendered`, `:rf.sub/skip` memo-hit → `:subs-skipped`,
    ;; `:rf.cascade/captured`).
    :rf.xray/reactive-data
-   :rf.xray/reactive-show-unchanged?
-   ;; rf2-7gth0 — the Mounted Views section's query over
-   ;; `re-frame.freehand.tool/read-mounted-views`, joined with the bounded
-   ;; read-time `explain-render` fold (spec/021 §3.4.1); registered by
-   ;; `reactive-panel-subs/install!`. There is no ownership-revision sibling:
-   ;; the Freehand door is a reader with no registry to claim, so the standing
-   ;; epoch-pump axis is the whole freshness story.
-   :rf.xray/mounted-views
-   ;; rf2-7gth0 — the evidence-schema honesty read: when the running
-   ;; application's Freehand door stamps a schema this build was not taught,
-   ;; rows degrade and the panel renders the honest banner.
-   :rf.xray/mounted-views-schema
-   ;; rf2-7gth0 — the declared per-view sites (dependency + event-site
-   ;; provenance, capabilities and the compile-tier a11y diagnostics) for the
-   ;; views present in the roster, read from
-   ;; `read-view-manifest`/`read-view-dependencies`/`read-view-event-sites`.
-   :rf.xray/mounted-view-sites))
+   ;; rf2-l86mm — the three `:rf.xray/mounted-view*` reads over
+   ;; `re-frame.freehand.tool` are GONE from this roster with the Mounted
+   ;; Views + Declared View Sites sections (spec/021 §3.4.3). They retired
+   ;; with the Freehand substrate rather than moving to
+   ;; `re-frame.hicasso.tool`; the schema-6 migration clause clears them from
+   ;; a live-upgraded process.
+   :rf.xray/reactive-show-unchanged?))
 
 (def ^:private all-event-names
   "Every Xray-namespaced event registered by `register-xray-handlers!`.
@@ -1244,6 +1234,10 @@
   :rf.xray/viewcell-evidence-ownership-changed)
 
 (def ^:private schema-4-sub-ids
+  "The three ids schema 4 ADDED and schema 6 REMOVED (rf2-l86mm) — the Views
+  panel's reads over `re-frame.freehand.tool`. They are now a set no current
+  boot registers and every behind process must be relieved of, so the schema-4
+  tests below assert their ABSENCE where they once asserted their arrival."
   [:rf.xray/mounted-views
    :rf.xray/mounted-views-schema
    :rf.xray/mounted-view-sites])
@@ -1287,10 +1281,10 @@
                     "installed" (.now js/Date))))
 
 (deftest schema-4-migrates-the-registrar-half-of-the-donor-cutover-rf2-7gth0
-  (testing "rf2-7gth0 — a schema-3 process that never claimed the donor
-            projection upgrades fully in place: the three Freehand reads
-            arrive, the five donor-era ids go, and the process is stamped
-            current"
+  (testing "rf2-7gth0 / rf2-l86mm — a schema-3 process that never claimed the
+            donor projection upgrades fully in place: the five donor-era ids
+            go, the three Freehand reads schema 4 once added do NOT arrive
+            (schema 6 removed them), and the process is stamped current"
     (setup-xray-frame!)
     (pose-schema-3-registry!)
     (registry/simulate-registration-at-schema! 3)
@@ -1307,12 +1301,11 @@
     ;; The live upgrade: `:after-load` re-runs `register-xray-handlers!`.
     (registry/register-xray-handlers!)
 
-    (testing "the three Freehand reads installed and resolve"
-      (is (= (set schema-4-sub-ids) (registered-ids :sub schema-4-sub-ids)))
-      (rf/with-frame :rf/xray
-        (doseq [q-v schema-4-sub-ids]
-          (is (some? (rf/subscribe [q-v]))
-              (str q-v " must resolve after the schema-4 migration")))))
+    (testing "the three Freehand reads STILL do not exist — schema 4 used to
+              install them here and schema 6 removed them (rf2-l86mm), so a
+              process crossing 3 → 6 in one step must never acquire an id it
+              would immediately have to be relieved of"
+      (is (= #{} (registered-ids :sub schema-4-sub-ids))))
     (testing "the five donor-era registrations are GONE — nothing else in the
               process would ever remove them"
       (is (= #{} (registered-ids :sub schema-3-donor-sub-ids)))
@@ -1343,8 +1336,8 @@
 
         (testing "the registrar half migrated anyway — the panel is left as
                   current as a live process can be"
-          (is (= (set schema-4-sub-ids) (registered-ids :sub schema-4-sub-ids))
-              "the three Freehand reads installed")
+          (is (= #{} (registered-ids :sub schema-4-sub-ids))
+              "the three Freehand reads are not installed (rf2-l86mm)")
           (is (= #{} (registered-ids :sub schema-3-donor-sub-ids))
               "the four donor-era subs were cleared")
           (is (nil? (registrar/handler :event schema-3-donor-event-id))
@@ -1385,6 +1378,61 @@
           (set! (.-warn js/console) prior-warn)
           (gobj/remove js/globalThis donor-ownership-marker-key))))))
 
+;; ---- schema 6: the Freehand tool-door reads REMOVED (rf2-l86mm) ---------
+;;
+;; The mirror image of schema 4's clear, and it exists for the same reason.
+;; `reactive-panel-subs/install-mounted-views-subs!` is deleted, so a process
+;; that ran it under schema 4 or 5 keeps all three ids resolvable: no current
+;; install replaces them, and the umbrella `registered?` gate cannot notice an
+;; id missing from an install it no-ops. Left alone they are three phantom ids
+;; backed by a deleted namespace's resident closures, read by no view and
+;; enumerated by every tool that walks the `:rf.xray/*` surface.
+;;
+;; Unlike schema 4 there is no second half: the door was a READER, so nothing
+;; was acquired through it and there is no residue a reload is needed to drop.
+
+(defn- pose-schema-5-mounted-view-reads!
+  "Register the three ids a schema-4/5 process holds, with stand-in bodies.
+  Only the IDS are the subject — the real bodies closed over
+  `re-frame.freehand.tool`, which is precisely what no longer exists."
+  []
+  (doseq [q-id schema-4-sub-ids]
+    (rf/reg-sub q-id (fn [_db _query] [])))
+  nil)
+
+(deftest schema-6-clears-the-retired-freehand-reads-rf2-l86mm
+  (testing "rf2-l86mm — a schema-5 process holding the three Freehand
+            tool-door reads has them cleared in place and is stamped current;
+            no reload, because a reader door leaves nothing behind to release"
+    (setup-xray-frame!)
+    (pose-schema-5-mounted-view-reads!)
+    (registry/simulate-registration-at-schema! 5)
+
+    (testing "PRECONDITION — the posed process resolves all three"
+      (is (= (set schema-4-sub-ids) (registered-ids :sub schema-4-sub-ids))))
+
+    ;; The live upgrade: `:after-load` re-runs `register-xray-handlers!`.
+    (registry/register-xray-handlers!)
+
+    (testing "all three are GONE — nothing else in the process would ever
+              remove them, the installing fn having been deleted"
+      (is (= #{} (registered-ids :sub schema-4-sub-ids))))
+    (testing "and the process is stamped current"
+      (is (= registry/schema-version (registry/installed-schema-version))))))
+
+(deftest schema-6-clear-is-a-no-op-for-a-process-that-never-had-them-rf2-l86mm
+  (testing "rf2-l86mm — clearing an id the process never registered is inert,
+            which is what lets the schema-6 clause run unconditionally for
+            every behind process rather than branching on how far behind"
+    (setup-xray-frame!)
+    (registry/simulate-registration-at-schema! 4)
+    (is (= #{} (registered-ids :sub schema-4-sub-ids))
+        "PRECONDITION — none registered")
+    (registry/register-xray-handlers!)
+    (is (= #{} (registered-ids :sub schema-4-sub-ids)))
+    (is (= registry/schema-version (registry/installed-schema-version))
+        "the process is stamped current regardless")))
+
 ;; ---- schema-delta governance pin (rf2-sa8j3) ----------------------------
 ;;
 ;; The name-set snapshots catch ADDED registrations; this pin catches CHANGED
@@ -1394,7 +1442,7 @@
 ;; no-migration rationale) and update the pins here. Mirrors the drift-guard
 ;; discipline of `focus-valid-panels-mirrors-live-dynamic-registry`.
 
-(def ^:private expected-schema-version 5)
+(def ^:private expected-schema-version 6)
 
 (deftest schema-version-is-pinned-so-changed-registrations-name-a-migration
   (testing "registry/schema-version matches the governance pin"

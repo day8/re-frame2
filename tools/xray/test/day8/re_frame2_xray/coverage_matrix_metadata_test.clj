@@ -247,11 +247,18 @@
       ;; this number deliberately when a scenario starts/stops covering a
       ;; row — that is the signal the gate's summary changed.
       ;; 12 -> 13 (rf2-6pohj): the `freehand-views populated Views roster`
-      ;; scenario is the first to claim `Mounted view reads (Freehand tool
+      ;; scenario was the first to claim `Mounted view reads (Freehand tool
       ;; door, rf2-7gth0)`. That row was `covered` by the node lane alone
       ;; until the Freehand-hosted deck gave the browser gate a surface with
       ;; real connected occurrences to project.
-      (is (= 13 (count canonical))
+      ;; 13 -> 12 (rf2-l86mm): and back again, one substrate later. The Views
+      ;; panel's Mounted Views + Declared View Sites sections retired with
+      ;; Freehand rather than migrating to Hicasso (spec/021 §3.4.3), so the
+      ;; scenario, its sole-claimed matrix row, and the row's retention
+      ;; sibling all went with them. The count returning to its pre-rf2-6pohj
+      ;; value is the honest reading: the gate covers one fewer row because
+      ;; there is one fewer row to cover.
+      (is (= 12 (count canonical))
           (str "canonical covered-row count drifted to " (count canonical)
                " (" (str/join ", " (sort canonical)) ") — update this pin "
                "when a scenario's coverage changes, deliberately")))))
