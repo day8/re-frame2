@@ -213,33 +213,36 @@ property of the compiler and the linker.
 |---|---|---|
 | native tier | door | 2 sentinels — the tier marker and the refusal-id family |
 | forms (`rf2-sh56`) | door | 2 sentinels — the view name and the app-db concern |
-| motion | door + 2 engine namespaces | **none** |
-| overlay (`rf2-hic-052`) | door + 1 engine namespace | **none** |
-| server (`rf2-b6jkj`) | **none** | **none** |
+| motion | door + 2 engine namespaces | 1 sentinel — the presence boundary's stamped name |
+| overlay (`rf2-hic-052`) | door + 1 engine namespace | 2 sentinels — the popover and modal stamped names |
+| server (`rf2-b6jkj`) | door | 1 sentinel — the per-request keyword namespace |
 | UIx | forbidden-import rule | carried as a positive control (present), by design |
 
-**Four of five landed optional surfaces are covered source-side; two of five are covered bundle-side.**
+**All five landed optional surfaces are covered source-side, and all five bundle-side.**
 
-**Motion and overlay have no sentinel row, and that is not an inference from silence.**
-`re-frame.hicasso.motion/presence` appears in `check_bundle_isolation.cjs` exactly once, at line 453, as a
-*near-miss control string* in the self-test — a string the gate is asserted **not** to fire on. So the file
-knows the module exists and has chosen not to scan for it. The consequence is narrow and worth stating
-precisely: both are proved unreachable in the source graph, which is the stronger of the two instruments, but
-nothing checks that Closure really leaves nothing behind for them at `:advanced`, which is the confidence the
-bundle gate exists to add. Filed as **`rf2-ot28g`**.
+**[Closed 2026-08-15 across three beads, and recorded here rather than silently overwritten.]** When this
+census was first taken the matrix read *four of five source-side, two of five bundle-side*, and the three
+gaps were filed rather than left to be discovered:
 
-**`re-frame.hicasso.server` is in neither roster, and its own docstring says otherwise.** The module landed
-while this page was being written, and it names its guard in terms:
-
-> *"The door names it nowhere, so a browser build that never requires it carries none of it —
-> `scripts/check_optional_module_reachability.py` is what keeps that true."*
-
-That gate does not mention the module. `grep -c 'hicasso.server'` returns **0** against both gates. The premise
-holds today — every occurrence of `re-frame.hicasso.server` under `implementation/hicasso/src/` is prose in a
-docstring or comment, and there is no `:require` of it outside its own usage example, so a browser build really
-does carry none of it. What is absent is anything that would notice if that changed. A missing row is a hole a
-reader can find; a missing row beside a sentence naming the script that allegedly closes it is a hole a reader
-is steered away from. Filed as **`rf2-2a0ju`**.
+- **`rf2-ot28g`** — motion and overlay had no sentinel row, and it was a choice rather than an oversight:
+  `re-frame.hicasso.motion/presence` already sat in `check_bundle_isolation.cjs` as a *near-miss control
+  string* the gate is asserted **not** to fire on, so the file knew the modules existed. Both were proved
+  unreachable in the source graph — the stronger instrument — but nothing checked that Closure really left
+  nothing behind at `:advanced`. Three rows landed: motion has ONE reachability shape and overlay TWO.
+- **`rf2-2a0ju`** — `re-frame.hicasso.server` was in *neither* roster while its own docstring named
+  `check_optional_module_reachability.py` as what kept it out of a browser build. `grep -c 'hicasso.server'`
+  returned **0** against both gates. The premise held, but nothing would have noticed if it stopped: a
+  missing row beside a sentence naming the script that allegedly closes it is a hole a reader is steered
+  away from. The source-side row landed, and with it the module joined the warnings-fatal `:advanced`
+  compile gate that roster also drives.
+- **`rf2-fn62g`** — the last bundle-side gap, and a design question rather than a missing row, since
+  `:hicasso-release` is a browser build and the server module is a Node one. **Answered rather than
+  inherited**: the gate asks whether any byte of a module *reached* a browser bundle, which is meaningful for
+  any namespace and sharpest for a Node-only one. The sentinel is the `hicasso.ssr` keyword namespace
+  `fresh-frame-id` mints, co-reachable with `react-dom/server` by construction because that dependency enters
+  by exactly one route and `render`'s first binding is `(fresh-frame-id)`. Its two limits — a leak of
+  `document`/`payload-script` alone is green, and the bench prototype mints the same string — are stated in
+  the gate's own header.
 
 ### Method
 
@@ -251,27 +254,29 @@ python hicasso/scripts/check_budget_ledger.py --self-test                 # exit
 python hicasso/scripts/check_budget_ledger.py                             # exit 0
 
 # the two rosters, read at source rather than inferred
-grep -n '"name":' hicasso/scripts/check_optional_module_reachability.py   # 5 entries
-grep -n 'surface:' hicasso/scripts/check_bundle_isolation.cjs             # 4 entries, 2 surfaces
+grep -n '"name":' hicasso/scripts/check_optional_module_reachability.py   # 6: 5 MODULES + UIx
+grep -c 'surface:' hicasso/scripts/check_bundle_isolation.cjs             # 8 rows over 5 surfaces
 grep -c 'hicasso.server' hicasso/scripts/check_optional_module_reachability.py \
-                         hicasso/scripts/check_bundle_isolation.cjs        # 0 and 0
+                         hicasso/scripts/check_bundle_isolation.cjs        # 2 and 5
+
+# the bundle side, which costs a full :advanced release build
+npm run build:hicasso-release   # compiles, then runs erasure + isolation, both self-tested first
 
 # the denominator the rosters are measured against
 ls hicasso/src/re_frame/hicasso/*.cljs hicasso/src/re_frame/hicasso/*.cljc
 ```
 
-The source-side gate is green at this merge base: *motion, overlay, native, forms unreachable from the public
-door; UIx required by no `src/` namespace and named by no production coordinate*. Read that sentence for what
-it does **not** name.
+The source-side gate is green: *motion, overlay, native, forms and server unreachable from the public door;
+UIx required by no `src/` namespace and named by no production coordinate*.
 
-**The bundle-side gate was NOT re-run here, and the reason is what the census found rather than what it cost.**
-The bead asks for this check *"with all Phase 5 optional products landed"*. They now are — the server module
-landed during this bead — but the rosters did not land with them, and a bundle run taken against a roster short
-by three of five surfaces returns a green that certifies less than it reads. Re-running it would have produced
-exactly that: a pass, correctly computed, over two surfaces, published under a heading that says *aggregate*.
-The run costs a full `:advanced` release build (`npm run build:hicasso-release`) and it is worth taking — after
-`rf2-ot28g` and `rf2-2a0ju` land their rows, and not before. Recorded here rather than quietly skipped;
-`rf2-hic-087` inherits it, and inherits the two beads with it.
+**The bundle-side gate is now re-run rather than deferred, and the deferral is worth keeping on the record.**
+When this census was first taken the bead asked for the check *"with all Phase 5 optional products landed"*.
+They were — the server module landed during that bead — but the ROSTERS had not landed with them, and a bundle
+run taken against a roster short by three of five surfaces returns a green that certifies less than it reads:
+a pass, correctly computed, over two surfaces, published under a heading that says *aggregate*. It was
+therefore recorded as skipped rather than taken cheaply. The three rows have since landed (see the closure
+note above), and the run is green at **8 sentinels absent, 4 positive controls present** over all five
+surfaces — which is the first time the heading on this section has meant what it says on both instruments.
 
 ### 3b. The boundary shell against the frozen line
 
@@ -317,5 +322,7 @@ on a loud machine, would be the same substitution this programme has now refused
 - **The allocation non-claim is not a promise of a future number.** Nobody has measured how much of the fixed
   per-write cost is the vector rebuild and how much is the event pipeline, and until that is measured the
   ladder has no page it can be read on. Whether it ever gets one is not this page's question.
-- **The rent check is one instrument short of aggregate**, by its own precondition, and section 3a says which
-  one and why.
+- **The rent check finally means *aggregate*, and only since 2026-08-15.** It was one instrument short of it
+  for the whole of this page's earlier life — section 3a records which one, why it was recorded as skipped
+  rather than taken cheaply, and the three beads that closed it. A green under this heading before that date
+  certified two surfaces of five.
