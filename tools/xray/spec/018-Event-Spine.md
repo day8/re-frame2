@@ -718,13 +718,15 @@ sections that read top-to-bottom as the developer scans.
      (`view :cart/row · site :on-click #17`), but that join needs a
      dispatch-envelope view-site TAG the S3 producer (.95.6) does not emit —
      attribution is emitted at the cause site, never reconstructed, so Xray
-     does NOT walk DOM/Fiber to synthesise it. Until that framework emit lands,
-     the STATIC event-site provenance (a declared view's `:on-*` handler
+     does NOT walk DOM/Fiber to synthesise it. The STATIC event-site
+     provenance that stood in for it — a declared view's `:on-*` handler
      sites, with their `:classification` and either the literal event vector
-     or the `:event-id` behind an opaque handler) surfaces in the
-     Views tab's Declared View Sites section
-     ([spec/021 §3.4.2](./021-Dynamic-Panel-Designs.md)) from the manifest
-     projections, and this DISPATCH SITE line is unchanged.
+     or the `:event-id` behind an opaque handler — surfaced in the Views
+     tab's Declared View Sites section, which retired with the Freehand
+     substrate that supplied the compiler manifest behind it
+     ([spec/021 §3.4.1](./021-Dynamic-Panel-Designs.md), rf2-l86mm). No
+     substrate on the supported path ships a manifest, so there is no
+     stand-in now; this DISPATCH SITE line is unchanged either way.
 1a. **RECORDABLE COEFFECTS** (rf2-9fyn40 · EP-0010 · EP-0017 §9) — the
    dispatch envelope's flat `:rf.cofx` map, surfaced **RIGHT AFTER DISPATCH
    SITE** (it answers the same orienting "where did this state value come

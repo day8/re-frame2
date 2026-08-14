@@ -454,11 +454,13 @@ available. The lifecycle is normative.
    is ready, unless `:rf.xray/auto-open?` is false before the probe
    observes readiness.
 
-There is no view-evidence acquire step, and none is missing (rf2-7gth0).
-The predecessor claimed the donor's single-owner evidence registry from
-exactly this position. `re-frame.freehand.tool` is a READER with no
-registry to claim, so the Views panel's subs read it directly and the
-boot sequence has nothing to wire for them. See spec/021 §3.4.1.
+There is no view-evidence acquire step, and none is missing (rf2-l86mm).
+Two predecessors sat at exactly this position: the first claimed the
+donor `re-frame.ui` single-owner evidence registry, and the second was
+no step at all, `re-frame.freehand.tool` being a READER with no registry
+to claim. Both are gone with the substrates they read — see spec/021
+§3.4.1. The Hicasso tab's door is a reader on the same terms and
+acquires nothing here either.
 
 The preload MUST NOT mount the shell synchronously during namespace
 load. It MAY schedule a bounded adapter-ready retry. Once the adapter

@@ -568,11 +568,10 @@ diff chrome in cascade context, so the Reactive tab's value-listing is duplicate
   sub-id + `no readers remaining` tag; a small `unchanged`/`dim`-tinted swatch). Caption below:
   "Subscriptions cleaned up when their last reader unmounted."
 
-Below the teardown lists sits the **MOUNTED VIEWS** section (§3.4.1 — rf2-7gth0): one row per
-Freehand occurrence CONNECTED RIGHT NOW, read from the tool-tier door. Deliberately NOT
-epoch-scoped (the one exception on this panel): it answers *what is mounted*, which is a
-question about now rather than about the focused epoch, so the section renders with or without
-a focused event-bundle, and renders its empty placeholder on hosts not running Freehand.
+The teardown lists are the last content sections. A **MOUNTED VIEWS** section used to sit below
+them, together with **DECLARED VIEW SITES**; both retired with the Freehand substrate and are
+recorded in §3.4.1. They were this panel's only non-epoch-scoped content, so every section that
+remains is scoped to the focused epoch.
 
 A legend closes the panel ("Views (right) are the focus — each: re-rendered + why (reactive vs
 parent re-render)") with three swatches: `changed (propagates downstream)` · `no change
@@ -740,213 +739,33 @@ data`) is the OR of the panel-local quick-toggle
 `:rf.xray/reactive-toggle-unchanged`) and the `:show-unchanged-subs?`
 Settings pin.
 
-### §3.4.1 Mounted views (Freehand substrate · rf2-7gth0)
+### §3.4.1 Mounted views + declared view sites — RETIRED with the Freehand substrate (rf2-l86mm)
 
-Xray reads a Freehand host's live views through the DEV-ONLY tool-tier reader
-door `re-frame.freehand.tool`. The Views panel renders it as the **MOUNTED
-VIEWS** section below the teardown lists, plus a **DECLARED VIEW SITES**
-section (§3.4.2) for the per-view manifest sites.
+Two sections used to close this panel: **MOUNTED VIEWS** (one row per Freehand
+occurrence connected right now, read from `re-frame.freehand.tool`) and
+**DECLARED VIEW SITES** (each view's compiler-manifest subscription and
+event-handler sites). Both are gone, along with
+`day8.re-frame2-xray.mounted-views`, the three `:rf.xray/mounted-view*` subs
+and the `day8/re-frame2-freehand` coordinate in `tools/xray/deps.edn` — which
+sat at top-level `:deps` only because that consumer was in `src`.
 
-**Xray owns nothing here, and that is the design.** The predecessor surface
-consumed the donor's tool-tier evidence plane, which had a single-owner
-install registry, so Xray claimed the projection under a stable owner id and
-layered an opaque per-span RECEIPT over it to fence a same-key ABA reclaim —
-plus an ownership-REVISION reactive input, because ownership was not app-db
-state and a release had to invalidate a held subscription. `re-frame.freehand.tool`
-has NO registry and NO ownership plane, deliberately and permanently
-(rf2-drpa3.167 ruled the donor's per-occurrence accumulator out rather than
-deferring it). Nothing is claimed, nothing can be held against Xray, and no
-read can surface a superseded span's data because there are no spans. The
-acquire, the receipt, the `globalThis` install sentinel that mirrored it,
-the ownership event/sub/listener and the owner-checked reset-tier release are
-all DELETED rather than ported: a fence against a hazard that cannot occur is
-not a protection.
-
-**What it consumes.** Five reads, each stamped `:schema` and each answering
-`nil` in a production build:
-
-- `read-mounted-views` → the roster of occurrences CONNECTED RIGHT NOW. One
-  row per occurrence, keyed by the runtime occurrence, so two simultaneous
-  occurrences of one view are two addressable rows. `:complete? true` is exact
-  about under-reporting: the index holds every connected occurrence that has
-  published a selected commit.
-- `explain-render` → why each of them rendered, folded at READ time from
-  Spec 009's retained window under Spec 009's one knob
-  (`:rf.trace/events-retained`). Nothing is retained to answer it and there is
-  no second history store.
-- `read-view-manifest` / `read-view-dependencies` / `read-view-event-sites` →
-  what each view DECLARES, from the compiler manifest, answerable BEFORE
-  anything mounts — the DECLARED VIEW SITES section (§3.4.2).
-
-**Query path.** `:rf.xray/mounted-views` (registered by
-`reactive-panel-subs/install!`) → `mounted-views/rows`, which joins the first
-two reads on `:occurrence`. Both project the same current-occurrence index in
-one synchronous turn, so on a single-threaded host every roster row has an
-explanation. ONE reactive input — `:rf.xray/epoch-history`, the standing
-epoch-pump axis — because there is no ownership axis left to carry. The input
-is a pure cache-invalidation trigger; the compute reads the substrate, never
-the input's value. A host not running Freehand projects zero rows through the
-same door, with nothing special-cased.
-
-One row per connected occurrence, in the substrate's own deterministic order
-(view id, then occurrence key):
-
-    {:view-id vid :occurrence {:parent p :key k}
-     :lowering :compiled|:interpreted
-     :generation n :connection :connected
-     :root :unknown :at t :dispatch-id id|nil :frame fid
-     :reads [{:site-key _ :query q :frame-id fid :owned? bool} …]
-     :cause {:dispatch-id id :cause-event-id eid :sub-ids #{…}}|nil
-     :candidates [{…}] :explained? bool
-     :loss {:reason :cap|:uncorrelated :dropped :unknown}|nil
-     :window {:retained-runs n :spans-commit? bool :window-starts-at t}}
-
-Everything from `:view-id` through `:reads` is CURRENT STATE the occurrence
-index holds; everything from `:cause` down is the bounded read-time fold, whose
-completeness is its own claim. `:generation` is the LATEST committed
-generation — a fact about now, not a tally. `:reads` is the SELECTED COMMIT's
-dependency set, carrying the queries WITHOUT the values they returned (a value
-is application data, and an evidence read is not a second egress path for it).
-`:root` is ALWAYS the explicit `:unknown`: cells do not know their owning root
-and the commit seam carries no root identity, so a row that named one would be
-inventing it.
-
-**The explanation is a JOIN, and its failure to join is REPORTED.** The row
-recorded the cascade in scope when the commit ran, so the fold looks that exact
-run up in the window. Three ways it cannot, each an explicit `:loss` with
-`:dropped :unknown` rather than an empty-but-confident answer: the window holds
-nothing for the frame (`:cap`); the commit named a run the window no longer
-holds (`:cap`, and provably so); the commit named NO run at all
-(`:uncorrelated` — a Freehand commit usually lands in a post-settle React batch
-with no cascade on the stack). `:candidates` is offered in every case and is
-deliberately NOT the answer — runs that COULD have driven this render, rendered
-as `N leads`. A nil `:cause` presented as complete evidence would be asserting
-that nothing caused the render.
-
-**Deliberate loss, named so a reader can stop looking.** A reader migrating
-from the donor panel will look for a lifetime render count, a batch count, a
-first/latest epoch span, a hide-versus-unmount lifecycle interval log, an
-accumulated union of every target the occurrence observed with its
-`identity-exact?` fidelity bit and its saturating dropped-count floor, and a
-claimed owning root id. None of those is here and none is coming: the substrate
-keeps no accumulator to derive them from. A disconnect REMOVES the row rather
-than labelling it, which is why the section has no unmounted arm and no
-teardown tag. `mounted_views_cljs_test` pins their absence as an EQUALITY so a
-later change cannot reintroduce one under its old name.
-
-**Schema honesty.** Every projection stamps `:schema`.
-`mounted-views/consumed-evidence-schema` is a CONSUMER-OWNED literal
-(`:re-frame.freehand.evidence/v1`), deliberately not the producer's own var:
-deriving support from the producer makes ANY bump silently "supported", so an
-evolved shape would be mis-parsed as exact and the boundary would be nominal.
-An unrecognised schema suppresses rows (`rows` → `[]`) and the
-`:rf.xray/mounted-views-schema` sub drives the honest
-`rf-xray-reactive-mounted-views-schema-banner`, so a mismatched deployment
-reads truthfully instead of looking like a host with nothing mounted.
-
-**Render.** One `list-row` per connected occurrence under
-`rf-xray-reactive-mounted-views-section` (rows `…-row-<index>`, empty state
-`…-empty`, caption `…-caption`, schema banner `…-schema-banner`): primary =
-view id · `occ <key>`; trailing tag = lowering · `gen N` · frame · `N reads` ·
-either the cause (`<event-id> → <sub-ids>`) or the honest reason there is none.
-`:root` renders as nothing at all rather than printing the `:unknown` marker at
-a developer.
-
-### §3.4.2 Declared view sites (static manifest projection · rf2-7gth0)
-
-Below the MOUNTED VIEWS section, a **DECLARED VIEW SITES** section
-(`rf-xray-reactive-view-sites-section`, rows
-`rf-xray-reactive-view-site-row-<slug>`) surfaces the per-view manifest sites —
-the event-site provenance + dependency sites a debugging consumer reads BEFORE
-mount — for the views present in the roster (evidence-keyed: the
-`:rf.xray/mounted-view-sites` sub keys off the roster's distinct view-ids, so a
-host with nothing connected renders no section at all, the silent-when-zero
-grammar). Each row is shaped from `read-view-manifest`,
-`read-view-dependencies` and `read-view-event-sites`:
-
-- **Lowering** — `:compiled` or `:interpreted`, NAMED rather than inferred from
-  how much the row could claim.
-- **Un-analysed declarations** (`…-view-site-opaque-<slug>`) — an INTERPRETED
-  declaration has no analysis step, so its rosters are `:basis :opaque`,
-  `:complete? false`, `:loss {:reason :no-static-analysis :dropped :unknown}`.
-  The row says the sites are *unknown, not absent*, and renders no roster
-  summary over rosters nobody built. This is the axis the donor tier could not
-  state at all — its consumer skipped interpreted views entirely, so an
-  unanalysed declaration and an analysed one with no sites were
-  indistinguishable.
-- **Dependencies** (`…-view-site-subs-<slug>`) — subscription counts with a
-  dynamic tally; a fully-literal query is projected verbatim, a query carrying
-  a captured local shows the `:query-id` the compiler really does know and
-  leaves the runtime argument unsaid rather than inventing it.
-- **Event sites** (`…-view-site-events-<slug>`) — each `:on-*` handler with its
-  `:classification` and either its literal event vector or, for an `:opaque`
-  handler, the `:event-id` where the authored form has one. `:classification`
-  is what keeps the two apart: an opaque handler on a `:vector` or `:options`
-  site is an event vector with a runtime argument; on any other classification
-  it is a callback body, rendered `(opaque)`.
-- **Per-SITE source chips** (`…-view-site-sub-code-<slug>-<i>`,
-  `…-view-site-event-code-<slug>-<i>`) — the `[code]` affordance opens the
-  site's own `:source-coord`. Per SITE, not per view: the tool door publishes a
-  coordinate on each roster entry and NONE on the declaration itself, so a
-  view-level chip would have to pick one site's coordinate and present it as
-  the view's. The per-site chip is the coordinate the substrate actually states
-  and it lands the reader on the exact `v/sub` or handler. A site carrying no
-  coordinate renders no chip — absent, not dead (`:source-coord` is total or
-  absent, never partial).
-- **Facts line** (`…-view-site-facts-<slug>`) — capabilities, the compiler's
-  ViewCell verdict (`:present` / `:elided`) and the non-reactive marker.
-- **Compile-tier a11y diagnostics** (`…-view-site-diagnostics-<slug>`, rendered
-  in the `:warning` token colour) — the compiler's a11y findings for the view,
-  each shown as `<finding-id> · <tag>`. This is a READ, not a check: the
-  compiler minted the stable site id and made the suppressed-vs-printed call at
-  `defview` expansion, and Xray never re-derives either. A finding the author
-  silenced still appears, trailing `· suppressed: <reason>` — a suppression is
-  an inspectable fact carrying its justification, not an erasure. A view with
-  no findings renders no line at all (the same silent-when-zero grammar as the
-  section itself). Spec 004 §Compile-tier warnings owns the roster.
-
-**Facts with no counterpart, and what happened to them.** The donor site row
-carried a declaration-level `:source` (the view-level `[code]` chip), a
-`:display-name` and a `:template-fingerprint`. The Freehand tool door publishes
-none of the three for a view ID: `describe` carries the declaration's source
-but takes a VALUE, and an inspector holding only an id cannot reach it. Rather
-than pick a site coordinate and present it as the view's, the view-level chip
-is REMOVED and per-site chips take its place; the display name is the view id,
-which is the name the declaration actually has; the fingerprint is simply gone.
-
-**Boundary.** tools/xray depends on the freehand artefact's tool tier
-(`day8/re-frame2-freehand` in deps.edn); `re-frame.freehand` never depends on
-Xray; production applications pull neither (the tools/README bundle-isolation
-contract + the tool door's `interop/debug-enabled?` nil-gate). Tool absence
-stays zero-cost.
-
-Xray's hiccup shell does not mount through a Freehand host's adapter:
-`re-frame.freehand.substrate` builds its adapter from
-`re-frame.substrate.spine/make-react-adapter`, so its `:render` is the spine's
-ELEMENT-shaped one and `:rf.adapter/freehand` sits in `mount`'s
-`react-element-render-kinds` refusal set beside `:rf.adapter/uix`. Reading a
-Freehand host's views and mounting Xray's own chrome into it are separate
-questions, and the refusal is what makes the second one an
-`:unsupported-substrate` diagnostic instead of an uncaught React child error.
-
-### §3.4.3 Disposition — these sections retire WITH the donor rather than moving to Hicasso
-
+They RETIRED rather than MIGRATED, and the difference is the whole record.
 Spec SN §12 Phase 6 requires every live Xray consumer onto the adapter-neutral
 Hicasso evidence provider before the donor tool surfaces are disposed of. For
-§3.4.1 and §3.4.2 that cannot be carried out as a migration, and the reason is
-recorded here so it is neither re-derived nor re-attempted (rf2-jkdy, against
-the rf2-hic-076 census rows X1/X2/X4/X5).
+these two sections that could not be carried out (rf2-jkdy, against the
+rf2-hic-076 census rows X1/X2/X4/X5; re-verified at source under rf2-l86mm).
 
-Donor 1 → donor 2 was a rename: `re-frame.ui.tool` and `re-frame.freehand.tool`
-publish the same five reads, so the earlier crossing cost this panel its
-`:require` lines and nothing else. The target is not a rename.
-`re-frame.hicasso.tool` publishes FOUR reads — `read-mounted-boundaries`,
-`read-read-attribution`, `read-intents`, `explain-render` — over a runtime that
-mints no boundary identity and ships no manifest (`re-frame.hicasso.impl.evidence`:
-*"No evidence subsystem ships: no manifest, no registry, no buffering"*). Only
-`explain-render` even shares a name.
+Donor 1 → donor 2 had been a rename: `re-frame.ui.tool` and
+`re-frame.freehand.tool` publish the same five reads, so the earlier crossing
+cost this panel its `:require` lines and nothing else. The target was not a
+rename. `re-frame.hicasso.tool` publishes FOUR reads —
+`read-mounted-boundaries`, `read-read-attribution`, `read-intents`,
+`explain-render` — over a runtime that mints no boundary identity and ships no
+manifest (`re-frame.hicasso.impl.evidence`: *"No evidence subsystem ships: no
+manifest, no registry, no buffering"*). Only `explain-render` even shared a
+name.
 
-| What §3.4 asks | Freehand field | On `re-frame.hicasso.tool` |
+| What §3.4 asked | Freehand field | On `re-frame.hicasso.tool` |
 |---|---|---|
 | Which VIEW is mounted | `:view-id` | **none.** `:view` and `:source` are `:unknown` under an `:opaque` naming projection whose own `:why` states that naming a boundary would need a registry this producer will not levy — not a gap awaiting closure |
 | Which OCCURRENCE of it | `:occurrence` | **none.** A boundary is keyed by its READ SET, so two boundaries reading alike are indistinguishable and collapse into one row carrying `:instances` |
@@ -955,74 +774,80 @@ mints no boundary identity and ships no manifest (`re-frame.hicasso.impl.evidenc
 | What it read | `:reads`, the selected commit's staged set | `:reads` — the closest counterpart, but the boundary's LIVE edge set rather than one commit's |
 | Over which frame | `:frame` | `:frame`, or `:unknown` where the read set spans frames |
 | Why it rendered | `explain-render` `:cause`, joined when the window holds the run | `explain-render`, but `:cause` is `:unknown` STRUCTURALLY every time — `:uncorrelated`, with candidates offered as leads |
-| What each view DECLARES (§3.4.2) | the manifest triple | **none.** There is no manifest, and no fourth read stands in for one |
+| What each view DECLARES | the manifest triple | **none.** There is no manifest, and no fourth read stands in for one |
 
-Two of the eight carry across, one degrades, and five — including the panel's
-whole subject — have no answer. A §3.4 re-pointed at the target would render a
-mounted roster that can name no view, beside
+Two of the eight carried across, one degraded, and five — including the
+sections' whole subject — had no answer. A §3.4 re-pointed at the target would
+have rendered a mounted roster that can name no view, beside
 [`027-Hicasso-Evidence.md`](027-Hicasso-Evidence.md)'s tab, which already
 renders all four of those envelopes whole. That is a second rendering of one
 runtime's evidence and a strictly smaller panel, which is not what *move the
 consumer onto the provider* asks for.
 
-**So the disposition is retirement, not migration.** §3.4.1 and §3.4.2 stay on
-`re-frame.freehand.tool` for as long as the Freehand tree ships and go when it
-goes, under rf2-hic-062 — together with the `day8/re-frame2-freehand`
-coordinate in `tools/xray/deps.edn`, which sits at top-level `:deps` only
-because `day8.re-frame2-xray.mounted-views` is in `src`. Nothing is stranded at
-that moment: a Hicasso host's boundaries, reads, intents and explanations are
-answered in full by the Hicasso tab, and what disappears is exactly the set of
-questions only a view registry could have answered.
+**Re-pointing at the ADAPTERS was not an option either**, and for a blunter
+reason: they publish no tool tier at all. There is no `tool` or `evidence`
+namespace anywhere under `implementation/adapters/`, for Reagent, reagent-slim
+or UIx — no mounted roster, no manifest, no evidence schema, nothing to read.
 
-**The staged `freehand-views` deck inherits this disposition** (rf2-u5b4,
-against census rows X6/X7/X8). It exists for no purpose other than putting real
-connected occurrences in front of §3.4.1 and §3.4.2, so it cannot be migrated
-separately — but the reason is FIVE of its assertions rather than all of them,
-and the distinction is worth stating precisely, because an absolute here would
-be false and would make the disposition read as special pleading.
+**Nothing is stranded.** A Hicasso host's boundaries, reads, intents and
+explanations are answered in full by the Hicasso tab; what disappeared is
+exactly the set of questions only a view registry and a compiler manifest could
+have answered, and both go with the substrate that had them.
 
-Its scenario asserts nine facts. **Five are identity or declaration facts, and
-every one of them sits in the table's none column**: the view id each row names,
-the occurrence key (asserted twice — as a row's identity, and as three freshly
-minted keys after a remount), the stated lowering (one interpreted against two
-compiled), the per-row generation the tag prints, and the whole Declared View
-Sites section with its three manifest arms. Those five are the deck's entire
-subject, because a populated roster IS identity plus declaration: re-pointed at
-the target, the scenario would have nothing left to be the populated arm OF.
+**What the panel keeps.** The reactive-flow graph, the Level-1 / Level-2+ sub
+tables, the unchanged-subs disclosure, the UNMOUNTED VIEWS and DESTROYED
+SUBSCRIPTIONS teardown lists and the legend are untouched — every one of them
+is epoch-scoped and reads Spec 009 trace ops, never a view substrate. The two
+retired sections were the panel's only cumulative (non-epoch-scoped) content,
+so the empty-state arm now renders the empty state alone.
 
-**The other four are not in that column.** The frame carries across unchanged.
-The commit's reads degrade rather than vanish, to the boundary's live edge set.
-The absent schema banner tests the Freehand door's version stamp, which the
-four-read Hicasso door does not publish at all, so it has no counterpart even to
-degrade to. And the reactively-driven repaint (rf2-2t126) is not one of §3.4's
-questions in the first place: it is a substrate fact about a Freehand `ViewCell`
-being notified through `:adapter/activate-derived-value!`. None of the four
-rescues the deck — the frame and the read set are already rendered whole by
-[`027-Hicasso-Evidence.md`](027-Hicasso-Evidence.md)'s tab, so a deck kept alive
-to re-assert them would be a second witness to a covered fact and no witness at
-all to the five that matter.
+**Registration schema 6.** The three sub ids are a REMOVAL delta, carried by
+`registry/migrate-schema!` exactly as schema 4's five were: the fn that
+installed them is deleted, so nothing else would ever take them out of a
+live-upgraded process's registrar and they would resolve forever as phantom
+ids. Unlike schema 4 there is no second half — the Freehand door was a READER,
+so Xray claimed nothing through it and there is no residue a page reload is
+needed to drop. See [`014-Registry-Catalogue.md`](014-Registry-Catalogue.md).
 
-Nor can it go early: retiring it while the panel still ships would restore the
-gate-blindness rf2-6pohj closed, an empty roster and a roster emptied by a broken
-read being the same DOM.
+**The staged `freehand-views` deck went with them, in part** (rf2-u5b4, against
+census rows X6/X7/X8). It existed for no purpose other than putting real
+connected occurrences in front of these two sections: five of the nine facts
+its scenario asserted are identity or declaration facts sitting in the table's
+none column — the view id each row named, the occurrence key (asserted twice,
+as a row's identity and as three freshly minted keys after a remount), the
+stated lowering, the per-row generation, and the whole Declared View Sites
+section with its three manifest arms. Those five were the deck's entire
+subject, because a populated roster IS identity plus declaration.
 
-**Retiring it is EIGHT artefacts, not four.** Four are the deck itself —
-`tools/xray/testbeds/freehand_views/`, the `:testbeds/freehand-views` build id
-and its port-8036 `:dev-http` entry (both in top-level
-`implementation/shadow-cljs.edn`), and the PR-smoke `freehand-views populated
-Views roster` scenario in `tools/xray/testbeds/feature_matrix/scenarios.cjs`
-together with its `STAGED_SURFACES` entry. Four more name the deck by build id
-or by scenario name from outside it. TWO of the eight red a gate, and they catch
-different omissions: leave the scenario and its `STAGED_SURFACES` entry standing
-while the staged source and build go, and the PR-smoke run — derived from those
-entries rather than from a fixed list — fails; remove the deck without moving
-the canonical covered-row count pin, and `coverage_matrix_metadata_test` fails.
-Neither catches the other's omission. The remaining six go quietly stale, which
-is why [`017-Test-Coverage-Matrix.md`](017-Test-Coverage-Matrix.md) carries the
-whole checklist as part of the deck's own record rather than leaving it to a
-grep. A pass that takes the two sections and the `deps.edn` coordinate but
-leaves the deck behind reds the PR gate on a scenario whose panel no longer
-exists.
+The other four were not in that column, and the record must not say they were:
+the frame carried across, the commit's reads degraded to the boundary's live
+edge set, the absent schema banner tested a Freehand-door version stamp the
+four-read Hicasso door does not publish at all, and the reactively-driven
+repaint (rf2-2t126) was a substrate fact about a Freehand `ViewCell` being
+notified through `:adapter/activate-derived-value!` rather than one of §3.4's
+questions. None of the four rescued the deck — the frame and the read set are
+already rendered whole by the Hicasso tab.
+
+**Its retirement is split across two passes, and the split is deliberate.**
+rf2-l86mm took the two artefacts that would otherwise RED — the
+`freehand-views populated Views roster` scenario and its `STAGED_SURFACES`
+entry in `tools/xray/testbeds/feature_matrix/scenarios.cjs`, and the canonical
+covered-row count pin in `coverage_matrix_metadata_test.clj` — because the
+PR-smoke run is derived from those entries rather than from a fixed list, and
+because that scenario was the sole claimant of its matrix row. The deck's
+SOURCE (`tools/xray/testbeds/freehand_views/`) stays until the Freehand tree
+deletion, because it is inseparable from its `:testbeds/freehand-views` build
+id and port-8036 `:dev-http` entry in top-level
+`implementation/shadow-cljs.edn`: deleting the source alone leaves a build
+compiling a tree that is not there.
+[`017-Test-Coverage-Matrix.md`](017-Test-Coverage-Matrix.md) carries the
+remaining checklist.
+
+One asserted fact OUTLIVES the deck and is worth naming, because it is the
+only browser-level proof that `:adapter/activate-derived-value!` holds end to
+end in a real DOM, and `re-frame.hicasso.impl.collector` calls that hook as
+well as the Freehand observation port did. Its witness needs re-homing onto the
+surviving caller rather than retiring with the Freehand cells.
 
 ### §3.5 Queries
 
@@ -1031,7 +856,13 @@ exists.
 | Focused epoch record | `:rf.sub/run`, `:rf.sub/skip` (memo hit → `:subs-skipped`, §3.4), `:rf.view/render` / `:rf.view/rendered` — read from the focused epoch record's `:trace-events` (rf2-rly4a — same `focus.epoch-id` scope as Trace, so Reactive + Trace stay correlated) |
 | Registries | Sub metadata (input-paths, signal-fn), view metadata (file:line) |
 | App-db | Seed-path resolution from the epoch's diff (§4) |
-| Freehand tool-door reads | `:rf.xray/mounted-views` → `mounted-views/rows` — the occurrences CONNECTED NOW (`read-mounted-views`) joined with the bounded read-time render explanation (`explain-render`); §3.4.1, NOT epoch-scoped. `:rf.xray/mounted-view-sites` → `mounted-views/view-sites` — the declared per-view sites from `read-view-manifest`/`read-view-dependencies`/`read-view-event-sites`, including the manifest's compile-tier `:diagnostics` findings (§3.4.2). `:rf.xray/mounted-views-schema` → `schema-status` — the evidence-schema honesty read |
+
+Every read on this panel is epoch-scoped. The three view-substrate reads that
+were not (`:rf.xray/mounted-views`, `:rf.xray/mounted-view-sites`,
+`:rf.xray/mounted-views-schema`, over `re-frame.freehand.tool`) retired with
+their substrate — §3.4.1. The panel therefore has no cumulative content and no
+dependency on any view substrate; a Hicasso host's live evidence is the
+Hicasso tab's subject ([`027-Hicasso-Evidence.md`](027-Hicasso-Evidence.md)).
 
 Recompute edges resolve from `:rf.sub/run`: **`:rf.sub/cause-sub`** is the sub→sub edge
 (nil ⇒ Level-1, non-nil ⇒ Level-2) and **`:rf.sub/reader-render-key`** is the sub→view edge;
