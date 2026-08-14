@@ -295,6 +295,20 @@ SPINE_LANES = (
         "spine node tier: 'hicasso invariants gate' chains this checker "
         "(`npm run test:hicasso-invariants`), both modes",
     ),
+    # rf2-r5iy7 — the guide-sample gate's own unconditional job, the fourth
+    # instance of the shape above and the starkest: `docs/core/hicasso/**` is
+    # HALF this checker's input and arms no classifier output whatsoever (all
+    # thirty-two measure false), so the npm chain alone left every guide-only
+    # PR running it nowhere.  The spine covers both homes through the chain, so
+    # the job's two steps are not a local gap; without this lane they would be
+    # reported as one, which is the same lie in the opposite direction.
+    Lane(
+        "hicasso-guide-samples",
+        r"^python implementation/hicasso/scripts/check_guide_samples\.py"
+        r"(?: --self-test)?$",
+        "spine node tier: 'hicasso invariants gate' chains this checker "
+        "(`npm run test:hicasso-invariants`), both modes",
+    ),
     Lane(
         "mkdocs-strict",
         r"^mkdocs build --strict$",
