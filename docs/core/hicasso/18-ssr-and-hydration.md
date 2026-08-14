@@ -108,24 +108,29 @@ Do not read clocks, randomness, `window`, or other ambient platform state from
 a view body. Put browser work in client-only effects such as
 `:platforms #{:client}` or behind a declared host.
 
-## Hydrate state before adopting the DOM
+## Create the frame, hydrate state, then adopt the DOM
 
-The first client render must see the same state used by the server. Hydration
-therefore has two ordered steps:
+The first client render must see the same state used by the server, and the
+frame that state lands in must already exist. A hydrating boot therefore has
+three ordered steps:
 
 ```clojure
 (ns app.client
-  (:require [re-frame.ssr :as ssr]
+  (:require [re-frame.core :as rf]
+            [re-frame.ssr :as ssr]
             [re-frame.hicasso :as h]
             [app.views :as views]
             [app.subs]
             [app.events]))
 
 (defn ^:export run []
-  ;; 1. Read __rf_payload and replace the target frame's state.
+  ;; 1. Create the client frame both hydration steps name.
+  (rf/make-frame {:id :app/main :platform :client})
+
+  ;; 2. Read __rf_payload and replace that frame's state.
   (ssr/hydrate! {:frame :app/main})
 
-  ;; 2. Adopt the existing server DOM.
+  ;; 3. Adopt the existing server DOM.
   (h/hydrate!
    (js/document.getElementById "app")
    {:frame             :app/main
@@ -133,16 +138,28 @@ therefore has two ordered steps:
    [views/page {}]))
 ```
 
-The two functions have different jobs:
+The three calls have different jobs:
 
+- `rf/make-frame` creates the frame. Neither hydration step does it for you:
+  `ssr/hydrate!` seeds a frame that already exists, and `h/hydrate!` names the
+  frame its root renders under.
 - `ssr/hydrate!` applies the state payload through `:rf/hydrate`. It validates
   the wire frame id against the requested frame. A mismatch raises
-  `:rf.error/hydration-frame-id-mismatch`; no frame context raises
-  `:rf.error/no-frame-context`.
+  `:rf.error/hydration-frame-id-mismatch`; omitting `:frame` raises
+  `:rf.error/no-frame-context`, because the target is supplied rather than
+  inferred.
 - `h/hydrate!` calls React's `hydrateRoot` on a container that already has
   server markup.
 
-State always comes first.
+!!! warning "Seeding an absent frame is silent"
+
+    `ssr/hydrate!` installs the payload by dispatching `:rf/hydrate`, and a
+    dispatch into a frame that does not exist is a **no-op, not an error**. The
+    call still reads the payload and still returns it, so a boot that skips
+    step 1 looks like it worked: nothing throws, and the page adopts the
+    server's DOM against a frame that never received the server's state.
+
+The frame comes first, then state, then the DOM.
 
 `h/hydrate!` has the same root lifecycle as `h/mount!`: it associates one
 container, one frame, and one view, and returns a handle accepted by
@@ -162,8 +179,10 @@ Important root rules:
   does not replay an entry animation.
 
 `ssr/hydrate!` returns the applied payload, or `nil` when the page carries no
-payload. A shared boot path can call `h/mount!` with ordinary
-`:initial-events` when it receives `nil`.
+payload. A shared boot path branches on that: `nil` means nobody
+server-rendered this page, so seed the frame with ordinary events and `h/mount!`
+a fresh root instead of adopting one. Step 1 is the same either way — both
+branches need the frame.
 
 ## Client-only components and fallbacks
 
@@ -234,6 +253,8 @@ A page can hydrate several roots against one frame and payload:
    [:p "Generated at " (js/Date.now)]])
 
 (defn ^:export run []
+  (rf/make-frame {:id :app/main :platform :client})
+
   (ssr/hydrate! {:frame :app/main})
 
   (h/hydrate!
@@ -303,6 +324,7 @@ view rewrite.
 | Service boot raises `:rf.error/ssr-missing-payload-policy` | No fail-closed payload policy was supplied | Allowlist every top-level app-db key the page reads, or explicitly select whole app-db |
 | Pure views still mismatch | A rendered app-db key was omitted from the payload | Add the key to the allowlist |
 | Boot raises `:rf.error/hydration-frame-id-mismatch` | Server `:client-frame-id` and client `:frame` differ | Use one stable wire frame id on both sides |
+| Nothing throws, `ssr/hydrate!` returns a payload, and the page still renders empty | The client frame did not exist yet, so the `:rf/hydrate` dispatch was a silent no-op | `rf/make-frame` the client frame before `ssr/hydrate!` |
 
 ## Advanced
 
