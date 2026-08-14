@@ -90,39 +90,24 @@
                        ;; the JVM `clojure -M:test` gate the same classpath.
                        ;; ui depends only on core (already present) — no cycle.
                        day8/re-frame2-ui         {:local/root "../../implementation/ui"}
-                       ;; The presence rung's host bridge
-                       ;; (`re-frame.story.play.presence-host`) requires the
-                       ;; Freehand presence runtime, and this entry is what
-                       ;; compiles it. Its three test arms read the same
-                       ;; runtime (`play/presence_cljs_test`,
-                       ;; `play/presence_freehand_dom_cljs_test`,
-                       ;; `play/presence_real_clock_cljs_test`) — and so does
-                       ;; `realworld_ui_consumer_cljs_test`, which drives a
-                       ;; real retained exit through the shipped bridge. That
-                       ;; last one is why RETIRING THE PRESENCE BRIDGE WOULD
-                       ;; NOT RETIRE THIS COORDINATE (rf2-5gka): a consumer
-                       ;; outside the presence rung shares it.
+                       ;; NO FREEHAND COORDINATE — deliberately (rf2-5gka).
+                       ;; Story used to carry `day8/re-frame2-freehand` here to
+                       ;; compile the presence-rung HOST BRIDGE
+                       ;; (`re-frame.story.play.presence-host`) and its two
+                       ;; Freehand-only witness suites. Freehand is retired
+                       ;; (rf2-0yp7w), so the bridge and those suites are gone
+                       ;; and nothing on this classpath names the substrate.
                        ;;
-                       ;; The view-tool / sub-override consumers do NOT read
-                       ;; Freehand and never did: `re-frame.story.view-tool`
-                       ;; reads `re-frame.ui.tool`, which is the
-                       ;; `day8/re-frame2-ui` entry above, and the sub-override
-                       ;; Provider is core's own
-                       ;; `re-frame.adapter.sub-override-context`.
-                       ;; TEST-ONLY for the same reason the donor entry above
-                       ;; is: `day8/re-frame2-freehand` carries no `:clein`
-                       ;; deploy aliases (publication is F6 territory), so
-                       ;; Story's published jar must not depend on it — which
-                       ;; is precisely why the rung takes the advance through
-                       ;; a late-bind hook instead of a `:require` from
-                       ;; Story's own namespaces. The top-level `:node-test`
-                       ;; build already carries `freehand/src` on its
-                       ;; source-paths, so `npm run test:cljs` resolves the
-                       ;; same reads without this entry; this gives the JVM
-                       ;; `clojure -M:test` gate the same classpath. Freehand
-                       ;; depends only on core (already present) and NEVER on
-                       ;; the donor — no cycle, no donor namespace pulled in.
-                       day8/re-frame2-freehand   {:local/root "../../implementation/freehand"}
+                       ;; The presence RUNG itself stays and is
+                       ;; substrate-neutral: `re-frame.story.play.presence`
+                       ;; requires only `re-frame.story.late-bind`, and a host
+                       ;; registers its own advance through the public
+                       ;; `install-presence-flush!`. With no host installed a
+                       ;; `[:flush-presence]` step FAILS CLOSED (`:cannot-run`)
+                       ;; rather than passing falsely — which is why the rung
+                       ;; needs no substrate dep to be tested. Do not re-add a
+                       ;; substrate coordinate to arm it; install the verb from
+                       ;; the host side of the seam.
                        ;; Two test-only consumers need the live epoch surface
                        ;; on the JVM classpath:
                        ;;   • the invariant-sentinel fixture
