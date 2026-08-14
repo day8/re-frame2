@@ -31,7 +31,7 @@
   ## What this file is, and its relationship to the guide
 
   [[select-dropdown]] is the guide's example
-  (`docs/design/hicasso/draft-guide/13-overlays-and-focus.md`,
+  (`docs/core/hicasso/13-overlays-and-focus.md`,
   *Build a dropdown from a popover*) with the audit's bounded repair
   applied: the trigger carries `role=\"combobox\"`; `aria-controls`
   names the listbox and is emitted only while one exists;

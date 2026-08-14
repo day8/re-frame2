@@ -18,7 +18,7 @@
   narrowly; recomputation scales with the grid —
   `examples.per-keystroke-dom-cljs-test` counts 111 at 10x10 and 31 at 5x5
   against two boundary bodies at both sizes
-  (`docs/design/hicasso/draft-guide/19-performance.md` §Scale the same
+  (`docs/core/hicasso/19-performance.md` §Scale the same
   topology to a grid).
 
   [[dimensions]] is read by the grid body and by the row bodies, and it
