@@ -42,6 +42,8 @@
   | [[field]] | the focused controlled input — caret, selection and composition across a save |
   | [[hook-child]] / [[hook-host]] | a child's `useState` inside a host crossing |
   | [[imperative-note]] / [[note-host]] | the active imperative host: a live instance, held through a callback `:ref`, with a side effect React does not know about |
+  | [[island-body]] | the NATIVE-TIER island, and the one component every wrapper is carried across (rf2-iq0a) |
+  | [[host-head]] / [[escape-head]] | that island behind `n/lazy`, so the `React.lazy` bridge meets a real recompile (rf2-y5x6j) |
   | [[app]] | the head whose re-mint is the whole cause, rendered once per frame so frame routing is readable per root |
 
   The two foreign components are written with React's own primitives and
@@ -51,7 +53,8 @@
   preserved."
   (:require ["react" :as react]
             [re-frame.core :as rf]
-            [re-frame.hicasso :as h]))
+            [re-frame.hicasso :as h]
+            [re-frame.hicasso.native :as n]))
 
 ;; ---------------------------------------------------------------------------
 ;; The hot line
@@ -163,6 +166,137 @@
           "p" #js {"data-testid" "note" "ref" node-ref} "")))))
 
 ;; ---------------------------------------------------------------------------
+;; The native-tier island, and the `React.lazy` bridge it arrives through
+;; ---------------------------------------------------------------------------
+;;
+;; ONE component, carried across every wrapper the ABI has (rf2-iq0a), and
+;; reached through a real `n/lazy` payload so the code-splitting bridge
+;; meets a real recompile (rf2-y5x6j). The chain is
+;;
+;;   island-body   n/defcomponent   the author's function, tier marker and all
+;;     -> island   n/memo           the memo record, marker carried across
+;;     -> *-head   n/lazy           the Client-only gate over a react/lazy payload
+;;     -> crossed  defhost AND [:>] both crossings, so neither door is assumed
+;;                                  to behave like the other
+;;   with a callback `:ref` through both, and the save's re-mint over the top.
+;;
+;; ## The island holds NO SUBSCRIPTION, and that is a decision
+;;
+;; It reads `useState` and nothing else — no `n/use-sub`, no `h/sub`. A
+;; subscribing island would contribute cells and reader memberships to
+;; `inventory/residue`, and this region RE-SUSPENDS on every save: the head
+;; is re-minted, its payload is fresh, and React shows the fallback until
+;; the chunk arrives. The arrival lands on React's scheduler, while
+;; `zero-stale-registrations` and `lost-cleanup-sabotage` take their
+;; residue baselines behind `inventory/quiesced!` — a `setTimeout` past the
+;; reap horizon. Those two clocks are not ordered with respect to each
+;; other, so a subscribing island here would make every census comparison
+;; in this suite a race against React's scheduler rather than a statement
+;; about the runtime. Contributing zero to the census is what keeps this
+;; fixture additive; the ownership claim is then made on the WHOLE census,
+;; which the rest of the app populates, and it says the lazy re-load and
+;; the remount leak nothing into it.
+
+(defonce ^:private !island-loads
+  ;; `defonce`, so the count spans the reload it is measuring. The whole of
+  ;; rf2-y5x6j's "which of the two is it" turns on this integer: a head
+  ;; re-minted by the save gets a fresh payload and the chunk is fetched
+  ;; AGAIN, so the boundary re-loads rather than the loaded module
+  ;; surviving.
+  (volatile! 0))
+
+(defn island-loads
+  "How many times the chunk has been asked for. Read through the door."
+  []
+  @!island-loads)
+
+(n/defcomponent island-body
+  "THE ISLAND — a native-tier component, declared through the tier's own
+  macro with an explicit server policy so the policy is a fact a driver
+  can read back after a save rather than a default nobody wrote.
+
+  Its `useState` instance id is minted from the counter that outlives the
+  reload, exactly as [[HookChild]]'s is, so a rebuilt island and a
+  preserved one are told apart by a number rather than by a repaint."
+  {:server :client-only}
+  [^js props]
+  (let [[id _] (react/useState next-instance-id!)]
+    (n/$ "div" #js {"data-testid" (.-slot props)
+                    "ref"         (.-nodeSink props)}
+         (n/$ "span" #js {"data-testid" (str (.-slot props) "-instance")}
+              (str id))
+         (n/$ "span" #js {"data-testid" (str (.-slot props) "-gen")}
+              generation-label))))
+
+(def island
+  "The memo wrapper. `n/memo` rather than `react/memo` because the tier
+  marker and the display name have to survive the wrapping — and because
+  `n/memo`'s own docstring says this record MUST NOT survive a hot reload,
+  which until now nothing measured under one."
+  (n/memo island-body))
+
+(defn- load-island!
+  "The chunk fetch, counted.
+
+  A resolved promise rather than a network round trip: what is under test
+  is the BRIDGE — `n/lazy`'s payload, its Client-only gate, React's
+  Suspense and the re-mint — and a real `shadow.lazy/load` would add a
+  second module to the build without adding anything to the claim. The
+  loader is the one part of the shape that is stubbed, and it is stubbed
+  where `lazy_boundary_dom_cljs_test`'s `deferred-loader` stubs it."
+  []
+  (vswap! !island-loads inc)
+  (js/Promise.resolve island))
+
+;; TWO heads over ONE loader, which is `lazy_boundary_dom_cljs_test`'s own
+;; shape for the same reason: it puts the payload's identity on the table.
+;; One head per crossing also makes the loader count DISCRIMINATE — a clean
+;; save re-mints both and costs two fetches, and the sabotage below pins one
+;; of them and costs one.
+
+(def host-head
+  "The head behind the `defhost` crossing."
+  (n/lazy load-island!))
+
+(def escape-head
+  "The head behind the `[:>]` crossing — the one the sabotage pins."
+  (n/lazy load-island!))
+
+;; --- the sabotage: a head that survived the reload -------------------------
+;;
+;; The fault rf2-y5x6j asks for, and it is the one the tier's own docstring
+;; names: `n/component` says caching a head by name "would preserve identity
+;; across a reload and quietly contradict the recorded contract". This is
+;; that runtime, toggled at run time — the app renders the head it captured
+;; before the save instead of the one the save minted. Recoverable, unlike
+;; the lost-cleanup sabotage: disarming restores the live head and the next
+;; save re-mints normally.
+
+(defonce ^:private !pinned-escape-head (volatile! nil))
+
+(defn pin-escape-head!
+  "Arm or disarm the pinned-head sabotage. Answers whether it is armed."
+  [on?]
+  (vreset! !pinned-escape-head (when on? escape-head))
+  (some? @!pinned-escape-head))
+
+(defn- escape-head-now
+  []
+  (or @!pinned-escape-head escape-head))
+
+(defn live-heads
+  "The heads as the module currently holds them, for the door's identity
+  baseline. Answers the LIVE `escape-head` rather than
+  [[escape-head-now]] — the sabotage is a fact about what the app RENDERS,
+  and a baseline that moved with it could not see the pin."
+  []
+  #js {"islandBody" island-body
+       "islandMemo" island
+       "hostHead"   host-head
+       "escapeHead" escape-head
+       "rendered"   (escape-head-now)})
+
+;; ---------------------------------------------------------------------------
 ;; The crossings and the views
 ;; ---------------------------------------------------------------------------
 
@@ -179,6 +313,20 @@
   "The imperative host. Its instance arrives through a callback `:ref` —
   HD-022's v0 spelling, a function and never a vector."
   imperative-note)
+
+(h/defhost suspense-host
+  "React's own Suspense, wrapping the split region and NOTHING else. The
+  scope is deliberate: this region shows its fallback on every save, and a
+  boundary drawn any wider would take the controlled field, the hook child
+  and the imperative host down with it — every one of which is another
+  section's subject."
+  (.-Suspense react)
+  {:slots #{:fallback}})
+
+(h/defhost island-host
+  "The `defhost` crossing over the lazy head — a declaration, with the
+  island's props ABI and its `:ref` passing straight through the gate."
+  host-head)
 
 (h/defview field
   "The focused controlled input. An ordinary `:value` off a subscription
@@ -206,12 +354,22 @@
   `ref-sink` is handed down from the shell rather than closed over here:
   it must survive the reload so the driver keeps reading the same sink
   across a save, and anything defined in THIS namespace is replaced by the
-  save under test."
-  [{:keys [ref-sink]}]
+  save under test. `island-refs` is handed down for the same reason and
+  keyed by slot, so one stable function serves each crossing and React is
+  never made to detach a ref for a render that remounted nothing."
+  [{:keys [ref-sink island-refs]}]
   [:main {:data-testid "hmr-app"}
    [:span {:data-testid "gen-label"} generation-label]
    [:span {:data-testid "frame-label"} (h/sub [:hmr/label])]
    [field {}]
    [digits-field {}]
    [hook-host {}]
-   [note-host {:ref ref-sink}]])
+   [note-host {:ref ref-sink}]
+   ;; The split region. Both crossings reach the same island through their
+   ;; own head, so a save costs two fetches and neither door's conduct is
+   ;; inferred from the other's.
+   [suspense-host {:fallback [:span {:data-testid "island-fallback"} "loading"]}
+    [island-host {:slot     "island-host"
+                  :nodeSink (get island-refs "island-host")}]
+    [:> (escape-head-now) {:slot     "island-escape"
+                           :nodeSink (get island-refs "island-escape")}]]])

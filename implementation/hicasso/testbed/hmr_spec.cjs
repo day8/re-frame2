@@ -190,6 +190,36 @@ const residue = (page) => page.evaluate(() => window.__HMR__.door().residue());
 const capture = (page) => page.evaluate(() => window.__HMR__.door().capture());
 const reloads = (page) => page.evaluate(() => window.__HMR__.door().reloads());
 const quiesce = (page) => page.evaluate(() => window.__HMR__.quiesce());
+const islandLoads = (page) => page.evaluate(() => window.__HMR__.door().islandLoads());
+const pinEscapeHead = (page, on) =>
+  page.evaluate((v) => window.__HMR__.door().pinEscapeHead(v), on);
+
+// The split region's two crossings, in both roots.
+const ISLAND_SLOTS = ['island-host', 'island-escape'];
+
+// The island's arrival, waited for on a REAL SIGNAL rather than slept
+// through. A save re-mints the heads, so the region suspends and shows its
+// fallback until the chunk lands; every island row below is taken after
+// this resolves, and it fails loudly rather than reading a fallback and
+// calling it a remount.
+const waitForIslands = (page) => page.waitForFunction(
+  (slots) => slots.every((slot) => ['alpha', 'beta'].every((root) =>
+    !!document.querySelector(`#${root} [data-testid="${slot}"]`))),
+  ISLAND_SLOTS, { timeout: 30000, polling: 50 });
+
+/** Every island's instance id and rendered generation label, per root. */
+const islandState = (page) => page.evaluate((slots) => {
+  const out = {};
+  for (const root of ['alpha', 'beta']) {
+    for (const slot of slots) {
+      out[`${root} ${slot}`] = {
+        instance: window.__HMR__.text(root, `${slot}-instance`),
+        gen: window.__HMR__.text(root, `${slot}-gen`),
+      };
+    }
+  }
+  return out;
+}, ISLAND_SLOTS);
 
 // ---------------------------------------------------------------------------
 // 1. The reload is real, and it really replaced what the macro made
@@ -481,7 +511,215 @@ async function frameRoutingAcrossASave(page, w, ctx) {
 }
 
 // ---------------------------------------------------------------------------
-// 7. Zero stale-generation registrations
+// 7. The native tier and the React.lazy bridge, through a real recompile
+// ---------------------------------------------------------------------------
+
+// The name `n/defcomponent` computes for the island — `<ns>/<sym>`, the
+// tier's address rule, written out for the same reason `hmr_remount`'s
+// `view-name` is: the marker has to be readable under the IDENTICAL name
+// after a save, and a constant derived from whatever came back would agree
+// with itself no matter what the reload did to it.
+const ISLAND_NAME = 'hicasso-hmr-testbed.views/island-body';
+
+// rf2-y5x6j and rf2-iq0a in one section, because they are one fixture.
+//
+// §7 of the Hicasso specification names `HMR` in the code-splitting row's
+// required proof, beside load, fallback, error and retry — the four that
+// landed in `lazy_boundary_dom_cljs_test`, which then stated the hot-reload
+// fact in PROSE: "the retry a rejected chunk needs is a NEW HEAD, which is
+// the same allocation a hot reload performs". Nothing had performed one.
+// Separately, `n/component`, `n/memo` and `n/defcomponent` each promise in
+// their own docstring that a reload REPLACES what they mint, and the native
+// tier appeared nowhere in this gate at all.
+//
+// Both claims are about the same event, so they are measured on the same
+// save. The instrument is the LOADER COUNT and OBJECT IDENTITY, never the
+// paint: a re-fetched chunk and a preserved one paint the same island, in
+// the same place, with the same text — which is exactly how the prose
+// survived unmeasured.
+async function nativeLazyIslandAcrossASave(page, w, ctx) {
+  await waitForIslands(page);
+  await quiesce(page);
+  await capture(page);
+  const loadsBefore = await islandLoads(page);
+  const before = await islandState(page);
+  // Taken past the runtime's own reap horizon, which is the only honest
+  // place for a residue baseline — the same discipline as section 9's.
+  const censusBefore = await residue(page);
+
+  // CONTROL, taken FIRST. Every row below reports a CHANGE, so the
+  // instruments have to be shown able to report sameness — otherwise an
+  // identity reader that always answered "different" and a counter that
+  // ticked on its own would satisfy the whole section.
+  await page.evaluate(() => window.__HMR__.settle());
+  const quiet = await identity(page);
+  w.eq(quiet.heads.hostHead['same?'], true,
+    'CONTROL — with no save the defhost crossing\'s lazy head is the same object');
+  w.eq(quiet.heads.escapeHead['same?'], true,
+    'CONTROL — and so is the [:>] crossing\'s');
+  w.eq(quiet.heads.islandMemo['same?'], true,
+    'CONTROL — and the memo record around the island');
+  w.eq(quiet.heads.islandBody['same?'], true,
+    'CONTROL — and the island itself');
+  w.eq(await islandLoads(page), loadsBefore,
+    'CONTROL — and nothing re-fetched the chunk, so the count below is the save\'s');
+
+  // THE PREMISE, before the save: the marker is there to be lost. A row
+  // asserting it is readable afterwards says nothing unless it was
+  // readable first.
+  w.eq(quiet.heads.islandBody.server, 'client-only',
+    'the island declares its server policy and the marker carries it');
+  w.eq(quiet.heads.islandBody.name, ISLAND_NAME, 'under the tier\'s address rule');
+  w.eq(quiet.heads.hostHead.server, 'client-only',
+    'and the lazy head is Client-only — its own policy, not the island\'s');
+  w.eq(quiet.heads.hostHead.name, ISLAND_NAME,
+    'with the arrived component\'s name filled into the head\'s own marker');
+
+  await ctx.save();
+  await waitForIslands(page);
+
+  // ------------------------------------------------------------------
+  // rf2-y5x6j: WHICH of the two is it?
+  // ------------------------------------------------------------------
+  //
+  // The bead requires this row to state one and assert it, rather than
+  // assert whichever happened. It is THE BOUNDARY RE-LOADS. A head is a
+  // top-level `def` in the reloaded namespace, so the save re-evaluates it
+  // and `n/lazy` allocates a fresh `react/lazy` record; a fresh payload is
+  // Uninitialized, so React calls the loader again and the chunk is
+  // fetched a second time. The loaded module does NOT survive the save.
+  //
+  // Two heads, two payloads, so exactly two fetches — one per crossing.
+  // The `+ 2` is the whole assertion: `> loadsBefore` would be green for a
+  // bridge that re-fetched once and shared, and `>= loadsBefore` would be
+  // green for one that never re-fetched at all.
+  w.eq(await islandLoads(page), loadsBefore + 2,
+    'THE ANSWER: the boundary RE-LOADS. Each re-minted head gets a fresh, '
+    + 'Uninitialized payload, so the chunk is fetched again — once per head, '
+    + 'and the loaded module did not survive');
+
+  const after = await identity(page);
+  w.eq(after.heads.hostHead['same?'], false,
+    'the defhost crossing\'s lazy head was re-minted by the save');
+  w.eq(after.heads.escapeHead['same?'], false, 'and the [:>] crossing\'s');
+  w.eq(after.heads.islandMemo['same?'], false,
+    'and the memo record — `n/memo`\'s docstring says it must NOT survive a '
+    + 'hot reload, which nothing had run one to check');
+  w.eq(after.heads.islandBody['same?'], false,
+    'and the island `n/defcomponent` minted — allocation, never a lookup by name');
+
+  // ------------------------------------------------------------------
+  // rf2-iq0a: the tier survives the save as a DESCRIPTION of itself
+  // ------------------------------------------------------------------
+  //
+  // The objects are all new; what must be unchanged is what they SAY. A
+  // reload that dropped the marker would leave Xray naming an anonymous
+  // boundary where an island is, and the page would look identical.
+  w.eq(after.heads.islandBody.name, ISLAND_NAME,
+    'the re-minted island carries the same tier name — an address, not an identity');
+  w.eq(after.heads.islandBody.server, 'client-only', 'and the same server policy');
+  w.eq(after.heads.islandBody.displayName, ISLAND_NAME, 'and the same display name');
+  w.eq(after.heads.hostHead.server, 'client-only',
+    'the fresh lazy head is Client-only before anything has arrived in it');
+  w.eq(after.heads.hostHead.name, ISLAND_NAME,
+    'and its marker took the re-arrived component\'s name, so the head names '
+    + 'the island on the far side of the save too');
+
+  // The subtree really was rebuilt, read three independent ways: React's
+  // own fiber state, the DOM node the ref is attached to, and the ref
+  // traffic itself.
+  const state = await islandState(page);
+  for (const key of Object.keys(before)) {
+    w.eq(state[key].instance === before[key].instance, false,
+      `the island at ${key} is a different fiber — the subtree was rebuilt`);
+    w.eq(Number(state[key].instance) > Number(before[key].instance), true,
+      `from the counter that outlived the reload, so the two ids are comparable (${key})`);
+    w.eq(after.islands[key]['node-same?'], false,
+      `and its ref re-attached to a NEW node at ${key}`);
+    w.eq(after.islands[key]['attached?'], true,
+      `and is attached, not merely detached and dropped (${key})`);
+    // Not an identity claim: `generation-label` is a live namespace read,
+    // so even a stale closure would answer the new literal. It says the
+    // island is painting THIS generation's label, which is what makes the
+    // region live rather than a fallback the row mistook for an island.
+    w.eq(state[key].gen === before[key].gen, false,
+      `and it is painting the new generation's label at ${key}`);
+  }
+
+  // Ownership across the save. The island holds no subscription by
+  // construction — see `views.cljs`, where the reason is that a
+  // subscribing island in this shared tree would put every other section's
+  // residue comparison in a race with React's scheduler — so this is a
+  // claim about the WHOLE census, which the rest of the app populates: a
+  // lazy re-load and a full remount of the split region leak nothing into
+  // it.
+  await quiesce(page);
+  w.same(await residue(page), censusBefore,
+    'and the retained census is unchanged across the save: a re-loaded split '
+    + 'region and a fully rebuilt island subtree leak nothing into it');
+}
+
+// ---------------------------------------------------------------------------
+// 8. The pinned-head sabotage
+// ---------------------------------------------------------------------------
+
+// rf2-y5x6j's third acceptance clause: break the bridge's reload path and
+// the row above fails BY NAME.
+//
+// The fault modelled is the one the tier's own docstring names.
+// `n/component` says caching a head by name "would preserve identity across
+// a reload and quietly contradict the recorded contract" — so the sabotage
+// is a runtime that does exactly that, holding the head it had before the
+// save and rendering it afterwards. Everything else is untouched: the
+// module still re-evaluates, `n/lazy` still mints a fresh head, and the
+// `defhost` crossing beside it still takes the new one. Only what the
+// `[:>]` crossing RENDERS is pinned.
+//
+// Unlike the lost-cleanup sabotage this one is RECOVERABLE, so all four
+// phases assert: arm, confirm red, disarm, confirm green.
+async function pinnedLazyHeadSabotage(page, w, ctx) {
+  await waitForIslands(page);
+  await capture(page);
+  const loadsBefore = await islandLoads(page);
+
+  w.eq(await pinEscapeHead(page, true), true, 'the sabotage is armed');
+  await ctx.save();
+  await waitForIslands(page);
+
+  const red = await identity(page);
+  // THE PREMISE, and the row is worthless without it: the save really did
+  // re-mint the head. The fault is not that the module failed to reload —
+  // it is that the app went on rendering the head it had.
+  w.eq(red.heads.escapeHead['same?'], false,
+    'the premise — the module DID re-evaluate and mint a fresh head');
+  w.eq(red.heads.hostHead['same?'], false,
+    'and the unsabotaged crossing beside it took its own fresh head');
+
+  w.eq(red.heads.rendered['same?'], true,
+    'RED — but the head the app RENDERS survived the save: a bridge that '
+    + 'cached by name, which is the conduct `n/component` forbids in prose');
+  w.eq(await islandLoads(page), loadsBefore + 1,
+    'RED — and the chunk was fetched ONCE, not twice: a resolved payload is '
+    + 'never re-read, so the pinned crossing silently skipped its re-load. '
+    + 'This is the exact number the row above asserts, and it is wrong here');
+
+  // RESTORE.
+  w.eq(await pinEscapeHead(page, false), false, 'the sabotage is disarmed');
+  await capture(page);
+  const loadsRestored = await islandLoads(page);
+  await ctx.save();
+  await waitForIslands(page);
+
+  const green = await identity(page);
+  w.eq(green.heads.rendered['same?'], false,
+    'GREEN — the app renders the head the save minted again');
+  w.eq(await islandLoads(page), loadsRestored + 2,
+    'GREEN — and both crossings re-loaded, so the red above was the pin and '
+    + 'not a broken instrument');
+}
+
+// ---------------------------------------------------------------------------
+// 9. Zero stale-generation registrations
 // ---------------------------------------------------------------------------
 
 // The audit's last clause, and the one the whole door exists for. Read
@@ -544,7 +782,7 @@ async function zeroStaleRegistrations(page, w, ctx) {
 }
 
 // ---------------------------------------------------------------------------
-// 8. The lost-cleanup sabotage
+// 10. The lost-cleanup sabotage
 // ---------------------------------------------------------------------------
 
 // The bead's named perturbation, run for real. The fault is a RENDERER
@@ -629,6 +867,12 @@ const SECTIONS = [
   ['child-hook-state-in-a-host', childHookStateInAHost],
   ['active-imperative-host', activeImperativeHost],
   ['frame-routing-across-a-save', frameRoutingAcrossASave],
+  // The split region's two, before the census rows. Their own sabotage is
+  // recoverable and is disarmed inside its section, so nothing downstream
+  // inherits it — unlike `lost-cleanup-sabotage`, which strands a
+  // registration for the life of the page and must therefore stay last.
+  ['native-lazy-island-across-a-save', nativeLazyIslandAcrossASave],
+  ['pinned-lazy-head-sabotage', pinnedLazyHeadSabotage],
   ['zero-stale-registrations', zeroStaleRegistrations],
   ['lost-cleanup-sabotage', lostCleanupSabotage],
 ];

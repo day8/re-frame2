@@ -36,9 +36,27 @@
   is Uninitialized (`_status === -1`); a rejection sets `_status = 2` and
   every later read `throw`s the cached error. The payload is created once,
   by `react/lazy`, and nothing in this tier — or in React's public API —
-  resets it. So the retry a rejected chunk needs is a NEW HEAD, which is
-  the same allocation a hot reload performs, which is why the HMR fact and
-  the retry fact are one measurement here rather than two.
+  resets it. So the retry a rejected chunk needs is a NEW HEAD.
+
+  ## The hot-reload half is witnessed ELSEWHERE, and used to be witnessed
+  ## nowhere
+
+  This file used to add that a new head "is the same allocation a hot
+  reload performs, which is why the HMR fact and the retry fact are one
+  measurement here rather than two". The reasoning was sound and the
+  measurement did not exist: nothing here reloads anything, and §7's
+  code-splitting row names `HMR` in the same required-proof cell as the
+  load, fallback, error and retry states this file does land (rf2-y5x6j).
+
+  It is now witnessed where a reload can actually be performed — the
+  `native-lazy-island-across-a-save` section of
+  `hicasso/testbed/hmr_spec.cjs`, driven by
+  `implementation/scripts/serve-and-run-hicasso-hmr-testbed.cjs` under a
+  live `shadow-cljs watch`. A real save re-mints the head, the fresh
+  payload is Uninitialized, and the chunk is fetched AGAIN: the boundary
+  re-loads rather than the loaded module surviving. Its
+  `pinned-lazy-head-sabotage` sibling pins the head across the save and
+  reds on that count.
 
   ## Where the retryable path actually is
 
@@ -674,9 +692,11 @@
                       "the loader was not called a second time"))
                 (exercised! :lazy/rejection-is-terminal)
 
-                ;; The repair: a NEW head over the SAME loader. This is
-                ;; also what a hot reload allocates, which is why the two
-                ;; facts are one measurement.
+                ;; The repair: a NEW head over the SAME loader. A hot
+                ;; reload allocates one the same way, but that is asserted
+                ;; under an actual reload rather than here — see this
+                ;; file's docstring and `hmr_spec.cjs`'s
+                ;; `native-lazy-island-across-a-save` (rf2-y5x6j).
                 (reset! !attempts 0)
                 (.render ^js (:root handle) (reject-tree 2 replacement-host))
                 (poll #(= 2 @(:calls reject-loader))
