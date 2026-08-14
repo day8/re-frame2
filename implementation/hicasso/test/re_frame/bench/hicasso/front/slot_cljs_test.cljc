@@ -7,7 +7,16 @@
   a CLJS lane as well as the JVM one, so [[corpus]] below is asserted
   twice against ONE implementation: once by `npm run test:cljs` in Node
   and once by `clojure -M:test` on the JVM, in
-  `implementation/freehand`.
+  `implementation/hicasso`.
+
+  Both arms are gated, which is what makes this a mechanism rather than a
+  suite somebody could quietly stop running. The JVM arm is the
+  unconditional `jvm-hicasso` job in `.github/workflows/test.yml`, listed
+  under `All required checks passed` — a job absent from that list is
+  advisory whatever its own gate says — and the artefact carries a row on
+  `scripts/test-jvm-implementation.sh` (rf2-ipx7h). The Node arm rides
+  the always-on `:node-test` build. Losing either one leaves the other
+  green while the equivalence it exists to assert stops being checked.
 
   ## What it would catch
 
