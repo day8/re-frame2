@@ -88,6 +88,24 @@
 // build is a defect, and an env var to permit one would be this bug wearing a
 // hat.
 //
+// THE SAME RULE ALREADY EXISTS ONE LANE OVER, which is the strongest evidence
+// that this is the right shape and not an invention.  `check-examples-compile.
+// cjs` parses the identical shadow-cljs line for the `:examples/*` builds, reds
+// on `warnings > 0`, and — independently of this, under rf2-nlnd9y.1 — reached
+// the same conclusion about the unreadable case: a summary that never appeared
+// or no longer matches is a FAILURE, because otherwise the gate "reported
+// SUCCESS having verified nothing about that build".
+//
+// NOT SHARED, and the reason is at source rather than laziness.  That parser is
+// anchored on a build id containing a slash (`[:examples/login-helix]`), which
+// no `:node-test`-family id carries, so it matches nothing here and could not be
+// called as it stands.  Generalising it would mean editing the examples gate to
+// serve this one; two four-line readers in the lanes that own them is the
+// smaller thing, and the divergence is deliberate where they differ: that gate
+// treats a singular `1 warning` as UNPARSEABLE and fails, this one reads it and
+// fails NAMING the count.  Both red; this one says why.  If a third lane ever
+// wants the same line, that is the moment to mint one reader for all three.
+//
 // NOT A NAG, deliberately.  shadow-cljs already prints its own `Build
 // completed. (N files, M compiled, W warnings, Ts)` line on every run, so the
 // reach is on the page whether this passes or fails and there is nothing to

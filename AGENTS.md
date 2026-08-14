@@ -178,9 +178,17 @@ on every PR rather than only a docs-classified one. Its `--verbose` banner
 prints the per-root file counts it walked, which is the thing to read when you
 need to know what a green actually inspected.
 So does `scripts/check_provenance_pins.py`, on changed pages under
-`docs/design/hicasso/`, as its own `docs.yml` job. Nothing checks tables,
-rendering, or nav, so verify anchors and table column counts by hand and say so
-in the PR body.
+`docs/design/hicasso/`, as its own `docs.yml` job. It prints one line on every
+run naming the pages it opened and the pins it classified, so read that before
+believing a green: `--changed-since` reads the working tree, so an uncommitted
+edit to a tracked page IS checked, but a page git has never been told about is
+invisible until you `git add` it (a commit is not needed). A `0 pages inspected`
+line is the gate saying it checked nothing. Under `--verbose` it also lists the
+pins that are not landed but were rescued by an anchor in the same block — the
+line to read when a planted SHA does not redden the gate, because a plant beside
+an existing citation is absorbed by its neighbour rather than missed.
+Nothing checks tables, rendering, or nav, so verify anchors and table column
+counts by hand and say so in the PR body.
 
 <!-- BEGIN BEADS INTEGRATION v:1 profile:minimal hash:ca08a54f -->
 ## Beads Issue Tracker
