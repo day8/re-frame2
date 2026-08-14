@@ -8,7 +8,7 @@ ClojureScript data.
 ## What Hicasso is
 
 [Hicasso](glossary.md#hicasso) interprets
-[Hiccup](../../../core/glossary.md#hiccup) and produces React
+[Hiccup](../glossary.md#hiccup) and produces React
 function-component elements. You write vectors for markup, maps for props, and
 event vectors in handler attributes. Where a view needs a subscription value,
 it calls [`h/sub`](glossary.md#hsub).

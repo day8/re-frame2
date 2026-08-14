@@ -1,11 +1,11 @@
 # Hicasso glossary
 
 This glossary defines Hicasso-specific terms. Core re-frame2 terms such as
-[app-db](../../../core/glossary.md#app-db),
-[frame](../../../core/glossary.md#frame),
-[event](../../../core/glossary.md#event), and
-[subscription](../../../core/glossary.md#subscription) live in the
-[core glossary](../../../core/glossary.md).
+[app-db](../glossary.md#app-db),
+[frame](../glossary.md#frame),
+[event](../glossary.md#event), and
+[subscription](../glossary.md#subscription) live in the
+[core glossary](../glossary.md).
 
 ## Authoring
 
@@ -13,7 +13,7 @@ This glossary defines Hicasso-specific terms. Core re-frame2 terms such as
 ### Hicasso
 
 re-frame2's native React view adapter. Hicasso interprets
-[Hiccup](../../../core/glossary.md#hiccup), reads subscriptions with
+[Hiccup](../glossary.md#hiccup), reads subscriptions with
 [`h/sub`](#hsub), and accepts event vectors as [intents](#intent). App-db,
 events, effects, and the event pipeline remain ordinary re-frame2.
 
@@ -645,7 +645,7 @@ stops taking the read releases demand. Speculative and abandoned renders
 acquire nothing. Without `:demand`, the resource subscription is passive.
 
 Related: [Async resources](08-async-resources.md),
-[Resources glossary](../../../resources/glossary.md).
+[Resources glossary](../../resources/glossary.md).
 
 ## Testing
 

@@ -1,5 +1,14 @@
 # Build a view
 
+!!! danger "Retired — Freehand is being removed"
+
+    Freehand is retired. re-frame2's native view layer is
+    [Hicasso](../../hicasso/index.md), and its guide replaces this one.
+
+    This page is no longer in the site navigation. It survives only so that
+    links already pointing at it keep resolving, and it goes when the Freehand
+    code tree does.
+
 A working Freehand screen, one idea at a time: subscription as a value, handler as
 data, controlled field, mount. Not a tour of every option. The project
 [depends on Freehand](install.md).

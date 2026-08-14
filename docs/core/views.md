@@ -515,7 +515,7 @@ that survives any async hop. [Frames](frames.md) is that pattern's home.
     (`(rf/init! reagent-adapter/adapter)`) is where hiccup becomes pixels.
     Port substrates and only `init!` plus view notation change —
     [Use UIx or reagent-slim](how-to/use-uix-or-slim.md). A more radical,
-    still-experimental option is [Freehand](freehand/index.md), re-frame2's own
-    view layer — subscriptions read as plain values, handlers are event vectors,
-    and a hot declaration can be promoted to a compiled tier without touching a
-    single call site.
+    pre-alpha option is [Hicasso](hicasso/index.md), re-frame2's own native
+    view layer — markup stays inspectable Hiccup data, subscriptions read as
+    plain values wherever a view needs them, handlers stay event vectors, and a
+    hot boundary can drop to a native React tier without moving its call site.

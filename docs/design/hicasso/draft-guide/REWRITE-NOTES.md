@@ -1,5 +1,13 @@
 # Hicasso guide rewrite audit
 
+> **The corpus this audits has shipped.** Under rf2-0yp7w the guide moved from
+> this directory to `docs/core/hicasso/`, `README.md` became that tree's
+> `index.md`, and the section replaced Freehand's in the Core tab of
+> `mkdocs.yml`. Read every `draft-guide/NN-*.md` path below as
+> `docs/core/hicasso/NN-*.md`. This audit stays here, in the excluded design
+> tree, because it is a record of how the rewrite was done and not part of the
+> reader's path.
+
 This file records the editorial and preservation decisions used for the
 rewritten `draft-guide` corpus.
 
