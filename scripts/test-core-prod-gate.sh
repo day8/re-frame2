@@ -400,7 +400,8 @@ fi
 # RAISED 800 -> 1360 (rf2-d2841, third pass), 1360 -> 1510 (fourth pass),
 # 1510 -> 1690 (fifth pass), 1690 -> 1880 (sixth pass), 1880 -> 1900
 # (seventh), then 1900 -> 1920 (see "THE EIGHTH MOVE" below — a budget
-# repair, not a pass).  800 was calibrated against the 915-test lane of rf2-f8x2i's
+# repair, not a pass), then 1920 -> 1950 ("THE NINTH MOVE", the same repair
+# again).  800 was calibrated against the 915-test lane of rf2-f8x2i's
 # original run and had stopped doing its job.  1360 was calibrated against 1401
 # and stopped doing its job the same way; 1510 did the same in its turn; and so
 # did 1690, against the 1931 tests the sixth pass left.
@@ -425,9 +426,9 @@ fi
 # test file, and nothing else counts what it excluded.
 #
 # So the floor is now doing a second job: it is the budget for tagging.  At
-# 1920 against 1953 there are 33 tests of slack, so tagging more than about
-# thirty tests' worth of deftests reddens this lane and the author has to come
-# here and move the number — which is exactly the review prompt a
+# 1950 against 1986 there are 36 tests of slack, so tagging more than about
+# thirty-five tests' worth of deftests reddens this lane and the author has
+# to come here and move the number — which is exactly the review prompt a
 # coverage-reducing change should trigger.  That is deliberate.  Do not raise
 # the floor to make room for a tag without saying, in the same diff, what was
 # tagged and why it has no production residue.
@@ -442,6 +443,21 @@ fi
 # apply is not "raise it when you add namespaces" but "keep the SLACK at ~33",
 # and it wants checking whenever this lane's observed count is read, not only
 # when a d2841 pass lands.
+#
+# THE NINTH MOVE, 1920 -> 1950 (rf2-oucxu), IS THAT SAME REPAIR AGAIN, and that
+# it was needed twice running is the part worth recording.  It tags nothing and
+# adds no namespace.  1920 was calibrated against 1953; the lane has since
+# grown to 1986 on other beads' test files, so the tagging budget had widened
+# from the intended ~33 to 66 — twice the rule above, which is to say twice as
+# many tests could have been tagged out of this lane before the floor reddened
+# and made someone come here and justify it.  Nobody raised the budget; the
+# lane drifted out from under it, exactly as before.
+#
+# So this drift is not a one-off to patch but a standing condition of a growing
+# lane: the eighth move caught it at 53, this one at 66, a few weeks of
+# ordinary test-writing apart.  That is why the check above is worded as
+# "whenever this lane's observed count is read" — measured for this move at
+# 178 of 190 namespaces, 1986 tests, 8699 assertions, exit 0.
 #
 # Note which direction the OTHER failure mode falls.  If `-e :requires-debug`
 # is ever dropped from the `:prod-gate` alias or misspelled, the fifteen tagged
@@ -465,7 +481,7 @@ fi
 # invokes, so the rule covers every lane in the repo rather than this one, and
 # it fires before a single test runs.  `verify_roster` below is unchanged and
 # still cannot see this class on its own — see its guard #1.
-export RF2_MIN_TESTS="${RF2_MIN_TESTS:-1920}"
+export RF2_MIN_TESTS="${RF2_MIN_TESTS:-1950}"
 
 args=()
 for ns in $runnable; do
