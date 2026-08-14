@@ -1214,7 +1214,7 @@ candidate second call site appears. The composition value path reopens on
 >
 > **Amended 2026-08-12 (operator ruling): the buffered ladder is no longer
 > post-v0 (`rf2-sh56`).** Mike ruled the forms module into V0 scope, with
-> `draft-guide/05-forms.md` standing as its draft spec — for this feature only,
+> `docs/core/hicasso/05-forms.md` standing as its draft spec — for this feature only,
 > overriding `specification.md` §7's second-caller extraction gate; the gate
 > stands everywhere else. `re-frame.hicasso.forms/buffered-field` shipped
 > against this addendum's sentence unchanged: it **consumes** `::h/revision`
