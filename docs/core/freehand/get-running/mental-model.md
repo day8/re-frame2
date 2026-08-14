@@ -1,5 +1,14 @@
 # Mental model
 
+!!! danger "Retired — Freehand is being removed"
+
+    Freehand is retired. re-frame2's native view layer is
+    [Hicasso](../../hicasso/index.md), and its guide replaces this one.
+
+    This page is no longer in the site navigation. It survives only so that
+    links already pointing at it keep resolving, and it goes when the Freehand
+    code tree does.
+
 You are about to write Freehand views and do not want a second mental model next
 to re-frame. Hold **four ideas**. If they stick, the rest of the guide is mostly
 detail.

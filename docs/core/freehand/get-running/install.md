@@ -1,5 +1,14 @@
 # Install and boot
 
+!!! danger "Retired — Freehand is being removed"
+
+    Freehand is retired. re-frame2's native view layer is
+    [Hicasso](../../hicasso/index.md), and its guide replaces this one.
+
+    This page is no longer in the site navigation. It survives only so that
+    links already pointing at it keep resolving, and it goes when the Freehand
+    code tree does.
+
 You want Freehand on the page. Four moves: **depend → install an adapter → mount →
 tear down**. Everything upstream of the view is ordinary re-frame2 and does not
 change.

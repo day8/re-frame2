@@ -207,7 +207,14 @@ _REWRITES = (
      rf']({GH_BLOB_BASE}/VERSION)'),
     (re.compile(r'\]\(\.\./VERSION\)'),
      rf']({GH_BLOB_BASE}/VERSION)'),
-    # implementation/ tree (source files; not docs to render).
+    # implementation/ tree (source files; not docs to render).  Depth-3 first:
+    # chapter sub-pages at docs/core/<chapter-dir>/X.md reach the repo root
+    # through ../../../, and without this rule MkDocs leaves the link as-is
+    # (an INFO, not a WARNING — so --strict stays green while the published
+    # link 404s).  The depth-2 rule below must not see the depth-3 shape, and
+    # cannot: the alternatives are tried in order and this one consumes it.
+    (re.compile(r'\]\(\.\./\.\./\.\./implementation/([^)\s]*)\)'),
+     rf']({GH_BLOB_BASE}/implementation/\1)'),
     (re.compile(r'\]\(\.\./\.\./implementation/([^)\s]*)\)'),
      rf']({GH_BLOB_BASE}/implementation/\1)'),
     (re.compile(r'\]\(\.\./implementation/([^)\s]*)\)'),

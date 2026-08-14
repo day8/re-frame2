@@ -99,7 +99,11 @@ REPO_ROOT = os.path.dirname(os.path.dirname(PACKAGE_ROOT))        # repo root
 
 REGISTER = os.path.join(REPO_ROOT, "docs", "design", "hicasso", "product", "complaints.md")
 SPEC_009 = os.path.join(REPO_ROOT, "spec", "009-Instrumentation.md")
-GUIDE_DIR = os.path.join(REPO_ROOT, "docs", "design", "hicasso", "draft-guide")
+# The guide R8 resolves its chapter anchors against.  It shipped from
+# `docs/design/hicasso/draft-guide/`; rf2-0yp7w promoted that corpus into the
+# published tree, where the chapter FILENAMES (`NN-*.md`) are unchanged, so
+# `guide_chapter` needed no other edit.
+GUIDE_DIR = os.path.join(REPO_ROOT, "docs", "core", "hicasso")
 
 # The surfaces a consumer can actually reach: the published package and the
 # supported test kit.  `test/` and `testbed/` ASSERT ids rather than owning

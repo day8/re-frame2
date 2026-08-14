@@ -10,8 +10,8 @@ resources, React interop, native components, local UI state, motion/presence,
 overlays, SSR, testing, diagnostics, performance, migration, code splitting,
 and accessibility. Numbered pages run from
 [`00-installation`](00-installation.md) through
-[`22-accessibility`](22-accessibility.md). The MkDocs sidebar supplies the
-chapter order and page navigation when the corpus is wired into the site.
+[`22-accessibility`](22-accessibility.md), and the sidebar carries that order —
+each chapter leans only on what came before it.
 
 ## Prerequisites
 
@@ -41,7 +41,29 @@ hooks throughout the screen and a React component system at the centre — will
 usually be clearer with the UIx adapter, using Hicasso only where its data-first
 view model is useful.
 
-> **Status.** This guide describes the intended completed Hicasso programme.
-> Public names may still change during the remaining naming review. Treat the
-> spellings here as the current recommended defaults until that review freezes
-> them.
+## Status
+
+!!! warning "Pre-alpha — four places where this guide runs ahead of the code"
+
+    Hicasso is pre-alpha, and this guide is written against the intended
+    authoring surface rather than against today's exported spellings. Four
+    differences are known and deliberate, and each is recorded in the source
+    rather than only here.
+
+    - **`h/fn` and `h/frame`** are exported today as `h/hfn` and `h/hframe`.
+      A bare `fn` or `frame` would shadow `cljs.core` on a `:refer`, and
+      choosing the final spelling is an open naming decision.
+    - **`h/mount!`** is the root door this guide teaches; the exported door is
+      `h/root!`, which takes the frame keyword positionally and carries no
+      `:initial-events` option. `h/render!` and `h/unmount!` are as described.
+    - **`h/hydrate!`** is not exported. The hydrating root is built and
+      witnessed, but it is held off the public door until a server-render
+      counterpart exists to produce the bytes it would adopt.
+    - **`re-frame.hicasso.server`**, and the `server/render` that
+      [SSR and hydration](18-ssr-and-hydration.md) is written against, do not
+      exist yet. Read that chapter as the intended contract.
+
+    The other namespaces and verbs the guide names — `h/defview`, `h/sub`,
+    `h/defhost`, `h/portal`, `h/as-component`, `h/error-boundary`, the `n/`,
+    `overlay/`, `motion/` and `forms/` surfaces, and the `ht/` and `hm/` test
+    kits — are exported today.

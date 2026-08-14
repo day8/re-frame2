@@ -1,5 +1,14 @@
 # Freehand
 
+!!! danger "Retired — Freehand is being removed"
+
+    Freehand is retired. re-frame2's native view layer is
+    [Hicasso](../hicasso/index.md), and its guide replaces this one.
+
+    This page is no longer in the site navigation. It survives only so that
+    links already pointing at it keep resolving, and it goes when the Freehand
+    code tree does.
+
 Freehand is re-frame2’s native view layer — it does the same job as Reagent or
 UIx. Turn events, app-db, and subscriptions into something on the screen. It is
 not a second framework. Upstream re-frame2 stays as it is; Freehand only spells

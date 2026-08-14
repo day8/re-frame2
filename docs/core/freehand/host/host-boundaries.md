@@ -1,5 +1,14 @@
 # Host boundaries
 
+!!! danger "Retired — Freehand is being removed"
+
+    Freehand is retired. re-frame2's native view layer is
+    [Hicasso](../../hicasso/index.md), and its guide replaces this one.
+
+    This page is no longer in the site navigation. It survives only so that
+    links already pointing at it keep resolving, and it goes when the Freehand
+    code tree does.
+
 Most Freehand code never needs this page. Ordinary views stay in data: Hiccup,
 event vectors, subscriptions, props.
 

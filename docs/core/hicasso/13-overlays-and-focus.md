@@ -283,7 +283,7 @@ load-bearing:
 
 None of the four is visible on screen or reachable by a click-driven test. The
 witness that decides them —
-[`combobox_keyboard_dom_cljs_test.cljs`](../../../../implementation/hicasso/test/re_frame/hicasso/combobox_keyboard_dom_cljs_test.cljs)
+[`combobox_keyboard_dom_cljs_test.cljs`](../../../implementation/hicasso/test/re_frame/hicasso/combobox_keyboard_dom_cljs_test.cljs)
 — audits this markup against the same view with the repair removed, so each
 claim is shown failing as well as passing.
 
