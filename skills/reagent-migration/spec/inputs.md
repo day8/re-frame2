@@ -5,98 +5,126 @@
 > re-authoring pass needs these to reproduce the leaves. For the skill
 > contract, see [`SKILL.md`](../SKILL.md).
 
-## 1. Primary input — the shipped Freehand surface
+## 1. Primary input — the shipped Hicasso SOURCE
 
-The **exported roster** is the primary input, because it is the only thing that
-decides whether a rewrite target exists:
+Hicasso is **pre-publication and unrostered**: there is no `spec/API.md` section
+and no published API reference to check a verb against. So unlike its
+predecessor, this skill's primary input is the source itself, and reading it is
+the check rather than a polish pass.
 
-- **`spec/API.md` §Freehand views** — the tiered var catalogue for
-  `re-frame.freehand` and its test sibling `re-frame.freehand.test`. A target is
-  emitted only if it has a row here.
-- **`docs/api/re-frame.freehand.md`** and **`docs/api/re-frame.freehand.test.md`**
-  — per-var signatures, options rosters and worked examples. These are the
-  fastest read when checking a call shape.
+- **`implementation/hicasso/src/re_frame/hicasso.cljc`** — the public door, and
+  the whole of it. Three macros (`defview`, `hfn`, `defhost`) and thirteen vars
+  (`sub`, `use-subs`, `hframe`, `error-boundary`, `reg-state`, `portal`,
+  `route-link`, `as-element`, `as-component`, `root!`, `render!`, `unmount!`).
+  Its docstrings are unusually load-bearing — the four handler shapes, the
+  `defhost` option roster, the `root!` opts and the held-open absences are all
+  stated there.
+- **The `impl/` namespaces beside it**, which is where a *behaviour* is decided:
+  - `impl/intent.cljs` — the four `on-*` shapes, the two markers, the two
+    reserved heads, the key map and its composition gate, the event-first
+    argument law, every intent refusal id.
+  - `impl/codec.cljs` — prop lowering, `:key`, `:ref` (`check-ref!`), the `:&`
+    remainder and the owned-literal law, the `[:>]` crossing, the reserved-name
+    skips.
+  - `impl/slot.cljc` — the canonical prop-name rule (the MIG-11 table). Shared
+    with the codemod, which is why the two cannot drift.
+  - `impl/state.cljc` — `reg-state`'s signature, address shape and key rules.
+  - `impl/mount.cljs` — `root!` / `render!` / `unmount!` arities and the
+    hot-reload idiom.
+  - `impl/controlled.cljs` — what "controlled" actually covers (input/textarea,
+    not select) and `::h/revision`.
+- **The optional modules** — `forms.cljs`, `motion.cljs`, `overlay.cljs`,
+  `native.cljc`. Each names its own public surface; `native.cljc` classifies its
+  vars explicitly.
+- **The test kit** — `implementation/hicasso/test_kit/src/re_frame/hicasso/`
+  `test.cljs` and `test/mounted.cljs`. `hm/shadow!` is the migration's own
+  instrument and it ships.
+- **`implementation/hicasso/test/**`** — the shipped witnesses. When a docstring
+  and a test disagree about a call shape, the test is what runs. The
+  `consumer_app.cljs` exemplar is the authoritative boot sequence.
 
-The current door, for orientation: `defview`, `mount`, `hydrate-root`,
-`unmount!`, `render-static`, `view?`, `describe`, `manifest`, `sub`, `event`,
-`handler`, `render-fn`, `raw-fn`, `projections`, `materialize-event`, `slot`,
-`spread`, `spread-safe`, `controller-key`, `controller-revision`,
-`controller-current?`, `presence`, `presence-phase`, `route-link`, `markup`,
-`error-boundary`, `defbehavior`, `behavior` — plus `render` / `with-render` /
-`find` / `find-all` / `attrs` / `text` on the test surface. **Re-read the roster
-rather than trusting this list**; it grows a row at a time.
+## 2. The migration tool
 
-## 2. Normative grounding — the specs
+- **`migration/reagent-to-hicasso/codemod/`** — the reporter and `[:>]` fixer,
+  and its `README.md` is the best single description of what Reagent's prop
+  conversion did that Hicasso's does not. The `test/corpus/` directory **is** its
+  spec: each case carries an input, the expected output and the expected report.
+  Read a corpus case rather than trusting prose about a W-rule.
 
-- **`spec/004-Views.md`** — the contract: the descriptor and `v/defview`, props
-  and `:key`, vector-head classification, the ambient frame, `v/sub`, event
-  intent and the payload materializer, callback roles, controlled inputs,
-  semantic controllers, presence, error boundaries, composition and render
-  slots, props forwarding, registered behaviors, and — load-bearing for this
-  skill — **§Normative absences**, which is why `local`, `ref` and `effect` have
-  no target.
-- **`spec/004B-UI-Tree-and-Conversion.md`** — prop-spelling and conversion
-  legality (the MIG-11 name table), and the node schema a structural test reads.
-- **`spec/004C-Roots-and-Mount.md`** — the mount grammar, root identity, frame
-  preflight, and total teardown (MIG-15).
-- **`spec/004D-Freehand-Compiled-Grammar.md`** — the compiled tier's finite
-  grammar. Read it to understand what a *promotion* costs; the skill does not
-  emit `{:compiled true}` during a migration.
-- **`spec/008-Testing.md`** and **`spec/011-SSR.md`** — the structural test tier
-  and the SSR paths (MIG-23).
+## 3. The two-tier framing's evidence
 
-## 3. Where the design corpus is a HAZARD, not an input
+L2 is the skill's most load-bearing claim, so its sources are named:
 
-`docs/EP/EP-0036-*` and `docs/design/freehand/` describe the design, including
-forms that are **declared and not exported** — `local`, `effect`, `ref`,
-`v/check`, a React interop hook tier. They are useful for understanding *why* a
-shape is the way it is, and dangerous as a source of call shapes: some names once
-on this list (`v/->react`, `v/client-only`, `v/html`) have since shipped, which is exactly
-why **every verb goes through §1 before it is written** (design L9) rather than a
-remembered "not yet" list.
+- **`implementation/adapters/reagent/README.md`** — "a first-class,
+  actively-supported view substrate for re-frame2, and the canonical adapter the
+  reference test suite runs against".
+- **`CHANGELOG.md`** — `day8/re-frame2-reagent` as "the default browser
+  substrate"; the thirteen published coordinates, which do **not** include
+  Hicasso.
+- **`implementation/hicasso/deps.edn`** — the pre-publication statement in its
+  own words: no Maven coordinate, absent from the lockstep array and the deploy
+  matrix.
+- **`skills/re-frame-migration/`** — what the required first step actually does,
+  and that it leaves views on Reagent.
 
-The hazard is the whole `docs/design/**` tree, not a subdirectory of it. That
-tree is the working design RECORD — `mkdocs.yml` excludes it from the published
-site for exactly that reason — so design prose carrying unexported call shapes is
-as likely in `codex-design.md` or `studio/` as in `decisions/`, and naming
-subdirectories only invites the list to go stale as they are added and removed.
+## 4. Where the design corpus is a HAZARD, not an input
 
-**`docs/core/freehand/` is NOT on this list.** It is the promoted, digest-pinned
-guide — published documentation whose fenced blocks are hashed against the
-shipped surface — so it is a valid input, second only to §1's roster. Do not
-re-add it here as a hazard.
+`docs/design/hicasso/**`, including **`draft-guide/`**, describes the design and
+teaches forms that do not exist. Measured examples, each verified absent from
+`src/`:
 
-## 4. Tertiary inputs (shape the discipline, not quoted)
+| Taught | Reality |
+|---|---|
+| `re-frame.hicasso.server/render`, `ssr/hydrate!`, `h/hydrate!` | no server namespace; `hydrate-root!` deliberately off the facade |
+| `h/mount!` with `{:frame … :initial-events …}` | shipped is positional `h/root!`, which ensures nothing |
+| `h/fn` | the shipped macro is `hfn`; `h/fn` is the intended surface, not landed |
+| a Maven coordinate on the installation page | does not resolve |
+| key maps "valid only at `:on-key-down`/`:on-key-up`" | accepted at any event position |
+| a plain `merge` for caller attrs | shipped is the reserved `:&` key + owned-literal law |
+| "binding `:value` to a contenteditable throws at the source" | not implemented |
 
-- **The four-pillar design rationale** — inherited from the skill family.
-  Reproduced in `design.md` §2 so this folder is self-contained.
-- **`skills/re-frame-migration/`** — the closest structural sibling (SKILL.md
-  router + references + spec + the distribution triad). Voice, density,
-  front-matter shape and the "cardinal rules" style all mirror it.
-- **`skills/re-frame2/SKILL.md`** — the canonical authoring-pattern example for
-  voice and load-bearing-rules density.
+The hazard is the whole `docs/design/**` tree — `mkdocs.yml` excludes it from the
+published site precisely because it is a working RECORD — so naming
+subdirectories only invites the list to go stale.
 
-## 5. What the skill does NOT consume
+The guide is still worth **reading**: it is the best available account of intent,
+and its migration chapter and its census/fixer description are accurate because
+they were written against the shipped tool. Read it for *why*; read the source
+for *what*.
+
+## 5. Tertiary inputs (shape the discipline, not quoted)
+
+- **The four-pillar design rationale** — reproduced in `design.md` §2 so this
+  folder is self-contained.
+- **`skills/re-frame-migration/`** — the closest structural sibling. Voice,
+  density, front-matter shape and the "cardinal rules" style all mirror it.
+- **`skills/re-frame2/SKILL.md`** — the canonical authoring-pattern example.
+
+## 6. What the skill does NOT consume
 
 - **The v1→v2 corpus** (`migration/from-re-frame-v1/README.md`, the `M-N`/`O-N`
-  rules) — that is the *other* migration (`re-frame-migration`), the required
-  first step. This skill assumes it is done.
-- **`examples/**`** — worked examples are for authoring, not for this migration.
-- **The full EP corpus** — the skill assumes the author knows re-frame2
-  conceptually.
+  rules) — that is the *other* migration, the required first step.
+- **`examples/**`** — worked examples are for authoring, not this migration.
+- **Freehand and `re-frame.ui`** — both retired. `spec/004-Views.md`,
+  `docs/api/re-frame.freehand.md` and `docs/core/freehand/` describe a
+  *different substrate*, and their verbs (`v/html`, `v/spread-safe`,
+  `v/defbehavior`, `{:compiled true}`) must never be carried across by analogy.
+  This is the single most likely way a future edit reintroduces a wrong spelling.
 
-## 6. Update procedure
+## 7. Update procedure
 
-1. **A Freehand surface LANDS** → move its cases out of `catalog-reject.md` into
+1. **A Hicasso surface LANDS** → move its cases out of `catalog-reject.md` into
    the mechanical or judgment catalogue with the now-real target, and re-check
-   `procedure.md` §Step 1. This has already happened for the React host boundary:
-   the inward path (a created React element in a child position) and the outward
-   bridge (`v/->react`) both shipped, so those holds moved to `catalog-reject.md`
-   §No longer a hold and Step 1's closed-subtree discipline became a clean default
-   rather than a constraint forced by a missing bridge.
+   `procedure.md`'s gate list. The two most likely candidates are a
+   server-render door (which would move MIG-23 out of R) and a data `:ref`
+   spelling (currently reserved and refused).
 2. **A rule's tier changes** (M↔D↔R) → move its treatment between the
    catalogues, and re-check `procedure.md`'s gate list.
 3. **A new construct needs a rule** → add a before→after (M), a decision (D) or a
-   hold (R) to the matching catalogue, and add an eval if it exercises a new class.
-4. **The exported roster changes** → re-verify every emitted target against
-   `spec/API.md`. This is the check that keeps the skill honest, and it is cheap.
+   hold (R) to the matching catalogue, and add an eval if it exercises a new
+   class.
+4. **A provisional spelling settles** — `hfn`→`h/fn`, `root!`→`mount!` — →
+   re-verify every emitted verb against the door. The naming ledger holds several
+   of these open deliberately, so this is a *when*, not an *if*.
+5. **Hicasso publishes a coordinate** → design L2's honesty clauses and
+   `procedure.md`'s pre-flight check 3 all change. Update `spec/` first.

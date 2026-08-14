@@ -283,8 +283,8 @@ mode arriving from the other side.
 
 The tool is otherwise self-contained — it never loads, requires or executes
 re-frame2, so it runs against any Reagent corpus on a bare JVM. The exception is
-`re-frame.bench.hicasso.front.slot`, the `.cljc` carrying the canonical slot
-rule, which is on `:paths`.
+`re-frame.hicasso.impl.slot`, the `.cljc` carrying the canonical slot rule,
+which is on `:paths`.
 
 That is the whole point of it. The design's own adversarial pass raised "the
 tool reimplements `prop-name`, and nothing pins the two together" and left it
@@ -294,6 +294,18 @@ the rule to one shared file was the only structural answer, and `rf2-ani6y` took
 it. Transcribing it back in here to "remove a dependency" would reproduce, inside
 the tool, the exact defect the tool exists to delete — so a test asserts the rule
 came out of the shared file.
+
+**And out of the SHIPPED file, not the prototype's copy of it** (`rf2-r4j91`).
+`rf2-ani6y` ran while the runtime still lived in the Hicasso bench tree, so the
+extracted rule landed at `implementation/freehand/test/…/bench/hicasso/front/
+slot.cljc`; `rf2-hic-001` then moved the runtime into `implementation/hicasso/`,
+and `frozen-sources.edn` pins the two files byte-for-byte under the rename. Both
+therefore answer identically **today**, which is precisely why the pin has to
+name one: Freehand is retired, its tree goes, and a codemod whose only classpath
+entry sat inside it would go red — `-M:test` and `-M:run` alike — the day that
+happened, in a tool whose whole job is to run after the retirement. The path is
+`implementation/hicasso/src`, and `shared_rule_test.clj` fails on a rule loaded
+from the bench tree as loudly as on one copied into `src/`.
 
 Reagent's *own* key function is a second rule and does live here, in
 `donor.clj` — but written as the shared rule plus its two named deltas (a string

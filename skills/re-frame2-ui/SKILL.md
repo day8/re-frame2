@@ -3,10 +3,10 @@ name: re-frame2-ui
 description: >
   Writes, reviews, and debugs view code for `re-frame.ui` (artefact
   `day8/re-frame2-ui`, alias `ui/`) — re-frame2's compiled-view substrate,
-  now the DONOR being absorbed into Freehand. Use it for an app that
-  ALREADY depends on `day8/re-frame2-ui`; for new view work on the
-  re-frame-native view layer, or for porting Reagent views onto it, route
-  to `reagent-migration` and `spec/004-Views.md` instead —
+  now RETIRED and awaiting removal. Use it for an app that ALREADY
+  depends on `day8/re-frame2-ui`; for new view work on the re-frame-native
+  view layer, or for porting Reagent views onto it, route to
+  `reagent-migration` and Hicasso (`re-frame.hicasso`) instead —
   `defview` components, the closed template grammar,
   reactive `(sub …)` reads, handlers-as-data (event vectors, `ui/event`,
   `ui/handler`, the bare-fn shorthand), view-local state and effects
@@ -38,29 +38,31 @@ allowed-tools:
 
 # Writing re-frame.ui views
 
-!!! warning "`re-frame.ui` is the donor substrate"
+!!! warning "`re-frame.ui` is RETIRED — this skill is maintenance only"
 
-    **Freehand** (`re-frame.freehand`, alias `v`) is re-frame2's re-frame-native
-    view layer, and it **absorbs** `re-frame.ui` — the compiled tier below is
-    the machinery Freehand is taking over, and the standalone `day8/re-frame2-ui`
-    artefact is scheduled for deletion once absorption completes. Nothing here is
-    a target for **new** view work.
+    `re-frame.ui` is **retired and awaiting removal**, and so is Freehand
+    (`re-frame.freehand`), the view layer this substrate was previously
+    described as being absorbed into. Neither is where new view work goes.
 
-    This skill deliberately keeps its `re-frame.ui` donor-maintenance scope — and
-    its name — rather than being retargeted into "the Freehand skill": it remains
-    the maintenance home for existing `day8/re-frame2-ui` views until that donor
-    artefact is itself removed (the EP-0036 donor-deletion step). Freehand view
-    work is served in the meantime by [`reagent-migration`](../reagent-migration)
-    and `spec/004-Views.md`.
+    re-frame2's architecture is now **two first-class adapters — Reagent and
+    UIx — plus Hicasso (`re-frame.hicasso`, alias `h`) as the re-frame-native
+    view layer.** Views written against an adapter are a complete, supported
+    configuration; Hicasso is the native alternative.
 
-    Load this skill for an app that **already depends on `day8/re-frame2-ui`**:
-    reading, reviewing, debugging or maintaining views it already has. For
-    porting Reagent views onto the re-frame-native layer, use
-    [`reagent-migration`](../reagent-migration); for Freehand's own contract and
-    exported roster, read `spec/004-Views.md` and `spec/API.md` §Freehand views.
-    Freehand's shapes are deliberately **not** `ui/` shapes — it has no `local`,
-    no `ref`, no `effect` and no `frame-root`, so do not carry an idiom across
-    from this page by analogy.
+    This skill keeps its `re-frame.ui` scope and its name rather than being
+    retargeted, because a retargeted skill would strand the code it is here
+    for: it remains the maintenance home for views an app **already has** on
+    `day8/re-frame2-ui`, until the substrate itself is removed — at which
+    point this skill goes with it.
+
+    Load it for reading, reviewing, debugging or maintaining views an app
+    already has. For porting Reagent views onto Hicasso, use
+    [`reagent-migration`](../reagent-migration).
+    Hicasso's shapes are deliberately **not** `ui/` shapes — it has no `local`,
+    no `effect` and no `frame-root`, its roots are `h/root!` / `h/render!` /
+    `h/unmount!` rather than `ui/mount`, and its ephemeral state lives in
+    app-db behind `h/reg-state`. Do not carry an idiom across from this page
+    by analogy; read Hicasso's own surface instead.
 
 `re-frame.ui` is re-frame2's **compiled-view substrate** — an opt-in
 alternative to the Reagent, UIx, and reagent-slim adapters, which remain
@@ -485,10 +487,10 @@ default): `render`, `attrs`, `text`. CLJS mounted (Tier-3): `with-root`,
 
 Routing is single-sourced at `skills/README.md` §Skill routing. In brief:
 events, subs, effects, machines, schemas, and everything upstream of the
-view → **`re-frame2`**; porting existing Reagent views onto **Freehand**, the
-re-frame-native view layer this substrate is being absorbed into →
-**`reagent-migration`** (optional; staying on Reagent/UIx/reagent-slim is
-first-class); a running app to inspect or drive → **`re-frame2-pair`**.
+view → **`re-frame2`**; porting existing Reagent views onto **Hicasso**, the
+re-frame-native view layer → **`reagent-migration`** (optional; staying on
+Reagent/UIx/reagent-slim is first-class); a running app to inspect or drive →
+**`re-frame2-pair`**.
 
 **New view work does not start here.** This skill maintains what an app
 already has on `day8/re-frame2-ui`.
@@ -498,8 +500,9 @@ Deep references, in the re-frame2 repo:
 - [`references/ui-context.md`](references/ui-context.md) — the generated
   context sheet: authoring-surface disposition + the full compile-rejection
   roster (regenerated from the compiler; drift-checked in CI).
-- `docs/core/freehand/` — the Freehand guide, which replaced the donor
-  chapters (mental-model, build-a-view, state, events-and-handlers,
-  host-boundaries, limits-and-escapes, testing, ssr, presence).
+- `implementation/hicasso/src/re_frame/hicasso.cljc` — Hicasso's public door,
+  which is where the view layer that replaces this one is actually specified.
+  (The donor chapters and the Freehand guide that replaced them are both
+  retired along with their substrates.)
 - `skills/re-frame2-setup/references/shadow-cljs.md` — the Shadow settings, held against the real build config by a drift gate.
 - `spec/004-Views.md` — the normative grammar.

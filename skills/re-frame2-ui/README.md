@@ -11,16 +11,18 @@ components in the closed template grammar, handlers-as-data, reactive
 interop boundaries, structural tests via `re-frame.ui.test`, and the
 one-setting Shadow build-hook install.
 
-**`re-frame.ui` is the donor substrate.** **Freehand** (`re-frame.freehand`,
-alias `v`) is re-frame2's re-frame-native view layer, and it absorbs this
-substrate's machinery; the standalone `day8/re-frame2-ui` artefact is
-scheduled for deletion once absorption completes. So this skill's job is
-**maintaining what an app already has** on `day8/re-frame2-ui` — not starting
-new view work. Porting Reagent views onto the re-frame-native layer is
-[`reagent-migration`](../reagent-migration); Freehand's own contract is
-`spec/004-Views.md` and its exported roster is `spec/API.md` §Freehand views.
-Freehand's shapes are deliberately not `ui/` shapes — no `local`, no `ref`,
-no `effect`, no `frame-root` — so an idiom does not carry across by analogy.
+**`re-frame.ui` is RETIRED**, and so is Freehand (`re-frame.freehand`), the
+view layer this substrate was previously described as being absorbed into.
+re-frame2's architecture is two first-class adapters — Reagent and UIx — plus
+**Hicasso** (`re-frame.hicasso`, alias `h`) as the re-frame-native view layer.
+
+So this skill's job is **maintaining what an app already has** on
+`day8/re-frame2-ui` — not starting new view work — and it is removed when the
+substrate is. Porting Reagent views onto Hicasso is
+[`reagent-migration`](../reagent-migration). Hicasso's shapes are deliberately
+not `ui/` shapes — no `local`, no `effect`, no `frame-root`, different root
+doors, ephemeral state in app-db — so an idiom does not carry across by
+analogy.
 
 The Reagent, UIx, and reagent-slim adapters remain first-class, and staying on
 them is a fully supported choice. Everything upstream of the view (events,
@@ -58,9 +60,9 @@ In brief:
   events, subscriptions, effects, frames, machines, schemas, patterns. It is
   also the home for view work on the Reagent/UIx/reagent-slim adapters.
 - [`reagent-migration`](../reagent-migration) — the optional, second step
-  after a v1→v2 migration: port existing Reagent **view** code onto this
-  substrate. `re-frame2-ui` writes *new* compiled views; `reagent-migration`
-  converts existing ones.
+  after a v1→v2 migration: port existing Reagent **view** code onto
+  **Hicasso**. It does not target this substrate and never did after the
+  retargeting; nothing routes new view work here.
 - [`re-frame2-pair`](../re-frame2-pair) — drives a *running* app. This skill
   is authoring-only; the author runs the compiler and the tests.
 

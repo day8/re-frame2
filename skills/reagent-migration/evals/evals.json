@@ -1,142 +1,165 @@
 {
   "skill_name": "reagent-migration",
   "schema_version": "1",
-  "convention": "anthropics/skills/skill-creator evals.json — two kinds. `kind:\"trigger\"` fixtures carry `should_trigger` for description-optimisation (train/held-out trigger accuracy). `kind:\"behavioural\"` fixtures carry a `tier` (M/D/R) and `expectations[]` asserting the skill applies / reasons / declines correctly on a Reagent→Freehand fixture input.",
-  "notes": "Positives target Reagent-view→Freehand prompts on an already-re-frame2 app (v/defview, deref-drop, moving off Reagent hiccup). Negatives target the DIFFERENT v1→v2 events/subs/db migration (re-frame-migration), authoring on re-frame2 (re-frame2), greenfield (re-frame2-setup), live runtime (re-frame2-pair), and the first-class 'stay on Reagent' non-goal. Behavioural fixtures cover the M/D/R tiers, and several exist specifically to catch the failure mode of emitting a Freehand verb that is described in the design corpus but not exported (local, effect, ref). That set SHRINKS as slices land, and the fixtures are verified against the live spec/API.md roster rather than assumed absent: the outward React bridge v/->react was once such a gap, and the trusted-markup verb v/html was another — both have since shipped, and their fixtures moved from R to M rather than being deleted.",
+  "convention": "anthropics/skills/skill-creator evals.json — two kinds. `kind:\"trigger\"` fixtures carry `should_trigger` for description-optimisation (train/held-out trigger accuracy). `kind:\"behavioural\"` fixtures carry a `tier` (M/D/R) and `expectations[]` asserting the skill applies / reasons / declines correctly on a Reagent→Hicasso fixture input.",
+  "notes": "Positives target Reagent-view→Hicasso prompts on an already-re-frame2 app (h/defview, deref-drop, moving off Reagent hiccup). Negatives target the DIFFERENT v1→v2 events/subs/db migration (re-frame-migration), authoring on re-frame2 (re-frame2), greenfield (re-frame2-setup), live runtime (re-frame2-pair), maintaining day8/re-frame2-ui views (re-frame2-ui), and the first-class 'stay on Reagent' non-goal. Two behavioural fixtures exist specifically to catch OVER-SELLING: the skill must state that the Reagent adapter is first-class and that Hicasso is pre-publication before it starts work. Several exist to catch the failure mode of emitting a spelling the DRAFT GUIDE teaches but the shipped door does not export (re-frame.hicasso.server/render, h/hydrate!, a config-map h/mount!, h/fn). Expectations are verified against the shipped source under implementation/hicasso/src, not against the design corpus.",
   "evals": [
-    {"id": 1,  "kind": "trigger", "name": "explicit-views-to-freehand", "should_trigger": true,  "prompt": "Migrate my Reagent views to Freehand — I'm already on re-frame2 and want the re-frame-native view layer."},
-    {"id": 2,  "kind": "trigger", "name": "reg-view-to-defview",        "should_trigger": true,  "prompt": "Convert my reg-view components to v/defview."},
-    {"id": 3,  "kind": "trigger", "name": "deref-drop",                 "should_trigger": true,  "prompt": "How do I move my views off @(subscribe ...) hiccup onto the Freehand sub grammar?"},
-    {"id": 4,  "kind": "trigger", "name": "adopt-freehand",             "should_trigger": true,  "prompt": "We want to trial Freehand for a couple of view namespaces. How do we migrate them?"},
-    {"id": 5,  "kind": "trigger", "name": "reagent-surface-in-view",    "should_trigger": true,  "prompt": "My views use r/with-let and r/atom and adapt-react-class. What do those become under Freehand?"},
-    {"id": 6,  "kind": "trigger", "name": "move-off-reagent-hiccup",    "should_trigger": true,  "prompt": "What does :onClick and ^{:key id} become when I move this view off Reagent hiccup?"},
-    {"id": 7,  "kind": "trigger", "name": "neg-v1-to-v2",           "should_trigger": false, "prompt": "Migrate my re-frame v1 app to re-frame2.", "rationale": "The v1→v2 events/subs/db migration is the re-frame-migration skill; this skill is the optional SECOND step (views→Freehand) done afterwards."},
-    {"id": 8,  "kind": "trigger", "name": "neg-author-v2",          "should_trigger": false, "prompt": "Write a re-frame2 reg-event that posts a login form to /api/login.", "rationale": "Authoring on re-frame2 is the re-frame2 skill."},
-    {"id": 9,  "kind": "trigger", "name": "neg-greenfield",         "should_trigger": false, "prompt": "Start a new re-frame2 project from scratch.", "rationale": "Greenfield bootstrap is re-frame2-setup."},
-    {"id": 10, "kind": "trigger", "name": "neg-live-pair",          "should_trigger": false, "prompt": "Inspect app-db right now on my running shadow-cljs build.", "rationale": "Live-runtime is re-frame2-pair."},
-    {"id": 11, "kind": "trigger", "name": "neg-stay-on-reagent",    "should_trigger": false, "prompt": "Should I move my views off Reagent? They work fine.", "rationale": "Staying on Reagent views is a first-class supported choice; this is a question to answer (no, you don't have to), not a migration to run."},
-    {"id": 12, "kind": "trigger", "name": "neg-vocab-migrate-db",   "should_trigger": false, "prompt": "Migrate my Postgres database from 12 to 14.", "rationale": "Vocabulary hit ('migrate') on an unrelated surface."},
+    {"id": 1,  "kind": "trigger", "name": "explicit-views-to-hicasso",   "should_trigger": true,  "prompt": "Migrate my Reagent views to Hicasso — I'm already on re-frame2 and want the re-frame-native view layer."},
+    {"id": 2,  "kind": "trigger", "name": "defn-to-defview",             "should_trigger": true,  "prompt": "Convert these Reagent components to h/defview."},
+    {"id": 3,  "kind": "trigger", "name": "deref-drop",                  "should_trigger": true,  "prompt": "How do I move my views off @(subscribe ...) hiccup onto the Hicasso sub grammar?"},
+    {"id": 4,  "kind": "trigger", "name": "adopt-hicasso",               "should_trigger": true,  "prompt": "We want to trial Hicasso for a couple of view namespaces. How do we migrate them?"},
+    {"id": 5,  "kind": "trigger", "name": "reagent-surface-in-view",     "should_trigger": true,  "prompt": "My views use r/with-let and r/atom and adapt-react-class. What do those become under Hicasso?"},
+    {"id": 6,  "kind": "trigger", "name": "move-off-reagent-hiccup",     "should_trigger": true,  "prompt": "What does :onClick and ^{:key id} become when I move this view off Reagent hiccup?"},
+    {"id": 7,  "kind": "trigger", "name": "prop-dialect-at-crossing",    "should_trigger": true,  "prompt": "My [:> DatePicker ...] sites behave differently after switching the view layer. What changed about the props?"},
+    {"id": 8,  "kind": "trigger", "name": "neg-v1-to-v2",           "should_trigger": false, "prompt": "Migrate my re-frame v1 app to re-frame2.", "rationale": "The v1→v2 events/subs/db migration is the re-frame-migration skill; it completes on its own, leaving views on the first-class Reagent adapter. This skill is the optional SECOND step."},
+    {"id": 9,  "kind": "trigger", "name": "neg-author-v2",          "should_trigger": false, "prompt": "Write a re-frame2 reg-event that posts a login form to /api/login.", "rationale": "Authoring on re-frame2 is the re-frame2 skill."},
+    {"id": 10, "kind": "trigger", "name": "neg-greenfield",         "should_trigger": false, "prompt": "Start a new re-frame2 project from scratch.", "rationale": "Greenfield bootstrap is re-frame2-setup."},
+    {"id": 11, "kind": "trigger", "name": "neg-live-pair",          "should_trigger": false, "prompt": "Inspect app-db right now on my running shadow-cljs build.", "rationale": "Live-runtime is re-frame2-pair."},
+    {"id": 12, "kind": "trigger", "name": "neg-stay-on-reagent",    "should_trigger": false, "prompt": "Should I move my views off Reagent? They work fine.", "rationale": "Staying on Reagent views is a first-class supported choice; this is a question to answer (no, you don't have to) rather than a migration to run."},
+    {"id": 13, "kind": "trigger", "name": "neg-maintain-ui-views",  "should_trigger": false, "prompt": "Debug this :rf.ui.compile/ rejection in my defview.", "rationale": "Maintaining existing day8/re-frame2-ui compiled views is the re-frame2-ui skill."},
+    {"id": 14, "kind": "trigger", "name": "neg-vocab-migrate-db",   "should_trigger": false, "prompt": "Migrate my Postgres database from 12 to 14.", "rationale": "Vocabulary hit ('migrate') on an unrelated surface."},
 
-    {"id": 13, "kind": "behavioural", "tier": "M", "name": "m-transform-defview-sub-lift",
-     "prompt": "Convert this to Freehand, and write a structural test that asserts the converted price view shows the cart total:\n(defn price [amt cur] [:button {:on-click #(dispatch [:buy amt])} @(subscribe [:total])])\n(defn app [] [:div [price 1 2]])",
+    {"id": 15, "kind": "behavioural", "tier": "M", "name": "m-does-not-oversell-the-need",
+     "prompt": "We're moving our re-frame v1 app to re-frame2. Should I rewrite all my Reagent views into Hicasso as part of that?",
      "expectations": [
-       "Rewrites the header to (v/defview price [{:keys [amt cur]}] ...) — positional params become one destructured props map (MIG-01).",
-       "Declares the props parameter on the zero-prop view as [_], never [] — a zero-arity defview raises :rf.error/defview-bad-args at macro-expansion.",
-       "Rewrites the call site atomically to [price {:amt 1 :cur 2}] in the same change (MIG-01).",
-       "Drops the deref: @(subscribe [:total]) becomes (v/sub [:total]) (MIG-02).",
-       "Lifts the handler: {:on-click #(dispatch [:buy amt])} becomes {:on-click [:buy amt]} (MIG-04).",
-       "Adds the require [re-frame.freehand :as v] (MIG-24) and cites the MIG ids for each change.",
-       "Does NOT treat the event vector [:buy amt] or the query vector [:total] as hiccup to respell/spread.",
-       "Does NOT add {:compiled true} — a migration pass emits interpreted declarations.",
-       "Writes the requested structural test: requires [re-frame.freehand.test :as t], drives state under an rf/with-new-frame + rf/dispatch-sync bracket, and renders the now v/sub-reading price body inside (t/with-render (t/render [price {:amt 1 :cur 2}])).",
-       "Uses the with-render bracket for that state-reading render — a bare (t/render [price …]) of a v/sub-reading view raises :rf.error/view-read-outside-render, so an answer whose test renders bare is WRONG and only the (t/with-render (t/render …)) form passes."
+       "Answers NO to the premise: the v1→v2 move leaves views on the first-class Reagent adapter (day8/re-frame2-reagent, the default browser substrate) and is COMPLETE at that point — no view rewrite is required to land on re-frame2.",
+       "States that rewriting into Hicasso is a separate, OPTIONAL second step chosen for what Hicasso offers, and that it is a rewrite (props become one map, handlers become data, state leaves the component), not a respelling.",
+       "States that Hicasso is PRE-PUBLICATION with no released Maven coordinate, so a project can adopt it only from source — and that the coordinate in the draft guide's installation page does not resolve.",
+       "Gives the trade in both directions rather than advocating: what the rewrite buys (handlers as data, value-returning ambient sub, one boundary model, declared foreign-React crossings, IME-gated key maps) against what it costs (no view-local state tier, no component-did-update, no server-render door, provisional spellings).",
+       "Routes the v1→v2 work to re-frame-migration and does NOT start converting views.",
+       "Does not imply the author 'should' move or describe staying on Reagent as half-migrated."
      ]},
 
-    {"id": 14, "kind": "behavioural", "tier": "D", "name": "d-decide-form2-local-state",
-     "prompt": "Migrate this Reagent view to Freehand:\n(defn dropdown [] (r/with-let [open? (r/atom false)] [:div {:on-click #(reset! open? true)} (when @open? [:ul])]))",
+    {"id": 16, "kind": "behavioural", "tier": "M", "name": "m-transform-defview-sub-lift",
+     "prompt": "Convert this to Hicasso — I'm on re-frame2 and I've decided I want it:\n(defn price [amt cur] [:button {:on-click #(dispatch [:buy amt])} @(subscribe [:total])])\n(defn app [] [:div [price 1 2]])",
+     "expectations": [
+       "Rewrites the header to (h/defview price [{:keys [amt cur]}] ...) — positional params become one destructured props map (MIG-01).",
+       "Declares the props parameter on the zero-prop view as [_] and rewrites the call site atomically to [price {:amt 1 :cur 2}] in the same change (MIG-01).",
+       "Drops the deref: @(subscribe [:total]) becomes (h/sub [:total]) (MIG-02).",
+       "Lifts the handler: {:on-click #(dispatch [:buy amt])} becomes {:on-click [:buy amt]} (MIG-04).",
+       "Adds the require [re-frame.hicasso :as h] (MIG-24) and cites the MIG ids for each change.",
+       "Notes the `h` alias is load-bearing because ::h/value / ::h/checked / ::h/prevent auto-resolve through it.",
+       "Does NOT treat the event vector [:buy amt] or the query vector [:total] as hiccup to respell or forward.",
+       "Does NOT invent a {:compiled true} option, a v/ alias, or any Freehand spelling."
+     ]},
+
+    {"id": 17, "kind": "behavioural", "tier": "M", "name": "m-leftover-closure-is-a-click-time-failure",
+     "prompt": "I converted this view to Hicasso and it compiles and renders, but clicking Save throws :rf.error/no-frame-context. Why?\n(h/defview save-btn [_] [:button {:on-click #(rf/dispatch [:save])} \"Save\"])",
+     "expectations": [
+       "Identifies the leftover Reagent closure as the cause: an unmarked plain function at an on-* prop is passed through to React BY IDENTITY, deliberately, so React.memo and handler-identity bail-outs keep working — nothing refuses it at lowering or at render.",
+       "Explains the timing: when the browser invokes it later the render extent has unwound, ambient dispatch has no frame to resolve against, and the failure lands at click time.",
+       "Notes the id is core's :rf.error/no-frame-context, not a :rf.error/hicasso-* one, so grepping for Hicasso diagnostics will not find it.",
+       "Fixes it to the event vector {:on-click [:save]} (MIG-04), or to h/hfn where the callback genuinely needs the event (MIG-18).",
+       "Advises grepping the converted bodies for surviving closures rather than finding them by clicking, and connects that to the whole-view-coherence rule."
+     ]},
+
+    {"id": 18, "kind": "behavioural", "tier": "M", "name": "m-key-metadata-is-never-read",
+     "prompt": "Migrate to Hicasso:\n(defn item [t] [:li t])\n(defn lst [ts] [:ul (doall (for [t ts] ^{:key (:id t)} [item t]))])",
+     "expectations": [
+       "Converts item and lst to h/defview and moves ^{:key (:id t)} into the props map as [item {:key (:id t) :t t}] (MIG-07).",
+       "States that Hicasso performs NO metadata read anywhere in the codec, so a surviving ^{:key ...} is an ABSENT key rather than a spelling variant — React then reconciles by position, which is silent state corruption in a reorderable or filterable list.",
+       "Notes the diagnostics are incomplete cover: :rf.warning/hicasso-missing-key fires only for a boundary-headed member of a sequence, so a for over plain [:li ...] gets React's warning instead.",
+       "Strips the doall (MIG-12).",
+       "Does NOT treat the bare symbol child in [:li t] as a props map — `t` is content, never forwarded (the bare-symbol trap).",
+       "Notes that :key is read as the exact literal keyword, so \"key\" and :x/key are ordinary attributes rather than the key."
+     ]},
+
+    {"id": 19, "kind": "behavioural", "tier": "D", "name": "d-decide-form2-local-state",
+     "prompt": "Migrate this Reagent view to Hicasso:\n(defn dropdown [] (r/with-let [open? (r/atom false)] [:div {:on-click #(reset! open? true)} (when @open? [:ul])]))",
      "expectations": [
        "Recognises Form-2 / with-let view-held state (MIG-16) and does NOT silently rewrite the view.",
-       "States that Freehand has no `local` — there is no host-local cell to translate the r/atom into — and does not emit one.",
-       "Reasons about the real decision: product state → app-db (an event + a sub, a dataflow change to name for the author); a control owning a genuine multi-interaction protocol → a semantic controller; DOM-owned state → a registered behavior.",
-       "For a simple open/closed flag, lands on app-db rather than treating 'it's only ephemeral' as a reason to keep it in the view.",
-       "Holds the WHOLE view until the decision is made (cardinal rule 2), rather than converting some sites and leaving others.",
-       "Does not reach into the dataflow layer itself; it names the reg-event/reg-sub for the author when app-db is the answer."
+       "States that Hicasso has NO view-local state tier at all — no local, no use-state, no cell — and that an atom in a defview body is re-allocated every render because the body is an anonymous fn React re-invokes; does not emit one.",
+       "Reasons about the real decision: product state or a UI flag → app-db, with h/reg-state as the sugar; a draft-and-commit control → re-frame.hicasso.forms/buffered-field; state genuinely the DOM's → a callback ref or a native component.",
+       "For a simple open/closed flag, lands on app-db via h/reg-state rather than treating 'it's only ephemeral' as a reason to keep it in the view.",
+       "If it shows h/reg-state, gets the shape right: a namespace-qualified concern, an optional {:default ...}, a parametric sub read as (h/sub [concern ikey]) and a setter event dispatched as [concern ikey v], stored under [:ui ::concern ikey].",
+       "Holds the WHOLE view until the decision is made (cardinal rule 2).",
+       "Does not reach into the dataflow layer itself; it names what the author must write."
      ]},
 
-    {"id": 15, "kind": "behavioural", "tier": "D", "name": "d-route-ssr-static-vs-hydrate",
-     "prompt": "Migrate this to Freehand:\n(ns app.render (:require [reagent.dom.server :as s]))\n(defn render-page [] (s/render-to-string [app]))",
+    {"id": 20, "kind": "behavioural", "tier": "D", "name": "d-mig17-lifecycle-ref-and-rehome",
+     "prompt": "Migrate this Reagent Form-3 view to Hicasso:\n(ns app.editor (:require [reagent.core :as r] [reagent.dom :as rdom]))\n(defn editor []\n  (r/create-class\n   {:component-did-mount    (fn [this] (.focus (rdom/dom-node this)))\n    :component-will-unmount (fn [_] (rf/dispatch [:resource/release]))\n    :should-component-update (fn [_ _ _] true)\n    :reagent-render         (fn [] [editor-form])}))",
      "expectations": [
-       "Routes the STATIC-page arm of MIG-23 to (v/render-static [app-root {}]) — the pure :server-phase render, Freehand's counterpart of renderToStaticMarkup — NOT a decline.",
-       "Notes render-static is a MACRO (the root form is literal) and JVM/server only, and that day8/re-frame2-ssr must be on the classpath at render time.",
-       "Notes there is no silent elision: a runtime-requiring capability in the server-reachable closure is a loud build error with source coordinates, not a dropped capability.",
-       "For SSR-then-hydrate, names re-frame.ssr/hydrate! (seed state) then v/hydrate-root (adopt the DOM), and that identity opts are refused client-side because identity comes from the server.",
-       "Verifies the author's server pipeline against re-frame.ssr's actual exports rather than assuming a helper exists, and holds the hydrating root on Reagent if the page-assembly they need is missing."
+       "Recognises MIG-17 Form-3 lifecycle and decomposes each body into host/DOM work vs domain work — a judgment call held WHOLE, not an automatic rewrite.",
+       "Deletes :should-component-update as dead under memoised boundaries, and extracts :reagent-render as the view body.",
+       "Routes the focus-on-mount DOM work to a CALLBACK REF — a function at :ref, React's own contract, called with the node at commit, whose RETURN VALUE is the detach cleanup.",
+       "Insists the ref fn be a stable top-level def, because a fresh inline (fn [n] ...) has a new identity every render and React detaches and reattaches on every commit.",
+       "Notes a VECTOR at :ref is refused with :rf.error/hicasso-ref-vector-reserved (a reserved later spelling), and that :ref on a defview HEAD is not a ref at all — the boundary path lifts only :key.",
+       "Recognises there is no dispatch-at-unmount: re-homes the [:resource/release] domain work OUT of the view to whatever causally ends the resource, and enumerates EVERY exit path — an enumeration covering save/delete but missing navigate-away is the classic leak.",
+       "Does NOT emit `effect`, a Freehand behavior, v/defbehavior, or a React hook inside the defview body; if hook-shaped lifecycle is genuinely needed it names re-frame.hicasso.native/defcomponent, where React's rules apply to source the author controls."
      ]},
 
-    {"id": 16, "kind": "behavioural", "tier": "R", "name": "r-decline-reagent-introspection",
-     "prompt": "Convert this view to Freehand:\n(defn thing [] [:div (str (r/current-component))])",
+    {"id": 21, "kind": "behavioural", "tier": "D", "name": "d-foreign-react-defhost-and-contracts",
+     "prompt": "Migrate this view to Hicasso:\n(ns app.picker (:require [\"react-datepicker\" :default DatePicker]))\n(defn booking [] [:div [:> DatePicker {:selected @(subscribe [:date]) :onChange #(dispatch [:date/set %])}]])",
      "expectations": [
-       "Declines — Reagent component-introspection / scheduler calls have no Freehand equivalent (MIG-35).",
-       "Warns that r/current-component still COMPILES after conversion and fails or returns nil at runtime, so no build gate catches it.",
-       "Keeps the view on Reagent, or restructures away from the introspection (props and :children are already the props map the view receives); does NOT equate the schedulers r/next-tick / r/after-render with a registered behavior — different phase, frequency and owner."
+       "Does NOT decline: [:> Component ...] is legal in Hicasso and still works, so a foreign React component never forces the view onto Reagent.",
+       "Frames the decision as which door: keep [:>] for a one-off crossing, declare a repeated crossing once with h/defhost so the var becomes a legal hiccup head.",
+       "States that :callbacks is a FINITE map from exact prop names to :event / :handler / :render and is NEVER inferred from an on* spelling — and warns that an event-spelled prop can be a render prop whose return the library consumes, so declaring it :event blanks the UI with no useful error. Says to confirm every contract against the library's documentation.",
+       "Gets the argument law right: react-datepicker calls onChange(date, event) — VALUE-first — so an intent vector with ::h/value would raise :rf.error/hicasso-intent-needs-the-event, and the spelling is h/hfn, which receives every argument the invoker passed in order.",
+       "Turns the @(subscribe [:date]) deref into a render-time (h/sub [:date]) read feeding :selected.",
+       "Notes an intent vector at an UNDECLARED event-spelled defhost prop raises :rf.error/hicasso-host-undeclared-callback, and that under Reagent that vector crossed as an inert JS array so it never worked either — the migration forces the decision rather than breaking the code.",
+       "Recommends running the migration reporter over the codebase for the rest of the [:>] prop-dialect differences, and treats its defhost suggestions as labelled guesses."
      ]},
 
-    {"id": 17, "kind": "behavioural", "tier": "M", "name": "m-negative-bare-symbol-not-spread",
-     "prompt": "Migrate to Freehand:\n(defn item [t] [:li t])\n(defn lst [ts] [:ul (for [t ts] ^{:key t} [item t])])",
+    {"id": 22, "kind": "behavioural", "tier": "D", "name": "d-mig28-computed-props-are-the-ampersand-merge",
+     "prompt": "Migrate this reusable control to Hicasso:\n(defn text-field [attrs draft on-change]\n  [:input (merge attrs {:type \"text\" :value (:title draft) :on-change on-change})])",
      "expectations": [
-       "Converts item and lst to v/defview and moves ^{:key t} to a :key prop (MIG-07): [item {:key t :t t}].",
-       "Does NOT treat the bare symbol child in [:li t] as a props map — `t` is content, never (v/spread t) (the bare-symbol trap).",
-       "Leaves the plain hiccup structure otherwise unchanged (MIG-14)."
+       "Recognises MIG-28 and uses the reserved attribute key :& — there is exactly one merge in Hicasso and this is it: [:input {:& attrs :type \"text\" :value ... :on-change ...}].",
+       "States the owned-literal law is UNCONDITIONAL: literal keys written in the map always win, so a caller cannot forfeit the controlled-input door by forwarding a :value.",
+       "Notes the law is enforced on the EMITTED SLOT rather than the map key, so an alternate spelling (:onChange against an owned :on-change) cannot route around it — otherwise which handler won would depend on map iteration order.",
+       "Notes nothing in a remainder may reach key or ref, and that the case where a caller override SHOULD win is spelled by not writing the literal.",
+       "Notes :& is DATA, so a forwarded remainder survives into a structural test, and a non-map there raises :rf.error/hicasso-merge-not-a-map.",
+       "Does NOT emit a plain (merge ...) in the props position because the draft guide shows one, and does NOT invent spread / spread-safe verbs — those are a different substrate's."
      ]},
 
-    {"id": 18, "kind": "behavioural", "tier": "D", "name": "d-mig18-handler-split",
-     "prompt": "Migrate this view to Freehand:\n(ns f (:require [re-frame.core :refer [dispatch]]))\n(defn save-btn [] [:button {:on-click (fn [e] (.preventDefault e) (when @dirty? (dispatch [:save])))} \"Save\"])",
+    {"id": 23, "kind": "behavioural", "tier": "R", "name": "r-decline-ssr-hydrate-no-server-door",
+     "prompt": "Migrate this to Hicasso:\n(ns app.render (:require [reagent.dom.server :as s]))\n(defn render-page [] (s/render-to-string [app]))\n;; the client then hydrates that markup",
      "expectations": [
-       "Recognises MIG-18 — the handler is not one of the three clean shapes (mixed browser mechanic + guard + dispatch), so it is a judgment call, not an automatic lift.",
-       "Routes the guarded dispatch to v/event: its body names the outcome, and a nil return dispatches nothing — the guard expressed as data-with-a-filter.",
-       "Routes .preventDefault to the closed listener options map (:prevent-default true) rather than leaving it inside a closure.",
-       "Hoists the guard's read to render time and closes over the VALUE — a v/sub inside the callback would raise :rf.error/view-read-outside-render at click time.",
-       "Holds/decides the WHOLE view (the guard reads view-held state, coupling it to the MIG-16 state decision) — no half-migrated body."
+       "DECLINES the hydrating path (MIG-23): there is no shipped Hicasso server-render door — re-frame.hicasso.server does not exist — and hydrate-root! is deliberately NOT on the public facade for exactly that reason.",
+       "Names the draft guide explicitly as the trap: it teaches re-frame.hicasso.server/render, ssr/hydrate! and h/hydrate!, and none of the three exists. A design page is not authority for a spelling.",
+       "Keeps the hydrating roots on Reagent and says so plainly, noting the hold is PER-ROOT — client-only roots in the same app can convert normally.",
+       "Does NOT invent a server namespace, a render-to-string equivalent, or a hydrate door.",
+       "Does not present the hold as a failure of the migration."
      ]},
 
-    {"id": 19, "kind": "behavioural", "tier": "D", "name": "d-mig17-lifecycle-behavior-and-rehome",
-     "prompt": "Migrate this Reagent Form-3 view to Freehand:\n(ns app.editor (:require [reagent.core :as r] [reagent.dom :as rdom]))\n(defn editor []\n  (let [{:keys [dispatch]} (rf/capture-frame)]\n    (r/create-class\n     {:component-did-mount    (fn [this] (.focus (rdom/dom-node this)))\n      :component-will-unmount (fn [_] (dispatch [:resource/release]))\n      :reagent-render         (fn [] [editor-form])})))",
+    {"id": 24, "kind": "behavioural", "tier": "R", "name": "r-decline-prev-props-update-protocol",
+     "prompt": "Convert this view to Hicasso:\n(r/create-class\n {:get-snapshot-before-update (fn [this _] (.-scrollHeight (rdom/dom-node this)))\n  :component-did-update       (fn [this _ snapshot] (restore-scroll! (rdom/dom-node this) snapshot))\n  :reagent-render             (fn [] [:div.feed])})",
      "expectations": [
-       "Recognises MIG-17 Form-3 lifecycle and decomposes each body into host/DOM work vs domain work — a judgment call held WHOLE (cardinal rule 2), not an automatic rewrite.",
-       "Routes the host/DOM work (focus the node on mount) to a registered behavior — (v/defbehavior … {:connect … :disconnect …}) plus a [v/behavior {:use … :target … :config …} element] use site — and does NOT emit `effect` or `ref`, which Freehand does not export.",
-       "Chooses :timing deliberately: an initial focus ring that must exist at first paint declares :timing :layout; deferrable setup stays on the default :passive.",
-       "Recognises there is no dispatch-at-unmount: mount and unmount are host facts, and a behavior's :disconnect is not a place to smuggle a domain event.",
-       "Re-homes the unmount domain work (the [:resource/release] dispatch) OUT of the view — to whatever causally ends the resource (a route's :resources released on every route leave, a machine actor, or an app event that mints and an event that ends) — and names that owner for the author (cardinal rule 5).",
-       "Enumerates EVERY exit path when proposing the owner; an enumeration that covers save/delete but misses navigate-away is the classic leak.",
-       "Notes that Freehand exposes no view-tier frame handle, so the rf/capture-frame binding does not translate (MIG-31)."
+       "Declines (MIG-36): Hicasso has no component-did-update mechanism and no previous-props channel — re-render IS the update, and nothing hands a body the old values.",
+       "Notes get-snapshot-before-update in particular has no counterpart, because there is no pre-mutation moment to hook.",
+       "Names the two honest routes before holding: an re-frame.hicasso.native/defcomponent island with react/useEffect and a dependency array where the work is genuinely the DOM's, or app-db where the 'previous value' is really domain history the changing event already knows.",
+       "Holds the WHOLE view on Reagent and states that as a supported configuration.",
+       "Does NOT reach for a callback ref as a substitute — a ref fires on commit and on identity change, which is a different phase and frequency."
      ]},
 
-    {"id": 20, "kind": "behavioural", "tier": "D", "name": "d-mig17-measure-before-paint",
-     "prompt": "Migrate this Reagent Form-3 view to Freehand:\n(ns app.popover (:require [reagent.core :as r] [reagent.dom :as rdom]))\n(defn popover [anchor]\n  (r/create-class\n   {:component-did-mount (fn [this] (place! (rdom/dom-node this) (measure anchor)))\n    :reagent-render      (fn [a] [:div.popover])}))",
+    {"id": 25, "kind": "behavioural", "tier": "M", "name": "m-root-mount-frame-first",
+     "prompt": "Migrate the boot for this app to Hicasso:\n(ns app.core (:require [reagent.dom :as rdom] [re-frame.core :as rf] [re-frame.adapter.reagent :as ra]))\n(defn init! []\n  (rf/init! ra/adapter)\n  (rf/dispatch-sync [:app/init])\n  (rdom/render [app] (js/document.getElementById \"root\")))",
      "expectations": [
-       "Recognises MIG-17 Form-3 and that :component-did-mount here MEASURES then mutates BEFORE paint, so post-paint work would land a frame late and flicker.",
-       "Routes it to a registered behavior declaring :timing :layout — the pre-paint moment — and explains that :passive (the default) would flicker.",
-       "Does NOT emit ui/ref, a React hook, or any use-layout-effect form: Freehand exports no ref and no hook tier, and the behavior is handed the node it decorates.",
-       "Puts the anchor geometry inputs in :config as DATA — a node, a ref, a callback or a preconstructed host instance in :config is refused on both hosts — and re-feeds on change through :update, which runs only when the committed :config moves by rf=.",
-       "Holds/decides the WHOLE view (cardinal rule 2) rather than half-migrating it."
+       "Gets the ORDER right: rf/init! first, then (rf/make-frame {:id ::frame :initial-events [[:app/init]]}), then (h/root! el ::frame [app {}]) — the frame is made and seeded before the root, because h/root! creates no frame.",
+       "States h/root! is POSITIONAL — (container frame-keyword hiccup) — with an optional fourth opts map carrying only :identifier-prefix, and that it has no :initial-events.",
+       "KEEPS (rf/init! ra/adapter): Hicasso ships no adapter of its own and rf/make-frame raises :rf.error/no-adapter-installed until a reactive adapter is installed. Does not delete it as Reagent scaffolding.",
+       "Adds the defonce root atom and a ^:dev/after-load hook calling (h/render! @!root [app {}]), and explains that calling h/root! again would createRoot a second time and replace the tree, discarding every node and scrap of component state.",
+       "Does NOT emit the draft guide's h/mount! taking a config map with :frame / :initial-events — that form is not shipped."
      ]},
 
-    {"id": 21, "kind": "behavioural", "tier": "D", "name": "d-foreign-react-component-inward",
-     "prompt": "Migrate this view to Freehand:\n(ns app.picker (:require [\"react-datepicker\" :default DatePicker]))\n(defn booking [] [:div [:> DatePicker {:selected @(subscribe [:date]) :onChange #(dispatch [:date/set %])}]])",
+    {"id": 26, "kind": "behavioural", "tier": "M", "name": "m-keystroke-handler-becomes-key-map",
+     "prompt": "Migrate this Reagent handler to Hicasso:\n[:input {:on-key-down (fn [e] (case (.-key e)\n                                \"Enter\"  (dispatch [:commit id])\n                                \"Escape\" (dispatch [:cancel id])\n                                nil))}]",
      "expectations": [
-       "Does NOT blanket-decline as a foreign-React reject: the React host boundary has landed inward, so this is a judgment-flavoured conversion (MIG-09/10), not a wait.",
-       "Recognises the reshape — a bare React COMPONENT at a vector head ([:> DatePicker …]) is still illegal, so it CREATES a React element (react/createElement, a JSX helper, or reagent.core/as-element) and places that ELEMENT in a CHILD position, never at the head.",
-       "Crosses the foreign props as ordinary React props on the created element: the fn-valued :onChange and the :selected value are foreign React props, NOT Freehand projection markers or a v/event site, and the @(subscribe [:date]) deref becomes a render-time (v/sub [:date]) read feeding :selected.",
-       "States the limit that decides the call: the JVM structural renderer accepts no React elements, so the region around the foreign child is browser-only and cannot be covered by a t/render structural test — assert the Freehand parts structurally, cover the integration in a mounted browser test.",
-       "Decides the WHOLE view with the author (cardinal rule 2); does NOT invent a Freehand host descriptor or wrapper verb for the foreign head."
+       "Rewrites to the key map {:on-key-down {\"Enter\" [:commit id] \"Escape\" [:cancel id]}} (MIG-33), with keys as the browser's own .key strings.",
+       "States the rewrite also FIXES a bug: the whole map is composition-gated, so a keystroke arriving mid-IME-composition commits nothing — which is the half the hand-written .key test does not have, and it is wrong for every user who composes.",
+       "Notes a branch value that is neither a vector nor a function is SILENTLY dropped.",
+       "Notes a key map at :on-submit auto-prevents on every branch, because the position is passed down.",
+       "Does NOT claim key maps are restricted to :on-key-down / :on-key-up — the draft guide says so and the shipped lowering accepts a map at any event position."
      ]},
 
-    {"id": 22, "kind": "behavioural", "tier": "M", "name": "m-trusted-markup-converts",
-     "prompt": "Migrate this to Freehand:\n(defn article-body [html] [:div.body {:dangerouslySetInnerHTML {:__html html}}])",
+    {"id": 27, "kind": "behavioural", "tier": "M", "name": "m-dangerous-html-converts-but-goes-live",
+     "prompt": "Migrate this to Hicasso:\n(defn article-body [html] [:div.body {:dangerouslySetInnerHTML {:__html html}}])",
      "expectations": [
-       "Converts (MIG-34): the prop is refused under every spelling, and the replacement is the exported trusted-markup verb — (v/defview article-body [{:keys [html]}] [:div.body (v/html html)]).",
-       "Places the call as the SOLE child of the element, replacing the children rather than sitting beside them.",
-       "States that neither Freehand nor SSR sanitises: the string is written verbatim exactly as dangerouslySetInnerHTML wrote it, so whatever cleared the markup before the migration still has to clear it after — the rewrite changes the spelling, not the trust.",
-       "Does NOT reach for v/markup — v/markup crosses a HICCUP VALUE into a compiled body (MIG-30); it does not parse or inject an HTML string, and using it here would render the markup as text.",
-       "Verifies v/html against the live spec/API.md roster rather than assuming it absent (cardinal rule 6 is about not inventing UNEXPORTED forms; this one shipped)."
-     ]},
-
-    {"id": 23, "kind": "behavioural", "tier": "M", "name": "m-mount-and-frame-preflight",
-     "prompt": "Migrate the boot for this app to Freehand:\n(ns app.core (:require [reagent.dom :as rdom] [re-frame.core :as rf] [re-frame.adapter.reagent :as ra]))\n(defn init! []\n  (rf/init! ra/adapter)\n  (rf/dispatch-sync [:app/init])\n  (rdom/render [app] (js/document.getElementById \"root\")))",
-     "expectations": [
-       "Rewrites to (v/mount [app {}] el {:frame {:id :app :initial-events [[:app/init]]}}) — the :frame opt is the preflight and drains before React sees anything (MIG-15).",
-       "States that Freehand needs no adapter install of its own, and that (rf/init! ra/adapter) is deleted only when the page's LAST Reagent root converts — confirming the root inventory with the author.",
-       "Deletes the React-18 create-root / defonce-atom dance if present: v/mount is idempotent per root, which is the hot-reload path.",
-       "Does not seed with dispatch-sync after mount when preflight can do it before paint."
-     ]},
-
-    {"id": 24, "kind": "behavioural", "tier": "D", "name": "d-mig28-spread-vs-spread-safe",
-     "prompt": "Migrate this reusable control to Freehand:\n(defn text-field [attrs draft on-input]\n  [:input (merge attrs {:type \"text\" :value (:title draft) :on-change on-input})])",
-     "expectations": [
-       "Recognises MIG-28 and picks between the two forwards rather than reaching for the first one: (v/spread base overrides) is the visible-cost forward, (v/spread-safe owned caller) is the bounded one.",
-       "Chooses v/spread-safe here, because the control owns :value and its handler and must keep them: the deny law bars :key, :ref, :value, :checked and the component's own on-* families from `caller`, in every build.",
-       "Puts the owned props in the `owned` argument and the consumer's map in `caller`, and notes survivors fold under owned props with :class composing.",
-       "Respells :on-change/:onChange to the kebab spelling and lifts the handler where MIG-04/05 applies."
+       "Converts the view with NO change to the prop: Hicasso has no trusted-markup verb and needs none — :dangerouslySetInnerHTML is an ordinary prop that passes straight through to React.",
+       "FLAGS it rather than skipping it (MIG-34): Reagent DELETED this prop unless it was wrapped, and Hicasso passes it through, so a site that was inert becomes live — markup that may never have been injected starts being injected.",
+       "Puts the question to the author that matters: is this string still trusted, and is whatever cleared it still clearing it — because for these sites that path may never have been exercised.",
+       "Notes only the camel spelling reaches React: :dangerously-set-inner-html emits dangerouslySetInnerHtml and :inner-html emits innerHtml, both of which React ignores.",
+       "Notes the codemod reports every such site as :dangerous-html, a runtime blocker, for this reason.",
+       "Does NOT emit v/html or any other trusted-markup verb — that belongs to a different substrate and Hicasso exports nothing of the kind."
      ]}
   ]
 }

@@ -2,51 +2,57 @@
 
 > ↑ [`skills/`](..) — index of all re-frame2 skills.
 
-A `Skill` that helps `Claude Code` **migrate Reagent view code to [Freehand](https://github.com/day8/re-frame2/blob/main/spec/004-Views.md)** — `re-frame.freehand`, aliased `v`, re-frame2's re-frame-native view layer. A Reagent hiccup view becomes a `v/defview` mounted in brackets and never called, `@(subscribe …)` becomes `(v/sub …)`, `#(dispatch …)` handlers lift to event vectors, and the state and lifecycle Reagent kept inside the component move to where re-frame can see them. The mechanical rewrites are applied directly; the judgment calls are **reasoned** (this is an AI skill, not a codemod); the cases Freehand has no equivalent for are **declined honestly** ("keep this on Reagent").
+A `Skill` that helps `Claude Code` **rewrite Reagent view code into Hicasso** — `re-frame.hicasso`, aliased `h`, re-frame2's re-frame-native view layer. A Reagent hiccup view becomes an `h/defview` mounted in brackets, `@(subscribe …)` becomes `(h/sub …)`, `#(dispatch …)` handlers become event vectors the tree retains as data, and the state and lifecycle Reagent kept inside the component move to where re-frame can see them. The mechanical rewrites are applied directly; the judgment calls are **reasoned**; the cases Hicasso has no equivalent for are **declined honestly** ("keep this on Reagent").
 
-## Read this first — optional, second, pre-alpha
+## Read this first — you probably do not need it
 
-This skill is **not on anyone's critical path**, and the README says so before anything else:
+**This skill's first job is to check whether it has a job.**
 
-- **It is the OPTIONAL, SECOND step.** The migration journey is two moves, in order: **(1)** re-frame v1 → re-frame2 (the *required* foundation — the [`re-frame-migration`](../re-frame-migration) skill; it leaves your views on Reagent), then **(2)** — optionally — Reagent views → Freehand (*this* skill).
-- **Freehand is PRE-ALPHA.** A few surfaces are declared but not landed — an author-declared `:ref`, a trusted-markup verb — so a view that leans on one holds on Reagent, and the skill says why. (The React host boundary landed in both directions, so a foreign React component is a judgment call now, not a wait.)
-- **Staying on Reagent is a first-class, fully-supported choice.** A re-frame2 app running Reagent, UIx or Helix views through its adapter is a complete, supported configuration. Freehand is a **peer view layer**, not a successor, and the skill never implies you *should* move.
+re-frame2 ships first-class, actively-supported adapters. `day8/re-frame2-reagent` is the **default browser substrate** and the adapter the reference suite runs against. An app moving from re-frame v1 to re-frame2 swaps the dependency, installs the adapter, and **keeps its view code** — that is a *finished* migration, and it is the [`re-frame-migration`](../re-frame-migration) skill's job.
 
-**When to reach for it (narrow):** you are *already on re-frame2* and *specifically want to trial Freehand* for some views. That is the whole trigger.
+Rewriting views into Hicasso is a **separate, optional second step, and it is a rewrite** rather than a respelling: views change shape, handlers become data, view-held state leaves the component. Two facts frame the choice, and the skill states both before it starts:
+
+- **Hicasso is pre-publication.** There is no released Maven coordinate; a project adopts it from source. If yours has no path to that, there is nothing to migrate onto yet.
+- **Staying on Reagent is a complete, supported configuration** — not a half-migrated one. The skill never implies the author *should* move, because a migration guide that overstates the need costs its reader work they did not have to do.
+
+**When to reach for it (narrow):** you are *already on re-frame2*, you know you don't have to do this, and you *specifically want Hicasso* for some views.
 
 ## What it covers
 
-- **The mental model** — the shifts to internalise: a view is a **declaration** you mount in brackets and never call, subscriptions **deref-drop** (`@(subscribe …)` → `(v/sub …)`), dispatch **lifts to data** (`#(dispatch [:e])` → `[:e]`), and the view holds **no state and no lifecycle** — there is no `local`, no `ref`, no `effect`.
-- **The transformation catalog**, organised by what you do with each rule (`MIG-NN` ids the report cites so an author can audit any change):
-  - **M-tier ("do this")** — unambiguous mechanical rewrites with a before→after each: `reg-view`→`v/defview` and the one-props-map law, deref-drop, dispatch-lifting with the `::v/value` projection markers, prop respelling, key-meta→prop, plain hiccup, mount and frame preflight, ns requires, the `route-link` head-rename.
-  - **D-tier ("how to DECIDE")** — the judgment cases where the skill earns its keep: Form-2/`with-let` state (app-db, a semantic controller, or a behavior), Form-3 lifecycle (a registered behavior, an event, or `v/error-boundary`), the `:on-*` handler split, derived state, the ratom-as-store restructure, SSR path routing, computed props, runtime-built markup.
-  - **R-tier ("don't migrate — stay on Reagent")** — the honesty backbone: trusted markup, `:ref`, Reagent introspection and schedulers, and a frame-pinned reactive read. (Foreign React heads and Reagent wrapper libraries used to sit here; the host boundary landed, so they are a judgment call now.)
-- **An incremental procedure** — migrate a closed subtree at a time, leaf → root; verify it compiles, renders, and passes tests; iterate. Never big-bang. Includes the structural test surface (`re-frame.freehand.test`), which asserts a button's intent as data without a browser.
-- **The gotchas** — brackets-mount-parens-inline, the exactly-one-props-map law, the bare-symbol trap (`[:li item]` is content, not a spread), whole-view coherence, render-scoped reads, and why you migrate interpreted rather than promoting mid-flight.
+- **A real tool, run first.** [`migration/reagent-to-hicasso/codemod`](../../migration/reagent-to-hicasso/codemod) is a JVM source-text reporter that loads no re-frame2. Its report has two halves: a **census** of every Reagent API call site (the inventory that sizes the job) and a **fixer** for the `[:> …]` prop dialect at React crossings, six of whose rewrite families are decidable from source text. The view rewrite itself is judgment, not a codemod.
+- **The mental model** — the shifts to internalise: a view is a declared React component you mount in brackets; subscriptions **deref-drop** to a value read that is ambient and edge-recording; handlers become **data whose shape selects the behaviour** (vector, key map, `h/hfn`, plain fn); and the view holds **no state** — there is no `local`, no `use-state`, no cell.
+- **The transformation catalog**, organised by what you do with each rule (`MIG-NN` ids so an author can audit any change):
+  - **M-tier ("do this")** — `h/defview` and the one-props-map law, deref-drop, dispatch-lifting with the two markers, `::h/prevent`, key-meta → `:key`, the prop dialect (mostly: leave it alone), root mounting, ns requires, keystroke handlers → an IME-gated key map.
+  - **D-tier ("how to DECIDE")** — Form-2/`with-let` state (app-db via `h/reg-state`, the forms module, or a native component), Form-3 lifecycle (callback refs, events, `h/error-boundary`), the `:on-*` handler split, foreign React and its callback contracts (`h/defhost` / `[:>]` / `h/as-element` / `h/as-component`), derived state, the ratom-as-store restructure, computed props via the reserved `:&` merge.
+  - **R-tier ("don't migrate — stay on Reagent")** — the honesty backbone, and it is short: the prev-props update protocol, a frame-pinned reactive read, SSR-then-hydrate (there is no shipped server-render door), Reagent introspection and schedulers.
+- **An incremental procedure** — report, then a closed subtree at a time, leaf → root; verify it compiles, renders, and passes tests. Includes the shipped test kit (`re-frame.hicasso.test`, `re-frame.hicasso.test.mounted`) and `hm/shadow!`, which runs the Reagent original and the Hicasso candidate side by side against isolated copies of one seeded frame and compares DOM and intents.
+- **The gotchas** — led by the one that costs most: a leftover `#(dispatch …)` closure crosses to React **by identity**, compiles, renders, and fails at *click* time with `:rf.error/no-frame-context`. Then metadata keys never being read, the string/symbol prop-key edges, markers not nesting, and the several places the draft guide teaches a spelling that does not exist.
 
 ## What it deliberately does NOT cover
 
-- The re-frame **v1 → v2** migration (events / subs / `app-db` / effects / boot) — that is the [`re-frame-migration`](../re-frame-migration) skill, the required first step.
+- The re-frame **v1 → v2** migration (events / subs / `app-db` / effects / boot) — that is the [`re-frame-migration`](../re-frame-migration) skill, which *completes* the move to re-frame2 on its own.
 - Writing new re-frame2 code — that is the [`re-frame2`](../re-frame2) skill.
 - Greenfield setup — [`re-frame2-setup`](../re-frame2-setup).
+- Maintaining existing `day8/re-frame2-ui` views — [`re-frame2-ui`](../re-frame2-ui), a retired substrate in maintenance only.
 - Live-runtime inspection — [`re-frame2-pair`](../re-frame2-pair).
 - The **dataflow layer** — the skill rewrites the *view tier* only; where a view forces a `reg-sub`/event change, it *names* it for the author, it does not make it.
-- The interactive visual confirmation — booting the app and eyeballing the render — that is the programmer's, in their own environment. (The skill *does* run the project's own noninteractive compile/test gates as it goes.)
+- The interactive visual confirmation — booting the app and eyeballing the render — that is the programmer's. (The skill *does* run the project's own noninteractive compile/test gates as it goes.)
 
 ## How the skill works
 
-The skill is knowledge Claude reads and then applies to a consumer's Reagent code **with judgment** — there is no rewrite tool to run. For an ambiguous view it *reasons* about the right Freehand shape rather than emitting a flag. It:
+The skill is knowledge Claude reads and then applies to a consumer's Reagent code **with judgment**. It:
 
+- runs the reporter and reads both halves before planning anything;
 - teaches the mental model (the four view shifts);
 - applies the M-tier rewrites directly (citing `MIG-NN`);
 - reasons through the D-tier decisions with the author;
 - declines the R-tier cases honestly, holding those views on Reagent.
 
-One standing rule governs all of it: **emit only what has shipped.** Freehand's design corpus describes forms — `local`, `effect`, `ref`, a trusted-markup verb — that are not exported (while others, like the outward bridge `v/->react`, since have been). The skill checks the API catalogue before it writes a verb, and names the gap when there isn't one.
+One standing rule governs all of it: **emit only what has shipped, and read the door to find out.** Hicasso's draft guide describes several forms that do not exist — a server-render namespace, a hydrating door, a config-map `h/mount!`, an `h/fn` spelling — so a design page is not authority. The skill checks `re-frame.hicasso` itself before it writes a verb, and names the gap when there isn't one.
 
 ## Status
 
-Pre-alpha, and it migrates **to** a pre-alpha view layer. The skill is authored; it has not yet been exercised end-to-end against a real Reagent codebase. The structure mirrors the [`re-frame-migration`](../re-frame-migration) skill; the content is grounded against the shipped `re-frame.freehand` export surface and Spec 004 (Views).
+Pre-alpha, and it migrates **to** a pre-publication view layer with no released Maven coordinate. The skill is authored; it has not been exercised end-to-end against a real Reagent codebase. Its content is grounded against Hicasso's shipped source — the public door, the codec, the intent lowering and the slot rule — rather than against the design corpus.
 
 ## Layout
 
@@ -59,12 +65,12 @@ skills/reagent-migration/
 ├── .claude-plugin/
 │   └── plugin.json
 ├── references/
-│   ├── mental-model.md        # the Reagent→Freehand view shift
+│   ├── mental-model.md        # the Reagent→Hicasso view shift
 │   ├── catalog-mechanical.md  # M-tier — "do this" (before→after per rule)
 │   ├── catalog-judgment.md    # D-tier — "here's how to DECIDE"
 │   ├── catalog-reject.md      # R-tier — "don't migrate — stay on Reagent"
-│   ├── procedure.md           # incremental, closed-subtree passes
-│   └── gotchas.md             # brackets-vs-parens, bare-symbol trap, whole-view coherence
+│   ├── procedure.md           # report first, then incremental closed-subtree passes
+│   └── gotchas.md             # the click-time closure trap, metadata keys, dialect edges
 ├── evals/
 │   └── evals.json             # trigger fixtures + behavioural fixtures across the M/D/R tiers
 └── spec/
@@ -81,7 +87,7 @@ skills/reagent-migration/
 
 ## Source of truth
 
-[Spec 004 — Views](https://github.com/day8/re-frame2/blob/main/spec/004-Views.md) is the contract, and [`spec/API.md`](https://github.com/day8/re-frame2/blob/main/spec/API.md) is the roster of what is actually exported. The `MIG-NN` ids are this skill's own vocabulary for the rewrites it applies, cited so an author can audit any change. If the skill and the spec disagree, the spec wins.
+[`implementation/hicasso/src/re_frame/hicasso.cljc`](https://github.com/day8/re-frame2/blob/main/implementation/hicasso/src/re_frame/hicasso.cljc) is Hicasso's public door and the roster of what is actually exported; the `impl/` namespaces beside it carry the lowering rules the catalogues cite. The `MIG-NN` ids are this skill's own vocabulary for the Reagent constructs it recognises, cited so an author can audit any change. If the skill and the shipped source disagree, the source wins.
 
 ## Licence
 

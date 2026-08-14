@@ -14,7 +14,7 @@
   ## The key function, and why it is not transcribed
 
   Reagent's `cached-prop-name` and this repo's
-  [[re-frame.bench.hicasso.front.slot/prop-name]] are the SAME kebab→camel
+  [[re-frame.hicasso.impl.slot/prop-name]] are the SAME kebab→camel
   rule with the same three seeded renames and the same `aria`/`data`
   exemption. They part company in exactly two cells:
 
@@ -32,7 +32,7 @@
   directions. There is one camel rule in this repository and this
   namespace calls it."
   (:require [clojure.string :as str]
-            [re-frame.bench.hicasso.front.slot :as slot]))
+            [re-frame.hicasso.impl.slot :as slot]))
 
 (defn css-var-name?
   "Is `n` a CSS custom property? Reagent's `dash-to-prop-name` splits

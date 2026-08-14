@@ -9,54 +9,84 @@
 
 Confirm all three, or stop:
 
-1. **The app is already on re-frame2.** Freehand is a re-frame2 view layer. If
+1. **The app is already on re-frame2.** Hicasso is a re-frame2 view layer. If
    the app is still on re-frame v1, the events/subs/db migration comes first —
-   route to [`re-frame-migration`](../../re-frame-migration) and come back only when
-   that is done.
-2. **The author specifically wants Freehand.** If they are content on Reagent
-   (the supported default), there is nothing to do — say so. Don't migrate views
-   because you can.
-3. **The Freehand artefact is actually available to the target project.**
-   Freehand ships in `day8/re-frame2-freehand`, which is **pre-publication** —
-   there is no released Maven coordinate to depend on. A project can adopt it
-   only by consuming the in-tree / git-source artefact. If it has no path to
-   that source, there is nothing to migrate *onto* yet — say so and wait. This is
-   migration honesty, not a reason to publish early.
+   route to [`re-frame-migration`](../../re-frame-migration), and note that it
+   *finishes*: it leaves the views on the first-class Reagent adapter and the
+   app is fully migrated at that point.
+2. **The author specifically wants Hicasso, knowing they do not have to.** They
+   are on a supported configuration already. Put the trade in front of them —
+   [`../SKILL.md`](../SKILL.md) §Read this first carries it as a table — and
+   take an explicit yes. Don't migrate views because you can.
+3. **Hicasso is actually reachable from the target project's build.** It is
+   **pre-publication**: there is no released Maven coordinate to depend on, and
+   the coordinate shown in the draft guide's installation page does not resolve.
+   A project can adopt it only by consuming the in-tree / git-source artefact.
+   If it has no path to that, there is nothing to migrate *onto* yet — say so
+   and wait. This is migration honesty, not a reason to publish early.
+
+## Step 0 — Run the reporter, and read both halves
+
+```bash
+cd re-frame2/migration/reagent-to-hicasso/codemod
+clojure -M:run path/to/consumer/src/ --report out.edn
+```
+
+This is the inventory the whole plan is built on, and it is cheap: a bare JVM,
+no re-frame2 loaded, no files touched.
+
+- **The census (`:census`)** tells you how big the job is — every `r/atom`,
+  `r/with-let`, `r/create-class`, `r/cursor`, `r/as-element`,
+  `r/reactify-component` and root mount, classified `:human-decision` or
+  `:runtime-blocker`. Map each class onto a MIG rule and you have the D/R
+  gating for the whole codebase before you open a file.
+- **The fixer (`:entries`)** covers only `[:> …]`-family crossings into React.
+  A codebase that crosses into React nowhere gets **zero** entries — which is
+  not a clean bill of health, it is a different population. Never read one half
+  as a denominator for the other.
+
+Two report facts worth carrying: it is written even on a clean run and carries
+a count of untouched sites, so *"not in the report"* is unambiguous; and the
+`h/defhost` suggestions block is **labelled guesses** whose header carries its
+own counter-example. Confirm every callback contract against the library's
+documentation (MIG-09/10).
+
+Also read what it *cannot* see, and say so: a Form-2 component is a `defn`
+returning a `fn` and nothing else marks it, so the census counts the `r/atom`
+such a component closes over and reports nothing about the shape. A confident
+wrong number would be worse.
 
 ## Step 1 — Scope a closed subtree
 
-Pick a namespace, or a leaf-to-root view subtree, and convert **leaf views first,
-shared components last**, closing the subtree bottom-up until a root or an
-already-converted parent mounts it. Each pass then ends renderable and tested,
-which is what lets an interrupted migration resume cleanly.
+Pick a namespace, or a leaf-to-root view subtree, and convert **leaf views
+first, shared components last**, closing the subtree bottom-up until a root or
+an already-converted parent mounts it. Each pass then ends renderable and
+tested, which is what lets an interrupted migration resume cleanly.
 
 Leaf-first is the clean default, not a hard wall. If a converted view must sit
-under a parent that is staying on Reagent, the outward bridge `v/->react` mounts
-it there — `[:> (v/->react the-view) {:frame f …}]` — so a converted view is never
-stranded un-rendered. Reach for the bridge deliberately, not as a way to skip the
-bottom-up discipline: it is a foreign boundary with its own prop-crossing and an
-explicit frame. Flag any inbound Reagent call site you are not bridging — that
-view is a boundary, and the subtree above it waits.
+under a parent staying on Reagent, the outward bridge mounts it there —
+`(def card* (h/as-component card))`, declared once at top level beside the view,
+and the Reagent parent mounts `card*` as an ordinary React component. Reach for
+it deliberately, not as a way to skip the bottom-up discipline: it is a foreign
+boundary with its own prop crossing. Flag any inbound Reagent call site you are
+not bridging — that view is a boundary, and the subtree above it waits.
 
 ## Step 2 — Gate every candidate view (whole-view law)
 
-Before touching a view, scan its whole body for **D/R hits**, then route by tier:
+Before touching a view, scan its whole body for **D/R hits**, then route by
+tier:
 
-- **An R hit → hold the WHOLE view on Reagent**, honestly, and record why.
-  `:ref` (MIG-29), Reagent introspection and schedulers (MIG-35), a frame-pinned
-  reactive read (MIG-03). → [`catalog-reject.md`](catalog-reject.md). (Trusted
-  markup, MIG-34, was on this list until the verb shipped; it is a mechanical
-  rewrite now, recorded under that leaf's §No longer a hold.)
+- **An R hit → hold the WHOLE view on Reagent**, honestly, and record why. The
+  list is short: the prev-props update protocol (MIG-36), a frame-pinned
+  reactive read (MIG-03), SSR-then-hydrate (MIG-23), Reagent introspection and
+  schedulers (MIG-35). → [`catalog-reject.md`](catalog-reject.md).
 - **A D hit → decide it with the author, then convert the WHOLE view or hold the
-  WHOLE view** — never a partial body. The judgment calls are catalogued in
-  [`catalog-judgment.md`](catalog-judgment.md): state (MIG-16), lifecycle
-  (MIG-17), the `:on-*` handler split (MIG-18), derived state and the ratom-store
-  restructure (MIG-19/20), SSR path routing (MIG-23), ambient reads in plain fns
-  (MIG-26), fn props on internal views (MIG-27), computed props (MIG-28),
-  runtime-built markup (MIG-30), and the loop / render-prop shaping calls
-  (MIG-08/13). The foreign-React reshape (MIG-09/10/22) is now a judgment call
-  too — the React host boundary landed in both directions
-  ([`catalog-reject.md` §No longer a hold](catalog-reject.md#no-longer-a-hold)).
+  WHOLE view** — never a partial body. → [`catalog-judgment.md`](catalog-judgment.md):
+  state (MIG-16), lifecycle (MIG-17), the `:on-*` handler split (MIG-18),
+  derived state and the ratom-store restructure (MIG-19/20), foreign React and
+  its callback contracts (MIG-09/10/22), ambient reads in plain fns (MIG-26),
+  fn props on internal views (MIG-27), computed props (MIG-28), and the loop /
+  render-prop shaping calls (MIG-08/13).
 
 Do not rewrite the clean parts of a held view — whole-view coherence,
 [`gotchas.md`](gotchas.md).
@@ -69,39 +99,46 @@ fine once the sub is pure.
 ## Step 3 — Apply the M-tier rewrites to the clean views
 
 For each fully-clean view, apply [`catalog-mechanical.md`](catalog-mechanical.md)
-**atomically per view**: the `v/defview` header, the params→map change, and
+**atomically per view**: the `h/defview` header, the params→map change, and
 **every call site** of that view change in one edit (MIG-01). Within a view the
-remaining rewrites are order-free — deref-drop, dispatch lifts, prop respelling,
-key-meta, `doall` strip, the `route-link` head. Cite the `MIG-NN` id for each
+remaining rewrites are order-free — deref-drop, dispatch lifts, the key-meta
+move, the `doall` strip, keystroke handlers. Cite the `MIG-NN` id for each
 change.
 
-Everything you emit stays **interpreted**. Do not add `{:compiled true}` to
-anything during a migration pass.
+Two things to do *before* you call a view converted:
+
+- **Grep the body for surviving closures.** A `#(dispatch …)` that crosses to
+  React by identity fails at click time with `:rf.error/no-frame-context` and
+  nothing catches it earlier ([`gotchas.md`](gotchas.md)).
+- **Grep for `^{:key` in the view's lists.** Metadata is never read, so a
+  survivor is an absent key, not a tidy-up.
 
 ## Step 4 — Fix requires and the root last
 
-- **Requires (MIG-24):** add `[re-frame.freehand :as v]`; drop `reagent.*`
-  requires **only** when the namespace has zero remaining uses (a held view keeps
-  them). The `v` alias is load-bearing — the projection markers `::v/value` /
-  `::v/checked` / `::v/key` / `::v/scroll-top` / `::v/new-state` resolve through it.
-- **Root (MIG-15):** once per root. `v/mount` carries the frame preflight in its
-  `:frame` opt, and Freehand needs no adapter install of its own. On a mixed page
-  keep `(rf/init! reagent-adapter/adapter)` for the roots still on Reagent, and
-  delete it only when the last one converts — confirm the root inventory with the
-  author.
+- **Requires (MIG-24):** add `[re-frame.hicasso :as h]`; drop `reagent.*`
+  requires **only** when the namespace has zero remaining uses (a held view
+  keeps them). The `h` alias is load-bearing — `::h/value`, `::h/checked` and
+  `::h/prevent` auto-resolve through it, so a different alias silently writes
+  different keywords. Add an optional module (`.forms`, `.motion`, `.overlay`,
+  `.native`) only where one is actually used; they are absent when unused and
+  that is the point of them.
+- **Root (MIG-15):** once per root, and in this order — `rf/init!` (Hicasso
+  ships no adapter, so the app's existing one stays), `rf/make-frame` carrying
+  the `:initial-events` seed, then `h/root!`. Add the
+  `defonce` root atom and the `^:dev/after-load` `h/render!` reload hook.
 
 ## Step 5 — Compile and test (the skill runs the gates); the programmer renders
 
 Run the nearest safe noninteractive gate **yourself** — discover the project's
-compile/test command (`npx shadow-cljs compile …`, `npm test`, `clojure -M:test`)
-and run it (cardinal rule 7). The genuinely interactive step — booting a dev
-build and eyeballing the render — stays with the programmer when there is no
-connected runtime to drive.
+compile/test command (`npx shadow-cljs compile …`, `npm test`,
+`clojure -M:test`) and run it (cardinal rule 7). The genuinely interactive step —
+booting a dev build and eyeballing the render — stays with the programmer when
+there is no connected runtime to drive.
 
-**"Compiles" is necessary, not sufficient.** Interpreted Freehand moves most view
-errors to run time by design, and the two that bite hardest — a `v/sub` in a
-callback, a Reagent introspection call (MIG-35) — both compile clean. So the
-done-bar for a subtree is:
+**"Compiles" is necessary, not sufficient.** Hicasso moves most view errors to
+run time by design, and the three that bite hardest all compile clean: a
+surviving `#(dispatch …)`, a surviving `^{:key …}`, and a Reagent introspection
+call (MIG-35). So the done-bar for a subtree is:
 
 1. it **compiles** (the skill runs this);
 2. it **renders** — the programmer boots a dev build and eyeballs the converted
@@ -111,61 +148,75 @@ done-bar for a subtree is:
 
 ### Structural tests are the cheap half of (2)
 
-Handler slots hold event vectors **as data**, so "what does this button do" is an
-equality check with no browser. `re-frame.freehand.test` (conventionally aliased
-`t`) is five names that query values over the structural tree — `render`, `find`,
-`find-all`, `attrs`, `text` — plus one bracket, `with-render`, that opens the
-discardable render a state-reading view is checked inside. A view that reads
-nothing renders with a bare `render`:
+Handler slots hold event vectors **as data**, so "what does this button do" is
+an equality check with no browser. The test kit ships in two layers, and both
+are real:
+
+- **`re-frame.hicasso.test`** (conventionally `ht`) — the value-level tiers.
+- **`re-frame.hicasso.test.mounted`** (conventionally `hm`) — the mounted tier:
+  `mount!`, `render!`, `settle!`, `dispatch-and-settle!`, `unmount!`,
+  `assert-clean!` and the residue checks.
+
+Note the packaging: the kit lives on a **separate source root** that is
+deliberately not on the library's `:paths`, so a consumer who never writes a
+test never carries it. Wire it in through the project's test alias / build.
+
+**`hm/shadow!` is the migration's own instrument**, and it is the one worth
+reaching for on a screen that must not change behaviour: it mounts the Reagent
+original and the Hicasso candidate against isolated copies of the same seeded
+frame, drives one interaction script through both, and compares canonical DOM
+and the intent stream at each checkpoint.
 
 ```clojure
-(:require [re-frame.core :as rf]
-          [re-frame.freehand.test :as t])
-
-(deftest add-button-carries-intent
-  (let [tree   (t/render [product-card {:product {:id 42 :name "Hat"}}])
-        button (t/find tree #(= :button (:tag %)))]
-    (is (= "Add to cart" (t/text button)))
-    (is (= [:cart/add 42] (:on-click (t/attrs button))))))
+(hm/shadow!
+ {:reference      [old/article-row {:article-id 7}]
+  :candidate      [new/article-row {:article-id 7}]
+  :initial-events [[:demo/install-fixture]]
+  :script         [{:click "button.edit"}
+                   {:type  ["input.title" "Better title"]}
+                   {:click "button.save"}]})
 ```
 
-`(:on-click node)` reads a *field* and misses; the projection `(t/attrs node)` is
-the attribute read. Host-bearing behaviour — real listeners, focus, presence
-timing — belongs to a mounted browser test, not this tier.
+Three disciplines make it worth its cost. **Add a sabotage control first** —
+change a candidate prop deliberately and confirm the run turns red at the
+expected checkpoint — because a comparator nobody has seen fail proves nothing.
+**Script the real screen behaviour**, not a single happy click: green means the
+implementations matched *for the flows in the script*. And know its reach: it
+covers canonical DOM and intents, not focus, caret, IME, layout or paint. Those
+need a browser test.
 
-**A migrated view that reads state renders inside `with-render`.** The moment a
-conversion applies the MIG-02 deref-drop, the view's body calls `v/sub`, and
-`v/sub` is legal only during an active declared render. `render` is a walk, not a
-host, so it opens none of its own — a bare `t/render` of a `v/sub`-reading view is
-refused with `:rf.error/view-read-outside-render`. This is the common case, not
-the exotic one; wrap the render and the view runs **as written**, with nothing
-published:
+Omit `:script` for interactive development — both mounts stay live and each
+committed render becomes a checkpoint as you use the screen by hand.
 
-```clojure
-(deftest badge-shows-the-cart-count
-  (rf/with-new-frame [_ (rf/make-frame {:initial-events [[:rf/set-db {:cart #{}}]]})]
-    (rf/dispatch-sync [:cart/add 42])
-    (let [tree (t/with-render (t/render [cart-badge {}]))]
-      (is (= "1" (t/text tree))))))
+When a screen is green and its browser tests pass, **remove the Reagent
+original.** Keeping both copies invites divergence.
+
+For a small application this is over-engineering: run the reporter, port by
+hand, review the handful of screens. Spend identity-proof effort on the screens
+that must not change.
+
+## Step 6 — Apply the mechanical codemod, and re-prove
+
+```bash
+clojure -M:run --rewrite src/          # dry run — what would change
+clojure -M:run --rewrite --write src/  # apply
 ```
 
-Frame scope is the ordinary bracket (`rf/with-new-frame` / `rf/with-frame`), state
-is driven with `rf/dispatch-sync`, and the checkpoint is a **fresh** `render` —
-inside `with-render` whenever the view reads state, bare when it does not. There
-is no frame option and no fixture.
+Last, not first. It touches only the six decidable `[:> …]` families (W1–W6),
+preserves formatting, comments and line endings, and every output is outside its
+own rewrite's input language so a second run is a no-op. Re-run the shadow
+comparison on the screens the diff touched.
 
-A migrated view that had no test is a good place to add one: it costs a few lines
-and it pins the intent the migration just rewrote.
+A completed run exits `0` even when the report carries human decisions — it is a
+migration assistant, not a permanent build lint.
 
 ## A single converted file is PROVISIONAL
 
-If a view's callers live in *other* files that are still Reagent, converting just
-its file leaves it un-rendered unless you bridge it — a Reagent parent mounts a
-converted view only through `v/->react`. It compiles, and "compiles ≠ renders".
-Treat such a file as provisional until a converted parent, a root, or a
-deliberate `v/->react` bridge mounts it. That is why the unit of a pass is a
-*closed subtree*, not a lone file — a closed subtree renders end-to-end without a
-bridge at every seam.
+If a view's callers live in *other* files that are still Reagent, converting
+just its file leaves it un-rendered unless you bridge it with `h/as-component`.
+It compiles, and "compiles ≠ renders". Treat such a file as provisional until a
+converted parent, a root, or a deliberate bridge mounts it. That is why the unit
+of a pass is a *closed subtree*, not a lone file.
 
 ## Resuming an interrupted migration
 

@@ -6,47 +6,50 @@
 
 ## The prompt
 
-> *I'm re-authoring the `reagent-migration` skill at `skills/reagent-migration/`. The skill migrates **Reagent view code to Freehand** — `re-frame.freehand`, aliased `v`, re-frame2's re-frame-native view layer. It is an **AI skill that applies judgment, NOT a codemod** (the rewrite tool was shelved — Mike ruled skill-only; if it seems to need a companion tool, STOP and ask Mike).*
+> *I'm re-authoring the `reagent-migration` skill at `skills/reagent-migration/`. The skill rewrites **Reagent view code into Hicasso** — `re-frame.hicasso`, aliased `h`, re-frame2's re-frame-native view layer. The VIEW rewrite is **AI judgment, not a codemod**; a source-text **reporter/fixer** for the `[:> …]` prop dialect does ship at `migration/reagent-to-hicasso/codemod/` and the skill runs it first.*
 >
 > *Read these first, in order:*
 >
-> *1. `skills/reagent-migration/spec/design.md` — the locked decisions (L1–L11). The load-bearing ones: L1 (AI skill not codemod), L2 (OPTIONAL, SECOND, PRE-ALPHA; Reagent/UIx/Helix stay first-class peers), L4 (whole view is the unit — never half-migrate), L6 (closed subtrees, the recommended default — the outward bridge `v/->react` relaxed it from a hard constraint), L8 (migrate interpreted, never promote mid-flight), L9 (emit only what has shipped), L10 (generic to any Reagent app).*
-> *2. `skills/reagent-migration/spec/inputs.md` — the inputs. The primary one is the **exported roster** (`spec/API.md` §Freehand views, `docs/api/re-frame.freehand.md`), because it decides whether a rewrite target exists at all. Spec 004 / 004B / 004C / 004D / 008 / 011 are the contract. The design corpus (EP-0036, the decision records, the draft guide) is a HAZARD, not an input: it describes forms that are not exported.*
+> *1. `skills/reagent-migration/spec/design.md` — the locked decisions (L1–L11, L8 retired). The load-bearing ones: **L2** (the rewrite is OPTIONAL and the skill must not overstate the need — with a first-class Reagent adapter an app keeps its view code and needs no rewrite to land on re-frame2, and Hicasso is pre-publication with no Maven coordinate), **L9** (emit only what has shipped, and READ THE DOOR — the draft guide teaches forms that do not exist), L1 (no view codemod, but run the reporter), L4 (whole view is the unit), L6 (closed subtrees, relaxed by `h/as-component`), L10 (generic to any Reagent app).*
+> *2. `skills/reagent-migration/spec/inputs.md` — the inputs. The primary one is **`implementation/hicasso/src/`**, because Hicasso is unrostered: there is no `spec/API.md` section to check a verb against, so reading the source IS the check. `impl/intent.cljs`, `impl/codec.cljs`, `impl/slot.cljc`, `impl/state.cljc`, `impl/mount.cljs` decide the behaviours the catalogues teach. `docs/design/hicasso/**` including `draft-guide/` is a HAZARD — §4 of that file tabulates seven measured examples of it teaching a form that does not exist.*
 > *3. `skills/re-frame-migration/` — the structural sibling. Match its SHAPE: `SKILL.md` router + `README.md` + the distribution triad (`LICENSE` / `package.json` / `.claude-plugin/plugin.json`) + `references/` leaves + `spec/` meta-docs + `evals/evals.json`. Match its front-matter format, voice, and cardinal-rules density.*
 >
-> *Then write the skill with the file structure locked in `design.md` §4: `SKILL.md` (router) + six reference leaves (`mental-model`, `catalog-mechanical` (M-tier, before→after), `catalog-judgment` (D-tier, "how to DECIDE"), `catalog-reject` (R-tier, the honesty backbone), `procedure` (incremental closed-subtree, plus the structural test surface), `gotchas`) + three `spec/` meta-docs + `evals/evals.json`. Every leaf one level deep from `SKILL.md`; each leaf ≤250 lines / ≤16 KB.*
+> *Then write the skill with the file structure locked in `design.md` §4: `SKILL.md` (router) + six reference leaves (`mental-model`, `catalog-mechanical` (M-tier, before→after), `catalog-judgment` (D-tier, "how to DECIDE"), `catalog-reject` (R-tier, the honesty backbone — deliberately SHORT), `procedure` (reporter first, then incremental closed-subtree passes, plus the shipped test kit and `hm/shadow!`), `gotchas`) + three `spec/` meta-docs + `evals/evals.json`.*
 >
-> *Cardinal rules to bake into `SKILL.md`: (1) AI judgment, not a codemod; (2) the whole view is the unit — never half-migrate; (3) incremental, never big-bang; (4) cite `MIG-NN` ids; (5) views only — name dataflow changes; (6) emit only what has shipped — check `spec/API.md`; (7) the skill runs the noninteractive compile/test gates itself, the programmer owns the interactive visual confirmation.*
+> ***The first thing `SKILL.md` does is establish whether it has a job.*** *Put the trade in a two-column table — what the rewrite buys against what it costs — and take an explicit yes. Both columns measured against shipped surface. Never imply the author should move.*
 >
-> *The four view shifts the mental model teaches: brackets mount and parens inline (a declaration, not a function — and calling one raises `:rf.error/view-called-directly`); deref-drop (`@(subscribe …)` → `(v/sub …)`, which returns the value); dispatch lifts to data (event vectors, with `::v/value` / `::v/checked` / `::v/key` / `::v/scroll-top` / `::v/new-state` as the closed projection roster); and the view holds no state and no lifecycle (no `local`, no `ref`, no `effect` — app-db, a semantic controller, or a registered behavior).*
+> *Cardinal rules to bake into `SKILL.md`: (1) the view rewrite is judgment, but run the reporter first; (2) the whole view is the unit — never half-migrate; (3) incremental, never big-bang; (4) cite `MIG-NN` ids, which name the Reagent CONSTRUCT not the destination; (5) views only — name dataflow changes; (6) emit only what has shipped, read the door; (7) the skill runs the noninteractive compile/test gates itself, the programmer owns the interactive visual confirmation.*
 >
-> *Front-matter `description` is "pushy" and self-limiting: trigger on Reagent-view→Freehand phrasing (v/defview, reg-view→defview, deref-drop, moving off Reagent hiccup, the Reagent view surfaces `r/atom`/`r/with-let`/`r/create-class`/`adapt-react-class`), AND state the negatives: the v1→v2 migration is `re-frame-migration`, authoring is `re-frame2`, and staying on Reagent is fine.*
+> *The four view shifts the mental model teaches: brackets mount and parens inline (`h/defview` mints a real React function component; a plain fn in head position is a loud error); deref-drop (`@(subscribe …)` → `(h/sub …)`, which returns the value and is the AMBIENT collector — legal in a `when`, a `for`, an inlined helper, recording an edge only where the read happens); handlers become DATA whose **shape** selects the behaviour (intent vector / key map / `h/hfn` / plain fn, with `::h/value` and `::h/checked` the only two markers and `::h/prevent` / `::h/navigate` the only two reserved heads); and the view holds NO state (no `local`, no `use-state`, no cell — app-db via `h/reg-state`, `forms/buffered-field`, or a native component with real hooks).*
+>
+> *Front-matter `description` is self-limiting and leads with the check: trigger on Reagent-view→Hicasso phrasing (`h/defview`, deref-drop, moving off Reagent hiccup, `r/atom`/`r/with-let`/`r/create-class`/`adapt-react-class`/the `[:>]` prop dialect), AND state the negatives: the v1→v2 migration is `re-frame-migration` and it COMPLETES, authoring is `re-frame2`, maintaining `day8/re-frame2-ui` views is `re-frame2-ui`, and staying on Reagent is fine.*
 >
 > *Voice: tight, declarative, recipe-shaped; full sentences over dash-chained fragments. Tables for rule lookups; code blocks for before→after shapes. Cite `MIG-NN` in every catalogue.*
 >
-> *Don't: ship or invoke a codemod; oversell Freehand (it is pre-alpha — say so); emit `local` / `effect` / `ref` / `v/check` or any other verb absent from `spec/API.md` (verify against the live roster — names like `v/->react`, `v/client-only` and `v/html` have since shipped); add `{:compiled true}` during a migration pass; write `*.md` outside `skills/reagent-migration/` (except the index registration in `skills/README.md` + the docs mirror/nav); commit anything under `ai/`; use this repo's testbeds or paths as examples (stay generic); claim AI authorship in commits/PR.*
+> *Don't: ship or invoke a VIEW codemod; overstate the need (the Reagent adapter is first-class and Hicasso is pre-publication — say both); emit `re-frame.hicasso.server/render`, `h/hydrate!`, a config-map `h/mount!`, `h/fn`, or any other verb the draft guide teaches and the door does not export; carry a **Freehand or `re-frame.ui`** spelling across by analogy (`v/html`, `v/spread-safe`, `v/defbehavior`, `{:compiled true}`, `ui/local` — all belong to retired substrates); write `*.md` outside `skills/reagent-migration/` (except the index registration in `skills/README.md` + the docs mirror/nav); commit anything under `ai/`; use this repo's testbeds or paths as examples (stay generic); claim AI authorship in commits/PR.*
 >
-> *Open the PR titled `feat(skills): reagent-migration — AI skill for Reagent→Freehand view migration`. Body: the sibling shape matched, the M/D/R catalogue distilled (which rules), the optional/second/pre-alpha framing, the incremental procedure, the per-tier evals. Surface OQ1/OQ2 from `design.md` for Mike.*
+> *Open the PR titled `feat(skills): reagent-migration — Reagent→Hicasso view migration`. Body: the sibling shape matched, the M/D/R catalogue distilled (which rules), the two-tier framing and its exact wording, the reporter-first procedure, the per-tier evals, and which gates cover `skills/` and which do not. Surface OQ1/OQ2/OQ3 from `design.md` for Mike.*
 
 ## Notes on the reauthoring contract
 
 - The prompt is a one-shot: feed it to a fresh session, it produces the skill.
-- It assumes repo read access. Verifying every emitted verb against
-  `spec/API.md` is part of the job, not an optional polish pass.
+- It assumes repo read access. **Verifying every emitted verb against
+  `implementation/hicasso/src/` is the job, not an optional polish pass** — and
+  there is no roster shortcut, because Hicasso is unrostered.
 - It does not ask the session to verify the resulting skill's judgment calls —
-  that verification is Mike's (read the files, comment on the PR).
+  that verification is Mike's.
 
 ## When to re-author
 
-- **A major Freehand surface lands** — a new host-boundary direction, a
-  trusted-markup verb, an author-declared ref. It moves cases out of
-  `catalog-reject.md` and can relax `procedure.md`'s closed-subtree default. The
-  React host boundary was exactly this and was absorbed by editing the affected
-  leaves; reach for a full reauthor only when the *shape* of the skill changes,
-  not for a surface that slots into the existing tiers.
-- The positioning changes (Freehand graduates from pre-alpha, or publishes a
-  Maven coordinate) → design L2 changes; update this `spec/` folder first, then
-  the skill.
+- **A major Hicasso surface lands** — a server-render door (which would move
+  MIG-23 out of R-tier), a data `:ref` spelling, a view-local state tier. It
+  moves cases between catalogues. Reach for a full reauthor only when the *shape*
+  of the skill changes, not for a surface that slots into the existing tiers.
+- **The positioning changes** — Hicasso publishes a Maven coordinate, or the
+  adapter story changes → design L2 changes; update this `spec/` folder first,
+  then the skill.
+- **A provisional spelling settles** (`hfn`→`h/fn`, `root!`→`mount!`) → edit the
+  leaves; this is not a reauthor.
 
 Otherwise, edit the leaves directly; reauthoring from scratch is for major
 surface changes.

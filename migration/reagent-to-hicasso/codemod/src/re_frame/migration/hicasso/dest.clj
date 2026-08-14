@@ -45,7 +45,7 @@
   and asserts the two rosters equal rather than leaving this one to the
   convention (rf2-vi11)."
   (:require [clojure.string :as str]
-            [re-frame.bench.hicasso.front.slot :as slot]))
+            [re-frame.hicasso.impl.slot :as slot]))
 
 (def canonical-slot
   "**The one slot resolver**, and it is the codec's own. The React prop

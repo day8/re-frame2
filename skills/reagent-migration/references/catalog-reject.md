@@ -1,59 +1,85 @@
 # R-tier — "don't migrate this" (stay on Reagent)
 
-> This list is the honesty backbone of the whole skill. Freehand is
-> **pre-alpha**; some views should not move, because the construct has no
-> Freehand equivalent — by design, or with no verb exported for it today. For
-> every case here the answer is the same: **keep this view on Reagent** (a
-> fully-supported configuration), and say so plainly. Never contort a view to
-> force it across, and never emit a form for a surface that has not shipped
-> (cardinal rule 6). The React host boundary — the largest hold this list used
-> to carry — has since landed in both directions; its cases moved to
-> [§No longer a hold](#no-longer-a-hold).
+> This list is the honesty backbone of the whole skill: some views should not
+> move, because the construct has **no Hicasso equivalent** — by design, or with
+> nothing shipped for it today. For every case here the answer is the same:
+> **keep this view on Reagent** (a fully-supported configuration), and say so
+> plainly. Never contort a view to force it across, and never emit a form for a
+> surface that has not shipped (cardinal rule 6).
+>
+> The list is deliberately **short**. Hicasso has a first-class foreign-React
+> door, a callback ref, an error boundary, portals, an ephemeral-state sugar and
+> a real test kit, so most of what an earlier substrate had to refuse now
+> converts. Four things genuinely do not.
 
-## Hold on Reagent — no Freehand spelling today
-
-The construct has no Freehand equivalent, so the whole view **stays on Reagent**
-and you say why. (The foreign-React holds that used to head this section have
-landed — see [§No longer a hold](#no-longer-a-hold).)
-
-### MIG-29 — callback and object refs
+## MIG-36 — the prev-props / prev-state update protocol
 
 ```clojure
-{:ref (fn [n] (when n (.focus n)))}
+(r/create-class
+ {:get-snapshot-before-update (fn [this old-argv] (scroll-geometry …))
+  :component-did-update       (fn [this old-argv snapshot] (restore! …))})
 ```
 
-`:ref` has no author-facing spelling in Freehand today: the interpreted tier has
-no ref machinery and refuses the key rather than honouring it half-way, and the
-spec is explicit that there is no ref an author may declare and no way for an
-application to hold a node.
+**Hicasso has no `component-did-update` mechanism at all**, and no
+previous-props channel. Re-render *is* the update: a body re-runs on commit with
+the new values and nothing hands it the old ones. Scroll restoration reading
+pre-mutation geometry, a diff-driven imperative sync, "animate when this
+particular prop changed" — none of them has a door.
 
-**The successor is a registered behavior** (MIG-17), which is handed the node it
-decorates and can reach no other. If the ref exists to do bounded work on one
-node — focus it, measure it, attach an observer, drive a chart — write the
-behavior. If the ref exists to *hand the node to something else*, hold the view.
+Two honest routes before you hold:
 
-### MIG-03 — a read pinned to a non-ambient frame
+- If the update work is genuinely **the DOM's** and can be expressed as *"React
+  ran an effect with these dependencies"*, it belongs in an
+  `re-frame.hicasso.native/defcomponent` island, where `react/useEffect` and its
+  dependency array are legal because you own the source and its call order.
+- If the "previous value" is really **domain history**, it is app-db: the event
+  that changed the value knows both sides, and the consequence belongs to the
+  handler, not to the view.
+
+If neither fits — and `get-snapshot-before-update` in particular has no
+counterpart, because there is no pre-mutation moment to hook — **hold the whole
+view on Reagent.**
+
+## MIG-03 — a read pinned to a non-ambient frame
 
 ```clojure
 @(subscribe [:cell v] {:frame report})
 ```
 
-`v/sub` resolves the **view's own** frame; there is no frame-pinning arity, and
-reaching across frames from a view is an anti-pattern the framework diagnoses,
-not an ergonomics gap. Two honest routes before you hold:
+`h/sub` resolves the **view's own** frame; there is no frame-pinning arity, and
+reaching across frames from a view is an anti-pattern the framework diagnoses
+rather than an ergonomics gap. Two honest routes before you hold:
 
-- The read is **non-reactive** (a one-shot in a callback or a handler) →
-  `rf/subscribe-once` accepts a `{:frame f}` opt. That is a `re-frame.core` verb,
-  not a view one.
-- The subtree genuinely belongs to another frame → it is another **root**. Mount
-  it with `v/mount` and that frame in its `:frame` opt, in its own container.
+- The read is **non-reactive** (a one-shot in a callback) → that is a
+  `re-frame.core` verb taking a frame option, not a view one. Check the core
+  facade for what the project's version exports rather than assuming a spelling.
+- The subtree genuinely belongs to another frame → it is another **root**. Make
+  that frame and mount it with `h/root!` in its own container.
 
 If neither fits — a cell inside one tree that must reactively read a sibling
 frame — hold the view.
 
-## Genuine rejects — no Freehand equivalent, by design
+## MIG-23 — SSR-then-hydrate
 
-### MIG-35 — Reagent component-introspection / scheduler API
+**There is no shipped Hicasso server-render door.** `re-frame.hicasso.server`
+does not exist, and `hydrate-root!` is deliberately **not** on the public facade
+for exactly that reason: a hydrating door adopts bytes something produced, and
+this package publishes nothing that produces them. The absence is held and
+documented in the door's own source, not overlooked.
+
+The draft guide teaches `re-frame.hicasso.server/render`, `ssr/hydrate!` and
+`h/hydrate!`. **None of the three exists.** This is the clearest case in the
+whole migration of cardinal rule 6: a design page is not authority for a
+spelling.
+
+So an app with an SSR-then-hydrate pipeline **keeps its hydrating roots on
+Reagent**. Client-only roots in the same app can convert normally — the hold is
+per-root, not per-app.
+
+(`h/portal` is client-only too, and takes a `:fallback` for its tree position on
+a server render — but that is a portal's own policy, not a hydration path.)
+
+## MIG-35 — Reagent component-introspection and schedulers
 
 ```clojure
 (r/current-component) · (r/props c) · (r/children c)
@@ -63,28 +89,28 @@ frame — hold the view.
 Each encodes a Reagent-specific assumption about *this renderer's* component
 object and render scheduling. **The dangerous part:** these are ordinary calls,
 so a converted view **still compiles** with them in it and then fails or returns
-`nil` at runtime, outside a Reagent render. No build gate catches this; you must.
+`nil` at runtime, outside a Reagent render. No build gate catches this; you
+must, and the census reports them as `:component-introspection`.
 
 Some of it dissolves rather than migrating: `props` and `children` are the props
-map the view already receives (`:children` is a declared prop under
-`:children-policy`), and `force-update` has no meaning under memoised boundaries
-and committed slots.
+map the view already receives (children arrive at `:children`), and
+`force-update` has no meaning under memoised boundaries.
 
-**The schedulers are not a behavior.** `next-tick` / `after-render` are one-shot
-render-queue callbacks that fire before the next flush and after its queued
-renders, even when nothing renders; a behavior's `:connect` / `:update` are
-node-owned and fire on commit and on config change. Different phase, frequency
-and owner — a silent swap changes behaviour no diff review catches. They stay
-R-tier unless the author *explicitly* redesigns the work's phase and ownership.
+**The schedulers are not a callback ref.** `next-tick` / `after-render` are
+one-shot render-queue callbacks that fire around a flush even when nothing
+renders; a ref fires on commit and on identity change. Different phase,
+frequency and owner — a silent swap changes behaviour no diff review catches.
+They stay R-tier unless the author *explicitly* redesigns the work's phase and
+ownership.
 
-### MIG-20 — a shared ratom store (recap)
+## MIG-20 — a shared ratom store (recap)
 
 The ratom-as-store second state model ([`catalog-judgment.md`](catalog-judgment.md)
-MIG-20) is a reject *as written* — there is no Freehand equivalent, by design. It
-appears under D because there is a real restructure decision (into app-db); until
-that restructure happens, the views on the store **stay on Reagent**.
+MIG-20) is a reject *as written* — there is no Hicasso equivalent, by design. It
+appears under D because there is a real restructure decision (into app-db);
+until that restructure happens, the views on the store **stay on Reagent**.
 
-### MIG-25 — effectful subscription bodies
+## MIG-25 — effectful subscription bodies
 
 ```clojure
 (reg-sub :q (fn [db] (dispatch [:log]) (:x db)))    ; a side effect in a sub body
@@ -96,102 +122,37 @@ converts fine (MIG-02) once the sub body is made pure.
 
 ## No longer a hold
 
-**MIG-34 — `dangerouslySetInnerHTML` / trusted markup.** Freehand now exports a
-trusted-markup verb, so a view that renders pre-rendered HTML — a CMS body,
-rendered Markdown — converts.
+These were holds under the previous substrate and are not holds now. Do not
+carry the old refusal across:
 
-```clojure
-;; before → after
-[:div {:dangerouslySetInnerHTML {:__html s}}]   =>   [:div (v/html s)]
-```
-
-The prop is still refused under every spelling, including one smuggled through a
-runtime `v/spread`, and the refusal now names a verb that exists. Three parts of
-the rewrite are load-bearing:
-
-- **The call is the SOLE child of the element**, and it replaces the children —
-  `[:div (v/html s)]`, never `[:div (v/html s) [:span "x"]]`. A Reagent view that
-  set the prop *and* passed children was already relying on React dropping one of
-  them; pick the channel deliberately.
-- **`s` must be a string** at render, on both hosts and in both modes. A view
-  whose field is sometimes nil needs `(v/html (or s ""))` or a branch — the
-  substrate refuses rather than rendering nothing.
-- **`<textarea>` and void elements are refused.** A Reagent textarea setting the
-  prop was already broken in React 19; its content is `:value`.
-
-**Freehand does not sanitise, and neither does SSR** — the string is written
-verbatim, exactly as `dangerouslySetInnerHTML` was. The conversion changes the
-spelling and nothing about the trust: whatever cleared the markup before the
-migration still has to clear it after. What it buys is that a `{:compiled true}`
-declaration records every site on its manifest, so the bypasses become listable.
-
-Do not reach for `v/markup` here: `v/markup` crosses a **hiccup value** into a
-compiled body (MIG-30). It does not parse or inject an HTML string, and using it
-that way renders the markup as text.
-
-**MIG-09 / MIG-10 — foreign React components and their fn-valued props.** The
-React host boundary is now open in **both** directions, so a foreign React
-component no longer forces the whole view onto Reagent.
-
-```clojure
-[:> Button {:label "x"}]                      ; a Reagent interop head — NOT a Freehand shape
-[(r/adapt-react-class Widget) {:p 1}]
-[DatePicker {:on-change #(pick! %)}]
-```
-
-A bare React **component** at a vector head is still illegal. The path is one
-step removed: **create the React element** with your project's ordinary React
-interop (`react/createElement`, a JSX helper, or `reagent.core/as-element` for a
-Reagent component) and place that **element** in a **child** position. It renders
-like any other child, and its props — the fn-valued ones (MIG-10) included — are
-ordinary foreign React props on the element you created; the projection markers
-and the `v/event` / `v/handler` seams are for Freehand's own sites, not a foreign
-component's props. Feed a subscription into such a prop with a render-time
-`(v/sub …)` read.
-
-Two real limits decide whether to take this path or hold:
-
-- **Browser-only.** The JVM structural renderer accepts no React elements, so the
-  region around a foreign child cannot be covered by a `t/render` structural test.
-  Assert the Freehand parts structurally; cover the integration in a mounted
-  browser test.
-- **The head stays illegal.** Only a *created element* crosses inward; a bare
-  component symbol at a vector head is `:rf.error/ui-tree-malformed`.
-
-If neither limit bites, this is a judgment-flavoured conversion, not a hold:
-decide the reshape (head → created-element child) with the author, then convert
-the whole view.
-
-**MIG-22 — third-party Reagent wrapper components (re-com et al.).** A re-com
-control or a charting wrapper is a **Reagent** component, not a plain React one,
-so the inward path runs through `reagent.core/as-element` (Reagent → React
-element → child) and carries the caveats of two renderers sharing a tree — a
-judgment call, browser-only, worth measuring before you commit. Often the cleaner
-move is the **outward** bridge: keep the wrapper subtree on Reagent and hand any
-converted Freehand view up to it with `v/->react`, mounting it as
-`[:> (v/->react the-view) {:frame f …}]`. Either way a Reagent wrapper library is
-no longer a blanket hold, and a converted view is no longer un-renderable under a
-Reagent parent.
-
-**MIG-21 — dynamic tag heads.** `[(if big? :h1 :h2) …]` is legal in the
-interpreted tier: the head evaluates to a keyword and classifies as an element
-like any other. So is markup assembled from data by a helper (MIG-30). Both
-become refusals only if that one declaration is later promoted with
-`{:compiled true}`, whose recovery is to split the branches (`(if big? [:h1 …]
-[:h2 …])`) or to cross the value through `v/markup`. Do not hold a view for
-either; do not promote a view that needs either.
+- **Foreign React components and their fn-valued props** (MIG-09/10). `[:> …]`
+  is legal, `h/defhost` declares a repeated crossing with named callback
+  contracts, `h/as-element` crosses one element through a prop, and
+  `h/as-component` bridges outward to a React/UIx/Reagent parent. → D-tier.
+- **Callback refs** (MIG-29). A function at `:ref` is React's own contract and
+  Hicasso honours it, with the return value as the detach cleanup. Only the
+  *vector* spelling is refused, and it is reserved rather than missing. → D-tier
+  under MIG-17.
+- **Dynamic tag heads and runtime-built markup** (MIG-21/30). Hicasso walks the
+  tree at render; there is no finite grammar and no compiled tier to opt into,
+  so a head that evaluates to a keyword and markup a helper returns are both
+  ordinary content. → M-tier pass-through.
+- **`dangerouslySetInnerHTML`** (MIG-34). It passes through to React untouched.
+  It needs no rewrite — but it does need **flagging**, because Reagent deleted
+  the prop and Hicasso does not, so a dead site becomes live. That is a
+  behaviour change to raise with the author, not a hold. → M-tier.
 
 ## How to phrase a hold to the author
 
 Be specific and non-apologetic. Name the construct, name the gap, name the safe
 home:
 
-> *"`article-body` renders a CMS HTML string through `:dangerouslySetInnerHTML`.
-> Freehand exports no trusted-markup verb — there is no spelling to write — so
-> I'm keeping this view on Reagent, which is a fully-supported configuration. The
-> three leaf views around it are plain hiccup and convert cleanly; I've done
-> those."*
+> *"`article-list` restores scroll position from `get-snapshot-before-update` —
+> it reads the pre-mutation geometry and puts it back after React commits.
+> Hicasso has no update protocol and no pre-mutation moment, so there is no
+> spelling to write; I'm keeping this view on Reagent, which is a
+> fully-supported configuration. The four leaf views around it are plain hiccup
+> and convert cleanly; I've done those."*
 
 A held view is not a failure of the migration. Holding the right views is what
-makes it *honest* — and Freehand being pre-alpha means there will be held views.
-That is expected.
+makes it *honest*.

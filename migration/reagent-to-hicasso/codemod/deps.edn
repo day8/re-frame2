@@ -25,21 +25,36 @@
   ;; pins the two together" — survived its own adversarial pass UNREPAIRED, and
   ;; §10.2's third recommendation was the only structural answer: extract the
   ;; slot rule to `.cljc` so the tool and the door share ONE implementation.
-  ;; rf2-ani6y did exactly that. `front/slot.cljc` names this codemod, by name,
-  ;; as its second consumer.
+  ;; rf2-ani6y did exactly that, and `shared_rule_test.clj` asserts the tool's
+  ;; resolver IS the shared fn by `identical?`.
   ;;
   ;; So this path is not a convenience. Dropping it and transcribing
   ;; `prop-name` into `src/` would re-open §10.3's open question — a corpus
   ;; pinning the tool, a DOM suite pinning the runtime, and nothing pinning
   ;; them equal, with the drift silent in both directions. The namespace
   ;; requires nothing but `clojure.string`, so the JVM cost is one small pure
-  ;; file; `slot_pin_test.clj` asserts we are loading THAT file and not a copy.
+  ;; file.
+  ;;
+  ;; IT POINTS AT THE SHIPPED PACKAGE, NOT AT THE PROTOTYPE (rf2-r4j91). The
+  ;; rule was extracted into the Hicasso BENCH tree — `implementation/freehand/
+  ;; test/re_frame/bench/hicasso/front/slot.cljc` — because that is where the
+  ;; runtime lived when rf2-ani6y ran. rf2-hic-001 then moved the runtime into
+  ;; `implementation/hicasso/`, and `implementation/hicasso/frozen-sources.edn`
+  ;; pins the two files byte-for-byte under the rename
+  ;; `re-frame.bench.hicasso.front.slot` → `re-frame.hicasso.impl.slot`, so
+  ;; both spellings answer identically today. They will not both EXIST for
+  ;; long: Freehand is retired and its tree goes, and a codemod whose only
+  ;; classpath entry sat inside it would go red — `-M:test` and `-M:run`
+  ;; alike — the day that happened. The door a migrator's code will actually
+  ;; meet is the package's, so that is the file this reads.
   ;;
   ;; Note the direction: the bundle-isolation law forbids `implementation/`
   ;; requiring from `tools/`. This is a `migration/` artefact reading a shared
   ;; `.cljc` rule out of `implementation/`, which is the direction the rule was
-  ;; extracted to serve.
-  "../../../implementation/freehand/test"]
+  ;; extracted to serve. Nothing else on that path is loaded: `impl/slot.cljc`
+  ;; requires `clojure.string` and nothing more, and every sibling is `.cljs`
+  ;; this JVM never reads.
+  "../../../implementation/hicasso/src"]
 
  :deps {org.clojure/clojure       {:mvn/version "1.12.4"}
         rewrite-clj/rewrite-clj   {:mvn/version "1.1.49"}}
