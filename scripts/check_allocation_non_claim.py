@@ -253,7 +253,10 @@ def scan(root: Path) -> tuple[list[str], list[str]]:
 # ---------------------------------------------------------------------------
 # self-test
 #
-# Four fixtures, one per way this gate can fail OPEN.  Each is written into a
+# One fixture per way this gate can fail: OPEN on a claim it should catch, or
+# CLOSED on prose it should pass.  The count is deliberately not written down
+# (rf2-93u6) — it already drifted once, and the cases name themselves as they
+# run, which is the copy that cannot.  Each is written into a
 # throwaway tree with its own git repository, because the corpus is derived
 # from `git ls-files` and a fixture that skipped that would not exercise the
 # code path the real run takes.
