@@ -3240,6 +3240,25 @@ jobs:
   #   warn-once-clear-governance-test          file-seq over implementation/
   #   prod-gate-naming-drift-test              every artefact's test/ tree
   #                                            under implementation/ (rf2-n4a2b)
+  #   late-bind-drift-test                     every implementation/**/src file,
+  #                                            anchored to a classpath resource
+  #                                            (rf2-6ng7)
+  #   observation-render-law-drift-test        every TRACKED prose-bearing file
+  #                                            in the repo, from `git ls-files`
+  #                                            (rf2-6ng7)
+  #
+  # SIX AND SEVEN CAME FROM rf2-6ng7's OWN BOUNDED AUDIT, which is this lane's
+  # standing rule paying for itself: neither namespace was selected by any
+  # workflow or script, so both ran only inside `jvm-core`. `late-bind-drift`
+  # walks `implementation/**/src` — the same corpus as the four above, so the
+  # hicasso / ssr-node false arms already measured below are exactly its hole:
+  # a `late-bind/set-fn!` published from either tree, or a directory entry
+  # orphaned by an edit there, merged green. `observation-render-law-drift` is
+  # WIDER than any of them: its census is `git ls-files`, so its domain is the
+  # whole tracked corpus, and rf2-61ar armed `implementation_jvm` for only the
+  # pinned slice of that prose (nearly all `spec/*`, `docs/machines/*`, three
+  # named pages). The rest of `docs/` — `docs/design/hicasso/**` measured —
+  # reads FALSE, so retired render-law prose could land there unread.
   #
   # THE FIFTH ARRIVED THE SAME DAY (rf2-n4a2b). rf2-sk5hf widened
   # prod-gate-naming-drift-test from a depth-1 `.listFiles` over one artefact's
@@ -3271,8 +3290,17 @@ jobs:
   # depth-independent, so tomorrow's artefact is walked by construction while
   # any arming list would have to be re-widened by hand. Arming to completion
   # costs ~59 more PRs and puts 92% of all PRs through that tier. This lane
-  # costs ONE runner of ~30s. An unconditional lane has no read-set model to
+  # costs ONE runner. An unconditional lane has no read-set model to
   # be wrong about, which is the whole point: there is nothing to drift.
+  #
+  # WHAT THE LANE COSTS, measured (rf2-6ng7) on a clean worktree off main with
+  # a warm `~/.m2`, each step its own JVM exactly as CI runs it: 5 / 7 / 13 /
+  # 7 / 5 / 61 / 8 seconds for the seven steps in order, ~106s of test time
+  # against this job's 10-minute ceiling. `late-bind-drift-test` is 61s of
+  # that, and it is the price of the repair rather than a defect to fix here:
+  # its producer spot-check re-reads the source corpus per directory entry.
+  # Slow, bounded, and still an order of magnitude under the ~21-minute JVM
+  # tier that arming these roots would have cost instead.
   #
   # A new classifier output was the third option and is rejected for the
   # reason jvm-hicasso gives at length — the defect being repaired IS a
@@ -3286,7 +3314,7 @@ jobs:
   # SILENT: measured on this tree, `-n <valid> -n <does-not-exist>` exits 0
   # having run only the valid one, with no warning. One combined step therefore
   # rests entirely on the quiet runner's TOTAL test-count floor, and these
-  # namespaces are lopsided — 1 / 3 / 27 / 1 / 2 tests. A total floor cannot tell
+  # namespaces are lopsided — 1 / 3 / 27 / 1 / 2 / 8 / 5 tests. A total floor cannot tell
   # "the 1-test floor lint stopped selecting" from "the 27-test catalogue
   # gained a test", so the guard would silently stop guarding the moment the
   # big suite grew. Run per namespace and each takes the runner's DEFAULT
@@ -3343,6 +3371,12 @@ jobs:
 
       - name: Production-gate naming drift (every artefact's test/ tree)
         run: clojure -M:test -n re-frame.prod-gate-naming-drift-test
+
+      - name: Late-bind directory drift (every implementation/ src root)
+        run: clojure -M:test -n re-frame.late-bind-drift-test
+
+      - name: Observation render-law drift (every tracked prose file, git ls-files)
+        run: clojure -M:test -n re-frame.observation-render-law-drift-test
 
   cljs:
     name: CLJS (shadow-cljs :node-test)

@@ -388,9 +388,11 @@ test('Xray CLJS src change runs cljs (node-test compiles tools/xray) (rf2-f79t8)
 // made the corpus depth-independent by construction, so a future artefact is
 // walked with nobody maintaining a list, while an arming predicate would have
 // to be re-widened by hand every time. Instead `test.yml`'s UNCONDITIONAL
-// `jvm-repo-source-walks` job runs the four namespaces on every PR, one step
-// each so that a namespace which stops selecting reds on the runner's own
-// test-count floor rather than hiding inside a combined total.
+// `jvm-repo-source-walks` job runs those namespaces on every PR — seven of
+// them now, the roster being `REPO_SOURCE_WALK_NAMESPACES` below rather than
+// this paragraph — one step each so that a namespace which stops selecting
+// reds on the runner's own test-count floor rather than hiding inside a
+// combined total.
 //
 // So do NOT "fix" these to true: that re-incurs the tax and re-opens the
 // maintenance hole. If the unconditional job is ever deleted, THIS is the
@@ -435,12 +437,27 @@ test('implementation/core/src still arms implementation_jvm (rf2-cujx control)',
 // assertion up there goes on passing, asserting a coverage that has gone. This
 // is the rf2-6ng7 codicil applied to a repair whose "arming" is a workflow step
 // rather than a classifier output.
+//
+// rf2-6ng7 — THE SIXTH AND SEVENTH, found by this bead's bounded audit rather
+// than by tripping over them. Neither namespace was selected by any workflow or
+// script (measured: `git grep` over `.github/**` and `scripts/**` returns the
+// source file and nothing else), so both ran only inside `jvm-core`.
+//
+// `late-bind-drift-test` walks `implementation/**/src` — the SAME corpus as the
+// four src-walkers above, so the hicasso / ssr-node rows already asserted here
+// are its hole verbatim. `observation-render-law-drift-test` is wider than any
+// of them and needs its own probe: its census is `git ls-files`, so its domain
+// is the whole tracked prose corpus, and rf2-61ar armed `implementation_jvm`
+// for only the pinned SLICE of that prose. `docs/design/hicasso/**` is outside
+// the slice, which the row below measures.
 const REPO_SOURCE_WALK_NAMESPACES = Object.freeze([
   're-frame.no-rf-default-floor-lint-test',
   're-frame.egress-chokepoint-conformance-test',
   're-frame.error-catalogue-channel-conformance-test',
   're-frame.warn-once-clear-governance-test',
   're-frame.prod-gate-naming-drift-test',
+  're-frame.late-bind-drift-test',
+  're-frame.observation-render-law-drift-test',
 ]);
 
 test('hicasso + ssr-node TEST trees read implementation_jvm false — the naming-drift walk reads them anyway (rf2-n4a2b)', () => {
@@ -457,6 +474,24 @@ test('hicasso + ssr-node TEST trees read implementation_jvm false — the naming
     classify('implementation/epoch/test/re_frame/foo_prod_gate_test.clj').implementation_jvm,
     'true',
   );
+});
+
+test('unpinned PROSE reads implementation_jvm false — the render-law census reads it anyway (rf2-6ng7)', () => {
+  // The seventh walk's domain is `git ls-files`, not a directory: every tracked
+  // `.md` / `.clj` / `.cljc` / `.cljs` in the repo. rf2-61ar armed
+  // `implementation_jvm` for the prose a test.yml suite PINS — nearly all of
+  // `spec/*`, `docs/machines/*`, three named pages — and deliberately left the
+  // rest of `docs/` arming nothing. So the census outruns the arm, and a
+  // retired render-law claim landing on an unpinned page merged green.
+  for (const p of [
+    'docs/design/hicasso/product/foo.md',
+    'docs/core/hicasso/foo.md',
+  ]) {
+    assert.equal(classify(p).implementation_jvm, 'false', p);
+  }
+  // The control: prose that rf2-61ar DOES arm. Without it a classifier
+  // returning false for every `.md` would read as this census passing.
+  assert.equal(classify('docs/machines/concepts.md').implementation_jvm, 'true');
 });
 
 test('the unconditional walk lane runs every namespace whose false arm it excuses (rf2-n4a2b)', () => {
