@@ -14,10 +14,10 @@
 // this file on the half it missed.
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-require('../../../../../core/test/re_frame/bench/lane_cache.cjs');
+require('../lane_cache.cjs');
 
 const IMPL = path.resolve(__dirname, '..', '..', '..', '..', '..');
-const BUILD = 'freehand-release';
+const BUILD = 'hicasso-bench';
 const CONFIG_MERGE = '{:output-dir "fixture" :init-fn fixture.arm/main}';
 const runner = path.join(IMPL, 'node_modules', 'shadow-cljs', 'cli', 'runner.js');
 

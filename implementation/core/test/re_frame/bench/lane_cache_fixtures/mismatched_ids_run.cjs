@@ -6,11 +6,11 @@
 // comparison can see it. Read as TEXT and never executed.
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { resetLaneBuildCache } = require('../../../../../core/test/re_frame/bench/lane_cache.cjs');
+const { resetLaneBuildCache } = require('../lane_cache.cjs');
 
 const IMPL = path.resolve(__dirname, '..', '..', '..', '..', '..');
-const CLEAR_BUILD = 'freehand-release';
-const RELEASE_BUILD = 'freehand-release-arm';
+const CLEAR_BUILD = 'hicasso-bench';
+const RELEASE_BUILD = 'hicasso-bench-arm';
 const CONFIG_MERGE = '{:output-dir "fixture" :init-fn fixture.arm/main}';
 const runner = path.join(IMPL, 'node_modules', 'shadow-cljs', 'cli', 'runner.js');
 
