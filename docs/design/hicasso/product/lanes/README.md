@@ -22,6 +22,7 @@ Quantitative claims stay attached to their witness, revision, runtime, substrate
 | Native authoring grammar and examples | [`ergonomics-api.md#optional-native-surface`](ergonomics-api.md#optional-native-surface) |
 | Native-tier acceptance checklist and performance protocols | [`hot-path-architecture.md#canonical-native-tier-acceptance-checklist`](hot-path-architecture.md#canonical-native-tier-acceptance-checklist) |
 | Public-surface SSR/hydration policy and witness matrix | [`react-compatibility-notes.md#public-surface-ssrhydration-matrix`](react-compatibility-notes.md#public-surface-ssrhydration-matrix) |
+| Whether hiding a subtree retains or releases its subscription state | [`react-compatibility-notes.md#suspense-retains-where-activity-releases`](react-compatibility-notes.md#suspense-retains-where-activity-releases) |
 | Concrete product proof suites | [`completeness-audit.md`](completeness-audit.md) |
 | Phase dependencies and exit signals | [`delivery-programme.md`](delivery-programme.md) |
 | Candidate-idea protocols and kill criteria | [`left-field-ideas.md`](left-field-ideas.md) |
