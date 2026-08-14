@@ -5728,7 +5728,7 @@
   So: a red here means the runner's schedule changed, NOT that a consumer's
   did. The consumer-schedule question is answered elsewhere, by a page whose
   gap is representative and which measures that gap before it reads anything:
-  `freehand/test/re_frame/bench/hicasso/adoption_witness_run.cjs`, an on-demand
+  `hicasso/test/re_frame/bench/hicasso/adoption_witness_run.cjs`, an on-demand
   diagnostic that gates nothing (rf2-2rtt6.80).
 
   Correctness is not at stake in either direction. Spec 006 §Render-phase

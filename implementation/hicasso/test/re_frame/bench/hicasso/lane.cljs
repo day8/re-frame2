@@ -11,20 +11,25 @@
 
   ## Where this file lives, and why the namespace does not say `freehand`
 
-  Physically under `implementation/freehand/test/` because HD-017 carves
-  the bench/test measurement lane out of the donor freeze and that tree
-  is the one whose classpath already carries Reagent, UIx, React and
-  `react-dom` together. The NAMESPACE is `re-frame.bench.hicasso.*`
-  because the charter's anti-regression fence is explicit that Hicasso
-  carries no continuity claim to its predecessors: an instrument that had
-  to spell a withdrawn programme's name to compile would be making one.
-  `implementation/freehand/test` is a shadow `:source-paths` root, so the
-  path under it is the namespace and nothing else is needed.
+  Physically under `implementation/hicasso/test/`. It began under
+  `implementation/freehand/test/` — HD-017 carved the bench/test
+  measurement lane out of the donor freeze, and that tree was the one
+  whose classpath already carried Reagent, UIx, React and `react-dom`
+  together — and rf2-0yp7w moved the whole bench tree to its
+  evidence-owned home beside the substrate it measures. The NAMESPACE is
+  `re-frame.bench.hicasso.*` because the charter's anti-regression fence
+  is explicit that Hicasso carries no continuity claim to its
+  predecessors: an instrument that had to spell a withdrawn programme's
+  name to compile would be making one. `implementation/hicasso/test` is a
+  shadow `:source-paths` root, so the path under it is the namespace and
+  nothing else is needed.
 
-  Nothing here requires anything out of `implementation/freehand/src`.
-  That is deliberate and it is why `now-ms`/`summarise` are re-derived in
-  eleven lines rather than borrowed from the donor's `bench.measure`: a
-  frozen donor `src/` tree is not a dependency this lane should acquire.
+  Nothing here requires anything out of `implementation/freehand/`. That
+  was deliberate before the move and it is why `now-ms`/`summarise` are
+  re-derived in eleven lines rather than borrowed from the donor's
+  `bench.measure`: a frozen donor `src/` tree is not a dependency this
+  lane should acquire. The move did not create that independence, it
+  merely made it visible in the path.
 
   ## What a reading is
 

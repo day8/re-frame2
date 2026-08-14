@@ -186,8 +186,9 @@ implementation/
                              boundary is a real React function component minted by
                              `defview`, and the runtime owns only what React does not.
                              Extracted by rf2-hic-001 as a mechanical copy of the
-                             measured prototype in freehand/test/re_frame/bench/hicasso/,
-                             which stays where it is and keeps running.
+                             measured prototype, which rf2-0yp7w then moved out of
+                             freehand/ to test/re_frame/bench/hicasso/ here, where it
+                             keeps running beside the substrate it measures.
     deps.edn                 :local/root dep on ../core; own :test alias (pre-publication,
                              so no :clein deploy aliases).
     frozen-sources.edn       Every donor file the copy read, pinned by digest, plus the

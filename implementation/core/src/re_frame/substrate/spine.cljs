@@ -2445,7 +2445,7 @@
   THE ADOPTION WITNESS IS A COMMITTED DIAGNOSTIC that nothing invokes on a
   schedule:
 
-      node implementation/freehand/test/re_frame/bench/hicasso/adoption_witness_run.cjs
+      node implementation/hicasso/test/re_frame/bench/hicasso/adoption_witness_run.cjs
 
   It measures a quiet single-mount page's gap FIRST and refuses to read the
   adoption integers at all unless that gap sits comfortably inside this
