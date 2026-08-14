@@ -450,7 +450,13 @@ worse than none. Re-issuing it requires the same decider.
 - **The K1 mount price.** [`k1-price-acceptance.md`](k1-price-acceptance.md)'s.
   Ratifying it carries nothing here, and this record carries nothing there.
 - **Bulk (K2), the WebKit control matrix (K4), and warm allocation.** Each keeps
-  its own owner, gate and open status.
+  its own owner and gate. K2 and warm allocation keep their open status too;
+  **K4's WebKit half does not** — controlled text is verified on all three
+  engines and the two native-IME cells read **Green** — by operator ruling of
+  2026-08-13 (`rf2-hic-016`), recorded per engine in
+  [`dispositions.md` §2.3](dispositions.md#23-per-control-and-dom-conformance-dispositions).
+  K4's criterion text is untouched and bites on a red result exactly as
+  registered, and this record neither made that ruling nor carries it.
 - **Whether a Hicasso-owned derived-value container beats the spine.** No code,
   no measurement, a demonstrated target of `1,417 B/read`, and a bracket that
   says where it would have to land.
