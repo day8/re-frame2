@@ -146,8 +146,10 @@ never to the guard.
 
 Committed as `cd99cded82` — this page's first revision — **before** the
 published rungs were measured, so this page is not a record of only the
-predictions that came true. `git show cd99cded82` is the receipt.
-[§3](#3-the-prediction-adjudicated) marks each one.
+predictions that came true. The rebase-merge stranded that authored head, so it
+is in no fresh clone; it landed on `main` as `cca5c7ea84`, the commit that adds
+this page, carrying it at the identical blob. `git show cca5c7ea84` is the
+receipt. [§3](#3-the-prediction-adjudicated) marks each one.
 
 - **P1** *(the ruling's own falsifiable claim)* — the fan-out-1 rung lands on
   the ladder's distinct-query family: Reagent ~1,562 B, UIx ~3,807 B at one

@@ -8,11 +8,16 @@ no package-resident clock instrument exists to read it.
 
 Checkpoint 3 (`rf2-hic-038`) ran on 2026-08-14 in a worktree of its own, at `main`@`f455316fbf`, by a
 reviewer who wrote none of the artefacts it reviews. **It took no measurement and opened no
-measurement window** — see [§4](#4-what-was-not-re-run-and-why-it-cannot-flip-the-verdict), which
-also says why that omission cannot have produced this verdict.
+measurement window**, and it still has not: what §2 asks for is re-runs and sabotages, not a clock.
+Those were outstanding when this record was first written and were **taken on 2026-08-14** by a
+re-dispatch of the same bead, against `main`@`77bee1b9b7` — three clean-checkout re-runs and six
+independent sabotages, all six reddening. See
+[§4](#4-what-the-re-run-covered-and-what-it-did-not-change), which also says why neither that earlier
+gap nor its closing could have produced this verdict.
 
 **The refusal is the deliverable.** Twelve misses are filed ([§5](#5-the-misses)), three of them
-`correctness`. But the headline is narrower than the miss list and is worth separating from it: this
+`correctness` — and the re-run added no thirteenth, which is the only outcome a sabotage family that
+bites can produce. But the headline is narrower than the miss list and is worth separating from it: this
 checkpoint declines to certify that a native island performs like the component it replaces, because
 nobody has measured whether it does, and the artefacts say so in their own words. Everything else
 here is secondary to that.
@@ -288,33 +293,73 @@ accepting it as an answer would be exactly the substitution the rule forbids. Th
 the substitution in the same paragraph, which is why this row is scored unaddressed rather than met —
 **scoring it as the artefacts already score themselves, rather than more generously.**
 
-## 4. What was NOT re-run, and why it cannot flip the verdict
+## 4. What the re-run covered, and what it did not change
 
-§2 of this checkpoint's protocol asks for a clean-checkout re-run of the three-way matrix and the
-bundle gate, and four independent sabotages — the bundle-rent gate, one frame/store lifecycle row, one
-HMR-residue row, one server-refusal row. **None was taken.** Three workers were live, one inside a
-long spine run; the bead's own fence gated this section on a free box; and the operator's standing
-direction defers measurement. The bundle gate is reachable only through a full `:advanced` release
-build, and the sabotage families need the browser lane.
+**This section used to record an omission. It now records the work.** When this report was first
+written, §2's clean-checkout re-runs and its sabotage family had not been taken — three workers were
+live, the bead's fence gated the section on a free box, and the bundle gate is reachable only through
+a full `:advanced` release build. That was filed as a miss against this checkpoint itself
+([`rf2-5nijq`](#5-the-misses)), and MERGED-PR AUDIT #8176 then reopened `rf2-hic-038` — the exact owner —
+rather than leaving the row to a separate bead. The re-dispatch took the section on 2026-08-14,
+against `main`@`77bee1b9b7`, in a worktree of its own, and wrote none of the artefacts it exercises.
 
-This is recorded as a miss ([`rf2-5nijq`](#5-the-misses)) and a closure bead, not excused. But its relation to
-the verdict is worth stating exactly, because it is **one-directional**:
+**The paragraph this section was built around is kept, because it is still the reason the omission
+never threatened the verdict:**
 
 > A sabotage that fails to redden, or a re-run that fails, **adds** a finding. Neither can turn an
 > unaddressed clause into a met one. The verdict here is *not met*, reached on documentary facts that
 > no execution could have reversed — `C7` carries no reading, and no re-run creates one.
 
-So the un-taken work cannot have produced this verdict. What it could have produced is **more misses
-than the twelve below**, and the ledger row says so in those terms. A checkpoint that had returned
-*exit met* under the same omission would have been worthless; this one returns the opposite, which is
-the direction the omission cannot help.
+That argument decided in advance what the re-run was allowed to do, and the outcome is the benign
+one: **it added nothing.** The verdict, the twelve misses and the freeze rule below are untouched.
 
-What *was* done in §2's place is documentary and is stated as such: every sabotage target was checked
-to **exist** — the two-languages fence carries its matched pair (`{:on-click [:fence/go]}` ordinary
-on one side, refusing on the other, so an implementation with either language leaked into the other
-fails one half or the other), and the bundle gate, the lifecycle rows and the server-refusal rows all
-carry in-suite armed and disarmed halves. **Existence is met; reddening is unaddressed by this
-checkpoint.**
+### 4.1 The clean-checkout re-runs
+
+| What | Result | Captured exit |
+|---|---|---|
+| Node lane (`test:cljs`) — the three-way matrix's structural half, the fence, both hooks, the HMR suites, the Client-only server arms | 13,905 tests / 70,217 assertions / 0 failures / 0 errors | **0** |
+| Browser lane (`test:browser`) — the three-way matrix's DOM half, the two-frame isolation row, the ABI/bridge suites, the causal slice over a native subject | 1,542 tests / 9,783 assertions / 0 failures / 0 errors | **0** |
+| Bundle-rent gate — a real `:advanced` + `goog.DEBUG=false` release build, then `check_bundle_isolation.cjs` self-test and scan | 4 sentinels absent, 4 positive controls present; the erasure gate green beside it | **0** |
+
+### 4.2 The sabotages
+
+Six, planted **one at a time** in source — never in a test — each run alone, and each restored and
+verified with `git hash-object` against the committed object rather than by reading a diff, because a
+patch that never applied and a clean restore have the same diff. Every plant was anchored to a single
+line. **All six reddened, each naming its own row.**
+
+| # | Target row | The plant | What reddened | Exit |
+|---|---|---|---|---|
+| 1 | Dependency and rent | the native tier made reachable from the release entry, exactly as a leak would arrive | `check_bundle_isolation.cjs` named the surface, the sentinel `rf2:hicasso-native-tier` and the remedy — while its own self-test and the erasure gate stayed green | **1** |
+| 2 | Native-language leakage | the intent-in-prop refusal in `prop-slots` made unreachable, so hiccup semantics pass the fence | 10 assertions across four files, including the matched pair at `native_fence_cljs_test.cljs:180-181` and the fence row inside the three-way matrix itself | **1** |
+| 3 | Frame and store lifecycle | the frame dropped from `use-sub`'s cell key, so every island's read shares one cell | `native_hooks_cljs_test.cljs:144` and `three_way_parity_cljs_test.cljs:585` | **1** |
+| 4 | Frame and store lifecycle, on its strongest row | the same plant, taken to the browser lane | `two-frames-are-two-cells-and-an-island-cannot-see-across`, its inward-door twin, and 23 more — and both suites' `declared-population` rosters fired, reporting the states that stopped being reached | **1** |
+| 5 | HMR residue | the cell reaper made unreachable, so a retired generation keeps its key | all four residue rows in `hmr_remount_cljs_test.cljs`, including the in-suite control `a-leaked-stale-registration-turns-the-cleanup-witness-red` | **1** |
+| 6 | Server and hydration | the `:client-only` branch bypassed, so a gated island renders into the server bytes | `a-client-only-island-is-absent-from-the-server-bytes` and three sibling policy rows, plus the suite's own false-render control | **1** |
+
+Three properties of the runs are worth recording, because each is a way this family could have
+reported a pass it had not earned. **The counts held**: every node-lane sabotage ran the same 13,905
+tests and 70,217 assertions as the control, so no plant crashed a namespace and stopped the ones
+after it. **The browser sabotage's assertion count fell** — 9,672 against the control's 9,783, on an
+identical 1,542 tests — which is the expected shape when async rows reject early rather than a sign
+of skipping, and the roster guards named the unreached states outright. And **the harness's own
+report of a run's exit code disagreed with the captured one on every red above**, reporting success
+each time; the numbers in these tables are the ones the runner wrote to its own exit file.
+
+**Two limits, stated rather than left to be found.** The node lane cannot reach frame isolation: the
+two-frame row skips itself there with `":node-test has no React DOM"`, which is why sabotage 4 exists
+as a separate row rather than being folded into 3. And the plants are *deliberate* faults, so they
+prove these witnesses are **non-vacuous**, not that they are complete — row 8's clock half is
+unaddressed for reasons no sabotage touches, and [§3](#3-the-checklist-row-by-row) is unchanged by
+all six.
+
+### 4.3 What this adds to the misses
+
+**Nothing, and that is the finding.** A sabotage that had stayed green would have been a
+`correctness` row — the ledger's own definition names *a sabotage control that fails to redden* — and
+none did. So the twelve below stand as twelve; `rf2-5nijq` closes as withdrawn-and-discharged rather
+than as a thirteenth; and the one thing this section can now say that it could not before is that the
+native tier's witnesses **bite**. That was previously argued from their existence. It is now measured.
 
 ## 5. The misses
 
@@ -335,7 +380,7 @@ the bead; the table below is an index.
 | `rf2-s52w` | 5 | Outward-bridge mismatch attribution is unreachable by construction | coverage |
 | `rf2-1qws` | 5 | The row's deciding evidence points at a policy table with no witnesses | quality |
 | `rf2-e0d2` | — | The native namespace's public var surface is unclassified before a freeze | coverage |
-| `rf2-5nijq` | §2 | This checkpoint's own sabotage re-runs were not taken | coverage |
+| `rf2-5nijq` | §2 | This checkpoint's own sabotage re-runs were not taken — **withdrawn as a duplicate and the obligation discharged**, [§4](#4-what-the-re-run-covered-and-what-it-did-not-change) | coverage |
 
 ## 6. The freeze rule, applied
 
