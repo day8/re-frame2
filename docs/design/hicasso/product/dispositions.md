@@ -259,32 +259,60 @@ The roster below is the countable one: every control and DOM conformance case na
 owned by `rf2-hic-040`. No control may be silently unsupported, so a row that never acquires a policy is itself a
 failure.
 
+Every witness named below is a section of `implementation/hicasso/testbed/spec.cjs`, driven once per engine by
+`implementation/scripts/serve-and-run-hicasso-controlled-testbed.cjs` (`npm run test:hicasso-controlled`). Section names
+are pinned by that runner's `REQUIRED_SECTIONS`, so a witness this table cites cannot be deleted without reddening the
+gate that names it. Engines and builds are recorded under the table.
+
 | Control or conformance case | Support-or-refusal policy | Witness |
 |---|---|---|
-| Text input | Owed | Owed |
-| Textarea | Owed | Owed |
-| Checkbox | Owed | Owed |
-| Radio | Owed | Owed |
-| Select (single) | Owed | Owed |
-| Select (multiple) | Owed | Owed |
-| File input | Owed | Owed |
-| Number input | Owed | Owed |
-| Date input | Owed | Owed |
-| Range input | Owed | Owed |
-| Contenteditable | Owed | Owed |
+| Text input | **Supported**, with the whole of I15: same-turn converge, committed echo, caret restored by offset from the END of the string, composition carved out, and `::h/revision` reset on the same DOM node | `same-turn-convergence`, `caret-across-the-echo`, `caret-under-real-typing`, `revision-reset-preserves-identity` (`rf2-hic-016`) |
+| Textarea | **Supported**, identically and by the same code path — `convergeable-tag?` admits `input` and `textarea`, and `caret-type?` answers yes for a textarea unconditionally rather than by `:type` | the `notes` rows of `caret-across-the-echo` (`rf2-hic-016`) |
+| Checkbox | **Supported** through owned `::h/checked`, whose `false` is a PRESENCE rather than a falsehood. It is outside the converge and correctly so: a checkbox written idiomatically carries no `:value`, so it is not a `controlled-text-tag?`, no wrapper is installed, and React's own restore is the echo | `owned-checked-pair` (`rf2-hic-016`); inside a real form, `form-reset-autofill-and-formdata` |
+| Radio | **Supported** — `:checked` owned per element against ONE model slot, which is the shape a group has. The refusal echo is React's whole-group restore: clicking a refused option leaves the group showing the committed choice, and the other buttons sharing the `name` are restored too | `radio-group-echoes-committed` |
+| Select (single) | **Supported**, and entirely outside `impl.controlled` — `convergeable-tag?` answers false for a `select` (no text cursor, no `defaultValue` mirror), so React's own controlled restore is the whole mechanism. Measured to land INSIDE the turn, exactly as the converge does | `select-single-echoes-committed` |
+| Select (multiple) | **Supported through `h/hfn` only, and the reserved `::h/value` spelling is NOT CERTIFIED.** `h/hfn` reading `selectedOptions` carries the whole selection and echoes it, refusal included. `::h/value` lowers to `(.-value target)`, which on a multiple select is the FIRST selected option — so the naive spelling silently discards every other choice, inside the turn, with no refusal and no warning anywhere. **This is a finding of the conformance run, not a certification** — `rf2-42vlw` | `select-multiple-supported` (the supported path); `reserved-marker-under-reads-a-multiple-select` (the finding, asserted in the direction the runtime behaves) |
+| File input | **Refused as a controlled field — and the refusal today is the PLATFORM's rather than Hicasso's, which is NOT CERTIFIED.** The supported path is an uncontrolled input with `h/hfn` reading `.files`, and it is green. A `:value` off a subscription cannot be honoured by anything: React's controlled write is `element.value = …` (`react-dom@19.2.0` `initInput` and `updateInput`), and that assignment throws `InvalidStateError` on a file input in all three engines — while React 19.2 carries no controlled-file-input warning at all. **Finding, not certification** — `rf2-u2tza` | `file-input-is-uncontrollable` |
+| Number input | **Supported for the VALUE; no caret is preserved, and none exists to preserve.** `caret-type?` admits only `text`, `search`, `url`, `tel`, `password` and a bare `<input>`, so `convergeable?` answers no, no wrapper is installed, and React's own end-of-event restore is the echo — measured in-turn on a clamping policy | `types-without-a-caret-echo-committed` |
+| Date input | **Supported on the same terms as the number input.** One narrowing, recorded and latent: WebKit answers `selectionStart` on a date field (10, the length of `yyyy-mm-dd`) where Chromium and Firefox answer null. It reaches nothing today, because a date field is never `convergeable?` in any engine, and the control's echo is identical in all three | `types-without-a-caret-echo-committed`; the divergence is `NARROWINGS`' one entry, with its engines and its reason |
+| Range input | **Supported on the same terms**, witnessed with a snap-to-ten normalisation the control's own stepping cannot produce, so the echo is the runtime's rather than the browser's | `types-without-a-caret-echo-committed` |
+| Contenteditable | **Not a controlled field, by policy and by construction.** There is no owned slot for a contenteditable region, no reserved marker that reads one, and nothing in `impl.controlled` that could apply — its guards are `input` and `textarea`, by tag. What an author gets is an ordinary element whose children are the model's, whose edits return through `h/hfn`, and which carries no `defaultValue` record for a converge to read. An out-of-band model change re-renders the content on the same node | `contenteditable-is-not-a-controlled-field` |
 | Composition and IME | Supported. The recurring cross-engine witness is the composition event **sequence**; real native-IME conduct is dispositioned per engine in the block below | `implementation/hicasso/testbed/spec.cjs` on all three engines (`rf2-hic-016`); native ranges on Chromium by `implementation/freehand/test/re_frame/bench/hicasso/ime_run.cjs` |
-| Caret and selection preservation | Owed | Owed |
-| Blur after unmount | Owed | Owed |
-| Async normalization | Owed | Owed |
-| Autofill | Owed | Owed |
-| Form reset | Owed | Owed |
-| FormData extraction | Owed | Owed |
-| SVG attributes | Owed | Owed |
-| Custom elements | Owed | Owed |
+| Caret and selection preservation | **The CARET is supported** on the five caret types and on `textarea`, restored by offset from the end so a length-changing normalisation keeps it — and it is the only observable that separates this runtime from plain React, because React's own restore corrects every value-level misconduct in the same discrete event. **A RANGE selection is refused across an out-of-band write** and collapses to a caret at the end of the new value: that is `rf2-n3dxw`'s stated limit, it is React's restore doing it rather than this runtime, and it is measured identically in all three engines | `caret-across-the-echo`, `caret-under-real-typing`, `selection-across-an-out-of-band-write` (`rf2-hic-016`) |
+| Blur after unmount | **Supported in the only sense the platform allows: nothing is stranded.** The field unmounts with a draft the model never took, the detached node does not keep the document focus, and the remount shows the model on a new node. What is NOT supported, and is React's rather than this runtime's, is a blur EDGE: React synthesises no `blur` for a node it removes, so commit-on-blur loses that edit — measured, unanimous in all three engines, and recorded rather than required because it is React's conduct | `blur-after-unmount` |
+| Async normalization | **Supported** — and on a path the keystroke converge is deliberately not on. A correction arriving a turn later fires no change event, so `install!`'s wrapper never runs and React's own restore writes the field; the field lands on the committed value with no keystroke to carry it, exactly once | `async-normalization` |
+| Autofill | **Supported for both shapes a fill can take from script**, and both are now REQUIRED rather than recorded: a fill carrying an `input` event converges like a keystroke and reaches the store, and an EVENTLESS fill leaves a draft the runtime never sees and never writes to the store — nothing here polls the DOM. **NATIVE autofill is UNADDRESSED on all three engines** and is not claimed: Chromium's drive is a CDP method needing an address profile, and neither Firefox nor WebKit exposes one at all. The eventless write is named a proxy, not a substitute | `form-reset-autofill-and-formdata`; the earlier recorded shape is `form-reset-and-fill-proxy` (`rf2-hic-016`) |
+| Form reset | **Supported, and visually inert on a converged text field** — `defaultValue`, the per-instance record `controlled/last-rendered` reads, is already the model, so the one ordinary browser action that touches the converge's own bookkeeping agrees with it. Checkbox and select agree with the model after a reset too, in all three engines, and are recorded rather than required because React maintains `defaultChecked` and option selection on different rules from `defaultValue` | `form-reset-autofill-and-formdata`; the text row's original recording is `form-reset-and-fill-proxy` (`rf2-hic-016`) |
+| FormData extraction | **Supported** — `new FormData(form)` reads the COMMITTED value of every named controlled control, text and select alike, and a checked box contributes its `value` rather than its checked state. An unchecked box contributes nothing at all, which is the property that separates a form extraction from a model read | `form-reset-autofill-and-formdata` |
+| SVG attributes | **Supported.** Read off the live DOM, where an SVG element's attributes are case-sensitive: `:view-box` lands as the camelCase `viewBox` SVG requires and never as a lower-cased attribute that would do nothing, kebab presentation attributes (`:stroke-width`, `:stroke-linecap`, `:font-size`) land kebab, and the camelCase spelling of a presentation attribute is absent. The subtree is really in the SVG namespace | `svg-attributes` |
+| Custom elements | **Supported for a STRING prop key and for `data-*`; a kebab KEYWORD is NOT CERTIFIED.** React 19 passes an unknown prop on a custom element through as an attribute under the name it was given, and the name it was given is the slot rule's output — so `"my-attr"` and `:data-kebab-attr` reach the DOM as written, while `:my-other-attr` is camelCased first and lands as `myotherattr`. The dashed attribute the author wrote never appears, and nothing refuses or warns. **Finding, not certification** — `rf2-n71ma` | `custom-element-attributes` |
 
-Every remaining cell reads Owed because Phase 0 precedes the conformance run. The rows exist now so the run has a fixed
-roster to fill and cannot quietly shrink; `rf2-hic-040` replaces the cells in place and adds a row only for a control
-case this roster missed.
+### Engines, builds and the verdict this table rests on
+
+Run 2026-08-14 under `rf2-hic-040`, on the builds Playwright 1.59.1 installs, against `react-dom@19.2.0` on Node
+24.13.0. Every section above runs unmodified in each engine — the runner cannot run one in fewer — so a row's claim is a
+three-engine claim by construction:
+
+| Engine | Build | Result |
+|---|---|---|
+| Chromium | 147.0.7727.15 | 190 checks across 25 sections, green |
+| Firefox | 148.0.2 | 190 checks across 25 sections, green |
+| WebKit | 26.4 | 190 checks across 25 sections, green |
+
+**Three rows are findings rather than certifications**, and the distinction is the whole value of the run: `::h/value`
+on a multiple select, a `:value` on a file input, and a kebab keyword on a custom element are each a spelling that
+means something other than what it says, with no refusal at the source. Each is asserted in the direction the runtime
+actually behaves, so the witness reds when the behaviour is repaired as well as if it degrades, and each has a bead —
+`rf2-42vlw`, `rf2-u2tza`, `rf2-n71ma`. None of the three was repaired by `rf2-hic-040`: a source-located refusal mints
+an error id, an error id owes a row in `spec/009-Instrumentation.md`, and that file is hot zone the bead was fenced out
+of. **`rf2-hic-048`'s coverage audit should read these three cells as open, not as green.**
+
+**One cell is UNADDRESSED rather than passing**: native autofill, on all three engines, for want of any cross-engine
+drive. The eventless-write proxy that IS gated is named a proxy in the row above and is not a substitute for it.
+
+Section 2.3's opening rule — *no control may be silently unsupported* — is therefore met at the level of this table and
+**not yet met at the level of the runtime**, for the three rows named above. That is the honest reading, and it is
+recorded here rather than resolved by wording.
 
 **Native IME, per engine (`rf2-hic-016`).** The Composition-and-IME row above is filled in two parts because the
 evidence has two tiers, and collapsing them would claim more than is held. The recurring witness is the composition
