@@ -515,7 +515,24 @@ def check(manifest_path, package_root, repo_root, update=False):
                         "          the two forms differ once layout and comments are "
                         "set aside" % (package_rel, name, bench_rel))
 
-    for path in source_files(package_root):
+    # SEALED walks the package, and since rf2-0yp7w P0 the DONOR ROOT lives
+    # inside it: the hicasso benchmark harness was re-homed out of
+    # `implementation/freehand/test/` into `implementation/hicasso/test/`,
+    # because it measures hicasso and belongs beside it. The harness is
+    # `re-frame.bench.hicasso.*` throughout and imports itself constantly, so
+    # walking it would report ~128 SEALED failures for the tree the rule is
+    # ABOUT rather than the tree the rule PROTECTS.
+    #
+    # The exclusion is the donor root and nothing else, and it is READ FROM
+    # THE MANIFEST rather than written here — a hard-coded path would be a
+    # second place the tree's location is recorded, and the one that goes
+    # stale silently. Move the harness again and this skip follows it.
+    #
+    # SEALED is not weakened by this. Its subject is "no SHIPPED package file
+    # depends on a benchmark tree"; every path it dropped is itself the
+    # benchmark tree, and `src/`, `test/` (outside the donor root),
+    # `test_kit/` and `testbed/` are all still walked.
+    for path in source_files(package_root, skip=donor_root):
         offenders = sorted(
             ns for ns in imported_namespaces(read_text(path))
             if ns.startswith(forbidden))
@@ -534,9 +551,19 @@ def check(manifest_path, package_root, repo_root, update=False):
     return failures, len(rows)
 
 
-def source_files(root):
+def source_files(root, skip=None):
+    """Every source file under `root`, minus the subtree `skip` names.
+
+    `skip` is a path (the donor root, when it lives inside the package);
+    `None` skips nothing. Compared after `os.path.normpath` so a manifest
+    that spells the root with `/` on Windows still matches the walk.
+    """
+    skip = os.path.normpath(skip) if skip else None
     for base, dirs, names in os.walk(root):
         dirs[:] = [d for d in dirs if d not in (".shadow-cljs", "out", "node_modules")]
+        if skip and os.path.normpath(base) == skip:
+            dirs[:] = []
+            continue
         for name in sorted(names):
             if name.endswith(SOURCE_SUFFIXES):
                 yield os.path.join(base, name)

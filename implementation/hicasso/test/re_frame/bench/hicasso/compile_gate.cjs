@@ -1,0 +1,345 @@
+#!/usr/bin/env node
+'use strict';
+// THE HICASSO LANE'S COMPILE GATE — rf2-2rtt6.73, half (b).
+//
+//     npm run test:hicasso-compile        # from implementation/
+//     node hicasso/test/re_frame/bench/hicasso/compile_gate.cjs --list
+//
+// ## The gap
+//
+// NO PR GATE COMPILED THIS LANE. `:node-test` selects `:ns-regexp
+// "cljs-test$"` plus transitive requires and `:browser-test` selects
+// `-dom-cljs-test$` likewise, and nothing test-shaped requires the arms — so
+// `out/node-test.js` contains zero occurrences of `walk_profile_app` and
+// `out/browser-test/` has no such module. The only compiler that ever saw an
+// arm was `:hicasso-bench`, driven BY HAND. An arm could stop compiling and
+// no automated run could go red.
+//
+// That matters more here than it would elsewhere because the lane's arms are
+// deliberately LOCAL COPIES of shipping code — the call-convention discipline
+// rf2-2rtt6.32 established, and it is correct. Local copies drift by
+// construction; the only thing between a drifted copy and a published figure
+// is a gate.
+//
+// ## The shape
+//
+// One `shadow-cljs compile` of every namespace in the lane, judged by
+// `lane_build.cjs` (warnings are failures). `compile`, not `release`: the
+// regression classes this closes — a deleted def, a renamed require, a
+// dropped arity — are all resolved before optimization, and a dev compile is
+// a fraction of the cost. See LIMITS below for what that choice gives up.
+//
+// ## NO EDIT TO shadow-cljs.edn, deliberately
+//
+// The gate rides `:hicasso-bench`, the id the whole lane already shares, and
+// supplies its own `:output-dir` and `:modules {:main {:entries [...]}}`
+// through `--config-merge` — exactly as every arm rides it with its own
+// `:init-fn`. HD-017 makes a new build id a hot-zone edit to
+// `implementation/shadow-cljs.edn` and therefore a sequenced dispatch; the
+// lane was built so a sibling never has to pay that, and a gate over the lane
+// is no more entitled to than an arm is. The cache rule (rf2-2rtt6.20) is
+// honoured the same way every driver honours it: clear the shared entry
+// first.
+//
+// ## Auto-covering by construction — for the arms that live HERE
+//
+// The entry list is DERIVED by walking this directory, never listed here — a
+// roster in this file would be the staleness class the gate exists to catch,
+// and a new arm would land uncovered and look covered. Every `.cljs`/`.cljc`
+// under the lane is an entry, INCLUDING the `*_cljs_test.cljs` files that
+// already have lanes of their own: a filename-shaped exclusion is one more
+// thing that can silently drop the file you cared about, and re-compiling a
+// handful of test namespaces is cheaper than that risk.
+//
+// ## …and an EXPLICIT roster for the arms that do not (rf2-bl0j)
+//
+// A walk of one directory covers exactly that directory, and the lane does not
+// fit in one. `:hicasso-bench` is the lane — the id every arm rides — but four
+// of its riders live beside the artefact they measure rather than beside their
+// siblings, because that is where the local copies they mirror live:
+//
+//     core/test/re_frame/bench/p0_app.cljs               re-frame.bench.p0-app
+//     core/test/re_frame/bench/p0_pageerror_probe.cljs   …p0-pageerror-probe
+//     adapters/reagent/test/re_frame/bench/hicasso_narrow.cljs      …hicasso-narrow
+//     adapters/reagent/test/re_frame/bench/hicasso_narrow_app.cljs  …hicasso-narrow-app
+//
+// Until rf2-bl0j they were compiled by NOTHING: not by this walk, which never
+// leaves `hicasso/`; not by `:node-test`, since none is named `*-cljs-test`
+// and nothing test-shaped requires them; not by `:browser-test`, for the same
+// reason. Their own drivers (`p0_run.cjs`, `hicasso_narrow_run.cjs`) compile
+// them, and those drivers are hand-run. That is the identical fail-open this
+// gate was built for — one directory over, and hidden by the very derivation
+// that closed it here, because a walk announces nothing when a file moves out
+// from under it.
+//
+// THE ROSTER IS DELIBERATELY DUMB. The tempting repair is a cleverer rule —
+// walk more trees, or scrape `--config-merge` init-fns out of the sibling
+// drivers — and it is the wrong one: a coverage rule that INFERS its members
+// fails the same way again the first time a member stops matching the
+// inference, silently and with the gate still green. So membership is stated,
+// once, right here. What the roster cannot do is notice an arm that was never
+// added to it; what it can do, and does below, is refuse to run when a listed
+// file has been moved, renamed or deleted — the failure mode a derived list
+// hides and a stated one cannot.
+//
+// EVERY member is listed, including the two reachable through a require
+// (`p0-pageerror-probe` requires `p0-app`; `hicasso-narrow-app` requires
+// `hicasso-narrow`). Coverage that arrives through somebody else's `:require`
+// is exactly what evaporated here once already.
+//
+// ## `:advanced` — MEASURED, and why there is no nightly release gate
+//
+// This block used to say that an "externs-inference fault" was invisible to a
+// dev-mode gate and that `lane_build.cjs` caught the `:advanced` classes at
+// driver time. rf2-2rtt6.77 was filed off that claim, asking for a nightly
+// that releases each arm under `:advanced`. The claim was then TESTED rather
+// than assumed, and it does not hold. Recorded here so it is not re-derived a
+// third time. Timings are one box, with `.shadow-cljs/builds/hicasso-bench`
+// cleared before each, which the lane's cache rule requires anyway:
+//
+//     dev compile, all 101 lane namespaces (THIS gate)     77s
+//     `:advanced` release, ONE arm                         64s
+//     `:advanced` release, all 101 in one module          132s
+//
+//   1. EXTERNS INFERENCE IS ALREADY COVERED HERE, in dev. `:infer-externs
+//      :auto` is shadow-cljs's own `default-compiler-options`
+//      (`shadow.build.api`), and `shadow.build.compiler` binds `:infer-warning`
+//      into `ana/*cljs-warnings*` for every non-jar source in BOTH modes — it
+//      is not a release-only pass. MUTATION-PROVED: rewriting
+//      `parity_probe_app`'s `(some-> e .-message)` to an unknown property made
+//      THIS gate exit 1 with `WARNING #1 - :infer-warning` / `Cannot infer
+//      target type in expression`. The `:advanced` release of the same tree
+//      reported the identical single warning from the identical line. Same
+//      catch, half the wall clock. `check-examples-compile.cjs` already said
+//      as much — it lists "an externs-inference miss" among the classes its
+//      own DEV compile catches — so this file was the outlier, not the rule.
+//   2. CLOSURE RENAMING FAULTS EMIT NO COMPILER DIAGNOSTIC AT ALL, so no build
+//      gate in any mode sees them: a release of a program that will die on a
+//      renamed property still exits 0 with 0 warnings. EXECUTION catches those
+//      — the driver's fail-closed page.
+//   3. THE rf2-2rtt6.20 CLASS IS EXPLICITLY NOT BUILD-OBSERVABLE. That bead's
+//      own words are that the poisoned shadow-js index "COMPILES CLEANLY and
+//      then produce[s] an `:advanced` bundle that DIED ON ITS FIRST
+//      EXECUTION". Its fix is `lane_cache.cjs`, which this gate already calls.
+//
+// What is left for an `:advanced` BUILD to catch over lane sources is Closure
+// hard errors, and that class is empty by construction: no lane source uses
+// `js*`, so there is no unparsed JS for Closure to reject; the only npm
+// modules the lane requires directly are `react`, `react-dom` and
+// `react-dom/client`, the same three `test:bundle-isolation`,
+// `test:perf-bundle`, `test:elision` and `test:ui-g1` already push through
+// shadow-js under `:advanced`; and Closure type checking is off by shadow's
+// default (`:closure-warnings {:check-types :off}`), so there are no
+// `:advanced`-only type errors to find either.
+//
+// So the nightly was NOT built: no fault could be constructed that it would
+// catch and this gate would miss, and a gate nobody can make fire is the
+// fail-open class this lane keeps repairing rather than a repair of it.
+// Per-arm was priced for completeness — 25 `-main`s x 64s is ~27 minutes —
+// and it buys nothing over the one-module release above, whose namespace set
+// is a SUPERSET of every arm's.
+//
+// ## LIMITS — what this gate still cannot see
+//
+//   * Anything that COMPILES. An arm whose numbers stopped meaning what its
+//     name says, a local copy that has drifted from the shipping code it
+//     mirrors, a measurement window that no longer brackets the work — all
+//     compile clean. This gate proves the lane still BUILDS, never that it
+//     still MEASURES.
+//   * Runtime faults. Nothing is executed here; no page is mounted — and per
+//     (2) and (3) above, that is where the whole remaining `:advanced` risk
+//     lives. An arm nobody has run since it broke can still be `:advanced`-
+//     broken with every gate green. The only instrument that reaches it is a
+//     BOOT of each arm's release bundle, ~30 minutes nightly across 25 arms
+//     plus a per-arm sentinel contract; judged out of proportion to the
+//     residual on rf2-2rtt6.77, not overlooked.
+
+const fs = require('node:fs');
+const path = require('node:path');
+
+const { shadowBuild } = require('./lane_build.cjs');
+const { resetLaneBuildCache } = require('../../../../../freehand/test/re_frame/freehand/bench/lane_cache.cjs');
+
+const LANE_DIR = __dirname;
+const IMPL = path.resolve(__dirname, '../../../../..');
+const BUILD_ID = 'hicasso-bench';
+const OUT_DIR = 'out/hicasso-compile-gate';
+const TAG = 'hicasso-compile';
+
+// The lane is ~60 source files today. A derivation that silently recovers a
+// handful has broken, and a gate that compiles three namespaces while
+// reporting success is the fail-open it replaced. The floor is deliberately
+// far below the real count — it catches collapse, not growth.
+//
+// It guards the WALK only. The roster below needs no floor: every one of its
+// rows is checked individually and by name, which is strictly stronger.
+const MIN_NAMESPACES = 40;
+
+/**
+ * The lane's members that live outside this directory — see the roster section
+ * of the header. `file` is relative to `implementation/`, and both halves are
+ * verified: the file must exist AND declare that exact namespace.
+ */
+const OUTSIDE_LANE_ENTRIES = [
+  {
+    ns: 're-frame.bench.p0-app',
+    file: 'core/test/re_frame/bench/p0_app.cljs',
+    why: "P0's :advanced browser entry; driven by p0_run.cjs on :hicasso-bench",
+  },
+  {
+    ns: 're-frame.bench.p0-pageerror-probe',
+    file: 'core/test/re_frame/bench/p0_pageerror_probe.cljs',
+    why: "the real P0 app plus one detached throw — p0_run.cjs's pageerror refusal, watched firing",
+  },
+  {
+    ns: 're-frame.bench.hicasso-narrow',
+    file: 'adapters/reagent/test/re_frame/bench/hicasso_narrow.cljs',
+    why: 'the P0 ratom-spine narrow-write leg (write + flush summed)',
+  },
+  {
+    ns: 're-frame.bench.hicasso-narrow-app',
+    file: 'adapters/reagent/test/re_frame/bench/hicasso_narrow_app.cljs',
+    why: "that leg's :advanced entry; driven by hicasso_narrow_run.cjs on :hicasso-bench",
+  },
+];
+
+/** Every `.cljs` / `.cljc` under the lane, recursively, sorted. */
+function laneSourceFiles(dir = LANE_DIR) {
+  const out = [];
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) out.push(...laneSourceFiles(full));
+    else if (/\.clj[sc]$/.test(entry.name)) out.push(full);
+  }
+  return out.sort();
+}
+
+/**
+ * The namespace a lane source declares. The `ns` form is always top level, so
+ * it is matched at column 0 — which keeps the many `(ns ...)` spellings inside
+ * this lane's long docstrings out of the result.
+ */
+function namespaceOf(file) {
+  const src = fs.readFileSync(file, 'utf8');
+  const m = /^\(ns\s+(?:\^\{[\s\S]*?\}\s+)?([A-Za-z0-9._*+!?<>=$%&|-]+)/m.exec(src);
+  return m ? m[1] : null;
+}
+
+/**
+ * The lane's entries. A file with no readable `ns` form is a FAILURE, not a
+ * skip: skipping it would drop it from the gate silently, which is the whole
+ * defect being repaired.
+ */
+function laneNamespaces() {
+  const files = laneSourceFiles();
+  const namespaces = [];
+  const unreadable = [];
+  for (const f of files) {
+    const ns = namespaceOf(f);
+    if (ns) namespaces.push(ns);
+    else unreadable.push(path.relative(IMPL, f));
+  }
+  return { namespaces: [...new Set(namespaces)].sort(), unreadable };
+}
+
+/**
+ * The roster, verified. A row whose file has moved, been renamed or been
+ * deleted — or whose file no longer declares the namespace claimed for it — is
+ * a FAILURE, not a skip, for the reason the header gives: a stated list can
+ * only be honest if saying something untrue stops the gate.
+ */
+function outsideLaneEntries() {
+  const namespaces = [];
+  const broken = [];
+  for (const row of OUTSIDE_LANE_ENTRIES) {
+    const full = path.join(IMPL, row.file);
+    if (!fs.existsSync(full)) {
+      broken.push(`${row.file} — no such file (roster claims ${row.ns})`);
+      continue;
+    }
+    const declared = namespaceOf(full);
+    if (declared !== row.ns) {
+      broken.push(
+        `${row.file} — declares ${declared ?? '(no readable ns form)'}, roster claims ${row.ns}`,
+      );
+      continue;
+    }
+    namespaces.push(row.ns);
+  }
+  return { namespaces, broken };
+}
+
+if (require.main === module) {
+  const listOnly = process.argv.slice(2).includes('--list');
+  const { namespaces: walked, unreadable } = laneNamespaces();
+  const { namespaces: outside, broken } = outsideLaneEntries();
+
+  if (broken.length > 0) {
+    console.error(
+      `[${TAG}] ${broken.length} roster row(s) in ${path.relative(IMPL, __filename)} no ` +
+        `longer name a real namespace — refusing to compile a set they have silently ` +
+        `dropped out of (rf2-bl0j):`,
+    );
+    for (const b of broken) console.error(`  ${b}`);
+    process.exit(1);
+  }
+
+  if (unreadable.length > 0) {
+    console.error(
+      `[${TAG}] ${unreadable.length} lane source(s) have no readable top-level ` +
+        `(ns ...) form — refusing to compile a set they are silently missing from:`,
+    );
+    for (const f of unreadable) console.error(`  ${f}`);
+    process.exit(1);
+  }
+
+  if (walked.length < MIN_NAMESPACES) {
+    console.error(
+      `[${TAG}] only ${walked.length} namespace(s) derived from ${LANE_DIR} ` +
+        `(floor ${MIN_NAMESPACES}) — the derivation has collapsed; refusing to ` +
+        `pass a vacuous gate.`,
+    );
+    process.exit(1);
+  }
+
+  const namespaces = [...new Set([...walked, ...outside])].sort();
+
+  if (listOnly) {
+    for (const ns of namespaces) console.log(ns);
+    process.exit(0);
+  }
+
+  if (resetLaneBuildCache(IMPL, BUILD_ID)) {
+    console.error(
+      `[${TAG}] cleared .shadow-cljs/builds/${BUILD_ID} — one build id, N arms (rf2-2rtt6.20)`,
+    );
+  }
+
+  console.error(
+    `[${TAG}] compiling all ${namespaces.length} lane namespaces ` +
+      `(${walked.length} walked from ${LANE_DIR}, ${outside.length} rostered ` +
+      `from outside it) -> ${OUT_DIR}`,
+  );
+
+  // ONE LINE, deliberately: shadow-cljs's CLI re-splits `--config-merge` on
+  // whitespace once the EDN contains a newline, then reports `EOF while
+  // reading` from a fragment.
+  const configMerge =
+    `{:output-dir "${OUT_DIR}" :asset-path "." ` +
+    `:modules {:main {:entries [${namespaces.join(' ')}]}}}`;
+
+  shadowBuild({ impl: IMPL, mode: 'compile', buildId: BUILD_ID, configMerge, tag: TAG });
+
+  console.error(
+    `[${TAG}] ok — ${namespaces.length} lane namespaces compiled with zero warnings`,
+  );
+}
+
+module.exports = {
+  laneSourceFiles,
+  namespaceOf,
+  laneNamespaces,
+  outsideLaneEntries,
+  MIN_NAMESPACES,
+  OUTSIDE_LANE_ENTRIES,
+};

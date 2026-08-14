@@ -77,8 +77,16 @@
                path))
       (is (not (str/includes? path "/migration/reagent-to-hicasso/"))
           "a copy of the slot rule has appeared inside the codemod's own tree")
-      (is (not (str/includes? path "/implementation/freehand/"))
-          "the codemod is reading the retired prototype's copy of the rule"))))
+      ;; The prototype-twin guard, spelled by NAMESPACE rather than by tree.
+      ;; rf2-r8j91 wrote it as `/implementation/freehand/`, which was where the
+      ;; twin lived; rf2-0yp7w P0 re-homed the harness into
+      ;; `implementation/hicasso/test/re_frame/bench/hicasso/front/` and left
+      ;; that spelling matching nothing — a guard that had quietly gone slack
+      ;; while still reading like one. `re_frame/bench/` is the twin's
+      ;; namespace segment, so it names the file rather than its address and
+      ;; survives the next relocation too.
+      (is (not (str/includes? path "re_frame/bench/"))
+          "the codemod is reading the retiring prototype's copy of the rule"))))
 
 ;; ---------------------------------------------------------------------------
 ;; The one mirror the tool REPRINTS, held against the door's own file

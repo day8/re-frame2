@@ -186,7 +186,7 @@
 ;; remains, and when `front/slot.cljc` diverges for its own reasons, the
 ;; manifest and the gate go together.
 
-{:donor-root "implementation/freehand/test/re_frame/bench/hicasso"
+{:donor-root "implementation/hicasso/test/re_frame/bench/hicasso"
 
  ;; The namespace rename the copy applied, in full. A reference to a bench
  ;; namespace NOT in this table — a test, a shape, a bench app — was
