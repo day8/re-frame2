@@ -251,11 +251,13 @@ test('Spec-only .md change fires implementation_jvm but NOT cljs (rf2-f79t8, rf2
 });
 
 test('Docs prose with NO pinning suite still skips jvm-core + cljs (rf2-f79t8, rf2-61ar)', () => {
-  // rf2-61ar armed the docs trees a test.yml suite reads (docs/machines,
-  // docs/core/freehand, two docs/api pages, one docs/design page) and left
-  // every other docs page classifying exactly as it did before. That asymmetry
-  // IS the bead's narrowing, so this case keeps its original control — a
-  // docs/core page OUTSIDE docs/core/freehand reaches none of the armed trees.
+  // rf2-61ar armed the docs trees a test.yml suite reads (docs/machines, two
+  // docs/api pages, one docs/design page) and left every other docs page
+  // classifying exactly as it did before. That asymmetry IS the bead's
+  // narrowing, so this case keeps its original control — a docs/core page
+  // reaches none of the armed trees. Since rf2-7v5vx that holds for the WHOLE
+  // of docs/core rather than for the part outside docs/core/freehand: the one
+  // arm that lit any of it went with the guide it pinned.
   const result = classify('docs/core/intro.md');
   assert.equal(result.implementation_jvm, 'false');
   assert.equal(result.cljs_node_test, 'false');
@@ -6107,8 +6109,6 @@ test('check-beads-pr-boundary.sh is committed executable (rf2-3mh2f)', () => {
 const PROSE_PINS_ARMING_JVM = [
   ['docs/machines/parallel-states.md', 'parallel_states_guide_truth_jvm_test.clj', 'jvm-machines'],
   ['docs/machines/concepts.md', 'transition_geometry_terminology_jvm_test.clj', 'jvm-machines'],
-  ['docs/core/freehand/index.md', 'guide/samples_coverage_jvm_test.clj', 'jvm-freehand'],
-  ['docs/core/freehand/authoring/composition.md', 'guide/samples_coverage_jvm_test.clj', 'jvm-freehand'],
   ['docs/api/re-frame.adapter.uix.md', 'scope_ensure_authority_test.clj', 'jvm-core'],
   ['docs/api/re-frame.ssr.md', 'ssr_doc_example_projector_test.clj', 'jvm-ssr'],
   ['docs/design/hicasso/product/async-routing-recipes.md', 'recipes/async_nav_doc_test.clj', 'jvm-routing'],
@@ -6192,24 +6192,24 @@ test('spec/Spec-Schemas.md also arms the node build — a COMPILE-TIME edge (rf2
   assert.equal(result.cljs_browser, 'false', 'no mounted surface reads this file');
 });
 
-test('the docs/machines and docs/core/freehand arms cover the whole TREE (rf2-61ar)', () => {
-  // Two trees, two different reasons, and both are wider than the pages named
-  // in the roster above.
+test('the docs/machines arm covers the whole TREE (rf2-61ar)', () => {
+  // Wider than the two pages named in the roster above, and a judgement rather
+  // than a mechanism — the incident's own shape: the red came from a 13-file
+  // tree-wide rewrite, concepts.md and parallel-states.md are the terminology
+  // spine every other page restates, and unlike docs/api this tree has no
+  // other gate at all (docs.yml stages it into the site and executes not one
+  // line of the suites that read it).
   //
-  // docs/core/freehand — the pin IS the tree: samples_coverage_jvm_test.clj
-  // `file-seq`s the directory and digest-pins every fenced block on every page,
-  // so a page added tomorrow is pinned the moment it lands.
-  //
-  // docs/machines — a judgement, and the incident's own shape: the red came
-  // from a 13-file tree-wide rewrite, concepts.md and parallel-states.md are
-  // the terminology spine every other page restates, and unlike docs/api this
-  // tree has no other gate at all (docs.yml stages it into the site and
-  // executes not one line of the suites that read it).
+  // It was TWO trees until rf2-7v5vx. `docs/core/freehand/*.md` was the other,
+  // and it was the mechanical case rather than a judgement: the pin WAS the
+  // tree, because samples_coverage_jvm_test.clj `file-seq`d the directory and
+  // digest-pinned every fenced block on every page. rf2-0yp7w deleted the
+  // guide and that roster together, so the arm and these two rows went with
+  // them — see the `docs/core` entry in DECLARED_NO_SURFACE_OUTPUT below for
+  // where that tree's coverage lives now.
   for (const file of [
     'docs/machines/glossary.md',
     'docs/machines/history.md',
-    'docs/core/freehand/operate/debugging.md',
-    'docs/core/freehand/get-running/build-a-view.md',
   ]) {
     assert.equal(
       classify(file).implementation_jvm,
@@ -6700,12 +6700,17 @@ const DECLARED_NO_SURFACE_OUTPUT = {
   // samples_coverage_jvm_test.clj `file-seq`d that directory. rf2-0yp7w
   // deleted the Freehand guide and that roster in the same commit, which
   // removed the last tracked file matching the arm and left the whole tree
-  // dark. The arm itself still MATCHES the pattern (a POSIX `case` over path
-  // strings cannot know the directory is gone) — it simply has nothing left to
-  // fire on. Declared rather than re-armed: the surviving guide is
-  // docs/core/hicasso/**, and rf2-r5iy7 already measured and REJECTED arming
-  // it, because the only output that would reach its checker is cljs_node_test
-  // — the ~10-minute node build, scheduled on a prose typo.
+  // dark. rf2-7v5vx then deleted the arm itself: a POSIX `case` over path
+  // strings cannot know its directory is gone, so it went on returning
+  // implementation_jvm=true for a path no diff can produce — green, and
+  // pointing at a suite that no longer exists.
+  //
+  // Declared rather than re-armed, and that half was REVIEWED under rf2-7v5vx
+  // rather than inherited: the surviving guide is docs/core/hicasso/**, and
+  // rf2-r5iy7 already measured and REJECTED arming it, because the only output
+  // that would reach its checker is cljs_node_test — the ~10-minute node
+  // build, scheduled on a prose typo. Each of the three PR-time gates named
+  // below was re-read at its source and holds.
   'docs/core': {
     why: "the human guide. Three PR-time gates read it and none arms a surface output, which is the always-on shape this list exists to record. docs.yml's own docs_surface classifier stages it into the site and runs mkdocs --strict; check_doc_slugs.py validates its links and heading anchors on EVERY PR from test.yml's unconditional verify-readme-links job (rf2-v7fui); and lint.yml runs api-manifest doc-guide-check over docs/core/** minus docs/core/api/**, reconciling every call-position `(rf/<var>` reference against the manifest behind a non-vacuous floor. The Hicasso guide's 188 digest-pinned fenced blocks are covered by the unconditional hicasso-guide-samples job (rf2-r5iy7), which is unconditional PRECISELY so that a guide-only PR runs it.",
     coveredBy: [

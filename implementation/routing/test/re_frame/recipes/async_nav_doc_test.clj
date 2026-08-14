@@ -63,18 +63,18 @@
     sides would have been satisfied by making the application wrong
     too. The shape row is what refuses that direction.
 
-  This is deliberately NOT the digest-roster mechanism that
-  `re-frame.freehand.guide.samples-coverage-jvm-test` runs over
-  `docs/core/freehand/`. That gate's question is *did this block change
-  since someone last checked it*, and a pin over a block that was wrong
-  when it was pinned certifies the wrongness. Here the question is
-  answerable outright — the target either is the one on the classpath
-  or it is not — so it is asked directly, and no roster has to be kept
-  in step. The idiom borrowed from that namespace is the useful half:
-  locate the repo by a marker rather than a relative path, split fences
-  with a parser that understands nothing, keep the comparison PURE so
-  the gate's own teeth can be exercised, and prove those teeth in a
-  test.
+  This is deliberately NOT a digest-roster mechanism — the shape
+  `implementation/hicasso/scripts/check_guide_samples.py` runs over
+  `docs/core/hicasso/`, pinning every fenced block by digest. That kind
+  of gate asks *did this block change since someone last checked it*,
+  and a pin over a block that was wrong when it was pinned certifies
+  the wrongness. Here the question is answerable outright — the target
+  either is the one on the classpath or it is not — so it is asked
+  directly, and no roster has to be kept in step. What this namespace
+  keeps from the roster gates is the useful half: locate the repo by a
+  marker rather than a relative path, split fences with a parser that
+  understands nothing, keep the comparison PURE so the gate's own teeth
+  can be exercised, and prove those teeth in a test.
 
   ## The population, and why the readability row is not scope creep
 
