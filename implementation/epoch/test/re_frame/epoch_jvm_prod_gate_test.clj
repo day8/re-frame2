@@ -1,5 +1,57 @@
 (ns re-frame.epoch-jvm-prod-gate-test
-  "The epoch artefact's dev-only surfaces — `register-epoch-listener!`,
+  "rf2-sk5hf — READ THIS FIRST. Despite the namespace's name, this suite is
+  NOT THE LOAD-TIME GATE. Every test below rebinds
+  `re-frame.interop/debug-enabled?` with `with-redefs`, which happens after the
+  framework has loaded; the gate itself is read ONCE at `re-frame.interop` load
+  time from `-Dre-frame.debug` / `RE_FRAME_DEBUG`, long before any of this
+  runs. What is pinned here is that the epoch surfaces honour a REBOUND flag —
+  a real contract, and not the production posture.
+
+  rf2-9c2jf is why the distinction is worth a paragraph: a TOTAL
+  `dispatch-sync` failure under the documented gate, handler run ZERO times,
+  green for as long as it existed, camouflaged by a roster of suites whose
+  NAMES said `prod_gate` while not one of them ran under it.
+
+  The lanes that DO reach the load-time gate:
+
+    * `jvm-core-prod-gate` / `sh scripts/test-core-prod-gate.sh` — the core
+      suite with the `re-frame.debug` property genuinely set false on the JVM
+      command line, and `test-freehand-prod-gate.sh` /
+      `test-routing-prod-gate.sh` / `test-ssr-prod-gate.sh` for those
+      artefacts.
+
+      (Spelled without the literal `-D...=false` on purpose: that literal is
+      itself one of the three honesty markers the drift ratchet greps for, and
+      a file that mentions it only in PROSE ABOUT OTHER LANES would pass for
+      the wrong reason. This file's honesty rests on the disclaimer sentence
+      above, and on nothing else.)
+    * `re-frame.prod-gate-lane-pin-test` and its per-artefact siblings — each
+      asserts the property really arrived in that lane's JVM and that the
+      framework honoured it.
+    * `re-frame.prod-gate-dispatch-jvm-test` — the child-JVM pattern for a
+      defect that only reproduces at load time.
+
+  THE EPOCH ARTEFACT HAS NO SUCH LANE. There is no `:prod-gate` alias in
+  `implementation/epoch/deps.edn`, no `scripts/test-epoch-prod-gate.sh` and no
+  lane pin, so the surfaces below have never executed under the posture they
+  are about — which bites harder here than elsewhere, the whole security
+  rationale (rf2-vnjfg / rf2-0la4f) being that the ring must not retain
+  `:db-before` / `:db-after` / raw `:trace-events` in a production heap. Filed
+  as rf2-bo8lq. This docstring makes the file listing honest; it does not make
+  the coverage exist.
+
+  HOW THIS WENT UNSAID FOR SO LONG, worth recording because the mechanism is
+  general. rf2-f7qj4 re-docstringed the three core suites in exactly this shape
+  and wrote a ratchet — `re-frame.prod-gate-naming-drift-test` — to stop the
+  next one. That ratchet enumerated core's test tree only, so it never saw this
+  file; `re-frame.interop-debug-gate-test`'s docstring meanwhile asserted that
+  the epoch suite \"carries the same caveat\", which was simply not true. A
+  cross-reference is not a check. rf2-sk5hf widened the walk to every
+  artefact's `test/` tree, and this file is the one thing it found.
+
+  ## What this suite pins
+
+  The epoch artefact's dev-only surfaces — `register-epoch-listener!`,
   `restore-epoch!`, `replace-frame-state!`,
   the per-frame ring buffer carrying `:db-before` / `:db-after` /
   raw `:trace-events` — MUST honour the JVM-side production gate
