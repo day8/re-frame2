@@ -183,13 +183,21 @@
     (when (str/starts-with? fp (str rp "/"))
       (first (str/split (subs fp (inc (count rp))) #"/")))))
 
-(defn- claiming-artefacts
-  "The artefacts contributing at least one file to the domain — `core`,
+(defn- artefacts-of
+  "The artefacts contributing at least one of `files` to the domain — `core`,
   `epoch`, `freehand`, `routing`, `ssr` as measured at rf2-sk5hf."
-  []
-  (if-let [root (implementation-root)]
-    (into (sorted-set) (keep #(artefact-of root %)) (claiming-files))
+  [^java.io.File root files]
+  (if root
+    (into (sorted-set) (keep #(artefact-of root %)) files)
     (sorted-set)))
+
+(defn- rel
+  "`f` relative to `implementation/`, for a failure message that can name four
+  files called `prod_gate_lane_pin_test.clj`."
+  [^java.io.File root ^java.io.File f]
+  (if root
+    (subs (posix f) (inc (count (posix root))))
+    (posix f)))
 
 (defn- honest? [^java.io.File f]
   (let [content (slurp f)]
@@ -211,28 +219,35 @@
             a real offender was sitting. A floor on whether the walk found
             ANYTHING says nothing about whether it found EVERYTHING, so the
             coverage claim below is about the walk's REACH."
-    (is (some? (core-test-anchor-dir))
-        (str "could not resolve `implementation/core/test/re_frame` from the "
-             "classpath via `re_frame/prod_gate_lane_pin_test.clj` — has the "
-             "anchor file been renamed or the test root moved?"))
-    (is (some? (implementation-root))
-        (str "resolved the classpath anchor but three parents above it is not "
-             "`implementation/` — nothing there carries `core/src`. The "
-             "positive identification is deliberate (see `implementation-root`); "
-             "a recursive walk from the wrong root is worse than no walk."))
-    (is (< 1 (count (claiming-artefacts)))
-        (str "the domain spans ONE artefact. That is the rf2-sk5hf fail-open "
-             "exactly: this ratchet is armed by `implementation_jvm`, which "
-             "every artefact's test tree arms, so a walk confined to one of "
-             "them runs and reports green over the others. Found: "
-             (pr-str (vec (claiming-artefacts)))))
-    (is (<= 8 (count (claiming-files)))
-        (str "collapse detector, calibrated at 8 against the 11 files measured "
-             "at rf2-sk5hf — deliberately just above the 7 that a walk narrowed "
-             "back to `core/test/re_frame` returns, so that specific regression "
-             "reds here as well as above. The artefact-reach claim is the "
-             "durable one; this number will need moving. Found: "
-             (mapv #(.getName ^java.io.File %) (claiming-files))))))
+    ;; The corpus is walked ONCE and read four times. `claiming-files` is a
+    ;; recursive `file-seq` now, and `is`'s message argument is evaluated
+    ;; whether or not the assertion fails.
+    (let [root      (implementation-root)
+          files     (claiming-files)
+          artefacts (artefacts-of root files)]
+      (is (some? (core-test-anchor-dir))
+          (str "could not resolve `implementation/core/test/re_frame` from the "
+               "classpath via `re_frame/prod_gate_lane_pin_test.clj` — has the "
+               "anchor file been renamed or the test root moved?"))
+      (is (some? root)
+          (str "resolved the classpath anchor but three parents above it is "
+               "not `implementation/` — nothing there carries `core/src`. The "
+               "positive identification is deliberate (see "
+               "`implementation-root`); a recursive walk from the wrong root "
+               "is worse than no walk."))
+      (is (< 1 (count artefacts))
+          (str "the domain spans ONE artefact. That is the rf2-sk5hf fail-open "
+               "exactly: this ratchet is armed by `implementation_jvm`, which "
+               "every artefact's test tree arms, so a walk confined to one of "
+               "them runs and reports green over the others. Found: "
+               (pr-str (vec artefacts))))
+      (is (<= 8 (count files))
+          (str "collapse detector, calibrated at 8 against the 11 files "
+               "measured at rf2-sk5hf — deliberately just above the 7 that a "
+               "walk narrowed back to `core/test/re_frame` returns, so that "
+               "specific regression reds here as well as above. The "
+               "artefact-reach claim is the durable one; this number will need "
+               "moving. Found: " (mapv #(rel root %) files))))))
 
 (deftest every-gate-claiming-namespace-is-honest-about-the-gate
   (testing "rf2-f7qj4 — a test file whose NAME says it exercises the JVM
@@ -249,10 +264,7 @@
                "it nor disclaim it: "
                ;; Paths, not names: the domain spans artefacts (rf2-sk5hf), and
                ;; four of them ship a file called `*prod_gate_lane_pin_test`.
-               (mapv #(if root
-                        (subs (posix %) (inc (count (posix root))))
-                        (posix %))
-                     liars)
+               (mapv #(rel root %) liars)
                "\n\nFix by one of:"
                "\n  a. run in the real lane — tag the deftests `^:prod-gate`"
                "\n     (see re-frame.prod-gate-lane-pin-test) and add the ns to"
