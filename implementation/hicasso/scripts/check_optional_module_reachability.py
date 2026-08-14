@@ -306,6 +306,35 @@ MODULES = [
             "re_frame/hicasso/forms.cljs",
         ],
     },
+    {
+        # rf2-2a0ju.  The server module — `server/render`, the one-request-in
+        # one-document-out SSR door (rf2-b6jkj) — shipped WITHOUT a row, and
+        # its own docstring already named this file as what keeps it out of a
+        # browser build.  That sentence was false for as long as this row was
+        # missing, which is a sharper defect than a plain gap: a reader who
+        # goes looking is steered to a roster that never mentioned the module.
+        #
+        # NO ENGINE, for the `forms` row's reason and not for a different one.
+        # The module owns exactly one file, and everything it reaches is
+        # somebody else's: `impl.mount` and `impl.roots` are the SHARED
+        # runtime the public door already leads to — naming either here would
+        # forbid the interpreted tier its own mount path — and
+        # `re-frame.ssr.*` is the FRAMEWORK's, whose payload contract this
+        # module hands values to unaltered.  There is one edge to guard and
+        # it is the door.
+        #
+        # The live risk is the same convenience the `forms` row names, and
+        # the cost is higher here than anywhere else on the roster: a
+        # `:require` of this namespace drags `react-dom/server` into the
+        # bundle of every application that ever aliased `h`, for a code path
+        # no browser will ever run.
+        "name": "server",
+        "door": "re-frame.hicasso.server",
+        "engine": [],
+        "files": [
+            "re_frame/hicasso/server.cljs",
+        ],
+    },
 ]
 
 def ns_of(text):
