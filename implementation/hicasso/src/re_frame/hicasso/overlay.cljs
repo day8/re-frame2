@@ -120,16 +120,25 @@
   Focus is a one-shot — something done once when an overlay opens, not a
   value mirrored in app-db. Do not put the focused element in app-db.
 
-  **Initial focus** is `:autofocus true` on the control that should have
-  it, and the platform's own dialog-focusing steps are what honour it. The
-  spelling matters and the witness is what settled it: Hicasso's attribute
-  grammar camelCases a hyphenated key, so `:auto-focus` reaches React as
-  `autoFocus`, which React applies by calling `.focus()` during the commit
-  and WITHOUT emitting the attribute — one child-first commit before
-  `showModal` runs its own focusing steps and moves focus somewhere else.
-  `:autofocus`, unhyphenated, reaches the DOM as the attribute the
-  platform reads. A modal with no autofocus target focuses its first
-  focusable control.
+  **Initial focus is TREE ORDER, and there is no attribute to reach
+  for.** The platform's own dialog-focusing steps run when the overlay
+  opens; finding no focus delegate, they take the first focusable control
+  in tree order. So ORDER the controls to put the one that should receive
+  focus first — in a destructive confirmation that is the safe answer,
+  and it is worth arranging deliberately rather than inheriting.
+
+  NEITHER autofocus spelling reaches the platform, and the witness is what
+  settled it. Hicasso's attribute grammar camelCases a hyphenated key, so
+  `:auto-focus` reaches React as `autoFocus`, which React applies by
+  calling `.focus()` during the commit and WITHOUT emitting the attribute
+  — one child-first commit before this module's ref attaches and calls
+  `showModal`, at which point the dialog is still `display: none` and
+  nothing inside it is focusable, so the call is a silent no-op. And
+  `:autofocus`, unhyphenated, React rejects outright — `Invalid DOM
+  property autofocus. Did you mean autoFocus?` — emitting no attribute
+  either. `overlay_dom_cljs_test/the-focus-one-shot-is-the-platforms-focus-delegate-and-not-reacts-autofocus`
+  measures both halves: focus lands on the FIRST control, and the one
+  the author marked carries no `autofocus` attribute at all.
 
   **Restoration** needs nothing from the author. See the posture above.
 
@@ -201,7 +210,9 @@
                       :on-dismiss [:invoice/delete-cancelled id]
                       :label      \"Confirm deletion\"}
        [:h2 \"Delete this invoice?\"]
-       [:button {:autofocus true :on-click [:invoice/deleted id]} \"Delete\"]]
+       ;; focus lands on the first focusable control — order says which
+       [:button {:on-click [:invoice/delete-cancelled id]} \"Keep it\"]
+       [:button {:on-click [:invoice/deleted id]} \"Delete\"]]
 
   A legal hiccup head, marked the same way a `defview` product is. `:open?`
   false renders nothing at all.

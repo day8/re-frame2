@@ -110,8 +110,7 @@ Otherwise the module recalculates on open and resize.
     [:button {:on-click [:invoice/delete-cancelled invoice-id]}
      "Keep it"]
     [:button.danger
-     {:auto-focus true
-      :on-click [:invoice/delete-confirmed invoice-id]}
+     {:on-click [:invoice/delete-confirmed invoice-id]}
      "Delete"]]])
 ```
 
