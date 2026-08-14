@@ -528,8 +528,10 @@ def check(facade_text, md_text, declared_table=None, held_table=None):
     """`(report, problems)`.
 
     `report` is `[(name, route, detail)]` over every public name on the door,
-    in roster order, so that the gate can SAY what it inspected on a green run
-    as well as on a red one.
+    in roster order, PLUS one `(head, "SKIPPED", …)` entry per def-form whose
+    name is not a literal symbol -- so that the gate can SAY what it inspected
+    on a green run as well as on a red one, skips included.  A skip nobody
+    prints is indistinguishable from a name nobody has.
 
     The two manifests are ARGUMENTS rather than globals so that the self-test
     drives the real rules over synthetic ones.  A self-test that could only
@@ -635,6 +637,9 @@ def check(facade_text, md_text, declared_table=None, held_table=None):
                     )
                 )
 
+    for head in computed:
+        report.append((head, "SKIPPED", "def-form with a computed name"))
+
     return report, problems
 
 
@@ -656,20 +661,21 @@ def describe(report, ids_count):
         ("BY NAME", "attributed BY NAME (the row's `Public surface` cell)"),
         ("DECLARED", "attributed BY DECLARATION (carried by description)"),
         ("HELD", "HELD -- on the door with NO row, owned by a bead"),
+        ("SKIPPED", "SKIPPED -- not a public spelling anyone can write"),
     ):
         entries = by_route.get(route)
         if not entries:
             continue
         lines.append("  {} {}:".format(len(entries), heading))
         for name, detail in entries:
+            prefix = "" if route == "SKIPPED" else DOOR_PREFIX
             lines.append(
-                "    {:<{width}}  {}".format(
-                    DOOR_PREFIX + name, detail, width=width
-                )
+                "    {:<{width}}  {}".format(prefix + name, detail, width=width)
             )
+    named = [entry for entry in report if entry[1] != "SKIPPED"]
     lines.append(
         "  {} names on `{}`, {} inventory rows read".format(
-            len(report), DOOR_NS, ids_count
+            len(named), DOOR_NS, ids_count
         )
     )
     return lines
@@ -838,6 +844,18 @@ def self_test():
     ):
         _, problems = check(two_names, broken, none, none_held)
         assert any(marker in p for p in problems), (marker, problems)
+
+    # A def the roster SKIPS is printed rather than dropped. A computed name
+    # is not a public spelling and owes no row, but a skip nobody sees reads
+    # exactly like a name nobody has -- which is this gate's own subject.
+    report, problems = check(
+        two_names + "(def ~(symbol s) 3)\n", md, none, none_held)
+    assert problems == [], problems
+    assert ("def", "SKIPPED", "def-form with a computed name") in report, report
+    assert any("SKIPPED" in line for line in describe(report, 3)), \
+        describe(report, 3)
+    # ...and it is not counted as a name on the door.
+    assert "2 names on" in describe(report, 3)[-1], describe(report, 3)
 
     # A door the roster could not read is a failure too, and it reports THAT
     # rather than the fifteen escapes an empty roster would otherwise invent.
