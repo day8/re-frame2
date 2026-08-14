@@ -61,11 +61,24 @@
   Every other mounted witness in this tree calls `hm/settle!` and then
   asserts the glass. That is right for a correctness row and wrong for a
   latency one — it reads the page after a flush the browser had not yet
-  performed. [[echo-before-flush]] reads `.value` at the instant
+  performed. [[type-into!]] reads `.value` at the instant
   `dispatchEvent` returns, which is inside the discrete event, before any
   paint could occur. What that measures is not *the echo arrived within a
   frame*; it is the stronger and simpler fact that **no frame boundary is
   crossed at all**.
+
+  **But the reading only DISCRIMINATES where the model disagrees with the
+  field.** A scripted keystroke reaches the real code path only by writing
+  the accepted text onto the control and then firing the event, so on a
+  keystroke the model takes VERBATIM the model's value and this file's own
+  pre-event write are the same string — and a reading taken at dispatch
+  return cannot tell an echo from its own setup. Those rows are kept,
+  because the character surviving the converge is a real fact whose
+  opposite is a real regression, but they are not what proves the claim.
+  Each page therefore carries a second row typed into a field whose model
+  answers something ELSE: the editor's `:slug`, which normalises, and the
+  grid's cell, which refuses. Neither echoed string could have come from
+  the pre-event write, and neither needed a flush to arrive.
 
   ## What this file does NOT measure, and could not
 
@@ -403,9 +416,17 @@
                        refusal row below is this instrument's positive
                        control: it reads 1 on the same spy in the same file")
                   (is (= "Intents are dataab" @echo)
-                      "P12 — the echo is on the glass at the instant
-                       `dispatchEvent` returned, with no flush and no paint
-                       in between")
+                      "the accepted keystroke SURVIVED the converge — the
+                       character is still on the glass at the instant
+                       `dispatchEvent` returned, with no flush and no paint in
+                       between. The row is kept because its opposite is a real
+                       regression: `front/controlled_dom_cljs_test` reproduces a
+                       converge that wipes the character the user just typed.
+                       But it is NOT P12's proof. `:title` takes what is typed,
+                       so this expectation is ALSO the string [[type-into!]]
+                       wrote onto the control before the event, and the reading
+                       would hold even if the model had never moved. The
+                       discriminating row is the slug's, below.")
                   (is (= {["attributes" "INPUT@name"]  4
                           ["attributes" "INPUT@type"]  2
                           ["attributes" "INPUT@value"] 1}
@@ -442,6 +463,28 @@
                        four of the seven records are churn on an attribute the
                        application never wrote. The refusal row below
                        attributes the two passes.")))
+
+              (testing "and P12's DISCRIMINATING reading — the slug NORMALISES"
+                (let [slug  (editor-node m :slug)
+                      typed (str (.-value slug) ", World")
+                      echo  (type-into! slug ", World")]
+                  (is (= "intents-are-data-world" echo)
+                      (str "P12, and THIS is the row that proves it. The
+                            accepted-keystroke readings above are taken on a
+                            field that takes what is typed, so the model's value
+                            and this census's own pre-event write are the same
+                            string and the reading cannot tell them apart.
+                            `:slug` normalises, so the model answers something
+                            else — and what the field shows at the instant
+                            `dispatchEvent` returned is the MODEL's value, with
+                            no flush and no paint in between, so no frame
+                            boundary was crossed. Typed onto the control: "
+                           (pr-str typed) ". The normalisation is
+                            length-CHANGING on purpose
+                            (`editor.events/slugify`): one that preserved length
+                            could be satisfied by a field that echoed nothing at
+                            all."))
+                  (hm/settle! m)))
 
               (hm/unmount! m))))))))
 
@@ -517,7 +560,11 @@
           "zero writes onto the glass, exactly as the editor — an accepted
            keystroke is already showing what the model took")
       (is (= "341" (:echo at-100))
-          "P12 — the echo is on the glass before any flush")
+          "the accepted digit survived the converge, read before any flush —
+           and NOT P12's proof, for the editor's reason: a cell takes a digit
+           verbatim, so this is also what `type-into!` wrote onto the control
+           before the event. The refusal below is this page's discriminating
+           reading.")
       (is (= {["attributes" "INPUT@name"]  4
               ["attributes" "INPUT@type"]  2
               ["attributes" "INPUT@value"] 1
@@ -568,8 +615,19 @@
                       "and the ONE write onto the glass is the refusal echo —
                        the committed value put back over the character the
                        model would not take")
+                  (is (= "34" @echo)
+                      "P12's OTHER discriminating reading, and the REFUSAL is
+                       what makes it one. This census wrote \"34x\" onto the
+                       control before the event; the model would not take the
+                       `x`, so the \"34\" the field shows at the instant
+                       `dispatchEvent` returned is the COMMITTED value and could
+                       not have come from the pre-event write. React's
+                       end-of-event restore performs it inside the discrete
+                       event — the same single `value` write the row above
+                       counts — so no frame boundary is crossed here either.")
                   (is (= "34" (.-value n))
-                      "which is what the field shows")
+                      "and the same value after the flush, which is what the
+                       field goes on showing")
                   (is (= [{["attributes" "INPUT@name"] 2
                            ["attributes" "INPUT@type"] 1}
                           ["name: nil -> nil"
