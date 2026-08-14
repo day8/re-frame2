@@ -153,12 +153,15 @@ const ISOLATION_NAMESPACES = [
   // the other selection order 5 `:rf.error/image-duplicate-id`. Deleting its
   // adapter self-install is visible ONLY here — the gate's exact design class.
   're-frame.story.open-in-editor-ownership-cljs-test',
-  // rf2-i36h6 (#6385): yielded one `setTimeout 0` on the premise that a
-  // macrotask lands after React `act` settles. It does not. Deterministically
-  // green solo post-fix, so zero noise while healthy; its regression is masked
-  // in company by the warmed `act` path, making this gate the only automatic
-  // detector.
-  're-frame.story.play.presence-real-clock-cljs-test',
+  // rf2-i36h6 (#6385) listed `re-frame.story.play.presence-real-clock-cljs-test`
+  // here: it yielded one `setTimeout 0` on the premise that a macrotask lands
+  // after React `act` settles, which it does not. That namespace drove
+  // Freehand's presence scheduler through Story's optional bridge, and both
+  // retired with the substrate (rf2-5gka, rf2-0yp7w), so the entry went with
+  // it rather than being re-pointed — no surviving namespace has the
+  // order-dependence signature it was listed for. The regression class is
+  // still real; re-list a namespace here if a presence bridge is ever written
+  // against a supported substrate.
 ];
 
 const NODE_TEST_BUNDLE = 'out/node-test.js';
