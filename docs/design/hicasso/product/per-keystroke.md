@@ -303,6 +303,30 @@ with no flush performed and no opportunity for the browser to paint. The census
 reads it there and settles afterwards, which is the opposite order from every
 other mounted witness in the tree.
 
+**The reading that carries that claim is the one where the model DISAGREES with
+the field, and it has to be.** A scripted keystroke reaches the same code path a
+real one does only by writing the accepted text onto the control and then firing
+the event (§1.1), so on a keystroke the model takes *verbatim* the model's value
+and the census's own pre-event write are the same string — and a reading taken
+at dispatch return cannot tell an echo from its own setup. Those readings are
+still taken and still reported, because *the character survived the converge* is
+a real fact whose opposite is a real regression, but they are not what proves
+this section. Each page carries a second reading typed into a field whose model
+answers something else:
+
+| Page | Field, and its policy | Typed onto the control | The model's value | Read at dispatch return |
+|---|---|---|---|---|
+| editor | `:slug`, which **normalises** | `intents-are-data, World` | `intents-are-data-world` | `intents-are-data-world` |
+| grid | cell `[3 4]`, which **refuses** | `34x` | `34` | `34` |
+
+**Neither echoed string could have come from the census's own pre-event write,
+and neither needed a flush to arrive.** That is the whole of the claim. The
+slug's normalisation is length-changing on purpose — a normalisation that
+preserved length could be satisfied by a field that echoed nothing at all
+(`editor.events/slugify`) — and the grid's refusal is the case where the
+converge has actual work to do, which is why it is also the one glass write §5
+counts.
+
 That is a stronger fact than the one [`U1`](budgets.md#9-the-budget-line-reconciliation-ledger)
 is written about. `U1` asks that controlled updates be *echoed within one 60 Hz
 frame at p95*; what the measurement shows is that **no frame boundary is crossed
@@ -365,6 +389,9 @@ needed a quiet box are the ones §6 refuses.
 | 6 | **sabotage** — P7's `111` inverted to `112` | `1` | captured red naming the line, below |
 | 7 | restored, plus the per-subscription attributions | `0` | 1,491 / 9,337, 0 failures |
 | 8 | **re-taken after rebasing onto `b44c5e854c`** | `0` | 1,502 / 9,508, 0 failures — no figure moved |
+| 9 | control on this page's current base, before P12's rows | `0` | 1,509 / 9,559, 0 failures |
+| 10 | **sabotage** — P12's two new rows asserting the PRE-EVENT text | `1` | captured red naming both lines, below |
+| 11 | P12's discriminating rows, corrected | `0` | 1,509 / 9,561, 0 failures — no census figure moved |
 
 The node lane (`npm run test:cljs`) was run on the same tree and returns `0` at
 13,875 tests / 70,108 assertions. It is not where these figures come from — every
@@ -376,7 +403,10 @@ it, which is a defect this census had and fixed.
 census's rows degrade to stated skips off the browser lane, so a green aggregate
 alone would not distinguish *ran and passed* from *skipped*. Run 1 to run 5 is
 `+2` tests and `+23` assertions, exactly the assertions the two new `deftest`s
-then contained; run 7 added three per-subscription attributions for `+26`.
+then contained; run 7 added three per-subscription attributions for `+26`. Run 9
+to run 11 is `+0` tests and `+2` assertions — P12's two discriminating rows,
+which live inside the two `deftest`s that already existed, so the test count
+does not move and the assertion count moves by exactly the rows added.
 
 **Run 8's arithmetic is checkable against a figure this page did not produce.**
 `rf2-hic-036`'s tournament landed on `main` between run 7 and the rebase, and
@@ -408,8 +438,35 @@ passing assertion being the thing that reports them. The file was restored and
 its content hash (`git hash-object`, not a byte digest — this checkout
 translates line endings) matched its pre-sabotage value exactly, at
 `7197902f6ed8054daf627122a993eb22ae24ed33`. That hash pins the file **as it
-stood between runs 5 and 6**; it has had one commit since, the `delay` in the
-node-lane fix above, and run 8 is the reading that covers the file as it ships.
+stood between runs 5 and 6**; it has had three commits since — the `delay` in
+the node-lane fix above, the attribute-trace correction §5 is drawn through, and
+P12's discriminating rows — and **run 11** is the reading that covers the file as
+it ships.
+
+**Run 10 is the second sabotage, and it is the one that retired P12's
+fail-open.** Both new rows were first asserted against the text the census
+writes onto the control *before* the event — which is precisely what the earlier
+reading could not tell an echo apart from — and both came back red, printing the
+model's value beside it:
+
+```
+FAIL in (the-editors-per-keystroke-census)
+  (re_frame/hicasso/examples/per_keystroke_dom_cljs_test.cljs:450:23)
+expected: (= "intents-are-data, World" echo)
+  actual: (not (= "intents-are-data, World" "intents-are-data-world"))
+
+FAIL in (the-grids-per-keystroke-census-at-two-sizes)
+  (re_frame/hicasso/examples/per_keystroke_dom_cljs_test.cljs:580:23)
+expected: (= "34x" (clojure.core/deref echo))
+  actual: (not (= "34x" "34"))
+```
+
+A red naming both lines proves both rows **execute**, and the printed right-hand
+sides witness the model's values from the failure path rather than from the
+passing assertion — run 6's technique, doing double duty here, because the
+sabotage value *is* the reading the pre-repair row would have accepted. (The
+line numbers pin the sabotage tree, in which the corrected expectations had not
+yet been written.)
 
 ### What would falsify this page
 
