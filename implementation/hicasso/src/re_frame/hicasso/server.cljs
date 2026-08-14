@@ -14,6 +14,31 @@
 
       (:document (server/render {:hiccup [views/page {}] …}))
 
+  ## THE PUBLIC SURFACE IS SIX NAMES, and a ledger row owns them
+
+  [[render]] is the product door. Beside it stand five composition
+  helpers — [[fresh-frame-id]], [[setup-events]], [[payload-script]],
+  [[document]] and [[render-twice]] — and they are public BY DECISION
+  rather than by omission, which is the thing an ordinary `defn` cannot
+  say on its own. Naming-ledger row 50 rules *keep all five as shipped*:
+  they are the request pipeline [[render]] composes, exposed so a host
+  can assemble a non-standard shell **without writing a second
+  renderer** — the one thing row 22 exists to prevent, since hydration
+  parity holds by construction only while one runtime renders both
+  halves. `render-options` is the only private name here, and it is
+  private because nothing composes with it: it is `renderToString`'s
+  options object and has no life outside the call below it.
+
+  **`check_facade_inventory.py` does not reach this list, by that
+  gate's own design rather than by an omission.** It reads ONE door —
+  `re-frame.hicasso` — and says so in terms, because deciding what an
+  optional module's public roster IS is a judgement its own tier has to
+  record and not a data change anyone can make. Row 50 is that
+  judgement for this module. What guards the BOUNDARY these six sit
+  behind is `check_optional_module_reachability.py`, whose roster
+  gained this module under rf2-2a0ju, and `check_bundle_isolation.cjs`,
+  which reads the same claim off a real `:advanced` browser bundle.
+
   ## There is ONE renderer, and this is not a second one
 
   The server engine is **the Hicasso runtime itself**, run under Node's
