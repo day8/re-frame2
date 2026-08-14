@@ -198,7 +198,16 @@ nav:
       - "Build a form": core/how-to/build-a-form.md
       - "Validate with schemas": core/how-to/validate-with-schemas.md
       - "Fix a slow view": core/how-to/fix-a-slow-view.md
-      - "Measure before paint": core/how-to/measure-before-paint.md
+      # "Measure before paint" (core/how-to/measure-before-paint.md) is
+      # deliberately ABSENT from this nav (rf2-pzu4g). The recipe is written
+      # on Freehand's registered behaviors — `:timing :layout`, `:config`
+      # value-equality re-fire, `v/describe` — and Hicasso has no counterpart
+      # door: no `defbehavior`, no `:timing`, no layout-effect wrapper
+      # anywhere under implementation/hicasso/src/. Rewriting it on the native
+      # tier or retiring it with the code tree is an open authoring decision
+      # (rf2-936ak), so the page carries a notice and leaves the reader's path
+      # rather than teaching a retiring substrate meanwhile. It still exists on
+      # disk so the inbound links from api/re-frame.ui.react.md keep resolving.
       - "Keep secrets out of traces": core/how-to/keep-secrets-out-of-traces.md
       - "Report errors in production": core/how-to/report-errors-in-production.md
       - "Configure dev and prod": core/how-to/configure-dev-and-prod.md
