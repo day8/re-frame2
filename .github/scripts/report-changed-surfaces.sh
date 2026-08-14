@@ -640,7 +640,13 @@ else
       # roster above. (`.cljc` is listed for the same reason the route-path
       # census predicate lists it — a testbed is free to be reader-conditional
       # — and plain `.clj` is absent for the same reason it is absent there:
-      # shadow does not compile it into a browser build.)
+      # shadow does not compile it into a browser build. Re-measured at
+      # rf2-in6c4's close: the tracked tree is 14 .md, 13 .html, 13 .cljs,
+      # 2 .cjs, 1 .json and ZERO .clj, so an arm on that extension would fire
+      # for no diff this repository can produce and compile nothing extra if
+      # it did. Nesting was re-measured too — a POSIX `case` glob spans `/`,
+      # so `testbeds/deep_machine/core.cljs` arms and `testbeds/README.md`,
+      # `testbeds/spec-helpers.cjs` do not.)
       testbeds/*.cljs|testbeds/*.cljc)
         examples_compile=true
         ;;
