@@ -178,6 +178,31 @@ def sources() -> list[tuple[str, str, str]]:
     return rows
 
 
+def declaring_ns(short: str) -> str:
+    """The declaring namespace of a source, spelled as `globals.md` spells it.
+
+    In ClojureScript a namespace IS its path, so the path is the declaration:
+    no parser is required, and there is no way for the spelling in an `ns`
+    form to drift from the file the compiler loaded it out of.  `sources()`
+    hands out paths relative to `re_frame/` and the rosters abbreviate away
+    the shared `re-frame.hicasso.` prefix, so `hicasso/impl/collector.cljs` is
+    `impl.collector` and the facade `hicasso.cljc` is `hicasso`.  Underscores
+    become hyphens, which is the compiler's own munging read backwards
+    (`presence_react.cljs` declares `impl.presence-react`).
+
+    This is what makes an owner *identity* comparable, and a bare `def` name
+    is not one.  Both `evidence.cljs` and `impl/evidence.cljs` exist in this
+    tree, as do `overlay.cljs` and `impl/overlay.cljs`; a name is an address
+    only once its namespace is in front of it.  Matching bare names let a new
+    owner inherit an unrelated roster row and exit green — the fail-open the
+    merged-PR audit of #8258 reproduced against this gate.
+    """
+    parts = re.sub(r"\.clj[sc]$", "", short).split("/")
+    if parts[0] == "hicasso":
+        parts = parts[1:] or ["hicasso"]
+    return ".".join(parts).replace("_", "-")
+
+
 # ---------------------------------------------------------------------------
 # The page's own tables
 # ---------------------------------------------------------------------------
@@ -319,11 +344,15 @@ def arm_tooling(page: str) -> list[str]:
 
 
 def globals_roster() -> set[str]:
-    """Every owner name `globals.md` publishes, from both of its rosters.
+    """Every owner IDENTITY `globals.md` publishes, from both of its rosters.
 
     Both, and not just the mutable one, because the arms cannot tell them
     apart: `adoption-context` is a `defonce` of a React context and sits on
     the *identities* roster, and C1 and C7 both find it.
+
+    The identity is `impl.<ns>/<name>`, exactly as the page spells it in its
+    first column, and the namespace half is kept rather than discarded — see
+    `declaring_ns`.  A roster of bare names is a roster of the wrong thing.
     """
     text = GLOBALS_PAGE.read_text(encoding="utf-8")
     names = set()
@@ -334,7 +363,7 @@ def globals_roster() -> set[str]:
         first = s.strip("|").split("|")[0].strip()
         m = re.fullmatch(r"`(impl\.[a-z-]+)/([^`]+)`", first)
         if m:
-            names.add(m.group(2))
+            names.add(f"{m.group(1)}/{m.group(2)}")
     return names
 
 
@@ -354,12 +383,16 @@ def open_corrections(page: str) -> set[str]:
     expires by construction: when the corrective PR adds the roster row, this
     row is removed with it and the arm goes back to enforcing the plain rule.
     A new owner nobody has filed anything about still reds.
+
+    Identities here are `impl.<ns>/<name>` for the same reason they are on the
+    roster: a filed finding about one namespace's owner excuses that owner and
+    not a same-named one somewhere else.
     """
     names = set()
     for row in table_after("<!-- census:open-corrections -->", page):
         for cell in row:
-            for m in re.finditer(r"`impl\.[a-z-]+/([^`]+)`", cell):
-                names.add(m.group(1))
+            for m in re.finditer(r"`(impl\.[a-z-]+)/([^`]+)`", cell):
+                names.add(f"{m.group(1)}/{m.group(2)}")
     return names
 
 
@@ -374,22 +407,33 @@ def arm_globals(srcs, page: str = "") -> list[str]:
     roster permanently red or an allowlist that fails open.  The direction
     that IS enforced is the one that matters for *"later work introduced no
     unjustified global"*: a new owner arrives with no row, and reds.
+
+    FULLY QUALIFIED END TO END.  What is found, what is rostered and what is
+    reported are all `impl.<ns>/<name>`.  Keying by the bare `def` name — which
+    is what this arm did until the merged-PR audit of #8258 caught it — let a
+    new owner in ANY namespace inherit the row of a same-named owner in another
+    one and exit green; a planted `impl.planted/!cells` was absolved by
+    `impl.collector/!cells` and returned no finding at all.  The self-test's
+    own positive control missed it because it only ever planted a name nothing
+    else owned, which is a control that cannot tell "the gate works" from "the
+    gate matched the wrong row".
     """
     found: dict[str, str] = {}
     for short, _raw, code in srcs:
+        ns = declaring_ns(short)
         for name, form in top_level_defs(code):
             for arm, rx in CENSUS_ARMS.items():
                 if any(rx.search(ln) for ln in form.splitlines()):
-                    found.setdefault(name, f"{short} ({arm})")
+                    found.setdefault(f"{ns}/{name}", f"{short} ({arm})")
                     break
     known = globals_roster() | open_corrections(page)
     return [
-        f"mutable-global sweep: `{name}` in {site} is a module-level owner with no row "
+        f"mutable-global sweep: `{owner}` in {site} is a module-level owner with no row "
         f"in `globals.md`. Scope it, justify it in place — or, if it is a retained "
         f"per-read or per-read-and-boundary structure, it is the VIEWCELL-CLASS GRAPH "
         f"and the PER-BOUNDARY CALLBACK-CELL TABLE the kill rules refuse"
-        for name, site in sorted(found.items())
-        if name not in known
+        for owner, site in sorted(found.items())
+        if owner not in known
     ]
 
 
@@ -428,6 +472,16 @@ def self_test() -> int:
     A census whose arms are never made to fail is an assertion with a
     script-shaped decoration on it.  Each case below is the smallest edit that
     would land the mechanism the arm refuses.
+
+    A CONTROL HAS TO DISCRIMINATE.  Every planted source below is spelled the
+    way `sources()` spells a real one, because `declaring_ns` now reads the
+    path and a seed on a path shape that cannot occur tests nothing.  And the
+    duplicate-owner pair at the end is here because this suite passed a gate
+    that was matching the wrong roster row: it planted only names nothing else
+    owned, so a green told it the arm bit when the arm had merely failed to
+    find anything.  That pair asserts in BOTH directions — the duplicate reds,
+    and the legitimately rostered original stays accepted in the same run.  A
+    control that reds on both would be a different bug wearing this one's face.
     """
     ok = True
 
@@ -438,26 +492,37 @@ def self_test() -> int:
 
     real = sources()
 
-    seeded = list(real) + [("impl/planted.cljs", "", '(defmacro deftemplate [& body])\n')]
+    PLANTED = "hicasso/impl/planted.cljs"
+
+    seeded = list(real) + [(PLANTED, "", '(defmacro deftemplate [& body])\n')]
     check("a seventh macro is a compiled-hiccup tripwire",
           any("macro roster" in f for f in arm_mechanism(seeded)))
 
     seeded = list(real) + [
-        ("impl/planted.cljs", "", '(ns x (:require [own-renderer :as r]))\n(r/renderToString e)\n')]
+        (PLANTED, "", '(ns x (:require [own-renderer :as r]))\n(r/renderToString e)\n')]
     check("a render call on a non-react-dom alias is a second emitter",
           any("SECOND EMITTER" in f for f in arm_mechanism(seeded)))
 
-    seeded = list(real) + [("impl/planted.cljs", "", '(ns x (:require [re-frame.ssr.emit :as e]))\n')]
+    seeded = list(real) + [(PLANTED, "", '(ns x (:require [re-frame.ssr.emit :as e]))\n')]
     check("requiring a foreign emitter namespace is a finding",
           any("view tree" in f for f in arm_mechanism(seeded)))
 
     seeded = list(real) + [
-        ("impl/planted.cljs", "", '(defonce !callback-cells (atom {}))\n')]
+        (PLANTED, "", '(defonce !callback-cells (atom {}))\n')]
     check("a new module-level owner is a ViewCell/callback-cell tripwire",
-          any("!callback-cells" in f for f in arm_globals(seeded)))
+          any("`impl.planted/!callback-cells`" in f for f in arm_globals(seeded)))
     check("an open correction is not an allowlist for anything else",
-          any("!callback-cells" in f
+          any("`impl.planted/!callback-cells`" in f
               for f in arm_globals(seeded, PAGE.read_text(encoding="utf-8"))))
+
+    # The duplicate-owner pair.  `impl.collector/!cells` is rostered; a second
+    # `!cells` in another namespace is a different owner and has no row.
+    seeded = list(real) + [(PLANTED, "", '(defonce !cells (atom {}))\n')]
+    findings = arm_globals(seeded, PAGE.read_text(encoding="utf-8"))
+    check("a same-named owner in another namespace does not inherit the rostered row",
+          any("`impl.planted/!cells`" in f for f in findings))
+    check("...and the rostered `impl.collector/!cells` is still accepted in that run",
+          not any("`impl.collector/!cells`" in f for f in findings))
 
     check("a docstring is not code",
           strip_docstrings('(def x "a (defonce !y (atom 0)) example")').count("defonce") == 0)
