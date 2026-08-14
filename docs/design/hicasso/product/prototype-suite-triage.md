@@ -491,6 +491,41 @@ package behaviour and would be worth re-expressing **if** the package ever gets 
 `spike_cljs_test`'s own docstring settles the rest: *"No verdict is published here and none is
 implied."*
 
+**[The condition FIRED, and here is what happened — rf2-wehh0, 2026-08-15.]**
+`re-frame.hicasso.server` landed with rf2-b6jkj, so the conditional came due. Both named suites
+**re-expressed**, and all five **still stay**: they reach `ssr.fixtures`, which is the corpus
+`driver.cjs` bakes and `bake_bytes.test.cjs` pins, and their subject is the PROTOTYPE entry the
+bake is taken from. Re-expression added a package witness beside them; it moved nothing.
+
+- `ssr/hframe_ssr_cljs_test.cljs` → `test/re_frame/hicasso/hframe_ssr_cljs_test.cljs`, whole.
+  All four claims — the per-request id a body reads, determinism when it is kept out of markup,
+  the authorable hazard that breaks determinism, and the ambient carry's refusal inside a server
+  render — are about the RUNTIME under `renderToString` rather than about the tree's shape, so
+  each moved across unchanged. The third is the one the package could not previously make:
+  `server_render_ssr_dom_cljs_test`'s `two-renders-of-one-request-are-the-same-bytes` had never
+  been watched failing, and a determinism check nobody has seen red is a claim about a check.
+- `ssr/instance_key_payload_dom_cljs_test.cljs` → `test/re_frame/hicasso/instance_key_payload_ssr_dom_cljs_test.cljs`,
+  **its subject only**. The obligation and its enforcement — `:ui` named, zero mismatch; `:ui`
+  omitted, the structured `:rf.ssr/hydration-mismatch` fires and the client's default wins — had
+  no package owner. Its other rows do: determinism and the round trip through the real doors are
+  `server_render_ssr_dom_cljs_test`'s (§2 and §5, the latter rf2-lb1xi's repair), and the
+  constant-hash measurement is a fact about `re-frame.ssr.hash` rather than about either entry, so
+  it stays in the bench tree. The half that IS about the entry — an adoption-tier root ships no
+  `:rf/render-hash` — crossed as one assertion.
+
+**No coverage was lost, and the check for that was the tree shape.** The prototype renders
+`(provider frame (codec/root-element frame hiccup))`; `server/render` renders `impl.mount/tree`
+with a hydrating handle. The two disagree inside a `useId` — that is obstruction 2, and
+`identifier_prefix_ssr_dom_cljs_test` measured it — and the prototype lane avoided it by having no
+`useId` anywhere in it. Retargeting is therefore a strict improvement on that axis and neutral on
+every other. Two further differences exist and neither is a thing either suite asserts: the
+prototype's adoption window is a MODULE-LEVEL flag where the package's is a per-request handle,
+and `:identifier-prefix` is the package entry's alone. **The two entries are otherwise nearly the
+same file** — `fresh-frame-id`, `setup-events`, `payload-script`, `document`, the whole payload
+path and `render-twice` are token-for-token identical, and of the seventeen string literals in
+`server.cljs`'s code positions, sixteen appear verbatim in `ssr/entry.cljs`. The seventeenth is
+`"identifierPrefix"`, which is exactly the difference above.
+
 ### (iv) The package already asserts it — 13 suites, 4,269 lines
 
 | bench suite | lines | the Phase-1 witness that covers it |
