@@ -51,6 +51,37 @@
   neighbouring seam to keep its colour. Each sabotage carries the
   positive control that proves the link was green before it.
 
+  ## This projection holds NO TREE, and links 5-7 say nothing about one
+
+  Stated here because a reader arriving at three `:host-opaque` rows will
+  otherwise supply the missing half themselves. `slice` is a pure
+  function of four evidence envelopes and a trace window, and **not one
+  of them carries a node, a child, an element or a component**. The
+  producer says so in its own words: `re-frame.hicasso.tool`'s naming
+  projection is `:basis :opaque`, `:complete? false`, because *the
+  runtime mints no boundary identity and keeps no view registry* — a
+  boundary IS the edge set it holds. So opacity here is total and
+  structural rather than a label attached to particular subtrees, and
+  there is nothing for a *foreign subtree* marker to attach to.
+
+  The consequence is worth naming, because a checklist could otherwise
+  decide on it. Links 5, 6 and 7 come from [[host-opaque-links]], which
+  is a CONSTANT: [[link-host]] reads no argument `slice` was given, so an
+  interpreted-only boundary, a boundary rendering an `n/defcomponent`
+  island, and one rendering a `[:>]` foreign escape produce three
+  IDENTICAL rows. `:host-opaque` therefore means *React owns commit and
+  paint for any boundary* and never *a foreign subtree was crossed* —
+  the two are indistinguishable in this output because only the first is
+  a fact this projection computes (rf2-t2d3).
+
+  What DOES change past the fence is what the four rosters can see, and
+  that is visible in the prefix rather than in the opacity: an island's
+  `n/use-sub` read builds the same cell, takes the same reader slot and
+  earns its own census row, so it is a first-class slice subject; a
+  foreign component reads nothing of the application's and so claims no
+  row at all. `hicasso-causal-native-island-dom-cljs-test` is the witness
+  for both halves and for the identity above.
+
   Pure data → data, CLJC, so the algebra runs under the JVM target too.
 
   Normative owner: `tools/xray/spec/028-Hicasso-Advisor.md`."
@@ -120,7 +151,13 @@
   commit that landed are different events with different authorities, and
   a paint is a third; a reader deciding what to open next needs to know
   which one they are missing. React DevTools answers the first two, the
-  browser's performance tools the third."
+  browser's performance tools the third.
+
+  **A CONSTANT, and deliberately so.** [[link-host]] reads no argument
+  `slice` was given, so these three rows are identical over every subject
+  — including one whose subtree crosses into the native tier or into a
+  foreign React component. See the namespace docstring for why that is
+  the honest shape rather than a missing discrimination (rf2-t2d3)."
   [{:id    :bodies-run
     :label "bodies run"
     :says  (str "Whether a notified boundary re-ran, retried, was abandoned or "
