@@ -6518,8 +6518,8 @@ const DECLARED_NO_SURFACE_OUTPUT = {
   'skills/re-frame2-xray': SKILLS_ALWAYS_ON,
   'skills/reagent-migration': SKILLS_ALWAYS_ON,
   tools: {
-    why: 'A DECLARED HOLE, not coverage (rf2-i2uoc). tools/deps.edn is the tool-tier build coordinator and tools/shadow-cljs.edn aggregates the pair-mcp builds through it; both arm nothing, and picking the right output needs measurement the meta-check patch deliberately did not guess at. Remove this entry when rf2-i2uoc arms them.',
-    coveredBy: [],
+    why: "A DECLARED HOLE, and since rf2-i2uoc a MEASURED one rather than an open question. The tree is four files. tools/README.md IS covered — the always-on verify-readme-links job walks it (measured: it is in check_readme_links.py's _iter_scanned set). tools/.gitignore is config no gate reads. The two build coordinators have no CI consumer AT ALL, and arming them was refused on evidence rather than guessed: no workflow runs from tools/ (every working-directory in .github/workflows is tools/<artefact>, never the bare root); scripts/test-jvm-tools.sh iterates per-tool directories and never the aggregate :test alias; tools/deps.edn says so itself, in its own comment — 'Production CI runs each tool's :test alias separately (per-tool gates)'; CI compiles the pair-mcp server from tools/re-frame2-pair-mcp/shadow-cljs.edn, not the tools/ mirror of it; and verify-version-lockstep.sh reads the per-artefact deps.edn files, not this coordinator. So NO existing output would exercise either file, and arming one — tools_jvm was the candidate — would schedule four probes that never read the edited file, which the tools_jvm_machines_viz note beside it calls worse than nothing. They are developer-convenience aggregates whose breakage surfaces on the next `cd tools && clojure -M:test`, to the developer who caused it. Delete this entry if either coordinator ever gains a real CI consumer.",
+    coveredBy: ['scripts/check_readme_links.py'],
   },
 };
 
