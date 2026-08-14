@@ -94,16 +94,21 @@ USAGE
     python hicasso/scripts/check_guide_samples.py --emit-roster
     python hicasso/scripts/check_guide_samples.py --list
 
-SCHEDULING NOTE, and it is a real hole rather than a detail.
+SCHEDULING NOTE — the hole this note used to record is CLOSED (rf2-r5iy7).
 `npm run test:hicasso-invariants` reaches CI through test.yml's `cljs` job,
-which is armed by `implementation/hicasso/**`.  A guide-ONLY edit arms nothing:
-`.github/scripts/report-changed-surfaces.sh docs/core/hicasso/00-installation.md`
-reports `cljs_node_test=false` (measured).  So on a docs-only PR this gate runs
-in the local fast-PR spine and NOT in required CI.  Closing that needs either an
-unconditional `test.yml` job — the shape `hicasso-complaint-catalogue` and
-`hicasso-budget-ledger` already use, both of them reading this same guide — or a
-`docs/core/hicasso/**` arming case.  Both are hot-zone, so it is a scheduling
-decision rather than a detail this bead could take; filed as rf2-r5iy7.
+which is armed by `implementation/hicasso/**`, and a guide-ONLY edit still arms
+nothing: `.github/scripts/report-changed-surfaces.sh
+docs/core/hicasso/00-installation.md` reports `cljs_node_test=false`
+(measured).  So the chain alone would leave this gate running in the local
+fast-PR spine and NOT in required CI.  Of the two ways out — an unconditional
+`test.yml` job, the shape `hicasso-complaint-catalogue` and
+`hicasso-budget-ledger` already use, or a `docs/core/hicasso/**` arming case —
+rf2-r5iy7 measured the arming case and REJECTED it: the only output that would
+reach this checker is `cljs_node_test`, the ~10-minute node build, which would
+then be scheduled by a prose typo.  It took the unconditional job instead, so
+`hicasso-guide-samples` carries no `if:` and a guide-only PR runs this gate.
+That is also why `docs/core` is DECLARED rather than armed in
+`implementation/scripts/_changed-surfaces.test.cjs`.
 """
 
 from __future__ import annotations

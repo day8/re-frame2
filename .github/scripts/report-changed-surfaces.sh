@@ -1856,10 +1856,6 @@ else
       #                                        .clj                  → jvm-machines
       #   docs/machines/concepts.md          transition_geometry_terminology_jvm_
       #                                        test.clj              → jvm-machines
-      #   docs/core/freehand/**.md           guide/samples_coverage_jvm_test.clj
-      #                                      (file-seq over the WHOLE tree,
-      #                                       digest-pins every fenced block)
-      #                                                              → jvm-freehand
       #   docs/api/re-frame.adapter.uix.md   scope_ensure_authority_test.clj
       #                                                              → jvm-core
       #   docs/api/re-frame.ssr.md           ssr_doc_example_projector_test.clj
@@ -1928,19 +1924,6 @@ else
         # `.md` rather than `*`: both pins read Markdown, and the tree carries
         # no other file today. An image dropped beside a page should not queue
         # a JVM tier.
-        implementation_jvm=true
-        ;;
-      docs/core/freehand/*.md)
-        # No judgement needed on the scope here — the pin IS the tree.
-        # `guide/samples_coverage_jvm_test.clj` `file-seq`s `docs/core/freehand`
-        # and digest-pins EVERY fenced block on EVERY `.md` page under it
-        # (22 pages today), so every page is genuinely pinned and a new page is
-        # pinned the moment it lands. The suite runs in `jvm-freehand`.
-        #
-        # `implementation_jvm` only — no `cljs_node_test`. The sibling prose arm
-        # `implementation/freehand/*.md` fires both, but that one covers prose
-        # INSIDE the artefact (a README documenting contracts the two host
-        # suites assert). Nothing in the `:node-test` build reads this guide.
         implementation_jvm=true
         ;;
       docs/api/re-frame.adapter.uix.md|docs/api/re-frame.ssr.md)
