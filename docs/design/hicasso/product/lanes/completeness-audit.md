@@ -36,7 +36,7 @@ Warm-allocation evidence is deliberately absent from the release suites until it
 
 ### Browser and platform
 
-- Chromium, Firefox and WebKit control/IME behavior; structural accessibility assertions plus browser focus and axe checks.
+- Chromium, Firefox and WebKit control/IME behavior; structural accessibility assertions plus browser focus checks over names, roles, keyboard and virtualized/overlay focus. No automated axe sweep: `rf2-5q8o` ruled DECLINE because no acceptance column asks for one, so it is not a witness to re-add here.
 - Lazy load, fallback, error, retry and HMR through the Hicasso boundary-ABI bridge.
 - The complete public-surface SSR/hydration inventory, including deliberate mismatch and overlapping-root witnesses.
 
