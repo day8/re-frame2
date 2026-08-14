@@ -1077,11 +1077,12 @@
                 :message     (str "cannot run " (pr-str step)
                                   " — no presence host is installed, so the "
                                   "presence clock did not advance. An app "
-                                  "that renders Freehand views "
-                                  "installs the verb by requiring "
-                                  "re-frame.story.play.presence-host (or by "
-                                  "calling re-frame.story.play.presence/"
-                                  "install-presence-flush! directly)")})
+                                  "whose views RETAIN exiting children "
+                                  "installs the advance by calling "
+                                  "re-frame.story.play.presence/"
+                                  "install-presence-flush! with its own "
+                                  "clock advance — a 1-arg fn taking the ms "
+                                  "to advance by, or nil for 'to quiescence'")})
     (runner/step-skip idx step)))
 
 (defn- exec-flush-presence!
