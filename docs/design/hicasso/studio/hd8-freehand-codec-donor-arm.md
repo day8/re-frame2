@@ -1,5 +1,47 @@
 # HD-008's fourth donor arm — Freehand's codec, entered
 
+> ## RETIRED INSTRUMENT — THIS PAGE IS A FROZEN HISTORICAL RECORD
+>
+> **The arm these figures were taken on no longer exists.** `rf2-m4rpa` retired
+> `:donor-fh` from `hd8_witnesses.cljs` on **2026-08-14**, with the Freehand tree
+> it borrowed its codec from. Mike's ruling was to retire the arm rather than
+> vendor a frozen copy of the donor codec to keep feeding it: keeping retired
+> code alive for a benchmark resurrects what is being removed, and it rots.
+>
+> **The figures below are kept deliberately. They are not deleted and they are
+> not re-baselined.** They are what was measured, against what, and when — and
+> that is all they are. Nothing on this page is a live claim about the tree as it
+> stands today.
+>
+> | | |
+> |---|---|
+> | **What was measured** | `donor-fh / donor-r1` — one runtime hiccup codec against another, with the `:f>` boundary, the `use-subscribe` spine, the pinned frame, the dispatch lookup, the author closure, the page and the sweep plan all held fixed |
+> | **Against what** | `re-frame.freehand.react/element` against `reagent2.impl.template/as-element` |
+> | **When** | measured and landed **2026-07-31** (PR #7322) |
+> | **Tree it was measured on** | landed on main as commit `e385cef113fab17158793d06e3c1967bb7cba5af` — resolvable, and the anchor the blob table below pins against |
+> | **Last tree the instrument existed in** | commit `f65b0c80eac849849a67a7950574542598c8ba66`, the head this retirement was authored against |
+> | **Arm count these figures rest on** | a **5 / 6 / 6** per-run mount plan — **seven distinct arms** across the three adapter runs. Retiring `:donor-fh` returns the instrument to **4 / 5 / 5**, six distinct arms |
+>
+> **THE CODEC AXIS DOES NOT SURVIVE THE ARM, AND NOTHING IS PROMOTED TO REPLACE
+> IT.** No surviving comparison prices one runtime hiccup codec against another,
+> and no surviving figure is re-labelled to look as though it does. The
+> instrument's remaining donor ratios measure the product shell
+> (`donor-r2 / donor-r1`), the substrate (`donor-r* / reagent*`) and the frontier
+> (`donor-r* / uix`). That is a smaller claim honestly stated, not the same claim
+> on fewer arms.
+>
+> **`codecs-differ?` went with the arm rather than being re-pointed**, and its
+> absence is stated at source in `hd8_witnesses.cljs`'s closing section. It
+> guarded exactly one reading — a `donor-fh / donor-r1` of 1.0 being ambiguous
+> between *the codecs cost the same* and *the arm ran one codec twice*. One codec
+> door is left, and a single door cannot be the same code twice.
+>
+> **The `Reproduction` and file paths in the Provenance table below are correct
+> history and are left as written.** They name the tree at
+> `e385cef113`, where the bench lived under `implementation/freehand/`; that
+> command does not reproduce anything at today's `main`, and the blob hashes pin
+> the instrument as it was, which is the point.
+
 HD-008 concluded that *"the residual mount deficit is the hiccup interpreter
 rather than the spine"*
 ([validation.md](../validation.md#p1-gate--the-composed-donor-arm-hd-008)). The
@@ -203,6 +245,10 @@ own fixed React cost dominates most. That is the shape predicted.
 
 ## Results — sweep 1
 
+**Arm count: 5 / 6 / 6 by run (uix / reagent / slim), seven distinct arms.**
+Every figure below rests on that plan, and on an instrument that no longer
+exists — see the retirement banner at the top of this page.
+
 Every figure is a **range over 6 rounds**, formed within each round against that
 round's own p50s. **A range including 1.0 means the two arms are
 indistinguishable** on that witness, and the mean is not quoted.
@@ -279,6 +325,9 @@ sibling page's is.
 
 ## Results — sweep 2, the replication
 
+**Arm count: 5 / 6 / 6 by run, seven distinct arms — the same retired plan as
+sweep 1.**
+
 The identical instrument, run a second time from a cold lane cache. Exit `0`,
 every gate green again (parity + `can-fail?`, `codecs-differ?`, the positive
 control on all three segments, **0 unverified of 7,722**, and all **12** guard
@@ -315,10 +364,14 @@ Sweep 2's `donor-fh / uix`, for completeness: `mount-M` 1.403 – 1.546 (uix run
 
 ---
 
-## What the fourth arm says
+## What the fourth arm said
 
 Stated plainly, because a negative answer is worth as much as a positive one and
-is easier to bury.
+is easier to bury. **Past tense throughout: the arm was retired on 2026-08-14
+(`rf2-m4rpa`) and these figures rest on the seven-arm plan it rode
+(5 / 6 / 6 by run).** The verdict is not withdrawn — it was measured, and it
+stands as a measurement — but nothing re-takes it, and no surviving arm carries
+it forward.
 
 **Freehand's codec is materially SLOWER than reagent-slim's on every row where
 markup is rebuilt, and indistinguishable from it where markup is not.** The gap

@@ -386,9 +386,15 @@ The full three-run sweep, the page's own schedule and gates: positive control
 predicted 1.9934 before any clock, measured 1.9167 – 2.0 / 1.8 – 1.9091 /
 1.5833 – 1.9167 — every round inside ±30 % in all three runs; lowering check
 `:before "0" → :after "T"` with `:db-after "T"`; arm-order guard reportable on
-all twelve rows; exit `0`. The plan is the current 7-arm plan (`donor-fh` rides
-per `rf2-2rtt6.29`), so ranges are compared with the published 4/5/5-arm rows
-as *the same comparison on a fresh take*, not figure-for-figure.
+all twelve rows; exit `0`. The plan was the **then-current 7-arm plan**
+(`donor-fh` rode it per `rf2-2rtt6.29`), so ranges are compared with the
+published 4/5/5-arm rows as *the same comparison on a fresh take*, not
+figure-for-figure.
+
+**That plan is no longer the current one.** `rf2-m4rpa` retired `:donor-fh` on
+2026-08-14, returning the instrument to **4 / 5 / 5 by run — six distinct
+arms**. The re-take below still rests on the seven-arm plan it was measured on,
+which is why its arm count is stated here rather than left to be inferred.
 
 Mount, published above → re-taken at `16ddf3e307` (landed `1ac48c4a0b`), in-page instrument:
 
@@ -412,10 +418,13 @@ Mount-U moves the same way: `donor-r1 / reagent` 1.448 – 1.542 → 1.130 – 1
 → 4.200 – 4.550, while `reagent` (3.500 – 3.895 → 3.667 – 4.056) and
 `reagent-slim` (4.200 – 4.500 → 4.200 – 4.429) hold — **the numerators moved
 and the denominators did not, which is precisely what the spine stamp
-predicted.** The `donor-fh` columns re-measure consistent with
+predicted.** The `donor-fh` columns re-measured consistent with
 [the codec-arm page](hd8-freehand-codec-donor-arm.md) (`donor-fh / donor-r1` M
 1.139 – 1.282 across runs against its published 1.139 – 1.306), and that page
-remains their page of record.
+remains their page of record — now as a **frozen historical record**, the arm
+having been retired by `rf2-m4rpa` on 2026-08-14. These `donor-fh` figures rest
+on the 7-arm plan (5 / 6 / 6 by run); **no surviving arm re-takes them**, and the
+codec axis they measured does not survive the retirement.
 
 The write rows re-took cleanly, and the correction contract **fired live and
 discharged** on this sweep: the slim run's ten-turn aggregate resolved at

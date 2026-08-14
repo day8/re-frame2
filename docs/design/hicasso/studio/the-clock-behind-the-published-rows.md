@@ -552,11 +552,19 @@ Three things came back.
 - **The write half is refused, not taken.** No bulk or narrow magnitude is
   published on the clock of record for these rows (`rf2-d2tzk`, `rf2-7iqb5`).
 
-**What remains in-page here is `donor-fh`.** That arm was deliberately left out
-of the re-take — it is `rf2-2rtt6.29`'s subject, and including it would have
+**What remained in-page here was `donor-fh`.** That arm was deliberately left out
+of the re-take — it was `rf2-2rtt6.29`'s subject, and including it would have
 changed `k` for a comparison that bead does not make — so `donor-fh/uix`
-1.358–1.746 is still a `flushSync`-window margin and is the one HD-008 family
-this audit's finding still reaches.
+1.358–1.746 was still a `flushSync`-window margin and was the one HD-008 family
+this audit's finding still reached.
+
+**It is no longer reachable, because the arm is gone.** `rf2-m4rpa` retired
+`:donor-fh` on 2026-08-14 with the Freehand tree. `donor-fh/uix` 1.358–1.746 rests
+on the 7-arm plan (5 / 6 / 6 by run) and is now a **frozen historical record**
+kept at
+[the codec-arm page](hd8-freehand-codec-donor-arm.md); it is neither re-taken on
+the clock of record nor re-baselined onto a surviving arm, and this audit's
+open item against it closes as unreachable rather than as answered.
 
 ## 5. What could not be re-taken, and why
 
