@@ -4,15 +4,24 @@
 
 [Specification §12](specification.md#phase-4--close-the-application-coverage-matrix) states that exit as a conjunction —
 *"every row in section 7 points to running evidence, an installable optional module, a tested recipe, or an explicit
-non-goal with a React escape, **and** the canonical SSR/hydration and bulk/economic suites are green"*. Seventeen of the
+non-goal with a React escape, **and** the canonical SSR/hydration and bulk/economic suites are green"*. Eighteen of the
 twenty coverage rows point at running evidence in the tree today, which is the most this programme has ever been able to
-say. Three do not, one of the two remaining conjuncts is red and the other is unaddressed, and a conjunction with a
+say. Two do not, one of the two remaining conjuncts is red and the other is unaddressed, and a conjunction with a
 failed conjunct is failed however good the rest of it is.
 
 **[Amended 2026-08-14, `rf2-c0agr`.]** This page first scored Accessibility **NOT MET** and read sixteen and four. The
 deficit it named was the axe half, and `rf2-5q8o` has since ruled that half a **DECLINE** — so the row is met and the
 counts move by one. Nothing was re-measured and no other row changed; §2's Accessibility cell shows the working. The
 **verdict is untouched**: conjunct B fails this exit on its own and always did.
+
+**[Amended 2026-08-15, `rf2-hic-048`, reopened by the merged-PR audit of #8268.]** This page then scored Migration
+**NOT MET** and read seventeen and three, on the premise that migration's population is the in-repo corpus alone. **That
+premise is false, and it had already been disproved twice before this amendment took it out.** `rf2-hic-055` ran three
+repositories and pinned each by commit; the two external ones are cloned read-only and measured rather than vendored, so
+this tree was never the place they would show. `rf2-gqp5s` is withdrawn in
+[`correction-ledger.md`](correction-ledger.md), the row is met, and the counts move by one again. Nothing was
+re-measured, no migration work was rerun and no other row changed; §2's Migration cell shows the working. The **verdict
+is untouched** for the same reason as before: conjunct B fails this exit on its own.
 
 This page is the audit `rf2-hic-048` owes. It is a review: it certifies against evidence that already exists and it took
 no new measurement. Every miss below is filed as a `bd` issue and carries a row in
@@ -45,8 +54,8 @@ counter. That substitution has been refused four times on this programme and it 
 ## 1. The exit, conjunct by conjunct
 
 **Conjunct A — every §7 row points to running evidence, an installable module, a tested recipe, or an explicit non-goal
-with a React escape. NOT MET, on three rows.** Seventeen are witnessed; the three are §7's own SSR and Migration rows
-and Code splitting. §2 takes them row by row.
+with a React escape. NOT MET, on two rows.** Eighteen are witnessed; the two are §7's own SSR row and Code splitting.
+§2 takes them row by row.
 
 **Conjunct B — the canonical SSR/hydration suite is green. NOT MET.** Four inventory ids await a first witness with no
 live owner; one is measured to satisfy *neither* policy; two are unwitnessed on the server. And the inventory the
@@ -93,9 +102,9 @@ Three values, and *unaddressed* never reads as *works*.
 | i18n and theming | **met** | the page is mounted once and never re-mounted, and `<main>`'s identity is asserted across every switch — so a mechanism that tore the tree down would show a different node |
 | Testing | **met** | L0–L2 pure kit with its runtime-parity claim held, L3 mounted facade sabotaged across four leak kinds, production-sentinel erasure chained into the release build |
 | Diagnostics | **met** | versioned projection with its schema held, four views, the cause-aware advisor. Open correction `rf2-t2d3` |
-| Migration | **NOT MET** | reporter, refusal classes and shadow comparison all landed. The **population** is the in-repo corpus alone, which [§1.2](dispositions.md#12-rows-without-a-complete-planned-witness) states does not satisfy §7. `rf2-gqp5s` |
+| Migration | **met** | reporter, refusal classes and shadow comparison all landed — `migration/reagent-to-hicasso/codemod/` and `.../test_kit/test/re_frame/hicasso/shadow_dom_cljs_test.cljs` — and so did the **population**. §7's Required-proof cell for this row reads *three representative repositories*, and `rf2-hic-055` ran three, each pinned by commit: the in-repo examples (81 files); `athensresearch/athens` @ `b463a97a0d28cbc0a29bec55feebcbe54c20de54`, canonically at [that repository's commit page](https://github.com/athensresearch/athens/commit/b463a97a0d28cbc0a29bec55feebcbe54c20de54), 131 files and 109 census sites; and `district0x/memefactory` @ `71bf92b4b4b935bda089783fd6c07041f84d34f8`, [likewise](https://github.com/district0x/memefactory/commit/71bf92b4b4b935bda089783fd6c07041f84d34f8), 102 files and 85 sites. Both SHAs are commits of those repositories rather than of this one — which is the reason each is typed with its permalink, and a second way of saying that this tree is not where they live. `day8/re-frame-10x` was the vendored-Reagent control and `implementation/hicasso/src` the clean 0/0/0 one, with determinism shown by two byte-identical athens runs. **This row read NOT MET until 2026-08-15**, on the premise that the population is the in-repo corpus alone. **Read this before re-asserting that premise, which has now been disproved twice: Migration's population spans three repositories, and the two external ones were checked out read-only and measured rather than vendored — so their absence from this tree is the method working, not the run missing.** [§1.2](dispositions.md#12-rows-without-a-complete-planned-witness) records all three runs and scores this row Witnessed. `rf2-gqp5s` **withdrawn** |
 
-**Seventeen met, three not met, none unaddressed at the row level.** The unaddressed category does real work one level down —
+**Eighteen met, two not met, none unaddressed at the row level.** The unaddressed category does real work one level down —
 inside Large collections, where the clock half is unaddressed while the work census is met — and it is recorded there
 rather than allowed to colour the row either way.
 
@@ -109,7 +118,11 @@ worked: *"a closed bead owns nothing, and beads here close on PR-open, so closed
 So a column built to say *who owes this* was being read for *is this proved*, and it could not say yes. I added a third
 value — **Witnessed**, defined in §1.2 with the reason — and rewrote all twenty cells: sixteen Witnessed with the
 artefact named, four Gap with what is absent. `Claimed` now has no occupant, and I kept it rather than deleting it,
-because a future surface will be owed before it is proved and the word will be needed again.
+because a future surface will be owed before it is proved and the word will be needed again. **Two of those four Gaps
+have since been corrected to Witnessed** — Accessibility, whose only deficit was the axe `rf2-5q8o` declined, and
+Migration, whose population had already run over three repositories. `rf2-2ius2` made both amendments, and
+[§1.2](dispositions.md#12-rows-without-a-complete-planned-witness) carries their working; the sixteen-and-four in the
+sentence above is what this checkpoint wrote on 2026-08-14, not what §1.1 reads today.
 
 **One thing found in the doing, and fixed in the same edit rather than filed.** §1.1's SSR row named `rf2-hic-056` as
 its planned witness. That bead is the bounded Node service; the per-surface matrix is `rf2-hic-046`'s and `rf2-hic-005`'s.
@@ -216,16 +229,22 @@ precedent: Checkpoint 3 filed that omission against itself rather than let it pa
 the same by recording it here.
 
 **The omission is one-directional.** A clean-checkout re-run and a sabotage sweep can only turn a *met* row into a *not
-met* one — they cannot discover evidence that is absent from the tree, and absence is what all three failing rows turn
-on. Every one of them was decided by reading the tree, not by running it: two HMR suites with zero occurrences of
-*lazy*, a `migration/` tree with no external population, four §2.1 cells with no witness cited, and three facade names
+met* one — they cannot discover evidence that is absent from the tree, and absence is what both failing rows turn
+on. Each was decided by reading the tree, not by running it: two HMR suites with zero occurrences of
+*lazy*, four §2.1 cells with no witness cited, and three facade names
 with no inventory row. None of those readings would move under a green suite. So the verdict is safe against the gap,
-and only the seventeen *met* rows are held on evidence this checkpoint did not itself re-execute.
+and only the eighteen *met* rows are held on evidence this checkpoint did not itself re-execute.
+
+**Where reading the tree is not one-directional, and this checkpoint learned it the hard way.** The argument above holds
+only for a proof that would *be* in this tree if it existed. Migration's population is the case where it does not: the
+external repositories are cloned read-only and measured, so a tree search returns empty by design and returning empty
+proves nothing. This page scored that row NOT MET on exactly that reading and was wrong (§7 below). Where a method
+leaves no trace here, the record of the run is the evidence — check the bead before scoring absence.
 
 ## 7. The misses
 
-Five were filed, all `coverage`, all rowed in [`correction-ledger.md`](correction-ledger.md). **Four block; the fifth
-has since been withdrawn** and is kept below rather than deleted, on the ledger's own rule that a finding which proves
+Five were filed, all `coverage`, all rowed in [`correction-ledger.md`](correction-ledger.md). **Three block; two have
+since been withdrawn** and are kept below rather than deleted, on the ledger's own rule that a finding which proves
 mistaken is closed with its reason so the audit can see it was considered.
 
 | Finding | bd id | Why it blocks |
@@ -234,12 +253,16 @@ mistaken is closed with its reason so the audit can see it was considered.
 | HMR through the `React.lazy` bridge, unwitnessed and unowned | `rf2-y5x6j` | §7 names it in the same cell as the four states that landed |
 | HS-31, HS-32, HS-34, HS-23 owe an unproved refusal, no live owner | `rf2-cfriw` | §2.1 note 3: an unproved refusal is not a disposition |
 | ~~The axe checks never landed and the routing chain terminates in nothing~~ | `rf2-5q8o` | **Withdrawn, and blocks nothing.** `rf2-7znnl` was closed as a duplicate of `rf2-5q8o`, whose ruling is **DECLINE**: no acceptance column asks for an axe sweep, so it is a non-goal rather than an unlanded witness. The Accessibility row it was filed against is met on §7's own Required proof |
-| Migration's population is the in-repo corpus alone | `rf2-gqp5s` | §1.2 states in terms that this does not satisfy §7 |
+| ~~Migration's population is the in-repo corpus alone~~ | `rf2-gqp5s` | **Withdrawn, and blocks nothing.** The premise is false: `rf2-hic-055` ran three repositories and pinned each by commit, and the two external ones are checked out read-only and measured rather than vendored, so this tree was never where they would appear. Withdrawn in [`correction-ledger.md`](correction-ledger.md); the bead is closed and owes no work |
 
-`rf2-gqp5s` may well be an operator decision rather than work, and its bead says so: naming two external repositories is
-a choice about what the programme points at in public, and §13 already routes real external applications through
-`rf2-hic-063`'s deferred pilot row. Three dispositions are legitimate and the bead presumes among none. Only doing
-nothing is wrong, because `rf2-hic-064` gates on a §7 row with no owner.
+**Why this one was got wrong, since the same mistake has now been made twice.** The finding was reached by reading the
+tree for the population and not finding it — sound for every other row on this page, and unsound for this one.
+[§1.2](dispositions.md#12-rows-without-a-complete-planned-witness) records that the external repositories are **cloned
+read-only and measured, never vendored**, so a tree search here is looking in the one place the method guarantees will
+be empty. `rf2-hic-055`'s record is the evidence: three repositories, each with a commit hash, two controls, and two
+byte-identical athens runs for determinism. A closed bead's record is evidence about what ran even when the tree cannot
+show it. The three legitimate dispositions this section used to offer were all answers to a question that does not
+arise, and `rf2-hic-064` has no ownerless §7 row to gate on here.
 
 ## 8. Considered, and not filed
 
@@ -263,18 +286,20 @@ nothing is wrong, because `rf2-hic-064` gates on a §7 row with no owner.
 
 ## 9. What would change this verdict
 
-Conjunct A needs `rf2-y5x6j` and `rf2-gqp5s` landed — or, for the last, an operator ruling that amends §7.
+Conjunct A needs `rf2-y5x6j` landed, and that is now the whole of it — it no longer needs `rf2-gqp5s`, which is
+withdrawn, nor the operator ruling that finding once contemplated, because §7's Migration row is met on the proof it
+already asks for.
 Conjunct B needs `rf2-cfriw` and `rf2-2l8pw`, and then HS-33's decided repair. Conjunct C's economic half needs no work
 at all: it is red by ratified decision and stays red until a shell arm lands under `1,024 B`. Its bulk half needs a
 clock, which is `rf2-w01c`'s and is deferred to the measurement lane.
 
 **The exit does not need all of that to become adjudicable, and it does need all of it to become met.** Nothing here is
-large. Three of the four live misses are a witness apiece, and the fourth is a decision. What none of them is, is
-already done.
+large. All three live misses are a witness apiece; the fourth, which this page carried as a decision rather than work,
+turned out to be neither. What none of the three is, is already done.
 
 ## 10. What this record is not
 
 It is not a re-run of the Phase 4 suites; §6 says so and files it against itself. It is not a measurement, and it
 converts no counter into a time. It is not the §13 definition-of-done audit — that is `rf2-hic-064`'s and it reads this
-page plus the ledger. And it is not a claim that seventeen met rows are a Phase 4 exit. They are seventeen met rows,
+page plus the ledger. And it is not a claim that eighteen met rows are a Phase 4 exit. They are eighteen met rows,
 which is worth saying plainly and is not the same sentence.
