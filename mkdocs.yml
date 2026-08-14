@@ -286,10 +286,13 @@ nav:
     - "re-frame.freehand.controls (pre-alpha)": api/re-frame.freehand.controls.md
     - "re-frame.freehand.splitter (pre-alpha)": api/re-frame.freehand.splitter.md
     - "re-frame.freehand.collection (pre-alpha)": api/re-frame.freehand.collection.md
-    # The compiled-view substrate is DONOR code with no published Maven
-    # coordinate (docs/release-process.md §Policy). The nav says so, matching
-    # the Skills entry "re-frame2-ui (donor compiled views)" — a reader must not
-    # mistake these three pages for an installable dependency (rf2-9yvpf).
+    # The compiled-view substrate has no published Maven coordinate
+    # (docs/release-process.md §Policy) and is now retired and awaiting
+    # removal. The nav says so, matching the Skills entry
+    # "re-frame2-ui (retired compiled views)" — a reader must not mistake
+    # these three pages for an installable dependency (rf2-9yvpf). The
+    # "(donor)" markers below are the API tree's own and retire with those
+    # pages, in the API-page phase (rf2-pzu4g), not here.
     - "re-frame.ui (donor)": api/re-frame.ui.md
     - "re-frame.ui.react (donor)": api/re-frame.ui.react.md
     - "re-frame.schemas": api/re-frame.schemas.md
