@@ -143,7 +143,50 @@
   carries none of it. [[tier-sentinel]] is the unique string a bundle
   scan looks for; it is used as the marker property name on every
   component [[defcomponent]] mints, so it is REACHABLE rather than a
-  dead literal an optimiser could delete out from under the proof."
+  dead literal an optimiser could delete out from under the proof.
+
+  ## The public surface, classified (rf2-e0d2)
+
+  `specification.md` §12 has Phase 3 freeze *the grammar and the ABI*,
+  and a freeze is a deterministic act over a STATED membership. This is
+  the statement. Every public var of this namespace is below, in one of
+  two classes, with the one line that says why it is where it is.
+  `re-frame.hicasso.native-surface-cljs-test` pins the membership against
+  the compiler's own census, so a var added without a line here reds at
+  the diff that adds it — the rule the repository already applies to a
+  facade export. No name is renamed by this record; spellings remain the
+  naming ledger's (rf2-hic-065), and `declared-server`'s own is still
+  open there.
+
+  **SURFACE** — the tier's public contract. A consumer writes it, or a
+  tool reads it; Phase 3 freezes it.
+
+  | Var | Why it is surface |
+  |---|---|
+  | [[$]] | the one native authoring form, and the whole of the v0 grammar |
+  | [[props]] | the explicit dynamic props operand, without which the fourth production is unwritable |
+  | [[defcomponent]] | the island declaration door |
+  | [[use-sub]] | the tier's counterpart to `h/sub`, and half of its whole hook surface |
+  | [[use-frame]] | the other half — `capture-frame` in hook position |
+  | [[memo]] | ABI helper: `react/memo` with the marker carried |
+  | [[lazy]] | ABI helper: `react/lazy` with the marker carried and the chunk gated |
+  | [[component]] | the mint itself. A code-split chunk `def`s its island through this rather than through [[defcomponent]], because the chunk's module has no declaration site to put a coordinate on |
+  | [[marker]] | the seam every ABI helper, every embedding direction and the bundle scan reads to recognise a native head |
+  | [[tier-sentinel]] | the unique string that scan looks for, published so the proof and the runtime cannot spell it differently |
+
+  **INTERNAL** — not a consumer surface, and public only for the reason
+  each row gives. Nothing here is frozen as an authoring API.
+
+  | Var | Why it is nonetheless public |
+  |---|---|
+  | [[el]] | [[$]] emits a call to it in the CONSUMER's namespace, so it cannot be private |
+  | [[props*]] | [[props]] emits a call to it, likewise |
+  | [[declared-server]] | [[defcomponent]] emits a call to it, likewise — and deliberately at LOAD rather than at expansion, so the refusal carries the declaration's coordinate |
+  | [[prop-slots]] | named by NO expansion — both callers are in this file — and public for a different reason: the three-way parity row drives the shared rule as its own arm, and a fixture reaching it only through one of its two callers would be pinning that caller |
+
+  Everything else in this namespace is private, and [[check-child!]]
+  joined them here: it is named by no expansion, reached by nothing
+  outside this file, and its publicity bought nothing."
   (:require [re-frame.hicasso.impl.error :as error]
             [re-frame.hicasso.impl.slot :as slot])
   #?(:clj (:require [re-frame.source-coords :as source-coords]))
@@ -239,7 +282,7 @@
           (recur (next kvs) (conj! pairs [s v]) (assoc! seen s k))))
       (persistent! pairs))))
 
-(defn check-child!
+(defn- check-child!
   "Answer `c`, or refuse it. The two ClojureScript carriers that cannot
   be a React child are exactly the two the fence is about: a map, which
   is what an unmarked dynamic props operand becomes, and a vector, which
@@ -247,7 +290,13 @@
 
   Everything else passes — strings, numbers, nil, React elements, and
   ClojureScript seqs, which are ES6-iterable and are therefore React
-  children already."
+  children already.
+
+  **Private, and that is a classification rather than a narrowing**
+  (rf2-e0d2). Its two callers are both in this file — [[$]] on child
+  FORMS at expansion, [[checked]] on values at render — so no expansion
+  names it in a consumer's namespace and nothing outside reached it. It
+  was public only because nothing had ruled."
   [c where]
   (cond
     (map? c)
