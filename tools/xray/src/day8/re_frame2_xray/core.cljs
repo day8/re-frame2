@@ -127,12 +127,6 @@
   epoch collectors, the browser-API exports, and the keybinding listener —
   then threads each supplied opt through to its backing surface:
 
-  The Views panel's mounted-view reads need no wiring here and never did
-  need any of their own (rf2-7gth0): `re-frame.freehand.tool` is a READER
-  with no registry to claim, so there is nothing for startup to acquire and
-  nothing a second tool could hold against Xray. The subs registered by
-  `register-xray-handlers!` read it directly.
-
   - `:target-frame` — dispatches `:rf.xray/set-target-frame` so the
     scrubber + every dependent panel re-fire on the standard reactive
     path against the selected host frame.

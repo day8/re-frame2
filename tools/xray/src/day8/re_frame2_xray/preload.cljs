@@ -100,12 +100,14 @@
   (registry/register-xray-handlers!)
   (install/register-trace-collector!)
   (install/register-epoch-collector!)
-  ;; No mounted-view evidence step here, and none is missing (rf2-7gth0).
-  ;; The predecessor claimed the donor's evidence projection under a stable
-  ;; owner identity from exactly this position, because that tier had a
-  ;; single-owner registry a second tool could hold. `re-frame.freehand.tool`
-  ;; has no registry: the Views panel's subs read it directly, every read is
-  ;; authorized, and a host not running Freehand answers zero rows.
+  ;; No view-substrate evidence step here, and none is missing (rf2-l86mm).
+  ;; Two predecessors sat in exactly this position. The first claimed the
+  ;; donor `re-frame.ui` evidence projection under a stable owner identity,
+  ;; because that tier had a single-owner registry a second tool could hold.
+  ;; The second was no step at all — `re-frame.freehand.tool` had no registry
+  ;; to claim, so the Views panel's subs read it directly. Both are gone with
+  ;; the substrates they read. The Hicasso tab's door is a reader on the same
+  ;; terms and acquires nothing from here either.
   (install/install-browser-api-exports!)
   (keybinding/attach!)
   ;; Apply the persisted CSS-var + theme-class effects. The shell
