@@ -155,6 +155,17 @@ than the count. A rule written as a class does not re-drift.
 State what the worker owns, then what it may not touch **and who holds it**. Naming the
 holder tells the worker whether a conflict means "rebase" or "stop and report".
 
+**A fence is derived, never remembered — and the worker derives it again at start-up.**
+Step 3 above settles how you establish it; this is what the brief then asks of the worker,
+because a list assembled from memory of who you dispatched is stale inside the dispatch's
+own lifetime and on a busy fleet can be wrong before the brief is finished. So the fence
+travels as a claim the worker re-checks, like every other premise, and its own result wins.
+**That re-check is the load-bearing half, because the two staleness directions cost
+differently.** Too BROAD costs one re-derivation — the worker is warned off something
+nobody holds. Too NARROW omits a worker dispatched after you last looked, and two workers
+on one surface merge-conflict and can silently revert each other. Accuracy alone cannot
+reach the second: it expires between writing the brief and reading it.
+
 Hot-zone files — anything sequential, where two concurrent editors conflict by construction
 — take one toucher at a time. If a remedy needs one, the instruction is **stop and report**,
 not edit. **A citation is not permission**: briefs routinely cite a specification section as
