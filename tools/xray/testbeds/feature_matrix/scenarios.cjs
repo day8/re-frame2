@@ -1,7 +1,6 @@
 'use strict';
 
 const {
-  expectCount,
   expectTextEquals,
   expectVisible,
   navigate,
