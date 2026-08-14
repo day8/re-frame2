@@ -20,8 +20,8 @@ identifier, and `git log --oneline --all -- <path>` plus
 `git rev-parse <candidate>:<path>` finds a commit carrying the blob.
 **Measured** 2026-08-01 AUSEST
 
-**The arm's own witnesses** (`rf2-fki5d`, measured 2026-08-02 AUSEST, same
-runtime): `22e7e6f456fd1ac9a1628fd985588ff87e68532d`
+**The arm's own witness content hashes** (`rf2-fki5d`, measured 2026-08-02
+AUSEST, same runtime): `22e7e6f456fd1ac9a1628fd985588ff87e68532d`
 (`…/hicasso/arm1/controlled_grid_dom_cljs_test.cljs`) and
 `176442a54e1be2ea346e7cfee460f4583bf10233`
 (`…/hicasso/front/controlled_dom_cljs_test.cljs`). The mechanism is
