@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 /*
  * `test:examples-compile` — compile-coverage gate over EVERY declared
- * standalone `:examples/*` shadow-cljs build (rf2-0vav5.1 + rf2-cn6kc.1).
+ * standalone `:examples/*` AND `:testbeds/*` shadow-cljs build
+ * (rf2-0vav5.1 + rf2-cn6kc.1 + rf2-in6c4).
  *
  * The gap this closes
  * -------------------
@@ -20,14 +21,39 @@
  * `examples/` (forbidden by rf2-8cevm) — it just COMPILES every declared
  * standalone example so a compile-time defect fails CI.
  *
+ * THE SAME GAP, ONE TREE OVER (rf2-in6c4). `:testbeds/*` had it too, and
+ * worse, because nothing else reached those builds either. The classifier's
+ * generic `testbeds/*` case arms `cljs_browser`, but the top-level
+ * `testbeds/` tree holds ZERO test files (measured: 13 `.cljs`, 0 `_test`,
+ * 0 `.clj`, and one colocated `spec.cjs` under `tenant_switcher/`), and no
+ * test in the armed lane `:require`s a testbed namespace — the Xray e2e
+ * suites that read like they do use their OWN `host-fixtures` copies. So the
+ * lane compiled none of them, and a compile break confined to a top-level
+ * testbed landed green at PR time, caught only by the Xray FULL feature gate
+ * (nightly). Twelve non-tenant top-level builds sat behind that hole
+ * (`tenant-switcher` is the thirteenth and already has the
+ * `tenant_switcher_smoke` gate; `:testbeds/freehand-views` and
+ * `:testbeds/panel-gallery` live under `tools/xray/testbeds/` and are the
+ * fourteenth and fifteenth). Adding the prefix here was the cheapest of the
+ * three lanes weighed on the bead: a pure `shadow-cljs compile` in a job
+ * that already exists, sharing that job's compilation cache, buying no
+ * browser execution nobody asked for.
+ *
+ * THE FILE AND SCRIPT NAMES STILL READ "examples", deliberately. Renaming
+ * them is a required-check rename plus an npm-script rename plus a
+ * classifier-roster edit, for no coverage gained — the same trade
+ * `ui-scaffold-smoke` records in test.yml for its own stale name. What the
+ * gate SWEEPS is `COMPILED_BUILD_PREFIXES` below; that is the honest roster.
+ *
  * Auto-covering by construction
  * -----------------------------
- * The build list is DERIVED from `shadow-cljs.edn` (the `:examples/*`
- * build ids) rather than hardcoded, so a NEWLY-declared example build is
- * swept by this gate the moment it lands — no second edit, no drift. This
- * mirrors the `:dev-http` drift-guard approach in `dev-testbed.test.cjs`
- * (rf2-d3fb7.1): shadow-cljs.edn is the single source of truth and is read
- * here ONLY (it is a hot-zone file — never edited by this script).
+ * The build list is DERIVED from `shadow-cljs.edn` (the `:examples/*` and
+ * `:testbeds/*` build ids) rather than hardcoded, so a NEWLY-declared build
+ * under either prefix is swept by this gate the moment it lands — no second
+ * edit, no drift. This mirrors the `:dev-http` drift-guard approach in
+ * `dev-testbed.test.cjs` (rf2-d3fb7.1): shadow-cljs.edn is the single source
+ * of truth and is read here ONLY (it is a hot-zone file — never edited by
+ * this script).
  *
  * Compile, not release
  * --------------------
@@ -65,13 +91,13 @@
  *
  * CLI
  * ---
- *   node scripts/check-examples-compile.cjs           # compile all example builds
+ *   node scripts/check-examples-compile.cjs           # compile every swept build
  *   node scripts/check-examples-compile.cjs --list     # print the derived build list, exit 0
  *
  * The pure enumeration + parser are exported for
- * `check-examples-compile.test.cjs`, which pins the parser (non-vacuous,
- * covers the four previously-uncovered builds) so this gate keeps its
- * teeth.
+ * `check-examples-compile.test.cjs`, which pins the parser (non-vacuous
+ * under EACH swept prefix, covers the previously-uncovered builds) so this
+ * gate keeps its teeth.
  */
 
 'use strict';
@@ -84,9 +110,31 @@ const { IMPL_ROOT } = require('./_path-policy.cjs');
 // ---------------------------------------------------------------------------
 // shadow-cljs.edn enumeration. We hand-roll a focused scan rather than pull
 // in an EDN dependency — the only shape we read is top-level build-id keys
-// (`:examples/<name> {`). This matches the parser style already used by the
-// dev-testbed drift guard (rf2-d3fb7.1).
+// (`:examples/<name> {`, `:testbeds/<name> {`). This matches the parser style
+// already used by the dev-testbed drift guard (rf2-d3fb7.1).
 // ---------------------------------------------------------------------------
+
+/**
+ * The build-id prefixes this gate sweeps, each with the floor its
+ * enumeration must clear.
+ *
+ * THE FLOOR IS PER PREFIX, not a single total, and that is the point
+ * (rf2-in6c4). A total floor is satisfied by the examples alone: drop the
+ * `testbeds` alternative out of the pattern below and 39 example builds
+ * still clear any total worth setting, so the gate would go on passing
+ * green having quietly stopped compiling fifteen builds — the precise
+ * vacuous-pass shape the original floor was added to refuse, reintroduced
+ * by widening the roster. A floor per prefix cannot be satisfied by a
+ * sibling.
+ *
+ * The numbers are deliberately well under the live counts (39 examples, 15
+ * testbeds) — they are a non-vacuity bar, not a census. A census here would
+ * red on every legitimate addition and removal.
+ */
+const COMPILED_BUILD_PREFIXES = Object.freeze({
+  examples: 10,
+  testbeds: 10,
+});
 
 /** Read shadow-cljs.edn from the implementation root. */
 function readShadowEdn() {
@@ -110,25 +158,47 @@ function stripEdnComments(edn) {
 }
 
 /**
- * Enumerate every declared standalone `:examples/*` build id, in sorted
- * order. A build def is a top-level `:examples/<name> {` key. Returns the
- * colon-stripped coords shadow-cljs's CLI expects (e.g.
- * `examples/login-uix`), de-duplicated and sorted for a stable gate list.
+ * Enumerate every declared standalone build id under a swept prefix, in
+ * sorted order. A build def is a top-level `:<prefix>/<name> {` key. Returns
+ * the colon-stripped coords shadow-cljs's CLI expects (e.g.
+ * `examples/login-uix`, `testbeds/deep-machine`), de-duplicated and sorted
+ * for a stable gate list.
  *
  * The keys are matched at line-start indentation (two spaces) followed by
- * `:examples/<name>` and an opening brace, mirroring how build defs are
+ * `:<prefix>/<name>` and an opening brace, mirroring how build defs are
  * written throughout shadow-cljs.edn — so a `:examples/...` token that
  * appears mid-line (in prose or a nested map) is never picked up as a build.
+ *
+ * `:story-static/*` is NOT swept: it is a `release`-shaped export driven by
+ * its own `story:build` script and gated by `story_static_gate`, so
+ * compiling it here would duplicate a gate rather than close a hole.
  */
-function enumerateExampleBuilds(edn) {
+function enumerateCompiledBuilds(edn) {
   const src = stripEdnComments(edn);
-  const re = /^\s*:(examples\/[\w.-]+)\s*\{/gm;
+  const prefixes = Object.keys(COMPILED_BUILD_PREFIXES).join('|');
+  const re = new RegExp(`^\\s*:((?:${prefixes})\\/[\\w.-]+)\\s*\\{`, 'gm');
   const found = new Set();
   let m;
   while ((m = re.exec(src)) !== null) {
     found.add(m[1]);
   }
   return [...found].sort();
+}
+
+/**
+ * The swept prefixes whose enumerated count falls below their declared
+ * floor, as `[{prefix, count, floor}]`. Empty means every prefix is
+ * non-vacuously represented. See COMPILED_BUILD_PREFIXES for why this is
+ * checked per prefix rather than in total.
+ */
+function prefixesBelowFloor(builds) {
+  return Object.entries(COMPILED_BUILD_PREFIXES)
+    .map(([prefix, floor]) => ({
+      prefix,
+      floor,
+      count: builds.filter((b) => b.startsWith(`${prefix}/`)).length,
+    }))
+    .filter(({ count, floor }) => count < floor);
 }
 
 // ---------------------------------------------------------------------------
@@ -283,9 +353,11 @@ function reconcileRequestedBuilds(requested, output) {
 }
 
 module.exports = {
+  COMPILED_BUILD_PREFIXES,
   readShadowEdn,
   stripEdnComments,
-  enumerateExampleBuilds,
+  enumerateCompiledBuilds,
+  prefixesBelowFloor,
   parseBuildSummaries,
   buildsWithWarnings,
   normaliseBuildId,
@@ -299,17 +371,21 @@ if (require.main === module) {
   const listOnly = process.argv.slice(2).includes('--list');
 
   const edn = readShadowEdn();
-  const builds = enumerateExampleBuilds(edn);
+  const builds = enumerateCompiledBuilds(edn);
 
   // Non-vacuous guard: a parser that silently recovers nothing must NOT let
-  // the gate pass green having compiled zero builds. We know the project
-  // ships well over a dozen example builds; require a sane floor.
-  if (builds.length < 10) {
-    console.error(
-      `check-examples-compile: only ${builds.length} :examples/* build(s) ` +
-        `recovered from shadow-cljs.edn — expected the full example set. ` +
-        `Parser or shadow-cljs.edn drift; refusing to pass a vacuous gate.`,
-    );
+  // the gate pass green having compiled zero builds. Checked PER PREFIX, so
+  // a healthy roster under one prefix cannot cover for an empty one.
+  const starved = prefixesBelowFloor(builds);
+  if (starved.length > 0) {
+    for (const { prefix, count, floor } of starved) {
+      console.error(
+        `check-examples-compile: only ${count} :${prefix}/* build(s) ` +
+          `recovered from shadow-cljs.edn (floor ${floor}) — expected the ` +
+          `full ${prefix} set. Parser or shadow-cljs.edn drift; refusing to ` +
+          `pass a vacuous gate.`,
+      );
+    }
     process.exit(1);
   }
 
@@ -336,7 +412,9 @@ if (require.main === module) {
   const args = [shadowRunner, 'compile', ...builds];
   console.log(
     `check-examples-compile: compiling ${builds.length} declared ` +
-      `:examples/* build(s):`,
+      `${Object.keys(COMPILED_BUILD_PREFIXES)
+        .map((p) => `:${p}/*`)
+        .join(' + ')} build(s):`,
   );
   for (const b of builds) console.log(`  ${b}`);
   console.log(`> shadow-cljs compile ${builds.join(' ')}`);
@@ -371,7 +449,7 @@ if (require.main === module) {
     if (code !== 0) {
       console.error(
         `\ncheck-examples-compile: shadow-cljs compile failed (exit ${code}). ` +
-          `One or more example builds has a hard compile error (missing ns / ` +
+          `One or more swept builds has a hard compile error (missing ns / ` +
           `:require / unbalanced form).`,
       );
       const { failed } = parseBuildSummaries(captured);
@@ -388,7 +466,7 @@ if (require.main === module) {
     const warned = buildsWithWarnings(captured);
     if (warned.length > 0) {
       console.error(
-        `\ncheck-examples-compile: ${warned.length} example build(s) compiled ` +
+        `\ncheck-examples-compile: ${warned.length} build(s) compiled ` +
           `with WARNINGS — failing the gate (warnings are treated as errors ` +
           `here because shadow-cljs 'compile' exits 0 on warnings and ` +
           `:warnings-as-errors only bites on 'release'):`,
@@ -425,7 +503,7 @@ if (require.main === module) {
     }
 
     console.log(
-      `\ncheck-examples-compile: all ${builds.length} example builds compiled ` +
+      `\ncheck-examples-compile: all ${builds.length} swept builds compiled ` +
         `with zero warnings (every requested build produced exactly one ` +
         `parsable completed summary).`,
     );
