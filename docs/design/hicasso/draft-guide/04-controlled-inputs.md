@@ -75,6 +75,7 @@ platform value:
 | Checkbox | `:checked` | `:on-change` with `::h/checked` |
 | Radio option | `:checked` for each option | `:on-change` carrying that option's value literally |
 | `:select` | `:value` on the select | `:on-change` with `::h/value` |
+| `:select` with `:multiple` | `:value` as a vector of the selected option values | `:on-change` with `::h/value`, which carries that same vector — `[]` when nothing is picked |
 | File input | no controlled value | `:on-change` with `h/fn`, reading `.files` |
 
 ```clojure

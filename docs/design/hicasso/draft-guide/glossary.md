@@ -249,8 +249,14 @@ Related: [Events as data](03-events-as-data.md).
 <a id="hchecked"></a>
 ### `::h/value` and `::h/checked`
 
-Reserved markers replaced at dispatch with the DOM event target's `.value` or
-`.checked`. Substitution occurs only at the top level of the event vector.
+Reserved markers replaced at dispatch with the event target's current value or
+checked state. Substitution occurs only at the top level of the event vector.
+
+`::h/value` is the target's `.value` on every control but one. A
+`<select multiple>`'s value is its selection rather than a scalar, so the marker
+carries a vector of the selected option values — `[]` when nothing is picked.
+Reading `.value` there would answer the first selected option only, which is a
+plausible string that quietly is not what the user chose.
 
 ```clojure
 [:input
