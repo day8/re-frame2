@@ -45,6 +45,24 @@
   only model-driven clear away from the author. The predicate is
   non-EMPTY.
 
+  ## The spelling is the platform's, not the author's (rf2-h6qm7)
+
+  The prop refusal shipped comparing the `type` prop exactly, and an HTML
+  `type` is an enumerated attribute the platform matches ASCII
+  case-insensitively. So `:type \"FILE\"` was a file input to the engine
+  and not to the predicate: the refusal did not fire, React took the
+  controlled path anyway, and the engine threw the very
+  `InvalidStateError` the refusal exists to replace — one spelling in
+  sixteen refused, fifteen through. Worse than no refusal, because a hole
+  that shape is invisible from the outside.
+
+  The two readers answer this differently and both answers are right. The
+  PROP predicate reads the author's props object before React builds
+  anything, so a spelling is all it has and it folds. The MARKER reads a
+  LIVE element on an event, where the platform has already resolved the
+  type, and asks `.files` — a property of the resolved control rather
+  than a string anyone spelled. One row below measures each.
+
   ## The platform control stays
 
   The direct `node.value = …` rows are not redundant with the refusals.
@@ -94,12 +112,16 @@
 (defn- id-of [e] (:rf.error/id (ex-data e)))
 
 (defn- file-input!
-  "A real `<input type=file>` in the document."
-  []
-  (let [n (js/document.createElement "input")]
-    (set! (.-type n) "file")
-    (.appendChild js/document.body n)
-    n))
+  "A real `<input type=file>` in the document, at the given SPELLING of
+  the type attribute — `setAttribute`, so the attribute keeps the
+  author's case and only the IDL normalises it, which is the asymmetry
+  rf2-h6qm7 turns on."
+  ([] (file-input! "file"))
+  ([spelling]
+   (let [n (js/document.createElement "input")]
+     (.setAttribute n "type" spelling)
+     (.appendChild js/document.body n)
+     n)))
 
 (defn- drop! [n] (.remove n) nil)
 
@@ -231,6 +253,73 @@
             (thrown-by #(react-dom/flushSync (fn [] (.unmount root))))
             (drop-container! c)))))))
 
+(deftest the-type-spelling-is-the-platforms-not-the-authors
+  (testing "an HTML `type` is an enumerated attribute matched ASCII
+           case-insensitively, so every spelling below IS a file input as
+           far as the engine is concerned, and every one of them used to
+           walk past a refusal that compared the string exactly
+           (rf2-h6qm7). The keyword spellings are here because
+           `convert-prop-value` hands React `(name kw)` unchanged, so the
+           author's case survives into the props object either way."
+    (doseq [[what hiccup]
+            [["the shouted string, which is the spelling the audit found"
+              [:input {:type "FILE" :value "budget.csv"
+                       :on-change noop-change}]]
+             ["the shouted keyword, the same attribute by the other door"
+              [:input {:type :FILE :value "budget.csv"
+                       :on-change noop-change}]]
+             ["title case, which is what a form generator emits"
+              [:input {:type "File" :value "budget.csv"
+                       :on-change noop-change}]]
+             ["and a mixed spelling, since the fold is total rather than a
+               list of the plausible ones"
+              [:input {:type "fIlE" :value "budget.csv"
+                       :on-change noop-change}]]]]
+      (is (= :rf.error/hicasso-file-input-value-prop
+             (id-of (thrown-by #(codec/as-element hiccup))))
+          what)))
+  (testing "and the empty value stays the reset idiom at EVERY spelling —
+           the fold widened which controls the predicate recognises, not
+           which values it refuses"
+    (is (nil? (thrown-by #(codec/as-element
+                           [:input {:type "FILE" :value ""
+                                    :on-change noop-change}])))))
+  (testing "a type that merely CONTAINS the letters is not the control"
+    (doseq [hiccup [[:input {:type "profile" :value "x" :on-change noop-change}]
+                    [:input {:type "filename" :value "x" :on-change noop-change}]]]
+      (is (nil? (thrown-by #(codec/as-element hiccup))))))
+  (testing "and a non-string :type, which `convert-prop-value` leaves as a
+           number, is asked the question without being handed to a string
+           method"
+    (is (nil? (thrown-by #(codec/as-element
+                           [:input {:type 0 :value "x"
+                                    :on-change noop-change}]))))))
+
+(deftest mounting-a-shouted-file-input-never-reaches-the-platform-write
+  (testing "the same measurement as the row above, at the shouted
+           spelling — and the reason this one is worth its own mount.
+           Before the fold the engine's `InvalidStateError` did not even
+           arrive at the caller: React caught it inside its own commit
+           and re-reported it as an UNCAUGHT page error, so the author
+           had neither an id nor an exception to catch."
+    (if-not (browser?)
+      (skip! "React's assignment needs React's own commit")
+      (let [c    (container!)
+            root (react-dom-client/createRoot c)]
+        (try
+          (let [t (thrown-by
+                   #(react-dom/flushSync
+                     (fn []
+                       (.render root (codec/as-element
+                                      [:input {:type "FILE" :value "budget.csv"
+                                               :on-change noop-change}])))))]
+            (is (= :rf.error/hicasso-file-input-value-prop (id-of t))
+                "the refusal arrives, and it arrives at the call site")
+            (is (not (instance? js/DOMException t))))
+          (finally
+            (thrown-by #(react-dom/flushSync (fn [] (.unmount root))))
+            (drop-container! c)))))))
+
 ;; ---------------------------------------------------------------------------
 ;; 2 — THE MARKER (rf2-lhsvs)
 ;; ---------------------------------------------------------------------------
@@ -322,3 +411,32 @@
                                [:app/upload :re-frame.hicasso/value]
                                (ev n)))))))))
         (finally (drop! n))))))
+
+(deftest the-marker-needed-no-fold-of-its-own
+  (testing "the prop refusal had to be taught the platform's
+           case-insensitive `type` matching (rf2-h6qm7); this one did not,
+           and the difference is WHERE each looks. The prop predicate runs
+           against the author's props object before React builds anything,
+           so the author's spelling is all it has. The marker runs against
+           a LIVE element on an event, by which time the platform has
+           already resolved the type — and it asks `.files`, which is a
+           property of the resolved control rather than a string anyone
+           spelled. Two readers of one control, and only one of them can
+           be fooled by shouting."
+    (if-not (browser?)
+      (skip! "only a live element can carry the platform's own normalisation")
+      (let [n (file-input! "FILE")]
+        (try
+          (is (= "FILE" (.getAttribute n "type"))
+              "the attribute keeps the author's case")
+          (is (= "file" (.-type n))
+              "and the IDL answers the platform's, which is the whole asymmetry")
+          (is (some? (.-files n))
+              "so the discriminator the marker reads is present, unshouted")
+          (is (= :rf.error/hicasso-file-input-value-marker
+                 (id-of (thrown-by
+                         #(intent/materialize
+                           [:app/upload :re-frame.hicasso/value] (ev n)))))
+              "and the marker refusal fires at this spelling exactly as at
+               the lowercase one — it always did")
+          (finally (drop! n)))))))
