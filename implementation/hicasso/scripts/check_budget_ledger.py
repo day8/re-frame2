@@ -379,6 +379,92 @@ def _edn_unescape(literal):
     return "".join(out)
 
 
+# L6.  The EDN string literal a `:ns-regexp` is written as, applied to ONE
+# build's own map (below).  Lifted verbatim out of the single search this
+# replaced, so the values read are unchanged by the isolation.
+_NS_REGEXP_RE = re.compile(r":ns-regexp\s+\"((?:[^\"\\\\]|\\\\.)*)\"")
+
+# L6.  The build id sits alone on its line, optionally behind the `{` that
+# opens the `:builds` map — `:node-test` is that map's FIRST entry and so is
+# written `{:node-test`.  Anchoring on the whole line is what keeps
+# `:target :node-test` and `:node-test-perf-nightly` from being mistaken for
+# the build's own key.  The lookahead leaves the match ending ON the `{` that
+# opens the build's value, which is where the brace matcher starts; a key whose
+# value is not a map therefore does not match at all, and the gate refuses.
+_BUILD_KEY_RE = r"^\s*\{?\s*%s\s*$\s*(?=\{)"
+
+
+def _isolate_build_map(text, build):
+    """`build`'s own map, comments blanked, or `None` if it declares none.
+
+    THE POINT OF THIS FUNCTION IS THE CLOSING BRACE (`rf2-mwr2`).  Reading a
+    selector by searching on from the build's key across the rest of the file
+    lets a build that declares NO `:ns-regexp` silently adopt the next build's
+    — reported as a verified lane, which is the fail-open L6 exists to close,
+    rebuilt inside L6's own machinery.  Bounding the search at the build's own
+    closing brace is what turns that borrow into a refusal.
+
+    Brace matching is comment- and string-aware because this file requires it
+    to be, not as a precaution: `implementation/shadow-cljs.edn` carries
+    ``:warnings {:infer-warning false}`` in prose inside `:node-test`'s own
+    map, and ``--config-merge {:output-dir ... :modules {:main {:init-fn
+    ...}}}`` inside another build's.  Those happen to balance today, so a
+    comment-blind counter would land on the right brace by luck; one prose edit
+    with an unpaired brace would mis-bound the map and restore the borrow.
+    Comments are BLANKED rather than skipped so the `:ns-regexp` search that
+    follows cannot read a value out of prose either — this file spells
+    ``:ns-regexp \\"cljs-test$\\"`` in a comment two builds below the real one.
+
+    This is a brace matcher and not an EDN parser: it knows string literals,
+    `;` comments and `\\x` character literals, and it counts `{` against `}`.
+    Nothing here interprets a form, and nothing here needs to.
+    """
+    key = re.search(_BUILD_KEY_RE % re.escape(build), text, re.M)
+    if not key:
+        return None
+    out, depth, i, end = [], 0, key.end(), len(text)
+    while i < end:
+        char = text[i]
+        if char == '"':
+            out.append(char)
+            i += 1
+            while i < end:
+                out.append(text[i])
+                if text[i] == "\\" and i + 1 < end:
+                    i += 1
+                    out.append(text[i])
+                elif text[i] == '"':
+                    i += 1
+                    break
+                i += 1
+            continue
+        if char == ";":
+            while i < end and text[i] != "\n":
+                out.append(" ")
+                i += 1
+            continue
+        if char == "\\":
+            # An EDN character literal — `\{`, `\}`, `\;`, `\"`.  Blanked
+            # whole, so the brace or quote it names cannot be counted or
+            # opened as a string.
+            out.append(" ")
+            i += 1
+            if i < end:
+                out.append(" ")
+                i += 1
+            continue
+        if char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                out.append(char)
+                return "".join(out)
+        out.append(char)
+        i += 1
+    return None
+
+
 def read_lane_selectors(path=SHADOW_CLJS):
     """`{build-id: compiled ns-regexp}` for the three lanes L6 adjudicates on.
 
@@ -391,23 +477,34 @@ def read_lane_selectors(path=SHADOW_CLJS):
     `rf2-xcaph` widened it out of.
     """
     with open(path, encoding="utf-8") as handle:
-        text = handle.read()
+        return lane_selectors(handle.read(), path)
+
+
+def lane_selectors(text, path=SHADOW_CLJS):
+    """`read_lane_selectors` against config source already in hand.
+
+    Split out so `--self-test` can drive the refusals from a DOCTORED config
+    without writing one to disk.  The control this seam exists for is the one
+    that could not otherwise be written: a build present in the file and
+    declaring no `:ns-regexp` of its own must refuse, rather than adopt the
+    selector of whichever build happens to follow it (`rf2-mwr2`).
+    """
     selectors = {}
     for build in (PR_BLOCKING_DOM_BUILD, SCHEDULED_DOM_BUILD,
                   PR_BLOCKING_NODE_BUILD):
-        # The build id sits alone on its line, optionally behind the `{` that
-        # opens the `:builds` map — `:node-test` is that map's FIRST entry and
-        # so is written `{:node-test`.  Anchoring on the whole line is what
-        # keeps `:target :node-test` and `:node-test-perf-nightly` from being
-        # mistaken for the build's own key.
-        match = re.search(
-            r"^\s*\{?\s*%s\s*$\s*\{.*?:ns-regexp\s+\"((?:[^\"\\\\]|\\\\.)*)\""
-            % re.escape(build), text, re.S | re.M)
+        own_map = _isolate_build_map(text, build)
+        if own_map is None:
+            raise ValueError(
+                "%s declares no build %s bound to a map that closes, so no "
+                "row's `PR gate` lane claim can be verified. This gate "
+                "refuses rather than skipping the check" % (path, build))
+        match = _NS_REGEXP_RE.search(own_map)
         if not match:
             raise ValueError(
-                "%s declares no :ns-regexp for the build %s, so no row's "
-                "`PR gate` lane claim can be verified. This gate refuses "
-                "rather than skipping the check" % (path, build))
+                "%s declares no :ns-regexp inside the build %s's OWN map, so "
+                "no row's `PR gate` lane claim can be verified. This gate "
+                "refuses rather than reading the next build's selector"
+                % (path, build))
         selectors[build] = re.compile(_edn_unescape(match.group(1)))
     return selectors
 
@@ -1108,6 +1205,78 @@ def self_test():
     assert set(read_lane_selectors()) == {
         PR_BLOCKING_DOM_BUILD, SCHEDULED_DOM_BUILD, PR_BLOCKING_NODE_BUILD}, \
         "read_lane_selectors stopped reading a lane L6 adjudicates on"
+
+    # L6 — and each selector is read out of THAT BUILD'S OWN MAP (`rf2-mwr2`).
+    # The reader used to search on from a build's key across the rest of the
+    # file, so a build declaring no `:ns-regexp` adopted the NEXT build's and
+    # had its lane reported verified on a selector belonging to something else.
+    # Latent on the shipping config — all three builds L6 reads declare their
+    # own — which is precisely why it needs a control rather than a reader's
+    # attention.  The plant is the defect itself, in the shape the bead
+    # reproduces it: the PR-blocking browser build present but silent, and the
+    # scheduled bench build following it holding the selector that gets
+    # borrowed.  Borrowing THAT one is the false-green direction, because it
+    # certifies a witness only the cron lane runs as blocking a merge.
+    #
+    # Driven through `lane_selectors` on config source held in memory: writing
+    # a doctored copy to disk would make this control depend on a temp file,
+    # and the defect is in the reading, not in the file handling.
+    def three_lanes(browser_selector):
+        return (" :builds\n"
+                " {%s\n"
+                "  {:target    :node-test\n"
+                "   :ns-regexp \"cljs-test$\"}\n"
+                "\n"
+                "  %s\n"
+                "  {:target    :browser-test\n"
+                "   %s:test-dir  \"out/browser-test\"}\n"
+                "\n"
+                "  %s\n"
+                "  {:target    :browser-test\n"
+                "   :ns-regexp \"^bench\\\\..+-dom-cljs-test$\"}}\n"
+                % (PR_BLOCKING_NODE_BUILD, PR_BLOCKING_DOM_BUILD,
+                   browser_selector, SCHEDULED_DOM_BUILD))
+
+    try:
+        lane_selectors(three_lanes(""), "<no selector of its own>")
+    except ValueError:
+        pass
+    else:
+        raise AssertionError(
+            "lane_selectors accepted a build declaring no :ns-regexp of its "
+            "own, so it read the FOLLOWING build's selector and would report "
+            "that build's `PR gate` lane verified against it")
+    # ...and the eager direction, which is what keeps the refusal above honest:
+    # with the one deleted line restored and nothing else changed, the same
+    # config must parse, and each build must get ITS OWN selector rather than
+    # its neighbour's.  Without this half, the refusal could be caused by the
+    # plant being unreadable and would prove nothing about the isolation.
+    intact = lane_selectors(three_lanes(':ns-regexp "-dom-cljs-test$"\n   '),
+                            "<selector restored>")
+    if intact[PR_BLOCKING_DOM_BUILD].pattern != "-dom-cljs-test$":
+        raise AssertionError(
+            "the missing-selector control refuses for the wrong reason: with "
+            "the selector restored, %s reads %r"
+            % (PR_BLOCKING_DOM_BUILD, intact[PR_BLOCKING_DOM_BUILD].pattern))
+    if intact[SCHEDULED_DOM_BUILD].pattern == "-dom-cljs-test$":
+        raise AssertionError(
+            "the plant cannot demonstrate a borrow: both browser builds "
+            "declare the same selector, so adopting one for the other would "
+            "be invisible")
+    # ...and the bound holds on the config as it SHIPS, not only on the plant.
+    # `:node-test` is the `:builds` map's first entry, the longest of the three
+    # maps, and the one carrying prose that names `:ns-regexp` — so exactly one
+    # occurrence proves both halves at once: the matcher stopped at that
+    # build's own closing brace instead of swallowing the builds below it, and
+    # comments were blanked instead of being read as declarations.
+    with open(SHADOW_CLJS, encoding="utf-8") as handle:
+        node_map = _isolate_build_map(handle.read(), PR_BLOCKING_NODE_BUILD)
+    if node_map is None or node_map.count(":ns-regexp") != 1:
+        raise AssertionError(
+            "%s's map is not bounded at its own closing brace, or a commented "
+            "mention of :ns-regexp survived into it: %r occurrences"
+            % (PR_BLOCKING_NODE_BUILD,
+               node_map is not None and node_map.count(":ns-regexp")))
 
     # L7 — the fail-open `rf2-mwr2` found, driven from every direction a
     # later edit could reopen it.  The first is the defect as it stood: U5

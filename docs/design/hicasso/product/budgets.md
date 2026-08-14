@@ -1005,6 +1005,25 @@ node one, letting a scheduled-lane DOM witness back through on the node build's
 selector. All eight witnesses pass on arrival; the widening reds nothing here
 and closes the class the last one could not see.
 
+**[Amended 2026-08-14, `rf2-mwr2`.] Each selector is read out of its own
+build's map, and a build declaring none refuses rather than borrowing.** The
+two amendments above both read a selector by searching on from a build's key
+across the rest of `implementation/shadow-cljs.edn`, which meant a build
+declaring no `:ns-regexp` silently adopted the *next* build's and had its lane
+reported verified against a selector belonging to something else. Nothing was
+green that should have been red — all three builds the gate reads declare their
+own selector — but the failure mode was the one these amendments exist to
+close, rebuilt inside their own machinery, and a config edit was all it needed.
+The search is now bounded at the build's own closing brace. Two details are
+load-bearing and easy to strip by accident: the brace matching skips string
+literals and `;` comments, because this config carries prose holding
+`{:infer-warning false}` inside `:node-test`'s own map and a `--config-merge`
+example inside another's; and comments are **blanked** rather than merely
+skipped, because the same file spells `:ns-regexp "cljs-test$"` in a comment
+two builds below the real declaration. A gate that cannot read a build's
+selector now says which build and why, in both directions — no such build, or
+no selector inside it.
+
 **[Amended 2026-08-14, `rf2-mwr2`.] A row that claims work SCALES has to name
 two counters, and the gate refuses one.** `U5` was registered on boundary
 bodies alone, and read `MET` on a coarse view-model arm that rebuilds every
