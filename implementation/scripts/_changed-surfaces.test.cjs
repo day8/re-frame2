@@ -6687,6 +6687,26 @@ const DECLARED_NO_SURFACE_OUTPUT = {
   docs: DOCS_YML,
   'docs/EP': DOCS_YML,
   'docs/async': DOCS_YML,
+  // rf2-7cuns. This tree needed no entry until 2026-08-14 because ONE arm lit
+  // it: `docs/core/freehand/*.md` armed implementation_jvm, because
+  // samples_coverage_jvm_test.clj `file-seq`d that directory. rf2-0yp7w
+  // deleted the Freehand guide and that roster in the same commit, which
+  // removed the last tracked file matching the arm and left the whole tree
+  // dark. The arm itself still MATCHES the pattern (a POSIX `case` over path
+  // strings cannot know the directory is gone) — it simply has nothing left to
+  // fire on. Declared rather than re-armed: the surviving guide is
+  // docs/core/hicasso/**, and rf2-r5iy7 already measured and REJECTED arming
+  // it, because the only output that would reach its checker is cljs_node_test
+  // — the ~10-minute node build, scheduled on a prose typo.
+  'docs/core': {
+    why: "the human guide. Three PR-time gates read it and none arms a surface output, which is the always-on shape this list exists to record. docs.yml's own docs_surface classifier stages it into the site and runs mkdocs --strict; check_doc_slugs.py validates its links and heading anchors on EVERY PR from test.yml's unconditional verify-readme-links job (rf2-v7fui); and lint.yml runs api-manifest doc-guide-check over docs/core/** minus docs/core/api/**, reconciling every call-position `(rf/<var>` reference against the manifest behind a non-vacuous floor. The Hicasso guide's 188 digest-pinned fenced blocks are covered by the unconditional hicasso-guide-samples job (rf2-r5iy7), which is unconditional PRECISELY so that a guide-only PR runs it.",
+    coveredBy: [
+      '.github/workflows/docs.yml',
+      'scripts/check_doc_slugs.py',
+      'implementation/scripts/api-manifest/src/re_frame/api_manifest/doc_guide_check.clj',
+      'implementation/hicasso/scripts/check_guide_samples.py',
+    ],
+  },
   'docs/images': DOCS_YML,
   'docs/resources': DOCS_YML,
   'docs/routing': DOCS_YML,

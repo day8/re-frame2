@@ -4,7 +4,7 @@
 
     `day8/re-frame2-ui` is **not** a Maven coordinate and never will be. The
     compiled-view substrate is donor-only code being absorbed into
-    [Freehand](../core/freehand/index.md); the standalone artefact is deleted at
+    Freehand; the standalone artefact is deleted at
     the EP-0036 F6e gate. The [release process](../release-process.md#policy) is
     normative on that, and the artefact is absent from the release workflow's
     deploy matrix. **There is nothing here you can put in a `deps.edn`.**
