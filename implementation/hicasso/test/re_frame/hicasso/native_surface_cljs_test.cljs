@@ -54,11 +54,11 @@
     "lazy"              ; React.lazy, marker carried, chunk gated (row 29)
     "component"         ; the mint door, named by a chunk's own def (row 43)
     "marker"            ; the seam every ABI helper and both crossings read (row 44)
-    "tier-sentinel"})   ; the string a bundle scan looks for (row 45)
+    "tier-sentinel"})   ; the string a bundle scan looks for (row 44)
 
 (def ^:private internal
   "**INTERNAL** — not a consumer surface, and public only for a stated
-  reason (ledger row 46). Three are named by a macro expansion in the
+  reason (ledger rows 45 and 46). Three are named by a macro expansion in the
   CONSUMER's namespace and therefore cannot be private at all; the fourth
   is public because a witness drives it directly. Nothing here is frozen
   as an authoring API, and `n/declared-server`'s own spelling stays open
