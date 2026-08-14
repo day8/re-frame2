@@ -33,9 +33,10 @@
 
   ## The ratchet (modelled exactly on error_catalogue_channel_conformance_test)
 
-  SOURCE-SCAN every artefact `src/` tree (reusing `impl-src-roots` /
-  `non-test-source-files` from the error-catalogue test) for the namespaces
-  that CALL either chokepoint, and assert each calling namespace is EITHER:
+  SOURCE-SCAN every artefact `src/` tree — the corpus defined once in
+  `re-frame.impl-source-corpus` and shared with the error-catalogue test —
+  for the namespaces that CALL either chokepoint, and assert each calling
+  namespace is EITHER:
 
     - the `error-emit` chokepoint namespace ITSELF (it defines the fns and its
       `dispatch-frame-teardown-report!` → `dispatch-error-record!` internal
@@ -75,51 +76,22 @@
   JVM-only (`.clj`, NOT `*-cljs-test`): it `slurp`s repo source files, which
   only the JVM `clojure -M:test` runner can do."
   (:require [clojure.test :refer [deftest is testing]]
-            [clojure.java.io :as io]
             [clojure.set :as set]
-            [clojure.string :as str]))
+            [clojure.string :as str]
+            [re-frame.impl-source-corpus :as corpus]))
 
 ;; ---------------------------------------------------------------------------
-;; Source roots + file enumeration (reused verbatim from
-;; error_catalogue_channel_conformance_test — the cmxiss enforcement precedent)
+;; Source roots + file enumeration — `re-frame.impl-source-corpus`, shared with
+;; error_catalogue_channel_conformance_test (the cmxiss enforcement precedent).
+;;
+;; This file used to hold a COPY of that test's enumeration, under a comment
+;; claiming it was "reused verbatim". It was not reused, it was duplicated, and
+;; the duplicate carried the same depth-1 defect: artefact roots enumerated as
+;; `.listFiles(implementation/)` mapped to `<child>/src` never reached the four
+;; adapter artefacts one level deeper, so this ratchet ran on adapter PRs and
+;; walked past 14 production files (rf2-2cu7f). Sharing the definition is what
+;; makes one fix fix both.
 ;; ---------------------------------------------------------------------------
-
-(def ^:private impl-src-roots
-  "Every artefact's non-test source root, resolved from the JVM test CWD
-  (`implementation/core/` per rf2-0hxm → repo root is `../../`). Falls back to
-  the pre-split `../implementation/...` layout for a transitional REPL run from
-  `implementation/`. Only existing dirs are kept."
-  (let [bases ["../../implementation" "../implementation" "../.."]]
-    (->> bases
-         (mapcat (fn [base]
-                   (let [d (io/file base)]
-                     (when (.isDirectory d)
-                       (->> (.listFiles d)
-                            (filter #(.isDirectory %))
-                            (map #(io/file % "src")))))))
-         (filter #(.isDirectory %))
-         distinct
-         vec)))
-
-(def ^:private source-file-exts
-  #{".clj" ".cljc" ".cljs"})
-
-(defn- non-test-source-files
-  "Every `.clj` / `.cljc` / `.cljs` file under the artefact src roots. src roots
-  carry only production source; we guard with a `/test/` path check anyway."
-  []
-  (->> impl-src-roots
-       (mapcat (fn [root] (file-seq root)))
-       (filter #(.isFile %))
-       (filter (fn [f]
-                 (let [n (.getName f)]
-                   (some #(str/ends-with? n %) source-file-exts))))
-       (remove (fn [f]
-                 (let [p (str/replace (.getPath f) "\\" "/")]
-                   (or (str/includes? p "/test/")
-                       (str/ends-with? (.getName f) "_test.clj")
-                       (str/ends-with? (.getName f) "_test.cljc")
-                       (str/ends-with? (.getName f) "_test.cljs")))))))
 
 ;; ---------------------------------------------------------------------------
 ;; The always-on union-record fan-out chokepoints + the routing primitive
@@ -190,7 +162,7 @@
             acc)
           acc)))
     {}
-    (non-test-source-files)))
+    (corpus/non-test-source-files)))
 
 ;; ---------------------------------------------------------------------------
 ;; The self-honest structural-only allow-list (rf2-mrtis6 census B1-B7)
@@ -360,11 +332,29 @@
             the known always-on fan-out chokepoint callers. A zero / tiny
             result means the src roots did not resolve from the test CWD (a
             path-layout change) — fail loudly rather than vacuously passing the
-            coverage invariant below with an empty caller set."
-    (let [roots   impl-src-roots
-          callers (chokepoint-caller-namespaces)]
+            coverage invariant below with an empty caller set.
+
+            `(seq roots)` alone is NOT that guard, and rf2-2cu7f is the proof:
+            for as long as this scan enumerated roots at depth 1 it resolved 16
+            of them, walked 377 files, reached not one of the four nested
+            adapter artefacts, and passed here. A floor on whether the walk
+            found ANYTHING says nothing about whether it found EVERYTHING, so
+            the coverage claim is the cross-check — this corpus against the
+            independently-shaped one the repo's other source-scanning lints
+            use."
+    (let [roots   corpus/src-roots
+          callers (chokepoint-caller-namespaces)
+          {:keys [missing extra]} (corpus/corpus-cross-check)]
       (is (seq roots)
           "at least one artefact src root resolved from the JVM test CWD")
+      (is (empty? missing)
+          (str "the scan MISSED production source that the path-shaped "
+               "enumeration of implementation/**/src/ finds — an artefact root "
+               "the walk does not reach, which is exactly how the adapters went "
+               "unscanned (rf2-2cu7f). Missing: " (pr-str (vec missing))))
+      (is (empty? extra)
+          (str "the scan reached source OUTSIDE implementation/**/src/: "
+               (pr-str (vec extra))))
       ;; The chokepoint definer + at least the SSR caller family must be found.
       (is (contains? callers chokepoint-def-ns)
           (str chokepoint-def-ns " (the chokepoint definer) is among the "
