@@ -1110,6 +1110,66 @@ jobs:
       - name: Verify the ledger against its registrations and dispositions
         run: python implementation/hicasso/scripts/check_budget_ledger.py
 
+  # THE FACADE-INVENTORY GATE (rf2-gz4bq). Its routing is the two jobs above's
+  # third instance, and it is here for their reason rather than a new one.
+  #
+  # `implementation/hicasso/scripts/check_facade_inventory.py` reads TWO input
+  # families:
+  #
+  #   implementation/hicasso/src/re_frame/hicasso.cljc   the public door
+  #   docs/design/hicasso/product/dispositions.md        sections 2.1 and 2.2
+  #
+  # It is chained into `npm run test:hicasso-invariants`, whose only hosted
+  # invocation is a step of the `cljs` job under
+  # `needs.detect_changed_surfaces.outputs.cljs_node_test == 'true'`. ONLY THE
+  # FIRST FAMILY ARMS THAT OUTPUT — and that is the direction that matters
+  # most, because THE ESCAPE HAPPENS WHEN THE DOOR GROWS, not when the document
+  # changes: a PR adding a public name arms the classifier through
+  # `implementation/hicasso/*` and the chain reds on it there.
+  #
+  # The document side arms nothing. `docs/**` measures false at every
+  # classifier output, so a PR that deleted a 2.2 row, renumbered the table or
+  # renamed a section heading would run this gate NOWHERE and next redden on
+  # somebody else's source PR, over a row they did not write. That is the exact
+  # shape `hicasso-complaint-catalogue` was split out to repair and
+  # `hicasso-budget-ledger` was split out to repair again.
+  #
+  # UNCONDITIONAL, rather than a new classifier output, for the reason those
+  # two jobs give at length and this one will not restate: the defect being
+  # repaired IS a surface gate that did not cover a checker's inputs, so a new
+  # arm is a fresh chance to make the same mistake. Sub-second pure Python — no
+  # node, no JVM — so there is nothing to gate for.
+  #
+  # IT STAYS CHAINED INTO `test:hicasso-invariants` TOO: that chain is the local
+  # spine lane and the artefact's one-command run, and this job is the CI
+  # reachability the chain cannot give it.
+  hicasso-facade-inventory:
+    name: Hicasso facade inventory (rf2-gz4bq)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
+        with:
+          python-version: '3.12'
+
+      # Self-test first, then the live diff — the order every other pure-Python
+      # contract in this workflow uses. It drives every rule red in turn over
+      # synthetic inputs, so a green live run below is a verdict rather than a
+      # checker that has quietly stopped firing. It also refuses to run at all
+      # under `python -O`, which would strip its own assertions.
+      - name: Self-test the facade-inventory rules
+        run: python implementation/hicasso/scripts/check_facade_inventory.py --self-test
+
+      # The live run PRINTS what it inspected — every public name on the door,
+      # the id that carries it and by which of the two routes, plus any name
+      # HELD with no row at all. A gate that cannot say what it covered is how
+      # this class of hole survives a green badge.
+      - name: Verify every public name on the door against sections 2.1 and 2.2
+        run: python implementation/hicasso/scripts/check_facade_inventory.py
+
   # rf2-3mh2f — CI arm of the STALE WORKER-SNAPSHOT guard (rf2-ia8o7).
   #
   # `bd` auto-stages the full-database JSONL export in EVERY checkout, so a
@@ -6335,6 +6395,15 @@ jobs:
       # gate says, which would put the contract back one `if:` from the nowhere
       # it just came from.
       - hicasso-budget-ledger
+      # rf2-gz4bq — required for the same reason, one gate over. Half of what
+      # the facade-inventory gate reads is `dispositions.md`, which arms no
+      # classifier output, so a document-only PR runs it nowhere; and a job
+      # absent from this list is advisory whatever its own gate says. The
+      # constraint it enforces is `dispositions.md` section 3's own — a
+      # surface reaching the facade with no row makes the Phase 4 exit stop
+      # meaning anything — and an advisory gate over that is a gate nobody's
+      # merge waits on.
+      - hicasso-facade-inventory
       # rf2-3mh2f — the .beads guard's CI arm. Required, so the tracker
       # database cannot ride a PR past a `--no-verify` or an uninstalled hook.
       - beads-pr-boundary

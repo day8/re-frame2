@@ -282,6 +282,19 @@ SPINE_LANES = (
         "spine node tier: 'hicasso invariants gate' chains this checker "
         "(`npm run test:hicasso-invariants`), both modes",
     ),
+    # rf2-gz4bq — the facade-inventory gate's own unconditional job, the third
+    # instance of the shape above: half its input is `dispositions.md`, which
+    # arms no classifier output, so the npm chain alone left a document-only PR
+    # running it nowhere.  The spine covers both homes through the chain, so
+    # the job's two steps are not a local gap; without this lane they would be
+    # reported as one, which is the same lie in the opposite direction.
+    Lane(
+        "hicasso-facade-inventory",
+        r"^python implementation/hicasso/scripts/check_facade_inventory\.py"
+        r"(?: --self-test)?$",
+        "spine node tier: 'hicasso invariants gate' chains this checker "
+        "(`npm run test:hicasso-invariants`), both modes",
+    ),
     Lane(
         "mkdocs-strict",
         r"^mkdocs build --strict$",
