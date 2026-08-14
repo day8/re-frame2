@@ -8,11 +8,19 @@ ordinary handlers.
 
 ## Add the dependencies
 
+!!! warning "Pre-alpha: no Clojars coordinate"
+
+    `day8/re-frame2-hicasso` is **not published**, and there is no date at
+    which it will be. It lives in the re-frame2 monorepo, so today you resolve
+    it — and `day8/re-frame2` with it — from a checkout using `:local/root`.
+    Treat the snippet below as the shape of the dependency, not as a
+    coordinate you can paste into a fresh project.
+
 Add the Hicasso artifact to `deps.edn`:
 
 ```clojure
-;; deps.edn
-{:deps {io.github.day8/re-frame2-hicasso {:mvn/version "1.0.0"}}}
+;; deps.edn — resolved from a re-frame2 checkout beside your project
+{:deps {day8/re-frame2-hicasso {:local/root "../re-frame2/implementation/hicasso"}}}
 ```
 
 The artifact brings `day8/re-frame2` with it. Install React from npm:
