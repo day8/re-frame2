@@ -39,6 +39,38 @@ over prose: a docstring that names a namespace is provenance, and this
 gate follows `frozen-sources.edn`'s rule of parsing the ns form rather
 than grepping the file.
 
+THE ROSTER ALSO DRIVES THE COMPILE (rf2-okhdf)
+----------------------------------------------
+`--module-namespaces` prints [[MODULES]]'s doors and engines, one per
+line, and `hicasso/test/re_frame/bench/hicasso/compile_gate.cjs` reads
+that list to decide what it compiles.  The two arms are the SAME roster
+read in opposite directions, which is why the emission lives here rather
+than as a second list over there: this file forbids anything outside a
+module from requiring it, and the compile gate then compiles it anyway,
+by name, because nothing else will.
+
+That second consumer exists because the first one's success created the
+hole.  An optional module is unreachable from the public door BY
+CONSTRUCTION — that is the invariant above, and it holds — so the
+`:hicasso-release` bundle contains none of this code, and neither does
+any other compile that starts from the door.  Measured on the produced
+bundle: `anchorName`, `positionAnchor`, `showPopover`, `rf-overlay-` and
+`buffered-field` all answer ZERO, against `hicasso` at 75.  Nothing was
+wrong with that; what was wrong is that no compile which treats warnings
+as failures ever reached the code either, so four `:infer-warning`s on
+`(.. el -style -anchorName)` sat in `impl/overlay.cljs` until a worker
+read them off a browser build by hand (rf2-9zz0y).  Under `:advanced`
+that property would have been renamed and the trigger claim would have
+broken silently.
+
+A NEW MODULE IS THEREFORE COVERED BY CONSTRUCTION, which is the whole
+point of emitting rather than restating.  Adding a row below puts the
+module under the compile gate in the same edit that puts it under this
+one; there is no second place to remember.  What neither arm can do is
+notice a module that was never rowed at all — but that is already true
+of the reachability check, so the roster is not one more thing to keep
+in step, it is the one thing, and it has always been.
+
 WHAT THIS GATE IS NOT
 ---------------------
 It is not a bundle measurement.  A release build with the module absent
@@ -476,11 +508,37 @@ def required_namespaces(text):
     return found
 
 
+def owned_namespaces(module):
+    """The namespaces `module` OWNS — its door and its engine.
+
+    The one place that set is spelled, because both directions of the roster
+    read it: [[scan]] forbids anything outside the module from requiring it,
+    and [[module_namespaces]] hands it to the compile gate to be compiled.
+    Two spellings of the same set is how one arm silently stops covering what
+    the other one guards.
+    """
+    return {module["door"], *module["engine"]}
+
+
+def module_namespaces():
+    """Every namespace the optional modules own, sorted (rf2-okhdf).
+
+    Printed one per line by `--module-namespaces` and read by
+    `compile_gate.cjs`, which compiles them under `:infer-externs :auto` with
+    warnings treated as failures. See the module docstring for why that
+    consumer exists and why it reads the roster rather than restating it.
+    """
+    found = set()
+    for module in MODULES:
+        found |= owned_namespaces(module)
+    return sorted(found)
+
+
 def scan(sources):
     """`sources` is `{path: text}`. Answer the list of violation strings."""
     problems = []
     for module in MODULES:
-        owned = {module["door"], *module["engine"]}
+        owned = owned_namespaces(module)
         for path, text in sorted(sources.items()):
             declared = ns_of(text)
             if declared in owned:
@@ -877,6 +935,39 @@ def self_test():
             assert path.exists(), "roster names a missing file: {}".format(path)
 
     # -----------------------------------------------------------------------
+    # rf2-okhdf — the emission the compile gate reads
+    # -----------------------------------------------------------------------
+
+    # It is the roster and nothing but the roster. Both directions are pinned
+    # because both are silent when they break: a MISSING namespace leaves the
+    # compile gate green over code it no longer compiles, which is the exact
+    # defect this emission was added to close, and an EXTRA one names a
+    # namespace `compile_gate.cjs` would then fail to resolve — a red that
+    # would send its reader to the wrong file.
+    emitted = module_namespaces()
+    assert emitted == sorted(set(emitted)), emitted
+    for module in MODULES:
+        for ns in owned_namespaces(module):
+            assert ns in emitted, (ns, emitted)
+    assert set(emitted) == {
+        ns for module in MODULES for ns in owned_namespaces(module)
+    }, emitted
+
+    # And every emitted namespace is one this package really DECLARES. The
+    # roster's file rows are checked just above, but they are checked as
+    # PATHS: a door renamed inside its file leaves those green and hands the
+    # compile gate a namespace that does not exist. Read off `src/` rather
+    # than off `module["files"]` so the two roster columns cannot agree with
+    # each other while both being wrong.
+    declared = {ns_of(text) for text in read_src().values()}
+    for ns in emitted:
+        assert ns in declared, (
+            "the roster emits `{}`, which no file under src/ declares. "
+            "compile_gate.cjs would be handed a namespace that cannot be "
+            "resolved.".format(ns)
+        )
+
+    # -----------------------------------------------------------------------
     # rf2-b3gy — the forbidden-import arms
     # -----------------------------------------------------------------------
 
@@ -988,6 +1079,14 @@ def self_test():
 def main(argv):
     if "--self-test" in argv:
         return self_test()
+
+    # rf2-okhdf. Machine-readable and side-effect free: the ONLY thing on
+    # stdout is the namespaces, one per line, so a consumer can read the
+    # stream without parsing around a banner.
+    if "--module-namespaces" in argv:
+        for ns in module_namespaces():
+            print(ns)
+        return 0
 
     sources = read_src()
     problems = scan(sources)
