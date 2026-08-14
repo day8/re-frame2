@@ -913,7 +913,7 @@
     (let [e (codec/as-element [a-host {:class "a" :x/class ["b" :c]}])]
       (is (= "a b c" (prop e "className"))))
     ;; the crossing rule as a worked case — the guide states it as a rule
-    ;; (draft-guide/09-interop.md §Crossing rules) and no longer carries
+    ;; (docs/core/hicasso/09-interop.md §Crossing rules) and no longer carries
     ;; the example this once quoted verbatim
     (is (= "btn on wide"
            (prop (codec/as-element [a-host {:class ["btn" nil :on] :className "wide"}])
