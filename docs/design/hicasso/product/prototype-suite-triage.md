@@ -2,12 +2,22 @@
 
 **rf2-6ync** (the unmet third deliverable of rf2-hic-008), 2026-08-11 02:08 AUSEST.
 
-`implementation/freehand/test/re_frame/bench/hicasso/` holds 69 `*_cljs_test.cljs` / `.cljc`
+The frozen bench tree holds 69 `*_cljs_test.cljs` / `.cljc`
 suites, 28,035 lines, all still on `re-frame.bench.hicasso.*`. rf2-hic-008's third deliverable
 reads "all existing Hicasso CLJS test suites migrated to the new namespaces and green", and that
 sentence assumed a mechanical rename. It is not one. This file is the verdict per suite, and the
 verdict is the deliverable: **a smaller honest set of ported witnesses beats 69 files moved for
 symmetry.**
+
+**Where that tree is, stated once, because it has moved and the paths below have not.** This page
+was written against `implementation/freehand/test/re_frame/bench/hicasso/`; rf2-0yp7w re-homed the
+whole harness to `implementation/hicasso/test/re_frame/bench/hicasso/` in `e61e175341`
+(2026-08-14), moving the tree without moving a suite or renaming a namespace. Every
+`implementation/freehand/…` bench path below is therefore the path as it stood at its sentence's
+date, in keeping with this document's census convention — but a path is not a census, and the live
+answer is `frozen-sources.edn`'s `:donor-root`, which is what the commands on this page read. The
+re-home also invalidated a measurement this page rests a verdict on; that is recorded in
+[1. `front/slot_cljs_test.cljc`](#1-frontslot_cljs_testcljc--no-jvm-lane) rather than here.
 
 Three verdicts, defined once:
 
@@ -198,22 +208,83 @@ coverage of the **package**, which since rf2-hic-009 is a genuinely different co
 the only thing a PORT verdict can be justified by, and every PORT row below names the package
 surface it would newly cover.
 
-### 2. The package's divergence is exactly enumerable
+### 2. The rename table decides a port, not the size of the divergence
 
-`implementation/hicasso/frozen-sources.edn` records what the package is made of, and its three
+`implementation/hicasso/frozen-sources.edn` records what the package was made of, and its three
 retirements record how it has since moved:
 
-- `front/{codec,controlled,intent,presence,route_link,slot,state}` → `impl.{codec,controlled,intent,presence,route-link,slot,state}`, rename-only apart from rf2-hic-007's shared `fail!` and rf2-kjf5's additive `retain-body!`;
+- `front/{codec,controlled,intent,presence,route_link,slot,state}` → `impl.{codec,controlled,intent,presence,route-link,slot,state}`;
 - `arm1/runtime.cljs` → the six modules `impl.{collector,generation,frames,roots,evidence,inventory}` (rf2-hic-009);
 - `arm1/{boundary,mount,presence}` → `impl.{boundary,mount,presence-react}`;
 - `arm1/lang.clj` → the public door `re-frame.hicasso`.
 
-Two consequences run through the table. **A `front/*` suite ports by renaming its `:require`s and
-nothing else** — rf2-hic-007's `fail!` is a superset that keeps the id, position, reason and
-recovery a test asserts on, so the 108 refusal assertions across those suites survive the move.
-**An `arm1/*` suite that names `arm1.runtime` cannot** — which of the six modules answers depends
-on the var, not on the file, which is precisely why `frozen-sources.edn` retired those rows rather
-than re-pinning them.
+**This section was headed *"The package's divergence is exactly enumerable"* and qualified the first
+bullet as *"rename-only apart from rf2-hic-007's shared `fail!` and rf2-kjf5's additive
+`retain-body!`"*. The enumeration was false, and the heading was the worse half of it (rf2-h4o1n).**
+Reconstruct each package file from its donor the way `check_freeze.py`'s MOVED rule does — the
+manifest's `:renames` applied at symbol boundaries, then compared line by line — and the six retired
+rows differ in **141 hunks**, `+1,489 / −336` lines, read on `origin/main` at `acb5b40a4d`:
+
+| donor row | donor lines | package lines | divergent hunks |
+|---|---|---|---|
+| `front/codec.cljs` | 2,973 | 3,860 | 89 |
+| `front/intent.cljs` | 1,218 | 1,322 | 19 |
+| `front/presence.cljs` | 365 | 384 | 11 |
+| `front/controlled.cljs` | 745 | 888 | 9 |
+| `front/state.cljc` | 309 | 309 | 7 |
+| `front/route_link.cljs` | 217 | 217 | 6 |
+| `front/slot.cljc` | 109 | 109 | 0 |
+
+The divergence is real and it is not two things: `impl/codec.cljs` alone carries whole sections the
+donor has no trace of (HD-025's presence overrides, rf2-34a7's unreachable-override refusal), a
+`:ssr` declaration option respelled as `:server` with a `:fallback` sibling, and `fail!` delegated to
+`impl.error` rather than copied.
+
+**`front/slot.cljc` at zero is the control, and it is the only reason to believe the other six
+readings.** It is the single surviving row in `frozen-sources.edn`, so the freeze gate has an opinion
+about it: `python implementation/hicasso/scripts/check_freeze.py` answers
+`1 frozen row(s) match the bench tree` on the same tree that produces the table above. Gate and
+instrument agree on the row they share.
+
+**Do not maintain those numbers here.** They are a dated census like every other count on this page,
+and this one rots faster than most — retiring a row *is* the act of ceasing to measure it, so six of
+the seven have no gate watching them and nothing will announce the next change. A prose count is the
+half that rots; the live figure comes from the command:
+
+```sh
+# From the repo root. Ask it about whatever rows you care about, but always keep
+# `front/slot.cljc` in the list: it is the pinned row, so a run that does not report
+# 0 for it is measuring wrong. That is this instrument's only self-check.
+python - <<'PY'
+import sys, os; sys.path.insert(0, 'implementation/hicasso/scripts')
+import check_freeze as cf
+m = cf.read_edn(open('implementation/hicasso/frozen-sources.edn', encoding='utf-8').read())
+for b, p in [('front/codec.cljs', 'impl/codec.cljs'), ('front/slot.cljc', 'impl/slot.cljc')]:
+    e = cf.rename(cf.read_text(os.path.join(m[':donor-root'], b)), m[':renames']).splitlines()
+    a = cf.read_text('implementation/hicasso/src/re_frame/hicasso/' + p).splitlines()
+    print(b, len(cf.compare_moved(e, a)[0]), 'divergent hunk(s)')
+PY
+```
+
+It reads `:donor-root` and `:renames` out of the manifest rather than hard-coding either, so it
+follows the bench tree if the tree moves again — which it has done once already.
+
+**The two consequences the table runs on survive the correction, and they never rested on the
+divergence being small.** What decides whether a suite ports mechanically is the ARITY of its
+subject's row in `:renames`:
+
+- **A `front/*` suite ports by renaming its `:require`s and nothing else.** Every `front/*`
+  namespace has exactly one package namespace answering for it, so retargeting an alias is a
+  complete translation. That the package has since moved 141 hunks underneath it does not signify,
+  because the movement is overwhelmingly ADDITIVE — `+1,489` against `−336` — and behaviour a
+  bench-era suite never asserted on cannot break that suite.
+- **An `arm1/*` suite that names `arm1.runtime` cannot.** That row is one-to-six: which module
+  answers depends on the var, not on the file. No alias retarget can express it, which is precisely
+  why `frozen-sources.edn` retired those rows rather than re-pinning them.
+
+Both are now **measured rather than argued**, because every PORT row has since been executed — see
+[what the ports actually cost](#executed--what-the-ports-actually-cost). The separation is an order
+of magnitude, in the predicted direction.
 
 ### 3. What the package already asserts
 
@@ -255,6 +326,57 @@ sites re-pointed at the six modules, and four of them additionally need `arm1.ho
 `re-frame.hicasso.roots-frames-support/leave-act-environment!`, which cites the prototype by name.
 They are ports rather than re-authorings because the *assertions* survive verbatim; only the
 namespace a var is reached through changes.
+
+#### EXECUTED — what the ports actually cost
+
+**All 13 rows are across, and so are the two `front`/`arm1` rows that STAYS (vi) re-verdicted to
+PORT.** Not one bench original survives: `front/` and `arm1/` in the bench tree contain none of the
+fifteen. That turns the sequencing paragraph above from a forecast into a measurement, which is the
+only reason this page is entitled to keep asserting it (rf2-h4o1n).
+
+Each port is a single commit. `lines changed` is that commit's diff between the bench original and
+the package copy, so it is the whole cost of the port and not a sample of it:
+
+| suite | lines | lines changed by the port | port commit |
+|---|---|---|---|
+| `front/intent_cljs_test.cljs` | 785 | +2 / −2 | `ecd05aa4e6` |
+| `front/state_cljs_test.cljs` | 337 | +2 / −2 | `bdf646c9d4` |
+| `front/route_link_cljs_test.cljs` | 263 | +3 / −3 | `f8cc88e145` |
+| `front/presence_cljs_test.cljs` | 323 | +3 / −3 | `c4c744adb3` |
+| `front/controlled_dom_cljs_test.cljs` | 413 | +4 / −4 | `cf5ca87df1` |
+| `front/revision_dom_cljs_test.cljs` | 646 | +4 / −4 | `0d440639d3` |
+| `front/codec_cljs_test.cljs` | 1,593 | +8 / −8 | `f4b6122b4b` |
+| `arm1/keywarn_dom_cljs_test.cljs` | 189 | +22 / −22 | `39ad9ee4e4` |
+| `arm1/callback_form_dom_cljs_test.cljs` | 156 | +31 / −31 | `dd14c8a280` |
+| `arm1/raw_escape_dom_cljs_test.cljs` | 403 | +32 / −31 | `27c301b277` |
+| `arm1/state_dom_cljs_test.cljs` | 265 | +36 / −35 | `d7f1c3578c` |
+| `arm1/presence_intent_dom_cljs_test.cljs` | 460 | +39 / −39 | `103795ca34` |
+| `arm1/boundary_intent_dom_cljs_test.cljs` | 453 | +41 / −41 | `35ccca1aa3` |
+| `arm1/hframe_dom_cljs_test.cljs` | 458 | +42 / −43 | `ec470969ad` |
+| `arm1/hframe_cljs_test.cljs` | 360 | +74 / −72 | `d7a2f0967d` |
+
+**The `front/*` claim is literally true, not approximately.** Across those seven suites — 4,360
+lines — the ports changed **26 lines in total**, and every one of the 26 is an `ns` form, a
+`:require` entry, or a docstring `[[wiki-link]]` naming the same renamed namespace. No assertion
+moved. `front/codec_cljs_test.cljs` is the case that matters, because it is the largest suite in the
+tree and its subject is the package file that has diverged furthest: 1,593 lines and 67 `deftest`s
+went across for **eight lines** — the `ns`, four `:require`s, two use sites of the corpus alias
+(`slot-test/corpus` → `slot-corpus/corpus`, a consequence of the corpus becoming its own support
+namespace, not of the package moving), and one word in a docstring.
+
+**The `arm1/*` claim is equally true and in the opposite direction.** Those eight suites — 2,744
+lines — cost **317 changed lines**: 11.6% against the `front/*` rows' 0.6%, a factor of nineteen.
+The changes are what the paragraph above predicted — `arm1.runtime` call sites re-pointed at
+whichever of the six modules answers for the var (`rt/reset-runtime!` → `collector/reset-runtime!`),
+plus support namespaces swapped (`front.dogfood` → `re-frame.hicasso.todo-support`) — and still no
+assertion moved, which is why they were ports and not re-authorings.
+
+**Read this as the vindication of the rename-table rule and not of the sentence it replaced.** The
+port cost tracked the arity of the `:renames` row every time, and tracked the size of the divergence
+never: `impl/codec.cljs` moved further than any other package file — 89 of the 141 hunks are its —
+and its suite still ported for **eight lines**, roughly a third of what the cheapest `arm1/*` row
+cost, because a `front/*` row is one-to-one and an `arm1.runtime` row is one-to-six. Size of
+divergence predicts nothing here; arity predicts everything.
 
 ---
 
@@ -435,7 +557,41 @@ turns out to rest on a premise that does not hold.
 
 ### 1. `front/slot_cljs_test.cljc` — no JVM lane
 
-**The verdict: do not open a `jvm-hicasso` lane. The suite stays in the bench tree, and this row is
+**SUPERSEDED BY EVENTS, 2026-08-14 — the lane was opened, and the verdict below did not decide it
+(rf2-h4o1n).** Everything after this paragraph is kept as the reasoning that was correct when it was
+written, because the way it was overtaken is worth more than the conclusion. It was overtaken twice
+in one afternoon and neither event was a port:
+
+- `e61e175341` (rf2-0yp7w, 14:43) re-homed the whole benchmark harness into
+  `implementation/hicasso/test/`, carrying `front/slot_cljs_test.cljc` with it. **The move this
+  section declined to sequence happened anyway**, to the whole tree at once, and the file arrived in
+  exactly the artefact the reasoning below identifies as the one that arms no JVM job. For about an
+  hour and three quarters the cross-host pin's JVM arm ran nowhere — `implementation/hicasso/deps.edn`
+  dropped `--probe` and recorded the cost in its own header.
+- `f4c3c53d04` (16:25) then armed it: a `jvm-hicasso` job in `.github/workflows/test.yml`, in
+  `all-required-passed`'s `needs:`, with `implementation/hicasso` added to
+  `scripts/test-jvm-implementation.sh`'s roster — both halves together, which is what
+  `check_jvm_lane_rosters.py` R1/R2 require and what the "precedent is on the record" paragraph
+  below correctly predicted anybody would have to do.
+
+So the answer to *"should a `jvm-hicasso` lane exist"* is now **yes, and it does** — reached not by
+re-arguing this row but by a re-home that made the row's premise unavailable. **The reasoning below
+is not thereby refuted; its subject was removed.** It argued that porting one file was not worth a
+hot-zone change *while the file sat somewhere that already gave it two hosts*, and that clause is
+what expired. Read the lane's current shape out of `test.yml` and the roster script, never out of
+this section.
+
+**And the revisit trigger this section is so careful to install did not fire**, which is the part
+worth carrying forward. It named one event — *"whoever retires that row owns the replacement"* — and
+the row was never retired: `frozen-sources.edn` still pins `front/slot.cljc` and `check_freeze.py`
+still reports `1 frozen row(s) match`. The tree moved underneath a trigger that was watching the
+manifest. That is the same defect class as
+[§2's enumeration](#2-the-rename-table-decides-a-port-not-the-size-of-the-divergence): a condition
+stated in prose, against one anticipated cause, going quietly out of date when reality took a
+different route.
+
+**The verdict as written (kept for the reasoning, not for the conclusion): do not open a
+`jvm-hicasso` lane. The suite stays in the bench tree, and this row is
 closed rather than pending.** The claim it makes is already asserted on both hosts, and the
 package's copy of the rule is held identical to the copy being asserted — by a checker that is
 stronger than the suite.
@@ -706,11 +862,12 @@ row needs no follow-up bead** — it needed the tier named, and the tier is name
   (`hook_ledger` with `frame_prop`). Those are re-authorings, and each wants its own bead.
 - **It left three sequencing questions for the operator**: the `:ssr` trio (rf2-6rw9), the
   `render_measure` nightly couple, and `front/slot_cljs_test.cljc`'s workflow-gated `.cljc` lane.
-  **All three are now settled** — rf2-b6ja, above. Two of them cost nothing to close: the
+  **All three were settled** — rf2-b6ja, above. Two of them cost nothing to close: the
   `render_measure` couple was already in the tier it belongs to, and the `:ssr` pair was never
-  blocked and has since been ported. The third is a documented no, and the measurement behind it is
-  the one worth carrying forward — the file already rides two jobs where it sits, and the move is
-  what would cost it one.
+  blocked and has since been ported. **The third has since been overtaken rather than settled**: the
+  file's "already rides two jobs where it sits" no longer holds, because rf2-0yp7w re-homed the
+  bench tree out from under it and `f4c3c53d04` armed the `jvm-hicasso` lane this row declined to
+  open. See [1. `front/slot_cljs_test.cljc`](#1-frontslot_cljs_testcljc--no-jvm-lane).
 - **It does not execute the verdicts it records, and executing one is not finished until the
   original is gone.** Every PORT row is now across, but nine of the ports left their bench originals
   standing and one of those pairs has already drifted — see
