@@ -22,6 +22,8 @@ That is a structural fix for a problem [`globals.md`](globals.md#what-the-search
 
 **A rebase can change a census rather than reconfirm it.** [`release-scans.md`](release-scans.md) rebased past 18 commits mid-bead, `re-frame.hicasso.server` landed, and one of its censuses changed outright — the sentence it replaced would have shipped false. Every figure on this page was re-taken on the base this branch merges from, and the third census is one where the tree really did move: `server.cljs` is 389 of the 1,200 lines counted below and it landed the day this census was taken.
 
+**One figure moved between the two takes, and it moved because the first take was wrong.** The hook call-site count below read 14 and reads 16. Nothing in the tree changed — `implementation/hicasso/src` is byte-identical across the rebase — and the whole of the difference is the instrument: the first take used `git grep -E`, which on this checkout silently missed a hit that `rg` returns, and the count was then read off the screen by hand and undercounted by one more. Both arms of that are the reason every figure on this page is now taken with one tool and counted by `wc -l` rather than by eye. It is recorded rather than quietly corrected because a census that revises a number without saying so is asking to be believed on exactly the ground it just failed on.
+
 ## 1. The mechanism census
 
 Four rejected mechanisms, from [`decision-brief.md`](decision-brief.md) and the [charter](../charter.md):
@@ -96,7 +98,7 @@ A callback-cell table is the same recogniser with *callback* in place of *read*.
 
 Three facts finish it, each checkable at source.
 
-**The shell is two hooks and no `useRef`.** `impl/collector.cljs`'s `shell` calls `react/useContext` for the frame and `react/useSyncExternalStore` for the subscription epoch, in that order, and `shell-hook-ledger` declares exactly that pair so a third hook fails a test rather than a review. Anchored, `rg -n "\((react/|\.-)use[A-Z][A-Za-z]*"` finds **14** hook call sites in the whole package; unanchored, the bare hook names return **71**, so four in five are prose. The [HD-020](../architecture.md) ceiling is `≤ 2 per boundary` and *"a ViewCell-class per-boundary object graph appearing means the arm has failed"*.
+**The shell is two hooks and no `useRef`.** `impl/collector.cljs`'s `shell` calls `react/useContext` for the frame and `react/useSyncExternalStore` for the subscription epoch, in that order, and `shell-hook-ledger` declares exactly that pair so a third hook fails a test rather than a review. Anchored, `rg -n "\((react/|\.-)use[A-Z][A-Za-z]*"` finds **16** hook call sites in the whole package; unanchored, the bare hook names return **83**, so four in five are prose. The [HD-020](../architecture.md) ceiling is `≤ 2 per boundary` and *"a ViewCell-class per-boundary object graph appearing means the arm has failed"*.
 
 **The two tables a boundary reaches are shared, and their keys say so.** `!cells` is keyed `[frame-kw query-v]` — one cell per *(frame, query)*, with a reader list, however many boundaries read it. `!entries` is keyed by an order-sensitive hash of the whole read *sequence*, so two boundaries with the same reads share one entry. Neither is a *second* ledger under C5's recogniser, and the distinction is not a technicality: C5's harm is a structure that can **drift from** the committed read membership, and these two **are** it. There is nothing for them to drift from.
 
