@@ -41,9 +41,9 @@
   ## The hot-reload half is witnessed ELSEWHERE, and used to be witnessed
   ## nowhere
 
-  This file used to add that a new head "is the same allocation a hot
+  This file used to add that a new head *is the same allocation a hot
   reload performs, which is why the HMR fact and the retry fact are one
-  measurement here rather than two". The reasoning was sound and the
+  measurement here rather than two*. The reasoning was sound and the
   measurement did not exist: nothing here reloads anything, and §7's
   code-splitting row names `HMR` in the same required-proof cell as the
   load, fallback, error and retry states this file does land (rf2-y5x6j).
