@@ -51,14 +51,106 @@
 // namespaces at RUNTIME, needs no recompile, and cannot poison anything —
 // see the comment on shadow-cljs.edn's `:node-test` build.
 //
+// rf2-4a6ei — A COMPILE THAT SUCCEEDS WITH WARNINGS IS NOT A GREEN LANE, and
+// until this script read the tally it was treated as one.  The bead reports
+// prose inside a test namespace — a citation with a bare `"` in a docstring —
+// surviving a 153-check three-engine browser gate, and explains it by the
+// namespace failing to compile and so dropping out of the build.
+//
+// MEASURED ON THIS TREE, and the explanation is REFUTED.  The plant was made
+// twice in `security/test/re_frame/security/ssr_escaping_security_cljs_test.cljc`
+// and `npm run test:security` run over each:
+//
+//   * inside the NS DOCSTRING — the ns form does not read, and the build FAILS,
+//     exit 1, naming the file and the line.  Caught already, by this script's
+//     existing exit-status check.
+//   * inside a DEFTEST DOCSTRING, one form further down — the bare quote closes
+//     the string early and reopens it before the line ends, so the file still
+//     READS.  `one frame per app` becomes four bare symbols in the test body,
+//     which compile to `undefined` in JavaScript and evaluate harmlessly.  The
+//     build completes, the suite runs, and the numbers are IDENTICAL to the
+//     clean tree: `Ran 93 tests containing 705 assertions. / 0 failures, 0
+//     errors.`, exit 0.  The one thing that moved is the tally: `0 warnings`
+//     became `4 warnings`, all of them `Use of undeclared Var`.
+//
+// So the namespace never left the build, the test count never dropped, and the
+// bead's candidate repair — fail when the selector matches fewer namespaces
+// than expected — would not have caught this: nothing was missing.  What was
+// missing was a READER for the number shadow-cljs had already printed.
+//
+// THE TALLY IS THE GATE, and it needs no bookkeeping to stay honest.  Every
+// `:node-test`-family lane compiles warning-free today, measured before arming
+// this: node-test 2395 files, node-test-security 216, node-test-testbed-support
+// 693, node-test-ui 343, node-test-freehand 488, node-test-hicasso 457,
+// node-test-perf-nightly 159 — 0 warnings in all seven.  A floor of zero is
+// therefore the bound that cannot go stale, in the same spirit as
+// `RF2_MIN_TESTS`'s default of 1, and it carries no knob: a warning in a test
+// build is a defect, and an env var to permit one would be this bug wearing a
+// hat.
+//
+// NOT A NAG, deliberately.  shadow-cljs already prints its own `Build
+// completed. (N files, M compiled, W warnings, Ts)` line on every run, so the
+// reach is on the page whether this passes or fails and there is nothing to
+// restate.  What was absent was not the number but any consequence attached to
+// it.  This script therefore says nothing extra on a clean compile and speaks
+// only when the tally is non-zero or unreadable.
+//
 // Usage: node scripts/compile-node-test.cjs <build-id> <output-to> [extra shadow-cljs args...]
-const { spawnSync } = require('node:child_process');
+const { spawn } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
 
 const IMPL_DIR = path.resolve(__dirname, '..');
 
-function main(argv) {
+// shadow-cljs colours its output, and a colour reset can land between the
+// number and its noun.
+const ANSI = /\[[0-9;]*m/g;
+
+// The tally line, read from the WHOLE captured output rather than a chunk, so a
+// line split across two reads still matches.  The LAST match wins: one
+// invocation compiles one build id, and anything earlier belongs to a
+// dependency's own build.
+const BUILD_COMPLETED =
+  /Build completed\.\s*\(\s*(\d+)\s+files?,\s*(\d+)\s+compiled,\s*(\d+)\s+warnings?,/g;
+
+function buildTally(text) {
+  let last = null;
+  for (const match of text.replace(ANSI, '').matchAll(BUILD_COMPLETED)) last = match;
+  if (!last) return null;
+  return {
+    files: Number(last[1]),
+    compiled: Number(last[2]),
+    warnings: Number(last[3]),
+  };
+}
+
+// Run shadow-cljs, streaming its output through UNCHANGED while capturing it.
+// The stream has to stay live — a lane that compiles for three minutes in
+// silence is a worse tool than one that reports nothing — so this is `spawn`
+// with a tee rather than `spawnSync` with a pipe, which would withhold every
+// line until the build ended.
+function runCapturing(command, args, options) {
+  return new Promise((resolve) => {
+    const child = spawn(command, args, {
+      ...options,
+      stdio: ['inherit', 'pipe', 'pipe'],
+    });
+    let captured = '';
+    for (const [stream, sink] of [
+      [child.stdout, process.stdout],
+      [child.stderr, process.stderr],
+    ]) {
+      stream.on('data', (chunk) => {
+        captured += chunk.toString();
+        sink.write(chunk);
+      });
+    }
+    child.on('error', (error) => resolve({ error, captured }));
+    child.on('close', (status) => resolve({ status, captured }));
+  });
+}
+
+async function main(argv) {
   const [buildId, outputTo, ...extraArgs] = argv;
   if (!buildId || !outputTo) {
     console.error(
@@ -100,10 +192,10 @@ function main(argv) {
     console.error(`compile-node-test: could not resolve shadow-cljs: ${err.message}`);
     return 1;
   }
-  const result = spawnSync(
+  const result = await runCapturing(
     process.execPath,
     [shadowCljsBin, 'compile', buildId, ...extraArgs],
-    { stdio: 'inherit', cwd: IMPL_DIR }
+    { cwd: IMPL_DIR }
   );
 
   if (usesConfigMerge) {
@@ -130,11 +222,43 @@ function main(argv) {
     return 1;
   }
 
+  // rf2-4a6ei. Everything above asks whether the compile RAN; this asks what it
+  // found. See the header for the measurement: a broken string literal one form
+  // below the ns form leaves a lane that compiles, runs, and reports test counts
+  // identical to the clean tree — the only moving number is this one.
+  const tally = buildTally(result.captured);
+  if (!tally) {
+    console.error(
+      `compile-node-test: shadow-cljs compile ${buildId} exited 0 and wrote ` +
+        `${outputTo}, but printed no "Build completed." tally, so the warning ` +
+        `count for this lane is UNKNOWN. Refusing rather than reporting a green ` +
+        `for a question that was never answered — a warning here is how a broken ` +
+        `docstring reaches a suite that still counts every test (rf2-4a6ei).`
+    );
+    return 1;
+  }
+  if (tally.warnings > 0) {
+    console.error(
+      `\ncompile-node-test: ${buildId} compiled ${tally.compiled} of ` +
+        `${tally.files} files with ${tally.warnings} WARNING(S). The warnings ` +
+        `are printed above; every :node-test-family lane compiles warning-free, ` +
+        `so this is a regression rather than a backlog.\n` +
+        `  This is a gate because a test suite can be GREEN and wrong: a bare ` +
+        `double-quote inside a deftest docstring closes the string early, the ` +
+        `words after it become bare symbols, and in JavaScript those compile to ` +
+        `\`undefined\` and evaluate harmlessly. The suite then reports the same ` +
+        `test and assertion counts as the clean tree while the docstring it was ` +
+        `meant to carry is gone. "Use of undeclared Var" in a test namespace is ` +
+        `that shape (rf2-4a6ei).\n`
+    );
+    return 1;
+  }
+
   return 0;
 }
 
 if (require.main === module) {
-  process.exit(main(process.argv.slice(2)));
+  main(process.argv.slice(2)).then((code) => process.exit(code));
 }
 
-module.exports = { main };
+module.exports = { main, buildTally };
