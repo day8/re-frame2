@@ -10,32 +10,31 @@
   races the timeout, and the only wall-clock answer (`[:wait ms]`) is the
   determinism opt-out the gate refuses.
 
-  Three layers:
+  Two layers:
 
   - PURE grammar (both hosts) — `[:flush-presence]` / `[:flush-presence ms]`
-    are known steps with the framework verb's two arities, require NO
-    capability token, do not lift `:required-runner` to `:dom`, and are NOT
-    wall-clock steps (the determinism gate accepts a script carrying them).
+    are known steps with two arities, require NO capability token, do not
+    lift `:required-runner` to `:dom`, and are NOT wall-clock steps (the
+    determinism gate accepts a script carrying them).
   - The SEAM against a stub presence host (both hosts) — the step routes the
     ms through `re-frame.story.play.presence/advance!`; a script WITHOUT the
     step leaves the retained exit pending and its assertion FAILS, the same
     script WITH it passes. This is the red-before/green-after, proven
     host-agnostically through the real `run!` playback loop.
-  - The REAL framework verb — the same script driven against the ACTUAL
-    `re-frame.freehand.presence-runtime/advance-clock!` and the ACTUAL
-    presence exit scheduler. That arm lives in the pure-`.cljs` companion
-    `presence_real_clock_cljs_test.cljs`, which reuses this ns's harness.
-    The JVM arm of the bridge is a documented no-op (the structural host
-    has no lifecycle to advance, and the clock is a CLJS-only surface), so
-    the real-clock arm is CLJS-only — exactly the host split the framework
-    runtime declares.
 
-  Mounted three-phase behaviour (`:mounting` → `:present` → `:unmounting`
-  against real DOM) belongs to the framework and is pinned there
-  (`re-frame.freehand.presence-dom-cljs-test`); Story does not re-prove
-  it. What
-  Story owns — and what these tests pin — is that its PLAYBACK LOOP can
-  reach the verb at the right point.
+  THERE IS NO THIRD LAYER, and its absence is deliberate (rf2-5gka). Story
+  used to ship an optional Freehand bridge plus two suites driving the real
+  substrate clock through it; Freehand is retired (rf2-0yp7w) and no
+  supported substrate publishes a presence-clock verb to put in its place, so
+  the bridge and those suites went with the donor. What remains is the whole
+  of what Story owns: the rung is a SEAM, and a host installs its own advance
+  through the public `install-presence-flush!`.
+
+  That makes the stub host the right instrument rather than a compromise. A
+  substrate's own three-phase machine (`:mounting` → `:present` →
+  `:unmounting` against real DOM) was never Story's to prove; what these
+  tests pin is that its PLAYBACK LOOP reaches the installed verb at the right
+  point, and fails CLOSED when there is none.
 
   `.cljc` ending `-cljs-test` rides `npm run test:cljs` (node) AND
   `clojure -M:test` (JVM), so the rung is graft-checked on both hosts."
@@ -51,24 +50,13 @@
             [re-frame.story.late-bind             :as late-bind]
             [re-frame.story.plan                  :as plan]
             [re-frame.story.play.presence         :as story-presence]
-            ;; The OPTIONAL bridge under test (rf2-36biz) — the one canonical
-            ;; installation path. Requiring it is what an app does; it holds
-            ;; the Freehand dependency on the app's side of the seam, so
-            ;; Story's own namespaces never require it (and its jar stays
-            ;; free of the pre-publication artefact).
-            [re-frame.story.play.presence-host    :as presence-host]
             [re-frame.story.play.runner           :as runner]
             [re-frame.story.play.runner-events    :as re]
-            [re-frame.story.requirements          :as requirements]
-            ;; The framework's presence exit scheduler — reached ONLY to reset
-            ;; it between tests (the CLOCK is a CLJS-only surface: the JVM
-            ;; structural host has no lifecycle, so the call is reader-gated).
-            ;; `day8/re-frame2-freehand` is pinned on the `:test` alias only —
-            ;; Story's
-            ;; shipped jar must not depend on the pre-publication artefact,
-            ;; which is precisely why the rung takes the verb through a
-            ;; late-bind hook instead of a `:require`.
-            [re-frame.freehand.presence-runtime   :as presence-rt]))
+            [re-frame.story.requirements          :as requirements]))
+;; NO SUBSTRATE :require, and that is the point of the rung (rf2-5gka): the
+;; seam under test reaches its advance through the late-bind registry, so
+;; every test here drives it with a stub host and Story's test classpath
+;; carries no view substrate at all.
 
 ;; ===========================================================================
 ;; PURE: the step grammar (both hosts, no runtime)
@@ -165,7 +153,11 @@
       (testing "advance! threads the ms through, nil meaning 'to quiescence'"
         (is (= {:status :advanced :ms 100} (story-presence/advance! 100)))
         (is (= {:status :advanced :ms nil} (story-presence/advance! nil)))
-        (is (= [100 nil] @calls)))
+        (is (= {:status :advanced :ms 0}   (story-presence/advance! 0))
+            "0 is a LEGAL advance, not an absent one — a host distinguishes
+             the two on `some?`, so the seam must hand it 0 rather than
+             collapsing it into the quiescence arity")
+        (is (= [100 nil 0] @calls)))
       (finally (swap! late-bind/hooks dissoc :flush-presence!)))))
 
 (deftest advance-with-no-host-reports-no-host
@@ -192,8 +184,7 @@
 
 (def exec-step!
   "The private single-step executor, reached via var-quote — the established
-  Story-test seam. Public here so the pure-`.cljs` real-clock companion
-  (`presence-real-clock-cljs-test`) drives the SAME executor."
+  Story-test seam."
   @#'re/exec-step!)
 
 (def presence-frame :story.presence/frame)
@@ -206,10 +197,9 @@
   (registrar/clear-all!)
   (reset! frame/frames {})
   ;; Start every test HOOK-FREE, symmetrically with `teardown!`. The hook
-  ;; registry is process-global, and merely REQUIRING the optional bridge
-  ;; (`presence-host`, whose load-time install is the whole point of it)
-  ;; arms it for the rest of the process — so the no-host tests must not
-  ;; depend on ns-load order to see an empty slot.
+  ;; registry is process-global and any namespace may install into it at load
+  ;; time, so the no-host tests must not depend on ns-load order to see an
+  ;; empty slot.
   (swap! late-bind/hooks dissoc :flush-presence!)
   (try (rf/init! plain-atom/adapter)
        (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) _ nil))
@@ -228,20 +218,22 @@
   nil)
 
 (defn teardown!
-  "Drop the process-global presence host + reset the framework clock."
+  "Drop the process-global presence host.
+
+  There is no clock to reset alongside it: every host in this ns is a stub
+  whose whole state is the atom `install-stub-presence-host!` returns, and
+  that dies with the test. The reset this used to perform belonged to the
+  retired substrate bridge, which armed a process-global exit scheduler."
   []
   ;; The late-bind hook registry is process-global — a leaked presence host
   ;; would silently arm every LATER test's `[:flush-presence]` step.
   (swap! late-bind/hooks dissoc :flush-presence!)
-  #?(:cljs (do (presence-rt/reset-clock!)
-               (presence-rt/set-wall-clock! true)))
   nil)
 
 ;; The cross-platform FN form (`meta-fixtures-test`): the map form silently
 ;; skips every deftest on the JVM half of a `.cljc`. Everything in THIS ns is
-;; synchronous, so the fn form is honoured on both hosts. The async arm — which
-;; cljs.test requires a MAP fixture for — lives in the pure-`.cljs` companion
-;; `presence_real_clock_cljs_test.cljs`, where the map form is legitimate.
+;; synchronous — a stub host advances in the calling thread — so the fn form
+;; is honoured on both hosts and no arm here needs the map form.
 (use-fixtures :each (fn [f] (setup!) (try (f) (finally (teardown!)))))
 
 (defn db [] (rf/app-db-value presence-frame))
@@ -294,63 +286,42 @@
   (testing "rf2-36biz — with NO presence host installed the advance did not
             happen, so the step REFUSES (`:cannot-run`) rather than skipping
             silently. `no hook installed` does not prove `no presence runtime
-            exists`: an app can load Freehand and simply omit the bridge
-            call, and its presence-bearing playback would then report a clean
-            verdict over a clock that never moved"
+            exists`: an app can render retaining views and simply omit the
+            install call, and its presence-bearing playback would then report
+            a clean verdict over a clock that never moved"
     (let [res (exec-step! presence-frame 0 [:flush-presence])]
       (is (true? (:cannot-run? res)) "the distinct THIRD status, not a skip")
       (is (false? (:passed? res)))
       (is (nil? (:exception res)) "an absent host is a refusal, not a throw")
       (is (string? (:message res)))
-      (is (re-find #"install-presence-flush!|presence-host" (:message res))
-          "the refusal NAMES the install path — an actionable refusal")
-      ;; A SEPARATE assertion rather than a third branch of the alternation
-      ;; above: `re-find` is satisfied by any one branch, so widening that
-      ;; regex would have WEAKENED the install-path claim it already makes.
-      (is (re-find #"Freehand" (:message res))
-          "rf2-gj0a — the refusal also names the SUBSTRATE, and this is the
-           only test that pins that word. The census (docs/design/hicasso/
-           product/tool-consumer-census.md, row S11) counts it a live donor
-           mention; it is invisible to the census's own case-sensitive grep,
-           so nothing static will notice it going stale. When the bridge
-           leaves Freehand (rf2-5gka) this fails and the user-facing message
-           is reworded in the same change"))))
+      (is (re-find #"install-presence-flush!" (:message res))
+          "the refusal NAMES the install path — an actionable refusal. It is
+           now the ONLY install path: the optional bridge that used to be the
+           other branch of this alternation retired with Freehand (rf2-5gka),
+           so naming it is no longer a weaker claim than naming the seam")
+      ;; A SEPARATE assertion rather than a branch of an alternation, for the
+      ;; reason the retired substrate arm carried: `re-find` is satisfied by
+      ;; any one branch, so folding this in would WEAKEN the install-path
+      ;; claim above rather than add to it.
+      (is (not (re-find #"(?i)freehand|re-frame\.ui" (:message res)))
+          "rf2-5gka — the refusal is SUBSTRATE-NEUTRAL, and this is the only
+           test that pins that. The message used to tell the user their app
+           was one 'that renders Freehand views' (census row S11); the rung
+           reaches its advance through a late-bind hook and never named a
+           substrate for any reason but the retired bridge. A user-facing
+           string is invisible to a residue grep over :require forms, so
+           nothing else would notice a retired name coming back"))))
 
-;; The bridge's INSTALLATION is host-agnostic, but DRIVING the installed verb
-;; repeatedly is not: on CLJS `flush-presence!` is Promise-backed and holds a
-;; single in-flight act token, so back-to-back synchronous advances are the
-;; framework's own `:rf.error/ui-test-overlapping-act` misuse. This arm is
-;; therefore JVM-only, where the verb is a documented synchronous no-op. The
-;; CLJS end-to-end proof — the shipped bridge driving the REAL clock, with the
-;; act yields the run loop gives — is the real-clock `.cljs` companion, which
-;; installs through this same `presence-host/install!`.
-#?(:clj
-   (deftest presence-host-bridge-installs-the-framework-verb
-     (testing "rf2-36biz — the hook shipped with NO production installer: only
-               tests and docstrings called `install-presence-flush!`, so a
-               presence-bearing script could never reach the real clock. The
-               optional bridge is that missing installer, and it is REAL —
-               this drives the SHIPPED `install!`, not a copy of it"
-       (is (nil? (story-presence/presence-flush-fn))
-           "the fixture cleared the process-global hook")
-       (presence-host/install!)
-       (is (some? (story-presence/presence-flush-fn))
-           "one call — and a bare :require does it at load time")
-       (is (identical? (story-presence/presence-flush-fn)
-                       (late-bind/get-fn :flush-presence!))
-           "installed into the SAME late-bind slot the executor reads")
-       (testing "the installed verb runs — the framework's JVM arm of
-                 flush-presence! is its own documented no-op"
-         (is (= {:status :advanced :ms nil} (story-presence/advance! nil)))
-         (is (= {:status :advanced :ms 0}   (story-presence/advance! 0))
-             "0 is a legal advance — the arity is chosen on some?, not truth"))
-       (testing "idempotent: re-installing replaces the slot, never doubles it"
-         (presence-host/install!)
-         (is (= {:status :advanced :ms nil} (story-presence/advance! nil))))
-       (testing "and the step the bead is about now RUNS instead of refusing"
-         (let [res (exec-step! presence-frame 0 [:flush-presence])]
-           (is (nil? (:cannot-run? res)))
-           (is (nil? (:exception res))))))))
+;; The shipped-bridge arm that stood here retired with Freehand (rf2-5gka). It
+;; drove `presence-host/install!` — a namespace whose whole content was two
+;; substrate verbs — and asserted that requiring it armed the hook. There is
+;; no shipped installer to assert now, and the seam it installed THROUGH is
+;; covered directly: `install-presence-flush-registers-the-hook` pins the same
+;; late-bind slot and the same `advance!` threading, without a substrate.
+;;
+;; `0` remains a legal advance distinct from `nil`, and that moved there with
+;; it. Which arity a HOST selects on `some?` is now the host's own business —
+;; the seam's duty is only to hand `0` through as `0`.
 
 (deftest presence-step-surfaces-a-throwing-host-as-an-exception
   (story-presence/install-presence-flush! (fn [_] (throw (ex-info "boom" {}))))
@@ -453,7 +424,9 @@
          (is (= :pass (:status state))
              "a valid setup is never refused")))))
 
-;; The REAL framework verb driven against the REAL presence clock is the
-;; pure-`.cljs` companion `presence_real_clock_cljs_test.cljs` — that arm is
-;; ASYNC (the verb is Promise-backed on CLJS), and cljs.test requires a MAP
-;; fixture once a ns carries async tests, which a `.cljc` may not use.
+;; A host's OWN clock is not proven here, and no longer anywhere in Story. The
+;; `.cljs` companion that drove Freehand's real presence scheduler through the
+;; shipped bridge retired with both (rf2-5gka). If a substrate ever publishes
+;; a presence-advance verb and a bridge is written for it, its real-clock arm
+;; belongs beside that bridge — and will need a MAP fixture if that verb is
+;; Promise-backed, which a `.cljc` may not use.
