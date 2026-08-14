@@ -1,5 +1,37 @@
 (ns re-frame.bench.hicasso.front.controlled
-  "THE CONTROLLED-ELEMENT CONVERGE — same turn, caret where the edit left
+  "FROZEN — the MEASURED PROTOTYPE, not the shipped element path. What ships
+  is `re-frame.hicasso.impl.controlled`, which rf2-hic-001 copied out of this
+  file and has moved on without ever since.
+
+  **The divergence is expected and permanent, and back-porting into this file
+  is refused.** `implementation/hicasso/frozen-sources.edn` is the authority
+  for both halves, and it is executable rather than prose: its header rules
+  that a fix landing in the PACKAGE leaves the bench tree the stale copy, and
+  its third retirement dropped this file's digest row rather than re-pin it —
+  because this tree is a measured artefact. The clock rows, the ladders and
+  the SSR spike are readings taken from this exact source, so editing it to
+  carry a facility invented afterwards would invalidate the readings the
+  package's own budgets are set against. Nothing pins this file any more;
+  `front/slot.cljc` is the manifest's last surviving row.
+
+  So do not read this file for what ships, and do not repair it against the
+  package. The divergence is not summarised here, because a summary rots —
+  it is read off git, which cannot:
+
+      git log --oneline 93ec92d491.. -- implementation/hicasso/src/re_frame/hicasso/impl/controlled.cljs
+
+  Every commit listed is a package change this file deliberately does not
+  carry. They are refusals and diagnostics: where the package now complains,
+  this file leaves the engine to throw, and where the package folds ASCII
+  case on a type, this file compares it exactly. That is the freeze working
+  as ruled, not a defect here. Its ELEVEN sibling forks under `front/` and
+  `arm1/` stand in exactly the same relation to their package namespaces;
+  rf2-hic-062 owns the tree-level disposition marker that will say so once,
+  and this paragraph is only this file's share of it. (rf2-u9o8k)
+
+  ---
+
+  THE CONTROLLED-ELEMENT CONVERGE — same turn, caret where the edit left
   it (rf2-fki5d, the residue rf2-n3dxw was left open on), and a live IME
   composition carved out of it (rf2-digtt).
 
