@@ -153,7 +153,7 @@ window.__TB__ = (function () {
   // not through \`select.value\`, which can only ever express one of them —
   // and then let the browser's own change event out.
   //
-  // \`chosen\` and \`markerWouldRead\` are captured BEFORE the event goes
+  // \`chosen\` and \`dotValue\` are captured BEFORE the event goes
   // out, and that ordering is the whole reason this helper exists rather
   // than two lines at each call site. The first cut read the selection
   // after \`dispatchEvent\` and every engine reported one option where two
@@ -167,13 +167,17 @@ window.__TB__ = (function () {
       o.selected = values.indexOf(o.value) >= 0;
     });
     var chosen = selected(id);
-    // What \`::h/value\` reads at dispatch time — \`(.-value target)\`, per
-    // \`impl.intent/marker-readers\`.
-    var markerWouldRead = n.value;
+    // \`HTMLSelectElement.value\` — the PLATFORM's scalar answer, which the
+    // standard defines as the first selected option in tree order and does
+    // not redefine for a \`multiple\` select. Captured so the rows below can
+    // state what the marker is NOT: \`impl.intent/target-value\` reads
+    // \`selectedOptions\` on this control (rf2-42vlw), and the gap between
+    // this scalar and that list is the whole of what the fix recovered.
+    var dotValue = n.value;
     n.dispatchEvent(new Event('change', { bubbles: true }));
     return {
       chosen: chosen,
-      markerWouldRead: markerWouldRead,
+      dotValue: dotValue,
       value: n.value,
       selected: selected(id),
     };
@@ -1006,8 +1010,8 @@ async function selectMultipleSupported(page, w) {
   // BOTH: the supported path's claim is that the echo KEEPS two options,
   // which is only a claim if two were chosen before the event went out.
   w.eq(run.drove.chosen.join(','), 'a,c', 'two options were chosen');
-  w.eq(run.drove.markerWouldRead, 'a',
-    'and the reserved marker would have read one of them — the same control, the other spelling');
+  w.eq(run.drove.dotValue, 'a',
+    'while the platform\'s own `select.value` still answers one of them — the scalar this path never used');
   w.eq(run.inTurn.join(','), 'a,c', 'both options survive the echo, inside the turn');
   w.eq(run.took.model.join(','), 'a,c', 'and BOTH reach the store — the whole selection');
   w.eq(run.took.dom.join(','), 'a,c', 'the echo keeps both');
@@ -1016,23 +1020,32 @@ async function selectMultipleSupported(page, w) {
     'and the element echoes the committed selection, not the chosen one');
 }
 
-// SELECT, multiple — the NAIVE spelling, and a FINDING.
+// SELECT, multiple — the NAIVE spelling, and the FINDING it used to be.
 //
-// `::h/value` lowers to `(.-value target)` (`impl.intent/marker-readers`),
-// and `HTMLSelectElement.value` is the first selected option. On a
-// `<select multiple>` the marker therefore delivers ONE option however many
-// the user chose, and the handler that receives it cannot tell a
-// single-option selection from a truncated one. Nothing refuses this today:
-// it is a correct expression that quietly means something else.
+// This row was written against the bug and asserted it: `::h/value` lowered
+// to `(.-value target)`, `HTMLSelectElement.value` is the first selected
+// option in tree order, and so the marker delivered ONE option however many
+// the user chose — a handler could not tell a single-option selection from
+// a truncated one, and nothing refused it. rf2-42vlw fixed that:
+// `impl.intent/target-value` reads `selectedOptions` on a `<select
+// multiple>`, so the marker now delivers the SELECTION, a list, `[]` when
+// nothing is picked, exactly as `spec/004B-UI-Tree-and-Conversion.md` rules
+// it for the same DOM control on the sibling substrate.
 //
-// Asserted rather than recorded, and asserted in the direction the runtime
-// BEHAVES, so this row reds when it is fixed as well as if it degrades.
+// The row is kept and turned around rather than deleted, because what it
+// witnesses is still a real difference the platform makes: `select.value`
+// remains the scalar first option in all three engines, and the assertion
+// on `dotValue` below is what stops the marker's answer from being
+// confused with it. Turning a row around is the gate working — it reds when
+// this conduct changes in EITHER direction.
 async function reservedMarkerUnderReadsAMultipleSelect(page, w) {
   const run = await page.evaluate(async () => {
     const before = window.__TB__.model().edits['picks-marker'] || 0;
     const drove = window.__TB__.choose('picks-marker', ['a', 'c']);
     // Read on the NEXT LINE: React's controlled restore for a select runs
-    // inside the discrete event, so the discard is already visible here.
+    // inside the discrete event, so whatever the echo made of the
+    // selection is already settled here — this is where the discard used
+    // to be visible, and where its absence is now the claim.
     const inTurn = window.__TB__.selected('picks-marker');
     await window.__TB__.settle();
     const m = window.__TB__.model();
@@ -1049,13 +1062,19 @@ async function reservedMarkerUnderReadsAMultipleSelect(page, w) {
 
   w.eq(run.drove.chosen.join(','), 'a,c', 'the user really did choose two options');
   w.eq(run.edits, run.before + 1, 'and exactly one intent arrived for it');
-  w.eq(run.drove.markerWouldRead, 'a',
-    'FINDING: the reserved ::h/value marker reads ONE option, not the selection');
-  w.eq(run.raw, 'a', 'so that is what the handler received');
-  w.eq(run.model.join(','), 'a', 'and what the store holds');
-  w.eq(run.inTurn.join(','), 'a',
-    'the echo DISCARDS the second choice inside the turn — silently, no refusal anywhere');
-  w.eq(run.dom.join(','), 'a', 'and it is still gone at rest');
+  w.eq(run.drove.dotValue, 'a',
+    'the platform\'s `select.value` STILL answers one option — the marker is not reading it');
+  // `raw` and `model` are compared by SHAPE, not by a joined string: this
+  // row is about a list arriving where a scalar used to, and `'a,c'` is
+  // reachable from `['a,c']` and from `[['a','c']]` as well as from the
+  // truth. The DOM reads below stay joined — `selectedOptions` is a flat
+  // list of option values by construction.
+  w.eq(JSON.stringify(run.raw), '["a","c"]',
+    'so the handler received the whole SELECTION, as a list');
+  w.eq(JSON.stringify(run.model), '["a","c"]', 'and that is what the store holds');
+  w.eq(run.inTurn.join(','), 'a,c',
+    'the echo KEEPS both choices inside the turn — nothing is discarded');
+  w.eq(run.dom.join(','), 'a,c', 'and both are still there at rest');
 }
 
 // FILE INPUT — a refusal, and the refusal is the PLATFORM's.

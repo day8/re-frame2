@@ -311,13 +311,16 @@
              (update-in [:edits :picks] (fnil inc 0)))}))
 
 ;; The SAME control, written the way an author reaches for first: the
-;; reserved marker at the change position. What arrives is a string, and
-;; this handler does the obvious thing with it. The witness measures what
-;; the user loses.
+;; reserved marker at the change position. What arrives is the SELECTION —
+;; a list, `[]` when nothing is picked (rf2-42vlw, and
+;; `spec/004B-UI-Tree-and-Conversion.md` rules the same shape for the same
+;; DOM control on the sibling substrate) — so the obvious thing to do with
+;; it is to hold it as it came. The witness measures that the naive
+;; spelling now costs the user nothing.
 (rf/reg-event :tb/pick-many-marker
   (fn [{:keys [db]} [_ marked]]
     {:db (-> db
-             (assoc :picks-marker (if (= marked "") [] [marked]))
+             (assoc :picks-marker marked)
              (assoc :picks-marker-raw marked)
              (update-in [:edits :picks-marker] (fnil inc 0)))}))
 
