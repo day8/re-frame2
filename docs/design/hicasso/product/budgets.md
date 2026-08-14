@@ -1027,7 +1027,7 @@ it reads the cell for **shape, not for life**, and says so in its own output.
 | D6 | 11 bodies for `clear-row` on a 10-wide row | 11 | package | `MET` | `implementation/hicasso/test/re_frame/hicasso/examples/grid/scaling_dom_cljs_test.cljs` (PR gate) | `rf2-hic-089` | — |
 | D7 | 2 bodies, first keystroke of an editor session | 2 | package | `MET` | `implementation/hicasso/test/re_frame/hicasso/examples/editor/flow_dom_cljs_test.cljs` (PR gate) | `rf2-hic-089` | — |
 | D8 | 1 body, every keystroke after the first | 1 | package | `MET` | `implementation/hicasso/test/re_frame/hicasso/examples/editor/flow_dom_cljs_test.cljs` (PR gate) | `rf2-hic-089` | — |
-| D9 | zero teardown residue in counters and frame ids | zero | package | `MET` | `implementation/hicasso/test_kit/src/re_frame/hicasso/test/mounted.cljs` (PR gate) | `rf2-hic-089` | — |
+| D9 | zero teardown residue in counters and frame ids | zero | package | `MET` | `implementation/hicasso/test/re_frame/hicasso/test_kit_mounted_dom_cljs_test.cljs` (PR gate) | `rf2-hic-089` | — |
 | D10 | 3 hiccup-walk entries dropped by a direct return (`codec/vec->element`) | 3 — the hiccup arm reads 4 against the crossing's floor of 1 | package | `MET` | `implementation/hicasso/test/re_frame/hicasso/direct_return_cljs_test.cljs` (PR gate) | `rf2-hic-033` | — |
 | D11 | 3 prop-pipeline entries dropped by a direct return (`codec/convert-props`) | 3 — the hiccup arm reads 3 against a floor of 0 | package | `MET` | `implementation/hicasso/test/re_frame/hicasso/direct_return_cljs_test.cljs` (PR gate) | `rf2-hic-033` | — |
 | D12 | 2 event-lowering entries dropped by a direct return (`intent/lower-prop`) | 2 — the hiccup arm reads 2 against a floor of 0 | package | `MET` | `implementation/hicasso/test/re_frame/hicasso/direct_return_cljs_test.cljs` (PR gate) | `rf2-hic-033` | — |
@@ -1058,7 +1058,7 @@ it reads the cell for **shape, not for life**, and says so in its own output.
 | U3 | ≤ 100 ms p95 for broad operations | — | — | `UNPINNED` | — (none) | `rf2-hic-071` | [§9.2](budgets.md#92-what-each-not-green-row-is-waiting-on) |
 | U4 | dragging and animation inside the frame budget | — | — | `UNPINNED` | — (none) | `rf2-hic-071` | [§9.2](budgets.md#92-what-each-not-green-row-is-waiting-on) |
 | U5 | body work scales with changed rows, not mounted rows | 2 bodies at 25 cells and at 100, and — on the second counter D26 — 1 row of markup for a one-row write where a coarse arm rebuilds every row | package | `MET` | `implementation/hicasso/test/re_frame/hicasso/examples/grid/scaling_dom_cljs_test.cljs` (PR gate) | `rf2-hic-089` | — |
-| U6 | teardown residue zero after quiescence | zero counters (D9); bytes indistinguishable from 0 (S5) | package | `MET` | `implementation/hicasso/test_kit/src/re_frame/hicasso/test/mounted.cljs` (PR gate) | `rf2-hic-089` | — |
+| U6 | teardown residue zero after quiescence | zero counters (D9); bytes indistinguishable from 0 (S5) | package | `MET` | `implementation/hicasso/test/re_frame/hicasso/test_kit_mounted_dom_cljs_test.cljs` (PR gate) | `rf2-hic-089` | — |
 | C1 | ≤ 5% regression on the same witness and instrument | — | — | `UNPINNED` | — (none) | `rf2-hic-071` | [§9.2](budgets.md#92-what-each-not-green-row-is-waiting-on) |
 | C2 | 1.10x cold mount, the registered line | see S6 | bench-tree | `BREACH` | final K1 estimator (P-DEV-1 evidence run) | `rf2-hic-085` | [§9.2](budgets.md#92-what-each-not-green-row-is-waiting-on) |
 | C3 | ≤ 1.25x the best relevant adapter on broad updates | — | — | `UNPINNED` | — (none) | `rf2-hic-071` | [§9.2](budgets.md#92-what-each-not-green-row-is-waiting-on) |
@@ -1084,6 +1084,24 @@ deterministic half is D9's counters and its distributional half is S5's bytes,
 and §3 has already said the two are not interchangeable evidence. The
 instrument cell names the deterministic witness because that is the half a pull
 request runs; the other half is S5's own row, one line above.
+
+**[Corrected 2026-08-14, `rf2-9vbl1`.]** Both `D9` and `U6` named
+`implementation/hicasso/test_kit/src/re_frame/hicasso/test/mounted.cljs` until
+this correction. That file is the test-kit **facade** — a library file under
+`test_kit/src` holding no tests, and selected by no test build: its namespace
+`re-frame.hicasso.test.mounted` matches neither the `cljs-test$` selector nor
+the `-dom-cljs-test$` one, and `implementation/shadow-cljs.edn` says as much
+itself in the source-path comment for the kit. Its two `deftest` occurrences
+are documentation prose. So both rows asserted the `PR gate` lane against a
+file that gates nothing. The confusion was instrument for witness:
+`hm/assert-clean!` is the **instrument** and does live there, but the
+**witness** is a suite that runs it. Both rows now name the facade's own DOM
+witness suite, whose namespace `re-frame.hicasso.test-kit-mounted-dom-cljs-test`
+is matched by both selectors, and which drives `hm/assert-clean!` and
+`hm/residue` directly and asserts that a destroyed frame is gone from
+`rf/frame-ids`. [§3](#3-deterministic-rows-pinned-on-the-moved-package)'s own
+`D9` row is unchanged and was always right — it names the instrument and the
+population, which is what a registered line needs.
 
 ### 9.2 What each not-green row is waiting on
 
