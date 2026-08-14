@@ -171,11 +171,18 @@ one. The lesson for the next audit is the narrow one: **a closed bead's record i
 tree cannot show it** — check the bead before classifying a row as Gap, and check the acceptance column before
 classifying an unlisted proof as owed.
 
-*Note for the next reader, recorded rather than repaired:* [`requirements-mine.md`](requirements-mine.md)'s own
-owner-gap list still carries **axe** and **migration's two named external repositories** among its rows owing to a bead
-that closed without landed evidence, on the same two readings corrected above. **This page is the corrected one on both
-counts**, and no open bead owns bringing that list into line — saying so is not an owner, and inventing one would be
-worse than the disagreement.
+*Note for the next reader, recorded and since discharged:* as first written (`rf2-2ius2`, 2026-08-14) this note
+reported a live disagreement — [`requirements-mine.md`](requirements-mine.md) still counted **axe** and **migration's
+two named external repositories** among the rows owing a bead that closed without landed evidence, on the same two
+readings corrected above, and no open bead owned bringing that list into line. **It was true when written, and was
+settled the same evening by that page's own consolidated pass** (`rf2-d6ai8`), re-taken after the coverage checkpoint,
+which reached this page's reading on both counts. The two pages now agree, and nothing is owed. It is re-tensed rather
+than struck because axe is still findable in that page's
+[consolidation passes](requirements-mine.md#consolidation-passes): an **earlier dated entry** there lists the five with
+axe among them, and a dated entry records what a pass found on the day it ran rather than what the page now holds — a
+later entry supersedes it without contradicting it. **A reader who meets axe there has met history, not an open gap.**
+Deleting this paragraph outright would have left that trap unlabelled, which is how the axe reading survived three
+owners to begin with.
 
 **Two further rows fell to Gap when that audit ran (`rf2-hic-048`, 2026-08-14).** Neither was among the nine, so neither
 is a re-check failing — they are new findings, and the section adds a bullet when a new gap is found:
