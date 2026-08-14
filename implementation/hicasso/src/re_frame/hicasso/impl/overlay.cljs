@@ -40,6 +40,13 @@
   thing it must do before paint is the imperative call, which is where it
   is.
 
+  The ANCHOR CLAIM is there too, and both halves of it: the trigger's
+  `anchor-name` and the panel's `position-anchor` are one mechanism, so
+  they are made in one place. Keeping them together is also what keeps a
+  page-wide counter's output out of every server render's bytes — see
+  [[anchor-panel!]]. Splitting them was rf2-9zz0y, and it was a
+  hydration defect rather than an untidiness.
+
   The cleanup React 19 lets a ref callback return is the exact inverse,
   and it runs while the node is STILL CONNECTED — which is what makes the
   platform's own focus restoration reachable. A `<dialog>` returns focus
@@ -163,7 +170,15 @@
 (defn- next-anchor-ident
   "A fresh CSS dashed-ident for one overlay INSTANCE — not for one anchor
   id. Two overlays may legitimately share a trigger, and a shared ident
-  would make each one's teardown erase the other's."
+  would make each one's teardown erase the other's.
+
+  **A client lifecycle token, and never content.** Telling two overlays
+  on one trigger apart at teardown is the whole of what it is for, which
+  is a fact about a live document rather than about the page's meaning.
+  It reaches the DOM only through [[claim-anchor!]] and
+  [[anchor-panel!]], both of which run in the ref callback, so it is in
+  no server render's bytes — see [[anchor-panel!]] for why that matters
+  and what it used to cost."
   []
   (str "--rf-overlay-" (swap! !anchor-seq inc)))
 
@@ -186,6 +201,55 @@
     (let [previous (.. el -style -anchorName)]
       (set! (.. el -style -anchorName) ident)
       #js [el previous])))
+
+(defn- anchor-panel!
+  "Point `panel` at the CSS anchor name `ident` — the PANEL's half of the
+  claim [[claim-anchor!]] makes on the TRIGGER. The two are one mechanism
+  and they are now in one place.
+
+  ## Why this is imperative, which is the repair rf2-9zz0y carries
+
+  The ident used to be written declaratively, as
+  `:style {:position-anchor …}` on the element, so it reached the SERVER
+  BYTES. It is minted from `!anchor-seq`, which is page-wide on purpose
+  and correctly so — but a server has no document to be page-wide with
+  respect to, and no request scope to fall back on. Two `renderToString`
+  calls over ONE immutable snapshot therefore answered
+  `position-anchor:--rf-overlay-5` and `position-anchor:--rf-overlay-6`:
+  same input, different output, on an attribute hydration must match, and
+  drifting further from a fresh client's counter with every request the
+  process serves.
+
+  Setting it here makes the bytes deterministic BY CONSTRUCTION rather
+  than by discipline: there is no ident in them to disagree about. That
+  is a stronger repair than making the counter deterministic would have
+  been, because it removes the class rather than one member of it.
+
+  ## Why not a deterministic name instead
+
+  A name derived from React's own `useId` is the obvious alternative and
+  it does not work here TODAY, for a reason already measured rather than
+  suspected. A hydrating root carries the adoption closer as a SIBLING of
+  the app subtree (`impl.mount/tree`), React derives a `useId` from tree
+  POSITION as well as from the prefix, and this package's only server
+  path emits no counterpart to that fork — so a `useId` minted in the app
+  subtree hydrates into a value the server never wrote. That is
+  dispositions.md HS-11's second obstruction, green in
+  `identifier-prefix-ssr-dom-cljs-test`, and it would have traded a
+  drifting mismatch for a fixed one on the same attribute. It would also
+  have spent a THIRD React hook in both components, which this file's
+  opening argument prices deliberately at two.
+
+  ## What it costs, which is nothing visible
+
+  A ref callback runs during the COMMIT — after the node is in the
+  document and before the browser paints — so the name is on the panel
+  before the panel has ever been painted, and `show!` on the very next
+  line is what makes it visible at all. There is no frame in which an
+  anchored panel is painted unanchored."
+  [^js panel ident]
+  (set! (.. panel -style -positionAnchor) ident)
+  nil)
 
 (defn- release-anchor!
   "Put `previous` back on the element `claim-anchor!` answered — but ONLY
@@ -528,7 +592,10 @@
 
 (defn- make-cell
   "The per-instance state: an anchor ident minted once, the trigger this
-  overlay claimed, and the stable ref callback that owns both."
+  overlay claimed, and the stable ref callback that owns both.
+
+  **Every use of the ident is inside this callback**, which is what keeps
+  it out of the server bytes — see [[anchor-panel!]]."
   [{:keys [show! hide!]}]
   (let [cell #js {"ident"    (next-anchor-ident)
                   "anchorId" nil
@@ -537,9 +604,18 @@
       cell "ref"
       (fn [node]
         (when node
-          (unchecked-set cell "claimed"
-                         (claim-anchor! (unchecked-get cell "anchorId")
-                                        (unchecked-get cell "ident")))
+          (let [ident   (unchecked-get cell "ident")
+                claimed (claim-anchor! (unchecked-get cell "anchorId") ident)]
+            (unchecked-set cell "claimed" claimed)
+            ;; BOTH HALVES OF ONE CLAIM, OR NEITHER. `claim-anchor!`
+            ;; answers nil when there is no `:anchor` and when the id
+            ;; names nothing, and a panel pointed at a name no element
+            ;; declares is not anchored to anything — the engine falls
+            ;; back to the UA's default position either way. Writing the
+            ;; panel's half alone would be a dangling reference dressed
+            ;; up as a claim.
+            (when claimed
+              (anchor-panel! node ident)))
           (show! node)
           (fn []
             (hide! node)
@@ -630,9 +706,13 @@
                          (some? (:label props))
                          (assoc :aria-label (:label props))
 
-                         (some? (:anchor props))
-                         (assoc-in [:style :position-anchor] (unchecked-get cell "ident"))
-
+                         ;; `:position-anchor` is deliberately NOT here.
+                         ;; The panel's anchor name is claimed in the ref
+                         ;; callback with the trigger's, so it never
+                         ;; reaches a server render's bytes — the whole
+                         ;; of rf2-9zz0y, argued at [[anchor-panel!]].
+                         ;; `:position-area` is a static string the
+                         ;; placement table answers and stays declarative.
                          (some? area)
                          (assoc-in [:style :position-area] area))]
           ;; THE LOWERING, inside the frame. These children were written in
