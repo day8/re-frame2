@@ -499,15 +499,50 @@
   the default expectation across a save is a clean remount. A component's
   name is an address, not an identity, exactly as `defview`'s is and as a
   frame's public keyword is. Caching by name here would preserve identity
-  across a reload and quietly contradict the recorded contract."
+  across a reload and quietly contradict the recorded contract.
+
+  ## The island is its own declaration extent, so its refusals are
+  ## SOURCE-LOCATED (rf2-dva6)
+
+  A grammar refusal raised while the body runs — a hiccup vector reaching
+  [[check-child!]] through a let-bound local, a slot collision reaching
+  [[prop-slots]] through an [[props]] operand — used to carry neither
+  `:view` nor `:source`. `error/fail!` reads both from
+  `impl.error`'s ambient origin, which `declaring!` opens for the
+  DECLARATION and closes in the `def`'s `finally`; by the time React
+  calls the island, that extent is long shut and the enclosing
+  `defview`'s is too, because a boundary body returns *elements* and
+  React runs its children afterwards. The refusal named the tier and the
+  prop and could not say where.
+
+  So the body is wrapped exactly as `impl.collector`'s two mint doors
+  wrap a boundary — [[re-frame.hicasso.impl.error/traced-boundary]],
+  under `interop/debug-enabled?`, so `:advanced` + `goog.DEBUG=false`
+  folds the `if` to `f` and React calls the author's own function
+  unchanged. It costs NO fiber: the wrapper calls `f` directly, so the
+  `:render` arm is still one fiber and the Client-only arm still two,
+  and React's rules of hooks are undisturbed because the hooks run on
+  the one fiber they always ran on.
+
+  The coordinate it resolves is the DECLARATION's — the file and line of
+  the `n/defcomponent` form, which [[defcomponent]] wrote to the ledger
+  at load. That is `defview`'s own answer for a hiccup refusal and it is
+  the honest one: the tier's macros read no body, so no line inside one
+  is theirs to name. An island minted by calling this fn directly rather
+  than through [[defcomponent]] has no ledger row, so its refusals carry
+  `:view` and no `:source` — the same absence `impl.error` documents for
+  a boundary minted through `mint-view!` by hand."
        [component-name server f]
-       (set! (.-displayName f) component-name)
-       (let [head (if (keyword-identical? :render server)
-                    f
-                    (mint-server-gate component-name f))]
-         (unchecked-set head tier-sentinel
-                        #js {:name component-name :server (name server)})
-         head))
+       (let [traced (if interop/debug-enabled?
+                      (error/traced-boundary component-name f)
+                      f)]
+         (set! (.-displayName traced) component-name)
+         (let [head (if (keyword-identical? :render server)
+                      traced
+                      (mint-server-gate component-name traced))]
+           (unchecked-set head tier-sentinel
+                          #js {:name component-name :server (name server)})
+           head)))
 
      (defn marker
        "The tier marker [[component]] stamped, or nil. The seam every ABI

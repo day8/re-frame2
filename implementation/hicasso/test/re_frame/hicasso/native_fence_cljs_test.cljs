@@ -20,7 +20,18 @@
   ONE `defview` body, each producing its own output, and a body that
   returns a native element outright (rung 3). Both would break under a
   native macro that analysed its enclosing body — which it does not do,
-  and cannot, because it reads only its own form."
+  and cannot, because it reads only its own form.
+
+  ## Where the refusal says it came from (rf2-dva6)
+
+  [[a-grammar-refusal-inside-an-island-body-is-source-located]] is the
+  second thing this file now pins. The checklist asks for a *source-located*
+  refusal of Hiccup and intent semantics, and an island body was the one
+  place a grammar refusal could not say where it was: `n/component` opened
+  no declaration extent, so `impl.error`'s ambient pair was absent by
+  construction and nothing noticed. The row drives two islands, at two
+  lines, through two different refusal doors, with the same refusal raised
+  outside every island as its control."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as uix-adapter]
             [re-frame.core :as rf]
@@ -98,6 +109,27 @@
   [^js _props]
   (let [[n' _] (react/useState 41)]
     (n/$ :output nil (str (inc n')))))
+
+(n/defcomponent hiccup-child-island
+  "An island that writes its child as a RUNTIME value, so the fence's
+  child check runs where React calls the body. A literal vector in that
+  position refuses at macro expansion instead, and is witnessed there
+  (`re-frame.hicasso.native-grammar-cljs-test`, the expansion section).
+
+  `{:server :render}` so the head is the body itself rather than a
+  Client-only gate, which on a server render contributes nothing and
+  would never reach the body at all."
+  {:server :render}
+  [^js props]
+  (n/$ :div nil (.-row props)))
+
+(n/defcomponent slot-collision-island
+  "The props twin of [[hiccup-child-island]], declared at its own line so
+  the two coordinates can be compared. A dynamic operand carrying two
+  spellings of one React slot refuses inside the body."
+  {:server :render}
+  [^js props]
+  (n/$ :div (n/props (.-attrs props))))
 
 ;; ---------------------------------------------------------------------------
 ;; Harness
@@ -299,6 +331,73 @@
       (is (string? (:file coord)))
       (is (pos-int? (:line coord)))
       (is (pos-int? (:column coord))))))
+
+(deftest a-grammar-refusal-inside-an-island-body-is-source-located
+  (testing "the checklist's required result ends *source-located refusal of
+            Hiccup/intent semantics*, and until rf2-dva6 it was structurally
+            unreachable: `n/component` did not open a declaration extent, so
+            a refusal raised while React ran the body carried neither `:view`
+            nor `:source`. It now names the island"
+    (let [data (refusal #(render-native! (n/$ hiccup-child-island
+                                              #js {"row" [:span "hiccup"]})))]
+      (is (= :rf.error/hicasso-native-hiccup-child (:rf.error/id data)))
+      (is (= "re-frame.hicasso.native-fence-cljs-test/hiccup-child-island"
+             (:view data)))
+      (is (string? (:file (:source data))))
+      (is (pos-int? (:line (:source data))))
+      (is (= (error/source-of
+               "re-frame.hicasso.native-fence-cljs-test/hiccup-child-island")
+             (:source data))
+          "and the coordinate is the DECLARATION's, resolved through the same
+           ledger row `n/defcomponent` wrote — the tier's macros read no body,
+           so no line inside one is theirs to name")))
+
+  (testing "the props path is located too, which matters because it is a
+            different door: this refusal comes from `prop-slots` under
+            `props*`, where the one above comes from `check-child!` under
+            `el`. Narrowing caught: wrapping only one of the two"
+    (let [data (refusal #(render-native! (n/$ slot-collision-island
+                                              #js {"attrs" {:class     "a"
+                                                            "className" "b"}})))]
+      (is (= :rf.error/hicasso-native-slot-collision (:rf.error/id data)))
+      (is (= "re-frame.hicasso.native-fence-cljs-test/slot-collision-island"
+             (:view data)))
+      (is (pos-int? (:line (:source data))))))
+
+  (testing "NON-MEMBER 1: the coordinate is not a constant. Two islands
+            declared at two lines refuse with two coordinates — a row that
+            drove one island could not tell a resolved coordinate from a
+            hardcoded one"
+    (let [a (refusal #(render-native! (n/$ hiccup-child-island
+                                          #js {"row" [:span "hiccup"]})))
+          b (refusal #(render-native! (n/$ slot-collision-island
+                                          #js {"attrs" {:class     "a"
+                                                        "className" "b"}})))]
+      (is (not= (:view a) (:view b)))
+      (is (not= (:line (:source a)) (:line (:source b))))))
+
+  (testing "NON-MEMBER 2: the IDENTICAL refusal raised outside every island
+            carries no coordinate and no view, which is `impl.error`'s
+            documented absence rather than a placeholder. This row runs
+            AFTER the ones above on purpose: it also proves the extent is
+            closed on the way out, so a caught island refusal does not leave
+            its name ambient for whatever refuses next"
+    (let [row  [:span "hiccup"]
+          data (refusal #(n/$ :div row))]
+      (is (= :rf.error/hicasso-native-hiccup-child (:rf.error/id data)))
+      (is (not (contains? data :view)))
+      (is (not (contains? data :source)))))
+
+  (testing "NON-MEMBER 3: an island minted by calling `n/component` directly
+            names itself and stops there. There is no ledger row for a name
+            no `n/defcomponent` declared, and the honest answer is the
+            absent field rather than an invented coordinate"
+    (let [head (n/component "app/handmade" :render
+                            (fn [^js p] (n/$ :div nil (.-row p))))
+          data (refusal #(render-native! (n/$ head #js {"row" [:span "hiccup"]})))]
+      (is (= :rf.error/hicasso-native-hiccup-child (:rf.error/id data)))
+      (is (= "app/handmade" (:view data)))
+      (is (not (contains? data :source))))))
 
 (deftest the-abi-is-one-raw-javascript-props-object
   (testing "the body receives React's own props object — not a
