@@ -46,7 +46,8 @@
 > `10c49efbbe731ce02deda6e2ed432b0270d6beb6`, and the fixed spine
 > `implementation/core/src/re_frame/substrate/spine.cljs`
 > `56f7e5480c99330515d525a2bdacf5f86a0db7bd`. Authored as `4367e5d93f` on
-> `worker/spine-2rtt6-13`.
+> `worker/spine-2rtt6-13`, which the rebase-merge stranded; it landed on `main`
+> as `f747b9c667`, carrying all four of the blobs named here.
 
 > **SPINE STAMP — this page's after-run is POST-`rf2-2rtt6.13` and
 > PRE-`rf2-2rtt6.25`.** The landed `.13` commit is **`9df5094816`**, whose
@@ -518,8 +519,9 @@ refusal survives it. Exit 4 is the new code.
 
 Every repair is a refusal, so none of them can move a number — but that is an
 argument, and this page prefers a measurement. Re-run on the repaired
-instrument (blobs in the header; authored as `fa09c5ad7a`), four rounds and two
-snapshot rounds per page, **exit 0 under all six new gates**:
+instrument (blobs in the header; authored as `fa09c5ad7a`, landed on `main` as
+`8768b86c53`), four rounds and two snapshot rounds per page, **exit 0 under all
+six new gates**:
 
 | | published | confirmation run |
 |---|---:|---:|

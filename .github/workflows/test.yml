@@ -1311,9 +1311,9 @@ jobs:
     # A DOCS-ONLY PR NO LONGER IMPLIES A SKIP (rf2-61ar). The classifier
     # also arms `implementation_jvm` for prose that a test.yml suite
     # pins — nearly all of `spec/*` (57 of the 60 tracked `spec/**.md`,
-    # via a catch-all), the `docs/core/freehand/*.md` and
-    # `docs/machines/*.md` trees, and three named pages
-    # (`docs/api/re-frame.adapter.uix.md`, `docs/api/re-frame.ssr.md`,
+    # via a catch-all), the `docs/machines/*.md` tree, and three named
+    # pages (`docs/api/re-frame.adapter.uix.md`,
+    # `docs/api/re-frame.ssr.md`,
     # `docs/design/hicasso/product/async-routing-recipes.md`).
     #
     # NEARLY all of `spec/*`, not wholesale, and the difference matters
@@ -3213,6 +3213,110 @@ jobs:
 
       - name: Run JVM tests (hicasso artefact — the slot-rule equivalence pin)
         run: clojure -M:test
+
+  # rf2-cujx — the four REPO-WIDE SOURCE WALKS that live in
+  # `implementation/core/test/` but are not core tests, given a lane whose
+  # scheduling does not depend on a read-set model of what they walk.
+  #
+  # THE HOLE. Each of these suites discovers its inputs by `file-seq` over
+  # trees OUTSIDE its own artefact, and every one of them ran only in
+  # `jvm-core`, which `implementation_jvm` gates:
+  #
+  #   no-rf-default-floor-lint-test            walks implementation/**/src AND
+  #                                            the sibling tools/**/src tree
+  #   egress-chokepoint-conformance-test       impl-source-corpus/src-roots —
+  #                                            every src root under
+  #                                            implementation/, recursively
+  #   error-catalogue-channel-conformance-test the same corpus
+  #   warn-once-clear-governance-test          file-seq over implementation/
+  #
+  # Measured on this tree with `.github/scripts/report-changed-surfaces.sh`,
+  # `tools/{xray,story,mcp-base}/src`, `implementation/hicasso/src` and
+  # `implementation/ssr-node/src` all read implementation_jvm FALSE, while
+  # `implementation/core/src` reads true. So a tools/, hicasso or ssr-node
+  # change that introduced an `(or frame-kw :rf/default)` floor, an
+  # egress-chokepoint violation, an uncatalogued error channel or a
+  # warn-once governance breach merged GREEN, and the red landed on main for
+  # the next unrelated implementation PR to discover — the rf2-61ar incident
+  # shape exactly (PR #8068 left five assertions red on main that way).
+  #
+  # UNCONDITIONAL, and the reason is a MEASUREMENT that mirrors jvm-hicasso's
+  # above. `implementation_jvm` is the obvious gate and it is the wrong one:
+  # arming the three missing roots costs ~10 more PRs through the 22-job JVM
+  # tier (~21 min each) and STILL leaves the class partly open, because the
+  # walks keep widening — rf2-2cu7f has already made `src-roots` recursive and
+  # depth-independent, so tomorrow's artefact is walked by construction while
+  # any arming list would have to be re-widened by hand. Arming to completion
+  # costs ~59 more PRs and puts 92% of all PRs through that tier. This lane
+  # costs ONE runner of ~30s. An unconditional lane has no read-set model to
+  # be wrong about, which is the whole point: there is nothing to drift.
+  #
+  # A new classifier output was the third option and is rejected for the
+  # reason jvm-hicasso gives at length — the defect being repaired IS a
+  # surface gate that did not cover a checker's inputs, so a new arm is a
+  # fresh chance to make the same mistake, and rf2-w9ip established that a
+  # second output must also be taught to `scripts/test-fast-pr.sh` and held in
+  # step with the classifier forever after.
+  #
+  # WHY FOUR STEPS AND NOT ONE `-n`-LIST, which is the part that is easy to
+  # get wrong. A missing namespace inside a multi-`-n` selector is SILENT:
+  # measured on this tree, `-n <valid> -n <does-not-exist>` exits 0 having run
+  # only the valid one, with no warning. One combined step therefore rests
+  # entirely on the quiet runner's TOTAL test-count floor, and these four
+  # namespaces are lopsided — 1 / 3 / 27 / 1 tests. A total floor cannot tell
+  # "the 1-test floor lint stopped selecting" from "the 27-test catalogue
+  # gained a test", so the guard would silently stop guarding the moment the
+  # big suite grew. Run per namespace and each takes the runner's DEFAULT
+  # floor of 1 on its own: a namespace that disappears runs zero tests and
+  # REDS (measured: exit 1). That also leaves no calibrated number to
+  # maintain, so there is no count here to go stale.
+  #
+  # These four also still run inside `jvm-core`, and that duplication is
+  # deliberate: this lane exists to schedule them when `jvm-core` does not.
+  jvm-repo-source-walks:
+    name: JVM repo-wide source walks (clojure -M:test)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: implementation/core
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654  # v5.2.0
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Clojure CLI
+        run: "$GITHUB_WORKSPACE/.github/scripts/install-clojure-cli.sh"
+
+      - name: Cache Maven / gitlibs
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
+        with:
+          # Deliberately the SAME cache key as jvm-core — identical classpath,
+          # so the two lanes share one entry rather than storing it twice.
+          path: |
+            ~/.m2/repository
+            ~/.gitlibs
+            ~/.deps.clj
+          key: ${{ runner.os }}-clj-core-${{ hashFiles('implementation/core/deps.edn') }}
+          restore-keys: |
+            ${{ runner.os }}-clj-core-
+            ${{ runner.os }}-clj-
+
+      - name: Absence-repair floor lint for :rf/default (implementation/** + tools/**)
+        run: clojure -M:test -n re-frame.no-rf-default-floor-lint-test
+
+      - name: Egress-chokepoint conformance (every implementation/ src root)
+        run: clojure -M:test -n re-frame.egress-chokepoint-conformance-test
+
+      - name: Error-catalogue channel conformance (every implementation/ src root)
+        run: clojure -M:test -n re-frame.error-catalogue-channel-conformance-test
+
+      - name: Warn-once-clear governance (file-seq over implementation/)
+        run: clojure -M:test -n re-frame.warn-once-clear-governance-test
 
   cljs:
     name: CLJS (shadow-cljs :node-test)
@@ -6655,6 +6759,14 @@ jobs:
       # run — the Node arm alone cannot see a reader conditional or a
       # locale-sensitive primitive inside the one definition they share.
       - jvm-hicasso
+      # rf2-cujx — required. This lane is the ONLY scheduling for the four
+      # repo-wide source walks on a diff that touches tools/,
+      # implementation/hicasso or implementation/ssr-node, none of which arm
+      # `implementation_jvm` and so none of which run `jvm-core`. Advisory
+      # would leave the hole exactly where it was — a job absent from this
+      # list is advisory whatever its own gate says — with the added cost of
+      # looking shut.
+      - jvm-repo-source-walks
       - cljs
       - js-harness-self-tests
       - cljs-browser
