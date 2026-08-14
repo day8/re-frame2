@@ -219,6 +219,8 @@ This matters more than one row, and `globals.md`'s own opening says why: *"a ros
 
 Each arm is shown to bite by `--self-test`, which plants the smallest edit that would land the mechanism the arm refuses and asserts the arm reports it.
 
+**Its own consumer, by the standard this page holds everything else to, is [`rf2-hic-064`](correction-ledger.md)** — the final audit, which re-derives rather than trusts. It is deliberately not wired into a workflow, and the precedent is its sibling: [`release-scans.md`](release-scans.md)'s `scripts/check_allocation_non_claim.py` is a census gate on the same footing and is scheduled nowhere either. A census re-run belongs to the audit that needs it rather than to every PR, and `.github/**` was fenced from this bead in any case. It is named here so the row is not missing.
+
 **The mutable-globals arm enforces one direction only**, and the reason is on the page rather than in the script's silence: the reverse check — every rostered row is found by some arm — is what produced this census's own correction, and it cannot be automated honestly, because six identities-roster rows are plain `def`s of React classes and components that no textual arm distinguishes from any other `def`. Enforcing it would mean either a sixth of the roster permanently red or an allowlist that fails open. The direction that *is* enforced is the one the kill rules need: a new owner arrives with no row, and reds.
 
 ## What was filed
