@@ -39,12 +39,31 @@
   a row pinned to the successor and routes. Safety of retained callbacks and
   liveness of fresh ones are the same fact seen twice.
 
-  **Eviction on destruction was measured and REJECTED** (PR #7749's NC6): it
-  converts the one accidentally-correct branch into the broken one and makes
-  the silent successor-write universal. Correctness here therefore does not
-  depend on a destruction hook at all — the replacement is LAZY, driven by the
-  next lookup. [[forget-frame-ops!]] is reset and hygiene only, and its sole
-  runtime caller is the whole-runtime reset.
+  **Eviction on destruction was measured and REJECTED AS THE SAFETY
+  MECHANISM** (PR #7749's NC6): make the row's disappearance what keeps a
+  retained callback honest and you convert the one accidentally-correct
+  branch into the broken one, making the silent successor-write universal.
+  Correctness here therefore does not depend on a destruction hook at all —
+  the replacement is LAZY, driven by the next lookup, and that is still the
+  whole safety argument.
+
+  ## What the lazy replacement is not, and the bill that came due
+
+  It is not a RETENTION bound (rf2-uejlj). The successor's first lookup is
+  the ONLY eviction, so an id that never gets a successor keeps its row for
+  the life of the process — and `re-frame.hicasso.server/render` mints
+  exactly such an id per request (`fresh-frame-id`'s `gensym`). One row per
+  request served, each holding that request's `capture-frame` bundle, in a
+  process built to be long-lived.
+
+  So [[forget-frame-ops!]] is ALSO wired to frame destruction now, through
+  core's `:hicasso/on-frame-destroyed!` late-bind hook — the door
+  `re-frame.freehand` releases its own frame-keyed ownership ledger
+  through, one line above this one in `destroy-frame!`'s step 7, and the
+  shape `re-frame.ui` takes earlier in the same recipe. It changes nothing
+  above: a row a destroyed incarnation left behind was already unreachable
+  by every branch of [[frame-row]], so dropping it earlier is hygiene and
+  never safety.
 
   ## What lives here, and the one thing that does not
 
@@ -56,7 +75,8 @@
   closure that calls it can never describe different incarnations: the
   coupling is structural, not a rule somebody has to keep."
   (:require [re-frame.core :as rf]
-            [re-frame.frame :as frame]))
+            [re-frame.frame :as frame]
+            [re-frame.late-bind :as late-bind]))
 
 ;; frame-kw -> {:incarnation <token or nil>   the exact incarnation this row
 ;;                                            was minted under
@@ -100,7 +120,9 @@
                handler identity and allocate nothing.
     replaced — the id now names a different incarnation. The row is rebuilt
                and overwritten in place, which is why no destruction hook is
-               needed: the successor's first lookup does the eviction.
+               needed FOR SAFETY: the successor's first lookup does the
+               eviction. One is wired for RETENTION (see the ns docstring),
+               because an id with no successor never reaches this branch.
 
   Nothing here re-checks liveness at FIRE time and nothing here is a fence.
   The fence is core's, inside the captured bundle (`capture-frame` pins the
@@ -123,12 +145,30 @@
         fresh))))
 
 (defn forget-frame-ops!
-  "Drop the memoised rows — RESET AND HYGIENE ONLY.
+  "Drop the memoised rows — RESET, HYGIENE AND RETENTION.
 
-  It is not what makes a reincarnation safe: [[frame-row]] replaces a row
-  whose incarnation has been superseded whether or not anyone ever calls this,
-  and eviction on destruction was measured to make the fault universal rather
-  than to cure it. The sole runtime caller is the whole-runtime reset; the
-  rest are test fixtures."
+  It is still not what makes a reincarnation safe: [[frame-row]] replaces a
+  row whose incarnation has been superseded whether or not anyone ever calls
+  this, and eviction on destruction was measured to make the fault universal
+  rather than to cure it when it was proposed as that safety mechanism. The
+  two runtime callers are the whole-runtime reset (0-arity) and frame
+  destruction through [[on-frame-destroyed!]] (1-arity); the rest are test
+  fixtures."
   ([] (reset! !frame-ops {}) nil)
   ([frame-kw] (swap! !frame-ops dissoc frame-kw) nil))
+
+(defn- on-frame-destroyed!
+  "Core's step-7 destroy hook — drop the destroyed frame's row.
+
+  UNCONDITIONAL by key, and unlike Freehand's sibling hook it needs no
+  incarnation token to be safe about it: a same-id successor is constructable
+  only AFTER `dissoc-frame!` (step 10) and this fires at step 7, so whatever
+  row stands under `frame-kw` here belongs to an incarnation that is already
+  dead — the dying one, or an earlier one whose successor never looked up.
+
+  A 1-arity fn rather than [[forget-frame-ops!]] itself, so the hook's arity
+  is the contract rather than an accident of that door having two."
+  [frame-kw]
+  (forget-frame-ops! frame-kw))
+
+(late-bind/set-fn! :hicasso/on-frame-destroyed! on-frame-destroyed!)
