@@ -698,7 +698,7 @@ ROSTER = {
         (4, "bc4f62b03373"), (5, "61230129cca2"),
     ],
     "13-overlays-and-focus.md": [
-        (1, "e3b14e8ae74c"), (2, "f02245edd1bf"), (3, "848856bedd5a"),
+        (1, "e3b14e8ae74c"), (2, "a54a7e56f163"), (3, "848856bedd5a"),
         (4, "6a2ed6a42644"), (5, "0559b75a96e4"),
     ],
     "14-theming-and-i18n.md": [
