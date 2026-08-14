@@ -61,12 +61,38 @@ non-claim in the name of enforcing the non-claim. So:
     scanned row.
 
 Qualification is honoured rather than assumed away: a publication-surface
-figure passes if its own paragraph also carries the non-claim in words.
+figure passes if its own CLAIM UNIT also carries the non-claim in words.
 The rule is *no claim WITHOUT its qualification*, not *no figure*, because
 a page that states the number and then says the instrument does not
 certify it has published no claim — it has published the refusal, which is
-the truthful thing to publish. Today no such paragraph exists and the row
-is empty, which is a stronger state and not the one being enforced.
+the truthful thing to publish. Today no such unit exists and the row is
+empty, which is a stronger state and not the one being enforced.
+
+
+## The claim unit, which is NOT the blank-line block
+
+Qualification attaches to the row that carries the figure, and the first
+cut of this gate got that wrong (rf2-b9707). It scoped qualification to
+the blank-line block — and in Markdown a whole table and a whole tight
+list are ONE such block, so an unqualified figure in one row went green
+because a DIFFERENT row happened to say `quality floor unmet`. That is a
+fail-open, and it fails open exactly where the figures are: a table is how
+a publication surface presents numbers.
+
+So a block is subdivided into claim units, minimally, by three line
+shapes:
+
+  * a table row is its own unit, and so is whatever follows it;
+  * a tight list item is its own unit, its wrapped continuation lines
+    included;
+  * everything else is prose and keeps the whole blank-line block,
+    because an English sentence routinely carries its qualification onto
+    the next line, and splitting prose per line would turn this gate into
+    the false-positive machine authors reword their way around.
+
+Three line shapes is not a Markdown parser, and it does not need to be.
+The gate never has to know what a table MEANS — only that two rows are
+two claims.
 
 
 ## The positive control, and why an absence check needs one
@@ -110,7 +136,7 @@ CLAIM = re.compile(
     re.IGNORECASE,
 )
 
-# Words that say, in the same paragraph, that the figure is not certified.
+# Words that say, in the same CLAIM UNIT, that the figure is not certified.
 # Deliberately generous: the gate's job is to catch an UNQUALIFIED claim,
 # and a false red on a paragraph that qualifies honestly in wording this
 # list did not anticipate would teach authors to fight the gate.
@@ -166,23 +192,49 @@ def design_corpus(paths: list[str]) -> list[str]:
     return sorted(p for p in paths if p.startswith(DESIGN_PREFIX))
 
 
-def paragraphs(text: str) -> list[tuple[int, str]]:
-    """(1-based start line, paragraph text) for each blank-line-separated block."""
-    blocks: list[tuple[int, str]] = []
-    line_no = 1
-    for block in re.split(r"\n[ \t]*\n", text):
-        if block.strip():
-            blocks.append((line_no, block))
-        line_no += block.count("\n") + 2
-    return blocks
+# The two line shapes that carry a claim of their own.  A tight list item
+# and a table row each state one thing, and the next one states another.
+TABLE_ROW = re.compile(r"^[ \t]*\|")
+LIST_ITEM = re.compile(r"^[ \t]*(?:[-*+]|[0-9]+[.)])[ \t]")
+
+
+def claim_units(text: str) -> list[tuple[int, str]]:
+    """(1-based start line, unit text) for each independent claim unit.
+
+    The unit is what qualification attaches to, so getting it wrong fails
+    OPEN — see the module docstring.  A blank line ends a unit; a table row
+    or a tight list item begins one; a table row ends at the very next line,
+    because a table row has no continuation.  Anything else is prose and
+    accumulates, so a sentence that wraps keeps its qualification.
+    """
+    units: list[tuple[int, str]] = []
+    buffer: list[str] = []
+    start = 0
+    row = False  # the buffered unit is a table row, which nothing continues
+
+    for line_no, line in enumerate(text.splitlines(), start=1):
+        blank = not line.strip()
+        is_row = bool(TABLE_ROW.match(line))
+        is_item = bool(LIST_ITEM.match(line))
+        if (blank or is_row or is_item or row) and buffer:
+            units.append((start, "\n".join(buffer)))
+            buffer, row = [], False
+        if blank:
+            continue
+        if not buffer:
+            start, row = line_no, is_row
+        buffer.append(line)
+    if buffer:
+        units.append((start, "\n".join(buffer)))
+    return units
 
 
 def unqualified_claims(text: str) -> list[tuple[int, str]]:
-    """Paragraphs carrying a per-write figure and no qualification of it."""
+    """Claim units carrying a per-write figure and no qualification of it."""
     found = []
-    for start, block in paragraphs(text):
-        m = CLAIM.search(block)
-        if m and not QUALIFIERS.search(block):
+    for start, unit in claim_units(text):
+        m = CLAIM.search(unit)
+        if m and not QUALIFIERS.search(unit):
             found.append((start, m.group(0).strip()))
     return found
 
@@ -328,6 +380,85 @@ def _run_self_tests() -> int:
                 publication=(
                     "An early window read about 2,031 B/boundary/write, but no fitted series\n"
                     "clears the quality floor, so this is not a claim.\n"
+                ),
+            ),
+            None,
+        )
+    )
+
+    # 3a. THE CROSS-SIBLING FAIL-OPEN (rf2-b9707). A whole Markdown table is
+    #     one blank-line block, so scoping qualification to the block let a
+    #     DIFFERENT row's honest `quality floor unmet` certify this figure.
+    #     Both halves of the rule are fixtured, in both shapes, because a
+    #     repair that simply stopped honouring qualification would pass the
+    #     red pair and quietly delete case 3.
+    cases.append(
+        (
+            "a figure whose QUALIFIER IS IN ANOTHER TABLE ROW is RED",
+            dict(
+                budgets=_GOOD_BUDGETS,
+                baseline=_GOOD_BASELINE,
+                design="The floor arm reads 24,108 B per write.\n",
+                publication=(
+                    "| Product cost | 2,031 B/boundary/write |\n"
+                    "| Separate instrument | quality floor unmet |\n"
+                ),
+            ),
+            "UNQUALIFIED ALLOCATION CLAIM",
+        )
+    )
+
+    # 3b. The same leak in a tight list, which shares the blank-line block for
+    #     the same reason.
+    cases.append(
+        (
+            "a figure whose QUALIFIER IS IN ANOTHER LIST ITEM is RED",
+            dict(
+                budgets=_GOOD_BUDGETS,
+                baseline=_GOOD_BASELINE,
+                design="The floor arm reads 24,108 B per write.\n",
+                publication=(
+                    "- Product cost: 2,031 B/boundary/write\n"
+                    "- Separate instrument: quality floor unmet\n"
+                ),
+            ),
+            "UNQUALIFIED ALLOCATION CLAIM",
+        )
+    )
+
+    # 3c. A row that qualifies ITSELF still passes: the unit is the row, not
+    #     the digits.
+    cases.append(
+        (
+            "a table row qualified IN ITS OWN CELLS is GREEN",
+            dict(
+                budgets=_GOOD_BUDGETS,
+                baseline=_GOOD_BASELINE,
+                design="The floor arm reads 24,108 B per write.\n",
+                publication=(
+                    "| Product cost | 2,031 B/boundary/write, off a window the "
+                    "instrument refused |\n"
+                    "| Separate instrument | measured |\n"
+                ),
+            ),
+            None,
+        )
+    )
+
+    # 3d. ...and a list item's qualification may be on its WRAPPED line, which
+    #     is the case that stops the repair from becoming a per-line scan.
+    cases.append(
+        (
+            "a list item qualified on its own WRAPPED line is GREEN",
+            dict(
+                budgets=_GOOD_BUDGETS,
+                baseline=_GOOD_BASELINE,
+                design="The floor arm reads 24,108 B per write.\n",
+                publication=(
+                    "- Product cost: an early window read 2,031 B/boundary/write,\n"
+                    "  but no fitted series clears the quality floor, so it is not\n"
+                    "  a claim.\n"
+                    "- Separate instrument: measured.\n"
                 ),
             ),
             None,
