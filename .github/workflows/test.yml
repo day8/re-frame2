@@ -1234,6 +1234,81 @@ jobs:
       - name: Verify every fenced guide sample against its pin and the sources
         run: python implementation/hicasso/scripts/check_guide_samples.py
 
+  # rf2-st1x5 — the naming-census gate's own unconditional job, the FIFTH
+  # instance of the shape above. `implementation/hicasso/scripts/
+  # check_naming_census.py` landed under rf2-hxbhe as a runnable, self-proving
+  # gate and ran NOWHERE: not in this workflow, not in any npm script.
+  #
+  # It reads TWO input families (measured at the script — `PUBLIC` L151-163 and
+  # `LEDGER_REL` L166, not assumed):
+  #
+  #   implementation/hicasso/src/**, test_kit/src/**   the ten shipped
+  #                                                    namespaces, 105 public names
+  #   docs/design/hicasso/product/naming-ledger.md     the ledger those names owe
+  #                                                    a row to
+  #
+  # Only the first family arms anything (`cljs_node_test`, through
+  # `implementation/hicasso/*`), and that IS the direction that matters most —
+  # a name escapes when a NAMESPACE GROWS. The ledger side arms nothing:
+  # `docs/**` measures false at every classifier output, so a PR deleting a
+  # ledger row out from under a live name would run this gate nowhere and next
+  # redden on somebody else's source PR, over a row they did not write.
+  #
+  # UNCONDITIONAL, rather than a new classifier output, for the reason the four
+  # jobs above give at length and this one will not restate. Sub-second pure
+  # Python stdlib — no node, no JVM — so there is nothing to gate for.
+  #
+  # IT IS NOT IN `test:hicasso-invariants`, and that is the ONE place this job
+  # departs from its four siblings, so the reason is here rather than left to be
+  # rediscovered (rf2-st1x5, MEASURED not assumed). This gate REFUSES to derive
+  # its own repository root — a script that derives a root from its invocation
+  # path can walk a sibling worktree and report that as the census — so its live
+  # run takes an ABSOLUTE root as an argument, and a relative one exits 2. npm
+  # runs package scripts through a DIFFERENT SHELL per platform: `sh` on
+  # Linux/macOS, `cmd.exe` on Windows. `$PWD` expands in the first and stays
+  # LITERAL in the second (measured: `npm run` on Windows passed the seven
+  # characters `$PWD/..` through verbatim), and `%CD%` is the mirror image, so
+  # NO single spelling of that argument resolves on both. Every other script in
+  # `implementation/package.json` is shell-agnostic by construction, and the
+  # chain's seven checkers all derive their own roots. So the local lane is
+  # `scripts/test-fast-pr.sh` instead — one POSIX shell on all three platforms,
+  # where `$spine_root` is already an absolute path — and
+  # `scripts/check_fast_pr_gap.py` carries the matching `SPINE_LANES` entry so
+  # these two steps are not over-reported as a local gap.
+  hicasso-naming-census:
+    name: Hicasso naming census (rf2-st1x5)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
+        with:
+          python-version: '3.12'
+
+      # Self-test first, then the live census — the order every other
+      # pure-Python contract in this workflow uses. Ten checks over synthetic
+      # trees, including a SEEDED POSITIVE CONTROL (an export the census must
+      # catch) and its converse (the same export, once rostered, green), plus
+      # four REFUSALS — because an absence check that inspected nothing reports
+      # the same green as one that inspected everything.
+      - name: Self-test the naming-census rules
+        run: python implementation/hicasso/scripts/check_naming_census.py --self-test
+
+      # `"$PWD"` rather than `"$GITHUB_WORKSPACE"` on purpose: the runner's
+      # default working directory IS the workspace root, so this step's body is
+      # ALSO the exact command a reader can run locally from the repo root —
+      # the same discipline `scripts/check_fast_pr_gap.py` relies on when it
+      # reads reproduce commands out of the step rather than restating them.
+      #
+      # The live run PRINTS the root it resolved as its first line
+      # (`CENSUS_REPO_ROOT=…`), then every public name and the namespace that
+      # carries it. A gate that cannot say which tree it read is how a run about
+      # somebody else's checkout passes for a run about this one.
+      - name: Verify every public hicasso name against the naming ledger
+        run: python implementation/hicasso/scripts/check_naming_census.py "$PWD"
+
   # rf2-3mh2f — CI arm of the STALE WORKER-SNAPSHOT guard (rf2-ia8o7).
   #
   # `bd` auto-stages the full-database JSONL export in EVERY checkout, so a
@@ -6732,6 +6807,17 @@ jobs:
       # PRs that happen to touch hicasso source — i.e. on somebody other than
       # the author of the drift.
       - hicasso-guide-samples
+      # rf2-st1x5 — required for the same reason, one gate over. Half of what
+      # the naming census reads is `naming-ledger.md`, which arms no classifier
+      # output, so a ledger-only PR runs it nowhere; and a job absent from this
+      # list is advisory whatever its own gate says. This entry is the whole
+      # point of the bead rather than an afterthought to it: rf2-6ng7's
+      # reusable finding is that an arming excuse which merely NAMES an
+      # unconditional lane needs that lane PINNED, or the excuse outlives the
+      # coverage. The constraint at stake is `dispositions.md` section 3's —
+      # adding a public surface adds an id — over all ten shipped namespaces
+      # rather than the one door `hicasso-facade-inventory` reaches.
+      - hicasso-naming-census
       # rf2-3mh2f — the .beads guard's CI arm. Required, so the tracker
       # database cannot ride a PR past a `--no-verify` or an uninstalled hook.
       - beads-pr-boundary
