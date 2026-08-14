@@ -8,13 +8,15 @@ The census below finds **twenty-one** mutable owners and **zero** that need migr
 
 The first version of this page claimed nineteen, and the merged-PR audit of #8066 found the count short by two: its four searches could not see a ClojureScript dynamic var, which is mutable through a mechanism none of them modelled. The two owners are on the roster now and the census has [an arm that finds them](#how-the-census-is-taken). The correction is recorded here rather than quietly absorbed, because a roster whose stated derivation cannot regenerate it is the same defect as no derivation at all — and because the *reason* the arm was missing is the useful part: `binding` looks like scoping and is not.
 
+It happened a second time, in the same shape and with the opposite symptom. `rf2-hic-087`'s re-sweep re-ran the six arms and got twenty of the twenty-one rows: `impl.collector/first-registration-armed` has been on this roster since the page's first commit, and no arm has ever found it. The count was never wrong — the derivation was never able to produce it. The blindness is structural for the third time: a `defonce` whose init is a side effect is not a mutable constructor, not a `#js` literal and not a dynamic var, and it is never written, so all six arms miss it and no widening of any of them arrives. [C7](#how-the-census-is-taken) is the arm that says what they were all assuming — that what makes something process-global is the `defonce`, not the shape of the value it holds.
+
 ## Why this page exists at all
 
 The inventory was not missing before this bead — it was **unfindable**. `rf2-hic-012` established the root-scoping pattern and left `rf2-hic-017` the obligation *or each remaining global justified in writing*, and the justification existed only in the ns docstring of `implementation/hicasso/test/re_frame/hicasso/roots_frames_isolation_dom_cljs_test.cljs`, which enumerates the cell table, the entry cache, the scratch buffer, the render-state object, the frame-op memo and the generation counter and says why two roots cannot collide in any of them. A maintainer asking *is this global safe?* does not open a DOM test to find out. Promoting it is most of what this page is; the census is what makes the promotion complete rather than a transcription of whatever the test happened to name.
 
 ## How the census is taken
 
-Six searches over `implementation/hicasso/src`, and the roster is their union. They are recorded so the next audit re-runs them rather than re-deriving the method, and so a reviewer can check the roster is closed instead of taking its word.
+Seven searches over `implementation/hicasso/src`, and the roster is their union. They are recorded so the next audit re-runs them rather than re-deriving the method, and so a reviewer can check the roster is closed instead of taking its word.
 
 The **Site** column names a file and not a line, deliberately. Every arm below prints `file:line` against the tree the reader actually has, while a line number written into this page starts decaying the moment it is written: seven of the first roster's twenty-six rows carried a wrong line the day the page merged, and `!anchor-seq` moved seventeen lines two days later. The owner's fully-qualified name is in the first column and is what locates it.
 
@@ -56,6 +58,17 @@ rg -n --sort path ":dynamic" implementation/hicasso/src
 #      apart by whether the symbol is namespace-qualified. The `set!` half is
 #      the other way a dynamic var is written, and finds nothing today.
 rg -n --sort path "\(binding\b|set! [a-zA-Z./-]*\*[a-zA-Z-]+\*" implementation/hicasso/src
+
+# C7 — every top-level `defonce`, whatever it holds. C1-C6 all ask what
+#      the VALUE is, and a `defonce` is a process-global commitment
+#      whether or not its value is mutable: `first-registration-armed`
+#      holds `true`, and its init is a side effect. So it is no mutable
+#      constructor (C1 blind), no `#js` literal (C2 blind) and no dynamic
+#      var (C5 blind), and nothing ever writes it (C3, C4 and C6 blind).
+#      Anchored, because a process-global commitment is by definition a
+#      top-level form — the one indented `defonce` in this tree is
+#      `mount.cljs`'s docstring example, which has its own section below.
+rg -n --sort path "^\(defonce\b" implementation/hicasso/src
 ```
 
 ### What the searches return that is not an owner
@@ -68,6 +81,8 @@ A census only closes if every hit is either on a roster or named here, and four 
 - **C4** — one hit is `scratch`'s own docstring, quoting `(set! (.-length scratch) 0)` as the whole of its reset.
 
 `mount.cljs`'s `!root`, which C1 and C3 both find, has [its own section](#the-false-positive-worth-its-own-section). C5 and C6 close against each other and are discussed [with the owners they find](#the-render-context-bound-and-restored).
+
+C7 is the one arm with nothing to declare here: all thirteen of its hits are on a roster — twelve on the mutable one above, and `adoption-context` on the [identities roster](#module-level-identities-which-are-not-mutable-owners). That second destination is not a loophole, and the section that owns it says what it cost to read a hit against the wrong row.
 
 ## The dispositions
 
@@ -167,13 +182,16 @@ A second roster, recorded because a `def` of a React artefact *is* a process-glo
 | `impl.boundary/boundary` | `boundary.cljs` | `def` | The error-boundary React class, built once at load. |
 | `impl.portal/portal` | `portal.cljs` | `def` | Component identity. |
 | `impl.presence-react/presence` | `presence_react.cljs` | `def` | Component identity. |
-| `impl.codec/raw-gate` | `codec.cljs` | `def` | A `#js` object carrying `displayName`, written at construction and never again. |
+| `impl.codec/raw-crossing` | `codec.cljs` | `def` | A `#js` object carrying a `displayName`, an empty callbacks map and empty slots — what `host-entry` reads at a `[:>]` prop in place of a declaration. Built at load and never written; the escape mints nothing per site, so one module-level value is the whole of it. |
+| `impl.codec/raw-gate` | `codec.cljs` | `def` | THE ONE `[:>]` gate, shared by every crossing on every page — a one-hook component **function**, not an object, with `displayName` `unchecked-set` onto it once inside the `let` that builds it. Shared rather than minted per component is a ruling and not a saving: a component-keyed cache cannot be built at all, because React's built-in wrapper types are `Symbol.for` values and ES2024 excludes registered symbols as `WeakMap` keys. |
+
+**`raw-crossing` was missing from this roster from the page's first commit, and how it survived is the part worth keeping.** Both identities predate this page — they landed together under `rf2-hic-001` — so this is an omission and not drift. C2 does find `raw-crossing`'s `#js` literal, and the hit was read as belonging to `raw-gate`, fifteen lines below it in the same file, which has never been an object: the row underneath described the literal above it accurately enough that nobody looked. The census's closure test is *every hit is on a roster or named here*, and this is the failure mode that test has — **a hit can satisfy it against the wrong row**, and the roster comes out one short while every arm still appears to close. The two rows above now say which is which, and the discipline the [Site column's own note](#how-the-census-is-taken) states for line numbers holds here for symbols: what locates a row is its name, so the name is the thing to check.
 
 ## Two things this page does not cover, and why
 
-**SSR request scope is vacuous today.** The adversarial-risks *Process-global ownership* row names *independent roots and SSR requests*, and only the first half has a subject: this package publishes **no server-render door**. `impl.mount/hydrate-root!` is built and witnessed, but its counterpart — `re-frame.hicasso.server` — does not exist, and the public door's own commentary holds the absence deliberately (`rf2-k1mp`). Every owner on this page is therefore a *page* question and not yet a *request* question. The day a server-render entry lands, all twenty-one become request-scope questions at once, because a Node process serving two requests concurrently shares every one of them; whoever files that bead should start here.
+**SSR request scope is vacuous today.** The adversarial-risks *Process-global ownership* row names *independent roots and SSR requests*, and only the first half has a subject: this package publishes **no server-render door**. `impl.mount/hydrate-root!` is built and witnessed, but its counterpart â€” `re-frame.hicasso.server` â€” does not exist, and the public door's own commentary holds the absence deliberately (`rf2-k1mp`). Every owner on this page is therefore a *page* question and not yet a *request* question. The day a server-render entry lands, all twenty-one become request-scope questions at once, because a Node process serving two requests concurrently shares every one of them; whoever files that bead should start here.
 
-They should start, within that, with the two dynamic vars, because the caveat is sharper for them than for any other row. A global `set!` restored at the end of a synchronous call is exactly as safe as that call being synchronous — no more. A Node process interleaving two `renderToString` calls at an `await` would have the second request's `*frame*` visible to the first's continuation, and unlike a keyed table there is no key to tell the two apart. The client runtime is protected from this only because nothing on its render path awaits, which is a property of today's doors and not of the mechanism.
+They should start, within that, with the two dynamic vars, because the caveat is sharper for them than for any other row. A global `set!` restored at the end of a synchronous call is exactly as safe as that call being synchronous â€” no more. A Node process interleaving two `renderToString` calls at an `await` would have the second request's `*frame*` visible to the first's continuation, and unlike a keyed table there is no key to tell the two apart. The client runtime is protected from this only because nothing on its render path awaits, which is a property of today's doors and not of the mechanism.
 
 **Composition handling is not a page-global question.** No owner listed above is touched by it — `impl.controlled`'s shadow state is per-field React `useState` rather than module state — so the IME row of `rf2-hic-016` governs nothing here, and nothing here is evidence about it. What is worth naming is the neighbouring half that *is* about controlled input: hic-016's three-browser matrix — echo, rejection, caret preservation, selection range and direction, revision reset, and the blur and unmount edges — landed on main under PR #7992 and is verified there by measurement.
 
