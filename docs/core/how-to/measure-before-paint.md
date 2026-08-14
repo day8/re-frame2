@@ -1,22 +1,34 @@
 # Measure before paint (popovers, dropdowns, viewport geometry)
 
-!!! danger "Written on Freehand, which is being removed"
+!!! danger "Retired with Freehand — Hicasso answers this differently"
 
     This recipe is written against Freehand's registered behaviors, and
     Freehand is retired. re-frame2's native view layer is
-    [Hicasso](../hicasso/index.md).
+    [Hicasso](../hicasso/index.md), which has no counterpart door: no
+    `defbehavior`, no `:timing :layout`.
 
-    The *problem* is real and outlives the substrate — geometry is a host fact
-    that only exists once the element is in the document. What has no Hicasso
-    counterpart is the declarative door this page teaches: Hicasso has no
-    `defbehavior` and no `:timing :layout`. Today the capability lives on the
-    [native tier](../hicasso/10-native-tier.md), where React hooks follow their
-    normal rules and `useLayoutEffect` is available directly.
+    **The decision is to retire this page rather than rewrite it**, because
+    Hicasso does not answer this problem by measuring at all. For the job the
+    recipe is about — a popover, dropdown or tooltip placed before the user
+    sees it — reach for
+    [`overlay/popover`](../hicasso/13-overlays-and-focus.md#anchored-popovers)
+    and give it `:anchor` and `:placement`. Placement is then a CSS
+    `position-area` the engine recomputes as the anchor moves, so there is no
+    rectangle to read, no scroll listener to bound, and no teardown to get
+    exactly right. Hand-rolling the measurement instead is the design that
+    chapter's [*Avoid the old overlay
+    stack*](../hicasso/13-overlays-and-focus.md#avoid-the-old-overlay-stack)
+    warns against.
 
-    Whether this recipe is rewritten on that tier or retired with the code tree
-    is an open authoring decision, so the page is out of the site navigation
-    until it is taken. It survives so that links already pointing at it keep
-    resolving.
+    Genuinely bespoke measured geometry — a virtualised viewport, say — is
+    host-private state and belongs inside a named native component, where React
+    hooks follow their normal rules: see [Ephemeral
+    state](../hicasso/11-ephemeral-state.md#3-host-private-mechanics-native-state)
+    and [the native tier](../hicasso/10-native-tier.md).
+
+    The page stays out of the navigation and is deleted with the Freehand code
+    tree; it survives only so that links already pointing at it keep resolving
+    until then.
 
 You are building a component-library primitive — a popover, a dropdown, a tooltip, a virtualised table — and it needs to *measure the DOM and place itself before the browser paints*. Read the trigger's rectangle, decide whether the panel opens below or flips above, and apply the position in the same frame, so the user never sees it jump.
 
