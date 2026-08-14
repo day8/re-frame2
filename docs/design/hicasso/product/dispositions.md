@@ -67,11 +67,11 @@ the answer itself. The refusals that stand alone are catalogued in
 | Multiple frames and roots | Core (shared frame context with isolated ownership) | Explicit independent root when isolation requires one | An independent root is an isolation choice, never a performance tier | **Witnessed** — `rf2-hic-012` and `rf2-hic-013`, at `.../roots_frames_isolation_dom_cljs_test.cljs` and the `.../reincarnation_*` suites | [Rung 5](specification.md#rung-5--native-screen); 7 |
 | Suspense and Activity | Host escape (React-owned lifecycle behind a declared host) | — | No Activity DSL; compatibility only | **Witnessed** — `rf2-hic-014` and `rf2-hic-010`, at `.../activity_suspense_dom_cljs_test.cljs` and `.../kernel_commit_owns_dom_cljs_test.cljs`. Open correction `rf2-9ywe`; HS-23 is [2.1](#21-surface-inventory-and-dispositions)'s | 7; [Activity witness](lanes/react-compatibility-notes.md#activity-lifecycle-witness) |
 | SSR and hydration | Core (per-surface policy — section [2](#2-public-surface-ssrhydration-dispositions) of this document) | Optional Node service, built in v0 — its *"for a named caller"* gate is REMOVED (amended 2026-08-12 by operator ruling, Mike in session 17:36 AUSEST, `rf2-xpq9`) | No JVM twin, no second renderer, no hydration-free inference | **Gap** — [section 7](specification.md#7-complete-use-case-coverage) requires every inventory id green, and four ids in [2.1](#21-surface-inventory-and-dispositions) await a first witness with no live owner, and HS-33 satisfies neither policy. The three facade surfaces that carried no id at all now carry one — HS-40, HS-41 and HS-42, minted on witnesses by `rf2-2l8pw` — so the claim's denominator is complete and what remains is a gap INSIDE the inventory rather than outside it, which is the weaker and more tractable of the two failures. This cell named `rf2-hic-056`, which owns the Node service and not the per-surface matrix | 7; [8](specification.md#8-modern-react-compatibility); [Language 8](lanes/design-laws.md#language-and-interop) |
-| Accessibility | Core (semantic Hiccup and native controls) | Structural a11y assertions plus browser focus tests | No accessibility subsystem | **Gap** — names, roles, keyboard and virtualized/overlay focus are witnessed (`rf2-hic-043`, `rf2-hic-049`); the **axe** checks [`completeness-audit.md`](lanes/completeness-audit.md) lists among the proof suites never landed, and no bead owns them | 7 |
+| Accessibility | Core (semantic Hiccup and native controls) | Structural a11y assertions plus browser focus tests | No accessibility subsystem | **Witnessed** — `rf2-hic-043` and `rf2-hic-049`, at `.../examples/ledger/a11y_cljs_test.cljs`, `.../examples/ledger/keyboard_dom_cljs_test.cljs`, `.../examples/ledger/virtualized_dom_cljs_test.cljs` and `.../overlay_focus_dom_cljs_test.cljs`. [Section 7](specification.md#7-complete-use-case-coverage)'s acceptance for this row is *names, roles, keyboard, virtualized/overlay focus*, and every limb of it landed. **axe** appears in no acceptance column and is DECLINED rather than owed — `rf2-5q8o` is that decision and is open for the stale wording alone, in [`completeness-audit.md`](lanes/completeness-audit.md), not for a missing witness | 7 |
 | i18n and theming | Recipe (ordinary data, classes, CSS variables, context through hosts) | — | No adapter subsystem; parts registries and tree rewriting deferred | **Witnessed** — `rf2-hic-025`, at `.../examples/slice/i18n_dom_cljs_test.cljs`. `rf2-hic-060` owes the cookbook, not the witness | 7; [`use-cases.md`](lanes/use-cases.md) |
 | Testing | Core developer product (the supported test namespace, L0–L4) | Mounted DOM and browser tiers | No shallow renderer, no fake hooks runtime, no retired test renderer | **Witnessed** — `rf2-hic-020`, `rf2-hic-027` and `rf2-hic-024`, at `test_kit/src/re_frame/hicasso/test.cljs` and that tree's `test/mounted.cljs` | [9](specification.md#9-testing-as-a-product-surface) |
 | Diagnostics | Core developer product (versioned evidence projection) | Xray/Pair causal and heat views | No parallel graph or history system; no production sentinels | **Witnessed** — `rf2-hic-023`, `rf2-hic-037` and `rf2-hic-024`, at `.../evidence.cljs` with its schema test | [10](specification.md#10-xray-and-runtime-evidence) |
-| Migration | Developer product (reporter and explicit refusal classes) | Shadow DOM/intent comparison; cautious codemod only afterwards | No rewriting codemod before reporter and shadow evidence | **Gap** — the reporter, refusal classes and shadow comparison landed (`rf2-hic-055`, `migration/reagent-to-hicasso/codemod/`); the population [1.2](#12-rows-without-a-complete-planned-witness) requires — three representative repositories — is the in-repo corpus alone, and no bead owns the remainder | 7; [Phase 5](specification.md#phase-5--decide-differentiators-and-add-high-value-optional-products) |
+| Migration | Developer product (reporter and explicit refusal classes) | Shadow DOM/intent comparison; cautious codemod only afterwards | No rewriting codemod before reporter and shadow evidence | **Witnessed** — `rf2-hic-055` and `rf2-kyum`, at `migration/reagent-to-hicasso/codemod/` and `.../test_kit/test/re_frame/hicasso/shadow_dom_cljs_test.cljs`. [Section 7](specification.md#7-complete-use-case-coverage)'s acceptance is *three representative repositories* and the reporter ran over three, each recorded with its commit hash — [1.2](#12-rows-without-a-complete-planned-witness) names them | 7; [Phase 5](specification.md#phase-5--decide-differentiators-and-add-high-value-optional-products) |
 
 The Source column cites specification sections by number; a bare number is a section of
 [`specification.md`](specification.md). A bead id in the Planned witness column is a *citation of the bead whose commit
@@ -80,7 +80,7 @@ Section [1.2](#12-rows-without-a-complete-planned-witness) defines the three val
 
 ### 1.2 Rows without a complete planned witness
 
-Four rows above stand as Gap. The distinction that column draws is deliberate and narrow, and it matters most at exactly
+Two rows above stand as Gap. The distinction that column draws is deliberate and narrow, and it matters most at exactly
 this moment — when every bead that carried these proofs has closed, and what they left in the tree is what the coverage
 audit will read:
 
@@ -115,16 +115,24 @@ against the tree rather than against any close note (`rf2-2ius2`):
   this section named — inner region catches, outer survives, retry works — are witnessed in
   `.../examples/slice/extension_dom_cljs_test.cljs`, sections 6 and 7, on a genuinely nested structure: the `digest`
   view's `h/error-boundary` sits inside the one `app` wraps the routed pane in (`.../examples/slice/views.cljs`). It
-  landed in `rf2-hic-074`'s own commit `93f3040ea0`, an ancestor of `origin/main`. Note for the next reader:
-  [`requirements-mine.md`](requirements-mine.md) still states the opposite on three of its own rows, and it is the page
-  that is wrong here rather than this one — `rf2-gvysu` carries the correction.
+  landed in `rf2-hic-074`'s own commit `93f3040ea0`, an ancestor of `origin/main`.
+  [`requirements-mine.md`](requirements-mine.md) stated the opposite on three of its own rows until `rf2-gvysu`
+  corrected them; both pages now agree, so the disagreement this bullet used to warn about is discharged.
 - **Motion and high-rate input** — **landed.** `rf2-hic-053`'s interruption, rapid-toggle, mid-transition teardown and
   frame-budget census are at `implementation/hicasso/test/re_frame/hicasso/motion_presence_dom_cljs_test.cljs`.
-- **Accessibility** — **part landed, and the remainder is a Gap with no live owner.** `rf2-hic-049`'s keyboard,
+- **Accessibility** — **landed, and the remainder is a DECLINED non-goal rather than a Gap.** `rf2-hic-049`'s keyboard,
   virtualized and overlay focus conduct landed (`.../examples/ledger/keyboard_dom_cljs_test.cljs`,
-  `.../examples/ledger/virtualized_dom_cljs_test.cljs`, `.../overlay_focus_dom_cljs_test.cljs`). The **axe** half did
-  not: `rf2-hic-043` stopped short of installing it and routed it to `rf2-hic-049`, which has since closed, and
-  `git grep -w -i axe` finds no occurrence anywhere under `implementation/`. No open bead owns it.
+  `.../examples/ledger/virtualized_dom_cljs_test.cljs`, `.../overlay_focus_dom_cljs_test.cljs`), and `rf2-hic-043`'s
+  names-and-roles sweeps with them (`.../examples/ledger/a11y_cljs_test.cljs`, `.../examples/slice/a11y_cljs_test.cljs`,
+  and `ht/unnamed-controls` as the reusable missing-name control). That is [section 7](specification.md#7-complete-use-case-coverage)'s
+  acceptance for this row *in full* — it reads *names, roles, keyboard, virtualized/overlay focus*, and **axe is not in
+  it**. `rf2-5q8o` ruled on axe directly and the ruling is DECLINE, for three source-located reasons: no acceptance
+  column asks for it; axe-core is in neither `implementation/package.json` nor the lockfile; and the repo's standing
+  posture is that axe-core is not bundled at all (`implementation/SECURITY.md`, `rf2-su313` — Story loads it from a
+  public CDN, and the browser gate serves from 127.0.0.1 with no egress, so a CDN axe is unavailable to it). The
+  structural sweeps ARE the accessibility gate here. `rf2-5q8o` stays open to propagate that decision into
+  [`completeness-audit.md`](lanes/completeness-audit.md), which still lists axe among the proof suites — an owner for
+  stale WORDING, not for a missing witness, and its own reopen condition has not fired.
 - **i18n and theming** — **landed.** The runtime locale and theme-change witness is
   `.../examples/slice/i18n_dom_cljs_test.cljs`: a live switch re-renders correctly with strings and tokens as ordinary
   data, and no adapter subsystem.
@@ -134,17 +142,38 @@ against the tree rather than against any close note (`rf2-2ius2`):
 - **Diagnostics** — **landed.** `rf2-hic-023`'s versioned evidence projection is at
   `implementation/hicasso/src/re_frame/hicasso/evidence.cljs`, its schema held by
   `.../test/re_frame/hicasso/evidence_schema_cljs_test.cljs`.
-- **Migration** — **part landed, and the remainder is a Gap with no live owner.** `rf2-hic-055`'s reporter, refusal
-  classes and shadow comparison landed (`migration/reagent-to-hicasso/codemod/`,
-  `implementation/hicasso/test_kit/test/re_frame/hicasso/shadow_dom_cljs_test.cljs`). The **population** did not: this
-  section requires three representative repositories — the in-repo census corpus plus two named external re-frame v1
-  applications — and states that the in-repo-only fallback does not satisfy section 7. What is in the tree is the
-  in-repo corpus alone, `rf2-hic-055` has closed, and no open bead owns the remainder.
+- **Migration** — **landed, and the population landed with it; this bullet is the second one the record had wrong.**
+  `rf2-hic-055`'s reporter and refusal classes and `rf2-kyum`'s shadow comparison are in the tree
+  (`migration/reagent-to-hicasso/codemod/`,
+  `implementation/hicasso/test_kit/test/re_frame/hicasso/shadow_dom_cljs_test.cljs`). The **population** requirement —
+  three representative repositories, the in-repo census corpus plus two named external re-frame v1 applications — was
+  read as unmet on the strength of the in-repo corpus being the only one visible *in this tree*, which was the wrong
+  place to look: the external repositories are cloned read-only and measured, never vendored, so their absence from the
+  tree is the method working rather than the run missing. `rf2-hic-055` records all three runs with commit hashes —
+  in-repo examples (81 files), `athensresearch/athens` @ `b463a97a0d28cbc0a29bec55feebcbe54c20de54` (131 files, 109
+  census sites) and `district0x/memefactory` @ `71bf92b4b4b935bda089783fd6c07041f84d34f8` (102 files, 85 sites) — plus
+  `day8/re-frame-10x` @ `a3c309430d9e24456b4760f125133abbffc9bdfa` as the vendored-Reagent control and
+  `implementation/hicasso/src` as the clean 0/0/0 control, with determinism shown by two byte-identical athens runs. The
+  run also found and fixed three reader defects, each caught by a control. That is section 7's acceptance met, not
+  deferred.
 
-So seven of the nine are discharged by landed evidence, and two — **Accessibility** and **Migration** — have fallen back
-to Gap on this section's own rule: the proof section 7 requires is absent and no bead owns it. Their cells in
-[1.1](#11-classification-table) read *Claimed* until 2026-08-14 and now read *Gap*; correcting a Planned-witness cell is
-the coverage-matrix owner's amendment under [section 3](#3-append-protocol-and-ownership), and `rf2-hic-048` took it.
+So **all nine are discharged by landed evidence**, and not one of them falls back to Gap. Two of the nine took a second
+correction to get there, and the shape of both errors is worth recording because it is the same shape: an audit read a
+proof as missing because it was not where the audit looked. **Accessibility** was read as owing *axe*, which section 7's
+acceptance column never asks for and which `rf2-5q8o` had already declined on the record. **Migration** was read as
+owing two external repositories, which `rf2-hic-055` had already run — read-only, as the method requires, so they leave
+no trace in this tree. Both were classified *Gap* between 2026-08-14's coverage audit and this correction, and both are
+now *Witnessed* in [1.1](#11-classification-table). Correcting a Planned-witness cell is the coverage-matrix owner's
+amendment under [section 3](#3-append-protocol-and-ownership); `rf2-hic-048` made the first pass and `rf2-2ius2` this
+one. The lesson for the next audit is the narrow one: **a closed bead's record is evidence about what ran, even when the
+tree cannot show it** — check the bead before classifying a row as Gap, and check the acceptance column before
+classifying an unlisted proof as owed.
+
+*Note for the next reader, recorded rather than repaired:* [`requirements-mine.md`](requirements-mine.md)'s own
+owner-gap list still carries **axe** and **migration's two named external repositories** among its rows owing to a bead
+that closed without landed evidence, on the same two readings corrected above. **This page is the corrected one on both
+counts**, and no open bead owns bringing that list into line — saying so is not an owner, and inventing one would be
+worse than the disagreement.
 
 **Two further rows fell to Gap when that audit ran (`rf2-hic-048`, 2026-08-14).** Neither was among the nine, so neither
 is a re-check failing — they are new findings, and the section adds a bullet when a new gap is found:
