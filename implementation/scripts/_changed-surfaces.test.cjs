@@ -5163,7 +5163,11 @@ test('the complaint catalogue reads three families that arm NO expensive tier (r
   for (const file of [
     'docs/design/hicasso/product/complaints.md',
     'spec/009-Instrumentation.md',
-    'docs/design/hicasso/draft-guide/02-views-and-reads.md',
+    // The guide family the checker actually reads: its GUIDE_DIR followed the
+    // corpus to docs/core/hicasso/ under rf2-0yp7w, and only REWRITE-NOTES.md
+    // is still tracked under draft-guide/, so the pre-move spelling asserted
+    // about an address no guide edit could ever produce (rf2-2ein1).
+    'docs/core/hicasso/02-views-and-reads.md',
   ]) {
     const result = classify(file);
     assert.equal(
@@ -6141,7 +6145,11 @@ test('prose no suite reads still arms NOTHING — the narrowing (rf2-61ar)', () 
     'docs/hicasso/concepts.md',
     'docs/core/intro.md',
     'docs/api/re-frame.core.md', // 23 of the 25 docs/api pages carry no JVM pin
-    'docs/design/hicasso/draft-guide/02-views-and-reads.md', // 159 files, one pinned
+    // A docs/design/** exemplar, which is what the count beside it measures --
+    // so this one does NOT follow the guide to docs/core/hicasso/. The chapter
+    // it used to name left the tree under rf2-0yp7w; REWRITE-NOTES.md is the
+    // file that stayed, and it is unpinned like the rest (rf2-2ein1).
+    'docs/design/hicasso/draft-guide/REWRITE-NOTES.md', // 144 docs/design md files, one pinned
     'migration/from-re-frame-v1/README.md',
     'README.md',
   ]) {
