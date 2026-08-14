@@ -384,6 +384,154 @@
       (testing "as is an input with no `:type` at all, which is text"
         (is (not (identical? f (emitted [:input {:value "x" :on-input f}]))))))))
 
+;; ---------------------------------------------------------------------------
+;; The type is the PLATFORM's spelling, not the author's (rf2-7ae61)
+;; ---------------------------------------------------------------------------
+;;
+;; An HTML `type` is an enumerated attribute the platform matches ASCII
+;; case-insensitively, and this predicate reads the author's PROPS object,
+;; where a spelling is all there is. So the rows below are the second half
+;; of the statement `file_input_value_dom_cljs_test` makes about the same
+;; attribute (rf2-h6qm7): ONE reading of `type` in this namespace rather
+;; than two, and the one the platform uses.
+;;
+;; What they replace was silent, which is why it is worth a section. A
+;; shouted spelling failed the guard, so no wrapper was installed and the
+;; field fell through to React's own end-of-event restore: the value still
+;; converged, and the caret went to the end of the control. No throw, no
+;; id, no warning — a subtly worse cursor and nothing to attribute it to.
+
+(defn- attribute-typed!
+  "A real `<input>` whose type ATTRIBUTE keeps the author's case, left as
+  a React render that put `rendered` on it would leave it.
+
+  `setAttribute` rather than the `.type` setter, so the platform's own
+  normalisation stays visible instead of being done for us — that
+  asymmetry between the attribute and the IDL is what these rows turn on,
+  and it is the same one `file_input_value_dom_cljs_test/file-input!`
+  reads on the other control."
+  [spelling rendered]
+  (let [n (js/document.createElement "input")]
+    (.setAttribute n "type" spelling)
+    (.appendChild js/document.body n)
+    (set! (.-defaultValue n) rendered)
+    (set! (.-value n) rendered)
+    n))
+
+(deftest every-spelling-of-a-caret-type-is-the-same-control
+  (let [f       (fn [_e])
+        emitted (fn [hiccup] (slot (codec/as-element hiccup) "onInput"))
+        wrapped? (fn [hiccup] (not (identical? f (emitted hiccup))))]
+    (testing "every caret-bearing type, shouted — each of these IS a text
+             entry control to the engine, and each used to walk past the
+             guard because the comparison was exact"
+      (doseq [t ["TEXT" "SEARCH" "URL" "TEL" "PASSWORD"]]
+        (is (wrapped? [:input {:type t :value "x" :on-input f}])
+            (str "type=" t))))
+    (testing "and the fold is total rather than a list of the plausible
+             spellings — title case is what a form generator emits, and a
+             mixed spelling is the same attribute again"
+      (doseq [t ["Text" "tExT" "Password" "Url"]]
+        (is (wrapped? [:input {:type t :value "x" :on-input f}])
+            (str "type=" t))))
+    (testing "the keyword door reaches the same place: `convert-prop-value`
+             hands React `(name kw)` unchanged, so the author's case
+             survives into the props object either way"
+      (is (wrapped? [:input {:type :TEXT :value "x" :on-input f}]))
+      (is (wrapped? [:input {:type :Password :value "x" :on-input f}])))
+    (testing "while a type with NO caret stays refused at every spelling —
+             the fold widened which spellings the predicate recognises, not
+             which controls it accepts. `setSelectionRange` still throws on
+             these, so a fold that leaked one through would be worse than
+             the hole it closed"
+      ;; `file` is deliberately absent: a controlled `:value` on one is
+      ;; REFUSED outright at every spelling, which is
+      ;; `file_input_value_dom_cljs_test`'s subject and not this row's.
+      (doseq [t ["number" "NUMBER" "Number" "checkbox" "CHECKBOX" "radio"
+                 "RADIO" "date" "DATE" "color" "range" "SUBMIT"]]
+        (is (not (wrapped? [:input {:type t :value "1" :on-input f}]))
+            (str "type=" t))))
+    (testing "a type that merely CONTAINS a caret type's letters is not one"
+      (doseq [t ["textarea" "context" "SEARCHER" "urls"]]
+        (is (not (wrapped? [:input {:type t :value "x" :on-input f}]))
+            (str "type=" t))))
+    (testing "and a non-string `:type`, which `convert-prop-value` leaves as
+             it found it, is asked the question without being handed to a
+             string method. This is the `string?` guard, and it is
+             load-bearing: `(.toLowerCase 0)` is a TypeError, so a fold
+             written without it turns a silent miss into a thrown render"
+      (is (not (wrapped? [:input {:type 0 :value "x" :on-input f}])))
+      (is (not (wrapped? [:input {:type 1 :value "x" :on-input f}])))
+      (is (not (wrapped? [:input {:type true :value "x" :on-input f}]))))))
+
+(deftest a-shouted-type-converges-in-turn-with-the-caret-where-the-edit-left-it
+  (testing "THE DEFECT, on the control it was about. The field held
+           `12345`, the user typed `z` at 2, and the model REFUSED it — so
+           the element still renders `12345` and the converge has a
+           character to take off the screen inside the event.
+
+           Before the fold this row read `{:value \"12z345\" :caret [3 3]}`:
+           no wrapper was installed, so nothing ran, and the field was left
+           holding the refused character until React's own end-of-event
+           restore removed it a beat later with the caret at the end. The
+           lowercase companion is
+           `a-controlled-field-converges-through-the-handler-the-codec-emitted`,
+           and the whole of the difference between them was the spelling."
+    (if-not (browser?)
+      (skip! ":node-test has no DOM")
+      (let [!ran (atom 0)
+            node (attribute-typed! "TEXT" "12345")]
+        (try
+          (is (= "TEXT" (.getAttribute node "type"))
+              "the attribute keeps the author's case")
+          (is (= "text" (.-type node))
+              "and the IDL answers the platform's — this IS a text input,
+               with a caret, which is why the miss was a defect rather than
+               a taste")
+          (typed! node "z" 2)
+          (is (= {:value "12345" :caret [2 2]}
+                 (fire! [:input {:type     "TEXT"
+                                 :value    "12345"
+                                 :on-input (fn [_e] (swap! !ran inc))}]
+                        "onInput" node))
+              "the refused character is off the screen in-turn, and the
+               caret is at the position before it")
+          (is (= 1 @!ran) "and the author's own handler ran, once")
+          (finally (drop! node))))))
+  (testing "a shouted `password` field is the same control and the same
+           converge — the row above is not a special case for `text`"
+    (if-not (browser?)
+      (skip! ":node-test has no DOM")
+      (let [node (attribute-typed! "PASSWORD" "12345")]
+        (try
+          (is (= "password" (.-type node)))
+          (typed! node "z" 2)
+          (is (= {:value "12345" :caret [2 2]}
+                 (fire! [:input {:type "PASSWORD" :value "12345"
+                                 :on-input (fn [_e])}]
+                        "onInput" node)))
+          (finally (drop! node)))))))
+
+(deftest the-element-type-does-not-move-when-the-type-is-shouted
+  (testing "the safety property, and the reason the fold cannot cost a
+           remount. The component is chosen by `controlled-text-tag?`,
+           which is deliberately type-BLIND, so widening the CARET question
+           moves nothing React keys off. A field re-rendered from `text` to
+           `TEXT` — or the other way — keeps its element type, and
+           therefore its node, its focus and any composition in flight.
+
+           This row reads the same in both states, before the fold and
+           after, which is what makes it a statement about the design
+           rather than about the repair."
+    (let [f   (fn [_e])
+          typ (fn [t] (.-type (codec/as-element
+                               [:input (cond-> {:value "1" :on-input f}
+                                         (some? t) (assoc :type t))])))]
+      (is (identical? (typ "text") (typ "TEXT")))
+      (is (identical? (typ "TEXT") (typ "NUMBER")))
+      (is (identical? (typ "TEXT") (typ nil)))
+      (is (identical? (typ "PASSWORD") (typ "checkbox"))))))
+
 (deftest a-controlled-field-with-no-change-handler-has-nothing-wrapped
   (testing "there is no slot to install into, and the codec does not mint
            one — an element with no handler comes out with no handler"
