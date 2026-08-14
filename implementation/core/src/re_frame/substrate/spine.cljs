@@ -2303,7 +2303,7 @@
 ;; environment, and it is NOT evidence about a consumer mount at this horizon
 ;; in either direction. The witness on a representative page now EXISTS —
 ;; committed, one command, and gating nothing (rf2-2rtt6.80):
-;; `freehand/test/re_frame/bench/hicasso/adoption_witness_run.cjs`, which
+;; `hicasso/test/re_frame/bench/hicasso/adoption_witness_run.cjs`, which
 ;; measures its own page's gap before it will read an adoption integer.
 ;;
 ;; WHY NO MORE MACHINERY THAN A NUMBER. No new hook and no new public

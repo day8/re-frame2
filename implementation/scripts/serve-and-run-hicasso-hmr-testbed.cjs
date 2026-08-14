@@ -160,7 +160,7 @@
  *
  * - **A real IME.** `Input.imeSetComposition` is a CDP method, so a real
  *   composition RANGE is Chromium-only and stays with
- *   `freehand/test/re_frame/bench/hicasso/ime_run.cjs`. The composition
+ *   `hicasso/test/re_frame/bench/hicasso/ime_run.cjs`. The composition
  *   row drives the event SEQUENCE, which reaches the carve-out and the
  *   shadow but not the browser's own composition range.
  * - **Selection as a RANGE across a save.** A remount destroys the node,
