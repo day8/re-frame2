@@ -195,7 +195,8 @@ is a re-check failing — they are new findings, and the section adds a bullet w
   was missing was never a look — it was a refusal to look at. **No id moved to green**, so section 7's requirement is
   still unmet on these four and the row is still a Gap; the four cells in
   [2.1](#21-surface-inventory-and-dispositions) each record the reading they now carry, and none names a live owner,
-  because none exists and inventing one would be worse than the silence. HS-33 is measured to satisfy neither policy, and HS-17 and HS-18 are unwitnessed on the server. **The claim's own
+  because none exists and inventing one would be worse than the silence. HS-33 is measured to satisfy neither policy,
+  and HS-17 and HS-18 are unwitnessed on the server. **The claim's own
   denominator was also short, and no longer is**: `h/route-link`, `h/use-subs` and `h/reg-state` reached the facade
   with no inventory row at all — the exact failure [section 3](#3-append-protocol-and-ownership)'s second constraint
   names as the one that makes *every inventory id points at an applicable green row* stop meaning anything — and
