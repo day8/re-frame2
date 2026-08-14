@@ -133,6 +133,40 @@
 // over exactly the code it was widened to cover. `compile_gate.test.cjs` pins
 // each refusal.
 //
+// IT IS ALSO THE ONE ENTRY SOURCE HERE THAT IS NOT LANE-SCOPED, and whoever
+// retires this directory owns the consequence (rf2-swhjb). The walk covers this
+// directory and the roster above covers four lane members living elsewhere —
+// both are the bench lane's own business and both should die with it. The
+// optional modules are not: they are PRODUCT code under `hicasso/src/`, and
+// they are compiled here only because this is the one instrument in the
+// repository that would have caught the fault. So if this directory is ever
+// retired, this third entry source must MOVE rather than go with it. Note that
+// neither floor catches that: `MIN_NAMESPACES` reds on the directory EMPTYING
+// and `MIN_MODULE_NAMESPACES` on the roster collapsing, but a gate that has
+// been DELETED reports nothing at all.
+//
+// THAT DECISION IS NOT DUE YET, checked at source rather than assumed
+// (2026-08-14). No retirement covers this directory: rf2-0yp7w retires
+// `implementation/freehand/` and `implementation/ui/`, and hicasso is the
+// survivor of that ruling — a Reagent adapter, a UIx adapter, and hicasso as
+// re-frame2 native. The sibling coupling in rf2-d19nf is live because
+// Freehand's tree has a scheduled deletion; this one does not, and may never.
+//
+// WHAT A RELOCATION WOULD NEED, recorded now so the decision is cheap when it
+// is actually due: somewhere to compile from. This gate takes NO new build id
+// on purpose — see "NO EDIT TO shadow-cljs.edn" above — and rides
+// `:hicasso-bench` through `--config-merge`. A relocated optional-module
+// compile needs either a new build id, which HD-017 makes a hot-zone edit to
+// `implementation/shadow-cljs.edn` and therefore a sequenced dispatch, or
+// another existing id to ride. That is the whole of the design question, and
+// it cannot be answered before the destination exists.
+//
+// NONE OF WHICH IS AN ARGUMENT AGAINST THE WALK, and a later reader must not
+// take it as one. `laneSourceFiles` stays: seeing one directory is this gate's
+// stated point, and a roster in its place would be the staleness class the gate
+// exists to catch. The optional-module entry source added here reads no
+// directory at all — it resolves entirely from the roster.
+//
 // ## `:advanced` — MEASURED, and why there is no nightly release gate
 //
 // This block used to say that an "externs-inference fault" was invisible to a
