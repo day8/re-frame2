@@ -26,6 +26,20 @@ What it did meet is the **other half of the namespace**, which no row covers at 
 | C3-1 | the unrostered public vars of `re-frame.hicasso.native` | Seven vars are public in the namespace and appear in no ledger row: `n/component`, `n/marker`, `n/prop-slots`, `n/props*`, `n/el`, `n/check-child!`, `n/declared-server` (`native.cljc:194, 242, 299, 316, 357, 470, 512`). They are not uniform in kind. `n/component` and `n/marker` are reached by name from the tier's own witnesses — `native_abi_dom_cljs_test.cljs` mints `(n/component "app/hot-cell" :client-only island-body)` directly, and `n/marker` is the seam every ABI helper and both embedding directions read. `n/el` says of itself "reached from an `$` expansion". `n/prop-slots` is asserted **as a public equality** against the macro's own emission (`native_grammar_cljs_test.cljs`, *the-macro-and-the-runtime-share-one-rule-rather-than-two-copies*). So the set spans doors, seams and expansion targets with nothing marking which is which. | **Classify before the packet, do not rename here.** The question this fragment puts to the sitting is not *what should these be called* but *which of them are surface at all* — and that is prior to naming, because [`specification.md` §12](specification.md#12-action-programme) has Phase 3 freeze "the grammar and ABI", and a freeze cannot be deterministic over a surface whose membership is unstated. The repository already applies this rule elsewhere: a facade export is classified and justified when it lands. Recommended disposition: `n/component` and `n/marker` are **surface** (a witness reaches them and the ABI helpers are defined in terms of `marker`); `n/el`, `n/check-child!`, `n/props*` and `n/prop-slots` are **expansion targets and seams**, public only because a macro expansion must be able to name them, and belong behind the same `impl` convention the rest of the package uses. Filed as `rf2-hic-038`'s quality row rather than actioned, because a checkpoint that edited the surface it audits could not certify it. |
 | C3-2 | `n/declared-server` | Public, and it is the validator behind `n/defcomponent`'s `:server` option — the option row 21 already **applied** (`:server`, not `:ssr`). Row 21 settled the *option key*; nothing settled the *validator's own name*, which reads as a predicate ("declared server?") but is a parser returning the declared policy. | **Rename is premature; the classification in C3-1 probably dissolves it.** If it lands behind `impl` it needs no ledger row. If the sitting rules it surface, `declared-policy` states what it returns where `declared-server` states what it was asked. Recorded so the sweep does not read C3-1's disposition as covering the spelling too. |
 
+**[Amended 2026-08-14, by this checkpoint's re-dispatch.]** C3-1's roster is now one var out of
+date, and the packet should read it that way rather than re-deriving it. `rf2-e0d2` closed and
+landed on `main` as `0b7985af24`: `native.cljc` gained a *The public surface, classified* section,
+and the classification was **applied to one member** — `check-child!` is now private, its docstring
+recording that this is *a classification rather than a narrowing*, both callers being in the same
+file so nothing outside had ever reached it. So the unrostered set is **six**, not seven, and one of
+C3-1's four proposed demotions is already taken.
+
+Nothing else in this fragment moves. The recommendation stands for the remaining three demotion
+candidates — `n/el`, `n/props*`, `n/prop-slots` — and for the two the fragment calls surface,
+`n/component` and `n/marker`; the line numbers in C3-1's cell are the ones its own reading found and
+are deliberately left as written. C3-2 is untouched: `n/declared-server` is still public, so the
+question of whether it is surface at all, and only then how it is spelled, still goes to the sitting.
+
 ## Recorded, and not a naming question
 
 - **No native name changed under Checkpoint 3, and none should.** Rows 7–10 and 29 all read *keep*
