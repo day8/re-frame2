@@ -144,15 +144,17 @@
                 "freehand/test"
                 ;; rf2-hic-001 — the Hicasso view substrate. src carries
                 ;; the runtime copied out of the benchmark tree
-                ;; (freehand/test/re_frame/bench/hicasso/{front,arm1}/)
+                ;; (hicasso/test/re_frame/bench/hicasso/{front,arm1}/)
                 ;; under re-frame.hicasso + re-frame.hicasso.impl.*; test
                 ;; carries the package smoke
                 ;; (re-frame.hicasso.smoke-cljs-test), which rides the
                 ;; always-on :node-test gate (`cljs-test$` matches) AND
-                ;; the focused :node-test-hicasso build below. The bench
-                ;; tree stays exactly where it is and keeps building under
-                ;; :hicasso-bench; nothing in the package imports it, and
-                ;; hicasso/scripts/check_freeze.py is what says so.
+                ;; the focused :node-test-hicasso build below. rf2-0yp7w
+                ;; moved that bench tree here from freehand/test/, so the
+                ;; two now share the "hicasso/test" root below and it
+                ;; keeps building under :hicasso-bench; nothing in the
+                ;; package imports it, and hicasso/scripts/check_freeze.py
+                ;; is what says so.
                 ;; Bundle-isolation holds: no production build :requires
                 ;; re-frame.hicasso.*.
                 "hicasso/src"
@@ -738,7 +740,7 @@
    ;; cache directory from the build id alone, fixed BEFORE any
    ;; `--config-merge` data is applied, so a focused compile and the always-on
    ;; full compile below share ONE cache entry — the identical rule
-   ;; `implementation/freehand/test/re_frame/freehand/bench/lane_cache.cjs`
+   ;; `implementation/core/test/re_frame/bench/lane_cache.cjs`
    ;; already enforces for the hicasso bench lane. Mixing configs against a
    ;; shared id risks leaving the next, unrelated compile mid-state; under
    ;; box load a plain full compile can independently die with `aborted
