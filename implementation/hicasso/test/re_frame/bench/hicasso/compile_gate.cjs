@@ -307,10 +307,14 @@ const OUTSIDE_LANE_ENTRIES = [
 const MODULE_ROSTER = 'hicasso/scripts/check_optional_module_reachability.py';
 const MODULE_ROSTER_FLAG = '--module-namespaces';
 
-// Four optional modules today, seven namespaces between them. The floor is a
-// COLLAPSE detector and not a count: it catches an emitter that has started
-// answering nothing while still exiting 0, which is the only way this entry
-// source can contribute silently. Growth is the roster's business.
+// Five optional modules today, eight namespaces between them (rf2-2a0ju added
+// the `server` row). The floor is a COLLAPSE detector and not a count: it
+// catches an emitter that has started answering nothing while still exiting 0,
+// which is the only way this entry source can contribute silently. Growth is
+// the roster's business, and this number is deliberately NOT raised to meet it
+// — a floor that tracked the roster would have to be edited by every author
+// who adds a module, which is the second place to remember that reading the
+// roster exists to abolish.
 const MIN_MODULE_NAMESPACES = 4;
 
 // A CLJS namespace, as the emitter is contracted to print them. Anything else
