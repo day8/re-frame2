@@ -197,7 +197,7 @@
   A no-op when the id names nothing. The refusal the guide promises there
   is deferred rather than declined — see the door."
   [anchor-id ident]
-  (when-some [el (and anchor-id (.getElementById js/document anchor-id))]
+  (when-some [^js el (and anchor-id (.getElementById js/document anchor-id))]
     (let [previous (.. el -style -anchorName)]
       (set! (.. el -style -anchorName) ident)
       #js [el previous])))
@@ -265,7 +265,7 @@
   inert, and tracking a stack per trigger to erase it would be a second
   ownership graph for a cosmetic difference."
   [claimed ident]
-  (when-some [el (aget claimed 0)]
+  (when-some [^js el (aget claimed 0)]
     (when (= ident (.. el -style -anchorName))
       (set! (.. el -style -anchorName) (or (aget claimed 1) ""))))
   nil)
