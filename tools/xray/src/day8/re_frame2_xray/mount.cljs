@@ -211,10 +211,12 @@
   `:rf.adapter/freehand` is here for the SAME structural reason `:rf.adapter/
   uix` is, not by analogy: `re-frame.freehand.substrate` builds its adapter
   from `re-frame.substrate.spine/make-react-adapter`, so its `:render` is the
-  spine's element-shaped one. Xray reads a Freehand host's views through
-  `re-frame.freehand.tool` (rf2-7gth0); it does not mount its hiccup shell
-  through that host's adapter, and the refusal is what makes the difference a
-  diagnostic instead of an uncaught React child error."
+  spine's element-shaped one. It now stays on the DEFENSIVE footing
+  `:rf.adapter/helix` is on: the Freehand substrate is being removed
+  (rf2-0yp7w) and Xray no longer reads a Freehand host at all (rf2-l86mm),
+  but a stale co-loaded build could still present the kind, and refusing it
+  costs nothing. The refusal is what makes the difference a diagnostic
+  instead of an uncaught React child error."
   #{:rf.adapter/ui :rf.adapter/uix :rf.adapter/helix :rf.adapter/freehand})
 
 (defn- unsupported-substrate-diagnostic [kind]

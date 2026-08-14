@@ -172,8 +172,12 @@
         `:rf.xray/viewcell-evidence-ownership-changed` event pair whose
         ownership plane has no Freehand counterpart and was deleted rather
         than ported). A schema-3 process has the old ids registered and none
-        of the new ones, so the migration installs the delta AND clears the
-        five.
+        of the new ones, so the migration cleared the five and installed the
+        three. The INSTALL half is gone at schema 6 — the three ids the
+        clause used to add are exactly the three schema 6 removes — so the
+        clause now clears the five and nothing else. Its entry stays as a
+        record of what schema 4 WAS; a version history that rewrote itself
+        when a later version undid it would stop being a history.
 
         Schema 4 is the ONE version that is RELOAD-REQUIRED for part of its
         delta, and the migration says so rather than pretending otherwise
@@ -192,8 +196,24 @@
         reload, because `reg-l4-tab!` runs inside the gated `install!` the
         umbrella no-ops. The migration re-runs that `install!` — idempotent
         in both halves: the registrar replaces each handler in place, and
-        `reg-l4-tab!` writes one entry keyed `[mode id]`."
-  5)
+        `reg-l4-tab!` writes one entry keyed `[mode id]`.
+    6 — Freehand tool-door reads REMOVED (rf2-l86mm): the Views panel's
+        Mounted Views and Declared View Sites sections retire WITH the
+        Freehand substrate rather than migrating to Hicasso, so the three
+        ids schema 4 added are GONE (`:rf.xray/mounted-views`,
+        `:rf.xray/mounted-views-schema`, `:rf.xray/mounted-view-sites`) and
+        nothing replaces them. A REMOVAL-ONLY delta, which the seam already
+        knows how to carry: a schema-4 or schema-5 process holds all three,
+        installed by a fn that no longer exists, so neither the umbrella nor
+        a replacement can notice their absence — three phantom ids resolving
+        to a deleted namespace's resident closures, read by no view.
+
+        Live-migratable in full, and unlike schema 4 there is no second
+        half. The door this removes was a READER: Xray claimed nothing,
+        installed nothing and held nothing through it, so clearing the ids
+        is the whole delta and there is no ownership to release, no reload
+        to demand and no residue a live process can be left carrying."
+  6)
 
 (defonce ^:private installed-schema
   ;; The registration-schema version this process has installed, or nil
@@ -231,6 +251,23 @@
   other half of the deleted ownership pair. Its handler wrote the donor
   ownership revision into `:rf/xray` app-db at a key nothing reads any more."
   [:rf.xray/viewcell-evidence-ownership-changed])
+
+(def ^:private schema-5-subs-removed
+  "The `:rf.xray/*` SUBS schema 4 registered and schema 6 removed (rf2-l86mm).
+
+  Exactly the same hazard as `schema-3-subs-removed`, one substrate later:
+  `reactive-panel-subs/install-mounted-views-subs!` no longer exists, so a
+  process that ran it under schema 4 or 5 keeps all three ids resolvable, no
+  current install replaces them, and the umbrella cannot notice they are
+  missing from it. Left alone they are THREE PHANTOM IDS backed by a deleted
+  namespace's closures, read by no view and enumerated by every tool that
+  walks the `:rf.xray/*` surface. The schema-6 clause clears them.
+
+  There is no events sibling: the Freehand door was a reader, so the reads
+  registered no event and there is nothing paired to clear."
+  [:rf.xray/mounted-views
+   :rf.xray/mounted-views-schema
+   :rf.xray/mounted-view-sites])
 
 (def ^:private donor-ownership-marker
   "The `js/globalThis` key the DELETED `day8.re-frame2-xray.viewcell-evidence`
@@ -276,21 +313,33 @@
                 "slot until this page is RELOADED. The Xray registrations "
                 "themselves have already migrated. rf2-7gth0."))))
 
-(defn- migrated-through-5
-  "Schema 5 — the Hicasso evidence tab (rf2-hic-023).
+(defn- migrated-through-6
+  "The tail clauses — schema 5's ADDITION and schema 6's REMOVAL. Both
+  migrate live in full, so both sit past schema 4's fork rather than inside
+  it, and the fn returns TRUE unconditionally.
 
-  Three NEW registrations and one NEW L4 tab entry, all inside the gated
-  `hicasso/install!` the umbrella no-ops for an already-registered
-  process. Re-running the owning facade is the whole delta: the registrar
-  replaces each handler in place and `reg-l4-tab!` writes one entry keyed
-  `[mode id]`, so this is idempotent and adds no second tab.
+  Schema 5 — the Hicasso evidence tab (rf2-hic-023). Three NEW registrations
+  and one NEW L4 tab entry, all inside the gated `hicasso/install!` the
+  umbrella no-ops for an already-registered process. Re-running the owning
+  facade is the whole delta: the registrar replaces each handler in place and
+  `reg-l4-tab!` writes one entry keyed `[mode id]`, so this is idempotent and
+  adds no second tab.
 
-  Always TRUE — unlike schema 4 there is nothing here a live process
-  cannot reach. The Hicasso tier has no ownership plane to release, which
-  is precisely what makes its migration ordinary."
+  Schema 6 — the Freehand tool-door reads REMOVED (rf2-l86mm). Clearing the
+  three ids is the whole delta, and it is the mirror image of schema 4's
+  clear: the fn that installed them is deleted, so nothing else would ever
+  take them out of the registrar. Clearing an id a process never registered
+  is a no-op, so a `from` below 4 runs this harmlessly.
+
+  Always TRUE — unlike schema 4 there is nothing in either clause a live
+  process cannot reach. Neither tier has an ownership plane to release: the
+  Hicasso door and the retired Freehand door are both pure readers, which is
+  precisely what makes both migrations ordinary."
   [from]
   (when (< from 5)
     (hicasso/install!))
+  (when (< from 6)
+    (run! rf/clear-sub schema-5-subs-removed))
   true)
 
 (defn- migrate-schema!
@@ -343,14 +392,14 @@
     ;; The REGISTRAR half migrates live, like every clause before it. Five
     ;; donor-era ids go (nothing else would ever remove them — the fn that
     ;; installed them is deleted, so neither the umbrella nor a replacement
-    ;; can notice) and the three Freehand reads arrive through the
-    ;; `reactive-panel` facade the orchestrator already requires, so the
-    ;; reads stay panel-owned. Both idempotent, both reached only for a
-    ;; behind process.
+    ;; can notice). It USED to also install the three Freehand tool-door
+    ;; reads; schema 6 removed those ids outright (rf2-l86mm), so the install
+    ;; is gone and the clear is the whole registrar half. A behind process
+    ;; reaches schema 6's own clear below, where clearing an id it never
+    ;; registered is a no-op.
     (do
       (run! rf/clear-sub schema-3-subs-removed)
       (run! rf/clear-event schema-3-events-removed)
-      (reactive-panel/install-mounted-views-subs!)
       ;; The OWNERSHIP half does not migrate live, and this is where the
       ;; seam stops pretending. A schema-3 process acquired the
       ;; `re-frame.ui.tool.evidence` projection at boot; releasing it means
@@ -369,8 +418,8 @@
       ;; the upgrade.
       (if (donor-ownership-resident?)
         (do (warn-donor-ownership-resident!) false)
-        (migrated-through-5 from)))
-    (migrated-through-5 from)))
+        (migrated-through-6 from)))
+    (migrated-through-6 from)))
 
 (defn register-xray-handlers!
   "Idempotent registration of Xray's :rf.xray/* events, subs, fxs.

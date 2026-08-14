@@ -128,7 +128,6 @@
   disclosure-toggle state slot. Idempotent."
   (:require [re-frame.core :as rf]
             [re-frame.subs.tooling :as subs-tooling]
-            [day8.re-frame2-xray.mounted-views :as mounted-views]
             [day8.re-frame2-xray.panels.shared.focus-resolver :as focus]))
 
 ;; ---- pure helpers (exposed for test) ------------------------------------
@@ -645,77 +644,6 @@
       (sequential? diff) (vec diff)
       :else [])))
 
-(defn install-mounted-views-subs!
-  "Install the three Views-panel reads over the Freehand tool door — the
-  connected-occurrence roster with its render explanations, the schema-honesty
-  read, and the declared per-view sites.
-
-  Extracted from `install!` so the registry's schema-migration seam can install
-  them into an ALREADY-registered process (rf2-ykaq4u). Such a process ran the
-  umbrella idempotency gate under older code, so a subsequent
-  `register-xray-handlers!` no-ops the whole leaf install — a sub reachable
-  ONLY through `install!` would never reach a live-upgraded one. Registry
-  `migrate-schema!` calls this through the `reactive-panel` facade.
-
-  Idempotent: re-frame's registrar REPLACES each handler in place and the
-  sub-cache replacement hook evicts the stale reaction, so a fresh boot and a
-  migration re-arm both leave exactly the current three subs.
-
-  There is NO ownership bridge here, and there is nothing missing where one
-  used to be (rf2-7gth0). Its predecessor mirrored an evidence-projection
-  ownership revision into `:rf/xray` app-db as a second reactive axis, because
-  a donor acquire/release changed what Xray was allowed to read without
-  changing anything in app-db. The Freehand door has no ownership to change:
-  it is a reader, every read is authorized, and the only thing that moves is
-  the application itself. So the standing epoch-pump axis is the whole
-  freshness story again, exactly as it was before ownership existed."
-  []
-  ;; -- the connected-occurrence roster (rf2-7gth0) ---------------------
-  ;;
-  ;; The Views panel's Mounted Views section. One row per occurrence
-  ;; CONNECTED RIGHT NOW, each carrying the latest committed generation,
-  ;; that commit's frame and staged reads, and the bounded read-time
-  ;; explanation of why it rendered — read live at compute time from
-  ;; `re-frame.freehand.tool` (see `day8.re-frame2-xray.mounted-views`).
-  ;;
-  ;; ONE reactive input, the standing freshness axis: each epoch pump
-  ;; recomputes the read, so a newly connected occurrence — or a
-  ;; disconnected one's removal — surfaces on the next recorded epoch. The
-  ;; input is a pure cache-invalidation trigger; the compute reads the
-  ;; substrate, never the input's value.
-  ;;
-  ;; A host not running Freehand projects zero rows, by the same door,
-  ;; with nothing special-cased.
-  (rf/reg-sub :rf.xray/mounted-views
-    :<- [:rf.xray/epoch-history]
-    (fn [_history _query]
-      (mounted-views/rows)))
-
-  ;; -- evidence-schema honesty ----------------------------------------
-  ;;
-  ;; Every Freehand projection stamps `:schema`. When the running
-  ;; application stamps one this Xray build was not taught, `rows`
-  ;; degrades to `[]` rather than mis-parsing an evolved shape as exact,
-  ;; and the panel surfaces the mismatch instead of rendering an empty
-  ;; section that would read as a substrate-free host.
-  (rf/reg-sub :rf.xray/mounted-views-schema
-    :<- [:rf.xray/epoch-history]
-    (fn [_history _query]
-      (mounted-views/schema-status)))
-
-  ;; -- declared per-view sites ----------------------------------------
-  ;;
-  ;; Subscription + event-handler sites, capabilities and the compile-tier
-  ;; a11y diagnostics for the DISTINCT views present in the roster above.
-  ;; Composes off the roster sub so it inherits its freshness and stays
-  ;; evidence-keyed: a host with nothing mounted projects no sites, even
-  ;; though the manifests themselves are readable before anything mounts.
-  (rf/reg-sub :rf.xray/mounted-view-sites
-    :<- [:rf.xray/mounted-views]
-    (fn [rows _query]
-      (mounted-views/view-sites (map :view-id rows))))
-  nil)
-
 (defn install!
   []
   ;; -- panel-local UI state slot --------------------------------------
@@ -754,12 +682,6 @@
                 :show-unchanged?   (boolean (or panel-unchanged? config-unchanged?))
                 :has-event-bundle? (some? record)}))))
 
-  ;; -- the Freehand tool-door reads (rf2-7gth0) ------------------------
-  ;; Registered via the extracted `install-mounted-views-subs!` so the
-  ;; registry schema-migration seam can install the same three subs into an
-  ;; already-registered process where the umbrella idempotency gate no-ops
-  ;; the whole leaf install (rf2-ykaq4u).
-  (install-mounted-views-subs!)
   nil)
 
 (defn install-legacy-reactive-data-sub-for-test!
