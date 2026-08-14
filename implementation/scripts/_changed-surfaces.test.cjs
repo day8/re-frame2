@@ -868,10 +868,19 @@ const CODEMOD_LANE = {
   dir: 'migration/reagent-to-hicasso/codemod',
   armed: 'migration/reagent-to-hicasso/codemod/src/re_frame/migration/hicasso/rewrite.clj',
   // The cross-tree `:paths` edge: the codemod puts
-  // `../../../implementation/freehand/test` on its classpath so it and the
+  // `../../../implementation/hicasso/src` on its classpath so it and the
   // runtime door share ONE slot rule (rf2-ani6y), and shared_rule_test.clj
   // pins the two `identical?`.
-  sharedRule: 'implementation/freehand/test/re_frame/bench/hicasso/front/slot.cljc',
+  //
+  // rf2-r4j91 moved it. rf2-ani6y extracted the rule while the runtime still
+  // lived in the bench tree, so the path used to be
+  // `implementation/freehand/test/re_frame/bench/hicasso/front/slot.cljc`;
+  // rf2-hic-001 moved the runtime into the package and frozen-sources.edn
+  // pins the two files byte-for-byte, so BOTH answer identically today and
+  // only one survives Freehand's retirement. `retiredSharedRule` below is
+  // the old path, kept so the negative can be asserted rather than assumed.
+  sharedRule: 'implementation/hicasso/src/re_frame/hicasso/impl/slot.cljc',
+  retiredSharedRule: 'implementation/freehand/test/re_frame/bench/hicasso/front/slot.cljc',
   // rf2-erjv — the SECOND cross-tree edge, and a different mechanism. The one
   // above is a classpath entry; this one is source TEXT. shared_rule_test.clj's
   // `the-callback-contracts-are-the-doors` (rf2-vi11) slurps the door's own
@@ -930,11 +939,62 @@ test('the codemod lane arms on its own tree and on the shared slot rule (rf2-2rt
     `${CODEMOD_LANE.sharedRule} is on the codemod's classpath and must arm its lane`,
   );
   // …and that file keeps every output it already had. The arm is shared with
-  // Freehand's, so a narrowing here would be silent.
+  // the package's own, so a narrowing here would be silent.
   const shared = classify(CODEMOD_LANE.sharedRule);
-  for (const output of ['implementation_jvm', 'cljs_node_test', 'cljs_browser', 'cljs_prod']) {
+  for (const output of ['cljs_node_test', 'cljs_browser', 'hicasso_controlled']) {
     assert.equal(shared[output], 'true', `${CODEMOD_LANE.sharedRule} must still arm ${output}`);
   }
+});
+
+test('the RETIRED shared-rule path no longer arms the codemod lane (rf2-r4j91)', () => {
+  // The negative half of the move, asserted rather than assumed. Freehand's
+  // tree still holds a byte-identical twin of the slot rule — frozen-sources.edn
+  // pins it — so leaving the old arm in place would have looked harmless and
+  // been a lie about which tree the codemod reads. Worse, it would have made an
+  // arm inside a tree scheduled for deletion the thing that catches a broken
+  // slot rule.
+  assert.equal(
+    classify(CODEMOD_LANE.retiredSharedRule)[CODEMOD_LANE.output],
+    'false',
+    `${CODEMOD_LANE.retiredSharedRule} is no longer on the codemod's classpath and must not arm its lane`,
+  );
+  // Freehand's OWN four outputs are untouched by the move — this removed one
+  // boolean from that arm, not four.
+  const retired = classify(CODEMOD_LANE.retiredSharedRule);
+  for (const output of ['implementation_jvm', 'cljs_node_test', 'cljs_browser', 'cljs_prod']) {
+    assert.equal(retired[output], 'true', `${CODEMOD_LANE.retiredSharedRule} must still arm ${output}`);
+  }
+});
+
+test('the shared rule the codemod loads is the file the arm names (rf2-r4j91)', () => {
+  // NON-VACUITY for the CLASSPATH edge, the same shape rf2-erjv gave the
+  // source-text edge below. Arming a lane off a path is worth nothing if the
+  // artefact's classpath points somewhere else, so this does not assert the
+  // edge in prose: it lifts the cross-tree `:paths` entry out of deps.edn,
+  // resolves it the way the JVM does — relative to the codemod's working
+  // directory, which is what `working-directory:` sets in the job — and
+  // requires the file this block arms on to live under it.
+  const deps = fs.readFileSync(
+    path.join(REPO_ROOT, CODEMOD_LANE.dir, 'deps.edn'),
+    'utf8',
+  );
+  const entries = (deps.match(/"\.\.\/[^"]*"/g) || []).map((s) => s.slice(1, -1));
+  assert.equal(
+    entries.length,
+    1,
+    'the codemod declares exactly ONE cross-tree :paths entry; found ' + JSON.stringify(entries),
+  );
+  const root = path
+    .relative(REPO_ROOT, path.resolve(REPO_ROOT, CODEMOD_LANE.dir, entries[0]))
+    .replace(/\\/g, '/');
+  assert.ok(
+    CODEMOD_LANE.sharedRule.startsWith(root + '/'),
+    `the codemod's classpath root is ${root}, so ${CODEMOD_LANE.sharedRule} is not on it`,
+  );
+  assert.ok(
+    fs.existsSync(path.join(REPO_ROOT, CODEMOD_LANE.sharedRule)),
+    `${CODEMOD_LANE.sharedRule} must exist — shared_rule_test.clj pins its path and reds on a move`,
+  );
 });
 
 test('the codemod lane arms on the DOOR the roster pin reads (rf2-erjv)', () => {
