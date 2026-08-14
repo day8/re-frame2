@@ -41,21 +41,31 @@
     tells an author to take — there is no refusal and a VISIBLE
     Activity's subtree reaches the response.
 
-  ## And one measured defect, which §2's last row pins
+  ## And one measured defect, now repaired
 
-  An anchored `overlay/popover` bakes a CSS anchor name into its
+  An anchored `overlay/popover` USED TO bake a CSS anchor name into its
   `style` attribute, and that name is minted from
   `impl.overlay/!anchor-seq` — a page-wide `defonce` counter. On a
   client that counter is right, and deliberately so (`globals.md`,
   `rf2-hic-017`: a CSS anchor name lives in one namespace per DOCUMENT,
-  not one per React root). On a server it is not scoped to anything: two
-  renders of ONE immutable request snapshot produce different bytes, and
-  a long-lived server process drifts further from a fresh client's
-  counter with every request it serves. §2.4's first upgrade clause —
-  deterministic server bytes from an immutable request snapshot — is
-  therefore unreachable for an anchored popover by construction, and the
-  attribute it fails on is one hydration must match. `rf2-9zz0y` carries
-  the repair; this file pins the behaviour so the repair reds it.
+  not one per React root). On a server it was scoped to nothing: two
+  renders of ONE immutable request snapshot produced
+  `position-anchor:--rf-overlay-5` and `position-anchor:--rf-overlay-6`,
+  and a long-lived process drifted further from a fresh client's counter
+  with every request it served. §2.4's first upgrade clause —
+  deterministic server bytes from an immutable request snapshot — was
+  unreachable for the anchored arm by construction, and the attribute it
+  failed on is one hydration must match.
+
+  `rf2-9zz0y` repaired it, and NOT by making the counter deterministic.
+  The ident is a client lifecycle token — its whole job is telling two
+  overlays that share a trigger apart at teardown — so the repair stops
+  SERIALIZING it: the panel's `position-anchor` is now claimed in the
+  ref callback, beside the trigger's `anchor-name` that it was always
+  the other half of. The bytes are deterministic by construction rather
+  than by keeping a counter honest, and section 2 below asserts that
+  PROPERTY rather than any particular name, so it survives the naming
+  scheme changing again.
 
   ## HS-34 is NOT in this file, and its absence is the finding
 
@@ -78,8 +88,7 @@
   `-cljs-test`, not `-dom-cljs-test`: every row here is a
   `react-dom/server` render and none of them touches a document, so the
   browser lane would add cost and decide nothing. `:node-test` runs it."
-  (:require [clojure.string :as string]
-            [cljs.test :refer-macros [deftest is testing use-fixtures]]
+  (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as uix-adapter]
             [re-frame.core :as rf]
             [re-frame.hicasso :as h]
@@ -252,8 +261,10 @@
 
 (deftest two-server-renders-of-one-forms-snapshot-are-byte-identical
   (testing "the determinism §2.4's first upgrade clause asks for, measured
-            here rather than assumed — and it is NOT free for every
-            optional module, which is exactly what §5 below shows"
+            here rather than assumed. It was not free for every optional
+            module — the overlay's anchored arm failed exactly this
+            assertion until rf2-9zz0y, and section 2 below is where that
+            is now held"
     (fresh! true)
     (let [a (server-html [field-page {}])
           b (server-html [field-page {}])]
@@ -341,43 +352,66 @@
           (str "and no `open` attribute, so the engine paints none of it
                 until `showModal` runs on the client: " html)))))
 
-(deftest an-anchored-popover-does-not-produce-deterministic-server-bytes
-  (testing "**THE DEFECT, measured.** Two renders of ONE immutable request
-            snapshot differ, because `impl.overlay/make-cell` mints the
-            panel's CSS anchor name from `!anchor-seq`, a page-wide
-            `defonce` counter. That counter is right on a client and
-            deliberately page-wide (`globals.md`, `rf2-hic-017`: a CSS
-            anchor name lives in one namespace per DOCUMENT); on a server
-            it is scoped to the PROCESS, so it advances per render and
-            drifts from a fresh client's counter with every request
-            served. §2.4's first upgrade clause is unreachable for this
-            arm by construction, and the attribute it fails on is one
-            hydration must match.
+(deftest an-anchored-popover-produces-deterministic-server-bytes
+  (testing "**THE PROPERTY, and it is the property rather than a name.**
+            Two renders of ONE immutable request snapshot are byte-
+            identical — §2.4's first upgrade clause, asserted for the arm
+            that could not reach it before `rf2-9zz0y`.
 
-            **If this row is red, read it as the repair landing rather
-            than as a regression** — `rf2-9zz0y` carries it, and HS-32's
-            cell is re-read in the same edit that greens this."
+            What it used to do is worth keeping, because the repair is
+            shaped by it. `impl.overlay/make-cell` mints the panel's CSS
+            anchor name from `!anchor-seq`, a page-wide `defonce`
+            counter, and the name was written into the `style`
+            attribute — so two renders of one snapshot answered
+            `position-anchor:--rf-overlay-5` and
+            `position-anchor:--rf-overlay-6`. Page-wide is CORRECT on a
+            client and deliberate (`globals.md`, `rf2-hic-017`: a CSS
+            anchor name lives in one namespace per DOCUMENT). The defect
+            was that a server has no document to be page-wide with
+            respect to and no request scope to fall back on, so the
+            counter advanced across renders that are independent.
+
+            **The repair does not make the counter deterministic — it
+            stops serializing it.** The panel's `position-anchor` is
+            claimed in the ref callback beside the trigger's
+            `anchor-name`, which it was always the other half of.
+            Asserting EQUALITY rather than a particular ident is the
+            point: this row stays true if the naming scheme changes
+            again, and it would red for any future non-determinism from
+            any source rather than only for this one"
     (fresh! true)
     (let [a (server-html [anchored-popover-page {}])
           b (server-html [anchored-popover-page {}])]
-      (is (not= a b)
-          (str "two renders of one snapshot differ: " a " / " b))
-      (let [ident #(second (re-find #"position-anchor:(--rf-overlay-\d+)" %))]
-        (is (and (some? (ident a)) (some? (ident b)))
-            (str "both carry a generated anchor ident: " a " / " b))
-        (is (not= (ident a) (ident b))
-            (str "and the ident is WHERE they differ, which is what makes
-                  this a counter rather than noise: "
-                 (ident a) " / " (ident b)))
-        (is (= (string/replace a (ident a) "IDENT")
-               (string/replace b (ident b) "IDENT"))
-            (str "with the ident normalised away the bytes are identical,
-                  so the ident is the ONLY non-determinism here: "
-                 a " / " b)))))
-  (testing "and it is the `:anchor` arm alone. Without one the module
-            mints no ident into the style, so the same two renders agree —
-            the control that keeps the row above a fact about the anchor
-            name rather than about overlays"
+      (is (= a b)
+          (str "two renders of one snapshot: " a " / " b))))
+  (testing "and the MECHANISM, without which the row above could be a
+            counter that merely happened not to move between two
+            adjacent renders. `make-cell` still runs per instance on the
+            server and the counter still advances there — what changed is
+            that nothing carries its value into the response"
+    (fresh! true)
+    (let [html (server-html [anchored-popover-page {}])]
+      (is (not (re-find #"position-anchor" html))
+          (str "no anchor name is serialized at all: " html))
+      (is (not (re-find #"--rf-overlay-" html))
+          (str "and no generated ident reaches any other position in the
+                bytes either: " html))))
+  (testing "while everything the anchored arm is FOR is still in the
+            response. The repair took out a client lifecycle token and
+            not the placement — `:placement` resolves through the
+            module's own table to a static string, so it stays
+            declarative and was never the non-deterministic half"
+    (fresh! true)
+    (let [html (server-html [anchored-popover-page {}])]
+      (is (re-find #"<div popover=\"auto\"" html)
+          (str "the panel is still in the bytes: " html))
+      (is (re-find #"position-area:block-end span-inline-end" html)
+          (str "carrying the placement `:bottom-start` means: " html))
+      (is (re-find #"class=\"choice\"" html)
+          (str "and its children: " html))))
+  (testing "the unanchored arm is unchanged, and it is still the control
+            that keeps the rows above a fact about the anchored arm
+            rather than about popovers in general"
     (fresh! true)
     (let [a (server-html [unanchored-popover-page {}])
           b (server-html [unanchored-popover-page {}])]
