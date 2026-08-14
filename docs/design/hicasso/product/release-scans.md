@@ -7,8 +7,14 @@ without the command that produced it, so every section below carries the exact i
 take on trust.
 
 **Merge base.** Every count on this page was taken at merge-base commit
-`94136dbf7a3eb16f0a2b56a92c69b3c346bf11cf`, on 2026-08-14 22:18 AUSEST. Counts move when the tree moves; the
+`0e4d0c546f01ce2bdf623c765c75d713ba0efb90`, on 2026-08-14 22:35 AUSEST. Counts move when the tree moves; the
 method does not.
+
+**And they moved while this page was being written, which is worth recording rather than tidying away.** The
+three censuses were first taken eighteen commits earlier. Re-running them on the final base left the
+native-share census identical to the digit and changed the rent census outright, because
+`re-frame.hicasso.server` landed in the interval — so §3a's finding below is one the first run could not have
+made, and the sentence it replaced (that the module was *in flight*) would have shipped false.
 
 ## What this page is written against
 
@@ -155,7 +161,9 @@ claim. A figure in `docs/design/` is the instrument's own record of what it meas
 evidence *for* the non-claim, and a scan that silenced it would delete the evidence in the name of enforcing
 the conclusion. So the design record is not a scanned row; it is the control. The same pattern that must match
 **nothing** on the publication surface must match **something** there, or the pattern has rotted and a green
-absence means nothing. It currently fires in 5 design-record files.
+absence means nothing. It currently fires in 6 design-record files — one of which is this page, whose §2 above
+states the refused figures at length and is therefore evidence rather than a claim, exactly as the corpus split
+intends.
 
 **The rule is *no claim without its qualification*, not *no figure*.** A paragraph that states the number and
 then says the instrument does not certify it has published the refusal, which is the truthful thing to
@@ -176,7 +184,7 @@ clears the floor, this scan is deleted rather than repaired.
 |---|---|
 | Premise — `budgets.md` `S7` reads *no publishable claim* | holds |
 | Premise — `evidence-baseline.md` reads *No fitted series clears the registered quality floor* | holds |
-| Positive control — the claim pattern fires in the design record | 5 files |
+| Positive control — the claim pattern fires in the design record | 6 files |
 | **Publication surface — unqualified allocation claims** | **0**, over 235 files |
 | Seeded violation demonstrated red | yes — see below |
 
@@ -207,16 +215,31 @@ property of the compiler and the linker.
 | forms (`rf2-sh56`) | door | 2 sentinels — the view name and the app-db concern |
 | motion | door + 2 engine namespaces | **none** |
 | overlay (`rf2-hic-052`) | door + 1 engine namespace | **none** |
+| server (`rf2-b6jkj`) | **none** | **none** |
 | UIx | forbidden-import rule | carried as a positive control (present), by design |
 
-**Four of four landed optional surfaces are covered source-side; two of four are covered bundle-side.** Motion
-and overlay have no sentinel row. This is not an inference from silence: `re-frame.hicasso.motion/presence`
-appears in `check_bundle_isolation.cjs` exactly once, at line 453, as a *near-miss control string* in the
-self-test — a string the gate is asserted **not** to fire on. So the file knows the module exists and has
-chosen not to scan for it. The consequence is narrow and worth stating precisely: motion and overlay are proved
-unreachable in the source graph, which is the stronger of the two instruments, but nothing checks that Closure
-really leaves nothing behind for them at `:advanced`, which is the confidence the bundle gate exists to add.
-Filed as **`rf2-ot28g`**.
+**Four of five landed optional surfaces are covered source-side; two of five are covered bundle-side.**
+
+**Motion and overlay have no sentinel row, and that is not an inference from silence.**
+`re-frame.hicasso.motion/presence` appears in `check_bundle_isolation.cjs` exactly once, at line 453, as a
+*near-miss control string* in the self-test — a string the gate is asserted **not** to fire on. So the file
+knows the module exists and has chosen not to scan for it. The consequence is narrow and worth stating
+precisely: both are proved unreachable in the source graph, which is the stronger of the two instruments, but
+nothing checks that Closure really leaves nothing behind for them at `:advanced`, which is the confidence the
+bundle gate exists to add. Filed as **`rf2-ot28g`**.
+
+**`re-frame.hicasso.server` is in neither roster, and its own docstring says otherwise.** The module landed
+while this page was being written, and it names its guard in terms:
+
+> *"The door names it nowhere, so a browser build that never requires it carries none of it —
+> `scripts/check_optional_module_reachability.py` is what keeps that true."*
+
+That gate does not mention the module. `grep -c 'hicasso.server'` returns **0** against both gates. The premise
+holds today — every occurrence of `re-frame.hicasso.server` under `implementation/hicasso/src/` is prose in a
+docstring or comment, and there is no `:require` of it outside its own usage example, so a browser build really
+does carry none of it. What is absent is anything that would notice if that changed. A missing row is a hole a
+reader can find; a missing row beside a sentence naming the script that allegedly closes it is a hole a reader
+is steered away from. Filed as **`rf2-2a0ju`**.
 
 ### Method
 
@@ -230,17 +253,25 @@ python hicasso/scripts/check_budget_ledger.py                             # exit
 # the two rosters, read at source rather than inferred
 grep -n '"name":' hicasso/scripts/check_optional_module_reachability.py   # 5 entries
 grep -n 'surface:' hicasso/scripts/check_bundle_isolation.cjs             # 4 entries, 2 surfaces
+grep -c 'hicasso.server' hicasso/scripts/check_optional_module_reachability.py \
+                         hicasso/scripts/check_bundle_isolation.cjs        # 0 and 0
+
+# the denominator the rosters are measured against
+ls hicasso/src/re_frame/hicasso/*.cljs hicasso/src/re_frame/hicasso/*.cljc
 ```
 
 The source-side gate is green at this merge base: *motion, overlay, native, forms unreachable from the public
-door; UIx required by no `src/` namespace and named by no production coordinate*.
+door; UIx required by no `src/` namespace and named by no production coordinate*. Read that sentence for what
+it does **not** name.
 
-**The bundle-side gate was NOT re-run here, and the reason is a precondition rather than a cost.** The bead
-asks for this check *"with all Phase 5 optional products landed"*, and they are not all landed —
-`re-frame.hicasso.server` is in flight and reaches neither roster above, so a bundle run taken now would not
-be the aggregate the obligation names. The run costs a full `:advanced` release build (`npm run
-build:hicasso-release`), and the honest reading is that it belongs after the server module lands and gains its
-rows, not before. Recorded here rather than quietly skipped; `rf2-hic-087` inherits it.
+**The bundle-side gate was NOT re-run here, and the reason is what the census found rather than what it cost.**
+The bead asks for this check *"with all Phase 5 optional products landed"*. They now are — the server module
+landed during this bead — but the rosters did not land with them, and a bundle run taken against a roster short
+by three of five surfaces returns a green that certifies less than it reads. Re-running it would have produced
+exactly that: a pass, correctly computed, over two surfaces, published under a heading that says *aggregate*.
+The run costs a full `:advanced` release build (`npm run build:hicasso-release`) and it is worth taking — after
+`rf2-ot28g` and `rf2-2a0ju` land their rows, and not before. Recorded here rather than quietly skipped;
+`rf2-hic-087` inherits it, and inherits the two beads with it.
 
 ### 3b. The boundary shell against the frozen line
 
