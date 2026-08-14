@@ -372,6 +372,54 @@ test('Xray CLJS src change runs cljs (node-test compiles tools/xray) (rf2-f79t8)
   assert.equal(result.cljs_node_test, 'true');
 });
 
+// rf2-cujx — these three roots read `implementation_jvm` FALSE, and that is a
+// DELIBERATE, covered false rather than the hole it used to be. Four suites in
+// `implementation/core/test/` are repo-wide source WALKS that read these trees
+// (`no-rf-default-floor-lint-test` walks `tools/**/src` by name; the egress and
+// error-catalogue conformance pins walk every `src` root under
+// `implementation/` recursively since rf2-2cu7f; `warn-once-clear-governance`
+// file-seqs `implementation/`). All four ran only in `jvm-core`, which this
+// output gates — so a violation introduced here merged GREEN and the red landed
+// on main for the next unrelated implementation PR (the rf2-61ar shape).
+//
+// THE REPAIR IS NOT AN ARM, so these assertions pin false on purpose. Arming
+// the roots costs ~10 more PRs through a 22-job / ~21-minute tier and STILL
+// leaves the class partly open, because the walks keep widening — rf2-2cu7f
+// made the corpus depth-independent by construction, so a future artefact is
+// walked with nobody maintaining a list, while an arming predicate would have
+// to be re-widened by hand every time. Instead `test.yml`'s UNCONDITIONAL
+// `jvm-repo-source-walks` job runs the four namespaces on every PR, one step
+// each so that a namespace which stops selecting reds on the runner's own
+// test-count floor rather than hiding inside a combined total.
+//
+// So do NOT "fix" these to true: that re-incurs the tax and re-opens the
+// maintenance hole. If the unconditional job is ever deleted, THIS is the
+// coverage that goes with it.
+test('tools/ src reads implementation_jvm false — covered by the unconditional walk lane (rf2-cujx)', () => {
+  for (const p of [
+    'tools/xray/src/day8/re_frame2_xray/core.cljs',
+    'tools/story/src/foo.cljs',
+    'tools/mcp-base/src/foo.clj',
+  ]) {
+    assert.equal(classify(p).implementation_jvm, 'false', p);
+  }
+});
+
+test('hicasso + ssr-node src read implementation_jvm false — same lane covers them (rf2-cujx)', () => {
+  for (const p of [
+    'implementation/hicasso/src/foo.cljs',
+    'implementation/ssr-node/src/foo.cljs',
+  ]) {
+    assert.equal(classify(p).implementation_jvm, 'false', p);
+  }
+});
+
+// The control the census turns on: if core/src ever reads false the classifier
+// is broken in a different way and the reasoning above does not apply.
+test('implementation/core/src still arms implementation_jvm (rf2-cujx control)', () => {
+  assert.equal(classify('implementation/core/src/foo.clj').implementation_jvm, 'true');
+});
+
 // rf2-1sd8h — the BROWSER half of the same two trees. Story/Xray
 // `*_dom_cljs_test.{cljs,cljc}` namespaces are selected by BOTH CLJS builds:
 // the consolidated `:node-test` (`cljs-test$` matches a `-dom-cljs-test`
@@ -6713,7 +6761,7 @@ const DECLARED_NO_SURFACE_OUTPUT = {
   // its source and holds — including the count: the live hicasso-guide-samples
   // run reports 188 pinned blocks across 25 pages.
   'docs/core': {
-    why: "the human guide. Three PR-time gates read it and none arms a surface output, which is the always-on shape this list exists to record. docs.yml's own docs_surface classifier stages it into the site and runs mkdocs --strict; check_doc_slugs.py validates its links and heading anchors on EVERY PR from test.yml's unconditional verify-readme-links job (rf2-v7fui); and lint.yml runs api-manifest doc-guide-check over docs/core/** minus docs/core/api/**, reconciling every call-position `(rf/<var>` reference against the manifest behind a non-vacuous floor. The Hicasso guide's 188 digest-pinned fenced blocks are covered by the unconditional hicasso-guide-samples job (rf2-r5iy7), which is unconditional PRECISELY so that a guide-only PR runs it.",
+    why: "the human guide. Four PR-time gates read it and none arms a surface output, which is the always-on shape this list exists to record. docs.yml's own docs_surface classifier stages it into the site and runs mkdocs --strict; check_doc_slugs.py validates its links and heading anchors on EVERY PR from test.yml's unconditional verify-readme-links job (rf2-v7fui); and lint.yml runs api-manifest doc-guide-check over docs/core/** minus docs/core/api/**, reconciling every call-position `(rf/<var>` reference against the manifest behind a non-vacuous floor. The Hicasso guide's 188 digest-pinned fenced blocks are covered by the unconditional hicasso-guide-samples job (rf2-r5iy7), which is unconditional PRECISELY so that a guide-only PR runs it.",
     coveredBy: [
       '.github/workflows/docs.yml',
       'scripts/check_doc_slugs.py',
