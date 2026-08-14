@@ -184,6 +184,31 @@ itself, and a failed `--show-toplevel` no longer continues against the current
 directory.  Answering a different question is not a safer outcome than
 answering none — it is an unsafer one, because it looks like an answer.
 
+WHAT A RUN SAYS IT DID, on every run and not only under `--verbose`.  A gate
+that inspected nothing and exited 0 is indistinguishable from one that inspected
+everything and found nothing, and this gate was silent on success in both
+states.  Two ways of reaching a vacuous green were measured (rf2-qfrrp):
+
+  * `--changed-since` sees a NEW page only once git has been told about it.
+    `git diff <base> -- <root>` reads the working tree, so an uncommitted edit to
+    a page already tracked IS inspected — the "run it before committing" half of
+    the bead is refuted for that case.  What is invisible is an UNTRACKED file:
+    a dispatch that adds pages under the corpus root and runs the gate before
+    staging them inspects zero files and exits 0, silently.  `git add` is enough;
+    a commit is not required, and the message says so.
+  * A pin that is not landed but shares its scope with one that is passes, by
+    design — that is the accompaniment rule working.  But nothing on the run said
+    the absorption had happened, so a worker planting a stranded SHA beside an
+    existing citation read exit 0 and concluded the gate does not reach the file.
+
+Neither rule is changed by any of this; a stranded head accompanied in its own
+block is still a pass, and still should be.  What changed is that every run now
+prints ONE line naming the pages it opened, the pins it classified, how many
+were absorbed by an anchor rather than reported, and how many findings it
+raised.  Zero pages is then a sentence rather than a silence.  `--verbose` adds
+the absorbed pins one per line, each beside the landed pin that answered for it,
+which is the diagnostic a planted-SHA control needs and could not get.
+
 HOW IT IS ARMED.  The corpus is red today — the census repaired eleven pins and
 left thirty-odd standing, deliberately, because re-pinning is a judgement each
 one needs individually.  So the blocking gate is `--changed-since`, which holds
@@ -199,7 +224,8 @@ Usage:
 
 Exit codes:
     0  every cited pin is landed or shares its block — its table row, when it
-       sits in one — with a landed one
+       sits in one — with a landed one.  Read the inventory line beside it: a
+       0 exit over 0 pages is not a verdict on anything
     1  findings — a human decides each; this tool never re-pins
     2  the check could not run — an absent corpus, an unresolvable baseline or
        ref, or a repository that cannot answer: a shallow clone, an object
@@ -378,6 +404,34 @@ class Finding(NamedTuple):
     token: str
     status: str
     detail: str
+
+
+class Absorbed(NamedTuple):
+    """A pin that is NOT landed and is NOT a finding, because a landed pin in
+    its own scope answered for it.
+
+    THE RULE IS NOT CHANGED BY RECORDING THIS.  A stranded head beside a landed
+    one is exactly what accompaniment was written to permit — the block still
+    leaves the reader a resolvable anchor, and a gate that red-flagged those
+    pages would punish the careful ones.  What was missing is that the run never
+    SAID the absorption happened, and rf2-qfrrp is what that silence cost: a
+    worker planting a stranded SHA in the natural place — beside an existing
+    citation, where SHAs already live — read exit 0 and concluded the gate does
+    not reach the file.  It does.  The plant was answered by its neighbour, and
+    the neighbour is now printed beside it under `--verbose` and counted on
+    every run.
+
+    It is also the number that says how much of a green run is load-bearing.
+    The full corpus reads 358 landed against 107 absorbed: a pass over these
+    pages means the anchors held, not that nothing was stranded.
+    """
+
+    path: str
+    line: int
+    token: str
+    status: str  # STRANDED or UNRESOLVABLE — never LANDED
+    anchor: str  # the landed pin in the same scope that answered for it
+    anchor_line: int
 
 
 class Verdict(NamedTuple):
@@ -945,8 +999,14 @@ class Git:
 # --------------------------------------------------------------------------
 
 
-def evaluate(citations: Iterable[Citation], git: Git) -> List[Finding]:
+def evaluate(citations: Iterable[Citation], git: Git) -> Tuple[List[Finding], List[Absorbed]]:
     """Apply the accompaniment rule, one scope at a time.
+
+    Returns what it OBJECTED to and what it PASSED OVER — the findings, and the
+    pins that were not landed but were answered by an anchor in their own scope.
+    The second half is new and reports only; it changes no verdict.  A rule that
+    silently forgives is indistinguishable from a rule that never ran, and that
+    is the whole of rf2-qfrrp's second mode.
 
     A scope is a prose paragraph, or a SINGLE TABLE ROW — not the whole table.
     Those are the two shapes this corpus writes provenance in, and they are the
@@ -972,10 +1032,26 @@ def evaluate(citations: Iterable[Citation], git: Git) -> List[Finding]:
         per_scope.setdefault((c.path, c.scope), []).append(c)
 
     findings: List[Finding] = []
+    absorbed: List[Absorbed] = []
     for (_path, _scope), group in sorted(per_scope.items()):
         statuses = {c.token: git.status(c.token) for c in group}
-        landed = sorted({t for t, s in statuses.items() if s == "LANDED"})
+        landed = [c for c in group if statuses[c.token] == "LANDED"]
         if landed:
+            # The anchor a reader meets FIRST, so the line number printed beside
+            # an absorbed pin is one they can go and look at.
+            anchor = min(landed, key=lambda c: (c.line, c.token))
+            for c in group:
+                if statuses[c.token] != "LANDED":
+                    absorbed.append(
+                        Absorbed(
+                            c.path,
+                            c.line,
+                            c.token,
+                            statuses[c.token],
+                            anchor.token,
+                            anchor.line,
+                        )
+                    )
             continue
         for c in group:
             status = statuses[c.token]
@@ -994,7 +1070,7 @@ def evaluate(citations: Iterable[Citation], git: Git) -> List[Finding]:
                     % c.reason
                 )
             findings.append(Finding(c.path, c.line, c.token, status, detail))
-    return findings
+    return findings, absorbed
 
 
 # --------------------------------------------------------------------------
@@ -1009,6 +1085,55 @@ def iter_markdown(root: str) -> List[str]:
             if name.endswith(".md"):
                 out.append(os.path.join(dirpath, name).replace(os.sep, "/"))
     return sorted(out)
+
+
+def _plural(count: int, noun: str) -> str:
+    return "%d %s%s" % (count, noun, "" if count == 1 else "s")
+
+
+def _inventory(
+    stream,
+    files: Sequence[str],
+    citations: Sequence[Citation],
+    absorbed: Sequence[Absorbed],
+    findings: Sequence[Finding],
+    git: Git,
+) -> None:
+    """One line, on EVERY run, naming what this run actually opened.
+
+    Not `--verbose`-gated, and that is the point of it.  Both scheduled callers
+    — the fast-PR spine and docs.yml — already pass `--verbose`, so the reader
+    this defect actually fooled was a worker running the command a dispatch
+    brief nominated, by hand, without the flag, and reading a silent exit 0 as a
+    verdict.  A summary nobody sees in the mode people use is not a summary.
+
+    One line and not a table, because this gate walks ONE root: the sibling
+    `check_doc_slugs.py` prints a per-root inventory (rf2-v7fui) precisely
+    because it has eleven roots to drop one out of, and copying its shape here
+    would print a wall to say a single number.  The counts are the reach.
+    """
+    counts: Dict[str, int] = {}
+    foreign = 0
+    for c in citations:
+        if c.foreign:
+            foreign += 1
+            continue
+        status = git.status(c.token)
+        counts[status] = counts.get(status, 0) + 1
+    stream.write(
+        "check_provenance_pins: %s inspected, %s — %d landed, %d stranded, "
+        "%d unresolvable, %d foreign; %d accompanied in scope; %s.\n"
+        % (
+            _plural(len(files), "page"),
+            _plural(len(citations), "cited pin"),
+            counts.get("LANDED", 0),
+            counts.get("STRANDED", 0),
+            counts.get("UNRESOLVABLE", 0),
+            foreign,
+            len(absorbed),
+            _plural(len(findings), "finding"),
+        )
+    )
 
 
 def _refuse(stream, exc: Unusable) -> int:
@@ -1081,11 +1206,25 @@ def _check(
         touched = git.changed_markdown(changed_since, root)
         files = [f for f in files if os.path.relpath(f, repo).replace(os.sep, "/") in touched]
         if not files:
-            if verbose:
-                stream.write(
-                    "check_provenance_pins: no page under %s changed since %s.\n"
-                    % (root, changed_since)
-                )
+            # UNCONDITIONAL, and the most important thing this script prints.
+            # Exit 0 here says nothing about the corpus; it says the corpus was
+            # never opened.  Silence made the two identical (rf2-qfrrp).
+            #
+            # The remedy names STAGING rather than committing, because that is
+            # what was measured: `git diff <base> -- <root>` reads the working
+            # tree, so an edit to a page git already tracks is inspected without
+            # any commit at all.  Only a file git has never been told about is
+            # invisible, and `git add` alone is enough to end that.
+            stream.write(
+                "check_provenance_pins: 0 pages inspected — no page under %s "
+                "changed since %s, so NOTHING was checked and this exit 0 is "
+                "not a verdict on the corpus.\n"
+                "  If you expected pages here: a file git has not been told "
+                "about yet is invisible to `--changed-since`. `git add` it (a "
+                "commit is not needed) and run again. Edits to already-tracked "
+                "pages are read from the working tree and need neither.\n"
+                % (root, changed_since)
+            )
             return 0
 
     if not git.baseline_exists():
@@ -1109,44 +1248,31 @@ def _check(
         citations.extend(cites)
         findings.extend(anchors)
 
-    findings.extend(evaluate(citations, git))
+    rule_findings, absorbed = evaluate(citations, git)
+    findings.extend(rule_findings)
     findings.sort(key=lambda f: (f.path, f.line, f.token))
 
+    _inventory(stream, files, citations, absorbed, findings, git)
+
     if verbose:
-        foreign = [c for c in citations if c.foreign]
-        counts: Dict[str, int] = {}
-        for c in citations:
-            if c.foreign:
-                continue
-            counts[git.status(c.token)] = counts.get(git.status(c.token), 0) + 1
-        stream.write(
-            "check_provenance_pins: %d files, %d cited pins "
-            "(%d landed, %d stranded, %d unresolvable, %d foreign)\n"
-            % (
-                len(files),
-                len(citations),
-                counts.get("LANDED", 0),
-                counts.get("STRANDED", 0),
-                counts.get("UNRESOLVABLE", 0),
-                len(foreign),
+        # The two classes where a green run could otherwise mean "quietly
+        # forgiven", listed rather than merely subtracted.  An ABSORBED pin is
+        # the one a planted control lands on: naming the anchor that answered
+        # for it is what tells a worker their plant was neutralised by its
+        # neighbour rather than missed by the gate.
+        for a in sorted(absorbed):
+            stream.write(
+                "  accompanied: %s:%d  %s [%s] — not a finding: `%s` on line %d "
+                "is in the same block and is an ancestor of %s\n"
+                % (a.path, a.line, a.token, a.status, a.anchor, a.anchor_line, BASELINE_REF)
             )
-        )
-        # Listed, never merely subtracted: a foreign citation is exempt from the
-        # accompaniment rule, so it is the one class of token where green could
-        # otherwise mean "quietly ignored".
-        for c in sorted(foreign):
+        for c in sorted(c for c in citations if c.foreign):
             stream.write(
                 "  foreign: %s:%d  %s declared a commit of %s\n"
                 % (c.path, c.line, c.token, c.foreign)
             )
 
     if not findings:
-        if verbose:
-            stream.write(
-                "check_provenance_pins: every cited pin is an ancestor of %s or "
-                "shares its block — its table row, when it sits in one — with "
-                "one.\n" % BASELINE_REF
-            )
         return 0
 
     stream.write(
@@ -1452,6 +1578,62 @@ _RULE_CASES: List[Tuple[str, List[str], Dict[str, str], List[str]]] = [
         ],
         {"aaaaaaaaaa": "STRANDED", "bbbbbbbbbb": "LANDED"},
         [],
+    ),
+]
+
+
+# WHAT THE RULE FORGAVE (rf2-qfrrp).  Every case above asserts what `evaluate`
+# OBJECTED to; none asserted what it passed over, and a rule that silently
+# forgives is indistinguishable from a rule that never ran.  These pin the other
+# half — and they pin it as a REPORT, so the counterweight matters as much as
+# the positive: an absorbed pin must not also be a finding, and a finding must
+# not also be an absorption, or the inventory line would double-count the corpus
+# to itself.
+#
+# (label, lines, {token: status}, [(token, status, anchor)])
+_ABSORBED_CASES: List[
+    Tuple[str, List[str], Dict[str, str], List[Tuple[str, str, str]]]
+] = [
+    (
+        "a stranded head accompanied in-block is REPORTED, not merely forgiven",
+        [
+            "| Producing commit | `aaaaaaaaaa` on `worker/x` — authored, and",
+            "rebase-merged. It landed on main as **`bbbbbbbbbb`**. |",
+        ],
+        {"aaaaaaaaaa": "STRANDED", "bbbbbbbbbb": "LANDED"},
+        [("aaaaaaaaaa", "STRANDED", "bbbbbbbbbb")],
+    ),
+    (
+        "an unresolvable token accompanied in-block is reported too",
+        ["Authored at `cccccccccc`; the same patch landed on main as `bbbbbbbbbb`."],
+        {"bbbbbbbbbb": "LANDED"},
+        [("cccccccccc", "UNRESOLVABLE", "bbbbbbbbbb")],
+    ),
+    (
+        "a block with nothing to forgive reports no absorption",
+        ["| Producing commit | `bbbbbbbbbb`, already on main |"],
+        {"bbbbbbbbbb": "LANDED"},
+        [],
+    ),
+    (
+        "a finding is a finding and not also an absorption",
+        ["| Producing commit | `aaaaaaaaaa` on `worker/x` |"],
+        {"aaaaaaaaaa": "STRANDED"},
+        [],
+    ),
+    # THE PLANT THAT TAUGHT THE WRONG LESSON, end to end.  A stranded SHA in a
+    # row that carries a landed one passes — correctly — and the row that does
+    # not carry one reds.  Both verdicts are unchanged; what this asserts is
+    # that the passing row is now ATTRIBUTABLE, so "the gate does not reach this
+    # file" is no longer an available reading of the exit code.
+    (
+        "the absorbed row names its anchor while the bare row still reds",
+        [
+            "| Original freeze | `aaaaaaaaaa`, and it landed as `bbbbbbbbbb` |",
+            "| Orphan row | `dddddddddd` on `worker/x` |",
+        ],
+        {"aaaaaaaaaa": "STRANDED", "bbbbbbbbbb": "LANDED", "dddddddddd": "STRANDED"},
+        [("aaaaaaaaaa", "STRANDED", "bbbbbbbbbb")],
     ),
 ]
 
@@ -1772,6 +1954,29 @@ class _BusyGit(Git):
         return Git._run(self, *args)
 
 
+class _ChangedGit(Git):
+    """A repository that reports an exact set of changed pages.
+
+    The `--changed-since` file set is the input rf2-qfrrp is about, and it is
+    the one input a fixture on disk cannot present: producing "zero pages
+    changed" for real means arranging the checkout's own history, and producing
+    "exactly one page" means arranging it twice.  The oracle is already a
+    parameter for exactly this reason.
+
+    `HEAD` is the baseline so that the assertions below hold in a checkout with
+    no `origin/main` — they are about what the run SAYS it inspected, not about
+    any verdict, and a missing baseline would refuse before the run got that
+    far.
+    """
+
+    def __init__(self, repo: str, touched: Iterable[str]) -> None:  # noqa: D107
+        Git.__init__(self, repo, "HEAD")
+        self.touched = set(touched)
+
+    def changed_markdown(self, since: str, root: str) -> set:  # noqa: D102
+        return set(self.touched)
+
+
 class _ShallowGit(Git):
     """A clone truncated at a shallow boundary.
 
@@ -1806,7 +2011,7 @@ def self_test(verbose: bool, stream) -> int:
 
     for label, lines, table, expected in _RULE_CASES:
         cites, _ = scan_file("fixture.md", "\n".join(lines))
-        got = sorted(f.token for f in evaluate(cites, _FakeGit(table)))
+        got = sorted(f.token for f in evaluate(cites, _FakeGit(table))[0])
         if got == sorted(expected):
             if verbose:
                 stream.write("self-test PASS: rule [%s]\n" % label)
@@ -1817,13 +2022,33 @@ def self_test(verbose: bool, stream) -> int:
             )
             failures += 1
 
+    for label, lines, table, expected in _ABSORBED_CASES:
+        cites, _ = scan_file("fixture.md", "\n".join(lines))
+        rule_findings, absorbed = evaluate(cites, _FakeGit(table))
+        got = sorted((a.token, a.status, a.anchor) for a in absorbed)
+        overlap = sorted({f.token for f in rule_findings} & {a.token for a in absorbed})
+        if got == sorted(expected) and not overlap:
+            if verbose:
+                stream.write("self-test PASS: absorbed [%s]\n" % label)
+        else:
+            stream.write(
+                "self-test FAIL: absorbed [%s] expected %r, got %r%s\n"
+                % (
+                    label,
+                    sorted(expected),
+                    got,
+                    ("; also reported as findings: %r" % overlap) if overlap else "",
+                )
+            )
+            failures += 1
+
     for case in _FOREIGN_CASES:
         cites, _ = scan_file(
             "fixture.md", "\n".join(case.lines), DEFAULT_MAX_ID_LEN, case.local
         )
         got_pins = [c.token for c in cites]
         got_foreign = {c.token: c.foreign for c in cites if c.foreign}
-        got_findings = sorted(f.token for f in evaluate(cites, _FakeGit(case.status)))
+        got_findings = sorted(f.token for f in evaluate(cites, _FakeGit(case.status))[0])
         problems = []
         if got_pins != case.pins:
             problems.append("extracted %r, expected %r" % (got_pins, case.pins))
@@ -1932,14 +2157,60 @@ def self_test(verbose: bool, stream) -> int:
             )
             failures += 1
 
-    # 6 origin identities, 2 anchor teeth, and the refusal paths.
+    # WHAT A RUN SAYS IT DID, asserted in the DEFAULT mode (rf2-qfrrp).  Both
+    # scheduled callers pass `--verbose`, so a summary gated on that flag would
+    # be a summary nobody sees in the mode the defect was found in — a worker
+    # running the command a dispatch brief nominated, by hand, and reading a
+    # silent exit 0 as a verdict.  `verbose=False` here is therefore the whole
+    # assertion, and it is checked by reading the text rather than with a bare
+    # `assert`, which `python -O` strips.
+    corpus = iter_markdown(os.path.join(repo, DEFAULT_ROOT))
+    spoke = (
+        (
+            "a run that inspected nothing says so",
+            [],
+            ("0 pages inspected", "NOTHING was checked", "git add"),
+        ),
+        (
+            "a run that inspected a page says how much it found",
+            corpus[:1],
+            ("check_provenance_pins: 1 page inspected,", "cited pin"),
+        ),
+    )
+    for label, touched, wanted in spoke:
+        relative = [os.path.relpath(p, repo).replace(os.sep, "/") for p in touched]
+        capture = _Capture()
+        check(
+            repo,
+            DEFAULT_ROOT,
+            False,
+            capture,
+            changed_since="HEAD",
+            git=_ChangedGit(repo, relative),
+        )
+        said = capture.text()
+        missing = [w for w in wanted if w not in said]
+        if not missing:
+            if verbose:
+                stream.write("self-test PASS: %s\n" % label)
+        else:
+            stream.write(
+                "self-test FAIL: %s — the run did not say %r. It said: %r\n"
+                % (label, missing, said)
+            )
+            failures += 1
+
+    # 6 origin identities, 2 anchor teeth, the refusal paths, and the two
+    # inventory witnesses.
     total = (
         len(_EXTRACTION_CASES)
         + len(_RULE_CASES)
+        + len(_ABSORBED_CASES)
         + len(_FOREIGN_CASES)
         + 6
         + 2
         + len(refusals)
+        + len(spoke)
     )
     if failures:
         stream.write("\n%d self-test failure(s).\n" % failures)
@@ -1955,6 +2226,25 @@ class _DevNull:
 
     def flush(self) -> None:
         return None
+
+
+class _Capture(_DevNull):
+    """What a run said, so the self-test can assert that it said anything.
+
+    The two modes rf2-qfrrp closes are modes of SILENCE, so an exit code is the
+    one thing that cannot witness the repair: both of them exited 0 before and
+    exit 0 now.  What is checked here is the text.
+    """
+
+    def __init__(self) -> None:  # noqa: D107
+        self.parts: List[str] = []
+
+    def write(self, text: str = "", *_args, **_kwargs) -> int:  # noqa: D102
+        self.parts.append(text)
+        return len(text)
+
+    def text(self) -> str:  # noqa: D102
+        return "".join(self.parts)
 
 
 def _repo_root() -> str:
