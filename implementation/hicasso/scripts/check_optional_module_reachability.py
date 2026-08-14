@@ -57,6 +57,67 @@ only `n/$` with literal props leaves none at all.  THIS gate is the one
 that decides the property exhaustively, because a `:require` is a
 `:require` whether or not Closure keeps anything from it.
 
+THE FORBIDDEN IMPORT, WHICH IS A DIFFERENT SHAPE
+------------------------------------------------
+Everything above is a RELATIVE claim — module `m` is unreachable from
+everything that is not `m` — and the roster names both sides of each
+edge.  The native-boundary law's other half is ABSOLUTE and has only
+one side: *an interpreted-only production dependency graph and bundle
+contain neither native-tier runtime **nor UIx code***
+(`docs/design/hicasso/product/lanes/design-laws.md`, clause 6).  UIx is
+not a Hicasso module that must stay unreached; it is a library this
+package must never require AT ALL, from anywhere in `src/`.
+
+That clause fell through the seam between two honest artefacts
+(rf2-b3gy).  `check_bundle_isolation.cjs` declines it in terms and says
+why — the measured `:hicasso-release` bundle CONTAINS UIx and that is
+correct, because Hicasso ships no reactive adapter and the exemplar
+consumer picks one — and it refers the clause here, to "the source-side
+gate's kind of question".  This file's `native` row then quoted the law
+in full and called itself "the DEPENDENCY-GRAPH half of that sentence"
+while asking only the module question.  Each file was right about
+itself; the clause was measured by neither.  So it is measured here
+now, in TWO ARMS, which is the shape
+`implementation/scripts/check-ui-adapter-isolation.cjs` already uses
+for the same claim about `re-frame2-ui`:
+
+  1. **SOURCE** — no namespace under `src/` requires UIx.  Read off
+     `:require` forms by the same parser the module rows use, so the
+     seventeen places this package's docstrings NAME UIx stay legal:
+     prose is provenance, and `impl/controlled.cljs` citing
+     `uix/compiler/input.cljs` by line number is exactly the kind of
+     provenance that must not redden a gate.
+  2. **COORDINATE** — the production `:deps` of `hicasso/deps.edn`
+     names no UIx artefact.  This arm has a live subject rather than a
+     theoretical one: the `:test` alias DOES declare
+     `day8/re-frame2-uix`, legally and necessarily — the Node lane's
+     suites need a reactive substrate, and plain-atom has none — so the
+     property is not "the file never says uix" but "the PRODUCTION map
+     never does".  A gate that grepped the file would be red today, and
+     promoting that test dependency into `:deps` is the realistic way
+     this clause breaks.
+
+WHAT THE SECOND CLAUSE NEEDED, AND WHY IT DID NOT NEED A BUNDLE
+---------------------------------------------------------------
+Row 6 of the conformance matrix carries a second clause — *native
+bundles contain no UIx unless the application imports it* — and it was
+read as owing a native-tier release build, which does not exist: there
+is exactly one release build, `:hicasso-release`, and it is the
+interpreted-only one.
+
+It owes no such build.  Split the clause and it is two conjuncts: what
+the APPLICATION imports is the application's own affair and nothing
+this package can assert about, and what remains is *the native tier's
+own source drags no UIx in* — which is arm 1, over `native.cljc` along
+with every other file in `src/`, decided exhaustively.  A release build
+would weigh the same claim in bytes and add confidence about the
+COMPILER, and the paragraph above already says why this gate declines
+that instrument for the module rows: reachability is decided in the
+source, and the compiler is not what regresses here.  The clause is
+therefore measured, and by the arm that can see the parts of the tier a
+bundle cannot — a consumer who writes only `n/$` with literal props
+leaves no production footprint at all.
+
 SELF-TEST
 ---------
 `--self-test` runs the detector over synthetic sources first, because a
@@ -66,6 +127,12 @@ mention is NOT — and asserts the roster's own premise: every module
 door and engine file named below must exist, so a renamed file fails
 here rather than reporting a green absence for a namespace nobody
 compiles any more.
+
+The forbidden-import arms are pinned the same way, and arm 2 carries a
+PRESENT control of its own: the real `deps.edn`'s `:test` alias must
+still declare the UIx coordinate.  Without that row a green arm 2 could
+mean "the production map is clean" or "nobody mentions uix anywhere any
+more", and only the first is the claim.
 """
 
 import re
@@ -74,6 +141,41 @@ from pathlib import Path
 
 PACKAGE_ROOT = Path(__file__).resolve().parent.parent
 SRC = PACKAGE_ROOT / "src"
+DEPS_EDN = PACKAGE_ROOT / "deps.edn"
+
+# rf2-b3gy.  The libraries no `src/` namespace may require and no production
+# coordinate may name.  One entry today; the list shape is what keeps a second
+# one from being a rewrite.
+#
+# `prefixes` are matched as NAMESPACE SEGMENTS rather than as substrings, so
+# `uix` catches `uix.core` and `uix.dom.server` and does NOT catch a namespace
+# that merely begins with those letters.  There is no such namespace in this
+# tree today; the segment rule is what stops one from being a silent hole
+# later, and it costs a `split(".")`.
+FORBIDDEN_IMPORTS = [
+    {
+        "name": "UIx",
+        "prefixes": ["uix", "re-frame.adapter.uix"],
+        # Any coordinate whose symbol names this library. Matched
+        # case-insensitively over the whole symbol, because a coordinate is a
+        # published name rather than a namespace and `day8/re-frame2-uix`
+        # shares no segment with `uix.core`.
+        "coordinate_marker": "uix",
+        # ASCII only, like every other emitted string in this file. The
+        # message is written to `stderr`, and a `cp1252` console raises
+        # `UnicodeEncodeError` on an em dash -- which would turn this gate's
+        # RED into a traceback on the one platform where a maintainer is
+        # most likely to read it first.
+        "why": (
+            "native-boundary law clause 6 says an interpreted-only production "
+            "dependency graph contains no UIx code. Hicasso ships no reactive "
+            "adapter: the consumer picks one, and this package must not pick "
+            "for them"
+        ),
+    },
+]
+
+NS_FORM = re.compile(r"\(ns\s+([A-Za-z0-9_.*+!?<>=$%&/-]+)")
 
 # Each optional module: its public door, the private namespaces that carry its
 # weight, and the files that must exist for the roster to mean anything.
@@ -112,7 +214,12 @@ MODULES = [
         # reachable; an interpreted-only production dependency graph and
         # bundle contain neither native-tier runtime nor UIx code*
         # (`docs/design/hicasso/product/lanes/design-laws.md`).  This row
-        # is the DEPENDENCY-GRAPH half of that sentence.
+        # is the NATIVE-TIER half of that sentence's dependency graph; the
+        # *nor UIx* half is [[FORBIDDEN_IMPORTS]] below, and it is a
+        # different shape rather than another roster entry — see the
+        # module docstring.  The row used to claim the whole sentence and
+        # ask only this much of it, which is how the clause came to fall
+        # between this file and `check_bundle_isolation.cjs` (rf2-b3gy).
         #
         # NO ENGINE, and the emptiness is the design rather than an
         # omission.  `motion`'s weight is in two private namespaces it
@@ -168,9 +275,6 @@ MODULES = [
         ],
     },
 ]
-
-NS_FORM = re.compile(r"\(ns\s+([A-Za-z0-9_.*+!?<>=$%&/-]+)")
-
 
 def ns_of(text):
     """The namespace a source file declares, or None. Read from code rather
@@ -396,6 +500,126 @@ def scan(sources):
                     )
                 )
     return problems
+
+
+def top_level_value(text, key):
+    """The form following `key` at the TOP LEVEL of `text`'s outermost map.
+
+    `deps.edn` is one map and arm 2 asks about exactly one of its entries.
+    DEPTH is what makes that question answerable at all: `:aliases` holds an
+    `:extra-deps` map that legally names the very coordinate the production
+    `:deps` map may not, so a reader that ignored nesting would fold the two
+    together and report a correct file red.
+
+    Answers None when the key is absent at that depth, and the caller treats
+    that as a FAILURE rather than as a pass — a `deps.edn` this arm could not
+    read is not a clean one.
+    """
+    source = code_only(text)
+    depth, i, n = 0, 0, len(source)
+    while i < n:
+        ch = source[i]
+        if ch in OPENERS:
+            depth += 1
+        elif ch in CLOSERS:
+            depth -= 1
+        elif depth == 1 and source.startswith(key, i):
+            before = source[i - 1] if i else " "
+            after = source[i + len(key)] if i + len(key) < n else " "
+            if before not in SYMBOL_CHARS and after not in SYMBOL_CHARS:
+                start = i + len(key)
+                return source[start:form_end(source, start)]
+        i += 1
+    return None
+
+
+SYMBOL_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_.*+!?<>=$%&/-:"
+SYMBOL_RE = re.compile(r"[A-Za-z][A-Za-z0-9_.*+!?<>=$%&/-]*")
+
+
+def names_library(namespace, prefixes):
+    """Does `namespace` belong to a library named by `prefixes`?
+
+    Compared SEGMENT-wise rather than by `startswith`, so `uix` claims
+    `uix.core` and `uix.dom.server` and does not claim a hypothetical
+    `uixels.foo`. Nothing in this tree is named that way; the rule is what
+    keeps the arm honest if something ever is.
+    """
+    for prefix in prefixes:
+        want = prefix.split(".")
+        if namespace.split(".")[: len(want)] == want:
+            return True
+    return False
+
+
+def scan_forbidden_imports(sources):
+    """ARM 1 (rf2-b3gy). `sources` is `{path: text}`; answer the violations.
+
+    Reuses [[required_namespaces]] rather than grepping, which is the whole
+    reason this arm belongs in this file: seventeen docstrings across `src/`
+    name UIx as provenance — `impl/controlled.cljs` cites
+    `uix/compiler/input.cljs` by line number, `native.cljc` explains that a
+    UIx parent must not have to require the tier — and every one of them
+    must stay legal. A grep-based arm would have to be deleted or exempted
+    file by file within a week of landing.
+    """
+    problems = []
+    for rule in FORBIDDEN_IMPORTS:
+        for path, text in sorted(sources.items()):
+            declared = ns_of(text)
+            for target in sorted(required_namespaces(text)):
+                if names_library(target, rule["prefixes"]):
+                    problems.append(
+                        "{path}: `{declared}` requires `{target}`, which is "
+                        "{name}. Production Hicasso source may not require it, "
+                        "because {why}. Prose naming {name} is provenance and "
+                        "stays legal; a `:require` is not prose.".format(
+                            path=path,
+                            declared=declared,
+                            target=target,
+                            name=rule["name"],
+                            why=rule["why"],
+                        )
+                    )
+    return problems
+
+
+def scan_forbidden_coordinates(deps_text):
+    """ARM 2 (rf2-b3gy): the production `:deps` map names no forbidden library.
+
+    Only the top-level `:deps` map. The `:test` alias's `:extra-deps` names
+    `day8/re-frame2-uix` and MUST go on naming it — the Node lane's suites
+    need a reactive substrate and plain-atom has none, so a subscription
+    under it would never notify and every commit assertion would pass
+    vacuously. The self-test pins that as a present control, because a green
+    arm 2 over a file that had simply stopped mentioning UIx would read
+    identically to the one that matters.
+    """
+    production = top_level_value(deps_text, ":deps")
+    if production is None:
+        return [
+            "deps.edn: no top-level `:deps` map. This arm reads the PRODUCTION "
+            "dependency map and could not find one, so its silence would mean "
+            "nothing — which is the failure an absence check is most exposed to."
+        ]
+    problems = []
+    for rule in FORBIDDEN_IMPORTS:
+        marker = rule["coordinate_marker"].lower()
+        for token in SYMBOL_RE.findall(production):
+            if marker in token.lower():
+                problems.append(
+                    "deps.edn: the production `:deps` map declares `{token}`, "
+                    "which is {name}, and {why}. If a suite needs it, it "
+                    "belongs in the `:test` alias's `:extra-deps`, where it "
+                    "already is.".format(
+                        token=token, name=rule["name"], why=rule["why"]
+                    )
+                )
+    return problems
+
+
+def read_deps_edn():
+    return DEPS_EDN.read_text(encoding="utf-8")
 
 
 def read_src():
@@ -652,6 +876,111 @@ def self_test():
             path = SRC / rel
             assert path.exists(), "roster names a missing file: {}".format(path)
 
+    # -----------------------------------------------------------------------
+    # rf2-b3gy — the forbidden-import arms
+    # -----------------------------------------------------------------------
+
+    # ARM 1, the direction that must RED: a require of UIx from `src/`, by
+    # either of the two spellings a real slip would take. `uix.core` is what
+    # an author writing a component reaches for; `re-frame.adapter.uix` is
+    # what an author wiring a substrate reaches for, and it is the likelier
+    # of the two — the test tree requires it in eleven namespaces, so it is
+    # already in the fingers of anyone working here.
+    for spelling in ("uix.core", "uix.dom.server", "re-frame.adapter.uix"):
+        flagged = scan_forbidden_imports(
+            {
+                "src/u.cljs": "(ns re-frame.hicasso.impl.collector\n"
+                "  (:require [{} :as u]))".format(spelling)
+            }
+        )
+        assert len(flagged) == 1, (spelling, flagged)
+        assert spelling in flagged[0], (spelling, flagged)
+        assert "re-frame.hicasso.impl.collector" in flagged[0], (spelling, flagged)
+
+    # ARM 1, the direction that must stay GREEN, and it is the one with teeth:
+    # `src/` names UIx in seventeen docstrings today. This fixture is the
+    # sharpest of them, `impl/controlled.cljs`'s citation of the UIx port by
+    # file and line — a grep-based arm dies on it.
+    clean = scan_forbidden_imports(
+        {
+            "src/c.cljs": '(ns re-frame.hicasso.impl.controlled\n'
+            '  "UIx\'s answer to this is a wrapper\n'
+            '  (`uix/compiler/input.cljs:132-143`); this one is not that\n'
+            '  wrapper. See also [[uix.core/memo]] and\n'
+            '  (:require [uix.core :as uix]) which a CONSUMER writes."\n'
+            "  (:require [re-frame.hicasso.impl.slot :as slot]))"
+        }
+    )
+    assert clean == [], clean
+
+    # And a require the reader discards is not one here either — the arm
+    # inherits [[code_only]] whole, and this row is what says so rather than
+    # leaving it to be assumed from the module rows above.
+    clean = scan_forbidden_imports(
+        {
+            "src/d.cljs": "(ns re-frame.hicasso.impl.codec\n"
+            "  (:require #_[uix.core :as uix]\n"
+            "            ;; (:require [re-frame.adapter.uix :as a])\n"
+            "            [re-frame.hicasso.impl.slot :as slot]))"
+        }
+    )
+    assert clean == [], clean
+
+    # A namespace that merely STARTS with the letters is not the library.
+    clean = scan_forbidden_imports(
+        {"src/s.cljs": "(ns re-frame.hicasso.core\n  (:require [uixels.grid :as g]))"}
+    )
+    assert clean == [], clean
+
+    # ARM 2, the direction that must RED: the coordinate promoted out of the
+    # `:test` alias into the production map, which is the realistic way this
+    # clause breaks.
+    flagged = scan_forbidden_coordinates(
+        '{:paths ["src"]\n'
+        " :deps {day8/re-frame2 {:local/root \"../core\"}\n"
+        '        day8/re-frame2-uix {:local/root "../adapters/uix"}}}'
+    )
+    assert len(flagged) == 1, flagged
+    assert "day8/re-frame2-uix" in flagged[0], flagged
+
+    # ARM 2, the direction that must stay GREEN, and the reason the arm reads
+    # by DEPTH rather than by search: the same coordinate under the `:test`
+    # alias is correct and must not redden. A substring gate over this file
+    # fails here, which is why one was not written.
+    clean = scan_forbidden_coordinates(
+        '{:paths ["src"]\n'
+        " :deps {day8/re-frame2 {:local/root \"../core\"}}\n"
+        " :aliases {:test {:extra-deps {day8/re-frame2-uix\n"
+        '                               {:local/root "../adapters/uix"}}}}}'
+    )
+    assert clean == [], clean
+
+    # ARM 2 fails CLOSED on a file it cannot read, rather than reporting the
+    # green that an empty search would otherwise produce.
+    unreadable = scan_forbidden_coordinates('{:paths ["src"]}')
+    assert len(unreadable) == 1, unreadable
+    assert "no top-level `:deps` map" in unreadable[0], unreadable
+
+    # THE PRESENT CONTROL for arm 2, read off the REAL file (rf2-b3gy). The
+    # live arm is an absence check, and an absence check whose subject has
+    # quietly left the building is a green that means nothing. This asserts
+    # the coordinate is still there to be kept out of production, so the
+    # distinction the arm draws still has two sides.
+    deps_text = read_deps_edn()
+    assert "day8/re-frame2-uix" in code_only(deps_text), (
+        "deps.edn no longer declares the UIx coordinate anywhere, so arm 2's "
+        "green no longer distinguishes a clean production map from a file "
+        "that stopped mentioning UIx at all."
+    )
+    assert scan_forbidden_coordinates(deps_text) == [], (
+        "the real deps.edn must be green: " + repr(scan_forbidden_coordinates(deps_text))
+    )
+    aliases = top_level_value(deps_text, ":aliases")
+    assert aliases is not None and "day8/re-frame2-uix" in aliases, (
+        "the UIx coordinate must live under `:aliases`, which is what makes "
+        "the production map's cleanliness a real distinction"
+    )
+
     print("hicasso optional-module reachability: self-test OK")
     return 0
 
@@ -660,7 +989,10 @@ def main(argv):
     if "--self-test" in argv:
         return self_test()
 
-    problems = scan(read_src())
+    sources = read_src()
+    problems = scan(sources)
+    problems += scan_forbidden_imports(sources)
+    problems += scan_forbidden_coordinates(read_deps_edn())
     if problems:
         sys.stderr.write("hicasso optional-module reachability: FAIL\n")
         for p in problems:
@@ -668,9 +1000,11 @@ def main(argv):
         return 1
 
     names = ", ".join(m["name"] for m in MODULES)
+    forbidden = ", ".join(r["name"] for r in FORBIDDEN_IMPORTS)
     print(
         "hicasso optional-module reachability: OK "
-        "({} unreachable from the public door)".format(names)
+        "({} unreachable from the public door; {} required by no `src/` "
+        "namespace and named by no production coordinate)".format(names, forbidden)
     )
     return 0
 
