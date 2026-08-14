@@ -312,121 +312,49 @@ and the sitting need not clear the inventory before deciding.
 
 ## 7. Re-running the census — for `rf2-hic-064`
 
-`rf2-hic-064` re-runs both the census and its positive control. The script is reproduced
-here in full rather than committed, because its natural home —
-`implementation/hicasso/scripts/` — was held by another worker for the whole of this bead.
-**Promoting it to a standing gate is `rf2-hxbhe`**, and until that lands the census is a
-one-shot measurement rather than a guarantee that stays true.
+`rf2-hic-064` re-runs both the census and its positive control. Both are now a **committed
+gate** — `implementation/hicasso/scripts/check_naming_census.py` — rather than a script
+reproduced in this section, which is what `rf2-hxbhe` promoted. Until that landed the census
+was a one-shot measurement; it is now re-runnable by anyone, with its controls attached.
 
-Run it as `python <script> <ABSOLUTE repo root>`; it exits 1 when any public name is
-unrostered and prints the root it read.
-
-```python
-#!/usr/bin/env python3
-"""rf2-hic-065 completeness census: every public name in implementation/hicasso,
-diffed against docs/design/hicasso/product/naming-ledger.md."""
-import importlib.util, os, re, sys
-
-REPO = os.path.abspath(sys.argv[1])
-print(f"CENSUS_REPO_ROOT={REPO}")
-
-spec = importlib.util.spec_from_file_location(
-    "cfi", os.path.join(REPO, "implementation", "hicasso", "scripts",
-                        "check_facade_inventory.py"))
-cfi = importlib.util.module_from_spec(spec); spec.loader.exec_module(cfi)
-
-HIC = os.path.join(REPO, "implementation", "hicasso")
-
-PUBLIC = [
-    ("re-frame.hicasso",          "src/re_frame/hicasso.cljc",                 "h"),
-    ("re-frame.hicasso.native",   "src/re_frame/hicasso/native.cljc",          "n"),
-    ("re-frame.hicasso.forms",    "src/re_frame/hicasso/forms.cljs",           "forms"),
-    ("re-frame.hicasso.overlay",  "src/re_frame/hicasso/overlay.cljs",         "overlay"),
-    ("re-frame.hicasso.motion",   "src/re_frame/hicasso/motion.cljs",          "motion"),
-    ("re-frame.hicasso.server",   "src/re_frame/hicasso/server.cljs",          "server"),
-    ("re-frame.hicasso.tool",     "src/re_frame/hicasso/tool.cljs",            "tool"),
-    ("re-frame.hicasso.evidence", "src/re_frame/hicasso/evidence.cljs",        "evidence"),
-    ("re-frame.hicasso.test",     "test_kit/src/re_frame/hicasso/test.cljs",   "ht"),
-    ("re-frame.hicasso.test.mounted",
-                                  "test_kit/src/re_frame/hicasso/test/mounted.cljs", "hm"),
-]
-
-
-def roster(text):
-    """(public, computed, midline). A DEFINITION OPENS A LINE -- a `def`-headed
-    form mid-line is a CALL, and reading those as definitions minted the phantom
-    names `p` and `ds` out of evidence.cljs."""
-    source = cfi.code_only(text)
-    public, computed, midline = [], [], []
-    for match in cfi.DEF_HEAD_RE.finditer(source):
-        head = match.group(1)
-        start = match.start()
-        line_start = source.rfind("\n", 0, start) + 1
-        if source[line_start:start].strip():
-            midline.append(head)
-            continue
-        i = match.end()
-        private = head.endswith("-")
-        while True:
-            while i < len(source) and source[i].isspace():
-                i += 1
-            if i < len(source) and source[i] == "^":
-                end = cfi.form_end(source, i + 1)
-                if ":private" in source[i:end]:
-                    private = True
-                i = end
-                continue
-            break
-        name_match = cfi.NAME_RE.match(source, i)
-        if not name_match:
-            computed.append(head)
-            continue
-        if not private:
-            public.append(name_match.group(0))
-    return sorted(set(public)), computed, sorted(set(midline))
-
-
-ledger = open(os.path.join(REPO, "docs", "design", "hicasso", "product",
-                           "naming-ledger.md"), encoding="utf-8").read()
-SPANS = set(re.findall(r"`([^`]+)`", ledger))
-
-rows, missing, total = [], [], 0
-for ns, rel, alias in PUBLIC:
-    path = os.path.join(HIC, rel)
-    if not os.path.exists(path):
-        print(f"FAIL: declared public namespace has no source: {path}"); sys.exit(2)
-    names, computed, midline = roster(open(path, encoding="utf-8").read())
-    if not names:
-        print(f"FAIL: {ns} produced an EMPTY roster -- read nothing"); sys.exit(2)
-    total += len(names)
-    for nm in names:
-        spelled = f"{alias}/{nm}"
-        covered = spelled in SPANS or nm in SPANS
-        rows.append((ns, spelled, covered))
-        if not covered:
-            missing.append((ns, spelled))
-    if computed:
-        print(f"  note {ns}: {len(computed)} computed def name(s) skipped: {computed}")
-    if midline:
-        print(f"  note {ns}: mid-line def-headed forms read as CALLS: {midline}")
-
-for ns, spelled, covered in rows:
-    print(f"{'OK  ' if covered else 'MISS'} {ns:32s} {spelled}")
-
-print(f"\nCENSUS: {total} public names across {len(PUBLIC)} shipped namespaces; "
-      f"{len(missing)} NOT rostered in naming-ledger.md")
-for ns, spelled in missing:
-    print(f"  UNROSTERED  {ns}  {spelled}")
-sys.exit(1 if missing else 0)
+```
+python3 implementation/hicasso/scripts/check_naming_census.py <ABSOLUTE repo root>
+python3 implementation/hicasso/scripts/check_naming_census.py --self-test
 ```
 
-**Re-running the positive control**: append a public `(defn …)` to any file in the `PUBLIC`
-list, confirm the census total rises by one and names it under `UNROSTERED`, then revert
-and verify the restore with `git hash-object` — a diff misreads a restore two ways, and a
-plant that silently no-ops makes the control pass having proved nothing.
+It exits 0 when every public name is rostered, 1 naming each name that is not, and 2 when it
+REFUSES — a namespace source that has moved, a roster that came back empty, a missing
+ledger, or a ledger it could not read a single code span from. A refusal is distinct from a
+red on purpose: an absence check that inspected nothing otherwise reports the same green as
+one that inspected everything.
 
-**Measured at publication, with rows 47–54 in the ledger**: *"CENSUS: 105 public names
-across 10 shipped namespaces; 0 NOT rostered in naming-ledger.md"*, exit **0**. That is the
-bead's acceptance condition met mechanically rather than by inspection. A non-zero count
-from here is a public name minted since publication with no ledger row — precisely what
-section 3 of [`dispositions.md`](dispositions.md) forbids.
+**Two properties the gate keeps, both of which were found the hard way.** *A definition
+opens a line*: `check_facade_inventory.py` accepts a `def`-headed form anywhere, which is
+safe on the one door it reads, and here it minted the phantom public names `p` and `ds` out
+of the two calls in `evidence.cljs` — `(let [ds (defects p)]` and `(defects-message ds)`.
+*The root is an absolute argument and is printed*, because a script deriving its root from
+its own invocation path can walk a sibling worktree and report that as the census; a
+relative path is refused rather than resolved against the working directory.
+
+**The positive control now ships.** It used to be a manual dance recorded here — plant a
+public `(defn …)`, confirm the count rises by one, revert, verify the restore with `git
+hash-object`. It is now a fixture inside `--self-test`: a seeded export with no ledger row,
+which the census must catch and name, run on every invocation rather than when somebody
+remembers. The live form still works and was re-run at promotion — a public `defn` planted
+in `motion.cljs` moved the census 105 → 106 and named it under `UNROSTERED`, reverted, the
+restore verified at `ce1cf16681b879913f0342d0c14e8966718b4704` either side.
+
+**Measured at publication, with rows 47–54 in the ledger**, and re-measured identically by
+the committed gate: *"CENSUS: 105 public names across 10 shipped namespaces; 0 NOT rostered
+in naming-ledger.md"*, exit **0**. That is the bead's acceptance condition met mechanically
+rather than by inspection. A non-zero count from here is a public name minted since
+publication with no ledger row — precisely what section 3 of
+[`dispositions.md`](dispositions.md) forbids.
+
+**Not yet wired into CI.** `.github/workflows/*` is hot zone and arming the gate is filed
+separately (`rf2-st1x5`), and it has three parts rather than one: the
+`test:hicasso-invariants` chain, an unconditional job for the ledger side — which arms no
+classifier output, so a deleted row would otherwise next redden on somebody else's source
+PR — and the `all-required-passed` `needs:` entry that pins the second, without which the
+lane exists and gates nothing. Until that lands, the census is runnable and proven but not
+standing, and nothing re-runs it on your behalf.
