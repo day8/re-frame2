@@ -558,13 +558,27 @@ jobs:
   # ancestor" for pins that are perfectly landed and red the whole corpus.  The
   # MkDocs build next door does not need that history and should not pay for it.
   #
-  # SCOPED TO CHANGED PAGES on purpose.  The corpus still carries the stranded
-  # pins the census catalogued and left standing, because re-pinning restores
-  # the patch and not necessarily the measured tree and each one needs a human.
-  # A full-corpus gate would therefore be red on main from the day it landed.
-  # Scoped, it holds every new and edited page to the rule from today, and the
-  # audit (`python scripts/check_provenance_pins.py`, no flag) reports the
-  # backlog for whoever works it off.
+  # SCOPED TO CHANGED PAGES on purpose, and the reason has CHANGED once already
+  # — so read this paragraph as two reasons, one expired and one standing.
+  #
+  # THE EXPIRED ONE was cost of entry: the corpus still carried the stranded
+  # pins the census catalogued and left standing, so a full-corpus gate would
+  # have been red on main from the day it landed.  rf2-g7m6y worked that backlog
+  # off (PR #8246); the full run is now exit 0 over the whole corpus, so that
+  # objection no longer holds and is no longer why this job is scoped.
+  #
+  # THE STANDING ONE is blast radius.  Full-corpus HERE would couple every
+  # future hardening of the checker to a corpus-wide repair — and the gate
+  # refuses to re-pin by design, so each repair needs a human.  That is the
+  # "punish the careful ones and be routed around within a week" pressure the
+  # checker's own docstring names, and it would red docs PRs on pages they did
+  # not touch.  Cost was never the discriminator (a full run measures ~50s).
+  #
+  # WHAT COVERS THE REST.  Scoping cannot see a page nobody edits, and the
+  # checker gains rules often — each one reclassifying the whole corpus.  So the
+  # full-corpus run is SCHEDULED rather than dropped: `.github/workflows/lint.yml`
+  # runs `python scripts/check_provenance_pins.py` (no flag) on its nightly cron
+  # and on push to main (rf2-qpk2l).  Locally, that same command is the audit.
   provenance-pins:
     name: Provenance pins
     needs: detect
