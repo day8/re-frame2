@@ -14,9 +14,11 @@
   | row | what it establishes | the one-line narrowing it catches |
   |---|---|---|
   | [[a-native-parent-mounts-a-view-under-the-frame-it-is-already-in]] | the outward bridge — one root, one frame, no second state owner | a bridge that resolved a frame of its own; the DOM is identical under it |
+  | [[a-uix-parent-mounts-the-same-view-under-the-frame-it-is-already-in]] | the third named parent, on a real fiber, over the SAME minted bridge | UIx's own carrier ABI reaching the bridge — `:argv` where the props should be |
   | [[two-frames-are-two-cells-across-the-bridge]] | frames are isolated contexts on the outward crossing too | resolving the frame anywhere but the surrounding context |
   | [[the-views-memo-wrapper-survives-the-bridge]] | a fresh-but-equal props map still bails the boundary out | a bridge handing the raw object through — every re-render re-runs the body, and the screen is right throughout |
   | [[a-hicasso-body-hosts-a-native-component-through-the-doors-that-exist]] | the inward door, both spellings, with the native ABI intact at the crossing | a door that allocated a props MAP for the island — the second ABI clause 5 forbids |
+  | [[two-frames-are-two-cells-through-the-inward-door-as-well]] | frames are isolated contexts on the INWARD crossing too, which is a different mechanism from the outward one | an island resolving one frame for both roots — one key, four readers, two plausible screens |
   | [[n-memo-bails-out-and-still-carries-its-marker-on-the-second-render]] | the helper across a re-render, which is where a stamp gets lost | copying the marker into a per-render wrapper |
   | [[a-fresh-mint-replaces-the-subtree-and-that-is-the-hmr-contract]] | allocation, never a lookup by name | a helper caching by display name so a component outlives a reload |
   | [[strict-modes-double-mount-crosses-the-bridge-exactly-once]] | acquire is commit-owned on both sides of the crossing | a bridge acquiring during render |
@@ -42,6 +44,7 @@
             [re-frame.hicasso.native :as n]
             [re-frame.hicasso.roots-frames-support :as support]
             [re-frame.test-support :as test-support]
+            [uix.core :as uix :refer-macros [defui]]
             ["react" :as react]))
 
 (def ^:private alpha ::alpha)
@@ -57,9 +60,11 @@
 
 (def ^:private declared-population
   #{:bridge/outward
+    :bridge/outward-uix
     :bridge/two-frames
     :bridge/memo-bail-out
     :bridge/inward
+    :bridge/inward-two-frames
     :helper/memo-across-a-re-render
     :helper/fresh-mint-remounts
     :bridge/strict-mode
@@ -80,11 +85,21 @@
 (defonce ^:private !island-runs (atom 0))
 (defonce ^:private !island-props (atom nil))
 
+(defonce ^:private !bridged-props
+  ;; What the bridged view's body was last handed, held WHOLE. The paint
+  ;; can only show what the body chose to print, and `#7` is what a body
+  ;; reading `:article-id` prints — but it is also what a body would print
+  ;; if the props arrived under some other key and the id happened to be
+  ;; reachable anyway. The UIx row asserts the KEY SET, which is the only
+  ;; reading that separates those. `defonce` takes no docstring.
+  (atom nil))
+
 (h/defview article-card
   "An ordinary boundary. It reads a subscription, so the frame it
   resolved is observable in the cell table rather than only on screen."
   [props]
   (swap! !view-runs inc)
+  (reset! !bridged-props props)
   [:article {:class "card"} (str "#" (:article-id props) " " (h/sub [::label]))])
 
 (def ^:private card
@@ -116,6 +131,53 @@
 (h/defview strict-outward-host
   [{:keys [article-id]}]
   (n/$ react/StrictMode nil (n/$ bridging-parent {:article-id article-id})))
+
+(defui uix-bridging-parent
+  "A UIx parent that renders the very same bridged view (rf2-ap7w).
+
+  The third of the three parents the law names — *Hicasso-native, UIx and
+  raw React parents can render Hicasso* — and until this row it was the
+  unlanded one. `h/as-component` appeared in exactly two test files and
+  under neither did a `defui` sit above it: the native parent bridges on a
+  fiber above, and the raw React parent bridges in the NODE lane only,
+  where `renderToStaticMarkup` means there is no fiber, no commit and so
+  no cell to count.
+
+  It renders [[card]] itself rather than minting a bridge of its own, and
+  that is the point rather than economy: ONE minted component reached from
+  three parents, so a difference the rows find is a difference between the
+  PARENTS and not between three bridges that happened to agree.
+
+  ## What the crossing actually turns on, which is NOT the spelling
+
+  `uix/$` reaches a non-UIx component through `react-component-element`,
+  which camelises keys with `uix.compiler.attributes/dash-to-camel` and
+  passes values by identity. That rule sends BOTH `:article-id` and
+  `:articleId` to the same `articleId` slot, so the bridge cannot tell
+  those two authorings apart and a row written against the spelling would
+  be asserting nothing — measured, not assumed: planting `:articleId` here
+  leaves every assertion in the row green.
+
+  What the crossing does turn on is WHICH ABI arrives. UIx has two, and
+  picks between them on the `uix-component?` flag: a `defui` is handed the
+  carrier `#js {:argv props}`, while an ordinary React function is handed
+  real React props. The minted bridge is an ordinary function and carries
+  no flag, so it must receive the second. If it ever received the first,
+  the bridge would decode `argv` and the body would be handed a props map
+  whose only key is `:argv` — and the `#7` in the paint would go missing
+  in a way that reads like a data problem rather than an ABI one. The key
+  set below is what names it."
+  [{:keys [article-id]}]
+  (uix/$ :div
+         (uix/$ :i {:class "uix-parent"} "uix")
+         (uix/$ card {:article-id article-id})))
+
+(h/defview uix-outward-host
+  "The UIx parent, reached from a Hicasso root — the same rung 3 shape
+  [[outward-host]] has, so the two rows differ by the parent and by
+  nothing else."
+  [{:keys [article-id]}]
+  (uix/$ uix-bridging-parent {:article-id article-id}))
 
 (defn- island-body
   "The island's body, held apart from any mint so a row can allocate two
@@ -161,6 +223,7 @@
                       (reset! !view-runs 0)
                       (reset! !island-runs 0)
                       (reset! !island-props nil)
+                      (reset! !bridged-props nil)
                       (collector/reset-runtime!))}))
 
 (defn- seat!
@@ -172,6 +235,16 @@
 (defn- at [handle sel] (.querySelector ^js (:container handle) sel))
 (defn- text-at [handle sel] (some-> (at handle sel) .-textContent))
 (defn- click! [handle sel] (.click ^js (at handle sel)) (mount/settle!) nil)
+
+(defn- island-texts
+  "The text of every island in `handle`'s container, in document order.
+
+  `array-seq` and not `map` over the `NodeList` directly: a `NodeList` is
+  array-LIKE and ES6-iterable but implements no ClojureScript protocol, so
+  `count` and `seq` throw on it rather than answering."
+  [handle]
+  (mapv #(.-textContent ^js %)
+        (array-seq (.querySelectorAll ^js (:container handle) ".island"))))
 
 (defn- label-key [frame-kw] [frame-kw [::label]])
 (defn- readers-of [sub-key] (inventory/cell-readers sub-key))
@@ -288,6 +361,66 @@
                 (support/teardown-census! handle)
                 nil))
             (.catch (report-failure! "outward bridge"))
+            ;; The single trailing step, which BOTH arms reach: this row's
+            ;; roots go down first, and the single `done` is the last act,
+            ;; with nothing after it.
+            (.then (fn [_] (release-minted!) (done))))))))
+
+(deftest a-uix-parent-mounts-the-same-view-under-the-frame-it-is-already-in
+  (async done
+    (if-not (mount/browser?)
+      (do (support/skip! ":node-test has no React DOM") (done))
+      (do
+        (seat! alpha "seed")
+        (-> (mount-live! alpha [uix-outward-host {:article-id 7}] (label-key alpha) 1)
+            (.then
+              (fn [handle]
+                (testing "the premise: a UIx parent really did render, and the
+                          bridged view is INSIDE its DOM rather than beside it.
+                          Without this the assertions below are satisfied by a
+                          tree that skipped the parent entirely"
+                  (is (= "uix" (text-at handle ".uix-parent")))
+                  (is (some? (at handle ".uix-parent + .card"))))
+
+                (testing "the view painted the props UIx lowered and the bridge
+                          decoded — `:article-id` out through `dash-to-camel`,
+                          `articleId` across, `:article-id` back"
+                  (is (= "#7 seed" (text-at handle ".card"))))
+
+                (testing "and the body was handed REACT props, decoded into its
+                          own map — not UIx's carrier. Narrowing caught: the
+                          bridge reached through UIx's `defui` path, which
+                          hands `#js {:argv props}`; the body's key set would
+                          be `#{:argv}` and the paint would lose its `#7` in a
+                          way that reads like a data problem rather than the
+                          ABI one it is.
+
+                          The key set, not the paint, is what separates those:
+                          the paint can only show what the body chose to
+                          print"
+                  (is (= #{:article-id} (set (keys @!bridged-props)))))
+
+                (testing "its read built ONE cell, under the frame the
+                          SURROUNDING root installed — the bridge resolved no
+                          frame of its own on this parent either. The fixture
+                          seats no ambient frame, so a bridge that failed to
+                          read the context has nothing to fall back to, and
+                          this key is what says which happened"
+                  (is (= #{(label-key alpha)} (support/cell-keys)))
+                  (is (= 1 (count (readers-of (label-key alpha))))))
+
+                (testing "and a write through the surrounding frame reaches the
+                          bridged view, so the crossing is a place in the
+                          application rather than an island of its own state
+                          — the same sentence the native parent's row ends on"
+                  (rf/with-frame alpha (rf/dispatch-sync [::relabel "moved"]))
+                  (mount/settle!)
+                  (is (= "#7 moved" (text-at handle ".card"))))
+
+                (exercised! :bridge/outward-uix)
+                (support/teardown-census! handle)
+                nil))
+            (.catch (report-failure! "outward bridge under a UIx parent"))
             ;; The single trailing step, which BOTH arms reach: this row's
             ;; roots go down first, and the single `done` is the last act,
             ;; with nothing after it.
@@ -429,6 +562,63 @@
                 (support/teardown-census! handle)
                 nil))
             (.catch (report-failure! "inward door"))
+            ;; The single trailing step, which BOTH arms reach: this row's
+            ;; roots go down first, and the single `done` is the last act,
+            ;; with nothing after it.
+            (.then (fn [_] (release-minted!) (done))))))))
+
+(deftest two-frames-are-two-cells-through-the-inward-door-as-well
+  (async done
+    (if-not (mount/browser?)
+      (do (support/skip! ":node-test has no React DOM") (done))
+      (do
+        (seat! alpha "A")
+        (seat! beta "B")
+        (-> (mount-live! alpha [inward-host {:tick 0}] (label-key alpha) 2)
+            (.then (fn [a]
+                     (-> (mount-live! beta [inward-host {:tick 0}] (label-key beta) 2)
+                         (.then (fn [b] [a b])))))
+            (.then
+              (fn [[a b]]
+                (testing "one hosting body, two frames, four islands — and each
+                          island read the frame of the root it was mounted
+                          under, through the door rather than around it"
+                  (is (= ["hosted/A" "raw/A"] (island-texts a)))
+                  (is (= ["hosted/B" "raw/B"] (island-texts b))))
+
+                (testing "and TWO keys, differing only in their frame, with two
+                          readers on each. Narrowing caught: an island
+                          resolving one frame for both roots — there would be
+                          ONE key here carrying four readers, and both screens
+                          would still be full of plausible text.
+
+                          This is the INWARD half of the law's `across two
+                          frames`, and it is a different mechanism from the
+                          outward half above rather than the same one seen
+                          twice: the outward bridge reads the frame in the
+                          minted component's own wrapper, while an island
+                          reads it through `n/use-sub`'s hook on the far side
+                          of a crossing that never names a tier"
+                  (is (= #{(label-key alpha) (label-key beta)}
+                         (support/cell-keys)))
+                  (is (= [2 2]
+                         [(count (readers-of (label-key alpha)))
+                          (count (readers-of (label-key beta)))])))
+
+                (testing "a write to one frame moves one page's islands and
+                          leaves the other's alone. Frames are isolated
+                          contexts, and a foreign React subtree is not a hole
+                          in that"
+                  (rf/with-frame alpha (rf/dispatch-sync [::relabel "A'"]))
+                  (mount/settle!)
+                  (is (= ["hosted/A'" "raw/A'"] (island-texts a)))
+                  (is (= ["hosted/B" "raw/B"] (island-texts b))))
+
+                (exercised! :bridge/inward-two-frames)
+                (support/teardown-census! a)
+                (support/teardown-census! b)
+                nil))
+            (.catch (report-failure! "two frames through the inward door"))
             ;; The single trailing step, which BOTH arms reach: this row's
             ;; roots go down first, and the single `done` is the last act,
             ;; with nothing after it.
