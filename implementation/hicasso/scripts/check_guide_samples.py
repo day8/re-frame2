@@ -417,15 +417,32 @@ def r1_pin_drift(corp: dict[str, list[dict]], roster: dict) -> list[str]:
     return problems
 
 
-def r2_unresolved(uses: dict, exports: dict[str, set[str] | None]) -> list[str]:
-    """R2 — every hicasso verb the guide names is defined, or has a ledger row."""
+def r2_unresolved(
+    uses: dict,
+    exports: dict[str, set[str] | None],
+    divergences: dict | None = None,
+    absent: dict | None = None,
+) -> list[str]:
+    """R2 — every hicasso verb the guide names is defined, or has a ledger row.
+
+    The two ledgers are PARAMETERS defaulting to the live tables, for the
+    reason `check_facade_inventory.py` gives about its own two lists: a
+    self-test that drives the live table stops testing the rule the moment
+    the table empties, which is exactly when the rule is least exercised
+    and most worth keeping honest.  rf2-b6jkj emptied `ABSENT_NAMESPACES`
+    and the absent-namespace arm went from *passing* to *unrunnable* in
+    the same commit; parameterising is what keeps both arms drivable from
+    fixtures forever.
+    """
+    divergences = DIVERGENCES if divergences is None else divergences
+    absent = ABSENT_NAMESPACES if absent is None else absent
     problems: list[str] = []
     for (ns, verb), sites in sorted(uses.items()):
-        if (ns, verb) in DIVERGENCES:
+        if (ns, verb) in divergences:
             continue
         names = exports.get(ns)
         if names is None:
-            if ns in ABSENT_NAMESPACES:
+            if ns in absent:
                 continue
             problems.append(
                 f"{ns}/{verb} — the guide requires a namespace with no source "
@@ -442,14 +459,21 @@ def r2_unresolved(uses: dict, exports: dict[str, set[str] | None]) -> list[str]:
     return problems
 
 
-def r3_stale_ledger(exports: dict[str, set[str] | None]) -> list[str]:
+def r3_stale_ledger(
+    exports: dict[str, set[str] | None],
+    divergences: dict | None = None,
+    absent: dict | None = None,
+) -> list[str]:
     """R3 — every declared divergence still describes reality.
 
     The rule that catches a gap CLOSING, which is the failure prose, a digest
-    and a fixture all miss alike.
+    and a fixture all miss alike.  Both ledgers are parameters for
+    [[r2_unresolved]]'s reason.
     """
+    divergences = DIVERGENCES if divergences is None else divergences
+    absent = ABSENT_NAMESPACES if absent is None else absent
     problems: list[str] = []
-    for (ns, verb), (exported_as, note) in sorted(DIVERGENCES.items()):
+    for (ns, verb), (exported_as, note) in sorted(divergences.items()):
         names = exports.get(ns)
         if names is None:
             problems.append(
@@ -468,7 +492,7 @@ def r3_stale_ledger(exports: dict[str, set[str] | None]) -> list[str]:
                 f"DIVERGENCES[{ns}/{verb}] IS STALE — it says {ns} exports "
                 f"`{exported_as}` instead, and {ns} defines no such name"
             )
-    for ns, note in sorted(ABSENT_NAMESPACES.items()):
+    for ns, note in sorted(absent.items()):
         if namespace_source(ns) is not None:
             problems.append(
                 f"ABSENT_NAMESPACES[{ns}] IS STALE — the namespace now exists, so "
@@ -743,32 +767,50 @@ def self_test() -> int:
     check("trailing whitespace does not", d("(h/sub [:x])   ") == d("(h/sub [:x])"))
 
     # ---- R2 -----------------------------------------------------------
+    #
+    # Both ledgers are FIXTURES here and never the live tables.  The live
+    # `ABSENT_NAMESPACES` is empty since rf2-b6jkj shipped
+    # `re-frame.hicasso.server`, and a self-test reading it would have gone
+    # from proving the rule to proving nothing, silently -- the same rot
+    # `check_facade_inventory.py` parameterises its two lists against.
+    fx_div = {("re-frame.hicasso", "fn"): ("hfn", "an open naming decision")}
+    fx_abs = {"re-frame.hicasso.server": "not yet built, in this fixture"}
     exports = {"re-frame.hicasso": {"sub", "defview", "hfn", "hframe", "root!"},
                "re-frame.hicasso.server": None}
+    r2 = lambda uses, exp=exports: r2_unresolved(uses, exp, fx_div, fx_abs)
     check("R2 silence when every verb resolves",
-          r2_unresolved({("re-frame.hicasso", "sub"): ["x.md block 1"]}, exports) == [])
+          r2({("re-frame.hicasso", "sub"): ["x.md block 1"]}) == [])
     check("R2 catches a MOVED verb",
-          any("defined nowhere" in p for p in r2_unresolved(
-              {("re-frame.hicasso", "subscribe"): ["x.md block 1"]}, exports)))
+          any("defined nowhere" in p for p in r2(
+              {("re-frame.hicasso", "subscribe"): ["x.md block 1"]})))
     check("R2 lets a DECLARED divergence through",
-          r2_unresolved({("re-frame.hicasso", "fn"): ["x.md block 1"]}, exports) == [])
+          r2({("re-frame.hicasso", "fn"): ["x.md block 1"]}) == [])
     check("R2 lets a DECLARED absent namespace through",
-          r2_unresolved({("re-frame.hicasso.server", "render"): ["x.md"]}, exports) == [])
+          r2({("re-frame.hicasso.server", "render"): ["x.md"]}) == [])
     check("R2 catches an UNDECLARED absent namespace",
-          any("no source" in p for p in r2_unresolved(
+          any("no source" in p for p in r2(
               {("re-frame.hicasso.ghost", "boo"): ["x.md block 1"]},
               {**exports, "re-frame.hicasso.ghost": None})))
 
     # ---- R3 -----------------------------------------------------------
+    r3 = lambda exp: r3_stale_ledger(exp, fx_div, {})
     live = {"re-frame.hicasso": {"hfn", "hframe", "root!", "sub"}}
-    check("R3 silence while every gap is still open", r3_stale_ledger(live) == [])
+    check("R3 silence while every gap is still open", r3(live) == [])
     closed = {"re-frame.hicasso": {"fn", "hfn", "hframe", "root!", "sub"}}
     check("R3 catches a gap that has CLOSED",
-          any("IS STALE" in p and "gap has CLOSED" in p
-              for p in r3_stale_ledger(closed)))
+          any("IS STALE" in p and "gap has CLOSED" in p for p in r3(closed)))
     renamed = {"re-frame.hicasso": {"hframe", "root!", "sub"}}
     check("R3 catches the replacement itself being renamed",
-          any("no such name" in p for p in r3_stale_ledger(renamed)))
+          any("no such name" in p for p in r3(renamed)))
+    # The absent-namespace arm of R3, which the live table can no longer
+    # drive: a namespace that EXISTS while a row still claims it does not.
+    # This is the rule that red on `re-frame.hicasso.server` landing.
+    check("R3 catches an absent-namespace row whose namespace now EXISTS",
+          any("IS STALE" in p and "namespace now exists" in p
+              for p in r3_stale_ledger(
+                  {"re-frame.hicasso": {"hfn", "hframe", "root!", "sub"}},
+                  {},
+                  {"re-frame.hicasso.server": "this fixture claims it is absent"})))
 
     # ---- masking ------------------------------------------------------
     check("mask blanks a `;` comment", mask(["(h/sub) ; h/ghost"])[0].strip()
