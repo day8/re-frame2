@@ -33,8 +33,11 @@ on:
       - 'mkdocs_hooks.py'
       - 'TESTING.md'
       - 'requirements.txt'
-      - 'scripts/check_doc_slugs.py'
-      - 'scripts/_test_fixtures/check_doc_slugs/**'
+      # (`scripts/check_doc_slugs.py` and its fixtures are deliberately NOT
+      # ignored here any more — rf2-v7fui moved that gate INTO this workflow,
+      # so a push touching the checker must run the workflow that now runs it.
+      # `scripts/check_inject_cofx_residue.py` has been absent from this list
+      # since rf2-6ng7 for the same reason.)
       - '.github/workflows/docs.yml'
   pull_request:
     branches: [main]
@@ -803,9 +806,18 @@ jobs:
   # URLs are skipped by --ci (third-party outages must not flake the
   # gate; opt in via --check-external for ad-hoc audits).
   #
+  # THE JOB NOW CARRIES BOTH HALVES OF THAT SENTENCE (rf2-v7fui).  The
+  # "which check_doc_slugs.py already covers" clause above was true about
+  # that gate's ROSTER and false about its REACH: it ran only in docs.yml's
+  # `build` job, and so covered nothing on a PR docs.yml did not classify
+  # in.  Its corpus scan therefore moved HERE, next to the companion that
+  # already cited it — see the step comment below.  The two gates share a
+  # slugifier by construction (check_readme_links.py imports SLUGIFY from
+  # check_doc_slugs.py), so they also belong in one environment.
+  #
   # Fast — pure Python + pymdown-extensions, no JVM/Node setup.
   verify-readme-links:
-    name: Verify README link slugs (rf2-br5u7)
+    name: Verify markdown link slugs — READMEs + the docs/spec/skills/migration corpus (rf2-br5u7, rf2-v7fui)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
@@ -829,6 +841,54 @@ jobs:
 
       - name: Validate README links (targets + GitHub-rule anchor slugs)
         run: python scripts/check_readme_links.py --ci
+
+      # The other half of the corpus: intra-repo markdown links and heading
+      # anchors across check_doc_slugs.py's DEFAULT_ROOTS — docs, spec,
+      # skills, migration — plus tools/*/spec (rf2-unge8, rf2-sefq).
+      #
+      # IT LIVES HERE, NOT IN docs.yml (rf2-v7fui).  It ran in docs.yml's
+      # `build` job, gated on that workflow's `docs_surface` classifier — the
+      # same `case` list the inject-cofx gate above was moved out of, carrying
+      # `docs/*`, `spec/*`, `migration/*`, `testbeds/*` and a dozen named
+      # files but NOT `skills/*`.  One of the gate's four scan roots was
+      # therefore outside its own arming: slug and anchor validation of the
+      # 176 markdown files under skills/ fired NOWHERE at PR time, and a brief
+      # nominating this gate for a skills edit got a green that had opened
+      # none of them.  Measured before the move — a skills-only path lights
+      # `docs_surface` false, and arms zero outputs in report-changed-surfaces.sh
+      # as well.  (test.yml's PUSH filter paths-ignores `skills/**/*.md`, so
+      # the post-merge run did not catch it either.  scripts/test-fast-pr.sh
+      # runs it, but a local spine is skippable and so is not a mechanism.)
+      #
+      # A GATE'S ROSTER, ITS SCHEDULE AND ITS REACH ARE THREE DIFFERENT
+      # THINGS.  Quoting one as though it settled the others is what
+      # manufactured the false confidence here, so `--verbose` now prints the
+      # per-root file counts it actually walked: a run SAYS which trees it
+      # inspected instead of leaving a reader to infer reach from roster.
+      #
+      # WHY THIS JOB AND NOT THE ALWAYS-ON INVARIANT JOB that took the
+      # inject-cofx gate: this checker is NOT pure stdlib.  It hard-requires
+      # pymdown-extensions for the MkDocs slugifier and exits 2 with an
+      # install message when the import fails (check_doc_slugs.py:76-84), so
+      # dropping it beside the stdlib checkers — which have no `pip install`
+      # step — would have redded every PR.  This job already installs
+      # requirements.txt for the very same slugifier, and is likewise
+      # unconditional.  Cost is why the corpus scan can ride along at all:
+      # measured on run 31765523222 this job took 0.5 min against a 15.2 min
+      # longest job, so a corpus scan here is free of the critical path.
+      #
+      # WHY NOT A WIDER docs_surface: adding `skills/*` there buys a
+      # ~15-minute MkDocs build on every skills PR — the argument this file
+      # already makes for inject-cofx.  docs.yml's copy is RETIRED rather than
+      # duplicated, so there is one scheduled home and no second one to drift.
+      # The failure mode docs.yml wanted ("this PR broke a doc link", not
+      # "mkdocs emitted a warning") is preserved and arrives sooner: here the
+      # scan runs without waiting on that job's apt-get and pip install.
+      - name: Self-test the doc-slug link validator
+        run: python scripts/check_doc_slugs.py --self-test --verbose
+
+      - name: Validate doc links across docs, spec, skills, migration + tools/*/spec
+        run: python scripts/check_doc_slugs.py --verbose
 
       # README inventory drift-ratchet gate (rf2-fvv9c, follows rf2-198k3).
       # check_readme_inventories.py asserts the layout-map <-> disk bijection

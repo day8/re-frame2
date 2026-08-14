@@ -48,8 +48,11 @@ on:
       - 'scripts/test-fast-pr.sh'
       - 'scripts/test-rigorous-local.sh'
       - 'requirements.txt'
-      - 'scripts/check_doc_slugs.py'
-      - 'scripts/_test_fixtures/check_doc_slugs/**'
+      # (`scripts/check_doc_slugs.py` and its fixtures left this list with the
+      # gate itself — rf2-v7fui moved the corpus scan to test.yml's
+      # unconditional `verify-readme-links` job, where it needs no path filter
+      # to run. Same move, and the same reason, as
+      # `scripts/check_inject_cofx_residue.py` below.)
       # rf2-kqac1 — the provenance-pin gate reads docs/design/hicasso/**, which
       # `docs/**` above already arms; this line arms it on its own source, so a
       # change to the checker cannot ship without the checker running.
@@ -185,7 +188,7 @@ jobs:
           while IFS= read -r file; do
             [ -z "$file" ] && continue
             case "$file" in
-              docs/*|spec/*|migration/*|mkdocs.yml|mkdocs_hooks.py|TESTING.md|README.md|CHANGELOG.md|SKILL-REDIRECT.md|AGENTS.md|CLAUDE.md|scripts/test-jvm-implementation.sh|scripts/test-jvm-tools.sh|scripts/test-fast-pr.sh|scripts/test-rigorous-local.sh|requirements.txt|scripts/check_doc_slugs.py|scripts/_test_fixtures/check_doc_slugs/*|scripts/check_provenance_pins.py|scripts/check_runtime_subsystem_grading.py|scripts/check_failure_corpus_residue.py|scripts/_test_fixtures/check_failure_corpus_residue/*|testbeds/*|testbeds/*/*|scripts/check_retired_composition_vocab.py|scripts/_test_fixtures/check_retired_composition_vocab/*|tools/*/spec/*|tools/*/spec/*/*|.github/workflows/docs.yml)
+              docs/*|spec/*|migration/*|mkdocs.yml|mkdocs_hooks.py|TESTING.md|README.md|CHANGELOG.md|SKILL-REDIRECT.md|AGENTS.md|CLAUDE.md|scripts/test-jvm-implementation.sh|scripts/test-jvm-tools.sh|scripts/test-fast-pr.sh|scripts/test-rigorous-local.sh|requirements.txt|scripts/check_provenance_pins.py|scripts/check_runtime_subsystem_grading.py|scripts/check_failure_corpus_residue.py|scripts/_test_fixtures/check_failure_corpus_residue/*|testbeds/*|testbeds/*/*|scripts/check_retired_composition_vocab.py|scripts/_test_fixtures/check_retired_composition_vocab/*|tools/*/spec/*|tools/*/spec/*/*|.github/workflows/docs.yml)
                 docs_surface=true ;;
             esac
           done <<< "$files"
@@ -379,24 +382,23 @@ jobs:
       - name: Install MkDocs + plugins
         run: pip install -r requirements.txt
 
-      # Validate that every in-repo markdown link resolves — both the
-      # target .md file (rf2-unge8) and the heading-slug anchor (rf2-sefq).
-      # Catches the kind of cross-link drift that the cluster-#10 audit
-      # surfaced (105+ broken anchors after chapter renumbers and heading
-      # renames) plus the renamed-file case the 2026-05-12 audit caught
-      # (e.g. `[text](19-where-next.md)` after #483 renamed the file).
-      # See scripts/check_doc_slugs.py.  Runs before `mkdocs build` so
-      # the failure mode is "this PR broke a doc link", not "mkdocs
-      # emitted a warning".
+      # THE MARKDOWN LINK + ANCHOR VALIDATOR IS NO LONGER HERE (rf2-v7fui).
+      # `scripts/check_doc_slugs.py` validates that every in-repo markdown
+      # link resolves — target .md file (rf2-unge8) and heading-slug anchor
+      # (rf2-sefq) — across docs, spec, SKILLS and migration.  It ran in this
+      # job, behind `docs_surface`, whose case list does not carry `skills/*`;
+      # so one of its four scan roots sat outside its own arming and a
+      # skills-only PR ran it nowhere.  It now runs UNCONDITIONALLY in
+      # test.yml's `verify-readme-links` job, beside the companion gate that
+      # shares its slugifier and already installs pymdown-extensions for it.
+      # Moved, not copied: two scheduled homes would be two things to drift.
       #
-      # Strict mode: rf2-ftkz swept the 26 pre-existing broken anchors
-      # main carried at landing, so this step is fail-loud — a PR that
-      # introduces a broken link fails the build.
-      - name: Self-test the link validator
-        run: python scripts/check_doc_slugs.py --self-test --verbose
-
-      - name: Validate doc links (targets + anchors)
-        run: python scripts/check_doc_slugs.py --verbose
+      # Nothing is lost here.  The failure mode this job wanted — "this PR
+      # broke a doc link", not "mkdocs emitted a warning" — still holds, and
+      # arrives EARLIER, because the unconditional job does not wait on the
+      # apt-get and pip install above.  Strict mode likewise survives the move
+      # (rf2-ftkz swept the 26 broken anchors main carried at landing, so the
+      # gate is fail-loud wherever it runs).
 
       # docs/EP/README.md restates each EP's `Status:` line in its index
       # table; the two drift by hand (EP-0001 sat at `accepted` while the
