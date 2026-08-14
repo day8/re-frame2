@@ -125,29 +125,35 @@ artefacts=(
   # JVM per deftest (slowest artefact), matching the dedicated
   # `jvm-test-quiet` PR-CI job (test.yml).
   implementation/test-quiet
-  # NOT HERE, ON PURPOSE: `implementation/hicasso` (rf2-hic-022).
+  # rf2-ipx7h — the Hicasso view substrate, and the ONE thing it runs on the
+  # JVM: `re-frame.bench.hicasso.front.slot-cljs-test`, the `.cljc` equivalence
+  # pin for the canonical slot rule (rf2-ani6y). Measured here: 3 tests, 92
+  # assertions, ~5s.
   #
-  # The artefact gained its first JVM-runnable suite with the lint export
-  # (`re-frame.hicasso.lint-export-test` runs clj-kondo in process over
-  # `resources/clj-kondo.exports/`; no React, no DOM, no CLJS compile), and
-  # its `:test` alias correspondingly dropped `--probe` and took the
-  # test-count floor. Adding it to THIS roster is the obvious next step and
-  # was tried — `check_jvm_lane_rosters.py` (rf2-as6bg) refuses it:
+  # THE PIN IS THE WHOLE REASON THE LANE EXISTS. `front/slot.cljc` has exactly
+  # one definition of `prop-name`, and the two ways one definition still answers
+  # two things — a `#?(:clj …:cljs …)` reader conditional inside it, and a
+  # host-differing primitive like the JVM's locale-sensitive `str/upper-case` —
+  # are invisible to any single host. So the same corpus is asserted twice
+  # against that one implementation: once by `npm run test:cljs` in Node, once
+  # by `clojure -M:test` here. A lane that runs only one arm does not merely
+  # halve the coverage, it deletes the mechanism.
   #
-  #   R1 implementation/hicasso: on scripts/test-jvm-implementation.sh, but no
-  #   .github/workflows/test.yml job runs `clojure -M:test` there
+  # Every OTHER suite the artefact owns is CLJS — the runtime is React — so this
+  # is a one-namespace lane and is expected to stay small. The `:test` alias
+  # carries NO `--probe`: it takes the runner's test-count floor, so if the pin
+  # ever stops being discovered the lane reds instead of passing empty.
   #
-  # which is the bijection gate working exactly as intended. A roster entry
-  # with no CI job is a lane that depends on somebody remembering to run a
-  # script. The missing half is a `jvm-hicasso` job in `test.yml`, which is
-  # hot-zone and sequential, so it is a scheduling decision rather than a
-  # detail this bead could take.
-  #
-  # The export ITSELF is gated meanwhile, by `lint.yml`'s required
-  # `clj-kondo` job: `.clj-kondo/config.edn` points `:config-paths` at the
-  # export, so the hooks load over the whole lint surface and the job reds if
-  # they break or begin firing on real code. What is ungated is the fixture
-  # suite that proves each check still FIRES.
+  # This entry landed WITH the `jvm-hicasso` job in `.github/workflows/test.yml`
+  # (unconditional, in `all-required-passed`'s `needs:`), because
+  # `check_jvm_lane_rosters.py` R1/R2 refuse either half alone. It replaces a
+  # "NOT HERE, ON PURPOSE" note that justified the exclusion by naming a JVM
+  # suite `re-frame.hicasso.lint-export-test`: `140620d291` added that deftest,
+  # `dd9f31bbc4` replaced it with `scripts/check_lint_export.py` and restored
+  # `--probe`, and the note was left describing a world that no longer existed.
+  # The lint export is still gated by `lint.yml`'s required `clj-kondo` job and
+  # by `npm run test:hicasso-lint`; it is not a JVM suite and never was one.
+  implementation/hicasso
 )
 
 for artefact in "${artefacts[@]}"; do

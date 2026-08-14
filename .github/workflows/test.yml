@@ -3058,6 +3058,98 @@ jobs:
       - name: Run JVM tests (test-quiet contract suite)
         run: clojure -M:test
 
+  # rf2-ipx7h — the Hicasso artefact's JVM lane, and the CI half of a pin that
+  # had a local half only.
+  #
+  # WHAT IT RUNS is one namespace: `re-frame.bench.hicasso.front.slot-cljs-test`,
+  # the `.cljc` EQUIVALENCE PIN for the canonical slot rule (rf2-ani6y).
+  # Measured: 3 tests, 92 assertions, ~5s. `front/slot.cljc` has exactly one
+  # definition of `prop-name`, so the failure it hunts is not "someone edited
+  # one copy" — it is the two ways ONE definition still answers two things: a
+  # `#?(:clj … :cljs …)` reader conditional inside the rule or anything it
+  # calls, and a host-differing primitive (the JVM's `str/upper-case` consults
+  # the platform DEFAULT LOCALE, so a Turkish-locale JVM slots `:aria-index` and
+  # `:on-input` differently from every browser). Neither is visible to a single
+  # host, so the same corpus is asserted TWICE against that one implementation:
+  # once by `npm run test:cljs` in Node, once by `clojure -M:test` here. Running
+  # one arm does not halve the coverage, it deletes the mechanism.
+  #
+  # THE HOLE THIS CLOSES. The pin used to live under `implementation/freehand`,
+  # whose JVM lane is rostered and required. rf2-0yp7w re-homed the bench
+  # harness into `implementation/hicasso/test/`, which was on neither
+  # `scripts/test-jvm-implementation.sh` nor this workflow — so the Node arm
+  # kept running on every PR and the JVM arm ran only when somebody typed
+  # `clojure -M:test` by hand. The roster entry lands in the same commit as this
+  # job because `check_jvm_lane_rosters.py` R1/R2 refuse either half alone.
+  #
+  # UNCONDITIONAL — no `needs: detect_changed_surfaces`, no `if:` — and the
+  # reason is a MEASUREMENT, not the precedent of the three hicasso Python jobs
+  # above. `implementation_jvm` is the obvious gate and it is the wrong one
+  # twice over:
+  #
+  #   1. IT DOES NOT COVER THIS LANE'S INPUTS. Probed on this tree, the lane's
+  #      own definition — `implementation/hicasso/deps.edn`, which decides
+  #      whether the pin is discovered at all — measures implementation_jvm
+  #      FALSE, as does `implementation/hicasso/test_kit/src/**`, also on the
+  #      `:test` classpath. The two files that DO arm it (`slot_cljs_test.cljc`
+  #      and its subject `front/slot.cljc`) arm it only INCIDENTALLY, through
+  #      `is_route_path_census_input` — a predicate that exists for the routing
+  #      route-path census and matches `implementation/hicasso/test/*` `.cljs`/
+  #      `.cljc`. Resting this lane on that predicate means the census's roster
+  #      silently owns whether the slot pin is gated.
+  #   2. ARMING IT WOULD COST 23 JOBS TO SCHEDULE ONE. Measured on this tree,
+  #      22 jobs carry `if: … implementation_jvm == 'true'`. A hicasso-only diff
+  #      runs none of them today; arming the artefact root would run all 22 plus
+  #      this one, on every diff to the repo's most actively developed tree, to
+  #      schedule a five-second lane. Unconditional costs one runner.
+  #
+  # A new classifier output of its own was the third option and is rejected for
+  # the reason the complaint-catalogue, budget-ledger and facade-inventory jobs
+  # give at length: the defect being repaired IS a surface gate that did not
+  # cover a checker's inputs, so a new arm is a fresh chance to make the same
+  # mistake and needs re-widening every time the lane learns to read another
+  # file.
+  #
+  # NOT VACUOUS, AND MECHANICALLY SO. The `:test` alias carries no `--probe`, so
+  # it takes the quiet runner's test-count floor: a lane that discovers zero
+  # tests REDS rather than passing green. That floor is what makes this job's
+  # green a verdict rather than a lane that has quietly stopped selecting
+  # anything — the failure mode a `--probe` lane wired to a required job would
+  # have manufactured on purpose.
+  jvm-hicasso:
+    name: JVM hicasso (clojure -M:test)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: implementation/hicasso
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654  # v5.2.0
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Clojure CLI
+        run: "$GITHUB_WORKSPACE/.github/scripts/install-clojure-cli.sh"
+
+      - name: Cache Maven / gitlibs
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
+        with:
+          path: |
+            ~/.m2/repository
+            ~/.gitlibs
+            ~/.deps.clj
+          key: ${{ runner.os }}-clj-hicasso-${{ hashFiles('implementation/hicasso/deps.edn', 'implementation/core/deps.edn', 'implementation/test-quiet/deps.edn', 'implementation/adapters/uix/deps.edn') }}
+          restore-keys: |
+            ${{ runner.os }}-clj-hicasso-
+            ${{ runner.os }}-clj-
+
+      - name: Run JVM tests (hicasso artefact — the slot-rule equivalence pin)
+        run: clojure -M:test
+
   cljs:
     name: CLJS (shadow-cljs :node-test)
     # rf2-f79t8 — job-level gating (NOT a workflow-trigger path filter:
@@ -6484,6 +6576,13 @@ jobs:
       - jvm-derivation-conformance
       - jvm-event-conformance
       - jvm-test-quiet
+      # rf2-ipx7h — required, and `check_jvm_lane_rosters.py` R1 will not accept
+      # the roster entry without this line: a job absent from this list is
+      # advisory whatever its own gate says. What it carries is the JVM ARM of
+      # the slot-rule equivalence pin, which is only a mechanism while BOTH arms
+      # run — the Node arm alone cannot see a reader conditional or a
+      # locale-sensitive primitive inside the one definition they share.
+      - jvm-hicasso
       - cljs
       - js-harness-self-tests
       - cljs-browser
