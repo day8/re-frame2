@@ -120,6 +120,11 @@
             ;; aliased `malli`, not `m` — `parse-tags-schemas` binds a local
             ;; `m` for its matcher and a shadowed alias reads as a bug.
             [malli.core :as malli]
+            ;; The shared definition of the implementation source corpus
+            ;; (rf2-2cu7f). This scan and the egress-chokepoint scan used to
+            ;; carry a copy each; the copies enumerated artefact roots at
+            ;; depth 1 and so walked past all four nested adapter artefacts.
+            [re-frame.impl-source-corpus :as corpus]
             ;; The dual-runtime exercise leg's always-on literal — Test A
             ;; pins it against the parsed catalogue (invariant #4), Test B
             ;; iterates it. Requiring it here closes the coupling in code.
@@ -277,44 +282,14 @@
 ;; form, so coverage is high; widening to follow helper indirection is a
 ;; future tightening, not a correctness gap in the ratchet's promise.
 
-(def ^:private impl-src-roots
-  "Every artefact's non-test source root, resolved from the JVM test CWD
-  (`implementation/core/` per rf2-0hxm → repo root is `../../`). Falls
-  back to the pre-split `../implementation/...` layout for a transitional
-  REPL run from `implementation/`. Only existing dirs are kept."
-  (let [bases ["../../implementation" "../implementation" "../.."]]
-    (->> bases
-         (mapcat (fn [base]
-                   (let [d (io/file base)]
-                     (when (.isDirectory d)
-                       (->> (.listFiles d)
-                            (filter #(.isDirectory %))
-                            (map #(io/file % "src")))))))
-         (filter #(.isDirectory %))
-         distinct
-         vec)))
-
-(def ^:private source-file-exts
-  #{".clj" ".cljc" ".cljs"})
-
-(defn- non-test-source-files
-  "Every `.clj` / `.cljc` / `.cljs` file under the artefact src roots.
-  src roots carry only production source (tests live in sibling `test/`
-  dirs), so no path-based test exclusion is needed; we guard with a
-  `/test/` path check anyway in case a root ever nests one."
-  []
-  (->> impl-src-roots
-       (mapcat (fn [root] (file-seq root)))
-       (filter #(.isFile %))
-       (filter (fn [f]
-                 (let [n (.getName f)]
-                   (some #(str/ends-with? n %) source-file-exts))))
-       (remove (fn [f]
-                 (let [p (str/replace (.getPath f) "\\" "/")]
-                   (or (str/includes? p "/test/")
-                       (str/ends-with? (.getName f) "_test.clj")
-                       (str/ends-with? (.getName f) "_test.cljc")
-                       (str/ends-with? (.getName f) "_test.cljs")))))))
+;; Source roots + file enumeration come from `re-frame.impl-source-corpus`,
+;; which `re-frame.egress-chokepoint-conformance-test` shares. This file
+;; used to define them and that file used to copy them; both copies
+;; enumerated roots at depth 1, so both walked past the four nested adapter
+;; artefacts — 14 production files, invisible to two armed and running
+;; ratchets (rf2-2cu7f). One definition, one depth-independent walk, and
+;; `corpus/corpus-cross-check` as the coverage floor the sanity test below
+;; now asserts.
 
 ;; The keyword char class includes the apostrophe so categories like
 ;; `:rf.warning/large-value-unschema'd` parse whole (NOT truncated at the
@@ -392,7 +367,7 @@
   the first literal keyword arg of `throw-error!` / `thrown-ex-info`, which
   the original emit-only scan was blind to."
   []
-  (->> (non-test-source-files)
+  (->> (corpus/non-test-source-files)
        (mapcat (fn [f]
                  (let [src (slurp f)]
                    (concat (map second (re-seq emit-error-re src))
@@ -426,7 +401,7 @@
   the code fans onto the always-on axis regardless of their catalogue Channel
   cell (rf2-h4f0n)."
   []
-  (->> (non-test-source-files)
+  (->> (corpus/non-test-source-files)
        (mapcat (fn [f] (map second (re-seq always-on-mechanism-re (slurp f)))))
        (map (fn [s] (keyword (subs s 1))))
        set))
@@ -708,11 +683,30 @@
             finds the known emit chokepoints. A zero / tiny result means
             the src roots did not resolve from the test CWD (a path-layout
             change) — fail loudly rather than vacuously passing the
-            coverage invariant below with an empty emitted set."
-    (let [roots impl-src-roots
-          cats  (emitted-categories)]
+            coverage invariant below with an empty emitted set.
+
+            `(seq roots)` alone is NOT that guard, and rf2-2cu7f is the
+            proof: for as long as this scan enumerated roots at depth 1 it
+            resolved 16 of them, walked 377 files, reached not one of the
+            four nested adapter artefacts, and passed here. A floor on
+            whether the walk found ANYTHING says nothing about whether it
+            found EVERYTHING, so the coverage claim is the cross-check —
+            this corpus against the independently-shaped one the repo's
+            other source-scanning lints use."
+    (let [roots      corpus/src-roots
+          cats       (emitted-categories)
+          {:keys [missing extra]} (corpus/corpus-cross-check)]
       (is (seq roots)
           "at least one artefact src root resolved from the JVM test CWD")
+      (is (empty? missing)
+          (str "the scan MISSED production source that the path-shaped "
+               "enumeration of implementation/**/src/ finds — an artefact "
+               "root the walk does not reach, which is exactly how the "
+               "adapters went unscanned (rf2-2cu7f). Missing: "
+               (pr-str (vec missing))))
+      (is (empty? extra)
+          (str "the scan reached source OUTSIDE implementation/**/src/: "
+               (pr-str (vec extra))))
       (is (>= (count cats) 50)
           (str "source scan found the diagnostic/error/advisory emit "
                "vocabulary (>= 50 categories), not a broken / empty scan; "
