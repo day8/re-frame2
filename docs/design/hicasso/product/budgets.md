@@ -949,6 +949,34 @@ that exists and runs in the first lane; a distributional row may never name the
 first lane at all. *Authority* is the bead that owns the row's disposition
 today. *Disposition* is a link that must resolve to a section naming the row.
 
+**[Amended 2026-08-14, `rf2-mwr2`.] The lane is now verified rather than
+believed.** Until this amendment the gate read that the lane was *spelled*
+legally and that the witness file was *on disk*, and took the `PR gate` claim
+itself on trust — so a row could name a witness that only a scheduled workflow
+ever runs and stay green. A second audit of `rf2-mwr2` reasoned from exactly
+that gap, and concluded `D26`'s counter gated nothing. **The conclusion was
+wrong on the facts and the reasoning was right about the gate**, so the gap is
+what got closed. For a `*_dom_cljs_test` witness the browser lane is decided by
+a single selector, so the gate now reads the two selectors out of
+`implementation/shadow-cljs.edn` and requires the PR-blocking `:browser-test`
+build to select the witness's namespace. A witness reachable only through
+`:browser-test-freehand-bench` — the lane `freehand-bench.yml` drives on
+`schedule` and `workflow_dispatch`, which blocks no merge — now reds. Nineteen
+rows carry a verified lane as a result, `U5` and `D26` among them.
+
+Why the audit's conclusion did not hold, recorded here so it is not re-derived:
+`:browser-test` excludes `re-frame.freehand.bench.*`, and `D26`'s witness lives
+in the bench *tree* but declares the namespace
+`re-frame.bench.hicasso.topo.census-dom-cljs-test`. The exclusion does not
+reach it; the PR-blocking selector matches it; `implementation/freehand/test`
+is on the global `:source-paths`; and the job that runs that build,
+`cljs-browser`, is in `test.yml`'s required `all-required-passed` needs list
+and is armed for this surface by the changed-surface classifier. The witness's
+assertions do gate on a real DOM, which is a *stated skip under `:node-test`*
+and not a skip in the lane that gates. Should a later worker tighten the
+exclusion to the whole bench tree, the gate reds here instead of silently
+unhooking `U5`'s second counter.
+
 **[Amended 2026-08-14, `rf2-mwr2`.] A row that claims work SCALES has to name
 two counters, and the gate refuses one.** `U5` was registered on boundary
 bodies alone, and read `MET` on a coarse view-model arm that rebuilds every
