@@ -882,9 +882,11 @@ And definitely not:
 
 # What CI enforces
 
-On docs PRs: `mkdocs build --strict`, the link/anchor validator
-(`scripts/check_doc_slugs.py`), and residue scans in
-`.github/workflows/docs.yml`.
+On docs PRs: `mkdocs build --strict` and residue scans in
+`.github/workflows/docs.yml`. The link/anchor validator
+(`scripts/check_doc_slugs.py`) runs on EVERY PR, in `test.yml`'s
+unconditional `verify-readme-links` job — rf2-v7fui moved it there because its
+roster covers `skills/` and `docs.yml`'s classifier does not.
 
 `mkdocs build --strict` sees only the published corpus. `mkdocs.yml`'s
 `exclude_docs` block keeps `docs/design/freehand/` and `docs/design/hicasso/`

@@ -6446,15 +6446,16 @@ test('the jobs these arms reach are still gated on the armed outputs (rf2-6ng7)'
 // object is deliberate: these trees are covered by the SAME mechanism, and
 // spelling that out twelve times invites twelve slightly different stories.
 const DOCS_YML = {
-  why: "documentation staged into the MkDocs site; docs.yml's own docs_surface classifier arms on docs/*, and its build job runs mkdocs --strict plus check_doc_slugs.py over the corpus",
+  why: "documentation staged into the MkDocs site; docs.yml's own docs_surface classifier arms on docs/*, and its build job runs mkdocs --strict over the corpus. Markdown link + anchor validation is no longer part of THAT job: rf2-v7fui moved check_doc_slugs.py to test.yml's unconditional verify-readme-links job, so these trees are slug-validated on every PR rather than only on a docs-classified one",
   coveredBy: ['.github/workflows/docs.yml', 'scripts/check_doc_slugs.py'],
 };
 
 const SKILLS_ALWAYS_ON = {
-  why: "prose skill trees. Reached at PR time by the ALWAYS-ON verify-skill-mcp-drift job (check_skill_mcp_drift.py holds allowed-tools front-matter in step with the MCP catalogues; check_inject_cofx_residue.py scans skills/ markdown for retired API spellings) — an always-on job arms no surface output by construction. NOTE the gap rf2-v7fui records: check_doc_slugs.py lists skills in its roster but runs only in docs.yml's build job, whose docs_surface does not include skills/*, so slug and anchor validation of these files fires nowhere at PR time.",
+  why: "prose skill trees, reached at PR time by two ALWAYS-ON jobs — and an always-on job arms no surface output by construction. verify-skill-mcp-drift runs check_skill_mcp_drift.py (allowed-tools front-matter held in step with the MCP catalogues) and check_inject_cofx_residue.py (skills/ markdown scanned for retired API spellings); verify-readme-links runs check_doc_slugs.py over its full roster — docs, spec, SKILLS, migration. That second job is what closes the gap this entry used to record for rf2-v7fui: the slug gate listed skills in DEFAULT_ROOTS but ran only inside docs.yml's build job, whose docs_surface does not match skills/*, so slug and anchor validation of these files fired nowhere at PR time.",
   coveredBy: [
     'scripts/check_skill_mcp_drift.py',
     'scripts/check_inject_cofx_residue.py',
+    'scripts/check_doc_slugs.py',
   ],
 };
 
@@ -6497,7 +6498,7 @@ const DECLARED_NO_SURFACE_OUTPUT = {
   'docs/the-mayor-method': DOCS_YML,
   'docs/xray': DOCS_YML,
   'migration/from-clj-new-template': {
-    why: "a migration note; docs.yml's docs_surface classifier lists migration/*",
+    why: "a migration note; docs.yml's docs_surface classifier lists migration/*, and its slug/anchor validation comes from check_doc_slugs.py in test.yml's unconditional verify-readme-links job (rf2-v7fui moved it out of the docs build)",
     coveredBy: ['.github/workflows/docs.yml', 'scripts/check_doc_slugs.py'],
   },
   'scripts/_test_fixtures': {

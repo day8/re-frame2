@@ -1847,6 +1847,48 @@ def _check_source_comment_links(
     return broken
 
 
+def _scan_inventory(repo_root: Path, files: Iterable[Path]) -> list[tuple[str, int]]:
+    """Count the scanned files per scan ROOT, for the `--verbose` banner.
+
+    A GATE'S ROSTER, ITS SCHEDULE AND ITS REACH ARE THREE DIFFERENT THINGS,
+    and rf2-v7fui is what confusing them costs.  `skills` sat in DEFAULT_ROOTS
+    for months while no PR-time job ran this script on a skills path, so a
+    dispatch brief could nominate this gate for a skills edit and read back a
+    green exit code that had not opened one of those 176 files.  The roster
+    said one thing, the schedule another, and nothing on the run said which
+    was load-bearing.
+
+    A run that PRINTS the trees it walked cannot be misread that way: the
+    reach is on the page, beside the verdict, in the CI log.  Every root in
+    DEFAULT_ROOTS is listed even when it contributes ZERO files — a `0` is the
+    single most useful line this can emit, because it is the shape a root
+    silently dropping out of scope takes.
+    """
+    root_resolved = repo_root.resolve()
+    counts: dict[str, int] = {}
+    for path in files:
+        try:
+            rel = path.relative_to(repo_root)
+        except ValueError:
+            try:
+                rel = path.resolve().relative_to(root_resolved)
+            except ValueError:
+                counts["(outside repo root)"] = counts.get("(outside repo root)", 0) + 1
+                continue
+        parts = rel.parts
+        if not parts:
+            continue
+        if parts[0] == TOOLS_ROOT and len(parts) > 2:
+            label = f"{TOOLS_ROOT}/{parts[1]}/spec"
+        else:
+            label = parts[0]
+        counts[label] = counts.get(label, 0) + 1
+
+    ordered = [(root, counts.pop(root, 0)) for root in DEFAULT_ROOTS]
+    ordered.extend(sorted(counts.items()))
+    return ordered
+
+
 def check(
     repo_root: Path,
     verbose: bool = False,
@@ -1908,7 +1950,14 @@ def check(
         placement = COMPAT_ANCHOR_PLACEMENT
     files = list(_iter_markdown(repo_root))
     if verbose:
-        sys.stderr.write(f"scanning {len(files)} markdown files...\n")
+        inventory = _scan_inventory(repo_root, files)
+        sys.stderr.write(
+            f"scanning {len(files)} markdown files across "
+            f"{len(inventory)} roots:\n"
+        )
+        width = max((len(label) for label, _ in inventory), default=0)
+        for label, count in inventory:
+            sys.stderr.write(f"  {label:<{width}}  {count:>5}\n")
 
     # Build the rendered-id index lazily — many files are never linked to with an
     # anchor. `places_for` yields the {id: [(line, mechanism)]} map (used by the

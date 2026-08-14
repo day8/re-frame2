@@ -172,8 +172,12 @@ cp -rf source dest          # NOT: cp -r source dest
 `exclude_docs` block deliberately keeps `design/freehand/` and `design/hicasso/`
 out of the site, so never nominate it as the gate for an edit confined to that
 tree — it will exit 0 having verified nothing. `scripts/check_doc_slugs.py` does
-cover it: markdown link targets and heading anchors, in the fast-PR spine and in
-`docs.yml`. So does `scripts/check_provenance_pins.py`, on changed pages under
+cover it: markdown link targets and heading anchors, in the fast-PR spine and —
+since rf2-v7fui — unconditionally in `test.yml`'s `verify-readme-links` job, so
+on every PR rather than only a docs-classified one. Its `--verbose` banner
+prints the per-root file counts it walked, which is the thing to read when you
+need to know what a green actually inspected.
+So does `scripts/check_provenance_pins.py`, on changed pages under
 `docs/design/hicasso/`, as its own `docs.yml` job. Nothing checks tables,
 rendering, or nav, so verify anchors and table column counts by hand and say so
 in the PR body.
