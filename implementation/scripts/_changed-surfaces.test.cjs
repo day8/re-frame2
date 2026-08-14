@@ -420,6 +420,93 @@ test('implementation/core/src still arms implementation_jvm (rf2-cujx control)',
   assert.equal(classify('implementation/core/src/foo.clj').implementation_jvm, 'true');
 });
 
+// rf2-n4a2b — THE FIFTH WALK, and the assertion the other four never had.
+//
+// `prod-gate-naming-drift-test` became this shape the same day rf2-cujx landed:
+// rf2-sk5hf widened it from a depth-1 `.listFiles` over one artefact's test
+// tree to a recursive walk from the implementation root, and it too ran only in
+// `jvm-core`. Its census needs DIFFERENT probes from the four above, because
+// its domain is every artefact's `test/` tree and not `src/` — so the src rows
+// above say nothing about it either way.
+//
+// AND THE COVERAGE CLAIM ITSELF IS NOW PINNED. The census above excuses a false
+// arm by naming the unconditional lane, which is only true while the lane
+// actually runs the namespace. Nothing checked that: delete a step and every
+// assertion up there goes on passing, asserting a coverage that has gone. This
+// is the rf2-6ng7 codicil applied to a repair whose "arming" is a workflow step
+// rather than a classifier output.
+const REPO_SOURCE_WALK_NAMESPACES = Object.freeze([
+  're-frame.no-rf-default-floor-lint-test',
+  're-frame.egress-chokepoint-conformance-test',
+  're-frame.error-catalogue-channel-conformance-test',
+  're-frame.warn-once-clear-governance-test',
+  're-frame.prod-gate-naming-drift-test',
+]);
+
+test('hicasso + ssr-node TEST trees read implementation_jvm false — the naming-drift walk reads them anyway (rf2-n4a2b)', () => {
+  for (const p of [
+    'implementation/hicasso/test/foo_prod_gate_test.clj',
+    'implementation/ssr-node/test/foo_prod_gate_test.clj',
+  ]) {
+    assert.equal(classify(p).implementation_jvm, 'false', p);
+  }
+  // The control that makes the two rows above mean something: an artefact test
+  // tree that DOES arm. Without it a classifier returning false for everything
+  // would read as this census passing.
+  assert.equal(
+    classify('implementation/epoch/test/re_frame/foo_prod_gate_test.clj').implementation_jvm,
+    'true',
+  );
+});
+
+test('the unconditional walk lane runs every namespace whose false arm it excuses (rf2-n4a2b)', () => {
+  const workflow = fs.readFileSync(WORKFLOW, 'utf8');
+  const block = jobBlock(workflow, 'jvm-repo-source-walks');
+
+  assert.doesNotMatch(
+    block,
+    /^\s+if:/m,
+    'jvm-repo-source-walks must stay UNCONDITIONAL — a condition here is a ' +
+      'read-set model of what the walks walk, which is the defect the lane exists ' +
+      'to avoid rather than relocate',
+  );
+  assert.match(
+    workflow,
+    /^\s+- jvm-repo-source-walks$/m,
+    'jvm-repo-source-walks must stay in all-required-passed needs: — a job absent ' +
+      'from that list is advisory whatever its own gate says',
+  );
+
+  for (const ns of REPO_SOURCE_WALK_NAMESPACES) {
+    assert.match(
+      block,
+      new RegExp(`clojure -M:test -n ${ns.replace(/[.]/g, '[.]')}\\s*$`, 'm'),
+      `${ns} is a repo-wide source walk parked in implementation/core/test/, and ` +
+        'this lane is the only scheduling it has that does not depend on a read-set ' +
+        'model. It must be a step here.',
+    );
+  }
+
+  // ONE STEP PER NAMESPACE, which is not decoration: a namespace missing from a
+  // multi-`-n` selector is SILENT (exit 0, runs the rest, no warning), so a
+  // combined step would rest entirely on a total test-count floor across suites
+  // of 1 / 3 / 27 / 1 / 2 tests. Per-namespace steps each take the runner's own
+  // default floor of 1 and red alone.
+  const runs = block.match(/^\s+run: clojure -M:test[^\n]*/gm) || [];
+  assert.equal(
+    runs.length,
+    REPO_SOURCE_WALK_NAMESPACES.length,
+    `expected one clojure step per walked namespace, found ${runs.length}`,
+  );
+  for (const run of runs) {
+    assert.equal(
+      (run.match(/ -n /g) || []).length,
+      1,
+      `"${run.trim()}" selects more than one namespace in a single step`,
+    );
+  }
+});
+
 // rf2-1sd8h — the BROWSER half of the same two trees. Story/Xray
 // `*_dom_cljs_test.{cljs,cljc}` namespaces are selected by BOTH CLJS builds:
 // the consolidated `:node-test` (`cljs-test$` matches a `-dom-cljs-test`
