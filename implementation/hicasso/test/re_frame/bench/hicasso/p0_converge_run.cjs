@@ -66,11 +66,11 @@ const http = require('node:http');
 const path = require('node:path');
 
 // The directory's ONE navigation, with its ceiling named (rf2-p9fa3).
-const { navigate, NAV_TIMEOUT_MS } = require('../../../../../freehand/test/re_frame/freehand/bench/navigate.cjs');
+const { navigate, NAV_TIMEOUT_MS } = require('../../../../../core/test/re_frame/bench/navigate.cjs');
 // The directory's ONE sentinel wait, raced against the page dying (rf2-f5roa).
-const { watchPage } = require('../../../../../freehand/test/re_frame/freehand/bench/sentinel.cjs');
+const { watchPage } = require('../../../../../core/test/re_frame/bench/sentinel.cjs');
 // One build id, N programs, so nothing may cache between them (rf2-2rtt6.20).
-const { resetLaneBuildCache } = require('../../../../../freehand/test/re_frame/freehand/bench/lane_cache.cjs');
+const { resetLaneBuildCache } = require('../../../../../core/test/re_frame/bench/lane_cache.cjs');
 // shadow-cljs exits 0 on WARNINGS, so a status check is not a gate. The
 // lane's one build door refuses a warned build (rf2-2rtt6.73).
 const { shadowBuild } = require('./lane_build.cjs');

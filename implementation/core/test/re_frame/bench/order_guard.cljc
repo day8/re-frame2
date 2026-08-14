@@ -4,7 +4,7 @@
 
   No reported figure may depend on WHERE IN THE PLAN it was measured. That
   rule already exists, in
-  `implementation/freehand/test/re_frame/freehand/bench/order_guard.cjs`,
+  `implementation/core/test/re_frame/bench/order_guard.cjs`,
   where it guards `b8_run.cjs`, `b7_run.cjs` and the B6 harness.
 
   ## Why the rule is expressed twice, and what stops the two drifting
@@ -16,10 +16,14 @@
     * `re-frame.bench.read-attribution` is JVM Clojure. It measures with
       `com.sun.management.ThreadMXBean/getThreadAllocatedBytes` and there is
       no JavaScript runtime in the process at all.
-    * `re-frame.bench.write-attribution` is ClojureScript, but it lives in
-      `implementation/core`, and core may not `:require` out of
-      `implementation/freehand`. A test harness that reached across that
-      boundary would put the dependency arrow the wrong way round.
+    * `re-frame.bench.write-attribution` is ClojureScript compiled INTO the
+      page under measurement. The `.cjs` is driver-side: loaded by the Node
+      process that owns that page from outside it. The measured page cannot
+      require the driver's module, and that stays true now the two files are
+      siblings in this directory — the rule was re-homed here from
+      `implementation/freehand` so it survives that tree's deletion
+      (rf2-it4y5), which removes a stale dependency-arrow argument for the
+      split without removing the split's actual reason.
 
   So the honest shape is a SHARED RULE EXPRESSED TWICE, and the thing that
   stops the two copies drifting apart is that [[self-test]] replays the same

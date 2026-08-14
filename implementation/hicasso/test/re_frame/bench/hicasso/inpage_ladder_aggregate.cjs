@@ -73,7 +73,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const guard = require('../../../../../freehand/test/re_frame/freehand/bench/order_guard.cjs');
+const guard = require('../../../../../core/test/re_frame/bench/order_guard.cjs');
 
 const DIR = path.join(__dirname, 'data', 'inpage-ladder-409ab');
 const RUNS = ['A', 'B', 'C', 'D'];

@@ -45,9 +45,9 @@ const path = require('node:path');
 // `page.goto` with no `timeout:` takes Playwright's 30s default — a second
 // budget this driver's own 20-minute sentinel cannot reach, whose failure
 // line reads exactly like the bench timeout it is not.
-const { navigate, NAV_TIMEOUT_MS } = require('../../../../../freehand/test/re_frame/freehand/bench/navigate.cjs');
+const { navigate, NAV_TIMEOUT_MS } = require('../../../../../core/test/re_frame/bench/navigate.cjs');
 // One build id, N programs, so nothing may cache between them (rf2-2rtt6.20).
-const { resetLaneBuildCache } = require('../../../../../freehand/test/re_frame/freehand/bench/lane_cache.cjs');
+const { resetLaneBuildCache } = require('../../../../../core/test/re_frame/bench/lane_cache.cjs');
 // The lane's ONE build door. shadow-cljs exits 0 on warnings, so a status
 // check is not a gate (rf2-2rtt6.73).
 const { shadowBuild } = require('./lane_build.cjs');

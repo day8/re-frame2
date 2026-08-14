@@ -186,7 +186,7 @@ async function main(argv) {
   let resetLaneBuildCache = null;
   if (usesConfigMerge) {
     ({ resetLaneBuildCache } = require(
-      '../freehand/test/re_frame/freehand/bench/lane_cache.cjs'
+      '../core/test/re_frame/bench/lane_cache.cjs'
     ));
     resetLaneBuildCache(IMPL_DIR, buildId);
   }

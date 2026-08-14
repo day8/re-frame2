@@ -80,12 +80,12 @@ const fs = require('node:fs');
 const http = require('node:http');
 const path = require('node:path');
 
-const { navigate, NAV_TIMEOUT_MS } = require('../../../../../freehand/test/re_frame/freehand/bench/navigate.cjs');
+const { navigate, NAV_TIMEOUT_MS } = require('../../../../../core/test/re_frame/bench/navigate.cjs');
 // One build id, N programs, so nothing may cache between them (rf2-2rtt6.20).
 // This driver needs it MOST: it builds four different variants back to back in
 // a single run, so it was poisoning its own later rungs with its earlier ones
 // without any second driver being involved.
-const { resetLaneBuildCache } = require('../../../../../freehand/test/re_frame/freehand/bench/lane_cache.cjs');
+const { resetLaneBuildCache } = require('../../../../../core/test/re_frame/bench/lane_cache.cjs');
 // shadow-cljs exits 0 on WARNINGS, so a status check is not a gate. The
 // lane's one build door refuses a warned build (rf2-2rtt6.73).
 const { shadowBuild } = require('./lane_build.cjs');

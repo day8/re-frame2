@@ -69,11 +69,11 @@ const fs = require('node:fs');
 const http = require('node:http');
 const path = require('node:path');
 
-const guard = require('./order_guard.cjs');
-const { navigate, NAV_TIMEOUT_MS } = require('./navigate.cjs');
-const { watchPage } = require('./sentinel.cjs');
+const guard = require('../../../../../core/test/re_frame/bench/order_guard.cjs');
+const { navigate, NAV_TIMEOUT_MS } = require('../../../../../core/test/re_frame/bench/navigate.cjs');
+const { watchPage } = require('../../../../../core/test/re_frame/bench/sentinel.cjs');
 // One build id, N programs, so nothing may cache between them (rf2-2rtt6.20).
-const { resetLaneBuildCache } = require('./lane_cache.cjs');
+const { resetLaneBuildCache } = require('../../../../../core/test/re_frame/bench/lane_cache.cjs');
 
 const IMPL = path.resolve(__dirname, '../../../../..');
 // The donor build id, hoisted out of the `spawnSync` argv it used to be a

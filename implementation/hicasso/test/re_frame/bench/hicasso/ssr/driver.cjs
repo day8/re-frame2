@@ -54,7 +54,7 @@ const http = require('node:http');
 const path = require('node:path');
 
 const { shadowBuild } = require('../lane_build.cjs');
-const { resetLaneBuildCache } = require('../../../../../../freehand/test/re_frame/freehand/bench/lane_cache.cjs');
+const { resetLaneBuildCache } = require('../../../../../../core/test/re_frame/bench/lane_cache.cjs');
 
 const IMPL = path.resolve(__dirname, '../../../../../..');
 const BUILD_ID = 'freehand-bench-node';

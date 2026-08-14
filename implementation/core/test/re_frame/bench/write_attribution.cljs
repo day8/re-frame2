@@ -65,10 +65,12 @@
   by WHAT RAN BEFORE IT and by WHERE IN THE RUN it sat, applies the house
   rule — overlapping ranges are indistinguishable — and REFUSES the run
   (exit code 2) if either factor separates an arm. It is the same rule as
-  `implementation/freehand/test/re_frame/freehand/bench/order_guard.cjs`,
-  expressed twice because a JVM harness and a `core` CLJS harness can reach
-  neither that file nor its runtime; both copies replay the same recorded
-  fixtures in their self-tests, which is what keeps them honest.
+  `implementation/core/test/re_frame/bench/order_guard.cjs`,
+  expressed twice because a JVM harness and a `core` CLJS harness both run
+  where that driver-side CommonJS module cannot be loaded — a sibling in
+  this directory since rf2-it4y5, and still out of reach from inside the
+  page; both copies replay the same recorded fixtures in their self-tests,
+  which is what keeps them honest.
 
   ## Warm-up, because position beats adjacency
 

@@ -6,7 +6,7 @@
 // comparison can see it. Read as TEXT and never executed.
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { resetLaneBuildCache } = require('./lane_cache.cjs');
+const { resetLaneBuildCache } = require('../../../../../core/test/re_frame/bench/lane_cache.cjs');
 
 const IMPL = path.resolve(__dirname, '..', '..', '..', '..', '..');
 const CLEAR_BUILD = 'freehand-release';

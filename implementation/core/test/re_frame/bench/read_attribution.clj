@@ -130,7 +130,7 @@
   BEFORE IT and by WHERE IN THE RUN it sat, applies the house rule —
   overlapping ranges are indistinguishable — and REFUSES the run (exit code
   2) if either factor separates an arm. It is the same rule as
-  `implementation/freehand/test/re_frame/freehand/bench/order_guard.cjs`,
+  `implementation/core/test/re_frame/bench/order_guard.cjs`,
   expressed twice because this harness is JVM Clojure and there is no
   JavaScript runtime in the process; both copies replay the same recorded
   fixtures in their self-tests.

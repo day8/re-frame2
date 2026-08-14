@@ -18,7 +18,7 @@
 // here — the fixture covers the hole its sibling gate cannot.
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-require('./lane_cache.cjs');
+require('../../../../../core/test/re_frame/bench/lane_cache.cjs');
 
 const IMPL = path.resolve(__dirname, '..', '..', '..', '..', '..');
 const BUILD = 'freehand-release';
