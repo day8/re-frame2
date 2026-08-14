@@ -42,7 +42,24 @@
 
   Rows that only render to a string need no DOM and run under
   `:node-test` too. The hydration rows need a real React DOM and say so
-  with `sup/skip!` rather than degrading to a false green."
+  with `sup/skip!` rather than degrading to a false green.
+
+  ## §5 measures the OTHER half of the round trip (rf2-lb1xi)
+
+  §4 proves the bytes ADOPT. It says nothing about the state those bytes
+  were rendered from ever reaching the client, because it seeds the frame
+  by hand — and chapter 18 shipped a recipe that seeded nothing at all.
+  §5 drives the documented sequence end to end instead: the render's own
+  `__rf_payload` script goes into the document, `re-frame.ssr/hydrate!`
+  reads it, and only then does the public DOM door adopt.
+
+  Its control is the recipe as shipped. An absent client frame makes the
+  seed a NO-OP rather than an error — the router drops a dispatch into a
+  frame that is not there and reports it on its own axis — so
+  `ssr/hydrate!` still answers a payload while installing nothing, which
+  is precisely why the defect shipped green. The control asserts that
+  shape directly, so §5's own green is a claim about the frame existing
+  and not about `hydrate!` being called."
   (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
             [clojure.string :as str]
             [re-frame.adapter.uix :as uix-adapter]
@@ -55,6 +72,7 @@
             [re-frame.hicasso.native :as n]
             [re-frame.hicasso.roots-frames-support :as sup]
             [re-frame.hicasso.server :as server]
+            [re-frame.ssr :as ssr]
             [re-frame.ssr.constants :as ssr-constants]
             [re-frame.test-support :as test-support]
             ["react" :as react]
@@ -329,3 +347,97 @@
                        (is (nil? (h/unmount! handle))))
                      (done)))
             (.catch (fn [e] (is false (str "hydration row threw: " e)) (done))))))))
+
+;; ---------------------------------------------------------------------------
+;; 5 — THE DOCUMENTED ROUND TRIP: payload script → state → DOM (rf2-lb1xi)
+;; ---------------------------------------------------------------------------
+
+(defn- plant-payload-script!
+  "Put a render's OWN `<script id=\"__rf_payload\">` into the document —
+  the element `ssr/hydrate!`'s DOM read looks up by id. Answers a 0-arity
+  remover.
+
+  `innerHTML` does not EXECUTE an injected script and nothing here needs
+  it to: the payload rides as `type=\"application/edn\"` and is read back
+  as text. Using the render's own `:payload-script` rather than a
+  hand-built element is the point — a fixture spelling the tag itself
+  would keep passing after the emitter's id or escaping drifted."
+  [payload-script-html]
+  (let [host (js/document.createElement "div")]
+    (set! (.-innerHTML host) payload-script-html)
+    (.appendChild js/document.body host)
+    (fn [] (.remove host))))
+
+(deftest an-absent-client-frame-swallows-the-seed
+  ;; THE CONTROL, and it is the recipe chapter 18 shipped (rf2-lb1xi).
+  ;; Every assertion in the round-trip row below is about the frame having
+  ;; been CREATED; without this row a green there would be equally
+  ;; consistent with `ssr/hydrate!` seeding a frame it made itself.
+  (if-not (mount/browser?)
+    (sup/skip! "the payload script is read off a real document")
+    (let [{:keys [payload payload-script]} (server/render (request))
+          remove!                          (plant-payload-script! payload-script)]
+      (try
+        (is (nil? (rf/app-db-value wire-frame))
+            "premise: no client frame exists yet — this is a cold page")
+        (let [applied (ssr/hydrate! {:frame wire-frame})]
+          (testing "the false comfort: the read succeeded and the call
+                    answers the payload, so a boot that checks only this
+                    return value sees a hydration that worked"
+            (is (some? applied))
+            (is (= (:rf/app-db payload) (:rf/app-db applied))))
+          (testing "and nothing was installed — dispatching into an absent
+                    frame is a no-op, not a throw"
+            (is (nil? (rf/app-db-value wire-frame)))))
+        (testing "nor does a frame created afterwards inherit the seed"
+          (rf/make-frame {:id wire-frame :platform :client})
+          (is (nil? (:label (rf/app-db-value wire-frame)))))
+        (finally (remove!))))))
+
+(deftest the-payload-script-seeds-the-frame-the-server-dom-then-adopts
+  (if-not (mount/browser?)
+    (sup/skip! "adoption is React's own DOM business")
+    (async done
+      (let [{:keys [html payload-script]} (server/render (request))
+            remove!   (plant-payload-script! payload-script)
+            container (sup/stamp-server-nodes! (sup/server-dom! html))
+            watch     (sup/watch-mismatches!)]
+        (rf/make-frame {:id wire-frame :platform :client})
+        (is (nil? (:label (rf/app-db-value wire-frame)))
+            "premise: the frame starts EMPTY, so every value below arrived
+             over the wire rather than having been put there by hand")
+
+        (let [applied (ssr/hydrate! {:frame wire-frame})
+              db      (rf/app-db-value wire-frame)]
+          (testing "state first, and off the document's own payload script"
+            (is (some? applied))
+            (is (= "alpha" (:label db))))
+          (testing "and only the allowlisted slice — `:secret` was in the
+                    snapshot the server rendered from, so its absence here
+                    is the egress projection working"
+            (is (not (contains? db :secret)))))
+
+        (let [handle (h/hydrate! container
+                                 {:frame wire-frame :identifier-prefix "pfx-a-"}
+                                 [id-page {}])]
+          (-> (sup/adopted! handle)
+              (.then (fn [shut?]
+                       (is shut? "the root's own adoption window shut")
+                       (testing "the first client render saw the server's
+                                 snapshot: the server's nodes are still the
+                                 page's nodes, and they still carry the
+                                 server's value"
+                         (is (sup/every-server-node? container ".page"))
+                         (is (= "alpha"
+                                (.-textContent (.querySelector container ".value")))))
+                       (testing "and the framework reported no mismatch — the
+                                 whole claim, since a frame seeded after the
+                                 adopt would have diverged on this text"
+                         (is (= [] ((:stop! watch)))))
+                       (h/unmount! handle)
+                       (remove!)
+                       (done)))
+              (.catch (fn [e]
+                        (is false (str "round-trip row threw: " e))
+                        (remove!)
+                        (done)))))))))
