@@ -287,6 +287,80 @@
  *      already the model. The one ordinary browser action that touches
  *      the converge's own bookkeeping agrees with it in all three
  *      engines, which is a direct check on that dependency.
+ *
+ * ## THE CONFORMANCE MATRIX (rf2-hic-040), added 2026-08-14
+ *
+ * Everything above is invariant I15, which is a law about TEXT: one
+ * control shape in seven model policies. rf2-hic-040 asks the other
+ * question — does every control type `specification.md` §4.2 names have a
+ * support-or-refusal policy that holds in three engines, with none of them
+ * silently unsupported — and adds twelve sections, one per row of
+ * `docs/design/hicasso/product/dispositions.md` §2.3 that it owns.
+ *
+ * That table is the deliverable; this gate is what keeps it true. Its
+ * Witness column cites these sections by name, and `REQUIRED_SECTIONS`
+ * pins the names, so a policy cell in the table cannot outlive the witness
+ * it claims.
+ *
+ * ### Three rows are FINDINGS, not confirmations
+ *
+ * Each is a spelling that means something other than what it says, with no
+ * refusal at the source. Each is ASSERTED in the direction the runtime
+ * actually behaves, so the row reds when the behaviour is repaired as well
+ * as if it degrades — a finding that is only written down is a finding
+ * that rots:
+ *
+ *   1. `reserved-marker-under-reads-a-multiple-select` — `::h/value`
+ *      lowers to `(.-value target)`, which on a `<select multiple>` is the
+ *      FIRST selected option. The user's other choices are discarded
+ *      inside the turn, silently. `rf2-42vlw`.
+ *   2. `file-input-is-uncontrollable` — React's controlled write is
+ *      `element.value = …`, which throws `InvalidStateError` on a file
+ *      input in all three engines, and React 19.2 carries no
+ *      controlled-file-input warning. `rf2-u2tza`.
+ *   3. `custom-element-attributes` — a kebab KEYWORD is camelCased by
+ *      `impl.slot/prop-name` before React passes it through, so the dashed
+ *      attribute the author wrote never reaches a custom element.
+ *      `rf2-n71ma`.
+ *
+ * None was repaired here: a source-located refusal mints an error id, an
+ * error id owes a `spec/009-Instrumentation.md` row, and that file is hot
+ * zone this bead was fenced out of.
+ *
+ * ### One cell is UNADDRESSED rather than passing
+ *
+ * NATIVE autofill, on all three engines. Chromium's drive is a CDP method
+ * needing an address profile and neither Firefox nor WebKit exposes one at
+ * all, so there is no cross-engine drive to build. What
+ * `form-reset-autofill-and-formdata` gates is the EVENTLESS write a
+ * password manager performs, which is a proxy and is named as one.
+ *
+ * ### The sabotages, run rather than reasoned about
+ *
+ * Three, each a RUNTIME behaviour mutation reddening a different row, each
+ * run alone on Chromium with the exit captured on the same command line,
+ * each restored and the restore verified by `git hash-object` against the
+ * committed object:
+ *
+ * | mutation | reddened |
+ * |---|---|
+ * | `impl.intent/marker-readers` — `::h/value` reads the whole selection on a multiple select (the repair `rf2-42vlw` proposes) | `reserved-marker-under-reads-a-multiple-select`: *so that is what the handler received: expected "a", got "a,c"* |
+ * | `impl.slot/dont-camel-case` — gains `"my"`, so `:my-other-attr` passes through dashed | `custom-element-attributes`: *FINDING: a kebab KEYWORD does NOT … expected undefined, got "from-keyword"* |
+ * | `impl.codec/convert-prop-value` — a CLJS collection reaches React unconverted | `select-multiple-supported`: *both options survive the echo, inside the turn: expected "a,c", got ""* |
+ *
+ * The first two are the sharper pair: they redden a FINDING row, which is
+ * the case a witness written against current behaviour is most likely to
+ * get wrong. Both reds name the mutated reading rather than a downstream
+ * symptom.
+ *
+ * ### What the three engines said this time
+ *
+ * One divergence, and it is the first since this gate was built:
+ * `NARROWINGS` now has an entry. WebKit answers `selectionStart` on
+ * `<input type="date">` where Chromium and Firefox answer null. It is
+ * LATENT — a date field is never `convergeable?` in any engine — and the
+ * control's conformance is asserted rather than recorded and is identical
+ * in all three. The narrowing carries its engines and its reason.
  */
 
 const fs = require('fs');
