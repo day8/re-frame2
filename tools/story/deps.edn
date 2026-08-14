@@ -77,19 +77,36 @@
  :aliases
  {:test {:extra-paths ["test"]
          :extra-deps  {day8/re-frame2-test-quiet {:local/root "../../implementation/test-quiet"}
-                       ;; The S3 view-tool consumer (rf2-vxgfnd.95.8) reads the
-                       ;; compiled-view tool tier (`re-frame.ui.tool`) + renders
-                       ;; the JVM structural tree (`re-frame.ui.test/render`),
-                       ;; both in `day8/re-frame2-ui`. TEST-ONLY: that artefact
-                       ;; NEVER PUBLISHES (in-tree donor code, no :clein deploy
-                       ;; — see its deps.edn), so Story's published jar must NOT
-                       ;; depend on it; consumer + fixtures live under the `:test`
-                       ;; alias. The top-level `:node-test` build already carries
-                       ;; `ui/src` on its source-paths, so `npm run test:cljs`
-                       ;; resolves the same reads without this entry; this gives
-                       ;; the JVM `clojure -M:test` gate the same classpath.
-                       ;; ui depends only on core (already present) — no cycle.
-                       day8/re-frame2-ui         {:local/root "../../implementation/ui"}
+                       ;; NO SUBSTRATE-DONOR COORDINATE — deliberately.
+                       ;;
+                       ;; NO re-frame.ui (rf2-2og6s). Story used to carry
+                       ;; `day8/re-frame2-ui` here to compile four test-only
+                       ;; consumers of the compiled-view tool tier: the
+                       ;; `re-frame.story.view-tool` shaper over the five frozen
+                       ;; `re-frame.ui.tool` projections, its CLJS and JVM
+                       ;; suites, and the realworld-ui substrate-consumer suite.
+                       ;; re-frame.ui is retired (rf2-0yp7w), so all four are
+                       ;; gone and nothing on this classpath names the substrate.
+                       ;;
+                       ;; They were RETIRED rather than re-pointed at
+                       ;; `re-frame.hicasso.tool`, and the reason is question
+                       ;; shape rather than effort — the same refusal
+                       ;; `rf2-jkdy` reached for Xray's Views panel and
+                       ;; `rf2-l86mm` re-confirmed. The donor tier answers
+                       ;; `view-manifest` / `view-dependencies` /
+                       ;; `view-event-sites` about a view named by its id;
+                       ;; Hicasso mints no boundary identity at all (a boundary
+                       ;; is keyed by its READ SET, `:view` and `:source`
+                       ;; projected `unknown` under an `:opaque` naming
+                       ;; projection), so those three reads have no counterpart
+                       ;; and `mounted-views` cannot be keyed on a view. The JVM
+                       ;; structural tree (`re-frame.ui.test/render`,
+                       ;; `:rf.ui/tree-version`) has no counterpart either:
+                       ;; `re-frame.hicasso.tool` is `.cljs`-only and Hicasso
+                       ;; ships no headless render. Do not re-add a substrate
+                       ;; coordinate to revive them; the compatibility claim
+                       ;; they proved retired with the surface it was about.
+                       ;;
                        ;; NO FREEHAND COORDINATE — deliberately (rf2-5gka).
                        ;; Story used to carry `day8/re-frame2-freehand` here to
                        ;; compile the presence-rung HOST BRIDGE
