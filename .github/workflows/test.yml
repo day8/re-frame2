@@ -3306,7 +3306,7 @@ jobs:
             ${{ runner.os }}-clj-core-
             ${{ runner.os }}-clj-
 
-      - name: ':rf/default absence-repair floor lint (implementation/** + tools/**)'
+      - name: Absence-repair floor lint for :rf/default (implementation/** + tools/**)
         run: clojure -M:test -n re-frame.no-rf-default-floor-lint-test
 
       - name: Egress-chokepoint conformance (every implementation/ src root)
