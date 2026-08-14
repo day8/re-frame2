@@ -1463,13 +1463,28 @@ else
         #     reachability check and the complaint-catalogue round trip;
         #   - the bench-lane compile, already an unconditional step there.
         #
-        # NOT implementation_jvm: the artefact's runtime requires React,
-        # so every suite it owns is CLJS. Its `:test` alias is a
-        # classpath probe with `--probe` waiving the test-count floor, it
-        # is deliberately absent from scripts/test-jvm-implementation.sh's
-        # roster, and check_jvm_lane_rosters.py fails BOTH ways — a roster
-        # entry with no required job is its own red. Arm this the same
-        # commit a JVM-runnable suite lands and the roster gains the row.
+        # NOT implementation_jvm — AND THE OLD REASON HAS EXPIRED, so it
+        # is worth being exact about the new one. This row used to read
+        # "every suite it owns is CLJS; its `:test` alias is a classpath
+        # probe with `--probe`; it is deliberately absent from
+        # scripts/test-jvm-implementation.sh's roster. Arm this the same
+        # commit a JVM-runnable suite lands and the roster gains the row."
+        # rf2-0yp7w re-homed the bench harness here, which brought
+        # `test/re_frame/bench/hicasso/front/slot_cljs_test.cljc` — the
+        # `.cljc` equivalence pin for the canonical slot rule (rf2-ani6y)
+        # — so the alias dropped `--probe` and took the test-count floor,
+        # and rf2-ipx7h put the artefact ON that roster with a required
+        # `jvm-hicasso` job.
+        #
+        # The row survives because that job is UNCONDITIONAL, so it needs
+        # no arm, and because arming this root would be wrong twice over:
+        # 22 OTHER jobs read `implementation_jvm`, so a hicasso-only diff
+        # would schedule all of them to run one five-second one-namespace
+        # lane; and the arm would still not cover the lane's own inputs —
+        # `implementation/hicasso/deps.edn` and `test_kit/src/**` are on
+        # its `:test` classpath and are matched by THIS case, which sets
+        # no jvm output. `implementation/scripts/_changed-surfaces.test.cjs`
+        # pins all three facts.
         #
         # NOT cljs_prod / bundle_isolation / ui_gates / ui_smoke: no
         # `-elision-prod-test$` namespace, no example resolves the
