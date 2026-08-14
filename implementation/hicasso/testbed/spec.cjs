@@ -1038,7 +1038,7 @@ async function selectMultipleSupported(page, w) {
 // on `dotValue` below is what stops the marker's answer from being
 // confused with it. Turning a row around is the gate working — it reds when
 // this conduct changes in EITHER direction.
-async function reservedMarkerUnderReadsAMultipleSelect(page, w) {
+async function reservedMarkerReadsTheWholeMultipleSelection(page, w) {
   const run = await page.evaluate(async () => {
     const before = window.__TB__.model().edits['picks-marker'] || 0;
     const drove = window.__TB__.choose('picks-marker', ['a', 'c']);
@@ -1744,7 +1744,7 @@ const SECTIONS = [
   ['radio-group-echoes-committed', radioGroupEchoesCommitted],
   ['select-single-echoes-committed', selectSingleEchoesCommitted],
   ['select-multiple-supported', selectMultipleSupported],
-  ['reserved-marker-under-reads-a-multiple-select', reservedMarkerUnderReadsAMultipleSelect],
+  ['reserved-marker-reads-the-whole-multiple-selection', reservedMarkerReadsTheWholeMultipleSelection],
   ['file-input-is-uncontrollable', fileInputIsUncontrollable],
   ['types-without-a-caret-echo-committed', typesWithoutACaretEchoCommitted],
   ['contenteditable-is-not-a-controlled-field', contenteditableIsNotAControlledField],

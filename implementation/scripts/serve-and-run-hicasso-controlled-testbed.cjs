@@ -302,7 +302,7 @@
  * pins the names, so a policy cell in the table cannot outlive the witness
  * it claims.
  *
- * ### Three rows are FINDINGS, not confirmations
+ * ### Two rows are FINDINGS, not confirmations
  *
  * Each is a spelling that means something other than what it says, with no
  * refusal at the source. Each is ASSERTED in the direction the runtime
@@ -310,22 +310,30 @@
  * as if it degrades — a finding that is only written down is a finding
  * that rots:
  *
- *   1. `reserved-marker-under-reads-a-multiple-select` — `::h/value`
- *      lowers to `(.-value target)`, which on a `<select multiple>` is the
- *      FIRST selected option. The user's other choices are discarded
- *      inside the turn, silently. `rf2-42vlw`.
- *   2. `file-input-is-uncontrollable` — React's controlled write is
+ *   1. `file-input-is-uncontrollable` — React's controlled write is
  *      `element.value = …`, which throws `InvalidStateError` on a file
  *      input in all three engines, and React 19.2 carries no
  *      controlled-file-input warning. `rf2-u2tza`.
- *   3. `custom-element-attributes` — a kebab KEYWORD is camelCased by
+ *   2. `custom-element-attributes` — a kebab KEYWORD is camelCased by
  *      `impl.slot/prop-name` before React passes it through, so the dashed
  *      attribute the author wrote never reaches a custom element.
  *      `rf2-n71ma`.
  *
- * None was repaired here: a source-located refusal mints an error id, an
+ * Neither was repaired here: a source-located refusal mints an error id, an
  * error id owes a `spec/009-Instrumentation.md` row, and that file is hot
  * zone this bead was fenced out of.
+ *
+ * THERE WERE THREE, and the third is why the rule above is written the way
+ * it is. `reserved-marker-reads-the-whole-multiple-selection` was a finding
+ * that `::h/value` lowered to `(.-value target)` — on a `<select multiple>`
+ * the FIRST selected option, with every other choice discarded inside the
+ * turn, silently. `rf2-42vlw` repaired it in `impl.intent/target-value`,
+ * which now reads `selectedOptions` on a control carrying both `.multiple`
+ * and `.selectedOptions`, so the marker delivers the SELECTION as a list.
+ * Because the row had been asserted in the direction the runtime behaved,
+ * the repair RED it in all three engines rather than passing quietly, and
+ * the row was turned around onto the fix instead of being weakened. That is
+ * the standing rule doing exactly what it exists to do.
  *
  * ### One cell is UNADDRESSED rather than passing
  *
@@ -344,14 +352,15 @@
  *
  * | mutation | reddened |
  * |---|---|
- * | `impl.intent/marker-readers` — `::h/value` reads the whole selection on a multiple select (the repair `rf2-42vlw` proposes) | `reserved-marker-under-reads-a-multiple-select`: *so that is what the handler received: expected "a", got "a,c"* |
+ * | `impl.intent/target-value` — reverted to a bare `(.-value target)`, so `::h/value` under-reads a multiple select again (the state `rf2-42vlw` repaired) | `reserved-marker-reads-the-whole-multiple-selection`: *so the handler received the whole SELECTION, as a list: expected `["a","c"]`, got `"a"`* |
  * | `impl.slot/dont-camel-case` — gains `"my"`, so `:my-other-attr` passes through dashed | `custom-element-attributes`: *FINDING: a kebab KEYWORD does NOT … expected undefined, got "from-keyword"* |
  * | `impl.codec/convert-prop-value` — a CLJS collection reaches React unconverted | `select-multiple-supported`: *both options survive the echo, inside the turn: expected "a,c", got ""* |
  *
- * The first two are the sharper pair: they redden a FINDING row, which is
- * the case a witness written against current behaviour is most likely to
- * get wrong. Both reds name the mutated reading rather than a downstream
- * symptom.
+ * The first two are the sharper pair: each reddens a row asserted in the
+ * direction the runtime behaves — the turned-around repair and a standing
+ * finding respectively — which is the case a witness written against
+ * current behaviour is most likely to get wrong. Both reds name the mutated
+ * reading rather than a downstream symptom.
  *
  * ### What the three engines said this time
  *
@@ -447,7 +456,7 @@ const REQUIRED_SECTIONS = {
   'radio-group-echoes-committed': 9,
   'select-single-echoes-committed': 8,
   'select-multiple-supported': 7,
-  'reserved-marker-under-reads-a-multiple-select': 7,
+  'reserved-marker-reads-the-whole-multiple-selection': 7,
   'file-input-is-uncontrollable': 5,
   'types-without-a-caret-echo-committed': 7,
   'contenteditable-is-not-a-controlled-field': 8,
