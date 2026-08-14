@@ -327,9 +327,17 @@ function reachesRunner(rider) {
   return false;
 }
 
+// THE MATCH IS QUOTE-DELIMITED, never a bare substring. `freehand-release` is a
+// PREFIX of four other real build ids in `implementation/shadow-cljs.edn` —
+// `-interpreted`, `-compiled`, `-control`, `-reachability-control` — so a
+// substring test would read a driver of any of those as a rider of the shared
+// id and hold it to a rule that is not its. Requiring the closing quote is what
+// separates the id from the ids that start the same way.
+const namesId = (src, id) => new RegExp(`['"]${id}['"]`).test(src);
+
 /** The declared shared ids this file names as a string literal. */
 function lanesOf({ code }) {
-  return SHARED_BUILD_IDS.filter((id) => new RegExp(`['"]${id}['"]`).test(code));
+  return SHARED_BUILD_IDS.filter((id) => namesId(code, id));
 }
 
 // A DIRECT rider spawns the runner itself with its own `--config-merge`; a DOOR
@@ -346,14 +354,21 @@ function shapeOf(rider) {
 
 // ## Discovery
 //
-// Candidates are every `.cjs` under the implementation root that names a
-// declared shared id — minus this gate's own fixtures, which are rider-shaped
-// on purpose. `.test.cjs` files are excluded because a test that mentions a
-// build id is not riding it; the drivers are the subjects.
+// Candidates are every `.cjs` under the implementation root that NAMES a
+// declared shared id as a string literal — minus this gate's own fixtures,
+// which are rider-shaped on purpose. `.test.cjs` files are excluded because a
+// test that mentions a build id is not riding it; the drivers are the subjects.
+//
+// Candidacy is decided on RAW source rather than the projection, so that a file
+// whose only mention is in a comment still counts as a candidate and therefore
+// still has to be READABLE. Deciding it after projection would let an
+// unparseable file duck the `every candidate was readable` check by having its
+// only occurrence blanked — a fail-open in the one place this gate cannot
+// afford one.
 const CANDIDATE_PATHS = walkCjs(IMPL_ROOT, [])
   .filter((abs) => !abs.endsWith('.test.cjs'))
   .filter((abs) => !abs.startsWith(FIXTURE_DIR + path.sep))
-  .filter((abs) => SHARED_BUILD_IDS.some((id) => readSource(abs).includes(id)))
+  .filter((abs) => SHARED_BUILD_IDS.some((id) => namesId(readSource(abs), id)))
   .sort();
 
 // A projection failure is a FAILURE, never a skip: a candidate this scanner
