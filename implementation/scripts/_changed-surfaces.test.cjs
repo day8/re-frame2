@@ -4965,11 +4965,18 @@ test('implementation/hicasso/** stays OFF the gates no hicasso suite reaches (rf
   // gate that runs not one line of the changed surface is worse than none
   // because it reads as coverage.
   //
-  //   implementation_jvm — the runtime requires React, so every suite the
-  //     artefact owns is CLJS; its `:test` alias is a `--probe` classpath
-  //     check and it is deliberately off scripts/test-jvm-implementation.sh's
-  //     roster. Arm it the same commit a JVM-runnable suite and the roster row
-  //     land together (check_jvm_lane_rosters.py fails both ways).
+  //   implementation_jvm — NOT because the artefact has no JVM lane. It has
+  //     one: rf2-ipx7h put `implementation/hicasso` on
+  //     scripts/test-jvm-implementation.sh and added the required
+  //     `jvm-hicasso` job, and its `:test` alias dropped `--probe` and took
+  //     the test-count floor. The reason this row survives is that the job is
+  //     UNCONDITIONAL, so it needs no arm — and arming this root would be
+  //     actively wrong: 22 OTHER jobs read `implementation_jvm`, so every
+  //     hicasso-only diff would schedule all of them to run one five-second
+  //     one-namespace lane. The release condition that used to be written here
+  //     ("arm it the same commit a JVM-runnable suite lands") is therefore
+  //     RETIRED rather than pending; the pin that replaces it is the
+  //     `jvm-hicasso is UNCONDITIONAL` test below.
   //   cljs_prod — no `-elision-prod-test$` namespace.
   //   bundle_isolation / ui_gates / ui_smoke — no example resolves the
   //     artefact and it mounts no testbed those smokes drive.
@@ -4989,8 +4996,110 @@ test('implementation/hicasso/** stays OFF the gates no hicasso suite reaches (rf
     'ui_gates',
     'ui_smoke',
   ]) {
-    assert.equal(result[key], 'false', `hicasso must not arm ${key} yet`);
+    assert.equal(result[key], 'false', `hicasso must not arm ${key}`);
   }
+});
+
+// ---------------------------------------------------------------------------
+// rf2-ipx7h — the hicasso JVM lane, and why it carries no surface gate.
+//
+// `implementation/hicasso/test/re_frame/bench/hicasso/front/slot_cljs_test.cljc`
+// is the `.cljc` EQUIVALENCE PIN for the canonical slot rule (rf2-ani6y): one
+// corpus asserted twice against ONE implementation, once by `npm run test:cljs`
+// in Node and once by `clojure -M:test` on the JVM. Both arms or no mechanism —
+// a reader conditional inside the rule, or the JVM's locale-sensitive
+// `str/upper-case`, is invisible to either host alone.
+//
+// The three rows below are the MEASUREMENT that decided against gating this
+// job on `implementation_jvm`. Each is a file on the lane's JVM classpath that
+// does not arm that output, so each is a PR shape that would have skipped the
+// job — and `deps.edn` is the sharpest, because it is the file that decides
+// whether the pin is discovered AT ALL. They must NOT be "fixed" by widening
+// `implementation_jvm` for the artefact root: 22 other jobs read it, and the
+// scope guard above says so. The repair is the unconditional job asserted
+// underneath.
+// ---------------------------------------------------------------------------
+
+test('the hicasso JVM lane has classpath inputs that arm NO jvm tier (rf2-ipx7h)', () => {
+  for (const file of [
+    // the `:test` alias itself — `:extra-paths`, `:extra-deps`, `:main-opts`
+    'implementation/hicasso/deps.edn',
+    // also on `:extra-paths`, so also scanned for discovery
+    'implementation/hicasso/test_kit/src/re_frame/hicasso/test.cljs',
+  ]) {
+    const result = classify(file);
+    assert.equal(
+      result.implementation_jvm,
+      'false',
+      `${file} is on the hicasso JVM lane's classpath and arms no jvm tier — `
+        + 'which is why jvm-hicasso is unconditional rather than gated on '
+        + 'implementation_jvm',
+    );
+  }
+});
+
+test('the slot pin arms implementation_jvm only INCIDENTALLY (rf2-ipx7h)', () => {
+  // The pin and its subject DO measure true — but through
+  // `is_route_path_census_input`, a predicate that exists for the routing
+  // route-path census and matches `implementation/hicasso/test/*` `.cljs`/
+  // `.cljc`. The `.clj` control below is what makes that legible: same tree,
+  // same artefact, FALSE, because the census filters on the extensions IT
+  // cares about. So the arm belongs to another gate's roster and could
+  // narrow with it — a second reason this job takes no gate at all.
+  for (const file of [
+    'implementation/hicasso/test/re_frame/bench/hicasso/front/slot_cljs_test.cljc',
+    'implementation/hicasso/test/re_frame/bench/hicasso/front/slot.cljc',
+  ]) {
+    assert.equal(classify(file).implementation_jvm, 'true');
+  }
+  assert.equal(
+    classify('implementation/hicasso/test/re_frame/bench/hicasso/arm1/lang.clj')
+      .implementation_jvm,
+    'false',
+    'the .clj control must measure false — the arm is the census predicate, '
+      + 'not a hicasso JVM arm',
+  );
+});
+
+test('jvm-hicasso is UNCONDITIONAL, rostered and required (rf2-ipx7h)', () => {
+  const workflow = fs.readFileSync(WORKFLOW, 'utf8');
+  const block = jobBlock(workflow, 'jvm-hicasso');
+  // Job-level keys sit at exactly four spaces; anchoring there keeps a prose
+  // comment mentioning `needs:` from reading as the key itself.
+  assert.doesNotMatch(
+    block,
+    /^ {4}needs:/m,
+    'jvm-hicasso must not depend on detect_changed_surfaces — the lane\'s own '
+      + 'deps.edn arms no classifier output',
+  );
+  assert.doesNotMatch(
+    block,
+    /^ {4}if:/m,
+    'jvm-hicasso must carry no surface gate; implementation_jvm does not cover '
+      + 'this lane\'s inputs and arming it would schedule 22 other jobs',
+  );
+  assert.match(
+    block,
+    /^ {8}working-directory: implementation\/hicasso$/m,
+    'the job must run in the artefact directory',
+  );
+  assert.match(block, /run: clojure -M:test$/m, 'the job must run the JVM lane');
+  // Required, not advisory: a job absent from the aggregator's `needs:` is
+  // advisory whatever its own gate says, and check_jvm_lane_rosters.py R1
+  // refuses the roster entry without this line.
+  assert.match(
+    jobBlock(workflow, 'all-required-passed'),
+    /^ {6}- jvm-hicasso$/m,
+    'jvm-hicasso must be in all-required-passed\'s needs',
+  );
+  // The local half of the same bijection. R1/R2 check this too, but a reader
+  // of THIS file should not have to run a Python gate to learn that the lane
+  // has a local lane as well as a hosted one.
+  assert.match(
+    fs.readFileSync(path.join(REPO_ROOT, 'scripts', 'test-jvm-implementation.sh'), 'utf8'),
+    /^ {2}implementation\/hicasso$/m,
+    'implementation/hicasso must be on the local JVM roster',
+  );
 });
 
 test('the cljs job runs BOTH hicasso gates the classifier arm schedules (rf2-8a6s)', () => {
