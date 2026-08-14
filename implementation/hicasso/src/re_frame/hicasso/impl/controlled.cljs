@@ -120,8 +120,10 @@
     honours it over the mirror (`:1852-1853`), so the record would be
     the author's constant rather than the rendered value.
   - **A type whose text cursor exists** — `text`, `search`, `url`,
-    `tel`, `password`, or no `:type` at all, which is `text`.
-    `setSelectionRange` is not applicable to the others, and
+    `tel`, `password`, or no `:type` at all, which is `text`. Read at
+    the PLATFORM's spelling rather than the author's, which is the fold
+    [[caret-type?]] carries and [[file-input-value?]] carries for the
+    same attribute. `setSelectionRange` is not applicable to the others, and
     `setDefaultValue` deliberately skips a focused `number` field
     (`:1738`), so the two exclusions are the same exclusion. React's own
     restore still converges the *value* on those types; there was never
@@ -480,7 +482,10 @@
 (def ^:private caret-types
   "The `<input>` types with a text entry cursor — the ones
   `setSelectionRange` applies to. Everything else has no caret to lose,
-  and React's own restore already converges its value."
+  and React's own restore already converges its value.
+
+  Spelled as the PLATFORM spells them, which is why [[caret-type?]] folds
+  a prop before asking rather than widening this set."
   #{"text" "search" "url" "tel" "password"})
 
 (defn- convergeable-tag?
@@ -494,11 +499,58 @@
 (defn- caret-type?
   "Does this element have a text cursor? A `<textarea>` always does; an
   `<input>` does for the five applicable types, and for no `:type` at
-  all, which is `text`."
+  all, which is `text`.
+
+  **The type is folded before it is compared (rf2-7ae61), for the reason
+  [[file-input-value?]] states at length about the same attribute.** An
+  HTML `type` is an enumerated attribute the platform matches ASCII
+  case-insensitively, and this predicate reads the PROPS object — the
+  author's spelling, which
+  [[re-frame.hicasso.impl.codec/convert-prop-value]] hands on unchanged
+  from both the string and the keyword door. So `<input type=\"TEXT\">`
+  is a text field with a caret to the engine, and an exact compare said
+  it was not: [[convergeable?]] answered no, [[install!]] wrapped
+  nothing, and the field fell through to React's own end-of-event
+  restore. The value still converged — one beat later, with the caret
+  thrown to the end of the control. No throw, no id, no warning; a
+  subtly worse cursor and nothing to attribute it to, which is the
+  hardest class of report to act on.
+
+  ONE reading of `type` in this namespace, then, rather than two — and
+  the fold is at the COMPARISON here as well, because `js-props` is what
+  React consumes and the attribute that ships must stay the attribute
+  the author wrote. The `string?` guard is what makes it total:
+  `:type 0` survives `convert-prop-value` as a number, which has no
+  `toLowerCase`, so without the guard a silent miss becomes a thrown
+  render.
+
+  **What it costs, measured rather than assumed** — Chromium 147.0.7727.15,
+  medians of seven runs of 10^6 calls, taken twice (before the fold and
+  after) across four type spellings. The fold is **~8 ns per call** over
+  the exact compare (6.2–8.9 ns across the eight readings), and the loop
+  overhead cancels because only the delta is claimed.
+
+  This predicate is reached TWICE per controlled field per render — once
+  from [[install!]] at codec time, once from [[shadow-component]]'s own
+  body — so ~16 ns per field per render, against a measured **13 µs** for
+  React to render and commit one such field: about **0.1%**, which is why
+  the whole-render measurement could not resolve it at all (the run-to-run
+  spread on that path was two orders of magnitude larger than the effect).
+  And it sits behind exactly the gate [[file-input-value?]]'s fold sits
+  behind ([[controlled-text-tag?]]), so a page with no controlled inputs
+  still pays nothing for either.
+
+  A variant that folded only ON A MISS was measured and REJECTED. It is
+  cheaper only for an already-lowercase caret type (23.6–24.7 ns against
+  the fold's 27.5–27.6) and roughly TWICE the cost for every other type
+  (53–71 ns against 28–30), because a miss then pays a set lookup, a fold
+  and a second lookup. More code, and slower on exactly the controlled
+  fields that are not text fields."
   [tag js-props]
   (or (identical? "textarea" tag)
       (let [t (unchecked-get js-props "type")]
-        (or (nil? t) (contains? caret-types t)))))
+        (or (nil? t)
+            (and (string? t) (contains? caret-types (.toLowerCase t)))))))
 
 (defn- change-slot
   "The slot whose handler runs LAST for one keystroke, or nil when the
