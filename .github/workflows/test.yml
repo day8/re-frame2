@@ -1170,6 +1170,70 @@ jobs:
       - name: Verify every public name on the door against sections 2.1 and 2.2
         run: python implementation/hicasso/scripts/check_facade_inventory.py
 
+  # rf2-r5iy7 — the guide-sample gate's own unconditional job, the FOURTH
+  # instance of the shape above and the cleanest case of the four.
+  #
+  # `implementation/hicasso/scripts/check_guide_samples.py` reads TWO input
+  # families (measured at the script, not assumed — `GUIDE_DIR` L121 and
+  # `SOURCE_ROOTS` L128-131):
+  #
+  #   docs/core/hicasso/**                        the 25 guide pages whose 188
+  #                                               fenced blocks it pins
+  #   implementation/hicasso/src, .../test_kit/src  the sources it resolves the
+  #                                               34 hicasso verb use-sites against
+  #
+  # It is chained into `npm run test:hicasso-invariants`, whose only hosted
+  # invocation is a step of the `cljs` job under
+  # `needs.detect_changed_surfaces.outputs.cljs_node_test == 'true'`. ONLY THE
+  # SECOND FAMILY ARMS THAT OUTPUT. The guide tree arms NOTHING AT ALL —
+  # `.github/scripts/report-changed-surfaces.sh docs/core/hicasso/00-installation.md`
+  # returns ALL THIRTY-TWO outputs false, exit 0 — so a guide-only PR, which is
+  # precisely the edit this gate exists to police and by far the commonest one
+  # against a documentation tree, runs the check NOWHERE. It would then next
+  # redden on somebody else's source PR, over a block they did not write.
+  #
+  # UNCONDITIONAL, rather than a new classifier output, for the reason the three
+  # jobs above give at length and this one will not restate — with one addition
+  # specific to this checker. Arming the EXISTING output from `docs/core/hicasso/**`
+  # was measured and rejected: `cljs_node_test` is consumed by exactly one job,
+  # the ~10-minute node build, so it would schedule that build on a prose typo.
+  # And a NEW dedicated output would have to widen every time the checker learns
+  # to read another file — it already reads two families across two trees — which
+  # is a fresh chance to make the very mistake being repaired. The work here is
+  # sub-second pure Python (measured 0.31s self-test + 0.61s live, no node, no
+  # JVM), so there is nothing to gate for.
+  #
+  # IT STAYS CHAINED INTO `test:hicasso-invariants` TOO: that chain is the local
+  # spine lane and the artefact's one-command run, and this job is the CI
+  # reachability the chain cannot give it. `scripts/check_fast_pr_gap.py` carries
+  # a matching `SPINE_LANES` entry so these two steps are not over-reported as a
+  # local gap.
+  hicasso-guide-samples:
+    name: Hicasso guide samples (rf2-r5iy7)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
+        with:
+          python-version: '3.12'
+
+      # Self-test first, then the live run — the order every other pure-Python
+      # contract in this workflow uses. It drives each rule red in turn over
+      # synthetic inputs, so a green live run below is a verdict rather than a
+      # checker that has quietly stopped firing.
+      - name: Self-test the guide-sample rules
+        run: python implementation/hicasso/scripts/check_guide_samples.py --self-test
+
+      # The live run PRINTS what it inspected — how many fenced blocks it pinned
+      # across how many pages, how many verb use-sites it resolved, and how many
+      # declared divergences are still live. A gate that cannot say what it
+      # covered is how this class of hole survives a green badge.
+      - name: Verify every fenced guide sample against its pin and the sources
+        run: python implementation/hicasso/scripts/check_guide_samples.py
+
   # rf2-3mh2f — CI arm of the STALE WORKER-SNAPSHOT guard (rf2-ia8o7).
   #
   # `bd` auto-stages the full-database JSONL export in EVERY checkout, so a
@@ -6496,6 +6560,14 @@ jobs:
       # meaning anything — and an advisory gate over that is a gate nobody's
       # merge waits on.
       - hicasso-facade-inventory
+      # rf2-r5iy7 — required for the same reason, one gate over, and on the
+      # starkest version of it: the guide tree this gate reads arms NO
+      # classifier output at all, so before this job every guide-only PR ran
+      # the check nowhere. A job absent from this list is advisory whatever its
+      # own gate says, which would leave the 188 pinned samples policed only on
+      # PRs that happen to touch hicasso source — i.e. on somebody other than
+      # the author of the drift.
+      - hicasso-guide-samples
       # rf2-3mh2f — the .beads guard's CI arm. Required, so the tracker
       # database cannot ride a PR past a `--no-verify` or an uninstalled hook.
       - beads-pr-boundary
