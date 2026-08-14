@@ -281,8 +281,8 @@ MODULES = [
     {
         # rf2-sh56.  The forms module — `forms/buffered-field` and the
         # three events its commit protocol is made of — shipped into v0
-        # by operator ruling because `draft-guide/05-forms.md` documents
-        # it and the code owed the chapter a namespace.
+        # by operator ruling because `docs/core/hicasso/05-forms.md`
+        # documents it and the code owed the chapter a namespace.
         #
         # NO ENGINE, for the `native` row's reason and not for a
         # different one.  This module owns exactly one file; everything
