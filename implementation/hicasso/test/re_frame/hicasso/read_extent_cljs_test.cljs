@@ -376,7 +376,7 @@
   ;; and call it with a real event; the extent law does not depend on which.
   (let [!ran     (atom 0)
         element  (element-of
-                   (fn [_] [:button {:on-click (h/hfn [_]
+                   (fn [_] [:button {:on-click (h/event [_]
                                                  (swap! !ran inc)
                                                  (h/sub [:re/right]))}
                             "go"]))
@@ -398,7 +398,7 @@
     ;; ambient dispatch is captured at lowering time on purpose.
     (let [before   (rf/with-frame frame-id @(rf/subscribe [:re/left]))
           element2 (element-of
-                     (fn [_] [:button {:on-click (h/hfn [_] [:re/bump])} "go"]))]
+                     (fn [_] [:button {:on-click (h/event [_] [:re/bump])} "go"]))]
       ((.. element2 -props -onClick) #js {})
       (testing "a callback may DISPATCH after the render — the extent law
                 fences reads, and the machinery is demonstrably alive at the
@@ -419,7 +419,7 @@
   ;; not guess which render owns the read.
   (let [!ran    (atom 0)
         element (element-of
-                  (fn [_] [:div {:render-row (h/hfn [_]
+                  (fn [_] [:div {:render-row (h/event [_]
                                                (swap! !ran inc)
                                                (h/sub [:re/right]))}]))
         render-row (.. element -props -renderRow)

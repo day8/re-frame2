@@ -195,7 +195,7 @@ implementation/
                              rename table and the forbidden import prefixes.
     scripts/check_freeze.py  The gate over that pin: the bench tree has not drifted, and
                              nothing in the package imports it. --self-test included.
-    src/re_frame/hicasso.cljc      Public door — the three macros (defview, hfn, defhost)
+    src/re_frame/hicasso.cljc      Public door — the three macros (defview, event, defhost)
                                    and the author-facing vars, each an alias.
     src/re_frame/hicasso/impl/     The copied runtime: codec, controlled, intent, slot,
                                    state, presence, route-link, runtime, boundary, mount.

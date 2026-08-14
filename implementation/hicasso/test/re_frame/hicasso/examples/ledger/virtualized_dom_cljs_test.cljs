@@ -96,7 +96,7 @@
                   :viewport-height views/viewport-height
                   :overscan        views/overscan
                   :pinned-index    pinned
-                  :render-row      (h/hfn [i offset]
+                  :render-row      (h/event [i offset]
                                      (h/as-element
                                        [views/ledger-row {:index i :offset offset}]))}]]))
 
@@ -112,7 +112,7 @@
                   :viewport-height views/viewport-height
                   :overscan        views/overscan
                   :pinned-index    -1
-                  :render-row      (h/hfn [i offset]
+                  :render-row      (h/event [i offset]
                                      (h/as-element
                                        [views/ledger-row {:key    (views/row-key i)
                                                           :index  i

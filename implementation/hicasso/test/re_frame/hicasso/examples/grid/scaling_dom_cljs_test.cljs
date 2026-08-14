@@ -116,7 +116,7 @@
                ;; A FRESH closure per cell per render. Written with the
                ;; one callback form, which is the spelling an author
                ;; reaches for when they want the event itself.
-               :on-edit (h/hfn [e] [::events/edit row col (.. e -target -value)])}]
+               :on-edit (h/event [e] [::events/edit row col (.. e -target -value)])}]
              [coarse-cell {:key   (str col)
                            :row   row
                            :col   col

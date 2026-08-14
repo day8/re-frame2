@@ -108,7 +108,7 @@
 
   Arrives through the crossing's `:on-window` callback, which is a
   VALUE-first foreign contract — two numbers and no event — so the view
-  writes `h/hfn` there and returns this vector from it."}
+  writes `h/event` there and returns this vector from it."}
   (fn [{:keys [db]} [_ {:keys [from to]}]]
     {:db (assoc db :window {:from from :to to})}))
 

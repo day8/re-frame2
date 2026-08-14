@@ -132,7 +132,7 @@
   `intent/*dispatch*` was unbound at the moment the codec reached them,
   and before the binding below existed an intent at an event position on
   the fallback or on a native child raised
-  `:rf.error/hicasso-intent-outside-boundary` at render, while an `h/fn`
+  `:rf.error/hicasso-intent-outside-boundary` at render, while an `h/event`
   at one raised the same id at invocation.
 
   The fallback half is the sharp one, because it is the half the ruling

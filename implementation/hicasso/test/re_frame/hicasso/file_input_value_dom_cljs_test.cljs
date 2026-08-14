@@ -3,7 +3,7 @@
 
   The guide rules it out in one sentence — chapter 04, supported controls:
   the File input row reads `no controlled value`, with `:on-change` and an
-  `h/fn` reading `.files` as the whole of its event form, `because the
+  `h/event` reading `.files` as the whole of its event form, `because the
   platform owns their value`. The same chapter states the posture the two
   rows below enforce: unsupported controlled shapes are REJECTED rather
   than approximated. Both defects are that sentence not being kept.
@@ -29,7 +29,7 @@
 
   Two ids rather than one, because they are two authoring mistakes with
   two fixes: the prop wants DELETING (the platform owns the selection),
-  the marker wants REPLACING with an `h/fn`. See the two Spec 009 rows.
+  the marker wants REPLACING with an `h/event`. See the two Spec 009 rows.
 
   ## The empty string is not the defect — it is the reset idiom
 
@@ -211,7 +211,7 @@
   (testing "and a file input with no :value at all is the supported path"
     (is (nil? (thrown-by #(codec/as-element
                            [:input {:type :file :on-change noop-change}])))
-        "uncontrolled, with the selection read off `.files` in an h/fn")))
+        "uncontrolled, with the selection read off `.files` in an h/event")))
 
 (deftest every-other-controlled-field-is-untouched
   (doseq [[what hiccup]
@@ -404,7 +404,7 @@
                   "the string the marker used to hand the author")
               (is (= 1 (.-length (.-files n)))
                   "while the answer they wanted was here all along, on
-                   `.files`, which is what an h/fn reads")
+                   `.files`, which is what an h/event reads")
               (is (= :rf.error/hicasso-file-input-value-marker
                      (id-of (thrown-by
                              #(intent/materialize

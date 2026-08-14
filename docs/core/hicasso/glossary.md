@@ -203,8 +203,8 @@ inspect it with `=`.
 
 Related: [Events as data](03-events-as-data.md).
 
-<a id="hfn"></a>
-### `h/fn`
+<a id="event"></a>
+### `h/event`
 
 The one marked callback form (HD-024). Expands to an ordinary function. The
 contract comes from the **position** where it is written: event positions
@@ -213,7 +213,7 @@ props refuse the mark.
 
 ```clojure
 [:input {:type "file"
-         :on-change (h/fn [e]
+         :on-change (h/event [e]
                       [:upload/picked
                        (js/Array.from (.. e -target -files))])}]
 ```
@@ -341,7 +341,7 @@ A map from DOM `.key` strings to event intents, used at `:on-key-down` or
   "Escape" [:editor/cancel]}}
 ```
 
-Unlisted keys are ignored. There is no modifier DSL; use [`h/fn`](#hfn)
+Unlisted keys are ignored. There is no modifier DSL; use [`h/event`](#event)
 for cases such as Ctrl+Enter. Key maps suppress matches during IME composition.
 
 Related: [Events as data](03-events-as-data.md).

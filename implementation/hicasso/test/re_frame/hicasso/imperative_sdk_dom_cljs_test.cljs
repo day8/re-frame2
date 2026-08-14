@@ -48,7 +48,7 @@
   | the wrapper component | `n/defcomponent` | yes |
   | the DOM node it owns | `n/$` with a `:ref` | yes |
   | the crossing into hiccup | `h/defhost` | yes |
-  | the SDK's outward callback | `:callbacks {:on-pick :event}` + `h/hfn` | yes |
+  | the SDK's outward callback | `:callbacks {:on-pick :event}` + `h/event` | yes |
   | the throw/retry region | `h/error-boundary` `:fallback` / `:reset-key` | yes |
   | the vendor itself | [[new-spark]] | **a stand-in** |
 
@@ -311,7 +311,7 @@
 
 (h/defhost spark
   "The declared host seam. `:on-pick` carries the `:event` contract, so an
-  `h/hfn` written there sees the vendor's own arguments in order and a
+  `h/event` written there sees the vendor's own arguments in order and a
   vector it returns dispatches under the frame of the boundary that wrote
   the crossing — which is what makes the SDK's out-of-React callback a
   re-frame2 intent rather than a closure over whatever `dispatch` happened
@@ -343,7 +343,7 @@
   [{:keys [data]}]
   [:div
    [:span.picks (str (h/sub [::picks]))]
-   [spark {:data data :on-pick (h/hfn [v] [::picked v])}]])
+   [spark {:data data :on-pick (h/event [v] [::picked v])}]])
 
 (h/defview two-screen
   "Two islands under one root — the positive control that says [[!live]]
@@ -351,8 +351,8 @@
   [{:keys [data]}]
   [:div
    [:span.picks (str (h/sub [::picks]))]
-   [spark {:data data :on-pick (h/hfn [v] [::picked v])}]
-   [spark {:data (str data "-b") :on-pick (h/hfn [v] [::picked v])}]])
+   [spark {:data data :on-pick (h/event [v] [::picked v])}]
+   [spark {:data (str data "-b") :on-pick (h/event [v] [::picked v])}]])
 
 (h/defview toggle-screen
   "The island behind a `when`, with its identity under the caller's
@@ -369,7 +369,7 @@
   [:div
    [:span.picks (str (h/sub [::picks]))]
    (when show?
-     [spark {:key instance :data data :on-pick (h/hfn [v] [::picked v])}])])
+     [spark {:key instance :data data :on-pick (h/event [v] [::picked v])}])])
 
 (h/defview detonator
   "A SIBLING of the island that throws during render once armed. A
@@ -390,7 +390,7 @@
    [:span.picks (str (h/sub [::picks]))]
    [h/error-boundary {:fallback [:p.fell "fell"] :reset-key attempt}
     [:div
-     [spark {:data data :on-pick (h/hfn [v] [::picked v])}]
+     [spark {:data data :on-pick (h/event [v] [::picked v])}]
      [detonator {:boom? boom?}]]]])
 
 ;; ---------------------------------------------------------------------------
@@ -557,7 +557,7 @@
                         "two live instances, one external event, two intents")
                     (is (= "from-outside-react" (picked))
                         "and the value crossed the seam — the vendor's own
-                         argument, through `h/hfn`, into app-db"))
+                         argument, through `h/event`, into app-db"))
 
                   (testing "CENSUS 3 — residue BEFORE the reset. `mount/release!`
                             empties every table by fiat, so a census taken after
@@ -609,7 +609,7 @@
 
                   (testing "four re-renders — two that move `:data` and two
                             that move nothing at all. Every one of them mints
-                            a fresh `h/hfn` at `:on-pick`, which is the
+                            a fresh `h/event` at `:on-pick`, which is the
                             standing rule and the exact input that would
                             defeat a dependency-bearing acquire effect.
                             (React coalesces the four concurrent renders into

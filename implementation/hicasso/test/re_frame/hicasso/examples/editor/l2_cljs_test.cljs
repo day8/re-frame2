@@ -98,9 +98,9 @@
     ;; return of the `.. e -target -value` that `::h/value` exists to
     ;; delete.
     ;;
-    ;; SPELLED `h/hfn`, and that cost this witness a compile. The door's
-    ;; own `as-element` docstring writes the escape as `(h/fn [i] …)` and
-    ;; so does `impl.intent`'s; `h/fn` is the authoring surface the name
+    ;; SPELLED `h/event`, and that cost this witness a compile. The door's
+    ;; own `as-element` docstring writes the escape as `(h/event [i] …)` and
+    ;; so does `impl.intent`'s; `h/event` is the authoring surface the name
     ;; was chosen FOR and is not a var, so the published spelling does
     ;; not compile. What the compiler says is
     ;; `Use of undeclared Var re-frame.hicasso/fn` plus one
@@ -109,7 +109,7 @@
     ;; render. Reported by rf2-hic-078; the naming gap itself is
     ;; acknowledged in `h/defview`'s docstring and belongs to the bead
     ;; that owns naming.
-    (let [cb (h/hfn [e] [::events/edit {:field :title
+    (let [cb (h/event [e] [::events/edit {:field :title
                                         :value (.. e -target -value)}])]
       (is (ht/callback? cb)
           "it is the one callback form, so a position expecting an intent
@@ -300,6 +300,6 @@
   (let [tree    (field-tree :title {:value "T" :revision 0})
         offered (ht/intents tree)]
     (is (= [[::events/edit :title ::h/value]] offered)
-        "one site, one vector. This application needed `h/fn` nowhere —
+        "one site, one vector. This application needed `h/event` nowhere —
          every intent said what it meant as data, which is rf2-hic-025's
-         observation about `hfn` confirmed from a form of four controls")))
+         observation about `event` confirmed from a form of four controls")))

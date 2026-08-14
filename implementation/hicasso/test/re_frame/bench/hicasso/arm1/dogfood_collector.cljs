@@ -23,7 +23,7 @@
   ## The landed-surface audit (rf2-2rtt6.67)
 
   Checked against every authoring spelling that has landed since this
-  file was written: `h/fn` (HD-024), `:&` (HD-023), the `::h/prevent`
+  file was written: `h/event` (HD-024), `:&` (HD-023), the `::h/prevent`
   head (HD-026), the `::h/navigate` head (HD-027), and presence as
   data (HD-025). **None is needed on this screen** — every event position
   takes a literal intent vector, nothing forwards a props remainder, no

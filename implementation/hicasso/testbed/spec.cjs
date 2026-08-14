@@ -990,7 +990,7 @@ async function selectSingleEchoesCommitted(page, w) {
   w.eq(run.refused.model, 'two', 'with the store never having moved');
 }
 
-// SELECT, multiple — the SUPPORTED spelling. `h/hfn` reads
+// SELECT, multiple — the SUPPORTED spelling. `h/event` reads
 // `selectedOptions`, which is the only expression of a multi-selection the
 // DOM has.
 async function selectMultipleSupported(page, w) {
@@ -1193,7 +1193,7 @@ async function typesWithoutACaretEchoCommitted(page, w) {
 // reads one, and nothing in `impl.controlled` that could apply: the guards
 // are `input` and `textarea`, by tag. What an author gets is an ordinary
 // element whose children are the model's and whose edits come back through
-// `h/hfn`. The row exists so that "not supported as a controlled field" is
+// `h/event`. The row exists so that "not supported as a controlled field" is
 // a measured property rather than an omission nobody checked.
 async function contenteditableIsNotAControlledField(page, w) {
   const run = await page.evaluate(async () => {

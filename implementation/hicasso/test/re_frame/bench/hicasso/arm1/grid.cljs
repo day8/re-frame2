@@ -43,7 +43,7 @@
   ## What the views are, and what they are not
 
   One `defview` per cell, reading through the ambient collector, writing
-  through the intent-vector surface with `::h/value`. No `h/fn`, no ref,
+  through the intent-vector surface with `::h/value`. No `h/event`, no ref,
   no effect and no per-instance state — the claim under test is that the
   ordinary authoring surface meets HD-019's door, so anything the cell
   needed beyond `:value` / `:on-input` would be part of the finding."

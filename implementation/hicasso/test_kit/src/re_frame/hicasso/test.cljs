@@ -288,7 +288,7 @@
 ;; L1 — the boundary ABI, read off minted values
 ;; ---------------------------------------------------------------------------
 ;;
-;; `h/defview`, `h/defhost` and `h/hfn` are macros, and what a macro
+;; `h/defview`, `h/defhost` and `h/event` are macros, and what a macro
 ;; expansion DECIDES is observable on the value it hands back: the marker
 ;; the expansion's target minted. Asserting the marker rather than the
 ;; expanded form is what keeps a safe refactor quiet and a changed
@@ -314,7 +314,7 @@
   (codec/host-head? v))
 
 (defn callback?
-  "Is `v` the one callback form — the value `h/hfn` expands to? False for
+  "Is `v` the one callback form — the value `h/event` expands to? False for
   an identically-written plain `fn`, so a position that imposes a
   contract can tell them apart and so can a test."
   [v]

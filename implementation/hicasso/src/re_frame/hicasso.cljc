@@ -26,11 +26,16 @@
   - **`arm1/lang.clj`'s three macros live in THIS namespace.** They are
     the authoring surface, so this is where the bead puts them; their
     bodies are the prototype's, with only the emitted target namespaces
-    renamed. The macro names are the prototype's too — `hfn` rather than
-    `fn`, `hframe` rather than `frame` — because rf2-hic-001 renames
-    nothing. The authoring surface those spellings were chosen FOR is
-    `h/fn` and `h/frame`; closing that gap is a naming decision and
-    belongs to the bead that owns naming, not to a mechanical move.
+    renamed. The macro names WERE the prototype's too — `hfn` rather than
+    `fn`, `hframe` rather than `frame` — because rf2-hic-001 renamed
+    nothing and left the gap to the bead that owns naming.
+
+    **Half that gap is now closed.** `hfn` is `event`, taught and exported
+    alike as `h/event` (naming-ledger row 1, operator ruling; swept by
+    rf2-hic-066). `hframe` still stands: row 18 RETIRES the verb rather
+    than respelling it, in favour of core's `rf/current-frame-id` and a
+    zero-arity `rf/capture-frame` — and that one waits on a seam, because
+    zero-arity `rf/capture-frame` refuses inside a Hicasso body today.
   - **Every var below keeps its prototype name.** This namespace adds no
     behaviour: each `def` is an alias, and the value on the right is the
     one the bench suites measured.
@@ -78,7 +83,7 @@
                [re-frame.hicasso.impl.portal :as impl-portal]
                [re-frame.hicasso.impl.route-link :as impl-route-link]
                [re-frame.hicasso.impl.state :as impl-state]))
-  #?(:cljs (:require-macros [re-frame.hicasso :refer [defview defhost hfn]])))
+  #?(:cljs (:require-macros [re-frame.hicasso :refer [defview defhost event]])))
 
 ;; ---------------------------------------------------------------------------
 ;; The three macros — `re-frame.bench.hicasso.arm1.lang`, moved
@@ -113,7 +118,7 @@
       [:li    {:on-click [:todo/toggle id]}]               ;; a vector
       [:input {:on-key-down {\"Enter\"  [:todo/commit id]    ;; a map
                              \"Escape\" [:todo.ui/cancel id]}}]
-      [:input {:on-change (h/hfn [e] …)}]                  ;; the one callback
+      [:input {:on-change (h/event [e] …)}]                  ;; the one callback
       [:div   {:on-focus  a-plain-fn}]                     ;; a plain fn
 
   - **A vector is an intent**, dispatched into this boundary's frame.
@@ -132,7 +137,7 @@
     have, which is why the key map is the spelling to reach for — the
     hand-written version yields an application that works and is wrong
     for every user who composes.
-  - **[[hfn]] (`h/fn`) is the one callback form**, for when the event
+  - **[[event]] (`h/event`) is the one callback form**, for when the event
     itself is wanted. At an `on-*` position a returned vector is
     dispatched and any other return is ignored.
   - **A plain function is passed through untouched**, reaching React by
@@ -235,14 +240,25 @@
                   (re-frame.hicasso.impl.error/declared!)))))))))
 
 #?(:clj
-   (defmacro hfn
-     "**The one callback form** (HD-024). `h/fn` in the authoring surface;
-  spelled `hfn` here because `h/fn` is qualified in the product and a
-  bare `fn` would shadow `cljs.core/fn` on a `:refer`.
+   (defmacro event
+     "**The one callback form** (HD-024). `h/event` in the authoring
+  surface, and `event` here — the same name, since the door is reached
+  qualified. It was `hfn` until naming-ledger row 1 was swept
+  (rf2-hic-066): the guide had always taught `h/fn`, which is a name the
+  door could never carry, because a bare `fn` shadows `cljs.core/fn` for
+  anyone who `:refer`s it. `h/handler` was rejected as a cross-adaptor
+  false friend — `handler` means return-ignored imperative work in the
+  established vocabulary, and this form's contract is `event`.
+
+  **The name states ONE of the three contracts this form can carry**, and
+  which one is selected by POSITION rather than by the name — see
+  [[re-frame.hicasso.impl.intent]], which tabulates all three. Carrying
+  that table to wherever this name is taught is rf2-0fd3b's, not this
+  docstring's.
 
   Expands to nothing but a marked `fn`:
 
-      (hfn [e] (js/Array.from (.. e -target -files)) …)
+      (event [e] (js/Array.from (.. e -target -files)) …)
       ;; =>
       (re-frame.hicasso.impl.intent/callback (fn [e] …))
 
@@ -264,7 +280,7 @@
         {:callbacks {:on-change :event}})
 
       [date-picker {:selected  due-date
-                    :on-change (hfn [date & _] [:task/set-due date])}]
+                    :on-change (event [date & _] [:task/set-due date])}]
 
   `opts` is optional and carries `:callbacks` — a FINITE map from exact
   prop names to `:event`, `:handler` or `:render`, never inferred from an
@@ -345,7 +361,7 @@
   defaults, the refusals and the crossing itself are
   [[re-frame.hicasso.impl.codec/mint-host!]]'s.
 
-  The callback is an [[hfn]] and not an intent vector because
+  The callback is an [[event]] and not an intent vector because
   react-datepicker calls `onChange(date, event)` — VALUE-first, with no
   event at argument one — while the vector spelling is EVENT-first
   (HD-024's argument law, in
@@ -525,7 +541,7 @@
 
       [virtual-list
        {:item-count (count ids)
-        :render-row (h/hfn [i]
+        :render-row (h/event [i]
                       (h/as-element
                         [:li.row {:on-click [:feed/open (nth ids i)]}
                          (str (nth ids i))]))}]

@@ -77,7 +77,7 @@
             [reagent.impl.batching]
             ["react-dom" :as react-dom]
             ["react-dom/client" :as react-dom-client])
-  (:require-macros [re-frame.bench.hicasso.arm1.lang :refer [defview hfn]]))
+  (:require-macros [re-frame.bench.hicasso.arm1.lang :refer [defview event]]))
 
 (def frame-id ::ime)
 
@@ -179,7 +179,7 @@
   through the ambient collector, an `:on-input` intent carrying the value
   marker — which is what makes the codec install the converge around it
   (rf2-fki5d) — and a key-map whose `\"Enter\"` branch is what the
-  composition gate has to stop. The composition probes are `hfn`
+  composition gate has to stop. The composition probes are `event`
   callbacks; each returns nil deliberately, because an event callback's
   returned VECTOR is dispatched."
   [{:keys [field]}]
@@ -188,9 +188,9 @@
            :value       (sub [:ime/cell field])
            :on-input    [:ime/edit field :re-frame.hicasso/value]
            :on-key-down {"Enter" [:ime/commit field]}
-           :on-composition-start  (hfn [e] (probe-handler-event! field "compositionstart" e) nil)
-           :on-composition-update (hfn [e] (probe-handler-event! field "compositionupdate" e) nil)
-           :on-composition-end    (hfn [e] (probe-handler-event! field "compositionend" e) nil)}])
+           :on-composition-start  (event [e] (probe-handler-event! field "compositionstart" e) nil)
+           :on-composition-update (event [e] (probe-handler-event! field "compositionupdate" e) nil)
+           :on-composition-end    (event [e] (probe-handler-event! field "compositionend" e) nil)}])
 
 (defview ime-grid
   []

@@ -118,7 +118,7 @@
   |---|---|---|---|
   | Native tag | attr map | trailing forms; seqs realized once and flattened one level; `nil`/`false` render nothing, `true` errors | `:key` in the attr map |
   | Boundary (a marked `defview` product) | one props map, every lazy sequence in it realized and every unforced `delay` in it refused ([[realize-deep]]) | trailing forms as `(:children props)`, a realized vector | `:key` in the props map, extracted before the body sees props |
-  | Host (a `defhost` declaration — HD-011) | attr map: declared `:callbacks` slots lowered by their DECLARED contract, declared `:slots` lowered hiccup→ReactNode by [[as-element]] under the writing boundary's frame (rf2-hic-035), `:ref` a callback ref (HD-022's vector refusal holds here), the class slot coerced and composed by [[class-names]] exactly as at a native tag (rf2-2rtt6.119), an `h/fn` at any slot none of those claimed REFUSED (rf2-2rtt6.116), everything else converted shallowly ([[host-prop-value]]) | trailing forms converted hiccup→element, handed to the foreign component as React children | `:key` in the attr map |
+  | Host (a `defhost` declaration — HD-011) | attr map: declared `:callbacks` slots lowered by their DECLARED contract, declared `:slots` lowered hiccup→ReactNode by [[as-element]] under the writing boundary's frame (rf2-hic-035), `:ref` a callback ref (HD-022's vector refusal holds here), the class slot coerced and composed by [[class-names]] exactly as at a native tag (rf2-2rtt6.119), an `h/event` at any slot none of those claimed REFUSED (rf2-2rtt6.116), everything else converted shallowly ([[host-prop-value]]) | trailing forms converted hiccup→element, handed to the foreign component as React children | `:key` in the attr map |
   | Fragment `[:<> …]` | optional attr map | trailing forms | on the fragment's props map |
 
   A React element is a legal child anywhere. No metadata keys, no second
@@ -2796,7 +2796,7 @@
   a value handed to a foreign API — not a position — so it crosses by
   identity and simply runs (the position table's deletion row). The
   MARKED form is not, since rf2-2rtt6.116:
-  [[refuse-unclaimed-host-callback!]] takes an `h/fn` at the same
+  [[refuse-unclaimed-host-callback!]] takes an `h/event` at the same
   position, because that one asked for a contract."
   [^js head k v]
   (fail! :rf.error/hicasso-host-undeclared-callback
@@ -2815,7 +2815,7 @@
           :declared (into #{} (keys (unchecked-get head "callbacks")))}))
 
 (defn- refuse-unclaimed-host-callback!
-  "An `h/fn` at a host prop slot NOTHING CLAIMED — not the `:ref` slot,
+  "An `h/event` at a host prop slot NOTHING CLAIMED — not the `:ref` slot,
   not a slot the declaration named, not the class slot. The marked form
   is a REQUEST that the position impose a contract, and at an unclaimed
   slot no position selected one, so the mark reads nothing and the
@@ -2823,18 +2823,18 @@
   callable, so nothing throws.
 
   **The trap is the `:event` contract's convenience.**
-  `[my-host {:on-pick (h/hfn [x] [:row/pick x])}]`, with `:on-pick` absent
+  `[my-host {:on-pick (h/event [x] [:row/pick x])}]`, with `:on-pick` absent
   from `:callbacks`, crosses; the library calls it; it returns an intent
   vector; the library discards the return; nothing dispatches. The user's
   click does nothing, in production, with no diagnostic anywhere — the
   silently dead handler class the sibling refusal above names as the one
-  every loud error in this codec exists to delete. An `h/fn` returning
+  every loud error in this codec exists to delete. An `h/event` returning
   that same vector is that defect one level of indirection down.
 
   **This is derived, not new policy** (`rf2-2rtt6.116`). `mint-host!`
   already refuses an option it does not know, on the reasoning HD-011's
   addendum records: a policy could be written and never applied, and the
-  silent-ignore was its own defect. An `h/fn` whose contract is never
+  silent-ignore was its own defect. An `h/event` whose contract is never
   selected IS a policy written and never applied.
 
   **A PLAIN function at the same slot stays legal and untouched.** It is
@@ -2848,20 +2848,20 @@
   unanswered** (rf2-hic-035), and the message says so rather than
   claiming nothing claims the prop. A slot claims the position for
   MARKUP: it lowers hiccup ([[as-element]]) and has no callback contract
-  to select, so an `h/fn` there is the same policy written and never
+  to select, so an `h/event` there is the same policy written and never
   applied. `node-slot?` is what the message branches on; the fault, the
   id and the recovery are one."
   [^js head k node-slot?]
   (fail! :rf.error/hicasso-host-unclaimed-callback
          're-frame.hicasso.impl.codec/host-element
          (str "The host " (unchecked-get head "displayName") " was handed an "
-              "h/hfn at " (pr-str k) ", which no CALLBACK contract claims — its "
+              "h/event at " (pr-str k) ", which no CALLBACK contract claims — its "
               "declaration names " (pr-str (into #{} (keys (unchecked-get head "callbacks"))))
               (if node-slot?
                 (str " and declares " (pr-str k) " a ReactNode slot, which is "
                      "a markup position: it lowers hiccup, and it has no "
                      "contract to give a function. ")
-                (str ". An h/hfn asks the POSITION for a contract, and an "
+                (str ". An h/event asks the POSITION for a contract, and an "
                      "unclaimed slot has none to give: it would cross as an "
                      "ordinary function whose return the library discards, so "
                      "an intent it returned would never dispatch. "))
@@ -2888,7 +2888,7 @@
   a position MEANS here comes from the DECLARATION rather than from the
   key's spelling. A declared slot takes its declared contract; an
   event-spelled slot the declaration does not name is refused rather
-  than inferred; an `h/fn` at any slot nothing claimed is refused too,
+  than inferred; an `h/event` at any slot nothing claimed is refused too,
   because the mark is a request for a contract and no position selected
   one ([[refuse-unclaimed-host-callback!]], rf2-2rtt6.116); everything
   else crosses shallowly. `event?` is gated on
@@ -2932,7 +2932,7 @@
   — the same conversion the crossing's CHILDREN take, in the same render
   window — so hiccup at a declared slot lowers under the frame that
   wrote the crossing, a string or a ready React element passes as-is,
-  and a seq splices. An `h/fn` there is refused
+  and a seq splices. An `h/event` there is refused
   ([[refuse-unclaimed-host-callback!]]): markup is not a contract.
 
   The `reserved?` skip sits ABOVE both declaration arms and stays there
@@ -3044,10 +3044,10 @@
   a reserved `:ref` vector and pass a callback ref through untouched,
   lower every DECLARED slot by its declared contract
   ([[re-frame.hicasso.impl.intent/lower-declared-prop]] — an
-  `h/fn` takes the contract's wrapper, an intent vector or key-map
+  `h/event` takes the contract's wrapper, an intent vector or key-map
   lowers as at a native position), lower every declared `:slots`
   position hiccup→ReactNode ([[as-element]], rf2-hic-035), refuse an
-  event-spelled intent at an UNDECLARED slot and an `h/fn` at any
+  event-spelled intent at an UNDECLARED slot and an `h/event` at any
   UNCLAIMED one, and convert everything else shallowly
   ([[host-prop-value]]) under its camelCased name.
 

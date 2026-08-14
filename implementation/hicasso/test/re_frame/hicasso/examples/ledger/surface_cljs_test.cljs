@@ -106,7 +106,7 @@
     ;; Positive controls, because a fence over an empty graph is green
     ;; having checked nothing.
     (is (some #{"re-frame.hicasso"} (get graph "re-frame.hicasso.examples.ledger.views"))
-        "the views depend on the public door — `defview`, `defhost`, `hfn`,
+        "the views depend on the public door — `defview`, `defhost`, `event`,
          `as-element`, `sub`")
     (is (some #{vendor-ns} (get graph "re-frame.hicasso.examples.ledger.views"))
         "and on the virtualizer, which is the whole point of the screen")
@@ -225,7 +225,7 @@
   adapter namespace, no interop shim — the fourth entry is the vendor
   itself, reached through a declaration."
   {"re-frame.core"        "events and subscriptions"
-   "re-frame.hicasso"     "the public door — defview, defhost, hfn, as-element,
+   "re-frame.hicasso"     "the public door — defview, defhost, event, as-element,
                            sub, root!, render!, and the ::h/value marker"
    "re-frame.adapter.uix" "the reactive adapter, installed once at boot
                            (Spec 006 §Adapter selection at boot)"

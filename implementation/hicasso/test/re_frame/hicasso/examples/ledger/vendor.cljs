@@ -80,7 +80,7 @@
   `renderRow` is **value-first**: it is handed the row's model index and
   the pixel offset it must position itself at, and there is no event
   anywhere in its arguments. That is HD-024's motivating shape, and it is
-  why the ledger writes `h/hfn` at that position and not an intent
+  why the ledger writes `h/event` at that position and not an intent
   vector. `onWindow` is value-first for the same reason.
 
   The rows position THEMSELVES, at the offset they are given, inside a

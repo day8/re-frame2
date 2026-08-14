@@ -276,7 +276,7 @@
                  [(:tag node) k])]
     (is (= [] (vec opaque))
         "not one function-valued prop in the whole rendering. Give any
-         handler a `(h/hfn …)` or a plain `fn` and this row names the tag
+         handler a `(h/event …)` or a plain `fn` and this row names the tag
          and the prop it appeared on")))
 
 (deftest every-control-has-an-accessible-name
@@ -301,7 +301,7 @@
    [:input#hand-rolled
     {:type     "text"
      :value    "x"
-     :on-input (h/hfn [e] [::events/edit :assignee (.. e -target -value)])}]
+     :on-input (h/event [e] [::events/edit :assignee (.. e -target -value)])}]
    [:button.unnamed {:type "button" :on-click [::events/submit]}]])
 
 (deftest the-two-structural-rows-catch-what-they-claim-to-and-no-more

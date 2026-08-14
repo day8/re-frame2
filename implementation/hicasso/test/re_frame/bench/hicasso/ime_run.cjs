@@ -289,7 +289,7 @@ async function s1Carriage(page, cdp, R) {
   if (R.impl === 'hicasso') {
     const hStarts = ofType(handler, 'compositionstart');
     const hEnds = ofType(handler, 'compositionend');
-    R.check('s1: React delivered onCompositionStart/End to the hfn probes',
+    R.check('s1: React delivered onCompositionStart/End to the event probes',
       hStarts.length === 1 && hEnds.length === 1, { starts: hStarts.length, ends: hEnds.length });
     R.record('s1: synthetic composition data at the handler',
       ofType(handler, 'compositionupdate').map((e) => e.syntheticData));

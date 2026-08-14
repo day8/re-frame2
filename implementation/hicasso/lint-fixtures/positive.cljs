@@ -29,11 +29,11 @@
 ;; ---------------------------------------------------------------------------
 
 (h/defview read-inside-a-callback [_]
-  [:button {:on-click (h/hfn [_e] [:todo/toggle (h/sub [:todo/current])])}
+  [:button {:on-click (h/event [_e] [:todo/toggle (h/sub [:todo/current])])}
    "toggle"])
 
 (h/defview grouped-read-inside-a-callback [_]
-  [:button {:on-click (h/hfn [_e]
+  [:button {:on-click (h/event [_e]
                         (let [{:keys [id]} (use-subs {:id [:todo/current]})]
                           [:todo/toggle id]))}
    "toggle"])
@@ -102,7 +102,7 @@
   [:div [#(vector :span "hi")]])
 
 (h/defview callback-form-in-head [_]
-  [:div [(h/hfn [_e] [:noop])]])
+  [:div [(h/event [_e] [:noop])]])
 
 ;; The RETURNED ROOT vector is itself the illegal head -- the children-position
 ;; rule cannot see this one (merged-PR audit #7784).

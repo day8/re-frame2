@@ -119,7 +119,7 @@
 ;; The sharpest loss is `arm1/lang.clj`, and it deserves naming because it is
 ;; not proportionate to the damage. Only ONE of its three macros re-points:
 ;; `defview`, whose expansion target moved from `impl.runtime/mint-view!` to
-;; `impl.collector/mint-view!`. `hfn` and `defhost` still match their donor
+;; `impl.collector/mint-view!`. `event` and `defhost` still match their donor
 ;; exactly. But a row is judged whole — the alternative is a per-shape
 ;; exemption, which is the one thing this gate must never grow — so retiring it
 ;; un-pins all three, and the AUTHORING SURFACE, the part of the package a

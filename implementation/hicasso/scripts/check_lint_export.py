@@ -12,7 +12,7 @@ ignored.  So every check the export publishes is asserted twice:
   * a NEGATIVE case in `lint-fixtures/negative.cljs` -- correct code written to
     sit as close to the mistake as correct code can get -- which must produce
     NO finding of ANY kind.  Not merely none of ours: the export also supplies
-    `defview` / `hfn` / `defhost` their `defn` / `fn` / `def` shapes, so an
+    `defview` / `event` / `defhost` their `defn` / `fn` / `def` shapes, so an
     `Unresolved symbol` there would mean a view's props had stopped resolving.
 
 WHY A CHECKER AND NOT A `deftest` SUITE.  It was a `deftest` suite first, in

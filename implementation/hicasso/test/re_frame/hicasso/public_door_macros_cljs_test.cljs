@@ -9,7 +9,7 @@
   `impl.collector/mint-view!`, and `:renames` is a one-to-one table that
   cannot say which of six modules a call site should now name — so the row
   was retired, and retiring a row drops the donor digest along with the
-  comparison. The other two macros were collateral: `hfn` and `defhost`
+  comparison. The other two macros were collateral: `event` and `defhost`
   still match their donor exactly, but a row is judged whole, and the
   alternative — a per-shape exemption — is the one thing that gate must
   never grow.
@@ -70,7 +70,7 @@
 
   ## Naming
 
-  The spellings asserted here are the prototype's — `defview`, `hfn`,
+  The spellings asserted here are the prototype's — `defview`, `event`,
   `defhost`. The naming review recommends `h/event` for the callback form;
   when that lands, the sweep renames these witnesses with everything else."
   (:require [cljs.test :refer-macros [deftest is testing]]
@@ -85,11 +85,11 @@
 (def ^:private frame-id ::public-door)
 
 ;; ---------------------------------------------------------------------------
-;; Witness A — `h/hfn`, the one callback form
+;; Witness A — `h/event`, the one callback form
 ;; ---------------------------------------------------------------------------
 
 (deftest hfn-mints-an-ordinary-function-that-a-position-can-recognise
-  (let [picked (h/hfn [e] [:door/picked (.-value e)])]
+  (let [picked (h/event [e] [:door/picked (.-value e)])]
 
     (testing "the value is an ordinary function — no carrier object, nothing
               that can fail to be callable where Hicasso does not walk"
