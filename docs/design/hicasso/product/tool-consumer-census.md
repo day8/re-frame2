@@ -208,19 +208,34 @@ on neither donor, and both donor coordinates sit under `:aliases {:test {:extra-
 is clean — everything touching `re-frame.ui` is a witness; everything touching Freehand is the
 presence bridge.
 
+> **ACTIONED, 2026-08-14 (rf2-5gka).** Every Freehand row above — S2-S6 and S11 — is discharged, and
+> the verdict column records how. The measurement itself held: the rows are left as taken rather
+> than rewritten, because a census is a record of what was found, not of what is true now.
+>
+> The migration resolved as **retire with the donor**, not as a port. Hicasso publishes no
+> presence-advance verb to port onto: `motion/presence` is a component, `impl/presence` is private,
+> and the facade carries no clock, flush or presence verb. The `advance-clock!` in
+> `hicasso/test_kit` is a page-wide fake-timer facility bound to a `{:clock true}` mount handle —
+> a different affordance that happens to share a name. So the bridge, its two Freehand-only witness
+> suites and the `day8/re-frame2-freehand` coordinate are gone; the presence RUNG stays and is
+> substrate-neutral, a host installing its own advance through `install-presence-flush!`.
+>
+> **`tools/story` now names Freehand nowhere except in prose recording this removal.** The
+> `re-frame.ui` rows (S1, S7-S10) are untouched and remain open — see rf2-2og6s.
+
 | row | consumer | donor surface named, and how | verdict |
 |---|---|---|---|
 | S1 | `tools/story/deps.edn` → `day8/re-frame2-ui` | `:test`-alias `:extra-deps` only (L92); the comment states the published jar must not depend on it, and every consumer of it is row S7-S10 | FIXTURE-ONLY |
-| S2 | `tools/story/deps.edn` → `day8/re-frame2-freehand` | `:test`-alias `:extra-deps` only (L110), but it exists to compile S3, which ships in Story's jar | STILL-LIVE |
-| S3 | `tools/story/src/re_frame/story/play/presence_host.cljc` | requires `re-frame.freehand.presence-runtime` unconditionally and `re-frame.freehand` under `#?@(:cljs …)`; reads `(:flush-render! v/adapter)` and calls `fh-presence/advance-clock!` | STILL-LIVE |
-| S4 | `tools/story/test/re_frame/story/play/presence_cljs_test.cljc` | requires `re-frame.freehand.presence-runtime` — the suite of S3 | STILL-LIVE |
-| S5 | `tools/story/test/re_frame/story/play/presence_freehand_dom_cljs_test.cljs` | requires `re-frame.freehand` + `.presence-runtime` — the DOM arm of S3 | STILL-LIVE |
-| S6 | `tools/story/test/re_frame/story/play/presence_real_clock_cljs_test.cljs` | requires `re-frame.freehand.presence-runtime` — the real-clock arm of S3 | STILL-LIVE |
+| S2 | `tools/story/deps.edn` → `day8/re-frame2-freehand` | `:test`-alias `:extra-deps` only (L110), but it exists to compile S3, which ships in Story's jar | ~~STILL-LIVE~~ → **RETIRED** (rf2-5gka) |
+| S3 | `tools/story/src/re_frame/story/play/presence_host.cljc` | requires `re-frame.freehand.presence-runtime` unconditionally and `re-frame.freehand` under `#?@(:cljs …)`; reads `(:flush-render! v/adapter)` and calls `fh-presence/advance-clock!` | ~~STILL-LIVE~~ → **RETIRED** (rf2-5gka) |
+| S4 | `tools/story/test/re_frame/story/play/presence_cljs_test.cljc` | requires `re-frame.freehand.presence-runtime` — the suite of S3 | ~~STILL-LIVE~~ → **SUBSTRATE-FREE** (rf2-5gka — the file survives; only its bridge arms went) |
+| S5 | `tools/story/test/re_frame/story/play/presence_freehand_dom_cljs_test.cljs` | requires `re-frame.freehand` + `.presence-runtime` — the DOM arm of S3 | ~~STILL-LIVE~~ → **RETIRED** (rf2-5gka) |
+| S6 | `tools/story/test/re_frame/story/play/presence_real_clock_cljs_test.cljs` | requires `re-frame.freehand.presence-runtime` — the real-clock arm of S3 | ~~STILL-LIVE~~ → **RETIRED** (rf2-5gka) |
 | S7 | `tools/story/test/re_frame/story/view_tool.cljc` | requires `re-frame.ui.tool`; shapes the five donor-1 projections for a Story variant | FIXTURE-ONLY |
 | S8 | `tools/story/test/re_frame/story/view_tool_cljs_test.cljc` | requires `re-frame.ui.reactive`, `.tool`, `.tool.evidence` — the CLJS suite of S7 | FIXTURE-ONLY |
 | S9 | `tools/story/test/re_frame/story/view_tool_tree_jvm_test.clj` | requires `re-frame.ui` (`:refer [defview sub]`) + `re-frame.ui.test` — the JVM suite of S7 | FIXTURE-ONLY |
-| S10 | `tools/story/test/re_frame/story/realworld_ui_consumer_cljs_test.cljs` | requires `re-frame.ui` + `re-frame.freehand.presence-runtime`; hosts the realworld `re-frame.ui` app as a foreign substrate through `story/register-substrate!` | FIXTURE-ONLY |
-| S11 | `tools/story/src/re_frame/story/play/runner_events.cljc` | the `:no-presence-host` refusal message in `presence-step-result` (L1064; the `:message` `str` at L1077-1084) tells the user their app is one "that renders Freehand views" (L1080) — a runtime string the code actually uses, load-bearing on the same footing as X13. The file's other three donor hits are docstrings | STILL-LIVE |
+| S10 | `tools/story/test/re_frame/story/realworld_ui_consumer_cljs_test.cljs` | requires `re-frame.ui` + `re-frame.freehand.presence-runtime`; hosts the realworld `re-frame.ui` app as a foreign substrate through `story/register-substrate!` | FIXTURE-ONLY (its Freehand half went with the bridge — rf2-5gka; the `re-frame.ui` half stands) |
+| S11 | `tools/story/src/re_frame/story/play/runner_events.cljc` | the `:no-presence-host` refusal message in `presence-step-result` (L1064; the `:message` `str` at L1077-1084) tells the user their app is one "that renders Freehand views" (L1080) — a runtime string the code actually uses, load-bearing on the same footing as X13. The file's other three donor hits are docstrings | ~~STILL-LIVE~~ → **REWORDED** (rf2-5gka — the refusal is substrate-neutral, with a test pinning that it names none) |
 
 **Why S3 is STILL-LIVE despite living behind a late-bind hook.** `re-frame.story.play.presence`
 holds the `:flush-presence!` seam and deliberately does not require the substrate; Story itself
