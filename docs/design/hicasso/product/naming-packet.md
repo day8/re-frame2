@@ -194,7 +194,7 @@ is not yet a gate.
 | `re-frame.hicasso.server` | 6 | 1 | 5 |
 | `re-frame.hicasso.tool` | 4 | 0 | 4 |
 | `re-frame.hicasso.evidence` | 20 | 0 | 20 |
-| `re-frame.hicasso.test` | 23 | 4 | 19 |
+| `re-frame.hicasso.test` | 23 | 3 | 20 |
 | `re-frame.hicasso.test.mounted` | 15 | 10 | 5 |
 | **Total** | **105** | **45** | **60** |
 
@@ -425,6 +425,8 @@ list, confirm the census total rises by one and names it under `UNROSTERED`, the
 and verify the restore with `git hash-object` — a diff misreads a restore two ways, and a
 plant that silently no-ops makes the control pass having proved nothing.
 
-**Expected result once rows 47–54 are in the ledger**: 105 names, 0 unrostered, exit 0. A
-non-zero count then is a public name minted since publication with no ledger row, which is
-precisely what section 3 of [`dispositions.md`](dispositions.md) forbids.
+**Measured at publication, with rows 47–54 in the ledger**: *"CENSUS: 105 public names
+across 10 shipped namespaces; 0 NOT rostered in naming-ledger.md"*, exit **0**. That is the
+bead's acceptance condition met mechanically rather than by inspection. A non-zero count
+from here is a public name minted since publication with no ledger row — precisely what
+section 3 of [`dispositions.md`](dispositions.md) forbids.
