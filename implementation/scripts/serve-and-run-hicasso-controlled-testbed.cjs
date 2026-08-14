@@ -302,38 +302,54 @@
  * pins the names, so a policy cell in the table cannot outlive the witness
  * it claims.
  *
- * ### Two rows are FINDINGS, not confirmations
+ * ### One row is a FINDING, not a confirmation
  *
- * Each is a spelling that means something other than what it says, with no
- * refusal at the source. Each is ASSERTED in the direction the runtime
- * actually behaves, so the row reds when the behaviour is repaired as well
- * as if it degrades — a finding that is only written down is a finding
- * that rots:
+ * A finding is a spelling that means something other than what it says,
+ * with no refusal at the source. It is ASSERTED in the direction the
+ * runtime actually behaves, so the row reds when the behaviour is repaired
+ * as well as if it degrades — a finding that is only written down is a
+ * finding that rots:
  *
- *   1. `file-input-is-uncontrollable` — React's controlled write is
- *      `element.value = …`, which throws `InvalidStateError` on a file
- *      input in all three engines, and React 19.2 carries no
- *      controlled-file-input warning. `rf2-u2tza`.
- *   2. `custom-element-attributes` — a kebab KEYWORD is camelCased by
+ *   1. `custom-element-attributes` — a kebab KEYWORD is camelCased by
  *      `impl.slot/prop-name` before React passes it through, so the dashed
  *      attribute the author wrote never reaches a custom element.
  *      `rf2-n71ma`.
  *
- * Neither was repaired here: a source-located refusal mints an error id, an
+ * It was not repaired here: a source-located refusal mints an error id, an
  * error id owes a `spec/009-Instrumentation.md` row, and that file is hot
  * zone this bead was fenced out of.
  *
- * THERE WERE THREE, and the third is why the rule above is written the way
- * it is. `reserved-marker-reads-the-whole-multiple-selection` was a finding
- * that `::h/value` lowered to `(.-value target)` — on a `<select multiple>`
- * the FIRST selected option, with every other choice discarded inside the
- * turn, silently. `rf2-42vlw` repaired it in `impl.intent/target-value`,
- * which now reads `selectedOptions` on a control carrying both `.multiple`
- * and `.selectedOptions`, so the marker delivers the SELECTION as a list.
- * Because the row had been asserted in the direction the runtime behaved,
- * the repair RED it in all three engines rather than passing quietly, and
- * the row was turned around onto the fix instead of being weakened. That is
- * the standing rule doing exactly what it exists to do.
+ * ### There were THREE, and the two that left are why the rule is written
+ * that way
+ *
+ * Both were repaired by beads that could reach `spec/009`, and in each case
+ * the row had been asserted against the runtime as it then behaved, so the
+ * repair RED this gate in all three engines rather than passing quietly.
+ * Neither row was weakened; each was turned around onto its fix. That is
+ * the standing rule doing exactly what it exists to do — twice.
+ *
+ *   • `reserved-marker-reads-the-whole-multiple-selection` (was
+ *     `…-under-reads-a-multiple-select`) — `::h/value` lowered to
+ *     `(.-value target)`, which on a `<select multiple>` is the FIRST
+ *     selected option, every other choice discarded inside the turn.
+ *     CORRECTED by `rf2-42vlw`: `impl.intent/target-value` reads
+ *     `selectedOptions` on a control carrying both `.multiple` and
+ *     `.selectedOptions`, so the marker delivers the SELECTION as a list.
+ *   • `file-input-is-uncontrollable` — React's controlled write is
+ *     `element.value = …`, which throws `InvalidStateError` on a file input
+ *     in all three engines, and React 19.2 carries no controlled-file-input
+ *     warning, so nothing upstream was going to say it. REFUSED rather than
+ *     corrected, on both halves: `:rf.error/hicasso-file-input-value-prop`
+ *     from `impl.controlled/install!` (`rf2-u2tza`) and
+ *     `:rf.error/hicasso-file-input-value-marker` from
+ *     `impl.intent/target-value` (`rf2-lhsvs`), each with its `spec/009`
+ *     row. The asymmetry with the multi-select above is deliberate and both
+ *     spec rows state it: `::h/value` already means *the control's current
+ *     value* and a multi-select's current value IS its selection, whereas a
+ *     file input is a control the marker's surface excludes on purpose.
+ *     THIS ROW'S ASSERTIONS ARE UNCHANGED and still pass, because what they
+ *     drive is the PLATFORM's `element.value = …` directly rather than
+ *     anything Hicasso now refuses first.
  *
  * ### One cell is UNADDRESSED rather than passing
  *
