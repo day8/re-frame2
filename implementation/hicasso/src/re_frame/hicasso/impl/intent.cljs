@@ -769,6 +769,51 @@
   §The navigate head, and [[unwrap-navigate]] for the closed grammar."
   :re-frame.hicasso/navigate)
 
+(defn- target-value
+  "The event target's current value — `.value`, except on the one control
+  where `.value` is not it (rf2-42vlw).
+
+  HTML defines `HTMLSelectElement.value` as *the value of the first
+  option in tree order whose selectedness is set*, and that definition
+  does not change for a `multiple` select. So on a multi-select `.value`
+  answers a plausible non-empty string that is **not** the selection: the
+  user picks two options, `[:tb/pick ::h/value]` lowers to one, the
+  controlled echo writes that one back, and the second choice is
+  discarded inside the turn. Nothing throws, nothing warns, and the shape
+  is indistinguishable from a single select's honest answer — which is
+  what makes it the worst kind of wrong, and why this is a correction
+  rather than a refusal or a second marker. `::h/value` already means
+  *the control's current value*; a multi-select's current value is its
+  selection, and it always was.
+
+  A selection is a LIST, and `[]` when nothing is picked. That is not
+  invented here: `spec/004B-UI-Tree-and-Conversion.md` rules it for the
+  same DOM control on the sibling substrate — \"a `<select multiple>`'s
+  value is not a scalar — what is selected is the *list* of chosen option
+  values\", with the empty selection the empty collection rather than
+  `\"\"`. Fed straight back as `:value` it round-trips, because
+  [[re-frame.hicasso.impl.codec/convert-prop-value]] hands a CLJS vector
+  to React as an array and React's `updateOptions` takes an array on a
+  multiple select.
+
+  ## Why the test is `.multiple` AND `.selectedOptions`
+
+  `.multiple` alone is the wrong test and would break two working
+  controls: `<input type=\"file\" multiple>` and `<input type=\"email\"
+  multiple>` both carry it, and neither has a selection to read. Only a
+  `<select>` has `.selectedOptions`, so asking for it is what confines
+  this branch to the control it is about.
+
+  `.multiple` is asked FIRST because it is `undefined` on every element
+  that is not one of those three, so the overwhelming case — a text
+  field — reaches `.value` on one extra property read and no allocation."
+  [target]
+  (if (.-multiple target)
+    (if-some [options (.-selectedOptions target)]
+      (mapv (fn [option] (.-value option)) (array-seq options))
+      (.-value target))
+    (.-value target)))
+
 (def ^:private marker-readers
   "The roster, as marker → the reader that pulls its value off the event
   target. A map rather than a chain of comparisons, because it is both
@@ -776,7 +821,7 @@
   test for keywords in ClojureScript: literals are shared constants only
   when the build interns them, so an identity comparison that works under
   `:advanced` silently fails in the test build."
-  {value-marker   (fn [target] (.-value target))
+  {value-marker   target-value
    checked-marker (fn [target] (.-checked target))})
 
 (defn markers?
