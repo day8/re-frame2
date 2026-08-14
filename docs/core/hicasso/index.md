@@ -43,27 +43,32 @@ view model is useful.
 
 ## Status
 
-!!! warning "Pre-alpha — four places where this guide runs ahead of the code"
+!!! warning "Pre-alpha — three doors this guide spells differently from the code"
 
-    Hicasso is pre-alpha, and this guide is written against the intended
-    authoring surface rather than against today's exported spellings. Four
-    differences are known and deliberate, and each is recorded in the source
-    rather than only here.
+    Hicasso is pre-alpha, and parts of this guide are written against an
+    intended authoring surface rather than against today's exported
+    spellings. Three differences are known and deliberate, and each is
+    recorded in the source rather than only here. Two of them are open naming
+    questions rather than work the code owes the guide: the guide's spelling
+    is one candidate among several, and is not the name the door is waiting
+    to take.
 
-    - **`h/fn` and `h/frame`** are exported today as `h/hfn` and `h/hframe`.
-      A bare `fn` or `frame` would shadow `cljs.core` on a `:refer`, and
-      choosing the final spelling is an open naming decision.
+    - **`h/fn`** is exported today as `h/hfn`. A bare `fn` shadows
+      `cljs.core/fn` for anyone who `:refer`s it, so this guide's spelling is
+      ruled out rather than pending; the open question is which name the one
+      callback form takes instead, and `h/event` is the recorded
+      recommendation.
+    - **`h/frame`** is exported today as `h/hframe`. A bare `frame` shadows on
+      a `:refer` in the same way, and the recommendation on record is to
+      retire the verb rather than respell it, leaving `rf/current-frame-id`
+      and `rf/capture-frame` as the frame doors they already are.
     - **`h/mount!`** is the root door this guide teaches; the exported door is
       `h/root!`, which takes the frame keyword positionally and carries no
       `:initial-events` option. `h/render!` and `h/unmount!` are as described.
-    - **`h/hydrate!`** is not exported. The hydrating root is built and
-      witnessed, but it is held off the public door until a server-render
-      counterpart exists to produce the bytes it would adopt.
-    - **`re-frame.hicasso.server`**, and the `server/render` that
-      [SSR and hydration](18-ssr-and-hydration.md) is written against, do not
-      exist yet. Read that chapter as the intended contract.
 
     The other namespaces and verbs the guide names — `h/defview`, `h/sub`,
-    `h/defhost`, `h/portal`, `h/as-component`, `h/error-boundary`, the `n/`,
-    `overlay/`, `motion/` and `forms/` surfaces, and the `ht/` and `hm/` test
-    kits — are exported today.
+    `h/defhost`, `h/portal`, `h/as-component`, `h/error-boundary`,
+    `h/hydrate!`, the `n/`, `overlay/`, `motion/` and `forms/` surfaces,
+    `re-frame.hicasso.server`, and the `ht/` and `hm/` test kits — are
+    exported today. [SSR and hydration](18-ssr-and-hydration.md) describes
+    shipped behaviour rather than an intended contract.

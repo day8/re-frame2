@@ -88,6 +88,26 @@ R3  THE LEDGER IS LIVE.  This is the rule the Freehand mechanism did not have,
     the exact failure the Freehand roster was built to end, and R3 is the only
     half of this that ends it.
 
+R4  THE PAGE MATCHES THE LEDGER.  Every `DIVERGENCES` row is declared as a
+    bullet in the Status block on `docs/core/hicasso/index.md`, and every
+    such bullet has a row.  R3 watches the code move under the ledger; this
+    watches the PAGE move out from under it, which is the same failure seen
+    from the other side and the one the reader actually meets.
+
+    It exists because that failure was observed rather than imagined
+    (rf2-hni7l).  When `re-frame.hicasso.server` and `h/hydrate!` shipped,
+    R3 red on the two stale rows exactly as designed and both rows went; the
+    Status block's two paragraphs describing those doors as ABSENT stayed,
+    and the page went on telling readers to treat a shipped chapter as an
+    intended contract.  R1, R2 and R3 were green the whole time — none of
+    them reads prose, and this rule is the narrowest thing that does.
+
+    It checks NAME CORRESPONDENCE, not sentence truth: a bullet can still be
+    wrong about what `h/root!` takes and stay green.  That is the intended
+    ceiling.  The cheap mechanical half of the invariant is worth having, and
+    the expensive half — is this paragraph's prose accurate? — is what review
+    is for.
+
 USAGE
     python hicasso/scripts/check_guide_samples.py --self-test
     python hicasso/scripts/check_guide_samples.py
@@ -158,9 +178,15 @@ CLOJURE_LANGS = frozenset({"clojure", "clj", "cljs", "cljc", "edn"})
 #
 # A row here is NOT an excuse column.  It is admissible only for a spelling
 # the guide's own Status block already declares to the reader, so the ledger
-# and the page cannot drift apart silently: a fifth entry with no matching
-# paragraph in the Status block is a guide that has begun lying, and the
-# reviewer sees it as an added row in this file.
+# and the page cannot drift apart silently: an entry with no matching bullet
+# in the Status block is a guide that has begun lying.
+#
+# That sentence used to end "and the reviewer sees it as an added row in this
+# file" — which was true of an ADDED row and silent about a DROPPED one.  Two
+# rows left this table when their gaps closed, their bullets did not, and no
+# reviewer saw it (rf2-hni7l).  R4 now enforces the correspondence in both
+# directions, so this comment states an invariant the gate keeps rather than
+# one it hopes for.
 
 DIVERGENCES = {
     ("re-frame.hicasso", "fn"): (
@@ -507,6 +533,98 @@ def r3_stale_ledger(
     return problems
 
 
+# The Status block's bullets, as the page writes them: `- **`h/fn`** …`.  The
+# bold-backticked lead is the whole shape this rule reads — a bullet may be
+# reworded freely, but it cannot stop naming the door it is about without
+# ceasing to be that bullet.  Backticked names elsewhere in the block (the
+# closing paragraph's roster of what IS exported) are deliberately out of
+# reach: they are not claims of divergence.
+_STATUS_BULLET_RE = re.compile(r"^\s*-\s*\*\*`([^`]+)`\*\*", re.MULTILINE)
+
+STATUS_PAGE = "index.md"
+
+
+def status_block(pages: dict[str, str], page: str = STATUS_PAGE) -> str | None:
+    """The `## Status` section of the guide's index page, heading excluded."""
+    text = pages.get(page)
+    if text is None:
+        return None
+    m = re.search(r"^##\s+Status\s*$", text, re.MULTILINE)
+    if not m:
+        return None
+    rest = text[m.end():]
+    nxt = re.search(r"^##\s+", rest, re.MULTILINE)
+    return rest[: nxt.start()] if nxt else rest
+
+
+def r4_status_block_declares(
+    pages: dict[str, str],
+    aliases: dict[str, str],
+    divergences: dict | None = None,
+    absent: dict | None = None,
+) -> list[str]:
+    """R4 — the ledger and the Status block declare the SAME gaps.
+
+    R3 catches a gap closing in the code.  This catches the other half of the
+    same failure: the PAGE going stale against the ledger, in either
+    direction.  A row with no bullet is a gap the reader is never told about;
+    a bullet with no row is the guide claiming a door is missing that ships
+    today, which is how `h/hydrate!` and `re-frame.hicasso.server` went on
+    being described as absent for as long as it took a human to notice
+    (rf2-hni7l).  R1, R2 and R3 were all green throughout, because none of
+    them reads prose.
+
+    The rule the file's own ledger comment already asserted — a row is
+    "admissible only for a spelling the guide's own Status block already
+    declares to the reader" — enforced rather than left to a reviewer's eye.
+    Ledgers are parameters for [[r2_unresolved]]'s reason.
+    """
+    divergences = DIVERGENCES if divergences is None else divergences
+    absent = ABSENT_NAMESPACES if absent is None else absent
+    block = status_block(pages)
+    if block is None:
+        return [
+            f"{STATUS_PAGE} has no `## Status` section — the ledger below has "
+            f"nowhere to be declared to the reader"
+        ]
+
+    by_ns: dict[str, list[str]] = {}
+    for alias, ns in aliases.items():
+        by_ns.setdefault(ns, []).append(alias)
+
+    declared = set(_STATUS_BULLET_RE.findall(block))
+
+    # What the ledger says the block must declare, and the spelling a reader
+    # would look for: the guide's own alias, falling back to the namespace.
+    required: dict[str, str] = {}
+    for ns, verb in divergences:
+        spellings = [f"{a}/{verb}" for a in sorted(by_ns.get(ns, []))]
+        spellings.append(f"{ns}/{verb}")
+        hit = next((s for s in spellings if s in declared), None)
+        required[hit or spellings[0]] = f"DIVERGENCES[{ns}/{verb}]"
+    for ns in absent:
+        required[ns] = f"ABSENT_NAMESPACES[{ns}]"
+
+    problems: list[str] = []
+    for spelling, row in sorted(required.items()):
+        if spelling not in declared:
+            problems.append(
+                f"{row} is NOT declared in {STATUS_PAGE}'s Status block — add a "
+                f"bullet leading `**`{spelling}`**`, or drop the row. A ledger "
+                f"row the page does not carry is a gap the reader never hears "
+                f"about"
+            )
+    for spelling in sorted(declared - set(required)):
+        problems.append(
+            f"{STATUS_PAGE}'s Status block declares `{spelling}` as a "
+            f"divergence and NO ledger row carries it — either the gap has "
+            f"CLOSED and the bullet must go (check the door before you "
+            f"believe the page), or the row was dropped without the page "
+            f"following"
+        )
+    return problems
+
+
 # ---------------------------------------------------------------------------
 # The roster
 # ---------------------------------------------------------------------------
@@ -676,6 +794,7 @@ def run_check(verbose: bool = False) -> int:
         ("R1 PINNED", r1_pin_drift(corp, ROSTER)),
         ("R2 RESOLVED", r2_unresolved(uses, exports)),
         ("R3 LEDGER IS LIVE", r3_stale_ledger(exports)),
+        ("R4 THE PAGE MATCHES THE LEDGER", r4_status_block_declares(pages, aliases)),
     ]
 
     total_blocks = sum(len(b) for b in corp.values())
@@ -816,6 +935,44 @@ def self_test() -> int:
                   {"re-frame.hicasso": {"hfn", "hframe", "root!", "sub"}},
                   {},
                   {"re-frame.hicasso.server": "this fixture claims it is absent"})))
+
+    # ---- R4 -----------------------------------------------------------
+    #
+    # Fixtures throughout, for R2's reason. The page text is the real shape:
+    # an admonition whose bullets lead with a bold-backticked door.
+    fx_aliases = {"h": "re-frame.hicasso"}
+    page = (
+        "# Guide\n\n## Status\n\n"
+        "!!! warning \"Pre-alpha\"\n\n"
+        "    - **`h/fn`** is exported today as `h/hfn`.\n"
+        "    - **`h/mount!`** is exported today as `h/root!`.\n\n"
+        "    Everything else — `h/sub`, `h/hydrate!` — ships.\n\n"
+        "## Next\n\nnot the status block: **`h/ghost`**\n"
+    )
+    two = {("re-frame.hicasso", "fn"): ("hfn", ""),
+           ("re-frame.hicasso", "mount!"): ("root!", "")}
+    r4 = lambda p, div, abs_=None: r4_status_block_declares(
+        {"index.md": p}, fx_aliases, div, {} if abs_ is None else abs_)
+
+    check("R4 silence when page and ledger agree", r4(page, two) == [])
+    check("R4 catches a ROW the page does not declare",
+          any("is NOT declared" in p and "h/frame" in p for p in r4(
+              page, {**two, ("re-frame.hicasso", "frame"): ("hframe", "")})))
+    # The observed failure: a gap closes, R3 reds, the row goes, the BULLET
+    # stays, and the page keeps calling a shipped door absent.
+    check("R4 catches a BULLET whose row has gone",
+          any("NO ledger row carries it" in p and "h/mount!" in p
+              for p in r4(page, {("re-frame.hicasso", "fn"): ("hfn", "")})))
+    check("R4 reads only the Status block, not the whole page",
+          not any("h/ghost" in p for p in r4(page, two)))
+    check("R4 does not mistake the exported roster for a declaration",
+          not any("h/sub" in p or "h/hydrate!" in p for p in r4(page, two)))
+    check("R4 declares an ABSENT NAMESPACE by its own name",
+          any("is NOT declared" in p and "re-frame.hicasso.server" in p
+              for p in r4(page, two, {"re-frame.hicasso.server": ""})))
+    check("R4 reds when the Status section is missing entirely",
+          any("no `## Status` section" in p
+              for p in r4("# Guide\n\nno status here\n", two)))
 
     # ---- masking ------------------------------------------------------
     check("mask blanks a `;` comment", mask(["(h/sub) ; h/ghost"])[0].strip()
