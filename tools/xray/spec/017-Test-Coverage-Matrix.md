@@ -35,8 +35,10 @@ Xray surface; it executes only the scenarios tagged `smoke: true` in
 surfaces those scenarios load. `npm run test:xray-feature-gate` — every
 scenario over every staged surface — runs nightly in
 `.github/workflows/expensive-tests.yml`, and that nightly sweep is the
-system of record. At the time of writing the split is 5 scenarios over
-4 surfaces on the PR path against 17 over 12 nightly, so **most
+system of record. At the time of writing the split is 4 scenarios over
+3 surfaces on the PR path against 16 over 11 nightly (re-counted
+2026-08-14 under rf2-l86mm, which retired the `freehand-views` scenario
+and its staged surface — it was 5 over 4 against 17 over 12), so **most
 `covered` rows in this matrix are proved once a day rather than on the
 change that could break them**, and a newly added non-smoke scenario
 merges without ever having run (rf2-rliq7 records the policy call and
@@ -95,8 +97,6 @@ debug without re-running under a debugger:
 | App-DB Diff | Changed slices are first-class; before/after diff, clickable path segments (rf2-e9tb0), path-origin chips (rf2-s8r6c), reserved slices, redaction, and large elision are visually distinct. | Non-trivial app-db, deep vector index change, sensitive and large values, handler + flow writers on overlapping paths. | Dispatch deterministic app-db update, open App-DB, assert touched slice, before/after values, unchanged sibling collapse, click a path segment and assert the inspector popup opens at the path-prefix, assert per-slice origin chip ([fx :db] / [flow :id] / [mixed]). | Empty/no diff copy; missing before/after snapshot degrades cleanly; redacted and large-elided markers preserve structure. | After 20 updates across different slices, changed-path summary remains accurate and rendering stays capped. | Changed paths, before/after hashes, visible rows, redacted/elided marker counts, path-origin chip counts. | Xray browser feature gate plus app-db diff unit/view gate. | `covered` |
 | Trace | Raw trace feed filters by all canonical axes and remains the common substrate for panel drill-ins. | Mixed operations, severities, frames, origins, source coords, redacted events, clear-buffer control. | Open Trace, assert rows, axis chips, AND-composed filters, clear filters, row click to Event Detail, source chip. | Empty buffer and no-match filters are distinct; sensitive drops increment redaction count; unknown filter axes are ignored. | After 20 mixed dispatches, counts, visible rows, filters, and buffer cap remain consistent. | Active filters, row count/total, last 20 trace compact rows, axis histograms, suppressed count. | Xray browser feature gate plus trace-bus/filter unit gates. | `covered` |
 | Views (incl. nested subs) | Views tab shows mounted / re-rendered / unmounted three-group layout; each row lists subs used + return values inline; cluster-large-grids ≥ 50; per-component inline drilldown with props-diff headline. Sub cache status (fresh / re-running / invalidated / cached-no-watcher / error) renders inline as glyph prefix on sub-id. | Render-tracker fixture with mount cascades, re-render cascades, unmount cascades, ≥50 same-identity-key clustering, throwing sub, large/redacted sub return. | Trigger a render cascade, open Views, assert three groups populated, assert per-row subs-used list with return values, assert re-rendered group's two-column "Rerendered because" layout with trigger sub marked `✱` (amber) and non-trigger subs marked `·` (muted-grey); markers carry hover tooltips explaining each meaning. | No views rendered this cascade; clustering threshold > 50; expand-cluster reveals individual instances; per-component inline drilldown headline = props diff; redacted/large output renders per §15. | After 20 mixed dispatches, three-group rows + cluster counts stay accurate and isolation filter holds. | Cascade-id, per-group row counts, cluster counts, trigger sub-ids, isolation filter (no Xray-namespaced components in host frame's Views). | Xray browser feature gate plus views unit/view gate. | `covered` |
-| Mounted view read retention (rf2-7gth0) | There is nothing for the Views panel to retain, and that is the claim. The substrate holds ONE row per CONNECTED occurrence and drops it at disconnect — no accumulator, no interval log, no weak store, no ordinal mint and no second retention knob — so the whole class of hazards the donor tier's cumulative projection carried (unbounded growth under churn, a tool keeping an unmounted cell alive, a query→cell cycle) cannot arise here. Xray's consumer adds no state of its own: it holds no ledger, installs nothing, and every read is a projection taken at the moment the panel asks. History remains Spec 009's retained ring under Spec 009's one knob, folded at read time. | Repeated connect/commit/disconnect churn; two simultaneous occurrences of one view; a production `:advanced` + `goog.DEBUG=false` artefact. | Assert the roster returns to its baseline cardinality after churn (a disconnect REMOVES a row rather than labelling it); assert the consumer namespace declares no `defonce` state; execute the production-elision gate, which proves the substrate's index is unreachable under the dev gate Closure folds away. | A row that survived its occurrence's disconnect would fail the churn assertion; a reintroduced lifetime tally fails the donor-shaped-fact EQUALITY pin. | Churn returns to baseline exactly, because the index cannot grow along a time axis it does not have. | Roster cardinality before/after churn, the absence pin's empty intersection, and the production bundle probe. | `mounted_views_cljs_test` (churn + the absence pin), the Freehand substrate's own `occurrence_index_cljs_test`, and the production-elision gate. | `covered` (rf2-7gth0) |
-| Mounted view reads (Freehand tool door, rf2-7gth0) | The Views panel reads ONLY `re-frame.freehand.tool` — `read-mounted-views` for the connected-occurrence roster, `explain-render` for the bounded read-time cause fold, and `read-view-manifest`/`read-view-dependencies`/`read-view-event-sites` for the Declared View Sites section. Never a private-state read, never React-tree scraping, and never an ownership claim: the door has no registry, so Xray installs nothing and holds nothing. Occurrence identity, the stated lowering, the latest committed generation, the commit's own reads, the explanation's `:cap`/`:uncorrelated` loss and the evidence schema all render truthfully; nothing inferred is presented as exact, and the donor's lifetime tallies are ABSENT rather than approximated. | A real Freehand cell commit → roster row; two simultaneous occurrences of one view; a commit correlated to a retained run; a commit with no cascade in scope; a correlated commit whose run the window no longer holds; an unrecognised evidence schema; a producer that bumps its own schema var; a real app's `{:compiled true}` declaration with a literal sub site and a literal event site; the same app's INTERPRETED declaration; a host with nothing connected. | Drive a real commit through `cell/commit!`, assert the row carries the occurrence key, `:lowering`, `:generation`, `:connection`, the commit's `:reads` and the explicit `:root :unknown`; assert the cause arm reports `:cause-event-id` + `:sub-ids` and each loss arm names its own reason; assert `schema-status` reports the supported schema; assert `view-sites` projects the app's real sub/event sites with their `:source-coord`, and that the interpreted declaration reports `:basis :opaque` + `:no-static-analysis`; render the real panel fn and assert the row + site text. | An unrecognised schema degrades rows to `[]` + renders the honest schema banner (no mis-parse); a producer bump alone does NOT widen consumer support (the pin is a literal); an uncorrelated commit renders `uncorrelated` and its candidates as `N leads`, never as the cause; an interpreted declaration renders `unknown, not absent` rather than an empty roster; a host with nothing connected renders the empty state + no Declared View Sites section (silent-when-zero); a clean view renders no diagnostics line. | Row `:occurrence`/`:lowering`/`:generation`/`:reads`/`:root`/`:cause`/`:loss`/`:explained?`, `schema-status` `{:schema :supported?}`, site `:basis`/`:complete?`/`:loss`/`:dynamic?`/`:handler`/`:source-coord`, section/banner testids present/absent, and the EQUALITY pin asserting no donor-shaped lifetime fact reappears on a row. | The consumer retains nothing — the substrate holds one row per CONNECTED occurrence and drops it at disconnect, and the explanation is folded from Spec 009's ring under Spec 009's one knob. No second retention mechanism is introduced. | `mounted_views_cljs_test` (real occurrences + the real app's own compiled and interpreted declarations, via `re-frame.freehand.release-app`), `reactive_panel_view_cljs_test` (the real panel fn), `registry_cljs_test` (sub enumeration + the schema-4 governance pin) + the feature-matrix shell sweep (real chrome runtime, section present, EMPTY arm — the counter host is Reagent-backed so no occurrence connects) and, since rf2-6pohj, the `freehand-views` scenario over the Freehand-hosted deck (`tools/xray/testbeds/freehand_views/`), which is the POPULATED arm in a real browser: three connected occurrences, the stated lowering on each row (one interpreted against two compiled), the commit's own read count (`1 read` on the sole reader, `0 reads` elsewhere), the commit's frame, the absence of a printed `:unknown` root, no schema banner, the Declared View Sites section with its `:static-proof` sub site, its `:static-proof` event site and its `:no-static-analysis` interpreted arm, a REACTIVELY-DRIVEN repaint of the `readout` cell on that same page (rf2-2t126 — the dispatch advances the readout's text on the SAME DOM node, so it is the mounted cell repainting rather than a remount reading a current value), and — the fact that MOVES — three FRESH occurrence keys after an unmount/remount, which a projection over a static registry cannot produce. | `covered` |
 | Machines | Machine inspector renders state chart, active states, transitions, actors, timers, errors, and source chips. The chart primitive lives in `tools/machines-viz/` post-rf2-o9arp; Xray re-exports via thin shims (the `machines-viz` shim integrity gate below asserts the re-export is wired and not stripped under `:advanced`). | Deep machine with hierarchy/parallel states, child actor, invoke, timer, guard/action failure, transition history, plus a machines-viz shim integrity affordance (chart SVG renders ≥ 1 layout node; `:advanced` build keeps the re-export). | Start machine, drive transitions, open Machines, assert active state highlight, transition log, actor/timer rows, source chip. | No machines registered; guard/action/invoke failure; destroyed machine; missing source coord. | After 20 machine events, transition history remains ordered and chart render stays stable. | Machine id, active state path, child actor ids, transition ids, timer ids, failure keyword, chart node count. | Xray browser feature gate plus machine helper/view gate. | `covered` (machines-viz shim integrity covered by `runDeepMachine` per rf2-bz72m). |
 | Routes | Routes panel shows active route, params/query/fragment, registered routes, navigation history, transition state, and stale-token suppression. | Route registry, navigation success, blocked navigation, not-found, loading/error transition, multi-frame route. | Navigate to route with params/query/fragment, open Routes, assert active strip, registry highlight, history row. | No routes registered; blocked navigation; not-found; stale nav token suppressed and visible in history. | After 20 navigations, history caps at 50, active route remains correct, stale rows do not overwrite live route. | Route id, URL parts, params/query, transition state, nav token ids, history count. | Xray browser feature gate plus routes unit/view gate. | `covered` |
 | Schemas / Schema Timeline | Schema timeline lists violations with schema id, path, value marker, recovery mode, source, and issue linkage. | Schema violation testbed with event payload, cofx, app-db, sub return, all recovery modes. | Trigger one violation per schema kind, open Schemas, assert rows, severity/recovery badges, and source chip. | No schemas registered; no violations yet; malformed violation payload; redacted violating value. | After 20 valid/invalid events, counts and timeline ordering stay correct. | Schema id, path, recovery mode, operation, source coord, redacted/elided marker, issue row id. | Xray browser feature gate plus schema timeline unit/view gate. | `covered` |
@@ -288,134 +288,65 @@ rounds), computed from the real trace via `extract-fired-edge-ids`. Filtering
 filtering it out of the fired-edge derivation drops the two `:always` edges —
 either reddens the proof.
 
-## The freehand-views deck — the POPULATED Views arm (rf2-6pohj)
+## The freehand-views deck — RETIRED with the Views panel's Freehand sections (rf2-l86mm)
 
 The `:testbeds/freehand-views` testbed (port 8036,
-`tools/xray/testbeds/freehand_views/`) is the only shipped Xray deck whose
-views are FREEHAND views. It adds **no new Xray contract**; this section
-records its shape and the host constraint it stands on, so the browser feature
-gate's `freehand-views populated Views roster` scenario has a normative
-reference.
+`tools/xray/testbeds/freehand_views/`) was the only shipped Xray deck whose
+views were FREEHAND views. It existed for one purpose: putting real connected
+occurrences in front of the Views panel's Mounted Views and Declared View
+Sites sections (rf2-6pohj), because every other staged surface is
+Reagent-hosted and connects no Freehand occurrence, so the browser lane could
+otherwise prove those sections RENDER and nothing about what they rendered.
 
-**Why it exists.** Every other staged surface is Reagent-hosted and connects
-no Freehand occurrence, so the browser lane could prove the Mounted Views
-section RENDERS and nothing about what it renders: a section that is empty and
-a section emptied by a broken read through `re-frame.freehand.tool` are the
-same DOM. The empty arm stays where it was (the counter surface, in
-`runShellFeatureSweep`); this deck is the populated arm.
+Both sections retired with the Freehand substrate — the disposition, and the
+eight-row mapping showing why they could not move to `re-frame.hicasso.tool`,
+is [`021-Dynamic-Panel-Designs.md`](021-Dynamic-Panel-Designs.md) §3.4.1. The
+deck inherited it (rf2-u5b4, against census rows X6/X7/X8): five of the nine
+facts its scenario asserted are identity or declaration facts with no answer
+on the target, and those five were its entire subject.
 
-**Shape.** Three declared views over one `:rf/default` frame — `readout`
-(`{:compiled true}`, the only `v/sub` on the page), `controls`
-(`{:compiled true}`, the only `:on-click` event site) and `app` (interpreted,
-the mounted root). Each puts a DIFFERENT fact on its row, so the scenario can
-name what it is reading: one interpreted lowering against two compiled, `1
-read` on the sole reader against `0 reads` elsewhere, and — in Declared View
-Sites — a `:static-proof` subscription site, a `:static-proof` event site and
-the `:no-static-analysis` interpreted arm, all three from the compiler
-manifest.
+**The retirement is EIGHT artefacts and it is split across two passes.** Four
+are the deck itself; four more name it by build id or by scenario name from
+outside it. TWO of the eight red a gate, and they catch different omissions —
+neither catches the other's. Those two travelled with the PANEL, under
+rf2-l86mm, because that is the change that makes them red:
 
-**The fact that moves.** Two HOST controls (`Mount root` / `Unmount root`,
-plain buttons wired from the boot script onto `v/mount` / `v/unmount!`)
-disconnect and reconnect the three cells. The roster must come back naming
-three FRESHLY MINTED occurrence keys — a read of the live occurrence index can
-do that; a projection over a static registry, which is what the donor tier had
-and what the Freehand door deliberately does not, cannot. `:generation` is NOT
-the fact under test: it is the hot-reload body revision, not a render tally,
-so `gen 0` on every row is correct for a page that is never hot-reloaded.
+| # | Artefact | Pass | State |
+|---|---|---|---|
+| 4 | the `freehand-views populated Views roster` scenario and its `STAGED_SURFACES` entry in `tools/xray/testbeds/feature_matrix/scenarios.cjs` | rf2-l86mm | **DONE.** The PR-smoke run is derived from these entries rather than from a fixed list, so leaving them standing while the panel goes reds the smoke gate against a section that no longer renders |
+| 7 | the canonical covered-row pin in `coverage_matrix_metadata_test.clj` | rf2-l86mm | **DONE — 13 → 12.** This scenario was the sole claimant of the retired `Mounted view reads (Freehand tool door, rf2-7gth0)` matrix row, so removing that row without moving the pin fails `coverage_matrix_metadata_test` |
 
-**The host shape, and what it no longer bounds.** The deck installs the
-REAGENT adapter and renders Freehand views — a mixed application, which the
-substrate contract blesses (`re-frame.freehand.substrate`: bring-your-own
-adapter stays legitimate under the single-adapter runtime). It is not a
-convenience: Xray's shell is hiccup, and `day8.re-frame2-xray.mount` refuses
-the React-element-shaped adapters including `:rf.adapter/freehand`
-(rf2-qgfo4), so on a host that installed `v/adapter` there is no Views panel
-to populate at all. That refusal is unchanged.
-
-What HAS changed is the converse. This section used to record a second
-limitation on the Reagent side — a dispatch landed and app-db moved, but the
-cell's committed read received no change notification and the cell never
-repainted — and concluded that **no single host both repaints a Freehand cell
-reactively and renders Xray's Views panel**, so no browser gate over this
-panel could assert a reactively-driven re-render. That headline no longer
-holds (rf2-8cnxg / rf2-jt8vz). The cause was never the host: the observation
-port installed a watch on a `reagent.ratom/Reaction` that had captured no
-sources, because a `Reaction` learns them only through `deref-capture` and a
-ViewCell — not being a component — supplies no capture context. The port now
-ACTIVATES the value through the optional `:adapter/activate-derived-value!`
-late-bind hook, which Reagent publishes, so a Reagent host **both** repaints a
-Freehand cell and mounts Xray's shell. A browser gate over this panel is no
-longer bounded by that constraint.
-
-**The reactively-driven repaint (rf2-2t126).** The scenario asserts it, and it
-is the only browser-level proof that the activation holds end to end in a real
-DOM — the substrate contract tests cover the port, not a cell repainting on the
-very page Xray is reading. Press `+`: app-db moves, the cell that read it
-repaints, and the readout's text advances. The mount verb is still how the rest
-of the scenario drives commits, and that is precisely why it cannot stand in
-here — it reads current values whatever the notification channel is doing, so
-it would satisfy an advance-check on a cell that was never notified at all. The
-assertion is therefore pinned to the readout's DOM NODE as well as its text: a
-repaint writes into the node already standing there, a remount replaces it, and
-both halves have to hold.
-
-**Disposition — the deck retires with the panel, and is not independently
-migratable (rf2-u5b4).** The reason is the panel's rather than the deck's:
-[`021-Dynamic-Panel-Designs.md`](021-Dynamic-Panel-Designs.md) §3.4.3 records
-that §3.4.1 and §3.4.2 cannot move to `re-frame.hicasso.tool`, because five of
-their eight questions have no answer there, so they stay on
-`re-frame.freehand.tool` until the Freehand tree goes. This deck is the
-browser-lane populated arm of exactly those two sections and has no other
-consumer.
-
-**Five of the nine facts its scenario asserts are the ones with no answer**, and
-they are the five this section describes above as the deck's reason for
-existing: the view id each row names, the occurrence key (both as row identity
-and as three freshly minted keys across a remount), the stated lowering, the
-per-row generation the tag prints, and the Declared View Sites section with its
-three manifest arms. **The remaining four are not**, and the record must not say
-they are — the frame carries across, the commit's reads degrade to a live edge
-set, the absent schema banner tests a Freehand-door read Hicasso does not
-publish, and the reactively-driven repaint is a substrate fact rather than one of
-§3.4's questions. So a re-point would leave a deck still asserting something; it
-is the five that make what it asserted stop being a populated ROSTER, and what
-survives is already rendered whole by the Hicasso tab. Removing it while the
-panel still ships would instead restore the gate-blindness rf2-6pohj closed.
-
-**So it goes when they go, under rf2-hic-062 — and it is EIGHT artefacts, not
-four.** Four are the deck; four more name it by build id or by scenario name
-from outside it. TWO of the eight red a gate, and they catch different
-omissions: leave row 4's scenario and its `STAGED_SURFACES` entry standing while
-the staged source and build go, and the PR-smoke run — derived from those
-entries rather than from a fixed list — fails; remove the deck without moving
-row 7's canonical count pin, and `coverage_matrix_metadata_test` fails. Neither
-catches the other's omission. The remaining six go quietly stale, which is why
-this is a written checklist rather than a grep.
+The remaining six go quietly stale, and they travel with the FREEHAND TREE
+DELETION rather than with the panel — because rows 2 and 3 are in top-level
+`implementation/shadow-cljs.edn`, rows 5 and 6 in `implementation/`, and row 8
+in `.github/workflows/`, none of which the panel pass holds. Row 1 waits with
+them rather than going early: deleting the deck's source while its build id
+survives leaves a build compiling a tree that is not there, which is a worse
+state than either end of the move.
 
 | # | Artefact | The retirement pass | If left behind |
 |---|---|---|---|
-| 1 | `tools/xray/testbeds/freehand_views/` — `core.cljs` and `index.html` | delete the tree | dead source under a build id that is also going |
+| 1 | `tools/xray/testbeds/freehand_views/` — `core.cljs` and `index.html` | delete the tree | dead source under a build id that is also going; its `re-frame.freehand` require dies with the tree either way |
 | 2 | the `:testbeds/freehand-views` build in `implementation/shadow-cljs.edn` | delete the build map | a build compiling a deleted tree |
 | 3 | its port-8036 `:dev-http` entry in `implementation/shadow-cljs.edn` | delete the entry, freeing the 803x slot | a served root that no longer exists |
-| 4 | the `freehand-views populated Views roster` scenario and its `STAGED_SURFACES` entry in `tools/xray/testbeds/feature_matrix/scenarios.cjs` | delete both | **RED — one of the two.** The PR-smoke run is derived from these entries rather than from a fixed list, so leaving them behind while the staged source and build go reds the smoke gate against a panel that is gone |
 | 5 | the `DEV_HTTP` entry and the port-band comment in `implementation/scripts/dev-testbed.cjs` | delete both | the launcher advertises a URL for a build id shadow-cljs no longer knows — silently, because the drift guard in `dev-testbed.test.cjs` runs shadow-cljs → `DEV_HTTP` and never the reverse |
 | 6 | the build→URL row in `implementation/README.md` | delete the row | a documented testbed nobody can start |
-| 7 | the canonical covered-row pin in `coverage_matrix_metadata_test.clj` | drop it by one and rewrite its `12 -> 13` note | **RED — one of the two.** This scenario is the sole claimant of the `Mounted view reads (Freehand tool door, rf2-7gth0)` row, so removing the deck without dropping the pin fails `coverage_matrix_metadata_test` the moment it goes |
 | 8 | the PR-smoke enumeration in `.github/workflows/test.yml` | drop the deck from the named list: 5 scenarios → 4, 4 staged surfaces → 3, 4 bundles → 3, and 12 → 11 in the nightly sweep | a comment naming a scenario that no longer exists |
 
 Beyond the eight, three re-reads rather than removals. The dated aggregate
 costings in `implementation/scripts/serve-and-run-xray-feature-gate.cjs` and in
 this document's own opening move with row 8's numbers, but neither names the
 deck and both already carry the date they were measured, so re-date them rather
-than treat them as breakage. [`027-Hicasso-Evidence.md`](027-Hicasso-Evidence.md)
-records that this deck's build id, port and scenario slot free up together at
-rf2-hic-062 — true, and written about the moment rather than outliving it. And
-the reactively-driven repaint above is the only browser-level proof that
+than treat them as breakage.
+[`027-Hicasso-Evidence.md`](027-Hicasso-Evidence.md) records that this deck's
+build id, port and scenario slot free up together at rf2-hic-062 — still true
+of rows 1, 2 and 3. And the reactively-driven repaint the scenario asserted
+(rf2-2t126) was the only browser-level proof that
 `:adapter/activate-derived-value!` holds end to end in a real DOM, while
 `re-frame.hicasso.impl.collector` calls that hook as well as the Freehand
-observation port does — so it is the one asserted fact whose MECHANISM outlives
-the deck, and the pass should confirm the surviving caller keeps a witness
-rather than assume the proof retires with the Freehand cells.
+observation port did — so it is the one asserted fact whose MECHANISM outlives
+the deck, and it needs a witness on the surviving caller rather than retiring
+with the Freehand cells.
 
 ## Cross-references
 

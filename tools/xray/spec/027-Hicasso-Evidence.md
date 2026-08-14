@@ -179,15 +179,16 @@ are a census keyed on data the door has promised not to carry, or two rows
 sharing one exported identity — which gives a panel duplicate DOM ids and a
 consumer an ambiguous join.
 
-**This is why the Views panel's Mounted Views section does not move here.**
-`021-Dynamic-Panel-Designs.md` §3.4.1/§3.4.2 read Freehand's five-read tool
+**This is why the Views panel's Mounted Views section did not move here.**
+The two sections read Freehand's five-read tool
 door for a roster keyed by view id and occurrence, plus a compiler manifest.
-Neither has a counterpart on this door, and neither is a gap awaiting closure —
+Neither had a counterpart on this door, and neither was a gap awaiting closure —
 the read set is the only identity this runtime retains, and no evidence
-subsystem ships. Those sections therefore retire with the Freehand tree rather
-than being re-pointed at `re-frame.hicasso.tool`; the question-by-question
-mapping and the disposition are recorded once, in
-[`021-Dynamic-Panel-Designs.md`](021-Dynamic-Panel-Designs.md) §3.4.3.
+subsystem ships. Those sections therefore RETIRED rather than being re-pointed
+at `re-frame.hicasso.tool` (rf2-l86mm); the question-by-question mapping and
+the disposition are recorded once, in
+[`021-Dynamic-Panel-Designs.md`](021-Dynamic-Panel-Designs.md) §3.4.1. This
+tab is now the only rendering of any view substrate's live evidence in Xray.
 
 ### Causality is never inferred from adjacency
 
@@ -560,9 +561,9 @@ surface in `feature_matrix/scenarios.cjs` is a Hicasso host, so a populated arm
 in the shell sweep needs a new deck, a new `implementation/shadow-cljs.edn`
 build id and a new `:dev-http` port — the shape rf2-6pohj built for the Views
 panel. That cost is why there is no staged Hicasso host, and it is not a reason
-against the DOM row above. If that deck is ever wanted its moment is
-rf2-hic-062, because `testbeds/freehand-views` exists solely to give the Views
-panel a populated roster, that panel retires with the Freehand tree
-(`021-Dynamic-Panel-Designs.md` §3.4.3), and its build id, port and scenario
-slot free up together. This tab is the survivor of that disposition, not a
-casualty of it.
+against the DOM row above. If that deck is ever wanted its moment is the
+Freehand tree deletion, because `testbeds/freehand-views` existed solely to
+give the Views panel a populated roster, those panel sections have now retired
+(`021-Dynamic-Panel-Designs.md` §3.4.1, rf2-l86mm), and the deck's build id,
+port and scenario slot free up together with the tree. This tab is the survivor
+of that disposition, not a casualty of it.

@@ -143,18 +143,27 @@ Version `3` (rf2-sa8j3) is the first REPLACEMENT delta — the
 show-unchanged pin), so the clause re-runs the owning `reactive-panel`
 facade's `install!` to re-register it (evicting the stale two-input
 reaction). Version `4` (rf2-7gth0) is the Freehand tool-door cutover, and the first
-delta with a REMOVAL in it — three NEW sub ids (`:rf.xray/mounted-views`,
-`:rf.xray/mounted-views-schema`, `:rf.xray/mounted-view-sites`) installed via
-`reactive-panel/install-mounted-views-subs!` so the reads stay panel-owned,
-plus five donor-era registrations cleared: the subs
+delta with a REMOVAL in it — five donor-era registrations cleared: the subs
 `:rf.xray/viewcell-evidence`, `:rf.xray/viewcell-evidence-version`,
 `:rf.xray/view-evidence-sites` and `:rf.xray/viewcell-evidence-ownership`,
 and the event `:rf.xray/viewcell-evidence-ownership-changed`. A removal needs
 its own clause for the mirror image of the reason a replacement does: the fn
 that installed those ids is deleted, so no re-registration happens and the
 umbrella has nothing to compare against — left alone they resolve forever as
-phantom ids backed by a deleted namespace's resident closures.
-`migrate-schema!` reaches each delta through the `reactive-panel` facade the
+phantom ids backed by a deleted namespace's resident closures. Version `5`
+(rf2-hic-023) is the Hicasso evidence tab: three new registrations and one L4
+tab entry, all inside the gated `hicasso/install!` the umbrella no-ops.
+Version `6` (rf2-l86mm) is a REMOVAL-ONLY delta and the exact mirror of
+version 4's clear — the three sub ids version 4 ADDED
+(`:rf.xray/mounted-views`, `:rf.xray/mounted-views-schema`,
+`:rf.xray/mounted-view-sites`) are cleared, because the Views panel's Mounted
+Views + Declared View Sites sections retired with the Freehand substrate
+rather than migrating to Hicasso (`021-Dynamic-Panel-Designs.md` §3.4.1).
+Version 4's clause no longer installs them; a process crossing 3 → 6 in one
+step never acquires an id it would immediately have to be relieved of, and
+clearing an id a process never registered is inert, which is what lets the
+version-6 clause run for every behind process rather than branching on how far
+behind. `migrate-schema!` reaches each delta through the facade the
 orchestrator already requires (the idempotent re-install applies only the
 missing/changed delta).
 
@@ -191,10 +200,10 @@ entries stay retained, and another tool is refused the slot.
 
 So the clause splits:
 
-- **The registrar half always migrates.** The three Freehand reads install
-  and the five donor-era ids are cleared, live, exactly like any other delta.
-  A process the developer does not reload is left as current as a live
-  process can be.
+- **The registrar half always migrates.** The five donor-era ids are cleared,
+  live, exactly like any other delta. (It also installed the three Freehand
+  reads until version 6 removed them — see above.) A process the developer
+  does not reload is left as current as a live process can be.
 - **The ownership half is reload-only, and is declared so.** When the process
   carries the donor claim, `migrate-schema!` returns false: the process is
   **not** stamped current, and one `console.warn` names the owner id still
