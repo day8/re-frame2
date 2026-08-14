@@ -878,7 +878,7 @@
                     "would throw the engine's own InvalidStateError, naming no "
                     "view and no recovery. The platform owns the selection: "
                     "leave the file input uncontrolled and read `.files` in an "
-                    "h/fn on :on-change. `:value \"\"` is still accepted — it "
+                    "h/event on :on-change. `:value \"\"` is still accepted — it "
                     "is the one legal write, and it clears the control.")
                :leave-the-file-input-uncontrolled-and-read-files-with-an-h-fn
                {:value (unchecked-get js-props "value")}))

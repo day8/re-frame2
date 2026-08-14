@@ -35,7 +35,7 @@
 
   `defview`, `sub`, `::h/value`. That is the entire public surface a
   hundred controlled fields required — no `::h/revision` (the grid has no
-  reset), no `h/fn` (every intent is a vector, including the
+  reset), no `h/event` (every intent is a vector, including the
   three-argument one), and nothing at all from the optional modules or
   the native tier. `examples.witness-surface-cljs-test` pins it."
   (:require [re-frame.hicasso :as h]

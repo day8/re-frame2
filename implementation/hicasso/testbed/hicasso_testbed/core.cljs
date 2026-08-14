@@ -59,9 +59,9 @@
   |---|---|---|
   | `radio-a/b/c` | one model slot; the group refuses `\"c\"` | owned `:checked` on a group, and a committed echo where the clicked element is not the one that carries the model |
   | `pick` (`<select>`) | refuses `\"banned\"` | `impl.controlled` does not apply to a select at all — `convergeable-tag?` says so — so what converges it is React's own restore |
-  | `picks` (`<select multiple>`) | drops `\"banned\"` | the SUPPORTED spelling: `h/hfn`, because `::h/value` reads one option |
+  | `picks` (`<select multiple>`) | drops `\"banned\"` | the SUPPORTED spelling: `h/event`, because `::h/value` reads one option |
   | `picks-marker` (`<select multiple>`) | takes the one string it is handed | the NAIVE spelling, on screen so the cost of the reserved marker on this control is measured rather than described |
-  | `file` | uncontrolled; `h/hfn` reads `.files` | the only policy a file input can have — `value` refuses every assignment but `\"\"` |
+  | `file` | uncontrolled; `h/event` reads `.files` | the only policy a file input can have — `value` refuses every assignment but `\"\"` |
   | `count` (`number`) | clamps above ten | a controlled type with NO caret: `caret-type?` refuses it, so the converge declines and React's restore is the echo |
   | `day` (`date`) | refuses any year but 2026 | the same, on a type whose value has a format |
   | `level` (`range`) | snaps to a multiple of ten | the same, with a normalisation the control's own stepping cannot produce |
@@ -300,7 +300,7 @@
              (cond-> (not= choice (:refused radio-seed)) (assoc :radio choice))
              (update-in [:edits :radio] (fnil inc 0)))}))
 
-;; The multiple-select, written the SUPPORTED way: `h/hfn`, because the
+;; The multiple-select, written the SUPPORTED way: `h/event`, because the
 ;; reserved `::h/value` marker reads `select.value` and that is one option.
 ;; The refusal is the same shape as everywhere else — one option the model
 ;; will not take, dropped from whatever arrives.
@@ -326,7 +326,7 @@
 
 ;; A file input is never value-controlled — `HTMLInputElement.value` is
 ;; not settable to anything but `""` from script, by design — so the model
-;; holds what was CHOSEN rather than what is displayed, and `h/hfn` is the
+;; holds what was CHOSEN rather than what is displayed, and `h/event` is the
 ;; door the facade's own docstring names for it.
 (rf/reg-event :tb/take-files
   (fn [{:keys [db]} [_ names]]
@@ -605,17 +605,17 @@
 (h/defview select-multiple
   "The same control with `:multiple`, written the SUPPORTED way.
 
-  `h/hfn` rather than `::h/value`, and that is the whole content of this
+  `h/event` rather than `::h/value`, and that is the whole content of this
   control's policy row: the reserved marker reads `(.-value target)`,
   which on a multiple select is the FIRST selected option and never the
-  selection. The facade's own docstring names `hfn` as the form for when
+  selection. The facade's own docstring names `event` as the form for when
   the event itself is wanted, and a multi-select is that case."
   [_]
   [:select {:data-testid "picks"
             :id          "picks"
             :multiple    true
             :value       (h/sub [:tb/picks])
-            :on-change   (h/hfn [e]
+            :on-change   (h/event [e]
                            [:tb/pick-many
                             (mapv #(.-value %)
                                   (array-seq (.. e -target -selectedOptions)))])}
@@ -643,14 +643,14 @@
   "A file input, UNCONTROLLED, which is the only thing it can be:
   `HTMLInputElement.value` refuses every assignment but `\"\"`, so a
   `:value` off a subscription would be a promise the platform cannot
-  keep. The chosen files reach the model through `h/hfn` — the facade's
+  keep. The chosen files reach the model through `h/event` — the facade's
   docstring uses this exact case as its example."
   [_]
   [:input {:data-testid "file"
            :id          "file"
            :type        "file"
            :multiple    true
-           :on-change   (h/hfn [e]
+           :on-change   (h/event [e]
                           [:tb/take-files
                            (mapv #(.-name %)
                                  (array-seq (.. e -target -files)))])}])
@@ -685,7 +685,7 @@
          :id               "prose"
          :content-editable "plaintext-only"
          :suppress-content-editable-warning true
-         :on-input         (h/hfn [e] [:tb/set-prose (.. e -target -textContent)])}
+         :on-input         (h/event [e] [:tb/set-prose (.. e -target -textContent)])}
    (h/sub [:tb/prose])])
 
 (h/defview blur-probe

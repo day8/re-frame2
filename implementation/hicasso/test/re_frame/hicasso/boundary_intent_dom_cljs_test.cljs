@@ -15,7 +15,7 @@
        [risky {}]]
 
   raised `:rf.error/hicasso-intent-outside-boundary` while the boundary
-  rendered its fallback — and an `h/fn` at an event position raised the
+  rendered its fallback — and an `h/event` at an event position raised the
   same id at invocation.
 
   ## Why the fallback half is the sharp one
@@ -52,11 +52,11 @@
   1. a **retry button on the fallback** dispatches, and the `:reset-key`
      it moves actually re-mounts the child — HD-020(c)'s whole story,
      end to end;
-  2. an **`h/fn` at an event position on a function fallback** dispatches
+  2. an **`h/event` at an event position on a function fallback** dispatches
      what it returns, closing over the error the fallback was handed;
   3. a **bare intent vector on a native child** of `h/error-boundary`
      dispatches;
-  4. an **`h/fn` on a native child** does;
+  4. an **`h/event` on a native child** does;
   5. the intent lands in the frame the **boundary** was mounted under,
      proved against a second live frame rather than against an absence;
   6. a boundary with no frame above it is still legal until something
@@ -70,7 +70,7 @@
 
   The two intent shapes fail at different **moments**. A bare vector is
   refused at LOWERING, during the boundary's own render, so a subject
-  carrying one never reaches the screen at all; an `h/fn` is lowered
+  carrying one never reaches the screen at all; an `h/event` is lowered
   happily with no frame (the dispatch is captured, not required), renders,
   and raises at INVOCATION. Mixed onto one subject the first would mask
   the second, and every red on the callback path could be blamed on its
@@ -217,7 +217,7 @@
 
 (h/defview note-fallback-screen
   "The FUNCTION fallback, carrying **only** the one callback form. Two
-  things at once: `h/fn` is the second row of the position table, and the
+  things at once: `h/event` is the second row of the position table, and the
   closure reads the error the fallback was handed — so this is also the
   `(fn [error] hiccup)` contract exercised at an event position rather
   than at a text node."
@@ -226,7 +226,7 @@
                          [:div.fb
                           [:button.note
                            {:data-role "note"
-                            :on-click  (h/hfn [e]
+                            :on-click  (h/event [e]
                                          ;; A live event read, and ONE
                                          ;; intent returned — the event
                                          ;; contract the position imposes.
@@ -251,7 +251,7 @@
   [boundary {:fallback [:p.fb "unused — nothing throws on this screen"]}
    [:button.note
     {:data-role "note"
-     :on-click  (h/hfn [e]
+     :on-click  (h/event [e]
                   (when (= "note" (.. e -target -dataset -role))
                     [:hicasso.bdy/noted "child"]))}
     "note"]])
@@ -304,12 +304,12 @@
       (let [handle (watched-root! frame-id [note-fallback-screen {}])]
         (try
           (is (some? (query handle ".note"))
-              "the fallback rendered — an h/fn is LOWERED with no frame in
+              "the fallback rendered — an h/event is LOWERED with no frame in
                scope, because the dispatch is captured rather than required, so
                this path fails at invocation and not here")
           (click! (query handle ".note"))
           (is (= ["the child threw"] (:noted (db frame-id)))
-              "at invocation the h/fn read the real event, closed over the error
+              "at invocation the h/event read the real event, closed over the error
                the fallback was handed, and the vector it RETURNED drained
                through the arm's synchronous door")
           (finally (mount/release! handle)))))))

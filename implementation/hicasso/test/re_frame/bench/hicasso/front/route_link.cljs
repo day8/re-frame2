@@ -146,7 +146,7 @@
 
 (defn on-click-roster!
   "Refuse, AT RENDER, an `:on-click` outside the route-click roster: nil,
-  `[::h/prevent [:app/event]]` (the declarative veto), `h/fn`, or a plain
+  `[::h/prevent [:app/event]]` (the declarative veto), `h/event`, or a plain
   function. The same roster [[intent/lower-veto]] enforces at lowering;
   stated twice because the two failures land differently — this one fails
   at the site that wrote the link, with the render stack, before any
@@ -162,7 +162,7 @@
            'front.route-link/route-link
            (str "route-link's :on-click is the pre-navigation veto; it takes nil, "
                 "[" (pr-str intent/prevent-head) " [:my-event …]] (cancel the "
-                "navigation and dispatch this instead), h/fn, or a plain function — "
+                "navigation and dispatch this instead), h/event, or a plain function — "
                 "never " (pr-str on-click) ". A bare intent vector is refused "
                 "because the click already produces the one routing intent; an "
                 "application reaction belongs behind the routing event, or inside "

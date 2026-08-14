@@ -15,7 +15,7 @@
       [:div.toast {:key id :on-click [:toasts/dismiss id]}]
 
   raised `:rf.error/hicasso-intent-outside-boundary` at render — and an
-  `h/fn` at an event position raised the same id at invocation. Loud,
+  `h/event` at an event position raised the same id at invocation. Loud,
   never silent, and never *writable*: the inline tray with no child view
   is the whole of what HD-025 sells, and its dismiss button could not be
   written. This file is that button, clicked.
@@ -23,7 +23,7 @@
   Six claims, and the third and fourth are the ones that matter:
 
   1. a **bare intent vector** on a native presence child dispatches;
-  2. an **`h/fn` at an event position** on one dispatches what it returns;
+  2. an **`h/event` at an event position** on one dispatches what it returns;
   3. both of them still dispatch **while the child is being retained** —
      the `::h/unmounting` window, where the child is gone from app-db,
      still on screen, still clickable, and re-lowered by presence on
@@ -142,7 +142,7 @@
                         :on-click [:hicasso.presence-intent/dismissed (:id t)]}
        "dismiss"]
       [:button.note {:data-id  (:id t)
-                     :on-click (h/hfn [e]
+                     :on-click (h/event [e]
                                  ;; A live event read, and ONE intent
                                  ;; returned — the event contract the
                                  ;; position imposes.
@@ -157,7 +157,7 @@
   shapes fail at different MOMENTS: a bare vector is refused at LOWERING,
   during presence's render, so a tray holding one never reaches the
   screen — and a red on the tray above could always be blamed on that
-  sibling. `h/fn` is lowered happily with no frame (the dispatch is
+  sibling. `h/event` is lowered happily with no frame (the dispatch is
   captured, not required); it renders, it clicks, and it raises at
   INVOCATION. So this tray is the one whose red is the callback path's
   own."
@@ -166,7 +166,7 @@
    (for [t (collector/sub [:hicasso.presence-intent/visible])]
      [:div.toast {:key (:id t) :data-id (:id t)}
       [:button.note {:data-id   (:id t)
-                     :on-click  (h/hfn [e]
+                     :on-click  (h/event [e]
                                   (when (= "note" (.. e -target -dataset -role))
                                     [:hicasso.presence-intent/noted (:id t)]))
                      :data-role "note"}
@@ -240,12 +240,12 @@
                                 [note-only-tray {}])]
         (try
           (is (some? (button handle ".note" 1))
-              "the tray rendered — an h/fn is LOWERED with no frame in scope,
+              "the tray rendered — an h/event is LOWERED with no frame in scope,
                because the dispatch is captured rather than required, so this
                path fails at invocation and not here")
           (click! (button handle ".note" 1))
           (is (= [1] (:noted (db frame-id)))
-              "and at invocation the h/fn read the real event and the vector it
+              "and at invocation the h/event read the real event and the vector it
                RETURNED drained through the arm's synchronous door — the second
                row of the position table, at a position presence lowered")
           (finally (mount/release! handle)))))))

@@ -124,7 +124,7 @@
             [reagent.impl.batching]
             ["react-dom" :as react-dom]
             ["react-dom/client" :as react-dom-client])
-  (:require-macros [re-frame.bench.hicasso.arm1.lang :refer [defview hfn]]))
+  (:require-macros [re-frame.bench.hicasso.arm1.lang :refer [defview event]]))
 
 ;; ---------------------------------------------------------------------------
 ;; Pinning the input implementation
@@ -626,11 +626,11 @@
 (def ^:private !probe (atom []))
 
 (defview compose-probe
-  "An `h/fn` at a key position, so the row can read what React actually
+  "An `h/event` at a key position, so the row can read what React actually
   hands a keydown handler."
   [_]
   [:input.probe {:type        "text"
-                 :on-key-down (hfn [e]
+                 :on-key-down (event [e]
                                 (swap! !probe conj
                                        {:synthetic (.-isComposing e)
                                         :native    (.-isComposing (.-nativeEvent e))

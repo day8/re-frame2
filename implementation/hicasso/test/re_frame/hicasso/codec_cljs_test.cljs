@@ -1177,7 +1177,7 @@
     (testing "and so does an event-spelled key-map"
       (is (= :rf.error/hicasso-host-undeclared-callback
              (error-id #(codec/as-element [:> a-foreign-component {:on-key-down {"Enter" [:boom]}}])))))
-    (testing "a MARKED h/fn at any slot refuses — rf2-2rtt6.116's ruling,
+    (testing "a MARKED h/event at any slot refuses — rf2-2rtt6.116's ruling,
               inherited rather than forked. The mark asks the position for
               a contract and here no position can ever select one"
       (let [marked (intent/callback (fn [x] [:row/pick x]))]

@@ -54,5 +54,5 @@
  :hooks
  {:analyze-call
   {re-frame.hicasso/defview hooks.re-frame.hicasso/defview
-   re-frame.hicasso/hfn     hooks.re-frame.hicasso/hfn
+   re-frame.hicasso/event     hooks.re-frame.hicasso/event
    re-frame.hicasso/defhost hooks.re-frame.hicasso/defhost}}}

@@ -543,7 +543,7 @@
         (@!row (ev {}))
         (@!cb (ev {}))
         (is (= [[:row/pick "milk"] [:row/changed "milk"]] @!supplier)
-            "the intent vector AND the event-position h/fn both landed on the
+            "the intent vector AND the event-position h/event both landed on the
              supplying boundary's recorder")
         (is (= [] @!other)
             "two frames, two recorders — and the OTHER one was the ambient
@@ -691,7 +691,7 @@
               (is (= "preventDefault" (:needed data)))
               (is (= "a-value" (:argument data)))
               (is (re-find #":on-pick" (ex-message e)) "it names the POSITION")
-              (is (re-find #"h/hfn" (ex-message e)) "and the spelling that works"))))))
+              (is (re-find #"h/event" (ex-message e)) "and the spelling that works"))))))
     (testing "`:on-submit`'s auto-prevent is the same law, reached by the
               policy default rather than by the head"
       (let [h (intent/with-frame d (fn [] (intent/lower-prop :on-submit [:go])))]

@@ -4,7 +4,7 @@
   Two jobs, and they are worth separating because only the first is
   ordinary.
 
-  **Shape.** `defview` and `hfn` are `defn`- and `fn`-shaped macros, so the
+  **Shape.** `defview` and `event` are `defn`- and `fn`-shaped macros, so the
   hooks rewrite them into those forms and let kondo's own analysis do the
   work — arglists, arity, lexical bindings, unused bindings. Without this a
   view's name and every destructured prop read as `Unresolved symbol`.
@@ -222,9 +222,9 @@
 ;; --- a read in the one position that is deferred by construction ----------
 
 (defn- check-read-in-callback!
-  "`h/sub` / `h/use-subs` inside an `hfn` body.
+  "`h/sub` / `h/use-subs` inside an `event` body.
 
-  `hfn` IS the callback form — its whole contract is that it runs later —
+  `event` IS the callback form — its whole contract is that it runs later —
   so a read written inside one is deferred by construction rather than by
   circumstance, and the runtime refuses it with
   `:rf.error/hicasso-sub-outside-render`. This is the ONLY deferred-read
@@ -235,7 +235,7 @@
           :let  [head (first (:children node))]
           :when (reads-hicasso-state? locals head)]
     (finding! node :re-frame.hicasso/deferred-read
-              (str "A subscription is read inside `hfn`, which runs AFTER the body "
+              (str "A subscription is read inside `event`, which runs AFTER the body "
                    "that wrote it, so the read has no boundary to belong to and "
                    "is refused at runtime. Read during the body and close over "
                    "the value, or dispatch an event that reads it."))))
@@ -394,7 +394,7 @@
 ;; --- a function literal where a head belongs ------------------------------
 
 (defn- function-literal?
-  "Is this node a literal `(fn …)`, `#(…)` or `(hfn …)`?"
+  "Is this node a literal `(fn …)`, `#(…)` or `(event …)`?"
   [node]
   (boolean
     (when node
@@ -402,7 +402,7 @@
           (and (api/list-node? node)
                (let [head (first (:children node))]
                  (or (contains? #{'fn 'fn*} (core-var head))
-                     (= 'hfn (hicasso-var head)))))))))
+                     (= 'event (hicasso-var head)))))))))
 
 (defn- check-function-head!
   "A function literal in the head of a vector sitting in a CHILDREN
@@ -496,7 +496,7 @@
           :when (not (contains? #{'reset! 'vreset! 'swap!} callee))
           arg   (rest (:children node))
           :when (and (function-literal? arg)
-                     (not= 'hfn (hicasso-var (first (:children arg)))))
+                     (not= 'event (hicasso-var (first (:children arg)))))
           :when (some #(and (api/list-node? %)
                             (reads-hicasso-state? locals (first (:children %))))
                       (mapcat subforms (or (thunk-body arg) [])))]
@@ -566,7 +566,7 @@
           (keep #(when (api/list-node? %) (first (:children %))) forms))))
 
 (defn- fn-locals
-  "The names a `fn` / `fn*` / `hfn` binds: its own optional name, and every
+  "The names a `fn` / `fn*` / `event` binds: its own optional name, and every
   parameter of every arity.
 
   `children` is a `fn` TAIL — everything after the head — which is also
@@ -629,7 +629,7 @@
           (into #{} (mapcat bound-symbols) (pair-targets (:children (first more))))
           #{})
 
-        (or (contains? '#{fn fn*} core) (= 'hfn (hicasso-var head)))
+        (or (contains? '#{fn fn*} core) (= 'event (hicasso-var head)))
         (fn-locals more)
 
         ;; `(letfn [(f [x] …) (g ([x] …) ([x y] …))] …)` binds each local
@@ -809,8 +809,8 @@
                      [argv]
                      body))}))
 
-(defn hfn
-  "`(hfn [args] body+)` -> `(fn [args] body+)`, plus the one deferred-read
+(defn event
+  "`(event [args] body+)` -> `(fn [args] body+)`, plus the one deferred-read
   check the callback form makes decidable."
   [{:keys [node]}]
   (let [[_hfn argv & body] (:children node)]

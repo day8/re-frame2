@@ -1,5 +1,5 @@
 (ns re-frame.bench.hicasso.arm1.lang
-  "`defview`, `hfn` and `defhost` — the three macros Arm 1 has
+  "`defview`, `event` and `defhost` — the three macros Arm 1 has
   (rf2-2rtt6.9, rf2-2rtt6.35, rf2-2rtt6.65).
 
   It exists because the authoring surface is a *deliverable*: HD-002 has
@@ -52,14 +52,16 @@
          ~view-name
          (fn ~body-name ~argv ~@body)))))
 
-(defmacro hfn
-  "**The one callback form** (HD-024). `h/fn` in the authoring surface;
-  spelled `hfn` here because `h/fn` is qualified in the product and a
-  bare `fn` would shadow `cljs.core/fn` on a `:refer`.
+(defmacro event
+  "**The one callback form** (HD-024). `h/event` in the authoring surface,
+  and `event` here — the same name, since the door is reached qualified.
+  It was `hfn` until naming-ledger row 1 was swept (rf2-hic-066); `fn`
+  itself was never available, since a bare `fn` shadows `cljs.core/fn`
+  for anyone who `:refer`s it.
 
   Expands to nothing but a marked `fn`:
 
-      (hfn [e] (js/Array.from (.. e -target -files)) …)
+      (event [e] (js/Array.from (.. e -target -files)) …)
       ;; =>
       (re-frame.bench.hicasso.front.intent/callback (fn [e] …))
 
@@ -80,7 +82,7 @@
         {:callbacks {:on-change :event}})
 
       [date-picker {:selected  due-date
-                    :on-change (hfn [date & _] [:task/set-due date])}]
+                    :on-change (event [date & _] [:task/set-due date])}]
 
   `opts` is optional and carries `:callbacks` — a FINITE map from exact
   prop names to `:event`, `:handler` or `:render`, never inferred from an
@@ -124,7 +126,7 @@
   defaults, the refusals and the crossing itself are
   [[re-frame.bench.hicasso.front.codec/mint-host!]]'s.
 
-  The callback is an [[hfn]] and not an intent vector because
+  The callback is an [[event]] and not an intent vector because
   react-datepicker calls `onChange(date, event)` — VALUE-first, with no
   event at argument one — while the vector spelling is EVENT-first
   (HD-024's argument law, in

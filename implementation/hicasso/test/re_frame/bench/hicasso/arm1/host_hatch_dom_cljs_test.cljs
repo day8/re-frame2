@@ -61,7 +61,7 @@
   presence children as what it un-fences. So the fence is lifted below
   and both shapes are driven through the door from the RETAINED window:
   an intent vector, which lowers during presence's render, and a
-  declared-`:event` `h/fn`, which fails a whole phase later at
+  declared-`:event` `h/event`, which fails a whole phase later at
   invocation. Two shapes that break at different moments is exactly why
   witnessing one is not witnessing the other.
 
@@ -80,7 +80,7 @@
             [re-frame.core :as rf]
             [re-frame.test-support :as test-support]
             ["react" :as react])
-  (:require-macros [re-frame.bench.hicasso.arm1.lang :refer [defview defhost hfn]]))
+  (:require-macros [re-frame.bench.hicasso.arm1.lang :refer [defview defhost event]]))
 
 (def ^:private frame-id ::host-hatch)
 (def ^:private timeout-ms 60)
@@ -250,7 +250,7 @@
   {:callbacks {:on-pick :event :on-imperative :handler}})
 
 (def ^:private stable-imperative
-  (hfn [x]
+  (event [x]
     (swap! !instr update :imperative-args (fnil conj []) x)
     (* x 2)))
 
@@ -273,7 +273,7 @@
     [picker {:label         (rt/sub [:hatch/label])
              :draft         (rt/sub [:hatch/draft])
              :value         (rt/sub [:hatch/city])
-             :on-pick       (hfn [city e] [:hatch/picked city (.-type e)])
+             :on-pick       (event [city e] [:hatch/picked city (.-type e)])
              :on-close      [:re-frame.hicasso/prevent [:hatch/closed]]
              :on-draft      [:hatch/typed :re-frame.hicasso/value]
              :on-imperative stable-imperative
@@ -307,20 +307,20 @@
   bites."
   [_]
   [render-picker {:label         (rt/sub [:hatch/label])
-                  :on-render-row (hfn [label] (str "rendered:" label))}])
+                  :on-render-row (event [label] (str "rendered:" label))}])
 
 (defview tray
   "The host under presence, WITH callbacks — the fence rf2-2rtt6.66's
   repair lifted. Both shapes, because they break a phase apart: the
   vector at `:on-close` is lowered during presence's own render, and the
-  `h/fn` at `:on-pick` survives lowering and would fail at invocation."
+  `h/event` at `:on-pick` survives lowering and would fail at invocation."
   [_]
   [presence {:timeout-ms timeout-ms}
    (for [w (rt/sub [:hatch/widgets])]
      [picker {:key      (:id w)
               :label    (:name w)
               :value    (:name w)
-              :on-pick  (hfn [city e] [:hatch/picked city (.-type e)])
+              :on-pick  (event [city e] [:hatch/picked city (.-type e)])
               :on-close [:hatch/closed]
               :re-frame.hicasso/unmounting {:class "widget--exit"}}])])
 
@@ -501,7 +501,7 @@
           (mount/settle!)
           (click! handle ".widget-pick")
           (click! handle ".widget-pick")
-          (testing "declared :event + h/fn: EVERY argument the foreign
+          (testing "declared :event + h/event: EVERY argument the foreign
                     invoker passed reached the body — (onPick value event),
                     the variadic contract — and the returned intent
                     dispatched into the frame"
@@ -555,7 +555,7 @@
             crossing' — answered with evidence: it works exactly when the
             foreign contract hands the DOM event first, as this widget's
             onChange does. A value-first invoker has no event to read a
-            target from; h/fn is that spelling (row 2 above proves it)."
+            target from; h/event is that spelling (row 2 above proves it)."
     (if-not (mount/browser?)
       (skip! ":node-test has no DOM")
       (do
@@ -707,7 +707,7 @@
 ;; about the value:
 ;;
 ;;   (a) the CONTRACT the declaration named governs every carrier at that
-;;       position — not only the `h/fn`.  Before this, a vector took the
+;;       position — not only the `h/event`.  Before this, a vector took the
 ;;       intent path and a map the key-map path whatever the declaration
 ;;       said, so a slot declared `:handler` silently dispatched and a
 ;;       slot declared `:render` could dispatch during the foreign
@@ -715,7 +715,7 @@
 ;;       contract, which is precisely what HD-024 deletes.
 ;;   (b) the vector spelling reads the DOM event from argument ONE.  A
 ;;       foreign invoker that hands a value first has no event there, and
-;;       the refusal names the POSITION and points at `h/fn` — instead of
+;;       the refusal names the POSITION and points at `h/event` — instead of
 ;;       `value.preventDefault is not a function`, the engine's own
 ;;       TypeError naming nothing the author wrote.
 ;;
@@ -748,7 +748,7 @@
         (try
           (mount/settle!)
           (is (= "rendered:due date" (.-textContent (q handle ".widget-render")))
-              "the h/fn ran inside the foreign component's own render and its
+              "the h/event ran inside the foreign component's own render and its
                return went into the library's tree — not to dispatch")
           (is (= [] (:picked (db))) "and nothing dispatched")
           (finally (mount/release! handle)))))))
@@ -757,9 +757,9 @@
   (testing ":event takes all four carriers, because dispatching is what that
             contract MEANS"
     (let [[el !seen] (crossed render-picker
-                             {:on-pick (hfn [city e] [:hatch/picked city (.-type e)])})]
+                             {:on-pick (event [city e] [:hatch/picked city (.-type e)])})]
       ((prop el "onPick") "paris" #js {:type "click"})
-      (is (= [[:hatch/picked "paris" "click"]] @!seen) "h/fn: the returned vector dispatched"))
+      (is (= [[:hatch/picked "paris" "click"]] @!seen) "h/event: the returned vector dispatched"))
     (let [[el !seen] (crossed render-picker {:on-pick [:hatch/picked "static" "vec"]})]
       ((prop el "onPick") #js {})
       (is (= [[:hatch/picked "static" "vec"]] @!seen) "an intent vector lowers as at a native position"))
@@ -771,7 +771,7 @@
           "an ordinary function is claimed by no contract and crosses by identity")
       (is (= [] @!seen))))
 
-  (testing ":handler crosses the h/fn by identity and REFUSES the dispatching
+  (testing ":handler crosses the h/event by identity and REFUSES the dispatching
             carriers — its return is ignored and Hicasso dispatches nothing
             from it, so a carrier whose entire content is a dispatch has no
             reading there"
@@ -786,10 +786,10 @@
       (is (identical? identity (prop el "onImperative"))
           "and an ordinary function still crosses untouched")))
 
-  (testing ":render wraps the h/fn and refuses the dispatching carriers too —
+  (testing ":render wraps the h/event and refuses the dispatching carriers too —
             a :render position is invoked DURING a render, so a carrier that
             is nothing but a dispatch is the one thing it can never be"
-    (let [[el !seen] (crossed render-picker {:on-render-row (hfn [label] (str "row:" label))})]
+    (let [[el !seen] (crossed render-picker {:on-render-row (event [label] (str "row:" label))})]
       (is (= "row:x" ((prop el "onRenderRow") "x")) "the return went back to the caller")
       (is (= [] @!seen)))
     (is (= :rf.error/hicasso-intent-at-a-non-event-contract
@@ -816,7 +816,7 @@
           (is (re-find #":on-imperative" (ex-message e))))))))
 
 ;; ---------------------------------------------------------------------------
-;; 5c — and what the declaration does NOT govern, an `h/fn` may not ask
+;; 5c — and what the declaration does NOT govern, an `h/event` may not ask
 ;;      (rf2-2rtt6.116)
 ;; ---------------------------------------------------------------------------
 ;;
@@ -829,7 +829,7 @@
 ;;
 ;; Before this it crossed by identity and simply ran, which is fine for
 ;; a plain function and is a SILENTLY DEAD HANDLER for the marked one:
-;; the `:event` convenience means an `h/fn` returning `[:row/pick x]` at
+;; the `:event` convenience means an `h/event` returning `[:row/pick x]` at
 ;; an unclaimed slot is called by the library, returns the intent, has
 ;; the return discarded, and dispatches nothing.  The user's click does
 ;; nothing, in production, with no diagnostic — the same class the
@@ -850,7 +850,7 @@
             author wrote it, rather than answered by silence a phase and
             a component away"
     (try
-      (crossed render-picker {:on-value-change (hfn [city] [:hatch/picked city "dead"])})
+      (crossed render-picker {:on-value-change (event [city] [:hatch/picked city "dead"])})
       (is false "should have thrown")
       (catch :default e
         (let [d (ex-data e)]
@@ -875,12 +875,12 @@
   (testing "an on*-SPELLED unclaimed slot is the same refusal and not the
             sibling's: the spelling never selected anything here either"
     (is (= :rf.error/hicasso-host-unclaimed-callback
-           (error-id #(crossed render-picker {:on-nope (hfn [_] [:hatch/closed])})))))
+           (error-id #(crossed render-picker {:on-nope (event [_] [:hatch/closed])})))))
 
   (testing "and a slot with no on* spelling at all is refused just the same —
             the mark is the trigger, never the name"
     (is (= :rf.error/hicasso-host-unclaimed-callback
-           (error-id #(crossed render-picker {:row-formatter (hfn [x] (str x))})))))
+           (error-id #(crossed render-picker {:row-formatter (event [x] (str x))})))))
 
   (testing "GREEN — a PLAIN function at the very slot the rows above refuse
             still crosses by identity. This is the fence: the refusal is on
@@ -889,9 +889,9 @@
       (is (identical? identity (prop el "onValueChange")))))
 
   (testing "GREEN — every CLAIMED slot still takes the marked form, so the
-            refusal is not a blanket ban on h/fn at a host"
+            refusal is not a blanket ban on h/event at a host"
     (let [[el !seen] (crossed render-picker
-                              {:on-pick (hfn [city e] [:hatch/picked city (.-type e)])})]
+                              {:on-pick (event [city e] [:hatch/picked city (.-type e)])})]
       ((prop el "onPick") "lisbon" #js {:type "click"})
       (is (= [[:hatch/picked "lisbon" "click"]] @!seen)
           "declared :event — still wrapped, and the returned intent still
@@ -899,14 +899,14 @@
     (let [[el _] (crossed render-picker {:on-imperative stable-imperative})]
       (is (identical? stable-imperative (prop el "onImperative"))
           "declared :handler — still the function itself, by identity"))
-    (let [[el _] (crossed render-picker {:on-render-row (hfn [label] (str "row:" label))})]
+    (let [[el _] (crossed render-picker {:on-render-row (event [label] (str "row:" label))})]
       (is (= "row:x" ((prop el "onRenderRow") "x"))
           "declared :render — still the render wrapper"))
-    (let [f (hfn [node] (swap! !instr assoc :hfn-ref node) nil)]
+    (let [f (event [node] (swap! !instr assoc :hfn-ref node) nil)]
       (is (some? (first (crossed render-picker {:ref f})))
           ":ref is CLAIMED — by React's own contract rather than by the
            declaration (HD-016) — and it is read BEFORE the unclaimed arm,
-           so a callback ref written as an h/fn crosses rather than
+           so a callback ref written as an h/event crosses rather than
            refusing"))))
 
 (deftest a-dispatch-from-a-declared-render-position-names-the-position
@@ -916,7 +916,7 @@
             render position raises, because the position is the thing that
             selected it"
     (let [[el !seen] (crossed render-picker
-                             {:on-render-row (hfn [_] (intent/*dispatch* [:hatch/closed]) "never")})]
+                             {:on-render-row (event [_] (intent/*dispatch* [:hatch/closed]) "never")})]
       (try
         ((prop el "onRenderRow") "x")
         (is false "should have thrown")
@@ -957,13 +957,13 @@
           (crossed-in-frame
             ::supplier render-picker
             {:on-render-row
-             (hfn [label]
+             (event [label]
                (reset! !frame intent/*frame*)
                (reset! !row (codec/as-element
                               [:li {:on-click [:hatch/picked label "row"]}]))
-               ;; an event-position h/fn, lowered in the same body
+               ;; an event-position h/event, lowered in the same body
                (codec/as-element
-                 [:button {:on-click (hfn [_] [:hatch/closed])}]))})
+                 [:button {:on-click (event [_] [:hatch/closed])}]))})
           btn (intent/with-frame ::other (fn [ev] (swap! !other conj ev) nil)
                 (fn [] ((prop el "onRenderRow") "paris")))]
       (is (= ::supplier @!frame)
@@ -977,7 +977,7 @@
         ((prop @!row "onClick") #js {})
         ((prop btn "onClick") #js {})
         (is (= [[:hatch/picked "paris" "row"] [:hatch/closed]] @!supplier)
-            "the row's intent vector AND the event-position h/fn both fired
+            "the row's intent vector AND the event-position h/event both fired
              into the SUPPLYING boundary's recorder")
         (is (= [] @!other)
             "and nothing reached the boundary that merely invoked the render
@@ -1005,7 +1005,7 @@
             (is (= :on-pick (:position d)))
             (is (= "preventDefault" (:needed d)))
             (is (= "paris" (:argument d)))
-            (is (re-find #"h/fn" (ex-message e)) "and it points at the spelling that works"))))
+            (is (re-find #"h/event" (ex-message e)) "and it points at the spelling that works"))))
       (is (= [] @!seen) "and nothing dispatched off a half-run handler")))
 
   (testing "the SAME law, one message, for the markers — which is the whole
@@ -1108,7 +1108,7 @@
           (testing "AND THE RETAINED HOST IS STILL LIVE — the half
                     rf2-2rtt6.66's repair could not witness for itself,
                     because the door was in flight when it landed. A
-                    declared :event h/fn on a child being animated OUT
+                    declared :event h/event on a child being animated OUT
                     dispatches into the tray's frame: presence lowered this
                     host's props inside its own render, and the frame it
                     bound there is what the callback closed over"

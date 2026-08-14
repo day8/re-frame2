@@ -133,7 +133,7 @@ The rule at the edge is: **motion stays inside; meaning leaves as one event.**
   (let [title (h/sub [:card/title id])]
     (n/$ drag-surface
          {:label   title
-          :on-drop (h/fn [col] [:card/dropped id col])})))
+          :on-drop (h/event [col] [:card/dropped id col])})))
 ```
 
 Pointer movement remains local React state. The completed drop is an
@@ -239,7 +239,7 @@ Everything else is application state and should have one app-db address.
 
 ;; Don't: one event, subscription pass, and paint for every pointer move.
 :on-pointer-move
-(h/fn [e] [:card/drag-moved id (.-clientX e) (.-clientY e)])
+(h/event [e] [:card/drag-moved id (.-clientX e) (.-clientY e)])
 ```
 
 ## Troubleshooting

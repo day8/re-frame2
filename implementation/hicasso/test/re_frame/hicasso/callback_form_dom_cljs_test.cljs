@@ -12,7 +12,7 @@
 
   Three rows, and each one is a row of the position table:
 
-  1. **Event position.** `(h/hfn [e] …)` at `:on-click`, clicked for
+  1. **Event position.** `(h/event [e] …)` at `:on-click`, clicked for
      real; its returned VECTOR reaches app-db and the DOM re-paints in
      the same turn.
   2. **Event position, no intent.** The same form whose body returns
@@ -64,7 +64,7 @@
 ;; ---------------------------------------------------------------------------
 
 (h/defview toggle-row
-  "The row a real click lands on. `hfn` is the ONE form; `:on-click` is
+  "The row a real click lands on. `event` is the ONE form; `:on-click` is
   the position; the returned vector is the contract that position
   imposes. Nothing here names a form: the author wrote a function and
   returned data."
@@ -72,7 +72,7 @@
   (let [done? (collector/sub [:hicasso.todo/done? id])]
     [:li.row {:data-id id :data-done (str done?)}
      [:button.toggle
-      {:on-click (h/hfn [e]
+      {:on-click (h/event [e]
                    (swap! !ran inc)
                    ;; A live event: the same form the predecessor would
                    ;; need `v/event` for, reading the DOM event and
@@ -84,7 +84,7 @@
      [:button.silent
       ;; The same form, same position, whose body returns something that
       ;; is not a vector. The predecessor spells this `v/handler`.
-      {:on-click (h/hfn [_] (swap! !ran inc) :nothing-to-dispatch)}
+      {:on-click (h/event [_] (swap! !ran inc) :nothing-to-dispatch)}
       "silent"]]))
 
 (defn- query [handle sel] (.querySelector (:container handle) sel))
@@ -145,7 +145,7 @@
             expression it tripped on and naming nothing the author wrote.
             The one form is a function everywhere, so a position Hicasso
             never walks costs the CONTRACT and nothing else."
-    (let [cb       (h/hfn [x] (swap! !ran inc) [:would-have-dispatched x])
+    (let [cb       (h/event [x] (swap! !ran inc) [:would-have-dispatched x])
           js-props #js {:onPing cb}]
       (reset! !ran 0)
       (is (fn? (.-onPing js-props)))

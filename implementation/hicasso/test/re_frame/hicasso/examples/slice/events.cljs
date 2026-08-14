@@ -32,7 +32,7 @@
 
       [::edit slug :title ::h/value]
 
-  The escape hatch exists and is not free: `(h/fn [e] [::edit {… :value
+  The escape hatch exists and is not free: `(h/event [e] [::edit {… :value
   (.. e -target -value)}])` restores the map payload at the cost of a
   closure per field per render and the loss of the property route-links
   are sold on — that two renders of one intent are `=`.

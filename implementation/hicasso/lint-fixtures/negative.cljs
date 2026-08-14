@@ -56,14 +56,14 @@
 
 ;; A callback that dispatches is exactly what the callback form is for.
 (h/defview dispatch-inside-a-callback [_]
-  [:button {:on-click (h/hfn [e] [:form/submit (.-value (.-target e))])}
+  [:button {:on-click (h/event [e] [:form/submit (.-value (.-target e))])}
    "Save"])
 
 ;; A read at the top of a body, then used inside a callback, is correct: the
 ;; READ happened during the body and the callback closes over its value.
 (h/defview read-then-close-over-it [_]
   (let [id (sub [:todo/current])]
-    [:button {:on-click (h/hfn [_e] [:todo/toggle id])} "toggle"]))
+    [:button {:on-click (h/event [_e] [:todo/toggle id])} "toggle"]))
 
 ;; ---------------------------------------------------------------------------
 ;; parked-read — a mutable reference carrying anything but a parked read
@@ -153,7 +153,7 @@
 (h/defview fn-literals-at-prop-positions [_]
   [:div {:ref (fn [node] (some-> node .focus))}
    [:input {:on-change #(js/console.log %)}]
-   [:button {:on-click (h/hfn [_e] [:save])} "Save"]])
+   [:button {:on-click (h/event [_e] [:save])} "Save"]])
 
 ;; A vector of functions is ordinary data, not hiccup: the head is a symbol.
 (h/defview a-vector-of-callbacks [_]
@@ -210,7 +210,7 @@
 
 ;; ... the parameter of the callback form ...
 (h/defview event [_]
-  [:button {:on-click (h/hfn [event] [:form/submit (event :value)])} "Save"])
+  [:button {:on-click (h/event [event] [:form/submit (event :value)])} "Save"])
 
 ;; ... and a `letfn` name.
 (h/defview badge [{:keys [n]}]
@@ -538,7 +538,7 @@
 ;; The callback form's own PARAMETER is a binding like any other, and it is
 ;; outside the body the check walks.
 (h/defview shadowed-in-a-callback [_]
-  [:button {:on-click (h/hfn [sub] [:todo/toggle (sub :value)])} "Save"])
+  [:button {:on-click (h/event [sub] [:todo/toggle (sub :value)])} "Save"])
 
 ;; The second door shadows the same way.
 (h/defview shadowed-use-subs [{:keys [cache]}]

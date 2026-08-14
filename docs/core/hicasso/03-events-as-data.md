@@ -75,7 +75,7 @@ which is why Hicasso does not prevent clicks by default — and why submit is th
 only position that does. No second auto-preventing position will be added.
 
 !!! note "The exception is the data spelling only"
-    A callback always owns its own event. `{:on-submit (h/fn [e] …)}` is handed
+    A callback always owns its own event. `{:on-submit (h/event [e] …)}` is handed
     the event and is **not** auto-prevented: call `.preventDefault` yourself, or
     leave it out when a real browser submission is intended. That escape is how
     a form that must really submit opts out. Writing
@@ -95,22 +95,22 @@ The wrapper is represented in the vector rather than metadata because metadata
 does not participate in `=`, printing, or hashes. Structural tests and tools
 must be able to observe the prevention decision.
 
-## One callback form: `h/fn`
+## One callback form: `h/event`
 
 When a vector is not enough — a file list, drag payload, value-first foreign
 callback, or any calculation over the real arguments — use
-[`h/fn`](glossary.md#hfn). It expands to an **ordinary function**. The
+[`h/event`](glossary.md#event). It expands to an **ordinary function**. The
 contract comes from the **position** where that function is written, not from
 a second API:
 
 ```clojure
 [:input {:type      "file"
-         :on-change (h/fn [e]
+         :on-change (h/event [e]
                       [:todo/attach
                        (js/Array.from (.. e -target -files))])}]
 ```
 
-| Position | Contract for `h/fn` (and for an intent at that slot) |
+| Position | Contract for `h/event` (and for an intent at that slot) |
 | --- | --- |
 | Native `:on-*` event prop | **event** — a returned vector is dispatched; other returns are ignored |
 | `defhost` `:callbacks` entry | As **declared** (`:event`, `:handler`, or `:render`) |
@@ -121,17 +121,17 @@ a second API:
 
 Rules that follow:
 
-- `h/fn` captures the current frame where it is created.
+- `h/event` captures the current frame where it is created.
 - The body receives every callback argument in the caller's order.
 - At an **event** position, a returned vector is dispatched; `nil` dispatches
   nothing.
-- An `h/fn` body may do imperative browser work such as `.preventDefault`. The
+- An `h/event` body may do imperative browser work such as `.preventDefault`. The
   `::h/prevent` wrapper is for the data-only intent form.
 - Ordinary unmarked functions remain legal and cross by identity, so there is
   no second “identity-preserving” form.
 
 ```clojure
-[:div {:on-drop (h/fn [e]
+[:div {:on-drop (h/event [e]
                   (.preventDefault e)
                   (when-let [f (aget (.. e -dataTransfer -files) 0)]
                     [:todo/attach-dropped (.-name f)]))}]
@@ -140,11 +140,11 @@ Rules that follow:
 Marker-carrying intents assume an **event-first** invoker: they read the DOM
 event from argument one. A value-first foreign component has no event there,
 so a marker-carrying intent raises
-`:rf.error/hicasso-intent-needs-the-event`. Use `h/fn` and name the real
+`:rf.error/hicasso-intent-needs-the-event`. Use `h/event` and name the real
 arguments:
 
 ```clojure
-(h/fn [date _event]
+(h/event [date _event]
   [:todo/set-due date])
 ```
 
@@ -180,7 +180,7 @@ Do not hand-roll an ambient dispatch closure:
 ```
 
 The browser invokes the callback after the rendering extent has gone, so an
-ambient `rf/dispatch` has no frame. Intents and `h/fn` capture that context
+ambient `rf/dispatch` has no frame. Intents and `h/event` capture that context
 when the view is rendered.
 
 ## Keyboard maps
@@ -197,7 +197,7 @@ intent:
 
 Unlisted keys do nothing. The keys are strings, and keyboard maps are valid
 only at `:on-key-down` and `:on-key-up`. There is no modifier grammar; use
-`h/fn` when the handler must inspect combinations such as Ctrl+Enter.
+`h/event` when the handler must inspect combinations such as Ctrl+Enter.
 
 Keyboard maps also suppress application shortcuts during IME composition.
 Enter may be choosing a composition candidate and Escape may be cancelling the
@@ -207,7 +207,7 @@ signals described under [Advanced](#advanced).
 
 ## Frame-safe callbacks and `h/frame`
 
-Generated intent callbacks and `h/fn` callbacks retain their view's frame.
+Generated intent callbacks and `h/event` callbacks retain their view's frame.
 Application-owned async work should normally move to the event/effect layer,
 where an fx handler already receives the frame id in its context and
 `:dispatch-later` expresses delay as data.
@@ -265,10 +265,10 @@ surface rather than a custom click handler.
 
 | Symptom | Error or cause | Fix |
 | --- | --- | --- |
-| A form dispatches and then reloads the page | An `h/fn` or plain-function `:on-submit` — a callback owns its own event and is never auto-prevented | Call `.preventDefault` in the callback, or use the data spelling `{:on-submit [:todo/submit]}`, which prevents for you |
+| A form dispatches and then reloads the page | An `h/event` or plain-function `:on-submit` — a callback owns its own event and is never auto-prevented | Call `.preventDefault` in the callback, or use the data spelling `{:on-submit [:todo/submit]}`, which prevents for you |
 | Rendering reports a malformed prevent wrapper | `:rf.error/hicasso-malformed-prevent` | Wrap exactly one inner intent vector; do not nest decorators or add a second payload |
-| A handler receives the literal `::h/value` keyword | The marker was nested below the vector's top level | Keep the marker at top level or calculate the payload with `h/fn`/the event handler |
-| A foreign callback rejects an intent that needs the event | `:rf.error/hicasso-intent-needs-the-event` | The callback is value-first. Use `h/fn` and receive its actual arguments |
+| A handler receives the literal `::h/value` keyword | The marker was nested below the vector's top level | Keep the marker at top level or calculate the payload with `h/event`/the event handler |
+| A foreign callback rejects an intent that needs the event | `:rf.error/hicasso-intent-needs-the-event` | The callback is value-first. Use `h/event` and receive its actual arguments |
 | Dispatch from a timer or interval throws | `:rf.error/no-frame-context` | Move application async work to an effect. For foreign retention, capture with `(rf/capture-frame (h/frame))` during rendering |
 | `h/frame` raises `:rf.error/hicasso-frame-outside-boundary` | No Hicasso render extent | Call it only inside a view body or a render callback that body supplied |
 | Enter commits unfinished IME text | A hand-written key handler bypassed the keyboard map | Use the keyboard map so composition events are suppressed centrally |
@@ -283,7 +283,7 @@ Use a plain function when you need the callback arguments but no dispatch:
 pointer coordinates, `dataTransfer`, DOM measurement, `stopPropagation`, or an
 imperative SDK operation.
 
-Use `h/fn` when the arguments are needed to decide which event vector to
+Use `h/event` when the arguments are needed to decide which event vector to
 dispatch. An ordinary function is not an error; the intent form is simply the
 normal choice for declarative application interactions.
 

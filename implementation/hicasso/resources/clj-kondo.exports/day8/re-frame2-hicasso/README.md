@@ -29,7 +29,7 @@ answer:
 
 ## What it does for the three macros
 
-`defview`, `hfn` and `defhost` are rewritten to their `defn`, `fn` and `def`
+`defview`, `event` and `defhost` are rewritten to their `defn`, `fn` and `def`
 shapes, so kondo's ordinary analysis applies: a view's name resolves as a var,
 a destructured prop is neither unresolved nor unused, arities are checked, and
 a host's `opts` map is scanned for references. Without this every view name and
@@ -51,7 +51,7 @@ one form — see the table at the end for why the cache-backed version of that i
 worse than nothing.
 
 It also refuses any call whose name has been **rebound**. A parameter, a
-destructured prop, or a `let`, `for`, `fn`, `hfn`, `letfn` or `catch` binding
+destructured prop, or a `let`, `for`, `fn`, `event`, `letfn` or `catch` binding
 spelled like the view introduces an ordinary local, and calling a local is
 ordinary Clojure:
 
@@ -84,7 +84,7 @@ hook recognises binding forms by **name**, and the roster is:
   `loop` binding both. An accumulator is an ordinary value and may well be a
   function — `(areduce steps i f identity …)` folds an array of steps into
   one — so calling it is ordinary code;
-* the **`fn` tails** — `fn`, `fn*`, `hfn`, every fnspec of a `letfn`, and a
+* the **`fn` tails** — `fn`, `fn*`, `event`, every fnspec of a `letfn`, and a
   `defmethod`'s tail: every parameter of every arity, and for a `letfn` the
   local function's own **name** as well, because `letfn` expands each fnspec to
   `(fn f …)` and `f` is in scope throughout;
@@ -104,7 +104,7 @@ The notable absentees are `deftype`, `defrecord`, `proxy` and `specify` — the
 last because clj-kondo does not read it as a spec-bearing form either, so its
 method parameters are not locals to kondo's own analysis, and the first three
 because a hook fires only at registered call sites: it never sees anything but
-a `defview`, `defhost` or `hfn` form, and a type defined inside a view body is
+a `defview`, `defhost` or `event` form, and a type defined inside a view body is
 not a program anyone has. If you have one, name your local something other
 than the view, or switch the check off.
 
@@ -113,7 +113,7 @@ than the view, or switch the check off.
 `h/sub` or `h/use-subs` read where nothing is going to call the surrounding
 function during this body. Two shapes:
 
-* inside an `hfn` body. `hfn` **is** the callback form: its whole contract is
+* inside an `event` body. `event` **is** the callback form: its whole contract is
   that it runs after the body that wrote it, so a read there is deferred by
   construction rather than by circumstance, and the runtime refuses it with
   `:rf.error/hicasso-sub-outside-render`.
@@ -143,7 +143,7 @@ because nothing is ever named `h/sub`.
 
 ### `:re-frame.hicasso/function-in-head-position` — error
 
-A `(fn …)`, `#(…)` or `(hfn …)` written as the head of a vector that sits in a
+A `(fn …)`, `#(…)` or `(event …)` written as the head of a vector that sits in a
 **children position of a literal hiccup vector**. A function is never a legal
 head (`:rf.error/hicasso-bad-head`).
 
@@ -226,11 +226,11 @@ same afternoon.
 |---|---|
 | **Direct invocation of *another* view** — `(todo-row {…})` where `todo-row` is defined elsewhere | Needs to know that a symbol resolves to a var minted by `defview`, usually in another namespace. A hook sees one form. `clj-kondo.hooks-api/ns-analysis` can answer it from the analysis cache, which makes the check fire in a full CI run and stay silent in an editor linting one file — a rule that fires *sometimes* is worse than one that never does. The self-call slice above is the part a hook can settle on its own. |
 | **A plain function in head position, by symbol** — `[helper {…}]` where `helper` is a `defn` | Same problem, same answer. The literal-function slice above is the part that is decidable. |
-| **A deferred read in general** — a `sub` reachable from any callback, timer, promise or lazy escape | Read extent is a property of *execution*, and the runtime owns it. Lint can see only the `hfn` position, whose deferral is syntactic, and the fn literal nothing standard is about to call — and the second of those is advice, not a verdict. |
+| **A deferred read in general** — a `sub` reachable from any callback, timer, promise or lazy escape | Read extent is a property of *execution*, and the runtime owns it. Lint can see only the `event` position, whose deferral is syntactic, and the fn literal nothing standard is about to call — and the second of those is advice, not a verdict. |
 | **A `sub` naming an unregistered query id** | Registration is a whole-program fact, and ids are frequently built rather than written. |
 | **`:&` forwarding something that is not a map** | The `:&` grammar key is retired from the end-state design in favour of the owned-wins merge recipe. A lint layer must not police a ghost. |
 | **An `:input` without a label** | The name comes from a sibling or ancestor. That is tree knowledge, not form knowledge. |
-| **Hiccup written in an ordinary `defn` helper** | Not a decision — a limit. Hooks fire only at registered call sites, so every check here sees hiccup inside `defview`, `defhost` and `hfn` forms and nowhere else. A helper that returns hiccup is unlinted. |
+| **Hiccup written in an ordinary `defn` helper** | Not a decision — a limit. Hooks fire only at registered call sites, so every check here sees hiccup inside `defview`, `defhost` and `event` forms and nowhere else. A helper that returns hiccup is unlinted. |
 
 [rf2-djxr]: the ruling that the runtime ratifies this limit rather than chasing
 it — trust the programmer, assistance and guardrails, no enforcement machinery.

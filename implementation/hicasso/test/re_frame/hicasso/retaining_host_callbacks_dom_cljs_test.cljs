@@ -51,7 +51,7 @@
     render. `lower-declared-prop` claims no unmarked fn at any contract
     and `host-prop-value` crosses functions by identity, so this row
     proves identity stability is REACHABLE at this edge today.
-  - `:handler` — the same hoisted `h/hfn` at a `defhost` `:handler`
+  - `:handler` — the same hoisted `h/event` at a `defhost` `:handler`
     declaration, where the contract hands the function through by
     identity.
   - `:native-stable` — `n/use-frame` plus React's own `useCallback`
@@ -188,7 +188,7 @@
   {:callbacks {:on-ping :event}})
 
 (h/defhost sink-handler
-  "The SAME vendor at the `:handler` contract, which passes an `h/fn`
+  "The SAME vendor at the `:handler` contract, which passes an `h/event`
   through by identity. One declaration apart from the row above, so the
   grid's `:handler` row differs from its `:hfn-hoisted` row in the
   declaration and in nothing else."
@@ -215,7 +215,7 @@
   author's own function does not hoist what the vendor sees. That is the
   `:hfn-hoisted` row, and it is the row that shows the churn is the
   LOWERING's and not the author's."
-  (h/hfn [& _] (swap! !plain-calls inc) [::ping :hoisted]))
+  (h/event [& _] (swap! !plain-calls inc) [::ping :hoisted]))
 
 ;; ---------------------------------------------------------------------------
 ;; The interpreted parent — one boundary, one read, nine carriers
@@ -235,7 +235,7 @@
        :plain-fn      [sink-event   {:label "s" :on-ping plain-ping}]
        :handler       [sink-handler {:label "s" :on-ping hoisted-hfn}]
        :intent-vector [sink-event   {:label "s" :on-ping [::ping :vector]}]
-       :hfn-inline    [sink-event   {:label "s" :on-ping (h/hfn [& _] [::ping :inline])}]
+       :hfn-inline    [sink-event   {:label "s" :on-ping (h/event [& _] [::ping :inline])}]
        :hfn-hoisted   [sink-event   {:label "s" :on-ping hoisted-hfn}]
        :key-map       [sink-event   {:label "s" :on-ping {"Enter" [::ping :key-map]}}])]))
 

@@ -11,7 +11,7 @@
 
   1. **Discrimination.** A predicate is asserted true on the thing and
      FALSE on its nearest neighbour — `boundary?` on a `defview` var and
-     on the plain function its body is, `callback?` on `h/hfn` and on an
+     on the plain function its body is, `callback?` on `h/event` and on an
      identically-written `fn`. A predicate only ever asserted true is a
      predicate that could be `(constantly true)`.
   2. **Both verbs, from one discriminator.** [[outcome]] reports
@@ -197,9 +197,9 @@
     (is (false? (ht/host? badge-component)))
     (is (false? (ht/host? greeting))))
 
-  (testing "`h/hfn` is the one callback form and an identically-written
+  (testing "`h/event` is the one callback form and an identically-written
             plain `fn` is not"
-    (is (true?  (ht/callback? (h/hfn [e] [:tk/picked (.-value e)]))))
+    (is (true?  (ht/callback? (h/event [e] [:tk/picked (.-value e)]))))
     (is (false? (ht/callback? (fn [e] [:tk/picked (.-value e)])))))
 
   (testing "the minted name is the one React DevTools and Spec 009's
@@ -395,7 +395,7 @@
                             [:li {:on-click [:tk/toggle 2]
                                   :on-key-down {"Enter"  [:tk/commit 2]
                                                 "Escape" [:tk/cancel 2]}} "two"]
-                            [:li {:on-click (h/hfn [_] [:tk/opaque])} "three"]])
+                            [:li {:on-click (h/event [_] [:tk/opaque])} "three"]])
                          {}])]
     (testing "every literal intent site, in document order, including both
               branches of a data key-map"

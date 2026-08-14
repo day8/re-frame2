@@ -126,7 +126,7 @@ Common translations:
 | --- | --- |
 | `defn` component returning Hiccup | `h/defview`, mounted as a Hiccup head |
 | `@(rf/subscribe [:q])` | `(h/sub [:q])`, including in branches, loops, and helpers |
-| `#(rf/dispatch [:x])` | the event vector itself; use `h/fn` when callback arguments matter |
+| `#(rf/dispatch [:x])` | the event vector itself; use `h/event` when callback arguments matter |
 | `r/atom` inside a Form-2 closure | app-db or the forms module; Hicasso has no local-state tier |
 | `r/with-let` | ordinary `let`; durable state belongs outside render |
 | Form-3 or `r/create-class` lifecycle | callback refs or a named native component |
@@ -141,7 +141,7 @@ Two common mistakes fail loudly:
 
 - A Reagent-style `#(rf/dispatch ...)` callback has no captured frame when the
   browser invokes it later, so ambient dispatch raises
-  `:rf.error/no-frame-context`. Use an intent vector or `h/fn`.
+  `:rf.error/no-frame-context`. Use an intent vector or `h/event`.
 - An event vector at an undeclared `[:>]` prop raises instead of crossing as an
   inert JavaScript array. Under Reagent that inert value did not produce a
   working handler either; the migration forces you to decide the callback's
@@ -269,7 +269,7 @@ tool. The reporter records the site rather than guessing.
 | --- | --- | --- |
 | A `[:>]` site renders but behaves differently | Reagent converted the prop dialect and Hicasso passes values by identity | Run the reporter and apply the safe codemod rewrites |
 | Render raises `:rf.error/hicasso-host-undeclared-callback` at a former Reagent crossing | An intent vector reached an undeclared prop; under Reagent it crossed as inert data | Declare the host and callback contract, or supply the actual plain function the library expects |
-| Callback runs and raises `:rf.error/no-frame-context` | A hand-written dispatch closure did not capture a frame | Replace it with an intent vector or `h/fn` |
+| Callback runs and raises `:rf.error/no-frame-context` | A hand-written dispatch closure did not capture a frame | Replace it with an intent vector or `h/event` |
 | A keyed list remounts once immediately after migration | A key collision that Reagent normalised now becomes two distinct values | Accept the one-time transition when the new stable key is correct |
 | Codemod refuses a nested map with `:normalized-key-collision` | Keys such as `:foo-bar` and `:fooBar` collapsed onto one Reagent output property | Remove the unintended duplicate and rerun |
 | W2 camel-cases keys in what looks like application data | Reagent already sent that library a camel-cased object | Do not revert unless you intentionally want different library input |

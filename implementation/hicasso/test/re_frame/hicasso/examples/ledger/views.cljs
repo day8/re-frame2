@@ -85,7 +85,7 @@
 
   No `n/defcomponent`, no ref, no effect, no imperative handle, no memo
   hint and no second root. The application's whole native-tier surface is
-  `h/defhost` and `h/hfn`; the island the imperative-SDK row needs
+  `h/defhost` and `h/event`; the island the imperative-SDK row needs
   (rf2-hic-067) is not needed here, because a virtualizer is an ordinary
   React component and the door for an ordinary React component is the
   declaration."
@@ -128,7 +128,7 @@
   vector returned from it is dispatched under the frame of the boundary
   that wrote the crossing.
 
-  Both are `h/hfn` rather than intent vectors, and both for the same
+  Both are `h/event` rather than intent vectors, and both for the same
   reason: the vendor invokes them VALUE-first — `renderRow(index,
   offset)`, `onWindow(from, to)` — so there is no event at argument one
   and nothing for a vector's markers to read. The one callback form
@@ -222,10 +222,10 @@
              :viewport-height viewport-height
              :overscan        overscan
              :pinned-index    pinned
-             :render-row      (h/hfn [i offset]
+             :render-row      (h/event [i offset]
                                 (h/as-element
                                   [ledger-row {:key    (row-key i)
                                                :index  i
                                                :offset offset}]))
-             :on-window       (h/hfn [from to]
+             :on-window       (h/event [from to]
                                 [::events/window-shown {:from from :to to}])}]]]))

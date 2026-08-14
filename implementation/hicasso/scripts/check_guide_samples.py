@@ -31,10 +31,13 @@ Freehand samples onto the real classpath.
 
 Transcribing this guide the same way would not produce that guarantee, it
 would LAUNDER its absence.  The guide is deliberately ahead of the code in
-four places it names in its own Status block, so a fixture would have to be
-written in today's spellings — `h/hfn` where the page teaches `h/fn` — and a
-fixture proving a different program from the one on the page is worse than no
-fixture, because its roster row reads as coverage.  Chapter 18 is written
+the places it names in its own Status block, so a fixture would have to be
+written in today's spellings — `h/hframe` where the page teaches `h/frame` —
+and a fixture proving a different program from the one on the page is worse
+than no fixture, because its roster row reads as coverage.  The example used
+to be `h/hfn` against a taught `h/fn`; rf2-hic-066 closed that one by
+respelling BOTH sides `h/event`, which is the outcome R3 exists to force.
+Chapter 18 is written
 against a `re-frame.hicasso.server` that does not exist at all; there is no
 spelling that compiles.
 
@@ -79,9 +82,11 @@ R3  THE LEDGER IS LIVE.  This is the rule the Freehand mechanism did not have,
 
     Every `DIVERGENCES` row must still describe reality: the spelling the
     guide teaches is still ABSENT from the door, and the spelling the row says
-    is exported instead is still PRESENT.  So when a gap CLOSES — `h/fn` is
+    is exported instead is still PRESENT.  So when a gap CLOSES — `h/frame` is
     finally exported under that name, or `re-frame.hicasso.server` lands — the
     row goes stale and this reds, naming the chapters that must now change.
+    That is not hypothetical: rf2-hic-066 retired the `fn` row by respelling
+    the callback form `h/event` on both sides at once.
 
     Prose cannot notice a gap closing.  Neither can a digest, and neither
     could a fixture.  A guide that stays wrong AFTER the code catches up is
@@ -188,16 +193,21 @@ CLOJURE_LANGS = frozenset({"clojure", "clj", "cljs", "cljc", "edn"})
 # directions, so this comment states an invariant the gate keeps rather than
 # one it hopes for.
 
+# `("re-frame.hicasso", "fn") -> "hfn"` LEFT THIS TABLE in rf2-hic-066, and
+# R3 is what would have caught it had it not: naming-ledger row 1's operator
+# ruling respelled the one callback form `h/event` on BOTH sides at once, so
+# the gap closed rather than moved.  The guide taught `h/fn` in 47 places
+# against an export named `hfn` and a door carrying no `fn` at all, which is
+# the one divergence here that was never a candidate-versus-candidate
+# question: `h/fn` was ruled OUT, so the row described a spelling nothing was
+# waiting to take.  Its Status-block bullet on `index.md` left in the same
+# pass -- R4 enforces that correspondence in both directions.
 DIVERGENCES = {
-    ("re-frame.hicasso", "fn"): (
-        "hfn",
-        "a bare `fn` would shadow `cljs.core` on a `:refer`; the final "
-        "spelling is an open naming decision",
-    ),
     ("re-frame.hicasso", "frame"): (
         "hframe",
-        "a bare `frame` would shadow on a `:refer`; same open naming decision "
-        "as `fn`",
+        "a bare `frame` would shadow on a `:refer`; naming-ledger row 18 "
+        "retires the verb rather than respelling it, and that retirement "
+        "waits on a seam rather than on a name (rf2-hic-066)",
     ),
     ("re-frame.hicasso", "mount!"): (
         "root!",
@@ -649,8 +659,8 @@ ROSTER = {
     ],
     "03-events-as-data.md": [
         (1, "2b67f773aebd"), (2, "42648249c10c"), (3, "98efe91f23d1"),
-        (4, "e1694d6b7447"), (5, "b8fb07ec9bcd"), (6, "a1bfcb18bbb8"),
-        (7, "6b83109d106a"), (8, "cfcdf30f7452"), (9, "1a4b943717b9"),
+        (4, "e1694d6b7447"), (5, "b8fb07ec9bcd"), (6, "38e590175d58"),
+        (7, "c5607b0a00dc"), (8, "62e15de47d92"), (9, "1a4b943717b9"),
         (10, "c39ffbfc89d3"), (11, "adac13035c37"), (12, "536d5a306c8a"),
     ],
     "04-controlled-inputs.md": [
@@ -679,19 +689,19 @@ ROSTER = {
         (7, "2893c98e0b2e"), (8, "8f4153a906ab"),
     ],
     "09-interop.md": [
-        (1, "f9c121ead9b4"), (2, "dd65ec549287"), (3, "4d24d4fa878e"),
-        (4, "3a98d36aa76d"), (5, "564f79e50446"), (6, "5e464064f747"),
+        (1, "f9c121ead9b4"), (2, "add77099a3b1"), (3, "4d24d4fa878e"),
+        (4, "6910bfcdcf02"), (5, "0e7d4ab43d08"), (6, "5e464064f747"),
         (7, "54e5bd3cc034"), (8, "65e58252ea6e"), (9, "1b342e21ee48"),
         (10, "041c0256d5f7"), (11, "d3b8639b64a6"), (12, "60b51664545b"),
     ],
     "10-native-tier.md": [
-        (1, "59b22de7d68b"), (2, "1fdf246207e5"), (3, "96671d4cc41d"),
+        (1, "59b22de7d68b"), (2, "2af314d1e90f"), (3, "96671d4cc41d"),
         (4, "959bfe0e04a7"), (5, "9509a6e64c37"), (6, "bba8cd7f8cc1"),
         (7, "47c073f5d3d5"),
     ],
     "11-ephemeral-state.md": [
-        (1, "dd4ba49feb87"), (2, "5da9310b7de0"), (3, "27d001c01112"),
-        (4, "4981a1a617d1"),
+        (1, "dd4ba49feb87"), (2, "5da9310b7de0"), (3, "f897b4819048"),
+        (4, "11d5492b72af"),
     ],
     "12-motion-and-presence.md": [
         (1, "b9e054bd1679"), (2, "1c2d32590c08"), (3, "4e4a36dda625"),
@@ -744,7 +754,7 @@ ROSTER = {
     ],
     "glossary.md": [
         (1, "8e41503852f0"), (2, "a8c48ad15a44"), (3, "293a430df1b0"),
-        (4, "3d0eeb7d7630"), (5, "00ef4677d93c"), (6, "1525f6562ee9"),
+        (4, "3d0eeb7d7630"), (5, "00ef4677d93c"), (6, "1fce61ddf3b9"),
         (7, "cb82a84e9e1f"), (8, "875347e0e1c9"), (9, "a17475d88d3b"),
         (10, "d736d0f8d2dd"), (11, "fe9a46c664ad"), (12, "8c5dd00e1013"),
         (13, "0fa30f465faf"), (14, "58363a4b87fd"), (15, "91123205e5ad"),

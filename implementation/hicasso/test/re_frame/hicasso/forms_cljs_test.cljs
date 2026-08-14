@@ -623,7 +623,7 @@
                      :when (= {:rf.ui/opaque :fn} v)]
                  [(:tag node) k])]
     (is (= [] (vec opaque))
-        "not one function-valued prop. Give any slot a `(h/hfn …)` and this
+        "not one function-valued prop. Give any slot a `(h/event …)` and this
          row names the tag and the prop it appeared on")
     (testing "and every intent the field offers is a vector of data"
       (is (= 4 (count (ht/intents (first trees))))

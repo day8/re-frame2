@@ -390,7 +390,7 @@
             to delete"
     (is (= :rf.error/hicasso-host-unclaimed-callback
            (error-id #(crossing-props
-                        [panel-host {:title (h/hfn [] [:h2 "no"])}])))))
+                        [panel-host {:title (h/event [] [:h2 "no"])}])))))
   (testing "while a PLAIN function at the same prop of an undeclared
             crossing is untouched, because it never asked for anything"
     (is (fn? (.-title ^js (crossing-props [bare-panel {:title (fn [] nil)}]))))))
@@ -453,7 +453,7 @@
       [badge {}]
       [rows-host
        {:items      (into-array rows)
-        :render-row (h/hfn [item _i]
+        :render-row (h/event [item _i]
                       (h/as-element
                         [:span.cell {:on-click [:hicasso.slots/pick item]}
                          item]))}]]]))

@@ -36,7 +36,7 @@
   object rather than a function, so the author gets the engine's own
   `TypeError`, \"naming nothing you wrote\".
 
-  Hicasso ships **one** form, [[callback]] (`h/fn`), and it is an
+  Hicasso ships **one** form, [[callback]] (`h/event`), and it is an
   ORDINARY FUNCTION. The contract comes from the position, because the
   runtime already knows every position it walks:
 
@@ -97,7 +97,7 @@
   picker's `(on-change date)` — has no event at argument one, and there is
   nothing to guess: the vector cannot know which of the library's
   arguments is the event, and a runtime that went looking for one would be
-  reintroducing inference at the exact seam HD-011 forbids it. **`h/fn` is
+  reintroducing inference at the exact seam HD-011 forbids it. **`h/event` is
   that spelling**, and it needs no rule of its own, because the one form
   receives every argument the invoker passed, in order.
 
@@ -174,7 +174,7 @@
 
   - **`:on-submit` auto-prevents** (authoring.md, census-weighted), and
     the opt-out for the rare form that wants a real submission is the
-    existing `h/fn` escape — a callback is handed the event, so the event
+    existing `h/event` escape — a callback is handed the event, so the event
     is the callback's.
   - **Anywhere else, prevention is opted IN by one reserved head**:
     `[::h/prevent [:conduit/show-your-feed]]`. It is a head rather than
@@ -422,7 +422,7 @@
   a body, and a loud error outside a render extent.
 
   Spelled `hframe` here for exactly the reason
-  [[re-frame.hicasso/hfn]] is spelled `hfn`: the product
+  [[re-frame.hicasso/event]] is spelled `event`: the product
   name is qualified (`h/frame`), and a bare `frame` would shadow the
   `re-frame.frame` alias that this namespace — and every other namespace
   in the arm — already carries.
@@ -535,8 +535,8 @@
   plain function whose return is ignored, which is a defensible contract
   rather than a crash.
 
-  `h/fn` in the authoring surface; see
-  [[re-frame.hicasso/hfn]]. Marking mutates the function
+  `h/event` in the authoring surface; see
+  [[re-frame.hicasso/event]]. Marking mutates the function
   object, which is safe because a callback written in a body is minted
   fresh per render — and it is one own-property read to test, with no
   registry and no map."
@@ -627,7 +627,7 @@
   `h/as-element`**, so the recovery this paragraph describes is one an
   author writes:
 
-      (h/hfn [i]
+      (h/event [i]
         (h/as-element
           [:li {:on-click [:row/pick (nth ids i)]} (str (nth ids i))]))
 
@@ -723,7 +723,7 @@
 
   See the namespace docstring §The argument law. The whole point is that
   a value-first foreign invoker produces THIS error, naming the position
-  and pointing at `h/fn`, instead of the engine's
+  and pointing at `h/event`, instead of the engine's
   `value.preventDefault is not a function` — which names nothing the
   author wrote and is the failure class HD-024 exists to delete."
   [k form e slot]
@@ -738,7 +738,7 @@
                 "what every native position and every event-first foreign "
                 "contract hands it. A value-first invoker — (on-pick value "
                 "event) — has no event there, and nothing can guess which of "
-                "its arguments is one. Write an h/hfn instead: the one form "
+                "its arguments is one. Write an h/event instead: the one form "
                 "receives every argument the invoker passed, in order.")
            :write-an-h-fn-at-a-value-first-position
            {:position k :form form :argument e :needed slot})))
@@ -792,7 +792,7 @@
   IS its selection — the marker was answering its own question badly. A
   file input is not that case: chapter 04's supported-controls table rules
   it OUT of the marker's surface on purpose (`no controlled value`, with
-  `:on-change` and an `h/fn` reading `.files` as the whole of its event
+  `:on-change` and an `h/event` reading `.files` as the whole of its event
   form, *because the platform owns their value*), and answering with a
   `FileList` here would WIDEN the marker onto a control the design
   deliberately excludes. The same chapter states the posture that settles
@@ -852,8 +852,8 @@
                 "FIRST selected file's name — a path nothing can open, naming "
                 "one file out of however many were chosen. A file input has no "
                 "value the model can carry; the platform owns the selection. "
-                "Write an h/fn at the handler and read `.files` off the event "
-                "target: [:input {:type :file :on-change (h/fn [e] [:app/upload "
+                "Write an h/event at the handler and read `.files` off the event "
+                "target: [:input {:type :file :on-change (h/event [e] [:app/upload "
                 "(js/Array.from (.. e -target -files))])}].")
            :read-the-file-list-with-an-h-fn
            {:value (.-value target)}))
@@ -1024,7 +1024,7 @@
            (str "The " (pr-str navigate-head) " decorator at " (pr-str k)
                 " carries the veto " (pr-str veto) ", which is outside the "
                 "closed roster: nil, [" (pr-str prevent-head) " [:my-event …]] "
-                "(cancel the navigation and dispatch this instead), h/hfn, or a "
+                "(cancel the navigation and dispatch this instead), h/event, or a "
                 "plain function. A bare intent vector is refused — the click "
                 "already produces the one routing intent; wrap the vector in "
                 (pr-str prevent-head) " to veto the navigation, or move the "
@@ -1253,7 +1253,7 @@
                      "foreign component's own render, where dispatching is "
                      ":rf.error/hicasso-dispatch-in-render-position. "))
               "Declare " (pr-str k) " :event if what happens there is an "
-              "event, or write an h/hfn that does the " (pr-str contract)
+              "event, or write an h/event that does the " (pr-str contract)
               " work. The contract comes from the position, so the value "
               "never gets to overrule it.")
          :declare-the-position-event-or-write-an-h-fn
@@ -1276,7 +1276,7 @@
   defect HD-024 exists to delete. So each contract states what it accepts
   and refuses the rest:
 
-  | Contract | `h/fn` | intent vector / key-map | anything else |
+  | Contract | `h/event` | intent vector / key-map | anything else |
   |---|---|---|---|
   | `:event`   | the event wrapper — a returned vector dispatches | lowered exactly as at a native event position | crosses untouched |
   | `:handler` | the function itself, by identity | **refused** ([[refuse-dispatching-carrier!]]) | crosses untouched |

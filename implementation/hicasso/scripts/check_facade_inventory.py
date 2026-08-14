@@ -175,17 +175,17 @@ SECTIONS = [
 # because an attribution nobody can check is an attribution nobody will
 # maintain.  Every entry is checked both ways -- see the module docstring.
 DECLARED = {
-    "hfn": {
+    "event": {
         "id": "HS-03",
         # The row is titled `h/handler`, a name with no referent -- and it
         # says so itself: *"there is no `h/handler` on the facade
         # (`hicasso.cljc`'s alias block is the roster); the surface as
-        # shipped is the literal intent vector plus `h/hfn`, and that is what
+        # shipped is the literal intent vector plus `h/event`, and that is what
         # is witnessed"*.  So the row already claims this name, in its own
         # words, in the cell that records what was measured.  It is a
         # DECLARED attribution rather than a BY NAME one only because the
         # claim is in the disposition cell instead of the title.
-        "why": "HS-03's disposition cell names `h/hfn` as the surface as "
+        "why": "HS-03's disposition cell names `h/event` as the surface as "
                "shipped, the row's own title `h/handler` having no referent",
     },
     "portal": {

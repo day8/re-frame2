@@ -30,7 +30,7 @@
      declaration, so its callback roster is EMPTY by construction and
      both spellings that would otherwise carry the frame for the author
      refuse at the prop — an intent vector is
-     `:rf.error/hicasso-host-undeclared-callback` and an `h/fn` is
+     `:rf.error/hicasso-host-undeclared-callback` and an `h/event` is
      `:rf.error/hicasso-host-unclaimed-callback`. What crosses is an
      ordinary function, by identity, and an ordinary function carries no
      frame. This is the edge `h/frame` names in its own docstring as the
@@ -48,7 +48,7 @@
   clicks BOTH crossings: one click alone is green under a capture that
   resolved one frame for both. Give the escape's roster a contract at
   `:on-pick` and the premise rows go red before anything mounts; hand
-  the crossing a marked `h/fn` that survives, and the second one does.
+  the crossing a marked `h/event` that survives, and the second one does.
 
   Runtime: `-dom-cljs-test`, so `:browser-test` runs it against a real
   React DOM; under `:node-test` every claim degrades to a stated skip."
@@ -414,7 +414,7 @@
                (refusal-id #(codec/as-element
                               [:> foreign-picker
                                {:on-pick (intent/callback (fn [] [:hicasso.todo/toggle 0]))}])))
-            "and a marked h/fn, which asks the position for a contract no
+            "and a marked h/event, which asks the position for a contract no
              position here can ever select"))
 
       (let [a (mount/root! (mount/fresh-container!) frame-a [escape-picker {:id 0}])

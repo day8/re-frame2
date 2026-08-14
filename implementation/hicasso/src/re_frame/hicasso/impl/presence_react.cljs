@@ -31,7 +31,7 @@
   `intent/*dispatch*` is unbound at the moment the codec walks it, and
   before this hook existed an intent at an event position on ANY presence
   child raised `:rf.error/hicasso-intent-outside-boundary` at render, and
-  an `h/fn` at one raised it at invocation. Loud, never silent — and it
+  an `h/event` at one raised it at invocation. Loud, never silent — and it
   meant the tray this whole ruling is sold on,
 
       [:div.toast {:key id :on-click [:toasts/dismiss id]} …]
