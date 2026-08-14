@@ -152,13 +152,31 @@ window.__TB__ = (function () {
   // Move a select's selection the way a user does — through the OPTIONS,
   // not through \`select.value\`, which can only ever express one of them —
   // and then let the browser's own change event out.
+  //
+  // \`chosen\` and \`markerWouldRead\` are captured BEFORE the event goes
+  // out, and that ordering is the whole reason this helper exists rather
+  // than two lines at each call site. The first cut read the selection
+  // after \`dispatchEvent\` and every engine reported one option where two
+  // had been chosen — because React's controlled restore had ALREADY run
+  // inside the dispatch and converged the element. The row that was meant
+  // to establish "the user chose two" was reading the aftermath of the
+  // conduct it was the premise for.
   function choose(id, values) {
     var n = el(id);
     Array.prototype.forEach.call(n.options, function (o) {
       o.selected = values.indexOf(o.value) >= 0;
     });
+    var chosen = selected(id);
+    // What \`::h/value\` reads at dispatch time — \`(.-value target)\`, per
+    // \`impl.intent/marker-readers\`.
+    var markerWouldRead = n.value;
     n.dispatchEvent(new Event('change', { bubbles: true }));
-    return { value: n.value, selected: selected(id) };
+    return {
+      chosen: chosen,
+      markerWouldRead: markerWouldRead,
+      value: n.value,
+      selected: selected(id),
+    };
   }
   // Every attribute actually on the node, by the name the DOM gave it.
   // The point of reading names rather than asking \`getAttribute\` for the
@@ -973,7 +991,7 @@ async function selectSingleEchoesCommitted(page, w) {
 // DOM has.
 async function selectMultipleSupported(page, w) {
   const run = await page.evaluate(async () => {
-    window.__TB__.choose('picks', ['a', 'c']);
+    const drove = window.__TB__.choose('picks', ['a', 'c']);
     const inTurn = window.__TB__.selected('picks');
     await window.__TB__.settle();
     const took = { dom: window.__TB__.selected('picks'), model: window.__TB__.model().picks };
@@ -981,10 +999,16 @@ async function selectMultipleSupported(page, w) {
     window.__TB__.choose('picks', ['a', 'banned', 'c']);
     await window.__TB__.settle();
     const refused = { dom: window.__TB__.selected('picks'), model: window.__TB__.model().picks };
-    return { inTurn, took, refused };
+    return { drove, inTurn, took, refused };
   });
 
-  w.eq(run.inTurn.join(','), 'a,c', 'both options are selected in the element');
+  // The same premise the marker row states, and it has to be stated on
+  // BOTH: the supported path's claim is that the echo KEEPS two options,
+  // which is only a claim if two were chosen before the event went out.
+  w.eq(run.drove.chosen.join(','), 'a,c', 'two options were chosen');
+  w.eq(run.drove.markerWouldRead, 'a',
+    'and the reserved marker would have read one of them — the same control, the other spelling');
+  w.eq(run.inTurn.join(','), 'a,c', 'both options survive the echo, inside the turn');
   w.eq(run.took.model.join(','), 'a,c', 'and BOTH reach the store — the whole selection');
   w.eq(run.took.dom.join(','), 'a,c', 'the echo keeps both');
   w.eq(run.refused.model.join(','), 'a,c', 'the refused option is dropped by the policy');
@@ -1006,13 +1030,16 @@ async function selectMultipleSupported(page, w) {
 async function reservedMarkerUnderReadsAMultipleSelect(page, w) {
   const run = await page.evaluate(async () => {
     const before = window.__TB__.model().edits['picks-marker'] || 0;
-    window.__TB__.choose('picks-marker', ['a', 'c']);
-    const chosen = window.__TB__.selected('picks-marker');
+    const drove = window.__TB__.choose('picks-marker', ['a', 'c']);
+    // Read on the NEXT LINE: React's controlled restore for a select runs
+    // inside the discrete event, so the discard is already visible here.
+    const inTurn = window.__TB__.selected('picks-marker');
     await window.__TB__.settle();
     const m = window.__TB__.model();
     return {
       before,
-      chosen,
+      drove,
+      inTurn,
       raw: m['picks-marker-raw'],
       model: m['picks-marker'],
       dom: window.__TB__.selected('picks-marker'),
@@ -1020,13 +1047,15 @@ async function reservedMarkerUnderReadsAMultipleSelect(page, w) {
     };
   });
 
-  w.eq(run.chosen.join(','), 'a,c', 'the user really did choose two options');
+  w.eq(run.drove.chosen.join(','), 'a,c', 'the user really did choose two options');
   w.eq(run.edits, run.before + 1, 'and exactly one intent arrived for it');
-  w.eq(run.raw, 'a',
-    'FINDING: the reserved ::h/value marker delivered ONE option, not the selection');
-  w.eq(run.model.join(','), 'a', 'so the store holds one');
-  w.eq(run.dom.join(','), 'a',
-    'and the echo DISCARDS the second choice — silently, with no refusal anywhere');
+  w.eq(run.drove.markerWouldRead, 'a',
+    'FINDING: the reserved ::h/value marker reads ONE option, not the selection');
+  w.eq(run.raw, 'a', 'so that is what the handler received');
+  w.eq(run.model.join(','), 'a', 'and what the store holds');
+  w.eq(run.inTurn.join(','), 'a',
+    'the echo DISCARDS the second choice inside the turn — silently, no refusal anywhere');
+  w.eq(run.dom.join(','), 'a', 'and it is still gone at rest');
 }
 
 // FILE INPUT — a refusal, and the refusal is the PLATFORM's.

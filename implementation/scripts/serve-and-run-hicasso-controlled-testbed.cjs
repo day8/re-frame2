@@ -348,8 +348,8 @@ const ENGINES = ONLY
 // names, so deleting a witness means deliberately editing the gate that
 // requires it.
 //
-// Sum today: 186, which is what each engine reports — 97 from rf2-hic-016's
-// I15 witnesses and 89 from rf2-hic-040's conformance matrix.
+// Sum today: 190, which is what each engine reports — 97 from rf2-hic-016's
+// I15 witnesses and 93 from rf2-hic-040's conformance matrix.
 // ---------------------------------------------------------------------------
 
 const REQUIRED_SECTIONS = {
@@ -372,8 +372,8 @@ const REQUIRED_SECTIONS = {
   // the name the table quotes.
   'radio-group-echoes-committed': 9,
   'select-single-echoes-committed': 8,
-  'select-multiple-supported': 5,
-  'reserved-marker-under-reads-a-multiple-select': 5,
+  'select-multiple-supported': 7,
+  'reserved-marker-under-reads-a-multiple-select': 7,
   'file-input-is-uncontrollable': 5,
   'types-without-a-caret-echo-committed': 7,
   'contenteditable-is-not-a-controlled-field': 8,
@@ -442,7 +442,29 @@ const has = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
 
 const NARROWINGS = [
   // Populated only by a divergence this gate actually measured. An empty
-  // list is the honest starting state: nothing is excused in advance.
+  // list was the honest starting state; the entry below is the first thing
+  // three engines have disagreed about since this gate was built.
+  {
+    row: 'selection-api-on-types-without-a-caret',
+    engines: ['webkit'],
+    why:
+      'WebKit answers `selectionStart` on `<input type="date">` — 10, which is '
+      + 'the length of `yyyy-mm-dd` — where Chromium and Firefox both answer '
+      + 'null. Measured 2026-08-14 (rf2-hic-040) on the builds pinned by '
+      + 'Playwright 1.59.1: chromium 147.0.7727.15, firefox 148.0.2, webkit 26.4. '
+      + '`number` and `range` answer null in all three, so it is the date type '
+      + 'alone. THE DIVERGENCE IS LATENT, and that is why it is a narrowing '
+      + 'rather than a defect: `impl.controlled/caret-types` admits only text, '
+      + 'search, url, tel and password, so `convergeable?` answers no for a date '
+      + 'field in every engine, no wrapper is installed, and `converge!`’s '
+      + '`(number? caret-was)` guard is never reached on this control. The '
+      + 'CONFORMANCE of the control is unaffected and is asserted rather than '
+      + 'recorded: the same refusal and the same accepted value echo in all '
+      + 'three engines, in-turn, in `types-without-a-caret-echo-committed`. '
+      + 'What the row is worth carrying for is the opposite direction — should '
+      + 'a date field ever be admitted to `caret-types`, this is the engine '
+      + 'that would take a different branch, and it would take it silently.',
+  },
 ];
 
 /**
