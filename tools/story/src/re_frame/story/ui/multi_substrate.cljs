@@ -151,7 +151,27 @@
   result (a hiccup vector for `:reagent`); a missing substrate yields an
   inline diagnostic hiccup rather than throwing, so the render verb's
   caller always sees *something*. `(fn [variant-id view-id args] …)` is the
-  substrate-render contract."
+  substrate-render contract.
+
+  **There are TWO registry lookups in this namespace and they are not
+  redundant.** `safe-render-cell` carries its own, because the two answer
+  at different levels. This fn returns a render RESULT — a fragment whose
+  caller decides where it lands — so a missing substrate degrades to a
+  bare inline diagnostic, shaped like the missing-VIEW one
+  `reagent-render` returns above it. `safe-render-cell` returns a whole
+  grid CELL, chrome included, so its miss has to be a full error cell,
+  and it spends that cell's body naming the `register-substrate!` call
+  the author is missing. Neither can delegate to the other without losing
+  exactly that: this one would hand the host hook a red bordered cell it
+  is not in a grid to justify, and that one would find its error branch
+  unreachable, taking the remediation off the canvas with it.
+
+  The split is a COVERAGE split too, which is the easier half to trip
+  over. The `:uix` arms in `story/ui/render_shell_cljs_test.cljs` drive
+  the canvas grid, so they reach `safe-render-cell` and never arrive
+  here; this fn is covered on its own terms in
+  `story_multi_substrate_cljs_test.cljs` (rf2-nfwbt). A test that
+  exercises one copy settles nothing about the other."
   [substrate variant-id view-id eff-args]
   (if-let [render-fn (get @substrate->render-fn substrate)]
     (render-fn variant-id view-id eff-args)
@@ -232,6 +252,13 @@
   "Render `view-id` under `substrate` inside a try/catch boundary. Per
   `002-Runtime.md` §Substrate hooks a substrate failure surfaces inline rather than
   aborting the whole grid.
+
+  The registry lookup and the missing-substrate diagnostic below are the
+  CELL-level pair. `render-view` above carries the fragment-level pair
+  for the `render-variant` host hook, and its docstring says why the two
+  are kept apart rather than folded together. A test that drives
+  `multi-substrate-grid` exercises this copy and leaves that one
+  untouched.
 
   Returns a Reagent component."
   [variant-id substrate view-id eff-args]
