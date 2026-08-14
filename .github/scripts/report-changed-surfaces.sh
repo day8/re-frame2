@@ -1417,26 +1417,27 @@ else
         # examples/ui/minimal-counter is a standalone Freehand project now, so
         # Freehand is a framework artefact a standalone example build resolves.
         #
-        # rf2-2rtt6.143 — migration_hicasso_codemod is the reverse edge of a
-        # declared `:paths` entry, spelled out the same way as the two
-        # `tools_jvm_*` booleans on the `implementation/core/*` arm above.
-        # `migration/reagent-to-hicasso/codemod/deps.edn` puts
-        # `../../../implementation/freehand/test` on its classpath so that the
-        # codemod and the runtime door share ONE slot rule (rf2-ani6y), and
-        # `shared_rule_test.clj` pins the two `identical?`. Break
-        # `bench/hicasso/front/slot.cljc` and that pin is the assertion that
-        # catches it — from a lane that would otherwise be skipped.
+        # rf2-2rtt6.143 / rf2-r4j91 — migration_hicasso_codemod USED to be set
+        # here, and is not any more, because the `:paths` edge it was the
+        # reverse of has moved. `migration/reagent-to-hicasso/codemod/deps.edn`
+        # put `../../../implementation/freehand/test` on its classpath so that
+        # the codemod and the runtime door shared ONE slot rule (rf2-ani6y),
+        # and `shared_rule_test.clj` pins the two `identical?`. rf2-ani6y ran
+        # while the runtime still lived in the bench tree; rf2-hic-001 moved it
+        # to `implementation/hicasso/`, and rf2-r4j91 followed the codemod's
+        # path over to `implementation/hicasso/src` so the tool outlives
+        # Freehand's retirement. The boolean therefore moved to the
+        # `implementation/hicasso/*` arm below, where the file it guards now
+        # lives.
         #
-        # The arm is COARSER than the edge: the shared file sits inside this
-        # tree, and an arm naming it alone would have to be placed before this
-        # one, where it would shadow the four outputs above and silently
-        # narrow Freehand's own coverage. Over-classifying a seconds-long pure
-        # JVM suite is the cheaper error, and TESTING.md says to prefer it.
+        # Leaving it set here as well would not be belt-and-braces, it would be
+        # a lie about which tree the codemod reads — and once this tree is
+        # deleted an arm nobody can reach cannot be the thing that catches a
+        # broken slot rule.
         implementation_jvm=true
         cljs_node_test=true
         cljs_browser=true
         cljs_prod=true
-        migration_hicasso_codemod=true
         ;;
       implementation/hicasso/*)
         # rf2-8a6s — the Hicasso view substrate artefact (rf2-hic-001).
@@ -1532,15 +1533,22 @@ else
         # this arm, so a hicasso diff that skipped it would be resting the
         # whole HMR contract on the seam-driven witness.
         hicasso_hmr=true
-        # rf2-erjv — migration_hicasso_codemod, the SECOND reverse edge into
-        # the codemod's JVM lane. The `implementation/freehand/*` arm above
-        # carries the first and states the shape; this is the same shape by a
-        # different mechanism, and it was missing.
+        # rf2-erjv — migration_hicasso_codemod, the reverse edge into the
+        # codemod's JVM lane. It landed here as the SECOND of two such edges,
+        # the first being a classpath one on the `implementation/freehand/*`
+        # arm above; rf2-r4j91 moved that one here as well, so this arm now
+        # carries BOTH and the freehand arm carries neither.
         #
-        # There the edge is a CLASSPATH one: the codemod's deps.edn puts
-        # `../../../implementation/freehand/test` on `:paths` so the tool and
-        # the door share ONE slot rule (rf2-ani6y). Here it is a SOURCE-TEXT
-        # one. `shared_rule_test.clj`'s `the-callback-contracts-are-the-doors`
+        # The classpath edge: the codemod's deps.edn puts
+        # `../../../implementation/hicasso/src` on `:paths` so the tool and the
+        # door share ONE slot rule (rf2-ani6y, repointed off the retiring
+        # prototype by rf2-r4j91), and `shared_rule_test.clj` pins the tool's
+        # resolver and `impl/slot.cljc`'s `prop-name` `identical?` — plus the
+        # file's own path, so a rule loaded from anywhere else reds rather than
+        # passing on a byte-identical twin.
+        #
+        # The source-text edge, which is why this arm existed first.
+        # `shared_rule_test.clj`'s `the-callback-contracts-are-the-doors`
         # (rf2-vi11) reaches back up the tree with a relative `io/file` and
         # slurps `implementation/hicasso/src/re_frame/hicasso/impl/codec.cljs`,
         # because that roster is `.cljs` this JVM cannot load but CAN read —
@@ -1553,12 +1561,11 @@ else
         # codec.cljs reds it rather than silently skipping — which is only
         # worth having if the move's own PR schedules the lane.
         #
-        # COARSER than the edge, for the reason the freehand arm gives: the
-        # read file sits inside this tree, and an arm naming it alone would
-        # have to precede this one, where it would shadow the three outputs
-        # above and silently narrow the package's own coverage. Over-
-        # classifying a seconds-long pure JVM suite is the cheaper error, and
-        # TESTING.md says to prefer it.
+        # COARSER than either edge, deliberately: both files sit inside this
+        # tree, and an arm naming them alone would have to precede this one,
+        # where it would shadow the outputs above and silently narrow the
+        # package's own coverage. Over-classifying a seconds-long pure JVM
+        # suite is the cheaper error, and TESTING.md says to prefer it.
         migration_hicasso_codemod=true
         ;;
       implementation/scripts/run-ui-bench.cjs)

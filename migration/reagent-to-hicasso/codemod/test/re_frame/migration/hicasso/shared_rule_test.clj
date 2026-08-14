@@ -10,11 +10,13 @@
   pins them equal, with the drift silent in both directions.
 
   §10.2's third recommendation was the only structural answer, and
-  rf2-ani6y took it: the slot rule moved to `front/slot.cljc`, the one
-  file both hosts can load. This tool therefore does not *mirror*
-  `prop-name` — it CALLS it. [[the-slot-rule-is-the-shared-one]] is what
-  keeps that true, by asserting the function came out of the shared file
-  rather than out of this artefact's own tree. Copy the rule in here to
+  rf2-ani6y took it: the slot rule moved into a `.cljc` both hosts can
+  load — `impl/slot.cljc` in the shipped package, since rf2-r4j91
+  repointed this tool off the retiring prototype's copy. This tool
+  therefore does not *mirror* `prop-name` — it CALLS it.
+  [[the-slot-rule-is-the-shared-one]] is what keeps that true, by
+  asserting the function came out of that file rather than out of this
+  artefact's own tree or the bench tree. Copy the rule in here to
   \"remove a dependency\" and that test goes red, which is the whole
   point.
 
@@ -37,7 +39,7 @@
             [clojure.java.io :as io]
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
-            [re-frame.bench.hicasso.front.slot :as slot]
+            [re-frame.hicasso.impl.slot :as slot]
             [re-frame.migration.hicasso.dest :as dest]
             [re-frame.migration.hicasso.donor :as donor]
             [re-frame.migration.hicasso.rewrite :as rw]
@@ -52,19 +54,31 @@
             not a transcription of it"
     (is (identical? dest/canonical-slot slot/prop-name)))
 
-  (testing "and it is loaded from the SHARED `.cljc`, not from a copy
-            inside this artefact. rf2-ani6y extracted that file precisely
-            so the tool and the door cannot hold two answers; a copy in
-            `src/` would satisfy every other test in this suite and
-            silently re-open the design's §10.3."
-    (let [url (io/resource "re_frame/bench/hicasso/front/slot.cljc")
+  (testing "and it is loaded from the SHARED `.cljc` IN THE SHIPPED
+            PACKAGE, not from a copy inside this artefact and not from
+            the prototype. rf2-ani6y extracted that file precisely so the
+            tool and the door cannot hold two answers; a copy in `src/`
+            would satisfy every other test in this suite and silently
+            re-open the design's §10.3.
+
+            rf2-r4j91 moved the path off the bench tree. The rule was
+            extracted while the runtime still lived at
+            `implementation/freehand/test/.../bench/hicasso/front/`, and
+            `implementation/hicasso/frozen-sources.edn` still pins that
+            copy byte-for-byte — so BOTH files answer identically today
+            and either would satisfy an `identical?` check taken alone.
+            Only one of them survives Freehand's retirement, and it is
+            the one a migrator's own code will meet."
+    (let [url  (io/resource "re_frame/hicasso/impl/slot.cljc")
           path (some-> url .getPath (str/replace "\\" "/"))]
       (is (some? url) "the shared slot rule is on the classpath")
-      (is (str/includes? path "implementation/freehand/test/re_frame/bench/hicasso/front/slot.cljc")
-          (str "the slot rule must come from the shared implementation file; it came from "
+      (is (str/includes? path "implementation/hicasso/src/re_frame/hicasso/impl/slot.cljc")
+          (str "the slot rule must come from the shipped package's shared file; it came from "
                path))
       (is (not (str/includes? path "/migration/reagent-to-hicasso/"))
-          "a copy of the slot rule has appeared inside the codemod's own tree"))))
+          "a copy of the slot rule has appeared inside the codemod's own tree")
+      (is (not (str/includes? path "/implementation/freehand/"))
+          "the codemod is reading the retired prototype's copy of the rule"))))
 
 ;; ---------------------------------------------------------------------------
 ;; The one mirror the tool REPRINTS, held against the door's own file

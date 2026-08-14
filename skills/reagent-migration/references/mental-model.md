@@ -1,25 +1,31 @@
-# The Freehand view shift (mental model)
+# The Hicasso view shift (mental model)
 
-> The shifts a migrating developer must internalise. Map Reagent's "a view is
-> a function I run every render" onto Freehand's "a view is a declaration the
-> runtime mounts", and every rule below stops being a surprise.
+> The shifts a migrating developer must internalise. Map Reagent's "a view is a
+> function I run every render" onto Hicasso's "a view is a declared React
+> component I mount", and every rule below stops being a surprise.
 
-## Anchor: a React function component → a declared component
+## Anchor: a React function component you can also call → one you can only mount
 
-If you know React, the closest analogue is the move from a **function component you can also just call** to a **declared component you can only mount**. In React, `<Card />` and `Card()` both "work" and mean different things — one creates a boundary React owns, the other splices the body into the caller. React never made you choose; Freehand does, at the spelling.
+If you know React, the closest analogue is the move from a **function component
+you can also just call** to a **declared component you can only mount**. In
+React, `<Card />` and `Card()` both "work" and mean different things — one
+creates a boundary React owns, the other splices the body into the caller. React
+never made you choose; Hicasso does, at the spelling.
 
 ```clojure
-[card {:title t}]     ; a BOUNDARY — its own subscriptions, memoisation, error containment
+[card {:title t}]     ; a BOUNDARY — a real React function component with its own subscription edges
 (card-bits t)         ; an ordinary defn helper — runs inside whoever called it
 ```
 
-Calling a declared view raises `:rf.error/view-called-directly` rather than
-quietly returning something. Reagent's Form-1/Form-2/Form-3 folklore — "is this
-a component or a function here?" — collapses into that one rule.
+`h/defview` mints the component and binds the var; **a plain function in head
+position is a loud error rather than a silent embedding**, which is what makes a
+head's identity stable by construction. Reagent's Form-1/Form-2/Form-3
+folklore — "is this a component or a function here?" — collapses into that one
+rule.
 
 ## The four shifts
 
-### 1. A view is a declaration, not a function
+### 1. A view is a declared component taking exactly one props map
 
 A Reagent view is an ordinary function returning hiccup, re-invoked every render:
 
@@ -28,26 +34,33 @@ A Reagent view is an ordinary function returning hiccup, re-invoked every render
   [:h1 "Hello, " name])
 ```
 
-A Freehand view is a `v/defview` **declaration** whose var holds a descriptor:
+A Hicasso view is an `h/defview` whose argument vector is **the ordinary
+one-props-map argument vector**, so destructuring reads as it does in any
+Clojure fn:
 
 ```clojure
-(v/defview greeting [{:keys [name]}]
+(h/defview greeting [{:keys [name]}]
   [:h1 "Hello, " name])
 ```
 
 Two corollaries follow immediately.
 
-**Props are one map, always.** A view takes **exactly one** parameter and it is
-the props map — there are no positional view arguments and no zero-arity form.
-`(defn greeting [name] …)` → `(v/defview greeting [{:keys [name]}] …)`, and every
-call site passes a map: `[greeting name]` → `[greeting {:name name}]`. A view that
-reads no props still declares the parameter: `[_]`, mounted as `[status-pill {}]`.
+**Props are one map, always.** There are no positional view arguments.
+`(defn greeting [name] …)` → `(h/defview greeting [{:keys [name]}] …)`, and
+every call site passes a map: `[greeting name]` → `[greeting {:name name}]`.
 
-**Helpers stay `defn`s.** A body-extracting helper is a plain function called with
-parentheses. It owns no boundary, so its `v/sub` reads belong to the view that
-called it — which is exactly what you want for "this is just some of my body".
+**Helpers stay `defn`s.** A body-extracting helper is a plain function called
+with parentheses. It owns no boundary, so its `h/sub` reads belong to the view
+that called it — which is exactly what you want for "this is just some of my
+body". The expansion binds **no name inside your body**, so the ordinary
+extract-a-helper spelling is safe:
 
-### 2. Deref-drop
+```clojure
+(defn todo-row-body [props] …)
+(h/defview todo-row [props] (todo-row-body props))
+```
+
+### 2. Deref-drop, and the read is ambient
 
 Reagent subscriptions are reactive atoms you deref:
 
@@ -55,22 +68,28 @@ Reagent subscriptions are reactive atoms you deref:
 [:span @(subscribe [:total])]        ; deref a reaction
 ```
 
-Freehand reads them with `v/sub`, which returns the **value**:
+Hicasso reads them with `h/sub`, which returns the **value**:
 
 ```clojure
-[:span (v/sub [:total])]             ; the render records the read
+[:span (h/sub [:total])]
 ```
 
-There is no reaction object in application code and nothing to hold. The render
-records the read; the commit turns it into an owned dependency, so an abandoned
-render leaks nothing. Outside an active render — a timer, a callback, the REPL —
-`v/sub` fails loud with `:rf.error/view-read-outside-render`; a non-reactive
-one-shot read is `rf/subscribe-once`, deliberately a `re-frame.core` verb.
+There is no reaction object in application code and nothing to hold. `h/sub` is
+**the ambient collector**: legal anywhere inside a body — inside a `when`, a
+`for`, or an inlined helper — and *the edge is recorded where the read happens*,
+so a branch not taken contributes no edge. That is a real difference from
+Reagent, where a deref inside a conditional still built a reaction the moment it
+ran.
+
+`h/use-subs` is the deliberate control: one fixed site takes the whole query
+collection and returns the snapshot the body destructures, so a boundary's edge
+set becomes a function of its declaration rather than of its control flow. Reach
+for it when you *want* that property, not by default.
 
 A `subscribe` that is *stored* rather than immediately deref'd (a held reaction,
 a cursor) is derived-state territory (MIG-19), not a deref-drop.
 
-### 3. Dispatch lifts to data
+### 3. Handlers become data, and the SHAPE selects the behaviour
 
 This is the shift that makes the view tier legible to tools and to tests. A
 Reagent handler is an opaque closure:
@@ -79,69 +98,81 @@ Reagent handler is an opaque closure:
 {:on-click #(dispatch [:ev x])}       ; a closure — nothing can see inside
 ```
 
-Freehand puts the intent in the tree as data:
+Hicasso puts the intent in the tree as data. There is **no roster of blessed
+prop names** — any `on-*`/`onX` key is an event position — and the **shape** of
+the value selects one of four behaviours:
 
 ```clojure
-{:on-click [:ev x]}                    ; an event vector
+[:li    {:on-click [:todo/toggle id]}]              ; a VECTOR — an intent
+[:input {:on-key-down {"Enter"  [:todo/commit id]   ; a MAP — a key map
+                       "Escape" [:todo.ui/cancel id]}}]
+[:input {:on-change (h/hfn [e] …)}]                 ; the ONE callback form
+[:div   {:on-focus  a-plain-fn}]                    ; a plain fn, by identity
 ```
 
-Live scalars ride **projection markers** instead of a lambda that reaches into
-the native event — `::v/value`, `::v/checked`, `::v/key`, `::v/scroll-top` and
-`::v/new-state` are the closed set:
-
-```clojure
-[:input {:value (v/sub [:email]) :on-input [:form/set-email ::v/value]}]
-```
+- **A vector is an intent**, dispatched into this boundary's frame. `::h/value`
+  and `::h/checked` substitute the event target's current value at dispatch
+  time; `::h/prevent` is a reserved **head** that calls `.preventDefault` before
+  dispatching the intent it wraps.
+- **A map is a key map** — the key exactly as the browser spells it (`"Enter"`,
+  `"Escape"`) → an intent vector or a function. It is lowered once per render
+  and **composition-gated centrally**, so a keystroke arriving mid-IME
+  composition commits nothing. That gate is the half a hand-written `.key` test
+  does not have, which is why a key map is the spelling to reach for.
+- **`h/hfn` is the one callback form**, for when the event itself is wanted. It
+  receives every argument the invoker passed, in order; at an `on-*` position a
+  returned vector is dispatched and any other return is ignored.
+- **A plain function is passed through untouched**, reaching React by identity
+  so `React.memo` and every handler-identity bail-out keep working.
 
 Because the handler is data, "what does this button do?" is an equality check in
-a JVM test — no browser, no click simulation. Closures still exist where the
-work genuinely is a closure (`v/event`, `v/handler`), but they are the escape,
-not the default.
+a test — no browser, no click simulation.
 
-### 4. The view holds no state and no lifecycle
+**The identity pass-through is also the migration's sharpest trap.** A leftover
+`#(dispatch …)` closure is a plain function, so it crosses to React silently and
+fails at *click* time with `:rf.error/no-frame-context`. See
+[`gotchas.md`](gotchas.md).
 
-Freehand has **no `local`, no `ref`, no `effect`** — and that absence is the
-design, not a gap waiting to close. Reagent's Form-2 and Form-3 exist almost
-entirely to hold those three things, so this is where a Reagent codebase changes
-shape rather than spelling:
+### 4. The view holds no state
 
-| Reagent held it in | Freehand puts it |
+Hicasso has **no `local`, no `use-state`, no cell of any kind** — and that
+absence is the design, not a gap waiting to close. An atom allocated in a
+`defview` body is re-allocated every render, because the body is an anonymous fn
+React re-invokes. Reagent's Form-2 and Form-3 exist almost entirely to hold
+state and lifecycle, so this is where a Reagent codebase changes *shape* rather
+than spelling:
+
+| Reagent held it in | Hicasso puts it |
 |---|---|
-| `(r/atom false)` for a toggle | app-db behind an event, read back with `v/sub` |
-| Form-2 closure over a draft | app-db, or a **semantic controller** when the control owns a real protocol |
-| `component-did-mount` DOM work | a **registered behavior** (`v/defbehavior` + `[v/behavior …]`) over one node |
+| `(r/atom false)` for a toggle | app-db — `h/reg-state` mints the sub and the setter event for you |
+| Form-2 closure over a draft that commits on blur-or-Enter | `re-frame.hicasso.forms/buffered-field`, whose draft lives in app-db in front of the committed value |
+| `component-did-mount` DOM work | a **callback ref** — React's own contract, a function at `:ref`, node as the argument |
+| `component-will-unmount` DOM cleanup | the **return value** of that same callback ref |
 | `component-did-mount` "load the thing" | an ordinary event — the frame's `:initial-events`, or a route |
-| `component-will-unmount` domain work | re-homed to whatever causally ends the thing (a route leave, an event) |
-| `component-did-catch` | `v/error-boundary` |
+| `component-did-update` | no mechanism; re-render *is* the update, or a native component with `react/useEffect` |
+| `component-did-catch` | `h/error-boundary` |
+| genuine widget mechanics needing hooks | `re-frame.hicasso.native/defcomponent`, where ordinary React hooks are legal |
 
-The judgment this forces — *is this value product state or is it DOM state?* —
+The judgment this forces — *is this value product state, or is it the DOM's?* —
 is the whole of MIG-16/17, and it is the reason this skill is not a codemod.
 
-## Interpreted first; compiled is a later, optional promotion
-
-Freehand runs **interpreted** by default: the body is walked at render, so the
-things Reagent tolerated because it just ran your function — a runtime-chosen
-tag, hiccup assembled from data, markup a helper returns — keep working.
-
-`{:compiled true}` on one declaration selects the compiled tier: a finite
-grammar, lowered at build time, with refusals that name a recovery. That is a
-**post-migration performance decision on a hot leaf**, taken with measurements,
-and it does not move callers, structural output or the view's own tests.
-
-The practical consequence for this skill: **migrate interpreted.** Opting a view
-into the compiled tier mid-migration converts legal bodies into build failures
-and buys nothing while the shape is still settling.
+**Hooks do not belong in a `defview` body.** A body is dynamically composed —
+its branches and its `for`s follow the data it reads — and React's rules of
+hooks are about call *sequence*, so a hook there would make its own order depend
+on a subscription's answer. Hook-intensive behaviour goes to `n/defcomponent`,
+where React's rules apply to source the author controls. Nothing enforces this
+at runtime; React is the enforcement.
 
 ## Why this shapes the tiers
 
 - **M-tier** rewrites are the shifts applied where they are unambiguous: the
   header and props change, deref-drop, the literal-vector dispatch lift, the
-  plain-hiccup pass-through.
-- **D-tier** is where a shift meets a *decision the source can't answer*: is this
-  `r/atom` product state (→ app-db) or a control protocol (→ a semantic
-  controller) or DOM state (→ a behavior)? The code can't tell you; the domain can.
-- **R-tier** is where a shift meets a surface with **no Freehand equivalent** —
-  trusted markup, author-declared refs, a frame-pinned reactive read. Those views
-  stay on Reagent, and saying so is the honest answer. (The React host boundary
-  used to sit here; it has since landed in both directions, so a foreign React
-  component is now a judgment call, not a hold.)
+  key-meta move, plain-hiccup pass-through, the root.
+- **D-tier** is where a shift meets a *decision the source can't answer*: is
+  this `r/atom` product state (→ app-db), a draft protocol (→ the forms module),
+  or genuinely the DOM's (→ a ref or a native component)? The code can't tell
+  you; the domain can.
+- **R-tier** is where a shift meets a surface Hicasso **does not have** — a
+  frame-pinned reactive read, the prev-props update protocol, Reagent's own
+  component introspection, and the server-render door SSR-then-hydrate needs.
+  Those views stay on Reagent, and saying so is the honest answer.
