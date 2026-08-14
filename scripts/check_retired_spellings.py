@@ -318,6 +318,27 @@ COORD_SCAN_PATHS = (
     "spec/009-Instrumentation.md",
 )
 
+# ...minus the PROTOTYPE ITSELF, which since rf2-0yp7w P0 lives inside
+# `implementation/hicasso/test`: the hicasso benchmark harness was re-homed out
+# of `implementation/freehand/test/` to sit beside what it measures.
+#
+# Rule (d)'s subject is a SHIPPED refusal whose `:where` names a coordinate the
+# consumer cannot reach — `front.codec/realize-deep` resolves to nothing,
+# because the package is `re-frame.hicasso.impl.*` and the prototype it was
+# measured as is somewhere else. The prototype naming its OWN coordinates is
+# not that. It is the definition of them, in the files that carry them, and
+# `front.state/reg-state` inside `front/state.cljc` is simply that function's
+# name. Scanning it reports 40-odd findings for the one tree where the spelling
+# is not retired at all — and the fix hint would be telling the prototype to
+# stop being the prototype.
+#
+# Scoped to the bench root and no wider, so every real surface the roster names
+# is still scanned: the package source, the package's own tests (where
+# rf2-hic-007's regression lived), the test kit, and Spec 009.
+COORD_EXCLUDE_PATHS = (
+    "implementation/hicasso/test/re_frame/bench",
+)
+
 _COORD_SUFFIXES = _SOURCE_SUFFIXES + (".md",)
 
 # Directory names whose contents are never scannable source for this gate.
@@ -632,14 +653,30 @@ def _iter_coordinate_files(scan_root: Path) -> Iterable[Path]:
     `spec/009-Instrumentation.md`), and there is NO test-dir exclusion and no
     opt to reinstate one — the regression this rule exists to close was a test
     assertion.
+
+    `COORD_EXCLUDE_PATHS` is subtracted, and it is not a third difference of
+    the same kind: it removes the re-homed PROTOTYPE, whose own coordinates
+    this rule is not about. See that constant for the argument.
     """
     if scan_root.is_file():
         if scan_root.suffix in _COORD_SUFFIXES:
             yield scan_root
         return
+    # Matched on the repo-relative TAIL rather than against an absolute repo
+    # root, so the same rule holds under the real checkout and under the
+    # self-test's synthetic trees, which have a different root and are handed
+    # in directly.
+    def is_excluded(p: Path) -> bool:
+        posix = p.as_posix()
+        return any(posix == e or posix.endswith("/" + e)
+                   for e in COORD_EXCLUDE_PATHS)
+
     matches: list[Path] = []
     for dirpath, dirnames, filenames in os.walk(scan_root):
         dirnames[:] = [d for d in dirnames if d not in _EXCLUDE_DIR_NAMES]
+        if is_excluded(Path(dirpath)):
+            dirnames[:] = []
+            continue
         for name in filenames:
             if os.path.splitext(name)[1] in _COORD_SUFFIXES:
                 matches.append(Path(dirpath) / name)
