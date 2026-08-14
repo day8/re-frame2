@@ -154,7 +154,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 
-const { shadowBuildVerdict, reportRefusal } = require('../../bench/hicasso/lane_build.cjs');
+const { shadowBuildVerdict, reportRefusal } = require('../../../../hicasso/test/re_frame/bench/hicasso/lane_build.cjs');
 const { resetLaneBuildCache } = require('./lane_cache.cjs');
 
 const IMPL = path.resolve(__dirname, '../../../../..');
@@ -170,7 +170,8 @@ const TAG = 'bspine-compile';
  * still belongs does not have to open it.
  *
  * The shape follows the sibling roster in the hicasso lane's own gate
- * (`../../bench/hicasso/compile_gate.cjs`, `OUTSIDE_LANE_ENTRIES`, PR #7907):
+ * (`../../../../hicasso/test/re_frame/bench/hicasso/compile_gate.cjs`,
+ * `OUTSIDE_LANE_ENTRIES`, PR #7907):
  * same three fields, same both-halves check, same reason.
  *
  * NO FLOOR, deliberately, and for the reason that roster gives too: a floor

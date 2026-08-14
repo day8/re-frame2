@@ -51,7 +51,7 @@ const BENCH = __dirname;
 const IMPL = path.resolve(__dirname, '../../../../..');
 const CORE_BENCH = path.join(IMPL, 'core/test/re_frame/bench');
 const REAGENT_BENCH = path.join(IMPL, 'adapters/reagent/test/re_frame/bench');
-const HICASSO_BENCH = path.join(IMPL, 'freehand/test/re_frame/bench/hicasso');
+const HICASSO_BENCH = path.join(IMPL, 'hicasso/test/re_frame/bench/hicasso');
 
 // Requiring a driver must NOT drive it: the `require.main === module` guard is
 // itself part of what is under test. `spine_ablation_run.cjs` has no such

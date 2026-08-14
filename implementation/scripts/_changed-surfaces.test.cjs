@@ -877,10 +877,15 @@ const CODEMOD_LANE = {
   // `implementation/freehand/test/re_frame/bench/hicasso/front/slot.cljc`;
   // rf2-hic-001 moved the runtime into the package and frozen-sources.edn
   // pins the two files byte-for-byte, so BOTH answer identically today and
-  // only one survives Freehand's retirement. `retiredSharedRule` below is
-  // the old path, kept so the negative can be asserted rather than assumed.
+  // only one survives Freehand's retirement. `twinSharedRule` below is the
+  // other one, kept so the negative can be asserted rather than assumed.
   sharedRule: 'implementation/hicasso/src/re_frame/hicasso/impl/slot.cljc',
-  retiredSharedRule: 'implementation/freehand/test/re_frame/bench/hicasso/front/slot.cljc',
+  // rf2-0yp7w P0 re-homed the harness, so the twin moved with it — this was
+  // `implementation/freehand/test/re_frame/bench/hicasso/front/slot.cljc`
+  // when rf2-r4j91 wrote it, and that path no longer exists. Pointing a live
+  // assertion at a deleted file is the failure mode this constant was
+  // extracted to avoid, so it follows the file.
+  twinSharedRule: 'implementation/hicasso/test/re_frame/bench/hicasso/front/slot.cljc',
   // rf2-erjv — the SECOND cross-tree edge, and a different mechanism. The one
   // above is a classpath entry; this one is source TEXT. shared_rule_test.clj's
   // `the-callback-contracts-are-the-doors` (rf2-vi11) slurps the door's own
@@ -946,24 +951,53 @@ test('the codemod lane arms on its own tree and on the shared slot rule (rf2-2rt
   }
 });
 
-test('the RETIRED shared-rule path no longer arms the codemod lane (rf2-r4j91)', () => {
-  // The negative half of the move, asserted rather than assumed. Freehand's
-  // tree still holds a byte-identical twin of the slot rule — frozen-sources.edn
-  // pins it — so leaving the old arm in place would have looked harmless and
-  // been a lie about which tree the codemod reads. Worse, it would have made an
-  // arm inside a tree scheduled for deletion the thing that catches a broken
-  // slot rule.
-  assert.equal(
-    classify(CODEMOD_LANE.retiredSharedRule)[CODEMOD_LANE.output],
-    'false',
-    `${CODEMOD_LANE.retiredSharedRule} is no longer on the codemod's classpath and must not arm its lane`,
+test('the TWIN shared rule is not what the codemod loads (rf2-r4j91, rf2-0yp7w)', () => {
+  // The negative half of rf2-r4j91's move, asserted rather than assumed. A
+  // byte-identical twin of the slot rule exists — frozen-sources.edn pins it —
+  // so reading the wrong one would look harmless and be a lie about which tree
+  // the codemod reads. Worse, before rf2-r4j91 it made a file inside a tree
+  // scheduled for deletion the thing that catches a broken slot rule.
+  //
+  // WHAT THIS TEST COULD ASSERT CHANGED UNDER rf2-0yp7w P0, AND THE REASON IS
+  // WORTH READING RATHER THAN THE ASSERTION BEING QUIETLY WEAKENED.
+  //
+  // rf2-r4j91 wrote the negative as "the twin's path must NOT arm
+  // migration_hicasso_codemod", which held while the twin lived under
+  // `implementation/freehand/*`. P0 re-homed the harness into
+  // `implementation/hicasso/test/`, and the whole `implementation/hicasso/*`
+  // arm sets that output — not for the classpath edge this test is about, but
+  // for rf2-erjv's SOURCE-TEXT edge on `impl/codec.cljs`. So the twin does arm
+  // the lane now, correctly and for an unrelated reason, and re-pointing the
+  // old assertion at the new path would fail for a reason that is not a
+  // regression. Over-classifying a seconds-long pure JVM suite is the cheaper
+  // error and TESTING.md says to prefer it.
+  //
+  // The load-bearing negative therefore lives where it can still be stated
+  // exactly: `shared_rule_test.clj` resolves the rule through `io/resource`
+  // and refuses a path containing `re_frame/bench/` — by NAMESPACE, so it
+  // names the twin rather than its address and survives the next relocation.
+  // What remains checkable HERE is that the twin is not on the codemod's
+  // classpath root, which is the property the arm is derived from.
+  const deps = fs.readFileSync(
+    path.join(REPO_ROOT, CODEMOD_LANE.dir, 'deps.edn'),
+    'utf8',
   );
-  // Freehand's OWN four outputs are untouched by the move — this removed one
-  // boolean from that arm, not four.
-  const retired = classify(CODEMOD_LANE.retiredSharedRule);
-  for (const output of ['implementation_jvm', 'cljs_node_test', 'cljs_browser', 'cljs_prod']) {
-    assert.equal(retired[output], 'true', `${CODEMOD_LANE.retiredSharedRule} must still arm ${output}`);
-  }
+  const entries = (deps.match(/"\.\.\/[^"]*"/g) || []).map((s) => s.slice(1, -1));
+  const root = path
+    .relative(REPO_ROOT, path.resolve(REPO_ROOT, CODEMOD_LANE.dir, entries[0]))
+    .replace(/\\/g, '/');
+  assert.ok(
+    !CODEMOD_LANE.twinSharedRule.startsWith(root + '/'),
+    `the codemod's classpath root is ${root}, which contains the TWIN `
+      + `${CODEMOD_LANE.twinSharedRule} — the tool would load the prototype's copy`,
+  );
+  // Non-vacuity: the twin must actually exist, or this asserts nothing. It is
+  // the file `frozen-sources.edn` pins, and it outlives Freehand because
+  // rf2-0yp7w P0 moved it out of that tree.
+  assert.ok(
+    fs.existsSync(path.join(REPO_ROOT, CODEMOD_LANE.twinSharedRule)),
+    `${CODEMOD_LANE.twinSharedRule} does not exist, so this test asserts nothing`,
+  );
 });
 
 test('the shared rule the codemod loads is the file the arm names (rf2-r4j91)', () => {

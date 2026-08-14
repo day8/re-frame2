@@ -54,6 +54,16 @@
   ;; extracted to serve. Nothing else on that path is loaded: `impl/slot.cljc`
   ;; requires `clojure.string` and nothing more, and every sibling is `.cljs`
   ;; this JVM never reads.
+  ;;
+  ;; rf2-0yp7w P0 then re-homed the PROTOTYPE too — the bench tree moved out of
+  ;; `implementation/freehand/test/` and into `implementation/hicasso/test/` —
+  ;; so the paragraph above needs one correction and no change of decision:
+  ;; the twin this deliberately does NOT read is now at
+  ;; `implementation/hicasso/test/re_frame/bench/hicasso/front/slot.cljc`.
+  ;; rf2-r4j91's reasoning survives the move intact and is the reason there is
+  ;; nothing to re-point here: pointing at the shipped door was already the
+  ;; answer that outlives Freehand's retirement, and it outlives the harness's
+  ;; relocation for free.
   "../../../implementation/hicasso/src"]
 
  :deps {org.clojure/clojure       {:mvn/version "1.12.4"}
