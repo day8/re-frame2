@@ -516,7 +516,7 @@ and its verdict is recorded there.
 | C5 | R=0 shell meets the frozen byte-exact `1,024 B` line | **not** governed by baseline-plus-10%; see §5 |
 | C6 | Per-read retained ≤ 10% regression on same pinned witness | governed by the K3 disposition (`rf2-hic-070`) |
 | C7 | Native island within 5% or 1 ms of the same component mounted directly | co-instrumented against both handwritten React and UIx |
-| C8 | An escape recovers ≥ 20%, saves ≥ 2 ms p95, or converts a failed budget to a pass | an island missing its threshold is simplified or removed — **thresholds do not widen to keep it** |
+| C8 | An escape **taken for a benefit** recovers ≥ 20%, saves ≥ 2 ms p95, or converts a failed budget to a pass. An **interoperability** escape — one whose alternative is not a slower spelling but no spelling at all — is outside the population | an island missing its threshold is simplified or removed — **thresholds do not widen to keep it** |
 
 ---
 
@@ -1038,7 +1038,7 @@ it reads the cell for **shape, not for life**, and says so in its own output.
 | C5 | 1,024 B byte-exact, not governed by baseline-plus-10% | 1,100 B / 1,095 B [1,087–1,107] | package | `BREACH` | P0 heap ladder, package candidate arm (P-DEV-1 evidence run) | `rf2-0xx2` | [§9.2](budgets.md#92-what-each-not-green-row-is-waiting-on); scoped acceptance 2026-08-13, [§5](budgets.md#5-the-read-free-boundary-shell-the-byte-exact-line-now-frozen-at-1024-b) — ceiling unchanged at 1,024 B, accepted to 1,107 B / 1,101 B |
 | C6 | ≤ 10% per-read regression on the same pinned witness | see S3 / S4 | package | `UNRESOLVED` | P0 heap ladder, package candidate arm (P-DEV-1 evidence run) | `rf2-hic-071` | [§9.2](budgets.md#92-what-each-not-green-row-is-waiting-on) |
 | C7 | a native island within 5% or 1 ms of the same component mounted directly | — | — | `UNPINNED` | — (none) | `rf2-hic-071` | [§9.2](budgets.md#92-what-each-not-green-row-is-waiting-on) |
-| C8 | an escape recovers ≥ 20%, saves ≥ 2 ms p95, or flips a failed budget | — | — | `UNPINNED` | — (none) | `rf2-hic-071` | [§9.2](budgets.md#92-what-each-not-green-row-is-waiting-on) |
+| C8 | an escape taken for a benefit recovers ≥ 20%, saves ≥ 2 ms p95, or flips a failed budget; an interoperability escape is outside the population | — | — | `UNPINNED` | — (none) | `rf2-hic-071` | [§9.2](budgets.md#92-what-each-not-green-row-is-waiting-on) |
 | I9 | ≤ 2 React hooks per boundary shell, invariant in read count | 2 | package | `MET` | `implementation/hicasso/test/re_frame/hicasso/hook_budget_cljs_test.cljs` (PR gate) | `rf2-hic-018` | — |
 
 <!-- rf2-hic-089: end-ledger -->
@@ -1195,6 +1195,18 @@ other mode.
   so removing the escape would *add* a rejection branch around otherwise-total
   handling — machinery, where C8 exists to prevent it. `C8` stays `UNPINNED`
   until a real site supplies its population.
+  **[Clarified 2026-08-14, `rf2-m7xx0`; the ruling above is unchanged and no
+  threshold moves.]** *Every landed escape* scopes the ruling over the escapes
+  it was taken about — the ones taken **for a benefit**. An
+  **interoperability** escape is outside it, because its alternative is not a
+  slower spelling but no spelling at all: there is nothing for *"simplify or
+  remove"* to name, and a gate adjudicating it would demand a removal with no
+  destination. The one `h/as-element` call in the shipped example applications
+  is exactly that one — `examples/ledger/views.cljs`, the ledger screen's
+  `:render-row` handing a view to a vendor virtualizer whose callback contract
+  is `(index, offsetPx) => ReactNode` — so
+  [§4's `C8` row](#the-comparative-and-regression-rules) now states the
+  population rather than leaving the gate author to infer it.
 - **`S7` has no publishable claim to pin.** No fitted allocation series clears
   the quality floor. This is a property of the readings rather than of the
   rig, so it is `UNPINNED` rather than `UNRESOLVED`: nothing crossed a line,
@@ -1327,10 +1339,13 @@ quietly carried:
   **for a benefit** has landed in an application: the one `h/as-element` call
   in the shipped examples is the ledger screen handing a view to a vendor
   virtualizer's `renderRow`, which is interoperability rather than an escape
-  claiming recovered time. That distinction is worth stating before the gate is
-  built, because a `C8` gate written over *every* landed escape would demand
+  claiming recovered time. That distinction is now stated in the rule itself
+  ([§4's `C8` row](#the-comparative-and-regression-rules), `rf2-m7xx0`),
+  because a `C8` gate written over *every* landed escape would demand
   the removal of an escape with no alternative — the mirror of the fail-open
-  `L7` just closed, and a fail-closed one.
+  `L7` just closed, and a fail-closed one. Stating it moved no threshold and
+  built no gate: `C8` stays `UNPINNED`, still waiting on a site inside the
+  population.
 
 **What this leaves.** Every deterministic budget this corpus has measured is
 now a ledger row with a witness a pull request runs, and every remaining gate
