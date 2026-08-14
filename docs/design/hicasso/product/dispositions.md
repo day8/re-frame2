@@ -80,8 +80,9 @@ the two values that column takes.
 
 ### 1.2 Rows without a complete planned witness
 
-No row above currently stands as Gap. The distinction that column draws is deliberate and narrow, and it matters just as
-much when the count reaches zero:
+Two rows above stand as Gap. The distinction that column draws is deliberate and narrow, and it matters most at exactly
+this moment — when every bead that carried these proofs has closed, and what they left in the tree is what the coverage
+audit will read:
 
 - **Claimed** means the programme names a bead that intends to witness the row. It does not mean the witness exists, and
   it does not mean the bead's acceptance covers the whole row.
@@ -90,35 +91,55 @@ much when the count reaches zero:
 
 Nine rows stood as Gap when this document was first written, on the evidence of section 1.3 of the bead-set review —
 `codex/beads-review.md`, review-staging material in the operator-local set, deliberately not published in this tree.
-That review is a snapshot of one moment in the tracker, and the tracker has since moved: every proof it found unowned
-is now named in the deliverables of a specific bead. The reconciliation is recorded here rather than silently deleted,
-because the bar for the change is the strict one [section 3](#3-append-protocol-and-ownership) sets — the bead must
-*actually own* the missing proof, not merely sit adjacent to the row — and the next reader is entitled to re-check the
-arithmetic:
+Each was then re-pointed to a bead that owed the proof by name, on the strict bar
+[section 3](#3-append-protocol-and-ownership) sets: the bead must *actually own* the missing proof, not merely sit
+adjacent to the row. **Every one of those nine beads has since closed**, so naming one can no longer be what makes a row
+Claimed — a closed bead owns nothing, and beads here close on PR-open, so closed does not even mean landed. The question
+is therefore no longer who owes each proof but whether it is in the tree. Re-checked artefact by artefact on 2026-08-14,
+against the tree rather than against any close note (`rf2-2ius2`):
 
-- **Ordinary pages, conditional UI, dynamic lists** — `rf2-hic-025` builds the RealWorld-class flow (routing, keyed list,
-  article edit, async mutation, controlled fields, error region), and `rf2-hic-074` extends it with the pagination and
-  runtime-selected content the review found unowned.
-- **Forms and controlled fields** — `rf2-hic-078` owns the four-field editor and the 100-cell grid as public-package
-  applications on public namespaces only, which is the form section 7 requires and the explanatory pages were not.
-- **Errors** — `rf2-hic-074` owns the nested error region, and its acceptance names the path: inner region catches, outer
-  survives, retry works.
-- **Motion and high-rate input** — `rf2-hic-053` folds the frame-budget measurement into the transition witness and into
-  its acceptance, alongside interruption, rapid toggle and teardown.
-- **Accessibility** — `rf2-hic-049` owns keyboard conduct across the slice, virtualizer and overlay surfaces, and depends
-  on the beads that build them; that dependency is the ordering edge and the later integration run the review found
-  missing.
-- **i18n and theming** — `rf2-hic-025` owns the runtime locale and theme-change witness: a live switch re-renders
-  correctly with strings and tokens as ordinary data, and no adapter subsystem.
-- **Testing** — `rf2-hic-020` owns the L0 public contract and the L1 codec/intent/native-expansion surface, with positive
-  and sabotage controls for every tier it delivers; the mounted tier's controls are `rf2-hic-027`'s.
-- **Diagnostics** — `rf2-hic-023` owns the privacy projector as a witnessed contract, proved by a seeded sensitive value
-  that must not leave unredacted.
-- **Migration** — `rf2-hic-055` requires three representative repositories — the in-repo census corpus plus two named
-  external re-frame v1 applications — and states that the in-repo-only fallback does not satisfy section 7.
+- **Ordinary pages, conditional UI, dynamic lists** — **landed.** `rf2-hic-025` built the RealWorld-class flow (routing,
+  keyed list, article edit, async mutation, controlled fields, error region) at
+  `implementation/hicasso/test/re_frame/hicasso/examples/slice/`, and `rf2-hic-074` extended it with the pagination and
+  runtime-selected content the review found unowned, at that directory's `extension_dom_cljs_test.cljs`.
+- **Forms and controlled fields** — **landed.** `rf2-hic-078`'s four-field editor and 100-cell grid are in the tree as
+  public-package applications on public namespaces only, at `.../examples/editor/` and `.../examples/grid/` — the form
+  section 7 requires, and the one the explanatory pages were not.
+- **Errors** — **landed, and this bullet is the one the record had wrong.** The nested error region and all three limbs
+  this section named — inner region catches, outer survives, retry works — are witnessed in
+  `.../examples/slice/extension_dom_cljs_test.cljs`, sections 6 and 7, on a genuinely nested structure: the `digest`
+  view's `h/error-boundary` sits inside the one `app` wraps the routed pane in (`.../examples/slice/views.cljs`). It
+  landed in `rf2-hic-074`'s own commit `93f3040ea0`, an ancestor of `origin/main`. Note for the next reader:
+  [`requirements-mine.md`](requirements-mine.md) still states the opposite on three of its own rows, and it is the page
+  that is wrong here rather than this one — `rf2-gvysu` carries the correction.
+- **Motion and high-rate input** — **landed.** `rf2-hic-053`'s interruption, rapid-toggle, mid-transition teardown and
+  frame-budget census are at `implementation/hicasso/test/re_frame/hicasso/motion_presence_dom_cljs_test.cljs`.
+- **Accessibility** — **part landed, and the remainder is a Gap with no live owner.** `rf2-hic-049`'s keyboard,
+  virtualized and overlay focus conduct landed (`.../examples/ledger/keyboard_dom_cljs_test.cljs`,
+  `.../examples/ledger/virtualized_dom_cljs_test.cljs`, `.../overlay_focus_dom_cljs_test.cljs`). The **axe** half did
+  not: `rf2-hic-043` stopped short of installing it and routed it to `rf2-hic-049`, which has since closed, and
+  `git grep -w -i axe` finds no occurrence anywhere under `implementation/`. No open bead owns it.
+- **i18n and theming** — **landed.** The runtime locale and theme-change witness is
+  `.../examples/slice/i18n_dom_cljs_test.cljs`: a live switch re-renders correctly with strings and tokens as ordinary
+  data, and no adapter subsystem.
+- **Testing** — **landed.** `rf2-hic-020`'s pure kit (L0–L2) is at
+  `implementation/hicasso/test_kit/src/re_frame/hicasso/test.cljs` and `rf2-hic-027`'s mounted tier at that tree's
+  `test/mounted.cljs`, each with its sabotage controls.
+- **Diagnostics** — **landed.** `rf2-hic-023`'s versioned evidence projection is at
+  `implementation/hicasso/src/re_frame/hicasso/evidence.cljs`, its schema held by
+  `.../test/re_frame/hicasso/evidence_schema_cljs_test.cljs`.
+- **Migration** — **part landed, and the remainder is a Gap with no live owner.** `rf2-hic-055`'s reporter, refusal
+  classes and shadow comparison landed (`migration/reagent-to-hicasso/codemod/`,
+  `implementation/hicasso/test_kit/test/re_frame/hicasso/shadow_dom_cljs_test.cljs`). The **population** did not: this
+  section requires three representative repositories — the in-repo census corpus plus two named external re-frame v1
+  applications — and states that the in-repo-only fallback does not satisfy section 7. What is in the tree is the
+  in-repo corpus alone, `rf2-hic-055` has closed, and no open bead owns the remainder.
 
-Every one of those beads is open and not one of those witnesses exists. An owner is not evidence: what changed is that
-each proof is now owed by name, and being owed by name is the whole of what Claimed asserts.
+So seven of the nine are discharged by landed evidence, and two — **Accessibility** and **Migration** — have fallen back
+to Gap on this section's own rule: the proof section 7 requires is absent and no bead owns it. Their cells in
+[1.1](#11-classification-table) still read *Claimed*, which overstates them; correcting a Planned-witness cell is the
+coverage-matrix owner's amendment under [section 3](#3-append-protocol-and-ownership), and `rf2-hic-048` is the audit
+that reads them next.
 
 Closing a gap is not this document's work. The classification is only honest if it says which rows are answered on paper
 and unproved in fact; making them proved belongs to the beads that own the coverage matrix.
@@ -143,10 +164,15 @@ tier (HS-24 to HS-30) moved first; the interpreted tier (HS-01 to HS-09 and HS-1
 and lazy rows (HS-16, HS-19, HS-20, HS-22) have since followed. Where a witness has reached a row that is still
 Client-only, the row now says **why** rather than merely that no one had looked, and two of those reasons are findings
 rather than gaps: HS-21's third clause is unreachable for want of a door rather than a witness; and HS-33 is measured
-to satisfy *neither* policy. Five rows are still awaiting a first witness and say so in the old form — *refusal until
-rf2-hic-046*: HS-23, and the optional modules HS-31, HS-32, HS-34 and HS-35. The operative column is the upgrade slot,
-owned by the per-surface SSR/hydration witness bead `rf2-hic-046`: see
-[2.4](#24-the-default-rule-and-how-a-row-is-upgraded).
+to satisfy *neither* policy.
+
+**`rf2-hic-046` has closed, and five rows are still awaiting a first witness** — HS-23, and the optional modules HS-31,
+HS-32, HS-34 and HS-35. Until 2026-08-14 each of those five, and HS-11's lead clause with them, read *refusal until
+rf2-hic-046*, which named a closed bead as the thing that would lift the refusal. A closed bead lifts nothing, so each
+cell now says what is actually true of it: who owns it if anyone does, and **no live owner** where nobody does
+(`rf2-2ius2`). The operative column is still the upgrade slot and the route out of it is still
+[2.4](#24-the-default-rule-and-how-a-row-is-upgraded)'s; what changed is that the slot no longer has a standing owner,
+so a row leaves Client-only when some *live* bead proves it.
 
 ### 2.1 Surface inventory and dispositions
 
@@ -161,7 +187,7 @@ owned by the per-surface SSR/hydration witness bead `rf2-hic-046`: see
 | HS-07 | Reserved data vocabulary: event value, checked value, explicit prevention, controlled revision | 4 | Controlled DOM fields | Render | **Render, with its refusal arm witnessed too** — `core-view-ssr-dom-cljs-test`. `::h/value`, `::h/checked`, `::h/prevent` and `::h/revision` all carry the `re-frame.hicasso` namespace and no occurrence of it survives into the bytes. The refusal arm was FOUND rather than designed: `::h/revision` on an uncontrolled field draws `:rf.error/hicasso-revision-not-controlled` from `impl.controlled/install!` **during the server render**, carrying its recovery and naming the author's own boundary — so the reserved vocabulary validates server-side, not client-side only |
 | HS-08 | Controlled DOM fields as a class (per-control rows in [2.3](#23-per-control-and-dom-conformance-dispositions)) | 4.2 | Controlled DOM fields | Render | **Render for the class's SERVER half** — `core-view-ssr-dom-cljs-test`: text `value`, checkbox `checked` as HTML's valueless attribute, textarea value as its CHILD where HTML puts it, and select value as `selected` on the chosen option with no `value` attribute on the `<select>` itself. The per-control support-or-refusal axis across engines is [2.3](#23-per-control-and-dom-conformance-dispositions)'s and is untouched by this row |
 | HS-09 | `h/error-boundary` | 4 | `h/error-boundary` | Render | **Render on the succeeding arm; the throwing arm is a REFUSAL AT THE CALLER** — `core-view-ssr-dom-cljs-test`, both witnessed. A child that returns contributes its output with no wrapper element. A child that throws is NOT caught by the declared `:fallback`: React does not let a client error boundary catch a server rendering error, so the throw reaches the consumer's own `renderToString` call, and the arm still renders afterwards. Asserting the fallback here would have pinned a React behaviour that does not exist, and shipped a page whose error path was never the one it was tested on |
-| HS-11 | `h/hydrate!` | 4 | Root/frame provider | Client-only (the adoption half of every Render row) | Client-only — refusal until rf2-hic-046. **Obstruction 1, CLEARED (rf2-hic-046, the operator's pass-through ruling):** the door now takes `:identifier-prefix` and hands it to React's own `hydrateRoot` option, so the prefix is spellable on both sides and [2.4](#24-the-default-rule-and-how-a-row-is-upgraded)'s two-root clause is reachable — green in `identifier-prefix-ssr-dom-cljs-test`: two simultaneous roots, distinct stable prefixes, no mismatch on either seam, ids distinct, exact cleanup. **Obstruction 2, MEASURED — and it is not the prefix:** a hydrating root's tree carries the adoption closer as a SIBLING of the app subtree (`impl.mount/tree`, rf2-6tmu), React derives a `useId` from tree POSITION as well as from the prefix, and the package's only server path (a hand-rolled `renderToString`, rf2-ggnp's census) emits no counterpart to that fork. So bytes a consumer can bake today hydrate into a text mismatch whose two ids agree on the prefix and differ after it. The same witness isolates the cause to that one structural difference and names two candidate repairs — a matching server-render entry, or making the closer a wrapper rather than a sibling — and rules on neither |
+| HS-11 | `h/hydrate!` | 4 | Root/frame provider | Client-only (the adoption half of every Render row) | Client-only — and the reason is measured rather than owed. `rf2-hic-046` reached this row and has closed; **obstruction 2 below is what stands, and no open bead owns it**. **Obstruction 1, CLEARED (rf2-hic-046, the operator's pass-through ruling):** the door now takes `:identifier-prefix` and hands it to React's own `hydrateRoot` option, so the prefix is spellable on both sides and [2.4](#24-the-default-rule-and-how-a-row-is-upgraded)'s two-root clause is reachable — green in `identifier-prefix-ssr-dom-cljs-test`: two simultaneous roots, distinct stable prefixes, no mismatch on either seam, ids distinct, exact cleanup. **Obstruction 2, MEASURED — and it is not the prefix:** a hydrating root's tree carries the adoption closer as a SIBLING of the app subtree (`impl.mount/tree`, rf2-6tmu), React derives a `useId` from tree POSITION as well as from the prefix, and the package's only server path (a hand-rolled `renderToString`, rf2-ggnp's census) emits no counterpart to that fork. So bytes a consumer can bake today hydrate into a text mismatch whose two ids agree on the prefix and differ after it. The same witness isolates the cause to that one structural difference and names two candidate repairs — a matching server-render entry, or making the closer a wrapper rather than a sibling — and rules on neither |
 | HS-14 | Root and frame-provider element, including `identifierPrefix` | 4 | Root/frame provider | Render | Client-only — and now for a stated reason rather than for want of a witness. All five of [2.4](#24-the-default-rule-and-how-a-row-is-upgraded)'s clauses are witnessed for this element in `identifier-prefix-ssr-dom-cljs-test`: deterministic bytes from one snapshot, matching hydration on the server's own nodes, a deliberate mismatch attributed to `impl.mount/hydrate-root!` with its recovery, two simultaneous hydrating roots with stable and distinct `identifierPrefix`es, and an exact teardown census once both are down. **The two hydration clauses hold only for bytes of the ROOT's own tree shape, and no product door emits those** — see HS-11 for the measurement. Held here deliberately: a consumer following the package's only server path still cannot ship a hydratable page containing a `useId`, and §2.4 exists so that nothing is claimed before it is shown |
 | HS-15 | Attribute-merge helper (public only if a witness needs it) | 4 | Intrinsic/fragment Hiccup | Render | **Render** — `core-view-ssr-dom-cljs-test`, at the `:&` seam with HS-06. The helper has no separate public spelling, and the row's own parenthetical is why: no witness has needed one, so `:&` is the only place the merge is reachable from and the only place it can honestly be measured |
 | HS-16 | `h/defhost` declaration | 4.3 | Declared host | Client-only until the host declaration selects Render | **Render on declaration, Client-only by default** — `host-ssr-dom-cljs-test`. The witness was green before `rf2-hic-046` reached this row and the table had simply never read it: both policies in the bytes, the unknown-option and false-`:render` refusals at the declaration source, and all three hydration arms — bare Client-only with nothing there, a declared fallback hydrated as the placeholder and swapped after adoption, and a `:render` crossing that hydrates once and never remounts |
@@ -171,7 +197,7 @@ owned by the per-surface SSR/hydration witness bead `rf2-hic-046`: see
 | HS-20 | Portal helper | 4.3 | Portal helper | Client-only | **Client-only, WITNESSED** — `portal-dom-cljs-test`, green before this bead read it: the portalled subtree is absent from the server response, a declared `:fallback` stands at the tree position instead and is swapped after adoption, and a `:target` that is not a DOM container is refused at source naming the value (`:rf.error/hicasso-portal-no-target`). Both arms, and the canonical matrix asks no hydration claim for absent portal bytes |
 | HS-21 | Outward bridge: a Hicasso view under a native React parent | 4.3 | Root/frame provider and outward bridge | Render | Client-only — **and the reason is a missing DOOR, not a missing witness.** The bytes are proved: `native-abi-cljs-test` server-renders a bridged view under a native React parent, through the surrounding provider's one frame and one root. What no suite can write is the rest of §2.4, because a bridged root's element is built by the *consumer's* `createElement`, not from hiccup — so `impl.mount/hydrate-root!`, which takes hiccup, cannot adopt it, and a hand-rolled `hydrateRoot` is the only adoption available. That path installs no Spec 011 reporter, so a mismatch in an outward-bridged root is attributed by React's console alone and the framework diagnostic never fires. §2.4's third clause is therefore unreachable for this surface by construction. Held rather than upgraded, and the door is the operator's call |
 | HS-22 | `React.lazy` boundary-ABI bridge and Hiccup-aware Suspense host | 7 | Lazy/Suspense/error boundary | Client-only until every server branch and the selected React server API are declared | **Client-only, WITNESSED** — `lazy-boundary-dom-cljs-test`, green before this bead read it: a bare lazy head under native Suspense writes nothing and **never calls its loader** — the Client-only policy as behaviour rather than metadata, which `rf2-hic-041` made true — and a declared fallback writes the skeleton. Both arms. Hydration of the Client-only arm is `native-ssr-dom-cljs-test`'s island row and is not duplicated here |
-| HS-23 | Activity-hosted subtree | 8 | Declared host | Client-only | Client-only — refusal until rf2-hic-046 |
+| HS-23 | Activity-hosted subtree | 8 | Declared host | Client-only | Client-only — **awaiting a first witness; the one live bead holding this row is `rf2-9ywe`**, which names the HS-23 cell in its own deliverables. Read its scope before treating that as full cover: `rf2-9ywe`'s acceptance is the *client* Activity lifecycle (a native-hook row under a real hide and reveal), and no suite in the tree server-renders an `Activity`-hosted subtree at all, so this row's Client-only refusal — which note 3 below says must be shown to fire, at source, with its recovery — is unproved and is not inside that bead's stated acceptance |
 | HS-24 | `n/$` intrinsic form | [native surface](lanes/ergonomics-api.md#optional-native-surface) | Intrinsic `n/$` | Render | **Render** — `native-ssr-dom-cljs-test` (`identifierPrefix` is now spellable; HS-11 records what still is not) |
 | HS-25 | `n/$` component-headed form | [native surface](lanes/ergonomics-api.md#optional-native-surface) | `n/defcomponent` and component-headed `n/$` | Client-only until the component declaration selects Render | **Render on declaration, Client-only by default** — both arms in `native-ssr-dom-cljs-test` (`identifierPrefix` is now spellable; HS-11 records what still is not) |
 | HS-26 | `n/props` marker | [n/$ grammar](lanes/ergonomics-api.md#provisional-n-grammar) | Intrinsic `n/$` | Render | **Render** — `native-ssr-dom-cljs-test` (`identifierPrefix` is now spellable; HS-11 records what still is not) |
@@ -179,11 +205,11 @@ owned by the per-surface SSR/hydration witness bead `rf2-hic-046`: see
 | HS-28 | `n/use-sub` | [native surface](lanes/ergonomics-api.md#optional-native-surface) | `n/defcomponent` | Client-only until its component selects Render | **Render on declaration** — `native-ssr-dom-cljs-test`, including no duplicate acquisition: a server render registers no reader and a hydration registers exactly one (`identifierPrefix` is now spellable; HS-11 records what still is not) |
 | HS-29 | `n/use-frame` | [native surface](lanes/ergonomics-api.md#optional-native-surface) | `n/defcomponent` | Client-only until its component selects Render | **Render on declaration** — `native-ssr-dom-cljs-test`; the frame resolves through React's own `useContext`, which the server renderer answers (`identifierPrefix` is now spellable; HS-11 records what still is not) |
 | HS-30 | Native ABI helpers: memo, lazy, ref, and both embedding directions | [native surface](lanes/ergonomics-api.md#optional-native-surface) | Memo/lazy/ref helpers | Client-only until the component declaration selects Render | **Render on declaration for `n/memo`, Client-only for `n/lazy`** — `native-ssr-dom-cljs-test` carries both memo arms and lazy's; `ref` has no server behaviour to disposition, and the OUTWARD bridge is HS-21's row, still Client-only |
-| HS-31 | Optional forms module | 4.2 | Optional module | Client-only until its module contract selects Render | Client-only — refusal until rf2-hic-046 |
-| HS-32 | Optional overlay module (popover and modal) | 7 | Optional module | Client-only until its module contract selects Render | Client-only — refusal until rf2-hic-046 |
+| HS-31 | Optional forms module | 4.2 | Optional module | Client-only until its module contract selects Render | Client-only — **awaiting a first witness, and NO LIVE OWNER.** `rf2-hic-046` held this row and closed without reaching it. The module itself shipped (`re-frame.hicasso.forms`, `rf2-sh56`), so the surface exists and its server policy does not. One caution for whoever picks this up: `forms_cljs_test.cljs` does call `react-dom/server`'s `renderToString` over `forms/buffered-field`, but as a **hook-budget instrument** — its section 5 counts dispatcher hooks across three arms and asserts nothing about server bytes, hydration or a refusal. It is not this row's witness and must not be mistaken for one |
+| HS-32 | Optional overlay module (popover and modal) | 7 | Optional module | Client-only until its module contract selects Render | Client-only — **awaiting a first witness, and NO LIVE OWNER.** `rf2-hic-046` held this row and closed without reaching it. The module shipped (`re-frame.hicasso.overlay`, `rf2-hic-052`) and both its suites — `overlay_dom_cljs_test.cljs` and `overlay_focus_dom_cljs_test.cljs` — are client-only mounts that call no server renderer, so neither policy has been shown for this surface |
 | HS-33 | Optional motion and presence module | 7 | Optional module | Client-only until its module contract selects Render | **NEITHER POLICY HOLDS TODAY — measured, and this is the one row in the table that is out of the matrix rather than merely unproved.** `presence-ssr-seam-dom-cljs-test` drives the tray through the real `react-dom/server`: no server-render entry opens an adoption window, so the server emits `:mounting` children — it does NOT refuse, and no fallback stands in — and hydrating those bytes diverges and *discards the adoption*. So the Client-only arm's refusal never fires and the Render arm's bytes do not match: the third state the two-policy matrix exists to exclude. **The Render repair is measured, not argued**: with a window scoped over the server render, React complains zero times and the server's own nodes are kept, which is HS-33's Render arm reachable at a cost of one provider per request. The repair is a public server-render door and is recorded as DECIDED in `impl.roots/open-adoption-window!`; until it lands this cell is the narrowing, and `draft-guide/12-motion-and-presence.md`'s sentence that a presence-managed server node hydrates already `:present` describes the repaired world rather than this one |
-| HS-34 | Optional routing-integration module | 7 | Optional module | Client-only until its module contract selects Render | Client-only — refusal until rf2-hic-046 |
-| HS-35 | Committed-read resource-demand boundary (conditional on its graduating verdict) | 7 | Resource-demand boundary | Client-only until its module contract selects Render | Client-only — refusal until rf2-hic-046 |
+| HS-34 | Optional routing-integration module | 7 | Optional module | Client-only until its module contract selects Render | Client-only — **awaiting a first witness, and NO LIVE OWNER.** `rf2-hic-046` held this row and closed without reaching it. [`requirements-mine.md`](requirements-mine.md)'s Routing row records the adjacent hole from the other side and it is a real one: route-link server output has no witness and no `HS-` id either, so it was never inside `rf2-hic-046`'s surface at all |
+| HS-35 | Committed-read resource-demand boundary (conditional on its graduating verdict) | 7 | Resource-demand boundary | Client-only until its module contract selects Render | **The condition in this row's own name FAILED, so no witness is owed.** `rf2-hic-050` returned the graduating verdict and it is **STOP** — committed-read resource demand is *not adopted*, C3 deciding alone on a veto criterion, with `rf2-hic-054`'s async-resource recipes blessed as the standing answer ([`resource-demand-verdict.md`](resource-demand-verdict.md), [The verdict](resource-demand-verdict.md#the-verdict)). There is no surface here to disposition and nothing under `implementation/` was built for one. The row stays because [section 3](#3-append-protocol-and-ownership) never removes or renumbers an id; it is amended in place to record the refusal instead of a policy. This cell read *refusal until rf2-hic-046* until 2026-08-14, which was wrong twice over — that bead has closed, and it was never the owner of a surface the programme had already declined to build |
 
 Three notes on the target-policy column, so no reader mistakes a Client-only target for a defect:
 
@@ -330,8 +356,9 @@ described as rendering because it plausibly would, because its class default say
 prove it. This is what keeps the Phase 4 witness matrix bounded: the matrix has to close over what is claimed, so
 nothing is claimed before it is shown.
 
-**The upgrade.** One route only, owned by `rf2-hic-046`. A surface moves from Client-only to Render when a witness
-proves, for that surface:
+**The upgrade.** One route only. It was owned by `rf2-hic-046`, which has closed; the route is unchanged and now has no
+standing owner, so the bead that proves a surface is whichever live bead takes it. A surface moves from Client-only to
+Render when a witness proves, for that surface:
 deterministic server bytes from an immutable request snapshot; matching hydration; deliberate mismatch attributed to
 source; two simultaneous hydrating roots with a stable `identifierPrefix`; and exact cleanup on unmount. Rows that read
 or demand resources additionally prove no duplicate acquisition. The witness id then replaces "witness owed" in the
