@@ -61,6 +61,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { shadowBuildVerdict, reportRefusal } = require('./lane_build.cjs');
+const { resetLaneBuildCache } = require('../../../../../core/test/re_frame/bench/lane_cache.cjs');
 
 const IMPL = path.resolve(__dirname, '../../../../..');
 const BUILD_ID = 'hicasso-bench';
@@ -106,13 +107,13 @@ const PROD_SURVIVING = [
     sentinel: 'is not a valid element head' },
 ];
 
-function clearBuildCache() {
-  const dir = path.join(IMPL, '.shadow-cljs', 'builds', BUILD_ID);
-  fs.rmSync(dir, { recursive: true, force: true });
-}
-
 function build(leg, debug, outputDir) {
-  clearBuildCache();
+  // One build id, N arms (rf2-2rtt6.20) — and the clear goes through the shared
+  // `resetLaneBuildCache` rather than a local `fs.rmSync` (rf2-d19nf). Both
+  // remove the same directory, but the helper carries the Windows retry loop: a
+  // scanner or a just-exited JVM can hold a handle for a moment, and a bare
+  // `rmSync` throws where the helper waits. One rule, one implementation.
+  resetLaneBuildCache(IMPL, BUILD_ID);
   // EDN, and ONE LINE: shadow-cljs's CLI re-splits `--config-merge` on
   // whitespace once the data contains a newline, then reports `EOF while
   // reading` from a fragment. JSON is not accepted at all.
