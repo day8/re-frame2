@@ -52,6 +52,17 @@
   one positively-identified root. See `implementation-root` for why the root is
   identified by what it CARRIES rather than by where it sits.
 
+  The audit of that landing sent the bead back for two things, and both are the
+  same lesson twice. The reach was CLAIMED and not CHECKED — the guard counted
+  artefacts and files over a corpus lopsided enough that dropping any one of
+  the four small trees passed both (`required-artefacts`). And the exclusion of
+  `node_modules` was STATED and not PERFORMED — it filtered results after
+  `file-seq` had already descended through the tree, so it cost the walk
+  everything it claimed to save and reached 6% of the entries that actually
+  needed excluding (`source-bearing-dir?`). A claim in a docstring is not a
+  property of the code, which is the whole thesis of this namespace turned back
+  on itself.
+
   ## The rule
 
   DOMAIN — every `.clj` / `.cljc` file under any artefact's `test/` tree
@@ -101,6 +112,24 @@
 (def ^:private prod-gate-tag "^:prod-gate")
 (def ^:private jvm-property "-Dre-frame.debug=false")
 
+(def ^:private required-artefacts
+  "The artefacts this walk MUST reach — a required SUBSET, not a census.
+
+  rf2-sk5hf's first landing widened the walk to every artefact and guarded
+  that with `(> artefact-count 1)` and `(>= file-count 8)`, which is not a
+  guard on the claim it was written for: the tracked corpus is core=7,
+  epoch=1, freehand=1, routing=1, ssr=1, so dropping epoch, freehand, routing
+  OR ssr leaves 10 files across 4 artefacts and BOTH assertions stay green
+  while the honesty test goes blind to the omitted tree. The audit of that PR
+  measured exactly that.
+
+  A SUBSET rather than an equality: a new artefact with a claiming file must
+  be scanned the moment it lands, and having to edit this set first would be
+  the failure mode inverted — the walk narrowed by a red that looks like the
+  gate working. So the set below is a floor on reach, and growth is silent by
+  design. Removing an artefact from the repo is what edits it."
+  #{"core" "epoch" "freehand" "routing" "ssr"})
+
 (defn- posix
   "`f`'s path with forward slashes, so one path predicate reads the same on
   Windows and POSIX."
@@ -146,17 +175,44 @@
 
 (defn- domain-file?
   "A candidate for the domain: a `.clj` / `.cljc` source living in some
-  artefact's `test/` tree.
-
-  `node_modules` is excluded. A vendored file's name is not this repo's claim
-  to make, and a developer who has run `npm ci` would otherwise put tens of
-  thousands of files in front of the token match."
+  artefact's `test/` tree."
   [^java.io.File f]
-  (let [p (posix f)]
-    (and (.isFile f)
-         (some? (re-find #"\.cljc?$" (.getName f)))
-         (str/includes? p "/test/")
-         (not (str/includes? p "/node_modules/")))))
+  (and (.isFile f)
+       (some? (re-find #"\.cljc?$" (.getName f)))
+       (str/includes? (posix f) "/test/")))
+
+(defn- source-bearing-dir?
+  "Is `f` a directory this walk should DESCEND INTO?
+
+  The exclusions are build outputs and vendored dependencies — trees that
+  hold no authored repository source, so nothing in them can be a naming
+  claim this repo is answerable for. Excluding them at DESCENT rather than
+  after the fact is rf2-sk5hf's second repair, and the reason is measured on
+  this tree: `implementation/` is 2,738 entries in a fresh checkout and
+  55,059 in a developer checkout that has built and installed — `.shadow-cljs`
+  37,322, `out` 10,310, `node_modules` 3,412, `target` 874. The predicate this
+  replaced named only `node_modules` and named it in `domain-file?`, i.e.
+  AFTER `file-seq` had already walked every one of those entries: a stated
+  exclusion that reached 6% of what it was there to exclude, and a walk whose
+  cost grew with whatever the developer happened to have built.
+
+  Dot-directories go by prefix rather than by name so the caches nobody has
+  invented yet are covered too. A narrowing here is not silent: the coverage
+  assertion in `the-domain-scan-still-finds-files` pins the five artefacts
+  this walk must reach, so a prune that swallowed a real test tree reds
+  naming it."
+  [^java.io.File f]
+  (let [n (.getName f)]
+    (and (.isDirectory f)
+         (not (str/starts-with? n "."))
+         (not (contains? #{"node_modules" "out" "target"} n)))))
+
+(defn- source-tree-seq
+  "`file-seq` over `root`, pruned by `source-bearing-dir?`. `file-seq` is
+  itself a `tree-seq` whose branch predicate is bare `.isDirectory`; this is
+  that one predicate made choosier, which is the whole of the mechanism."
+  [^java.io.File root]
+  (tree-seq source-bearing-dir? #(seq (.listFiles ^java.io.File %)) root))
 
 (defn- claiming-files
   "Every file in the domain: a `.clj` / `.cljc` source under any artefact's
@@ -165,9 +221,11 @@
   ONE recursive walk from ONE positively-identified root, selected by a path
   predicate. There is no root enumeration and no depth here, so there is
   nothing left for a later edit to narrow silently — which is what rf2-sk5hf
-  found this doing in both dimensions at once."
+  found this doing in both dimensions at once. The walk is pruned at descent
+  (`source-bearing-dir?`); the reach that pruning must not cost is pinned by
+  `required-artefacts`."
   []
-  (->> (some-> (implementation-root) file-seq)
+  (->> (some-> (implementation-root) source-tree-seq)
        (filter domain-file?)
        (filter (fn [^java.io.File f]
                  (some #(str/includes? (.getName f) %) claim-tokens)))
@@ -218,10 +276,17 @@
             neither a nested directory nor another artefact's test tree, where
             a real offender was sitting. A floor on whether the walk found
             ANYTHING says nothing about whether it found EVERYTHING, so the
-            coverage claim below is about the walk's REACH."
+            coverage claim below is about the walk's REACH.
+
+            AND NEITHER WAS `(> artefact-count 1)`, which is what the first
+            rf2-sk5hf landing left here. Same lesson one turn later: a count
+            over a lopsided corpus (core=7, the other four one apiece) is
+            satisfied by dropping any single artefact. The reach claim is now
+            made against `required-artefacts` by NAME, so a failure says which
+            tree stopped being scanned."
     ;; The corpus is walked ONCE and read four times. `claiming-files` is a
-    ;; recursive `file-seq` now, and `is`'s message argument is evaluated
-    ;; whether or not the assertion fails.
+    ;; recursive walk now, and `is`'s message argument is evaluated whether or
+    ;; not the assertion fails.
     (let [root      (implementation-root)
           files     (claiming-files)
           artefacts (artefacts-of root files)]
@@ -235,12 +300,18 @@
                "positive identification is deliberate (see "
                "`implementation-root`); a recursive walk from the wrong root "
                "is worse than no walk."))
-      (is (< 1 (count artefacts))
-          (str "the domain spans ONE artefact. That is the rf2-sk5hf fail-open "
-               "exactly: this ratchet is armed by `implementation_jvm`, which "
-               "every artefact's test tree arms, so a walk confined to one of "
-               "them runs and reports green over the others. Found: "
-               (pr-str (vec artefacts))))
+      (is (empty? (remove artefacts required-artefacts))
+          (str "the walk no longer reaches every artefact that carries a "
+               "claiming file. MISSING: "
+               (pr-str (vec (sort (remove artefacts required-artefacts))))
+               " — found only " (pr-str (vec artefacts)) ". That is the "
+               "rf2-sk5hf fail-open exactly: this ratchet is armed by "
+               "`implementation_jvm`, which every artefact's test tree arms, "
+               "so a walk confined to some of them runs and reports green "
+               "over the rest. A count is not the guard — with core at seven "
+               "files, dropping any ONE of the other four leaves 10 files "
+               "across 4 artefacts, which every count-shaped assertion here "
+               "passes. See `required-artefacts` for why this is a subset."))
       (is (<= 8 (count files))
           (str "collapse detector, calibrated at 8 against the 11 files "
                "measured at rf2-sk5hf — deliberately just above the 7 that a "
