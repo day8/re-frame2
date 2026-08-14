@@ -656,6 +656,80 @@ jobs:
         run: clojure -M:test
 
   # ---------------------------------------------------------------------------
+  # Full-corpus provenance-pin audit (rf2-qpk2l, closing rf2-g7m6y's ruling).
+  #
+  # docs.yml runs the same checker SCOPED TO CHANGED PAGES, and that scoping is
+  # right: it holds a PR accountable for what it touched, and a corpus-wide
+  # repair is human-decided (the gate refuses to re-pin by design), so coupling
+  # every docs PR to one would punish the careful and be routed around inside a
+  # week. What scoping cannot see is the corpus ROTTING UNDER A PAGE NOBODY
+  # EDITS, and there are two routes in, neither of them a page edit:
+  #
+  #   1. LEGACY. The scoped gate landed after the pages it would have caught.
+  #   2. HARDENING, which RECURS. The checker gained rules six times in eight
+  #      days; each new rule reclassifies the WHOLE corpus, but only touched
+  #      pages are re-read, so each hardening silently mints a fresh backlog.
+  #
+  # This job is the periodic sweep that answers both. It is here rather than in
+  # docs.yml because docs.yml has no `schedule:` trigger and this workflow does
+  # — the 03:30 UTC cron above exists for exactly this shape of question ("is
+  # the gate still honest when no file in its surface changed?").
+  #
+  # NOT ON THE PR PATH, and not in the `Lint required` aggregator below. A
+  # corpus-wide red on a PR that touched none of it is the coupling the scoping
+  # decision rejected; and `scripts/check_fast_pr_gap.py` derives the REQUIRED
+  # set from that aggregator's `needs:`, so listing this job there would report
+  # a ~50s corpus audit as a gap in the local fast-PR spine — a lane no worker
+  # should be told to run before every PR, for a job that never fires on one.
+  #
+  # IT DOES RUN ON PUSH TO MAIN, and that is load-bearing rather than free
+  # breadth (rf2-6ng7). `post-merge-workflow-sanity.yml` re-dispatches a
+  # cron-only workflow after a workflow edit precisely so a typo is not silent
+  # until the next tick — and it EXCLUDES lint.yml on the stated ground that
+  # lint.yml "already runs on push". A schedule-only `if:` here would make that
+  # excuse false for this job while leaving it standing for the workflow, which
+  # is the exact shape rf2-6ng7 names: an arming excuse outliving its coverage.
+  # `!= 'pull_request'` keeps the excuse true — the merge push that edits this
+  # file runs the job within minutes (`.github/workflows/lint.yml` is in the
+  # `push: paths:` filter above) — and mirrors the `detect` job's own idiom.
+  #
+  # `fetch-depth: 0` IS THE WHOLE JOB'S PREMISE and belongs to THIS job: only
+  # `detect` above carries it, every other job here takes the default shallow
+  # clone. The gate asks `merge-base --is-ancestor` about SHAs months old, so a
+  # truncated clone answers "not an ancestor" for pins that are perfectly
+  # landed and reds all 110 pages. It fails CLOSED rather than quietly (the
+  # checker's `assert_usable` exits 2 on a shallow clone), but a red that says
+  # nothing about the corpus is still a red nobody can act on.
+  #
+  # NO FLAG = FULL CORPUS, and the run is unswallowed on purpose: no
+  # `continue-on-error`, no `|| true`. The checker carries its own coverage
+  # floor — an absent corpus root, a root with no markdown, or a repository it
+  # cannot read ancestry from all exit 2 rather than 0 — so this job cannot go
+  # green over a corpus it never opened, and nothing extra is needed here to
+  # pin what it reads. Measured ~50s (110 pages / 509 cited pins, 0 findings).
+  # ---------------------------------------------------------------------------
+  provenance-pins-corpus:
+    name: Provenance pins (full corpus)
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          # Full history: see the note above — a truncated one makes every
+          # landed pin look stranded.
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
+        with:
+          python-version: '3.12'
+
+      - name: Audit provenance pins across the whole corpus
+        run: python scripts/check_provenance_pins.py
+
+  # ---------------------------------------------------------------------------
   # Required-checks aggregator (rf2-aemyt).
   #
   # ONE stable status context — `Lint required` — that is ALWAYS present on
