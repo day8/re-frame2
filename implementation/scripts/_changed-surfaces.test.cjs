@@ -6767,6 +6767,37 @@ test('the jobs these arms reach are still gated on the armed outputs (rf2-6ng7)'
 // alerter's exposure is bounded by its own in-run --self-test at
 // expensive-tests.yml:648; it stays a declared file-level hole.
 //
+// THAT HOLE WAS RE-PUT AND RE-DECLARED (rf2-skvce, second pass), because "we
+// chose not to" invites re-litigation while a measurement does not. Three
+// findings, all re-checked at source rather than carried forward:
+//
+//   1. The cheap PR-time repair costs a MECHANISM, which is the signal
+//      rf2-6ng7's (c)-narrow ruling names for leaving a hole declared. The
+//      right semantic home is `verify-skill-mcp-drift` ("Repo invariant
+//      checks"), the always-on pure-stdlib spine that took
+//      check_gate_scheduling.py for this very reason — and every step in it is
+//      audited by scripts/check_ci_reproduce_commands.py, which requires a
+//      single-line `run: python scripts/check_<name>.py …` with a matching
+//      `check_*` id. The alerter is `.github/scripts/nightly_failure_alert.py`
+//      and is not a `check_*`, so a step there means teaching that guard a new
+//      path shape. The other always-on job, `verify-readme-links`, would take
+//      it without a fight and is a markdown-slug job; a checker parked in an
+//      unrelated job is how the next reader loses it.
+//
+//   2. THE EXPOSURE IS SMALLER THAN THE FINDING SAID. A broken alerter does
+//      not fail quiet. Its self-test runs `continue-on-error` precisely so the
+//      live arm still tries, and the re-raise step at the bottom of that job
+//      still ends the run RED — same night, in the same run list the nightly
+//      is read from. What is actually at risk is one night's tracking-ISSUE
+//      edit, not the signal that something failed.
+//
+//   3. Going file-level is the rejected option (a) in a new costume: a second
+//      hand-maintained model, of files this time, nagging on every README,
+//      .gitignore and image in the repository.
+//
+// The self-test itself was re-measured rather than assumed: 0.19s, exit 0, pure
+// stdlib. It is cheap; it is the HOME that is not free.
+//
 // "AT LEAST ONE OUTPUT" IS NOT "COVERED", and the declared list is where that
 // distinction is kept honest. Several trees are properly gated at PR time by
 // jobs that are ALWAYS-ON — `beads-pr-boundary`, `verify-skill-mcp-drift`,
