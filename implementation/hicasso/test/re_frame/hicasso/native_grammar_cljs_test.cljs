@@ -26,6 +26,19 @@
   conversion the three-way row breaks, which is the property
   `impl/slot` was extracted to guarantee one layer down.
 
+  ## And the expansion path itself, witnessed rather than inferred
+  (rf2-h63i)
+
+  That equality pins the RULE the macro applies. It does not pin that
+  the macro applies it AT EXPANSION: `$` could stop calling
+  `check-child!` on its child forms tomorrow, leave the runtime fence to
+  catch a literal hiccup child in dev builds only, and every row above
+  would stay green. Section 7 closes that with
+  [[re-frame.hicasso.expansion-probe/expansion]], which expands a form on
+  the JVM inside a `try` and hands the refusal here as data — so a
+  compile-time refusal is a value a row can assert on instead of a build
+  nobody runs.
+
   ## The row this file exists for
 
   [[a-dynamic-element-in-props-position-is-a-child]]. A React element is
@@ -35,7 +48,8 @@
   is the reason the props operand is four written FORMS rather than a
   runtime test."
   (:require [cljs.test :refer-macros [deftest is testing]]
-            [re-frame.hicasso.native :as n]))
+            [re-frame.hicasso.native :as n])
+  (:require-macros [re-frame.hicasso.expansion-probe :as probe]))
 
 ;; ---------------------------------------------------------------------------
 ;; Harness
@@ -407,3 +421,116 @@
     (let [row [:span "x"]]
       (is (= 're-frame.hicasso.native/$
              (:where (refusal #(n/$ :div {:a 1} row))))))))
+
+;; ---------------------------------------------------------------------------
+;; 7. The OTHER refusal path — the one that fires at macro expansion
+;; ---------------------------------------------------------------------------
+;;
+;; Every row above this line drives a RUNTIME value: a `let`-bound local,
+;; a dynamic map behind `n/props`. That is not a stylistic preference, it
+;; is the only thing a compiled suite could do — `$` reads its own child
+;; FORMS and lowers a literal props map at expansion, so the same mistake
+;; written literally fails the build rather than a test, and the two
+;; halves of the grammar's enforcement had one witness between them.
+;;
+;; `probe/expansion` expands a form on the JVM inside a `try` and emits
+;; the outcome as quoted data, so the compile-time half is now a value.
+;; The head is written fully qualified because the probe runs as Clojure
+;; and the test namespace's `n` alias is a ClojureScript fact.
+;;
+;; NOT a snapshot. `public_door_macros_cljs_test.cljs` records why
+;; byte-for-byte expansion goldens were considered and rejected, and
+;; nothing here reopens it: these rows read the refusal's id, the door
+;; that refused, and — for the legal controls — the head the expansion
+;; emitted. Nobody has to re-bless a file when the emission changes shape.
+
+(deftest a-literal-hiccup-child-refuses-at-expansion
+  (testing "the member this bead exists for. Written literally, the same
+            vector the runtime row drives through a local never reaches
+            the runtime at all — it refuses while the macro is reading
+            its own form. Narrowing caught: a `$` that stopped calling
+            `check-child!` on child forms and left the dev-only runtime
+            fence to catch it, which every other row in this file would
+            survive"
+    (let [out (probe/expansion
+                (re-frame.hicasso.native/$ :div [:span "not markup here"]))]
+      (is (= :refused (:outcome out)))
+      (is (= :rf.error/hicasso-native-hiccup-child (:rf.error/id (:data out))))
+      (is (= 're-frame.hicasso.native/$ (:where (:data out))))
+      (is (= :nest-n-dollar-or-convert-with-h-as-element
+             (:recovery (:data out))))))
+
+  (testing "and a literal MAP in child position, which is the unmarked
+            props operand, refuses on the same reading of the same form"
+    (let [out (probe/expansion
+                (re-frame.hicasso.native/$ :td "5" {:class "px"}))]
+      (is (= :refused (:outcome out)))
+      (is (= :rf.error/hicasso-native-map-as-child (:rf.error/id (:data out))))
+      (is (= :mark-the-props-operand-with-n-props (:recovery (:data out)))))))
+
+(deftest a-literal-props-map-is-lowered-at-expansion-and-refuses-there
+  (testing "a canonical-slot collision written literally. `literal-props`
+            calls the shared rule at expansion, so map order never gets
+            to pick a winner in a build either"
+    (let [out (probe/expansion
+                (re-frame.hicasso.native/$ :div {:class "a" "className" "b"}))]
+      (is (= :refused (:outcome out)))
+      (is (= :rf.error/hicasso-native-slot-collision (:rf.error/id (:data out))))
+      (is (= "className" (:slot (:data out))))))
+
+  (testing "`:children` in a literal props map"
+    (let [out (probe/expansion
+                (re-frame.hicasso.native/$ :div {:children "x"}))]
+      (is (= :refused (:outcome out)))
+      (is (= :rf.error/hicasso-native-children-in-props
+             (:rf.error/id (:data out))))))
+
+  (testing "and a literal event vector at a literal callback slot — the
+            fence's own headline pair, on the side of it that never
+            reaches a browser"
+    (let [out (probe/expansion
+                (re-frame.hicasso.native/$ :div {:on-click [:x/go]}))]
+      (is (= :refused (:outcome out)))
+      (is (= :rf.error/hicasso-native-intent-in-prop (:rf.error/id (:data out))))
+      (is (= "onClick" (:slot (:data out)))))))
+
+(deftest the-expansion-probe-reports-a-legal-form-as-expanded
+  (testing "NON-MEMBER 1, and the row that keeps every member above
+            honest: a legal form EXPANDS, and the expansion is the real
+            one — it emits `n/el`. Narrowing caught: a probe that
+            reported `:refused` for everything, or one whose macro lookup
+            failed and reported `:threw`, either of which would make the
+            member rows describe nothing"
+    (let [out (probe/expansion
+                (re-frame.hicasso.native/$ :div nil "kid"))]
+      (is (= :expanded (:outcome out)))
+      (is (= 're-frame.hicasso.native/el (:head out)))))
+
+  (testing "NON-MEMBER 2: the DYNAMIC spelling of the very same faults
+            expands cleanly, which is what makes these rows about the
+            LITERAL path rather than about the rule. `row` is a local at
+            expansion — a symbol the macro can say nothing about — so the
+            child check passes it through and the runtime fence,
+            witnessed above, is what refuses"
+    (let [row   [:span "not markup here"]
+          attrs {:class "a" "className" "b"}]
+      (is (= :expanded (:outcome (probe/expansion
+                                   (re-frame.hicasso.native/$ :div row)))))
+      (is (= :expanded (:outcome (probe/expansion
+                                   (re-frame.hicasso.native/$ :div
+                                     (re-frame.hicasso.native/props attrs))))))
+      (is (= :rf.error/hicasso-native-hiccup-child
+             (:rf.error/id (refusal #(n/$ :div row))))
+          "and the very same local really does refuse at RUNTIME, so the
+           pair is one fault written two ways rather than two faults")))
+
+  (testing "a compile-time refusal carries no `:source` and no `:view`,
+            and that is the deliberate line rather than an oversight: at
+            expansion no declaration extent is open, and the LOCATION of
+            a build failure is the compiler's to report from the form it
+            was compiling. rf2-dva6 gave the runtime half its coordinate;
+            this half already had a better one"
+    (let [data (:data (probe/expansion
+                        (re-frame.hicasso.native/$ :div [:span "x"])))]
+      (is (not (contains? data :source)))
+      (is (not (contains? data :view))))))
