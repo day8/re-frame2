@@ -20,6 +20,9 @@
   | [[two-frames-are-two-cells-and-an-island-cannot-see-across]] | frames are isolated contexts, on the native side of the fence too | resolving the frame anywhere but the island's own context |
   | [[use-frame-is-stable-across-renders-and-retargets-across-a-reincarnation]] | the hic-013 incarnation rule, both halves | memoising on the frame KEYWORD, which is `=` across a reincarnation |
   | [[a-transition-around-a-write-stays-tear-free-and-is-still-blocking]] | React's external-store ceiling, measured rather than advertised | a docstring that claimed transition-awareness |
+  | [[an-island-hidden-by-activity-releases-its-ownership-and-its-reveal-reacquires-the-current-read-set]] | the hide/reveal algebra, on the route the lane note recommends | an island that kept its membership through a hide, or resurrected a stale one on reveal |
+  | [[an-island-under-a-post-commit-suspension-keeps-exact-ownership-across-the-retry]] | a fallback is not a hide: the subscription SURVIVES, and the retry adds nothing | a suspend/retry that quietly re-subscribed beside the registration it never released |
+  | [[an-abandoned-island-attempt-acquires-nothing-and-its-retry-acquires-exactly-once]] | render is speculative past the fence too | acquiring during render — the page is identical under it and the leak is permanent |
   | [[the-declared-population-was-actually-exercised]] | the roster, asserted rather than described | a row that started returning early |
 
   ## Why the readings are counts and identities, not text
@@ -32,6 +35,37 @@
   re-render, and a body-run count — which is
   `roots_frames_support`'s argument applied to a tier it was not written
   for, through the same helpers.
+
+  ## The three React-feature rows, and why they are not inherited
+
+  The last three are a later tier than the first seven, and the argument
+  that made them look unnecessary is the reason they are here. `n/use-sub`
+  takes [[re-frame.hicasso.impl.collector/hook-entry]], which mints from
+  the very `!entries` cache a boundary body uses — so an island's read
+  builds the same cell, takes the same reader slot and claims the same
+  census row, and it is a good argument that whatever React does to a
+  boundary under `<Activity>`, `<Suspense>` or an abandoned attempt it
+  must do to an island. The argument is probably right. It is not a
+  witness, and two of the three states are ones where React's own
+  behaviour is not what a reading of the docs predicts: a `<Suspense>`
+  fallback leaves the primary tree's passive effects mounted where
+  `<Activity mode='hidden'>` destroys them, so one of these rows asserts
+  RETENTION and the other asserts RELEASE across what looks like the same
+  Offscreen mechanism.
+
+  `activity_suspense_dom_cljs_test` and `kernel_commit_owns_dom_cljs_test`
+  make the same three statements about the BOUNDARY shell, and they are
+  the files to read for the schedule analysis and the paint-order
+  instruments. Nothing is duplicated here: those rows drive `h/defview`
+  bodies and `h/sub`, these drive the hooks, and the observable is the
+  island's own reader slot.
+
+  `docs/design/hicasso/product/lanes/react-compatibility-notes.md` closes
+  its Activity section by telling an author to reach for native React
+  construction — Hicasso-native, UIx or a `defhost` declaration — when
+  they need Activity. That sentence assigns the feature to this tier, so
+  the Activity row below constructs `<Activity>` through `n/$` and hides
+  an island: the recommended route, driven end to end (rf2-9ywe).
 
   ## Browser lane
 
@@ -53,7 +87,9 @@
             [re-frame.hicasso.roots-frames-support :as support]
             [re-frame.hicasso.tool :as tool]
             [re-frame.test-support :as test-support]
-            ["react" :as react]))
+            ["react" :as react]
+            ["react-dom" :as react-dom]
+            ["react-dom/client" :as react-dom-client]))
 
 (def ^:private alpha ::alpha)
 (def ^:private beta  ::beta)
@@ -85,7 +121,10 @@
     :hooks/strict-mode
     :hooks/frame-isolation
     :hooks/incarnation
-    :hooks/transition})
+    :hooks/transition
+    :hooks/activity-hide-reveal
+    :hooks/suspense-retention
+    :hooks/abandoned-attempt})
 
 (defonce ^:private !exercised (atom #{}))
 
@@ -105,6 +144,13 @@
   ;; What `use-frame` handed the body on its last run, held by identity.
   (atom nil))
 
+;; W8's two published React setters, declared here so the fixture can clear
+;; them. A setter belonging to a tree that has since been unmounted is still
+;; `some?`, so a row waiting on `(some? @!set-mode)` would sail past its own
+;; premise and then drive nothing.
+(def ^:private !set-mode (atom nil))
+(def ^:private !set-sym  (atom nil))
+
 (n/defcomponent ticker
   "One island: one subscription read, the frame-locked ops, and a piece
   of purely local React state.
@@ -119,7 +165,9 @@
         ops               (n/use-frame)
         [local set-local] (react/useState 0)]
     (reset! !last-ops ops)
-    (n/$ :div nil
+    ;; The class on the ROOT node is what [[island-price]] reads visibility
+    ;; from; its docstring carries the reason it cannot be `.price`.
+    (n/$ :div {:class "island"}
          (n/$ :b {:class "price"} (str price))
          (n/$ :i {:class "local"} (str local))
          (n/$ :button {:class    "nudge"
@@ -169,6 +217,8 @@
                       (support/leave-act-environment!)
                       (reset! !island-runs 0)
                       (reset! !last-ops nil)
+                      (reset! !set-mode nil)
+                      (reset! !set-sym nil)
                       (error-emit/clear-error-listeners!)
                       (collector/reset-runtime!))}))
 
@@ -289,6 +339,182 @@
   anything or not."
   [handle]
   (support/teardown-census! handle))
+
+;; ---------------------------------------------------------------------------
+;; The concurrent half of the harness (W8–W10)
+;; ---------------------------------------------------------------------------
+;;
+;; The seven rows above read the DOM on the line after they move it, so
+;; [[mount-live!]] takes `mount/root!`, which renders inside `flushSync`.
+;; Activity's reveal, a Suspense retry and an abandoned attempt are React's
+;; CONCURRENT business, and a row that forced them synchronous would be a
+;; row about the forced schedule. So the three below mount a concurrent
+;; root of their own and wait on conditions rather than on a flush — the
+;; arrangement `activity_suspense_dom_cljs_test` and
+;; `kernel_commit_owns_dom_cljs_test` already use for the boundary tier.
+
+(defn- poll
+  "Wait on a CONDITION, never on a duration. Rejects on timeout, which the
+  row's `report-failure!` claims — so a wait that never came good is a
+  named failure rather than a row that quietly asserted nothing."
+  [pred label]
+  (test-support/poll-until pred {:label label :timeout-ms 4000}))
+
+(defn- mount-concurrent!
+  "A concurrent root over `element`, rendered WITHOUT `flushSync`, enrolled
+  in [[!minted]] the instant it exists so [[release-minted!]] can name it
+  on either arm."
+  [frame-kw element]
+  (let [container (mount/fresh-container!)
+        root      (react-dom-client/createRoot container)
+        handle    {:root root :container container :frame frame-kw}]
+    (swap! !minted conj handle)
+    (.render root element)
+    handle))
+
+(defn- act!
+  "Drive a React state setter and let its commit land. `flushSync` because
+  the next line reads the DOM or the tables; the SCHEDULE under test is
+  React's own hide, reveal and retry work, which React performs inside
+  this commit and in the passive phase after it — neither of which a flush
+  invents."
+  [f]
+  (react-dom/flushSync f)
+  nil)
+
+(defn- ownership
+  "The census with the entry cache projected out. A read-set entry is a
+  render-phase cache and its reaper is a macrotask away, so a row that
+  changed which key an island reads has two of them for a while and that
+  says nothing about ownership."
+  []
+  (dissoc (inventory/residue) :entries))
+
+(def ^:private nothing-owned
+  "What an ABANDONED attempt leaves. Every count is zero including
+  `:cells`, and that is exact rather than lenient: a render that never
+  committed never built a cell, so there is nothing here for a reaper to
+  be pending on."
+  {:cells 0 :cell-refs 0 :boundaries 0 :edges 0})
+
+(def ^:private one-key-owned {:cells 1 :cell-refs 1 :boundaries 1 :edges 1})
+
+;; What a RELEASE leaves is a different reading, and the difference is not
+;; pedantry — it is the whole reason `support/census` exists. Releasing a
+;; membership drops the reference, the boundary and the edge AT ONCE; the
+;; CELL it referred to is disposed by a reaper a macrotask later. So a hide
+;; is read through `support/census` / `support/released`, which name the
+;; three counts that are exact the instant React's cleanup returns, and a
+;; row that demanded `:cells 0` there would be asserting a reaper's
+;; schedule rather than a release. Measured: `{:cells 1 :cell-refs 0
+;; :boundaries 0 :edges 0}` on the run that first drove W8.
+
+(defn- visible?
+  "Is `sel`'s node in the layout? A hidden `<Activity>` keeps its host
+  nodes in the document and takes them out of the layout with
+  `display: none`, so presence in the DOM is NOT visibility and
+  `textContent` still reports hidden text."
+  [handle sel]
+  (when-some [el (at handle sel)]
+    (not= "none" (.-display (js/getComputedStyle el)))))
+
+(defn- painted
+  "What the user can see of `sel` right now: its text, or nil while it is
+  out of the layout or absent. For a single-node subtree — the Suspense
+  fallback — `sel` is itself the node React hides, so this is the whole
+  reading."
+  [handle sel]
+  (when (visible? handle sel) (text-at handle sel)))
+
+(defn- island-price
+  "The island's price AS THE USER SEES IT: the `.price` text when the
+  island is in the layout, and nil while it is out.
+
+  **Visibility is read on the island's ROOT node, and it has to be.**
+  React takes a hidden subtree out of the layout by setting
+  `display: none` on the host instances at its TOP, and `display` does not
+  cascade — `getComputedStyle` on a descendant answers `inline` inside a
+  hidden subtree. A reading taken on `.price` itself would therefore
+  report every hide as a no-op, and worse, would let a poll waiting for
+  the retry's value succeed while the island was still behind a fallback,
+  because a Suspense-hidden island goes on receiving writes."
+  [handle]
+  (when (visible? handle ".island") (text-at handle ".price")))
+
+(defn- make-gate
+  "A REAL React suspension, and the two doors that drive it. Everything
+  after a door is React's own retry machinery — nothing here schedules,
+  re-renders or commits anything.
+
+  `closed?` decides whether the component throws on its FIRST render, and
+  that is the whole difference between the two Suspense rows: a gate that
+  starts open lets the island commit and suspends it afterwards, and a
+  gate that starts closed suspends the island's very first attempt.
+
+  `open!` does two things because the two cases need different ones. It
+  resolves the thenable, which is the only signal available for a gate
+  that threw before it ever committed — no fiber, so no published setter.
+  And it drives the setter when there is one, which is the signal for a
+  gate whose fiber is mounted behind a fallback. Neither is redundant and
+  neither is a schedule this file invented: both are doors React
+  documents."
+  [closed?]
+  (let [!closed   (atom closed?)
+        !resolve  (atom nil)
+        !set-tick (atom nil)
+        !tick     (atom 0)
+        promise   (js/Promise. (fn [res] (reset! !resolve res)))
+        drive!    (fn [] (when-some [f @!set-tick] (f (swap! !tick inc))) nil)
+        component (fn gate [_]
+                    (let [[_ set-tick] (react/useState 0)]
+                      (react/useEffect (fn [] (reset! !set-tick set-tick) js/undefined)
+                                       #js [set-tick])
+                      (when @!closed (throw promise))
+                      nil))]
+    (unchecked-set component "displayName" "nh/gate")
+    {:element (react/createElement component nil)
+     :close!  (fn [] (reset! !closed true) (drive!))
+     :open!   (fn [] (reset! !closed false) (@!resolve nil) (drive!))}))
+
+(defn- suspense-tree
+  "One island and one gate under one `<Suspense>`. The island is the whole
+  primary tree, so what the fallback hides is exactly what the assertions
+  are about, and the gate is a SIBLING — an island that suspended on its
+  own read would be a different claim, and one `n/use-sub`'s docstring
+  rules against."
+  [gate-element]
+  (n/$ (.-Suspense react) #js {:fallback (n/$ :p {:id "fb"} "waiting")}
+       (n/$ (.-Fragment react) nil
+            (mount/provider alpha (n/$ ticker {:sym "AAPL"}))
+            gate-element)))
+
+(defn- activity-host
+  "Owns the Activity mode and the island's prop. Both setters are
+  published from a passive effect, so a row cannot drive the tree before
+  React has mounted it.
+
+  `<Activity>` is constructed through `n/$`, which is the point rather
+  than a detail: the lane note tells an author to reach Activity through
+  native React construction, and this is that route."
+  [_]
+  (let [[mode set-mode] (react/useState "visible")
+        [sym  set-sym]  (react/useState "AAPL")]
+    (react/useEffect (fn []
+                       (reset! !set-mode set-mode)
+                       (reset! !set-sym set-sym)
+                       js/undefined)
+                     #js [set-mode set-sym])
+    (n/$ (.-Activity react) #js {:mode mode}
+         (n/$ ticker {:sym sym}))))
+
+(unchecked-set activity-host "displayName" "nh/activity-host")
+
+(defn- activity-tree
+  "The provider sits OUTSIDE `<Activity>`: a hidden subtree must still be
+  under its frame, or the row would be measuring a lost context rather
+  than a hide."
+  []
+  (mount/provider alpha (n/$ activity-host nil)))
 
 ;; ---------------------------------------------------------------------------
 ;; W1. The read is the runtime's own, and the tool tier can see it
@@ -735,6 +961,375 @@
                 (is (= support/released (teardown! handle)))
                 nil))
             (.catch (report-failure! "W7 transition"))
+            ;; The single trailing step, which BOTH arms reach: this row's
+            ;; roots go down first, and the single `done` is the last act,
+            ;; with nothing after it.
+            (.then (fn [_] (release-minted!) (done))))))))
+
+;; ---------------------------------------------------------------------------
+;; W8. `<Activity>` — hide releases, hidden work publishes nothing, reveal
+;;     reacquires the CURRENT read set (rf2-9ywe)
+;; ---------------------------------------------------------------------------
+
+(deftest an-island-hidden-by-activity-releases-its-ownership-and-its-reveal-reacquires-the-current-read-set
+  (async done
+    (if-not (mount/browser?)
+      (do (skip! ":node-test has no React DOM") (done))
+      (let [ka     (price-key alpha "AAPL")
+            kb     (price-key alpha "MSFT")
+            _      (seat! alpha {"AAPL" 191 "MSFT" 402})
+            handle (mount-concurrent! alpha (activity-tree))
+            !state (atom {})]
+        (-> (poll #(and (= 1 (count (readers-of ka))) (some? @!set-mode))
+                  "the visible island commits and subscribes")
+            (.then
+              (fn [_]
+                (testing "VISIBLE-CONNECTED: one reader on the key the island
+                          read, nothing on the key it did not, and the page
+                          shows it"
+                  (is (= "191" (island-price handle)))
+                  (is (= 1 (count (readers-of ka))))
+                  (is (zero? (count (readers-of kb))))
+                  (is (= one-key-owned (ownership))))
+
+                (swap! !state assoc
+                       :visible-reg (first (readers-of ka))
+                       :visible-ops (deref !last-ops))
+
+                ;; Move React's OWN state, so the hide has something to retain
+                ;; that this runtime does not provide.
+                (click! handle ".nudge")
+                (click! handle ".nudge")
+                (poll #(= "2" (text-at handle ".local"))
+                      "the premise for retention: React's own state reaches 2")))
+            (.then
+              (fn [_]
+                ;; HIDE. React's cleanup phase runs the subscription teardown;
+                ;; nothing here calls it.
+                (act! (fn [] (@!set-mode "hidden")))
+                (poll #(zero? (count (readers-of ka)))
+                      "React releases the hidden island's subscription")))
+            (.then
+              (fn [_]
+                (testing "HIDE releases the committed ownership. React tore the
+                          `useSyncExternalStore` subscription down and the
+                          reverse edge went with it — and it did that to a
+                          HOOK's subscription, which is the statement this row
+                          exists to make rather than to infer.
+
+                          Read through `support/census`, which is the three
+                          counts exact at that instant — the cell itself
+                          belongs to a reaper a macrotask away, and demanding
+                          zero of it here would assert that reaper's schedule
+                          instead of the release"
+                  (is (zero? (count (readers-of ka))))
+                  (is (= support/released (support/census))))
+
+                (testing "WITHOUT destroying anything. React kept the island —
+                          its host node is still in the document and merely out
+                          of the layout, and its own `useState` is where it
+                          was. An unmounted island would have neither, and the
+                          runtime's tables cannot tell those apart; this is the
+                          one observable here that is React's rather than
+                          Hicasso's"
+                  (is (some? (at handle ".island"))
+                      "the node is retained, not removed")
+                  (is (false? (visible? handle ".island"))
+                      "and it is out of the layout, which is what hidden IS")
+                  (is (= "2" (text-at handle ".local"))))
+
+                (testing "and re-frame state is untouched by any of it"
+                  (is (= 191 (rf/with-frame alpha @(rf/subscribe [::price "AAPL"])))))
+
+                ;; A WRITE the hidden island cannot hear. `mount/dispatch!`
+                ;; flushes, so anything the write scheduled has landed by the
+                ;; next line — a hidden island that repainted here would be one
+                ;; holding a subscription the hide was supposed to release.
+                (mount/dispatch! handle [::set-price "AAPL" 200])
+                (testing "a write while hidden reaches nobody: the retained
+                          node still carries the value it last rendered, which
+                          is exactly what the Suspense row below does NOT find"
+                  (is (= "191" (text-at handle ".price")))
+                  (is (zero? (count (readers-of ka)))))
+
+                ;; A PROP change while hidden — the only way to move a hidden
+                ;; island's read set, since it holds no subscription.
+                (swap! !state assoc :runs-before (deref !island-runs))
+                (act! (fn [] (@!set-sym "MSFT")))
+                (poll #(> (deref !island-runs) (:runs-before @!state))
+                      "React renders the hidden island against its new prop")))
+            (.then
+              (fn [_]
+                (testing "the premise: React really did run the hidden island
+                          body — hooks and all. Without this the zeros below
+                          are the zeros of a render that never happened"
+                  (is (pos? (- (deref !island-runs) (:runs-before @!state)))))
+
+                (testing "and the hidden render published nothing — no durable
+                          ownership on the key it just read, none on the key it
+                          stopped reading. Narrowing caught: a hook that
+                          acquired during render rather than at commit; the
+                          page is identical under it and the membership is
+                          permanent"
+                  (is (zero? (count (readers-of kb))))
+                  (is (zero? (count (readers-of ka))))
+                  (is (= support/released (support/census))))
+
+                ;; REVEAL.
+                (act! (fn [] (@!set-mode "visible")))
+                (poll #(= 1 (count (readers-of kb)))
+                      "React recreates the subscription on reveal")))
+            (.then
+              (fn [_]
+                (let [revealed (first (readers-of kb))]
+                  (testing "REVEAL reacquires the CURRENT read set. The prop
+                            moved while the island was hidden, so `MSFT` is
+                            what it reads now — and `AAPL`, read before the
+                            hide and not since, must be read by nobody"
+                    (is (zero? (count (readers-of ka)))
+                        "no stale membership was resurrected")
+                    (is (= 1 (count (readers-of kb))))
+                    (is (= one-key-owned (ownership))))
+
+                  (testing "and the survivor is the REVEAL's own registration.
+                            A count cannot make this statement: a runtime that
+                            leaked the predecessor and failed to acquire for
+                            the successor answers 1 here too"
+                    (is (some? revealed))
+                    (is (false? (identical? (:visible-reg @!state) revealed)))))
+
+                (testing "the revealed island is back in the layout, painting
+                          the key it now reads, and React's own state came back
+                          with it"
+                  (is (= "402" (island-price handle)))
+                  (is (= "2" (text-at handle ".local"))))
+
+                (testing "`use-frame` crosses the hide differently, ON PURPOSE.
+                          Its bundle is the RUNTIME's memo row for a frame
+                          incarnation rather than a fiber's, and no frame was
+                          destroyed here — so the revealed island is handed the
+                          identical object, and ops a callback captured before
+                          the hide still address the live frame. The
+                          incarnation rule bites on a reincarnation (W6), not
+                          on a hide, and a hook that re-derived its bundle per
+                          mount would break every `useEffect` dep that holds
+                          one across a hidden tab"
+                  (is (identical? (:visible-ops @!state) (deref !last-ops)))
+                  ((:dispatch-sync (:visible-ops @!state)) [::set-price "MSFT" 500])
+                  (is (= 500 (rf/with-frame alpha @(rf/subscribe [::price "MSFT"])))))
+
+                (testing "and the revealed island is LIVE — that write reaches
+                          it through the subscription the reveal rebuilt"
+                  (poll #(= "500" (island-price handle))
+                        "the revealed island repaints"))))
+            (.then
+              (fn [_]
+                (is (= 1 (count (readers-of kb)))
+                    "and the repaint did not add a second reader")
+                (exercised! :hooks/activity-hide-reveal)
+                (is (= support/released (teardown! handle)))
+                nil))
+            (.catch (report-failure! "W8 activity hide/reveal"))
+            ;; The single trailing step, which BOTH arms reach: this row's
+            ;; roots go down first, and the single `done` is the last act,
+            ;; with nothing after it.
+            (.then (fn [_] (release-minted!) (done))))))))
+
+;; ---------------------------------------------------------------------------
+;; W9. A POST-COMMIT suspension — a fallback is not a hide (rf2-sr19)
+;; ---------------------------------------------------------------------------
+
+(deftest an-island-under-a-post-commit-suspension-keeps-exact-ownership-across-the-retry
+  (async done
+    (if-not (mount/browser?)
+      (do (skip! ":node-test has no React DOM") (done))
+      (let [k      (price-key alpha "AAPL")
+            _      (seat! alpha {"AAPL" 191})
+            gate   (make-gate false)
+            handle (mount-concurrent! alpha (suspense-tree (:element gate)))
+            !state (atom {})]
+        (-> (poll #(= 1 (count (readers-of k)))
+                  "the primary tree commits and the island subscribes")
+            (.then
+              (fn [_]
+                (testing "the premise: the island is committed, live and owning
+                          its read set BEFORE anything suspends — which is what
+                          makes this a POST-commit suspension rather than the
+                          abandoned attempt W10 drives"
+                  (is (= "191" (island-price handle)))
+                  (is (= one-key-owned (ownership))))
+
+                (swap! !state assoc :first-reg (first (readers-of k)))
+
+                ;; A SIBLING suspends after the commit. React hides the primary
+                ;; children and shows the fallback.
+                (act! (fn [] ((:close! gate))))
+                (poll #(= "waiting" (painted handle "#fb"))
+                      "the fallback takes the layout")))
+            (.then
+              (fn [_]
+                (testing "React hid the committed island rather than unmounting
+                          it — the node is still in the document and out of the
+                          layout, which looks exactly like the Activity hide"
+                  (is (some? (at handle ".island")))
+                  (is (false? (visible? handle ".island")))
+                  (is (nil? (island-price handle))))
+
+                (testing "and it is NOT the Activity hide. React 19.2 leaves a
+                          Suspense-hidden primary tree's PASSIVE effects
+                          mounted, so the hook's `useSyncExternalStore`
+                          subscription survives where
+                          `<Activity mode='hidden'>` destroys it. The island
+                          inherits that asymmetry from React exactly as the
+                          boundary shell does — and the two look like one
+                          Offscreen mechanism, which is why it is measured on
+                          both sides of the fence rather than argued on either"
+                  (is (= 1 (count (readers-of k))))
+                  (is (= one-key-owned (ownership)))
+                  (is (true? (identical? (:first-reg @!state) (first (readers-of k))))
+                      "the same registration, not a rebuilt one"))
+
+                ;; A write DURING the suspension.
+                (mount/dispatch! handle [::set-price "AAPL" 204])
+
+                (testing "RETENTION IS IN THE TABLES, NOT IN THE PAINT, and
+                          this row is where that was measured rather than
+                          assumed. The write above lands with the subscription
+                          fully installed — the registration below is still the
+                          one the mount acquired — and the hidden island does
+                          NOT repaint: `mount/dispatch!` flushes, and React
+                          does not render an Offscreen-hidden subtree inside a
+                          sync-lane flush. The first draft of this row polled
+                          four seconds for that repaint and timed out with the
+                          residue reading `{:cells 1 :cell-refs 1 :boundaries 1
+                          :edges 1}`, which is what makes this a statement
+                          about React's scheduling of hidden work and not about
+                          a lost subscription.
+
+                          A CEILING rather than an enshrinement: it reds if
+                          React ever starts painting hidden Suspense content
+                          eagerly, and the ownership assertions above and below
+                          — which are the retention claim — are unaffected
+                          either way"
+                  (is (= 204 (rf/with-frame alpha @(rf/subscribe [::price "AAPL"])))
+                      "the premise: app-db really did move")
+                  (is (nil? (island-price handle))
+                      "still out of the layout")
+                  (is (= "191" (text-at handle ".price"))
+                      "and still carrying the value it last rendered")
+                  (is (true? (identical? (:first-reg @!state)
+                                         (first (readers-of k))))
+                      "while holding the registration it acquired before
+                       anything suspended"))
+
+                ;; The retry.
+                (act! (fn [] ((:open! gate))))
+                (poll #(= "204" (island-price handle))
+                      "the retry reveals the island, up to date")))
+            (.then
+              (fn [_]
+                (testing "the retry leaves EXACT ownership. The cycle neither
+                          released nor re-acquired, so the count is where it
+                          started and so is the identity — a suspend/retry that
+                          had quietly re-subscribed without releasing shows here
+                          as two, and paints the identical page"
+                  (is (= 1 (count (readers-of k))))
+                  (is (= one-key-owned (ownership)))
+                  (is (true? (identical? (:first-reg @!state)
+                                         (first (readers-of k))))))
+
+                (testing "and the difference from an Activity reveal is stated
+                          exactly. Both end with the current value on screen;
+                          only one of them got there through the registration
+                          it started with. W8's reveal had to acquire a FRESH
+                          one, because the hide released the old — asserted
+                          there as `(false? (identical? …))`. Here the object
+                          never changed, so there was no ownership transition
+                          to get wrong"
+                  (is (= "204" (island-price handle))))
+
+                (testing "still live after the retry"
+                  (mount/dispatch! handle [::set-price "AAPL" 210])
+                  (poll #(= "210" (island-price handle))
+                        "the retried island repaints"))))
+            (.then
+              (fn [_]
+                (is (= 1 (count (readers-of k)))
+                    "and the repaint did not add a second reader")
+                (exercised! :hooks/suspense-retention)
+                (is (= support/released (teardown! handle)))
+                nil))
+            (.catch (report-failure! "W9 post-commit suspension"))
+            ;; The single trailing step, which BOTH arms reach: this row's
+            ;; roots go down first, and the single `done` is the last act,
+            ;; with nothing after it.
+            (.then (fn [_] (release-minted!) (done))))))))
+
+;; ---------------------------------------------------------------------------
+;; W10. An ABANDONED attempt — render is speculative past the fence too
+;;      (rf2-sr19)
+;; ---------------------------------------------------------------------------
+
+(deftest an-abandoned-island-attempt-acquires-nothing-and-its-retry-acquires-exactly-once
+  (async done
+    (if-not (mount/browser?)
+      (do (skip! ":node-test has no React DOM") (done))
+      (let [k      (price-key alpha "AAPL")
+            _      (seat! alpha {"AAPL" 191})
+            gate   (make-gate true)
+            before (deref !island-runs)
+            handle (mount-concurrent! alpha (suspense-tree (:element gate)))]
+        (-> (poll #(= "waiting" (painted handle "#fb")) "the fallback commits")
+            (.then
+              (fn [_]
+                (testing "the premise: React RAN the island body — both hooks
+                          and the read — before it threw the attempt away.
+                          Without this the zeros below are the zeros of a
+                          render that never happened, which is the cheapest
+                          possible false green"
+                  (is (pos? (- (deref !island-runs) before))))
+
+                (testing "and the attempt was genuinely abandoned: the fallback
+                          is on the page and the island's markup never reached
+                          the document at all"
+                  (is (nil? (at handle ".island"))))
+
+                (testing "so the abandoned render acquired NOTHING. `n/use-sub`
+                          read — through the cold probe, since React had not
+                          called `subscribe` and no cell existed — and retained
+                          no cell, no reference, no edge and no reader slot.
+                          Narrowing caught: acquiring during the render, the
+                          ownership state machine's one prohibition, which
+                          leaves a membership behind on a render React discarded
+                          and which nothing on the page could ever reveal"
+                  (is (zero? (count (readers-of k))))
+                  (is (= nothing-owned (ownership))))
+
+                ((:open! gate))
+                (poll #(= "191" (island-price handle)) "the retry commits")))
+            (.then
+              (fn [_]
+                ;; A write round-trip, which is how this row waits out the
+                ;; PASSIVE phase without naming a duration: React calls
+                ;; `subscribe` in a passive effect, and an island it has not
+                ;; finished subscribing cannot repaint. It cannot mask a leak
+                ;; either — the condition is the text and the quantity under
+                ;; test is the reader count.
+                (mount/dispatch! handle [::set-price "AAPL" 204])
+                (poll #(= "204" (island-price handle))
+                      "the retried island is subscribed and live")))
+            (.then
+              (fn [_]
+                (testing "the retry committed the island React had thrown away,
+                          and acquired its read set EXACTLY ONCE. Two readers
+                          here would paint the identical page and leak a
+                          subscription for the life of the mount"
+                  (is (= 1 (count (readers-of k))))
+                  (is (= one-key-owned (ownership))))
+                (exercised! :hooks/abandoned-attempt)
+                (is (= support/released (teardown! handle)))
+                nil))
+            (.catch (report-failure! "W10 abandoned attempt"))
             ;; The single trailing step, which BOTH arms reach: this row's
             ;; roots go down first, and the single `done` is the last act,
             ;; with nothing after it.
