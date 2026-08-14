@@ -4281,6 +4281,14 @@
                                               suppressed.
          :fx/on-frame-destroyed!            — cancel + remove the frame's
                                               pending :dispatch-later timers.
+         :hicasso/on-frame-destroyed!       — drop the Hicasso substrate's
+                                              memoised frame-ops row (the
+                                              destroyed incarnation's
+                                              `capture-frame` bundle + ambient
+                                              dispatch closure), whose own
+                                              eviction is lazy and so never
+                                              fires for a per-request id
+                                              (rf2-uejlj).
     8. emit-frame-destroyed-trace!  — emit :frame/destroyed AFTER every
                                       feature cleanup hook has completed.
     8a. snapshot-epoch-terminal-    — bind A's terminal :halted-destroy
@@ -4606,6 +4614,21 @@
         ;; below), and the frame value is already marked :destroyed?, so the
         ;; carried token is the only way to name the dying incarnation.
         (safe-call-hook! :freehand/on-frame-destroyed! id expected-incarnation-token)
+        ;; Drop the Hicasso frame-ops row. That substrate memoises one row per
+        ;; frame — the `capture-frame` bundle plus the ambient dispatch closure
+        ;; over it, both pinned to the incarnation that minted them — and its
+        ;; own eviction is LAZY: the successor's first lookup under the same id
+        ;; replaces the row. That bounds a client id, which is reused across
+        ;; incarnations, and bounds nothing at all for an id that never gets a
+        ;; successor — `re-frame.hicasso.server/render` mints a fresh gensym per
+        ;; request, so a long-lived SSR process retained one bundle per request
+        ;; served (rf2-uejlj). Keyed and unconditional, needing no incarnation
+        ;; token: a same-id successor is constructable only after the step-10
+        ;; dissoc, so every row standing here is a dead incarnation's. Pure
+        ;; RETENTION — the substrate's safety argument is that lazy replacement
+        ;; and is untouched by this. No-op when the day8/re-frame2-hicasso
+        ;; artefact is absent (the hook is unbound).
+        (safe-call-hook! :hicasso/on-frame-destroyed! id)
         ;; The shipped subsystems tear down via the named ordered hooks above.
         (emit-frame-destroyed-trace! id)
         ;; EP-0024: there is ONE `frames` registry, and `dissoc-frame!` below IS
