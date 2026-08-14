@@ -61,8 +61,8 @@
   (`:unmounting`) children DETERMINISTICALLY — the fake-clock twin of
   `[:wait ms]`, and the reason a presence-bearing variant does not need the
   determinism opt-out. It routes through
-  `re-frame.story.play.presence` to the framework's own
-  `re-frame.freehand.presence-runtime/advance-clock!`; with no presence host
+  `re-frame.story.play.presence` to whatever advance the HOST installed;
+  with no presence host
   installed the step REFUSES (`:cannot-run`) rather than skipping — an absent
   hook does not prove an absent presence runtime, so a silent no-op there
   would let a presence-bearing play report a clean verdict over a clock that
@@ -141,10 +141,10 @@
   these steps so the queued effects drain before the next step runs.
 
   `:flush-presence` is here because the host verb's settle point is not
-  guaranteed to be the call's return. The shipped Freehand bridge advances
-  the clock inside the substrate's `flushSync` commit, so its removals ARE
-  committed synchronously; a Promise-backed host (the donor's awaited React
-  `act`, or any custom one) instead lands its commits on the microtask queue.
+  guaranteed to be the call's return. A host that advances the clock inside a
+  `flushSync` commit has its removals committed synchronously; a
+  Promise-backed one (an awaited React `act`, say) instead lands its commits
+  on the microtask queue.
   A `setTimeout` 0 yield runs after the microtask queue has drained to empty,
   so the next step observes the committed removal rather than racing it under
   EITHER shape — the yield costs a tick and removes a class of flake. On the
@@ -220,8 +220,8 @@
                            (number? (nth step 1))
                            (not (neg? (nth step 1)))))
     ;; `[:flush-presence]` (to quiescence) / `[:flush-presence ms]` (advance
-    ;; the logical clock by ms) — the two arities of the framework advance
-    ;; `re-frame.freehand.presence-runtime/advance-clock!`, no more.
+    ;; the logical clock by ms) — the two arities the installed host advance
+    ;; takes, no more.
     :flush-presence (boolean
                       (or (= 1 (count step))
                           (and (= 2 (count step))
@@ -818,8 +818,8 @@
   `[:flush-presence ms]` step, or nil — for the bare `[:flush-presence]`
   (advance to quiescence) AND for any non-`:flush-presence` step. The two
   cases are distinguished by the step TAG, never by this nil: nil here
-  means exactly what nil means to
-  `re-frame.freehand.presence-runtime/advance-clock!` — the no-arg arity."
+  means exactly what nil means to the installed host advance — 'to
+  quiescence', the arity that takes no ms."
   [step]
   (when (= :flush-presence (step-type step))
     (nth step 1 nil)))

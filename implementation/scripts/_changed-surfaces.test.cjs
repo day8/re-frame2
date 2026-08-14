@@ -380,19 +380,16 @@ test('Xray CLJS src change runs cljs (node-test compiles tools/xray) (rf2-f79t8)
 // (#7037's presence-flush proof, and the pre-existing sub-overrides suite
 // beside it). These assertions are the teeth on that arm.
 //
-// The two live namespaces named below are load-bearing, not illustrative:
-// they are the files the bead was filed about, and if either is renamed out
-// of the `-dom-cljs-test` convention this pins that the arm moved with it.
-
-test('Story DOM test change schedules cljs-browser (rf2-1sd8h)', () => {
-  const result = classify(
-    'tools/story/test/re_frame/story/play/presence_freehand_dom_cljs_test.cljs',
-  );
-  assert.equal(result.cljs_browser, 'true');
-  // Still the node lane too — the same namespace compiles there and its
-  // non-DOM assertions keep firing.
-  assert.equal(result.cljs_node_test, 'true');
-});
+// The live namespace named below is load-bearing, not illustrative: it is one
+// of the two files the bead was filed about, and if it is renamed out of the
+// `-dom-cljs-test` convention this pins that the arm moved with it.
+//
+// The bead's OTHER file was `play/presence_freehand_dom_cljs_test.cljs`, the
+// presence-flush proof. It retired with Freehand and Story's presence bridge
+// (rf2-5gka, rf2-0yp7w). Its assertion is not re-pointed at an arbitrary
+// substitute: the classifier arm is a property of the PATH CONVENTION, which
+// the surviving case exercises identically, so a second case naming a
+// different tree would add coverage of nothing.
 
 test('the pre-existing Story sub-overrides DOM test schedules cljs-browser (rf2-1sd8h)', () => {
   const result = classify(

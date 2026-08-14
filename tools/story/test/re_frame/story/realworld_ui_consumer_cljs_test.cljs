@@ -2,14 +2,20 @@
   "S7-ENTRY PROOF 2/2 — the STORY seam (rf2-vvdzx). Story hosts the REAL
   realworld re-frame.ui app (`examples/real-apps/realworld_resources`, the P-1
   full-app variant) as a CONSUMER: re-frame.ui enters Story's substrate
-  roster, a minimal ui deck exercising the app's own compiled view + real
-  dataflow plays GREEN through the EXISTING Story shell, and the late-bound
-  presence bridge is exercised end-to-end against the real presence clock.
+  roster, and a minimal ui deck exercising the app's own compiled view + real
+  dataflow plays GREEN through the EXISTING Story shell.
+
+  A third arm once drove the late-bound presence bridge end-to-end against
+  Freehand's real presence clock. It followed the BRIDGE, and retired with it
+  (rf2-5gka): Story ships no presence installer now, so there is no shipped
+  integration for an acceptance test to accept. The rung's own coverage —
+  seam, both arities, and the fail-closed refusal — is host-agnostic and
+  lives in `play/presence_cljs_test`.
 
   Story is a CONSUMER here — the tool UI is NOT rewritten onto `defview`. The
   app CONTRIBUTES its compiled `counter` view (the smallest complete
   re-frame.ui app) + its plain-re-frame2 `:ui-counter/*` events; Story hosts
-  and plays it. The three facts, one deftest each:
+  and plays it. The two facts, one deftest each:
 
     1. re-frame.ui ENTERS Story's substrate roster through the SANCTIONED
        runtime path — `story/register-substrate!`, the seam
@@ -24,47 +30,25 @@
     2. The ui deck's variant drives the app's REAL counter events through the
        Story play runner and its `:assert-db` on the app's real app-db key
        passes — the app hosted + played GREEN through the shell.
-    3. `[:flush-presence]` reaches the REAL framework presence clock through
-       the shipped `presence-host` bridge and advances a real retained exit
-       (green); with the bridge uninstalled it fails CLOSED (`:cannot-run`) —
-       the late-bound presence seam, end-to-end. That arm follows the BRIDGE,
-       so it crossed to Freehand's scheduler with it (rf2-gzmg0); the app
-       under test in arms 1–2 is still the donor one.
 
   COVERAGE SHAPE — a CLJS unit test on the node runtime, wired into the
   EXISTING `npm run test:cljs` suite (NOT Playwright). Pure `.cljs` (not
-  `.cljc`): `story/run-variant` and the Promise-backed presence verb are async,
-  and cljs.test requires the MAP fixture form for async bodies — exactly the
-  split `presence_real_clock_cljs_test` documents."
+  `.cljc`): `story/run-variant` is async, and cljs.test requires the MAP
+  fixture form for async bodies."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures async]]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
-            [re-frame.router :as router]
             [re-frame.machines :as machines]
             [re-frame.source-store :as source-store]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as test-support]
             [re-frame.story :as story]
             [re-frame.story.async :as async-lib]
-            [re-frame.story.late-bind :as late-bind]
             [re-frame.story.loaders :as loaders]
             [re-frame.story.ui.multi-substrate :as multi]
-            [re-frame.story.play.presence :as story-presence]
-            ;; The shipped OPTIONAL bridge — the one canonical presence-install
-            ;; path (rf2-36biz). Requiring it installs the verb at load; each
-            ;; presence test re-arms/clears it explicitly. Holds the substrate
-            ;; dependency on the app side of the seam.
-            [re-frame.story.play.presence-host :as presence-host]
-            [re-frame.story.play.runner-events :as re]
             ;; re-frame.ui — the outward interop bridge that exports a compiled
             ;; view as a foreign React component (the substrate render seam).
-            ;; The APP under test here is still the donor one; only the
-            ;; presence CLOCK below crossed, because the bridge crossed.
             [re-frame.ui :as ui]
-            ;; The clock the SHIPPED bridge advances (rf2-gzmg0). The presence
-            ;; block below is an acceptance test of the bridge, not of the
-            ;; donor app, so it follows the bridge onto Freehand's scheduler.
-            [re-frame.freehand.presence-runtime :as presence-rt]
             ;; THE REAL APP (P-1). Requiring it registers the compiled `counter`
             ;; view + the `:ui-counter/*` events + `:ui-counter/count` sub.
             [realworld-resources.ui-counter :as ui-counter]))
@@ -113,9 +97,8 @@
 
 ;; ---------------------------------------------------------------------------
 ;; Fixture — Story-testbed shape (snapshot/restore registrar + stable ns-load
-;; source-store baseline, per `counter_with_stories/stories_cljs_test`) folded
-;; with the presence-rung reset (per `presence_cljs_test`). MAP form for the
-;; async bodies.
+;; source-store baseline, per `counter_with_stories/stories_cljs_test`).
+;; MAP form for the async bodies.
 ;; ---------------------------------------------------------------------------
 
 (def ^:private registrar-snapshot (atom nil))
@@ -126,8 +109,6 @@
 ;; test resolves the app slices run-order-independently.
 (def ^:private source-store-baseline @source-store/kind->id->ns->descriptor)
 
-(def ^:private presence-frame :story.realworld-ui-presence/frame)
-
 (defn- before! []
   (reset! registrar-snapshot (test-support/snapshot-registrar))
   (reset! frame/frames {})
@@ -135,10 +116,6 @@
   (frame/ensure-default-frame!)
   (machines/reset-timers!)
   (loaders/clear-watchers!)
-  ;; Start every test HOOK-FREE — merely requiring the optional bridge armed
-  ;; the process-global slot at load, so the no-bridge test must not depend on
-  ;; ns-load order to see it empty (symmetry with `after!`).
-  (swap! late-bind/hooks dissoc :flush-presence!)
   (story/clear-all!)
   (reset! source-store/kind->id->ns->descriptor source-store-baseline)
   (story/install-canonical-vocabulary!)
@@ -146,18 +123,9 @@
   ;; re-frame.ui enters the substrate roster — exactly what a re-frame.ui-
   ;; hosting app does at boot (the documented `register-substrate!` seam).
   (story/register-substrate! ui-substrate ui-substrate-render-fn)
-  ;; The presence rung's app frame + its app-visible consequences.
-  (rf/make-frame {:id presence-frame :doc "realworld-ui presence rung frame"})
-  (rf/reg-event :realworld-ui/presence-tick
-    (fn [{:keys [db]} _] {:db (assoc db :toast :retained)}))
-  (rf/reg-event :realworld-ui/presence-removed
-    (fn [{:keys [db]} _] {:db (assoc db :toast :removed)}))
   nil)
 
 (defn- after! []
-  (swap! late-bind/hooks dissoc :flush-presence!)
-  (presence-rt/reset-clock!)
-  (presence-rt/set-wall-clock! true)
   (multi/unregister-substrate! ui-substrate)
   (when-let [snap @registrar-snapshot]
     (test-support/restore-registrar! snap)
@@ -220,66 +188,3 @@
             (fn [e]
               (is false (str "run-variant REJECTED: " (pr-str e)))
               (done)))))))
-
-;; ===========================================================================
-;; 3 — the late-bound presence bridge, end-to-end against the real clock
-;; ===========================================================================
-
-(deftest presence-bridge-advances-the-real-clock-end-to-end
-  (async done
-    ;; Install through the SHIPPED bridge — not a hand-rolled copy — so this is
-    ;; an acceptance test of the one canonical integration path.
-    (presence-host/install!)
-    (is (some? (story-presence/presence-flush-fn))
-        "the shipped bridge armed the :flush-presence! hook")
-    (presence-rt/reset-clock!)
-    ;; The logical advance is the SOLE removal driver here.
-    (presence-rt/set-wall-clock! false)
-    ;; A REAL retained exit on the framework's OWN scheduler — the same registry
-    ;; a mounted (v/presence …) boundary arms; its removal callback is the
-    ;; app-visible consequence.
-    (presence-rt/schedule-exit!
-     300 #(router/dispatch-sync! [:realworld-ui/presence-removed]
-                                 {:frame presence-frame}))
-    (is (= 1 (presence-rt/pending-count)) "one exit retained")
-    (re/run! presence-frame "realworld-ui-presence"
-             {:name   "realworld-ui-presence"
-              :script [[:dispatch [:realworld-ui/presence-tick]]
-                       [:flush-presence 100]
-                       [:assert-db [:toast] :retained]
-                       [:flush-presence]
-                       [:assert-db [:toast] :removed]]}
-             (fn [state]
-               (is (= :pass (:status state))
-                   "the [:flush-presence] rung reached the REAL framework
-                    presence clock and settled")
-               (is (zero? (presence-rt/pending-count))
-                   "advancing to quiescence fired the retained exit")
-               (is (= :removed (:toast (rf/app-db-value presence-frame))))
-               (done)))))
-
-(deftest without-the-bridge-the-flush-presence-step-fails-closed
-  (async done
-    ;; The fixture left the process-global hook cleared — model an app that
-    ;; loads the substrate + renders a real (v/presence …) boundary but OMITS
-    ;; the bridge require.
-    (is (nil? (story-presence/presence-flush-fn))
-        "no presence host installed — the bridge require is absent")
-    (presence-rt/reset-clock!)
-    (presence-rt/set-wall-clock! false)
-    (presence-rt/schedule-exit!
-     300 #(router/dispatch-sync! [:realworld-ui/presence-removed]
-                                 {:frame presence-frame}))
-    (re/run! presence-frame "no-bridge"
-             {:name   "no-bridge"
-              :script [[:dispatch [:realworld-ui/presence-tick]]
-                       [:flush-presence 100]
-                       [:assert-db [:toast] :retained]]}
-             (fn [state]
-               (is (= :cannot-run (:status state))
-                   "fail-closed — [:flush-presence] refuses without the bridge,
-                    never a silent green over a clock that never moved")
-               (is (not= :pass (:status state)))
-               (is (= 1 (presence-rt/pending-count))
-                   "nothing advanced the clock — the exit is still pending")
-               (done)))))

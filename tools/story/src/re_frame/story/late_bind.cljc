@@ -106,28 +106,26 @@
                                      JVM (no DOM / substrate), so
                                      `render-variant` returns `:cannot-run`.
 
-  - `:flush-presence!`             — a Freehand-hosted shell →
+  - `:flush-presence!`             — a presence-bearing shell →
                                      `re-frame.story.play.presence` (consumed
                                      by the `[:flush-presence]` script step).
                                      Advances the PRESENCE fake clock so a
-                                     variant rendering a `(v/presence …)`
-                                     boundary settles its retained
-                                     (`:unmounting`) children
-                                     deterministically, with no wall-clock
-                                     sleep. Signature: `(f ms-or-nil) → any`
+                                     variant whose view RETAINS an exiting
+                                     child settles it deterministically, with
+                                     no wall-clock sleep.
+                                     Signature: `(f ms-or-nil) → any`
                                      — nil means 'to quiescence', mirroring
-                                     the two arities of the framework advance
-                                     `re-frame.freehand.presence-runtime/
-                                     advance-clock!`.
-                                     Story's shipped jar must not depend on
-                                     the pre-publication
-                                     `day8/re-frame2-freehand`, so the verb
-                                     arrives through this hook rather than a
-                                     `:require`. Installed by ONE `:require`
-                                     of the optional bridge
-                                     `re-frame.story.play.presence-host`,
-                                     which holds the Freehand dependency
-                                     on the app's side of the seam. Unlike
+                                     the two arities a substrate's own
+                                     advance conventionally has.
+                                     Story's shipped jar depends on no view
+                                     substrate, so the verb arrives through
+                                     this hook rather than a `:require`.
+                                     Story ships NO installer for it: the
+                                     optional Freehand bridge that used to be
+                                     one retired with that substrate
+                                     (rf2-5gka), so a host calls
+                                     `presence/install-presence-flush!`
+                                     itself. Unlike
                                      every other hook here, an ABSENT
                                      `:flush-presence!` is NOT a no-op: a
                                      requested `[:flush-presence]` refuses
