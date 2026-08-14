@@ -40,7 +40,7 @@
  *
  * `Input.imeSetComposition` is a CDP method and CDP is Chromium's protocol,
  * so the repo's existing real-IME harness
- * (`freehand/test/re_frame/bench/hicasso/ime_run.cjs`) states its scope as
+ * (`hicasso/test/re_frame/bench/hicasso/ime_run.cjs`) states its scope as
  * Chromium only. This gate needs the carve-out witnessed on WebKit and
  * Firefox, where no such protocol exists, so composition here is the event
  * SEQUENCE a composition produces — `compositionstart`, `beforeinput` and
