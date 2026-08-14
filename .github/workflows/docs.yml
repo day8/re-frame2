@@ -72,6 +72,13 @@ on:
       - 'scripts/_test_fixtures/check_retired_composition_vocab/**'
       - 'scripts/check_retired_image_keys.py'
       - 'scripts/_test_fixtures/check_retired_image_keys/**'
+      # rf2-yptjt — the warm-allocation non-claim scan reads README/CHANGELOG +
+      # docs/** (already armed above) and uses docs/design/** as its positive
+      # control. This line arms it on its OWN source, so a change to the gate —
+      # including one that loosens the claim pattern until it matches nothing —
+      # cannot ship without the gate running. (It builds its fixtures in a
+      # throwaway git tree, so there is no fixture directory to arm.)
+      - 'scripts/check_allocation_non_claim.py'
       # rf2-lq99wc — the retired-composition gate now scans the per-tool spec
       # trees too; a drift there must trigger the gate.
       - 'tools/**/spec/**'
@@ -188,7 +195,7 @@ jobs:
           while IFS= read -r file; do
             [ -z "$file" ] && continue
             case "$file" in
-              docs/*|spec/*|migration/*|mkdocs.yml|mkdocs_hooks.py|TESTING.md|README.md|CHANGELOG.md|SKILL-REDIRECT.md|AGENTS.md|CLAUDE.md|scripts/test-jvm-implementation.sh|scripts/test-jvm-tools.sh|scripts/test-fast-pr.sh|scripts/test-rigorous-local.sh|requirements.txt|scripts/check_provenance_pins.py|scripts/check_runtime_subsystem_grading.py|scripts/check_failure_corpus_residue.py|scripts/_test_fixtures/check_failure_corpus_residue/*|testbeds/*|testbeds/*/*|scripts/check_retired_composition_vocab.py|scripts/_test_fixtures/check_retired_composition_vocab/*|tools/*/spec/*|tools/*/spec/*/*|.github/workflows/docs.yml)
+              docs/*|spec/*|migration/*|mkdocs.yml|mkdocs_hooks.py|TESTING.md|README.md|CHANGELOG.md|SKILL-REDIRECT.md|AGENTS.md|CLAUDE.md|scripts/test-jvm-implementation.sh|scripts/test-jvm-tools.sh|scripts/test-fast-pr.sh|scripts/test-rigorous-local.sh|requirements.txt|scripts/check_provenance_pins.py|scripts/check_runtime_subsystem_grading.py|scripts/check_failure_corpus_residue.py|scripts/_test_fixtures/check_failure_corpus_residue/*|testbeds/*|testbeds/*/*|scripts/check_retired_composition_vocab.py|scripts/_test_fixtures/check_retired_composition_vocab/*|scripts/check_allocation_non_claim.py|tools/*/spec/*|tools/*/spec/*/*|.github/workflows/docs.yml)
                 docs_surface=true ;;
             esac
           done <<< "$files"
@@ -512,6 +519,51 @@ jobs:
 
       - name: Validate no live retired EP-0026 image keys
         run: python scripts/check_retired_image_keys.py --verbose
+
+      # The warm-allocation NON-CLAIM scan (rf2-hic-072, wired by rf2-yptjt).
+      # specification.md section 6 registers one sentence — "no allocation claim
+      # publishes until a fitted series clears the registered quality floor" —
+      # and this gate is that sentence, executable. No fitted series clears it
+      # (rf2-2rtt6.139, rf2-2rtt6.140, rf2-e9wr each measured a different leg of
+      # why), so the obligation is NEGATIVE and the failure it catches is
+      # somebody reaching for one of those refused figures to fill a cell that
+      # wants a number. It shipped unwired because .github/workflows/** was held
+      # when it landed, and present-but-unenforced is the WEAKEST of the three
+      # states — worse than absent, because it reads as covered.
+      #
+      # IT BELONGS IN THIS JOB rather than beside the provenance-pin gate below,
+      # and the two are less alike than they look: that one needs `fetch-depth:
+      # 0` and reads docs/design/hicasso, which is why it is a job of its own,
+      # while this one derives its corpus from `git ls-files` and reads the
+      # PUBLICATION surface — root README/CHANGELOG plus docs/** OUTSIDE
+      # docs/design. Its real siblings are the four repo-wide markdown scans
+      # directly above, which is why it sits with them: same shape, same
+      # self-test-then-live pair, no extra runner, ~0.4s.
+      #
+      # NEITHER STEP MAY BE SOFTENED, and this gate is unusually easy to defeat
+      # by kindness. It fires on a per-write BYTE FIGURE rather than on the word
+      # "allocation", because a word-scan is a gate authors reword their way
+      # around; it PASSES a figure whose own paragraph carries the refusal, so
+      # the rule is "no claim without its qualification" and not "no digits"; it
+      # uses the design record as a POSITIVE CONTROL and reds if the pattern
+      # matches nothing there, because an absence check over a corpus it never
+      # really read is a green that means nothing; and it FAILS ON ITS OWN
+      # PREMISE — if budgets.md's S7 row or evidence-baseline.md's warm-
+      # allocation row stops recording the floor as unmet, the scan reds asking
+      # for re-authorisation, because a guard enforcing a retired rule is worse
+      # than no guard. That last property is a RETIREMENT SIGNAL wearing a red,
+      # so a `continue-on-error` here would hide precisely the message the gate
+      # exists to raise. The self-test proves each of those behaviours in a
+      # throwaway git tree, naming its cases as it runs; running it first is
+      # what stops the live scan's green from meaning "the pattern no longer
+      # matches anything". HOW MANY cases is deliberately not written here, for
+      # rf2-93u6's reason — a count kept in this file is linked to nothing that
+      # would update it, so the next correction is already scheduled.
+      - name: Self-test the warm-allocation non-claim scan
+        run: python scripts/check_allocation_non_claim.py --self-test
+
+      - name: Validate no unqualified warm-allocation claim on the publication surface
+        run: python scripts/check_allocation_non_claim.py
 
       # Stage the spec/ + migration/ trees under docs/ so MkDocs (which
       # requires docs_dir to be a child of the config file) can see them.
