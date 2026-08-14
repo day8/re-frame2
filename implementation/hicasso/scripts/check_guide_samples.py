@@ -490,7 +490,7 @@ def r3_stale_ledger(exports: dict[str, set[str] | None]) -> list[str]:
 
 ROSTER = {
     "00-installation.md": [
-        (1, "346957329240"), (2, "4d3af42a62ba"), (3, "af13cef73d9f"),
+        (1, "54792899937f"), (2, "4d3af42a62ba"), (3, "af13cef73d9f"),
         (4, "34a2229c1f65"), (5, "5f9f8f55cfab"), (6, "e273338344de"),
         (7, "caa27172a376"), (8, "daeb4bc56afc"), (9, "d85146b3bb90"),
     ],
