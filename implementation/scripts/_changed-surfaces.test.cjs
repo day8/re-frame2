@@ -1804,10 +1804,15 @@ test('example compilation has a dedicated changed-surface output (rf2-gzavkm)', 
     );
   }
 
+  // rf2-in6c4 — `testbeds/tenant_switcher/core.cljs` left this list when the
+  // gate widened its derivation from `:examples/*` to `:examples/* +
+  // :testbeds/*`. A testbed source CAN now change a swept build, because the
+  // build it belongs to is one of them. The scope discipline the case was
+  // making — that not everything under testbeds/ queues a ~10-minute compile —
+  // did not go away; it moved to the extension narrowing, pinned below.
   for (const file of [
     'implementation/core/src/re_frame/core.cljc',
     'implementation/scripts/check-elision.cjs',
-    'testbeds/tenant_switcher/core.cljs',
     'tools/xray/test/day8/re_frame2_xray/core_test.clj',
     'tools/xray/spec/017-Test-Coverage-Matrix.md',
     'spec/006-ReactiveSubstrate.md',
@@ -1815,7 +1820,7 @@ test('example compilation has a dedicated changed-surface output (rf2-gzavkm)', 
     assert.equal(
       classify(file).examples_compile,
       'false',
-      `${file} cannot change a standalone example build`,
+      `${file} cannot change a standalone swept build`,
     );
   }
 });
@@ -2620,10 +2625,68 @@ test('PR + nightly Story/Xray jobs cache the shadow-cljs compile output (rf2-og3
 // testbeds light `story_xray_browser`, and only adapter testbeds (which
 // keep a live Playwright smoke) light `adapter_testbed_smokes`.
 
-test('top-level testbed .cljs change fires cljs_browser only (rf2-t5slp)', () => {
+test('top-level testbed .cljs change fires cljs_browser, not the adapter smokes (rf2-t5slp)', () => {
   const result = classify('testbeds/ssr_basic/core.cljs');
   assert.equal(result.adapter_testbed_smokes, 'false');
   assert.equal(result.cljs_browser, 'true');
+});
+
+// rf2-in6c4 — THE ARMING PIN FOR THE TESTBED COMPILE GATE, per the rf2-6ng7
+// codicil that a coverage fix pins its own arming in the same patch.
+//
+// WHAT WAS DARK. `cljs_browser` above is the only lane the generic
+// `testbeds/*` case ever armed, and it does not compile a single one of these
+// builds: the top-level `testbeds/` tree holds 13 `.cljs` files, 0 test files
+// and 0 `.clj`, and no test in the armed lane `:require`s a testbed namespace
+// (the Xray e2e suites that read as though they do use their own
+// `host-fixtures` copies). shadow compiles what is required of it, so a
+// compile break confined to a top-level testbed was armed by nothing and
+// caught only by the nightly Xray FULL feature gate. `check-examples-compile.
+// cjs` now derives `:testbeds/*` alongside `:examples/*`; this is the half
+// that makes the schedule real.
+test('top-level testbed .cljs change fires examples_compile — the only lane that compiles it (rf2-in6c4)', () => {
+  const result = classify('testbeds/ssr_basic/core.cljs');
+  assert.equal(
+    result.examples_compile,
+    'true',
+    'check-examples-compile.cjs is the only PR-time job that compiles a ' +
+      'top-level :testbeds/* build; without this arm a compile break there ' +
+      'ships green',
+  );
+});
+
+// The extension narrowing is the arm's only subtlety, so it is pinned in both
+// directions. A ~10-minute compile job must not queue for a README, and the
+// two non-CLJS files in this tree have owners of their own — spec-helpers.cjs
+// belongs to the Xray smoke tier (asserted above), and tenant_switcher/spec.cjs
+// to the tenant-switcher smoke.
+test('a testbed README does NOT fire examples_compile (extension narrowing, rf2-in6c4)', () => {
+  const result = classify('testbeds/README.md');
+  assert.equal(
+    result.examples_compile,
+    'false',
+    'no markdown file can change what shadow-cljs compile produces',
+  );
+});
+
+test('a testbed .cjs helper does NOT fire examples_compile (extension narrowing, rf2-in6c4)', () => {
+  for (const file of ['testbeds/spec-helpers.cjs', 'testbeds/tenant_switcher/spec.cjs']) {
+    assert.equal(
+      classify(file).examples_compile,
+      'false',
+      `${file} is a Playwright-side module, not shadow-cljs input`,
+    );
+  }
+});
+
+// A NEW testbed build still arms the gate whatever its own files look like,
+// because DECLARING one edits implementation/shadow-cljs.edn — which is on the
+// examples_compile roster in its own right. That is what keeps the narrowing
+// above from being a hole: the roster is derived from the build config, and
+// the build config is armed.
+test('declaring a build in shadow-cljs.edn arms examples_compile (rf2-in6c4 backstop)', () => {
+  const result = classify('implementation/shadow-cljs.edn');
+  assert.equal(result.examples_compile, 'true');
 });
 
 test('Xray testbed .cljs change fires story_xray_browser only (rf2-t5slp)', () => {
@@ -6330,6 +6393,246 @@ test('the jobs these arms reach are still gated on the armed outputs (rf2-6ng7)'
       `${job} must stay gated on ${output}, or arming it schedules nothing`,
     );
   }
+});
+
+// ===========================================================================
+// rf2-skvce — THE TREE-CLAIM META-CHECK.
+//
+// Every test above this line pins ONE arm that somebody already thought to
+// write. The recurring incident in this repo is the arm nobody thought to
+// write: a NEW directory lands, classifies to nothing, and is gated by
+// nothing until an audit goes looking. Five recorded instances —
+// implementation/hicasso (rf2-hic-001), both codemod trees,
+// implementation/ssr-node (rf2-n8vp, which landed in PR #8028 classifying to
+// nothing at all), and the Story feature-load gate (rf2-65ajl) — plus the
+// twelve top-level testbed builds this same patch closes under rf2-in6c4.
+//
+// WHAT THIS ASSERTS, precisely: every tracked tree either arms at least one
+// output of the classifier, or carries an entry in DECLARED_NO_SURFACE_OUTPUT
+// below. Nothing more. It does not model any gate's INPUTS — that is the
+// second hand-maintained model rf2-6ng7 rejected, and it would need per-gate
+// maintenance forever. Tree CLAIM is a far cheaper invariant with none: the
+// only thing that changes it is a tree appearing or disappearing.
+//
+// WHAT IT DELIBERATELY LETS THROUGH. A tree that arms SOMETHING passes, even
+// if the something is the wrong output, and even if a FILE inside it arms
+// nothing — `.github/scripts/nightly_failure_alert.py` classifies to zero on
+// its own (rf2-skvce finding N4) and this check will never say so, because
+// `.github/scripts` as a tree is lit by its siblings. Going file-level would
+// buy that one case and cost a nag on every README in the repository, which
+// is the trade the anti-over-engineering posture settles against. The
+// alerter's exposure is bounded by its own in-run --self-test at
+// expensive-tests.yml:648; it stays a declared file-level hole.
+//
+// "AT LEAST ONE OUTPUT" IS NOT "COVERED", and the declared list is where that
+// distinction is kept honest. Several trees are properly gated at PR time by
+// jobs that are ALWAYS-ON — `beads-pr-boundary`, `verify-skill-mcp-drift`,
+// `verify-readme-links` — and an always-on job by construction arms no
+// surface output. Others are gated by a DIFFERENT workflow with its own
+// classifier (docs.yml's `docs_surface`, lint.yml's lint surface). So an
+// entry below is not an apology; it is a statement of where the tree's
+// coverage actually lives. Two entries say the coverage is MISSING, and name
+// the bead.
+//
+// THE REASONS ARE CHECKED, NOT BELIEVED — the lesson `scripts/
+// check_gate_scheduling.py` states outright for its own DISPOSITIONS ("a
+// reason is a claim about the world, and claims rot"). Every path named in a
+// `coveredBy` must exist. That is a weak check and an honest one: it cannot
+// tell that a gate still READS the tree, but it does catch the reference that
+// outlived the gate it names, which is the way these rot in practice.
+// ===========================================================================
+
+// The two reasons that recur across a dozen trees, named once. Sharing the
+// object is deliberate: these trees are covered by the SAME mechanism, and
+// spelling that out twelve times invites twelve slightly different stories.
+const DOCS_YML = {
+  why: "documentation staged into the MkDocs site; docs.yml's own docs_surface classifier arms on docs/*, and its build job runs mkdocs --strict plus check_doc_slugs.py over the corpus",
+  coveredBy: ['.github/workflows/docs.yml', 'scripts/check_doc_slugs.py'],
+};
+
+const SKILLS_ALWAYS_ON = {
+  why: "prose skill trees. Reached at PR time by the ALWAYS-ON verify-skill-mcp-drift job (check_skill_mcp_drift.py holds allowed-tools front-matter in step with the MCP catalogues; check_inject_cofx_residue.py scans skills/ markdown for retired API spellings) — an always-on job arms no surface output by construction. NOTE the gap rf2-v7fui records: check_doc_slugs.py lists skills in its roster but runs only in docs.yml's build job, whose docs_surface does not include skills/*, so slug and anchor validation of these files fires nowhere at PR time.",
+  coveredBy: [
+    'scripts/check_skill_mcp_drift.py',
+    'scripts/check_inject_cofx_residue.py',
+  ],
+};
+
+const DECLARED_NO_SURFACE_OUTPUT = {
+  '.beads': {
+    why: 'the tracker database export and its config; the boundary that keeps it out of a PR is enforced by the always-on beads-pr-boundary job',
+    coveredBy: ['scripts/check-beads-pr-boundary.sh'],
+  },
+  '.beads/hooks': {
+    why: "bd's own hooks, installed into a developer checkout; the always-on beads-pr-boundary job self-tests the guards they wrap before enforcing",
+    coveredBy: ['scripts/git-hooks/test-pre-commit.sh'],
+  },
+  '.claude': {
+    why: 'a single settings.json for the agent harness — local configuration, not shipped code and not read by any gate',
+    coveredBy: [],
+  },
+  '.claude/commands': {
+    why: 'mayor-loop command files; their path references are resolved by the always-on verify-readme-links job (rf2-1yy75 built the resolver precisely because check_doc_slugs.py validates nothing here — the files carry no markdown links and no headings)',
+    coveredBy: ['scripts/check_readme_links.py'],
+  },
+  '.clj-kondo': {
+    why: "linter configuration; lint.yml's own surface classifier lists .clj-kondo/* explicitly",
+    coveredBy: ['.github/workflows/lint.yml'],
+  },
+  '.clj-kondo/hooks': {
+    why: 'clj-kondo macro hooks — real Clojure, but consumed only by the linter, and armed by the same lint.yml surface as the config beside them',
+    coveredBy: ['.github/workflows/lint.yml'],
+  },
+  docs: DOCS_YML,
+  'docs/EP': DOCS_YML,
+  'docs/async': DOCS_YML,
+  'docs/images': DOCS_YML,
+  'docs/resources': DOCS_YML,
+  'docs/routing': DOCS_YML,
+  'docs/scripts': DOCS_YML,
+  'docs/skills': DOCS_YML,
+  'docs/ssr': DOCS_YML,
+  'docs/story': DOCS_YML,
+  'docs/stylesheets': DOCS_YML,
+  'docs/the-mayor-method': DOCS_YML,
+  'docs/xray': DOCS_YML,
+  'migration/from-clj-new-template': {
+    why: "a migration note; docs.yml's docs_surface classifier lists migration/*",
+    coveredBy: ['.github/workflows/docs.yml', 'scripts/check_doc_slugs.py'],
+  },
+  'scripts/_test_fixtures': {
+    why: 'per-gate fixture corpora, read only by the gates\' own --self-test runs; each fixture tree is armed with its gate rather than as a surface (several are named individually on docs.yml\'s docs_surface list and in the fast-PR spine roster)',
+    coveredBy: ['scripts/test-fast-pr.sh', '.github/workflows/docs.yml'],
+  },
+  'scripts/git-hooks': {
+    why: 'the repository git hooks; the always-on beads-pr-boundary job runs their self-test before enforcing the boundary',
+    coveredBy: ['scripts/git-hooks/test-pre-commit.sh'],
+  },
+  skills: SKILLS_ALWAYS_ON,
+  'skills/re-frame-migration': SKILLS_ALWAYS_ON,
+  'skills/re-frame2-implementor': SKILLS_ALWAYS_ON,
+  'skills/re-frame2-improver': SKILLS_ALWAYS_ON,
+  'skills/re-frame2-pair-retro': SKILLS_ALWAYS_ON,
+  'skills/re-frame2-ui': SKILLS_ALWAYS_ON,
+  'skills/re-frame2-xray': SKILLS_ALWAYS_ON,
+  'skills/reagent-migration': SKILLS_ALWAYS_ON,
+  tools: {
+    why: 'A DECLARED HOLE, not coverage (rf2-i2uoc). tools/deps.edn is the tool-tier build coordinator and tools/shadow-cljs.edn aggregates the pair-mcp builds through it; both arm nothing, and picking the right output needs measurement the meta-check patch deliberately did not guess at. Remove this entry when rf2-i2uoc arms them.',
+    coveredBy: [],
+  },
+};
+
+/**
+ * Partition every tracked file into DISJOINT trees: repo-root files under
+ * `.`, a top-level directory's own files under `<dir>`, and everything deeper
+ * under `<dir>/<subdir>`.
+ *
+ * DISJOINT IS THE POINT. Checking `implementation` AND `implementation/core`
+ * as overlapping sets would let a healthy child vouch for a dark parent — the
+ * `tools` entry above is exactly that case, and it is only visible because
+ * `tools` here means the four files directly under `tools/` and not the seven
+ * well-gated artefacts below them. Two levels is where the repo's own
+ * ownership boundaries sit; a third would start reporting `src` and `test`.
+ */
+function trackedTrees(repoRoot) {
+  const out = execFileSync('git', ['ls-files'], {
+    cwd: repoRoot,
+    encoding: 'utf8',
+    maxBuffer: 64 * 1024 * 1024,
+  });
+  const groups = new Map();
+  for (const file of out.split('\n').filter(Boolean)) {
+    const seg = file.split('/');
+    const key =
+      seg.length === 1 ? '.' : seg.length === 2 ? seg[0] : `${seg[0]}/${seg[1]}`;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(file);
+  }
+  return groups;
+}
+
+/**
+ * Does any file in `files` arm any output? Classified in CHUNKS with an early
+ * exit, which is what keeps this affordable: a healthy tree answers on its
+ * first chunk, and only a genuinely dark one pays for all of them. The
+ * classifier ORs its outputs across the paths it is given, so a chunk's
+ * verdict is exactly "did any of these arm anything".
+ */
+function treeArmsAnything(files) {
+  const CHUNK = 60;
+  for (let i = 0; i < files.length; i += CHUNK) {
+    const result = classify(...files.slice(i, i + CHUNK));
+    if (Object.values(result).some((v) => v === 'true')) return true;
+  }
+  return false;
+}
+
+test('every tracked tree arms an output or is DECLARED (rf2-skvce)', () => {
+  const groups = trackedTrees(REPO_ROOT);
+  assert.ok(
+    groups.size > 50,
+    `precondition: git ls-files must yield the real tree set, got ${groups.size}`,
+  );
+
+  const undeclaredDark = [];
+  const staleDeclarations = [];
+
+  for (const [tree, files] of groups) {
+    const armed = treeArmsAnything(files);
+    const declared = Object.prototype.hasOwnProperty.call(
+      DECLARED_NO_SURFACE_OUTPUT,
+      tree,
+    );
+    if (!armed && !declared) undeclaredDark.push(`${tree} (${files.length} files)`);
+    if (armed && declared) staleDeclarations.push(tree);
+  }
+
+  assert.deepEqual(
+    undeclaredDark,
+    [],
+    'these tracked trees arm NO classifier output and are not declared. A ' +
+      'tree that arms nothing is gated by nothing at PR time. Either add an ' +
+      'arm in .github/scripts/report-changed-surfaces.sh (and pin it above), ' +
+      'or add an entry to DECLARED_NO_SURFACE_OUTPUT saying where the ' +
+      "tree's coverage really lives:\n  " +
+      undeclaredDark.join('\n  '),
+  );
+
+  // THE LIST IS A RATCHET, NOT A DUMPING GROUND. Without this half a
+  // declaration outlives the hole it declared, and the next reader trusts a
+  // note saying a tree is ungated when it has been gated for months — the
+  // rot _rigorous-local-inventory.test.cjs measured at six weeks. Arming a
+  // declared tree is meant to cost exactly one deletion here.
+  assert.deepEqual(
+    staleDeclarations,
+    [],
+    'these trees are declared as arming no output, but they now arm one. ' +
+      'Delete their DECLARED_NO_SURFACE_OUTPUT entries:\n  ' +
+      staleDeclarations.join('\n  '),
+  );
+});
+
+test('every DECLARED tree still exists, and its named coverage does (rf2-skvce)', () => {
+  const groups = trackedTrees(REPO_ROOT);
+  const problems = [];
+  for (const [tree, { why, coveredBy }] of Object.entries(
+    DECLARED_NO_SURFACE_OUTPUT,
+  )) {
+    if (!groups.has(tree)) {
+      problems.push(`${tree}: declared but no longer a tracked tree`);
+    }
+    if (!why || why.length < 20) {
+      problems.push(`${tree}: needs a real reason, not a placeholder`);
+    }
+    for (const p of coveredBy) {
+      if (!fs.existsSync(path.join(REPO_ROOT, p))) {
+        problems.push(
+          `${tree}: names ${p} as its coverage, and that path does not exist`,
+        );
+      }
+    }
+  }
+  assert.deepEqual(problems, [], problems.join('\n  '));
 });
 
 let failed = 0;
