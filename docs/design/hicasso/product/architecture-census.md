@@ -7,7 +7,7 @@ The [decision brief](decision-brief.md#part-iii--the-plan) states four kill rule
 | Census | The claim | Result |
 |---|---|---|
 | [1. Mechanism](#1-the-mechanism-census) | No ViewCell-class dependency graph, no second emitter, no compiled-hiccup mode, no per-boundary callback-cell table | **Held.** Four recognisers, zero hits |
-| [2. Retained tooling](#2-the-retained-tooling-census) | Every retained tool or diagnostic surface names its real daily consumer | **Held, with one obligation filed.** 35 rows — 25 mechanically derived, 10 by hand; every row names a consumer, and one names a condition that has since fired |
+| [2. Retained tooling](#2-the-retained-tooling-census) | Every retained tool or diagnostic surface names its real daily consumer | **Held, with one obligation filed.** 36 rows — 26 mechanically derived, 10 by hand; every row names a consumer, one names a condition that has since fired, and one names a lane that does not run it yet |
 | [3. Mutable globals](#3-the-post-kernel-mutable-global-re-sweep) | Later work introduced no unjustified global | **Held, and the page that records it is short.** 14 commits and 1,200 inserted lines of runtime since the roster was taken added **zero** owners; the roster's own derivation is missing an arm and its second table is missing a row |
 
 Two corrections are filed against [`globals.md`](globals.md) and one against [`prototype-suite-triage.md`](prototype-suite-triage.md); they are in [the ledger](correction-ledger.md#the-ledger) and listed [below](#what-was-filed).
@@ -108,7 +108,7 @@ Three facts finish it, each checkable at source.
 
 > Tools without daily consumers build no retained machinery. — [`decision-brief.md`](decision-brief.md#part-iii--the-plan)
 
-**The population is mechanical for 25 rows and a judgement for 10.** The mechanical part is what the gate enforces: every checker under `implementation/hicasso/scripts/`, every npm script whose name contains `hicasso`, and every tool or diagnostic namespace in `implementation/hicasso/src`. The ten hand-added rows are the surfaces no naming rule reaches — the spikes, the testbeds, the kit, the lint export — and the judgement is which of them counts as retained machinery at all.
+**The population is mechanical for 26 rows and a judgement for 10.** The mechanical part is what the gate enforces: every checker under `implementation/hicasso/scripts/`, every npm script whose name contains `hicasso`, and every tool or diagnostic namespace in `implementation/hicasso/src`. The ten hand-added rows are the surfaces no naming rule reaches — the spikes, the testbeds, the kit, the lint export — and the judgement is which of them counts as retained machinery at all.
 
 **"Real daily consumer" is read strictly.** A CI job that runs on every PR is one. A shipped tool panel is one. A suite in a standing lane is one. An operator command that a human runs when a decision needs re-reading is **named as what it is** rather than dressed up, and two rows below say so.
 
@@ -124,6 +124,7 @@ Three facts finish it, each checkable at source.
 | `implementation/hicasso/scripts/check_freeze.py` | the frozen sources match `frozen-sources.edn` | `test:hicasso-invariants` + `implementation/hicasso/deps.edn` | KEEP |
 | `implementation/hicasso/scripts/check_guide_samples.py` | every guide code block hashes to its source | `test:hicasso-invariants`, every PR | KEEP |
 | `implementation/hicasso/scripts/check_lint_export.py` | the clj-kondo export's fixtures still fire | `test:hicasso-lint`, required `lint.yml` `clj-kondo` job | KEEP |
+| `implementation/hicasso/scripts/check_naming_census.py` | every public name in the package has a naming-ledger row — 105 names across ten shipped namespaces, read as code rather than grepped, and reaching the nine doors `check_facade_inventory.py` deliberately does not | **not wired into a lane, and named as what it is** rather than dressed up: its consumer today is [`naming-packet.md`](naming-packet.md), whose §7 census it converts from a one-shot measurement into a standing one. `rf2-st1x5` owns arming it; until that lands, what stands behind the row is its own `--self-test` — 10 checks including a seeded public export seen to redden and then go green once rostered | KEEP |
 | `implementation/hicasso/scripts/check_optional_module_reachability.py` | an absent optional module is zero reachable code | `test:hicasso-invariants`, every PR | KEEP |
 | `implementation/hicasso/scripts/check_production_erasure.cjs` | dev-only machinery folds away under `:advanced` | `build:hicasso-release`, `test.yml`'s `cljs` job | KEEP |
 | `implementation/hicasso/scripts/check_source_coord_elision.cjs` | source coordinates leave the production bundle | `test:browser-prod-elision`, `test.yml` + `expensive-tests.yml` | KEEP |
@@ -152,9 +153,9 @@ Three facts finish it, each checkable at source.
 | `genspike_cljs_test.cljs` (**stopped**) | the schema-driven generative spike | its own DO-NOT-GRADUATE verdict; its docstring states the case — *"a negative verdict is worth only as much as its reproduction"* | KEEP as evidence |
 | `mcp_runtime_query_spike_cljs_test.cljs` (**part-graduated**) | the MCP runtime-query spike | [`mcp-runtime-query-spike.md`](mcp-runtime-query-spike.md); three of its doors ship as wire tools today | KEEP |
 
-**Thirty-five rows, no removals.** That is the honest result and not a comfortable one to report, because a census whose every row passes invites the suspicion that the bar moved. Two things carried it: the npm-script half of the population is **already** gated — `scripts/check_gate_scheduling.py` asks every `test:`/`bench:`/`build:` command where it runs and currently reports *51 gate commands, 43 scheduled, 8 declared, 0 of them known holes* — and the four stopped spikes are retained under an explicit rule, that a negative verdict without its reproduction is unfalsifiable.
+**Thirty-six rows, no removals.** That is the honest result and not a comfortable one to report, because a census whose every row passes invites the suspicion that the bar moved. Two things carried it: the npm-script half of the population is **already** gated — `scripts/check_gate_scheduling.py` asks every `test:`/`bench:`/`build:` command where it runs and currently reports *51 gate commands, 43 scheduled, 8 declared, 0 of them known holes* — and the four stopped spikes are retained under an explicit rule, that a negative verdict without its reproduction is unfalsifiable.
 
-The two rows that reach furthest are the ones this census would have removed if the bar were "runs in CI": `witness:hicasso-native-ime` and `ssr:hicasso-serve` are operator commands. Both are kept, and the cells say why rather than claiming a job that does not exist.
+The rows that reach furthest are the ones this census would have removed if the bar were "runs in CI": `witness:hicasso-native-ime` and `ssr:hicasso-serve` are operator commands, and `check_naming_census.py` is a checker that no lane runs yet. All three are kept, and the cells say why rather than claiming a job that does not exist — which is the whole discipline of the Consumer column, and the reason the newest of the three names `rf2-st1x5` as the bead that will change its answer rather than writing the answer it expects to have.
 
 ### The one row whose condition has fired
 
