@@ -214,31 +214,23 @@ DECLARED = {
 # owned, and printed on every run so that a green summary cannot be read as a
 # complete inventory.  A hold retires itself -- the moment its name acquires a
 # row the entry fails as redundant.
-HELD = {
-    "hframe": {
-        "bead": "rf2-lvelh",
-        # Found by this gate on its first live run (rf2-gz4bq).  `hframe` is
-        # the ambient frame-id read, and `grep -c hframe dispositions.md` is
-        # 0 -- no row in 2.1, none in 2.2, and nothing in either section
-        # describes reading the ambient frame id.  Section 2.1's three
-        # mentions of a *frame provider* are HS-11, HS-14 and HS-21's
-        # canonical-matrix class, which is the root's PROVIDER element; this
-        # var is the read of that context and is a different surface.
-        #
-        # WHY IT ESCAPED IS THIS BEAD'S OWN THESIS, one turn sharper than the
-        # three rows that prompted it.  `specification.md` section 4 does not
-        # merely fail to name it -- it says *"Existing `rf/current-frame-id`
-        # and `rf/capture-frame` remain the frame doors; Hicasso should not
-        # duplicate them"*.  A Source column shaped like a spec section could
-        # never reach a name the specification declines to have.  Whether the
-        # repair is a row or a removal is a membership question, and
-        # `naming-ledger.md` plus `rf2-hic-065`'s sitting own it.
-        "why": "no row in 2.1 or 2.2; specification.md section 4 says the "
-               "frame doors stay `rf/current-frame-id` and `rf/capture-frame` "
-               "and that Hicasso should not duplicate them, so a "
-               "spec-shaped Source column cannot reach this name",
-    },
-}
+#
+# EMPTY TODAY, and it emptied exactly the way it was built to (rf2-lvelh).
+# `hframe` was this table's one and only entry, held from this gate's FIRST
+# live run: the ambient frame-id read reached the door with no row in either
+# section, and the reason is the thesis rf2-gz4bq built this gate on --
+# `specification.md` section 4 says the frame doors stay `rf/current-frame-id`
+# and `rf/capture-frame` and that Hicasso should not duplicate them, so a
+# Source column shaped like a spec section could never reach a name the
+# specification declines to have.  `dispositions.md` section 2.2 now carries it
+# as HS-43, this gate duly FAILED the entry as stale, and the entry was deleted
+# in the same commit that minted the row.  Membership is untouched by either:
+# `naming-ledger.md` row 18's **retire** recommendation is still live and
+# rf2-hic-065's sitting still settles it, exactly as HS-42 records for
+# `h/reg-state`.  The table is empty because the gap it recorded is CLOSED, not
+# because anything is exempt -- keep it, and the rules that check it in both
+# directions, for the next name that escapes.
+HELD = {}
 
 
 # ---------------------------------------------------------------------------
