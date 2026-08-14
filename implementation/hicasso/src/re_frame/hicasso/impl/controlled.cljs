@@ -552,10 +552,33 @@
   becomes `\"0\"` and throws like any other non-empty string. `identical?`
   is the right test for exactly that reason — it is React's own `===`
   against the element's empty answer, not a value comparison that would
-  read `0` as empty."
+  read `0` as empty.
+
+  **The TYPE, unlike the value, is folded before it is compared
+  (rf2-h6qm7).** This predicate runs against the props object, which is
+  the author's spelling — `:type \"FILE\"`, or the keyword `:file`
+  spelled `:FILE`, both of which
+  [[re-frame.hicasso.impl.codec/convert-prop-value]] hands on unchanged.
+  The PLATFORM does not read it that way: an HTML `type` attribute is an
+  enumerated attribute matched ASCII case-insensitively, so
+  `<input type=\"FILE\">` is a file input, `.type` answers `\"file\"`,
+  and `element.value = \"budget.csv\"` throws exactly the
+  `InvalidStateError` this refusal exists to replace. An exact compare
+  here refused the one spelling in sixteen that authors happen to write
+  and let the other fifteen through to the engine — worse than no
+  refusal, because the hole is invisible.
+
+  So the fold is at the COMPARISON and nowhere else. Normalising
+  `js-props` would be the other way to close it and is the wrong one:
+  this object is what React consumes and what reaches the DOM, and the
+  attribute that ships must stay the attribute the author wrote. The
+  `string?` guard is what makes the fold total — `:type 0` survives
+  [[re-frame.hicasso.impl.codec/convert-prop-value]] as a number, which
+  has no `toLowerCase`."
   [tag js-props]
   (and (identical? "input" tag)
-       (identical? "file" (unchecked-get js-props "type"))
+       (let [t (unchecked-get js-props "type")]
+         (and (string? t) (identical? "file" (.toLowerCase t))))
        (not (identical? "" (unchecked-get js-props "value")))))
 
 (defn- convergeable?
@@ -755,14 +778,18 @@
   `:rf.error/hicasso-file-input-value-prop`. It is placed there and not
   earlier so that a page with no controlled inputs pays nothing for it:
   everything that is not an `input`/`textarea` carrying a `:value` has
-  already gone out the other arm, and what remains pays one string
-  compare and one property read. Unlike the revision refusal above, this
-  one stands in front of an exception rather than a silence — React's
-  controlled mirror would reach `element.value = …` and the platform
-  would throw `InvalidStateError` from inside the commit, attributing
-  nothing. See [[file-input-value?]] for why the predicate is non-EMPTY
-  rather than non-nil, and `re-frame.hicasso.impl.intent/target-value`
-  for the same control's other half."
+  already gone out the other arm, and what remains pays one property
+  read and one ASCII case fold, which an engine answers by handing back
+  an already-lowercase string unchanged. Unlike the revision refusal
+  above, this one stands in front of an exception rather than a
+  silence — React's controlled mirror would reach `element.value = …`
+  and the platform would throw `InvalidStateError` from inside the
+  commit, attributing nothing. See [[file-input-value?]] for why the
+  predicate is non-EMPTY rather than non-nil and why the TYPE is folded
+  where the value is not, and `re-frame.hicasso.impl.intent/target-value`
+  for the same control's other half — which needs no fold of its own,
+  because it reads the LIVE element and the platform has already
+  normalised the type by the time it looks."
   [tag js-props]
   (when-not (undefined? (unchecked-get js-props revision-slot))
     (js-delete js-props revision-slot)
