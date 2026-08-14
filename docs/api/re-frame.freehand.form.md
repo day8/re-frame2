@@ -4,8 +4,7 @@
 
     Freehand ships inside the re-frame2 monorepo and is **not published to
     Clojars**, and there is no date at which it will be. You resolve it with
-    `:local/root` from a checkout — see
-    [Install](../core/freehand/get-running/install.md). The public surface is deliberately
+    `:local/root` from a checkout. The public surface is deliberately
     still open: verbs can change while we learn from real apps.
 
 `re-frame.freehand.form` is **pure form transitions over ordinary application

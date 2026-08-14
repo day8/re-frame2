@@ -22,9 +22,8 @@ code an app already carries. The four **Freehand** pages —
 [`re-frame.freehand.controls`](re-frame.freehand.controls.md) and
 [`re-frame.freehand.test`](re-frame.freehand.test.md) — are unpublished for the other
 reason: `day8/re-frame2-freehand` is **pre-alpha**, ships inside the monorepo, and
-has no date at which it will be published either. Freehand is not donor code — it is
-where new view work starts — and you resolve it with `:local/root` from a checkout
-([Install](../core/freehand/get-running/install.md)). The kit's two further control pages —
+has no date at which it will be published either. Freehand is not donor code, and you
+resolve it with `:local/root` from a checkout. The kit's two further control pages —
 [`re-frame.freehand.splitter`](re-frame.freehand.splitter.md) and
 [`re-frame.freehand.collection`](re-frame.freehand.collection.md) — carry the same banner
 for the same reason. Every other page on this list describes an artefact the release

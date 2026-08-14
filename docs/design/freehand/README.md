@@ -14,7 +14,7 @@ built by absorbing the useful `re-frame.ui` machinery.
 | [`studio/fitness-harness.md`](studio/fitness-harness.md) | evidence and acceptance pressure from applications, re-com, and hard browser cases |
 | [`studio/er-01-architecture-comparison.md`](studio/er-01-architecture-comparison.md) | the ER-01 evidence spike: interpreted, compiled Hiccup and `v/$` measured over one virtual-table fixture, with the keep/change recommendation |
 | [`decisions/`](decisions/README.md) | D001–D022, each with its explicit ratified ruling and rationale |
-| the draft guide | PROMOTED and gone from this tree. It was the operator's working draft, and it became the shipped guide at [`docs/core/freehand/`](../../core/freehand/index.md) (rf2-fby7o), refined there against what actually landed. Its history is in git; keeping a second, staler copy beside the real one would only invite readers to the wrong page. |
+| the draft guide | PROMOTED and gone from this tree. It was the operator's working draft, and it became the shipped guide at `docs/core/freehand/` (rf2-fby7o), refined there against what actually landed. Its history is in git; keeping a second, staler copy beside the real one would only invite readers to the wrong page. |
 
 ## Authority
 

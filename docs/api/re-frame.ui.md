@@ -4,7 +4,7 @@
 
     `day8/re-frame2-ui` is **not** a Maven coordinate and never will be. The
     compiled-view substrate is donor-only code being absorbed into
-    [Freehand](../core/freehand/index.md); the standalone artefact is deleted at
+    Freehand; the standalone artefact is deleted at
     the EP-0036 F6e gate. The [release process](../release-process.md#policy) is
     normative on that, and the artefact is absent from the release workflow's
     deploy matrix. **There is nothing here you can put in a `deps.edn`.**
@@ -12,8 +12,8 @@
     This page is retained as the contract record for view code an app *already*
     carries on the substrate — the audience of the
     [`re-frame2-ui` skill](../skills/re-frame2-ui.md). New view work starts at
-    [Freehand](../core/freehand/index.md) and its
-    [install page](../core/freehand/get-running/install.md).
+    [Hicasso](../core/hicasso/index.md) and its
+    [installation chapter](../core/hicasso/00-installation.md).
 
 `re-frame.ui` is the **compiled-view substrate** donated to the Freehand programme.
 Views are authored as `defview` + hiccup; the compiler lowers templates to direct
@@ -33,7 +33,7 @@ explicitly and installs its adapter at boot:
 Concept teaching for the substrate lives in the
 [`re-frame2-ui` skill](../skills/re-frame2-ui.md) and the substrate design suite;
 the donor guide chapters were replaced by the
-[Freehand guide](../core/freehand/index.md). This page is the contract surface for
+[Hicasso guide](../core/hicasso/index.md). This page is the contract surface for
 public symbols.
 
 **Stage honesty.** Front-porch symbols below are the ruled public API. Some

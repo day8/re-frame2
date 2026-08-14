@@ -9,10 +9,10 @@ run from `implementation/` with a monorepo build-id — this scaffold is a
 `shadow-cljs.edn`, and it is deliberately *not* on the monorepo classpath.
 That is the whole point: it is the tree you would have created yourself.
 
-The prose companion is
-[Install and boot](../../../docs/core/freehand/get-running/install.md); this directory is
-the same four moves — depend, install an adapter, mount, tear down — as a tree
-that builds.
+This directory is four moves — depend, install an adapter, mount, tear down —
+as a tree that builds. Its prose companion was the Freehand guide's install
+page, deleted with that guide under rf2-7cuns; the current equivalent is the
+Hicasso guide's installation chapter, `docs/core/hicasso/00-installation.md`.
 
 ## The complete file manifest
 

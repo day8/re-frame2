@@ -4,7 +4,7 @@
 
     `day8/re-frame2-ui` is **not** a Maven coordinate and never will be. The
     compiled-view substrate is donor-only code being absorbed into
-    [Freehand](../core/freehand/index.md); the standalone artefact is deleted at
+    Freehand; the standalone artefact is deleted at
     the EP-0036 F6e gate. The [release process](../release-process.md#policy) is
     normative on that, and the artefact is absent from the release workflow's
     deploy matrix. **There is nothing here you can put in a `deps.edn`.**
@@ -12,8 +12,8 @@
     This page is retained as the contract record for view code an app *already*
     carries on the substrate — the audience of the
     [`re-frame2-ui` skill](../skills/re-frame2-ui.md). New view work starts at
-    [Freehand](../core/freehand/index.md); its host-interop story is
-    [Freehand host boundaries](../core/freehand/host/host-boundaries.md).
+    [Hicasso](../core/hicasso/index.md); its host-interop story is
+    [Hicasso interop](../core/hicasso/09-interop.md).
 
 `re-frame.ui.react` is the **frozen React-interop tier** of the compiled-view
 substrate — a deliberately tiny, closed set of
@@ -64,10 +64,8 @@ deps ⇒ connect-only. Effects do not run on the JVM (capability metadata only).
 `(react/use-layout-effect setup)` / `(… setup deps)` → nil (`useLayoutEffect`, after DOM
 mutation, **before paint**) for measure-then-mutate work that would flicker under passive
 timing — this tier's measure-before-paint door. Same setup/cleanup/`rf=`-value-deps
-contract as `use-effect`. The guide
-[recipe](../core/how-to/measure-before-paint.md) for that job is written against
-Freehand's `:layout`-timing behavior; this hook is the donor spelling of the same
-before-paint slot.
+contract as `use-effect`. This hook is the donor spelling of the before-paint
+slot.
 
 ### `use-effect-event`
 
@@ -110,7 +108,5 @@ declared fallback (else nothing) and never invokes the thunk.
 
 ## See also
 
-- [Measure before paint](../core/how-to/measure-before-paint.md) — the
-  component-library geometry recipe, on Freehand's `:layout`-timing behavior.
 - [`re-frame.ui`](re-frame.ui.md) — the compiled-view surface these wrappers live inside.
 - Spec 004 §The React interop tier — the full normative contract.
