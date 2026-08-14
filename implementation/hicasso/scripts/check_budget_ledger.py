@@ -96,18 +96,31 @@ THE RULES
                      §2 and §7 mechanised, and it is what stops the 5%
                      heap comparison being wired to a hosted runner by a
                      later worker acting in good faith.
-                     AND THE LANE IS VERIFIED, NOT BELIEVED (`rf2-mwr2`).
-                     For a `*_dom_cljs_test` witness the browser lane is
-                     decided by one selector, so the claim is checked
-                     against `implementation/shadow-cljs.edn`: the
-                     PR-blocking `:browser-test` build must select the
-                     witness's namespace. A row whose witness lands only
-                     in `:browser-test-freehand-bench` — the lane
+                     AND THE LANE IS VERIFIED, NOT BELIEVED (`rf2-mwr2`,
+                     widened past the DOM by `rf2-xcaph`). EVERY `PR gate`
+                     witness must be SELECTED BY A TEST BUILD THAT BLOCKS A
+                     MERGE, checked against the `:ns-regexp`s read out of
+                     `implementation/shadow-cljs.edn`. Each witness class
+                     has exactly one such build and is checked against
+                     that one: a `*_dom_cljs_test` witness against
+                     `:browser-test` (run by test.yml's `cljs-browser`
+                     job), every other against `:node-test` (run by its
+                     `cljs` job) — both jobs sit in `all-required-passed`'s
+                     `needs:` list. A row whose DOM witness lands only in
+                     `:browser-test-freehand-bench` — the lane
                      freehand-bench.yml drives on cron and
                      workflow_dispatch, which gates nothing — is a row
-                     asserting a lane it does not run in, and reds.
-                     Reading a lane claim and never testing it is the
-                     same fail-open shape as L7's, one level up.
+                     asserting a lane it does not run in, and reds; so is
+                     a row naming a file no build compiles at all, which
+                     is what `rf2-9vbl1` found D9 and U6 doing and the
+                     DOM-only rule could not see. Reading a lane claim and
+                     never testing it is the same fail-open shape as L7's,
+                     one level up.
+                     The mapping is PER CLASS rather than "any build that
+                     selects it" because `:node-test`'s `cljs-test$` also
+                     matches the DOM namespaces, whose assertions are a
+                     stated skip there — reading it as satisfaction would
+                     weaken the browser arm to close the node one.
   L7  A SCALING CLAIM IS DECIDED ON TWO COUNTERS.
                      A registered line saying work *scales with changed rows*
                      must name a companion ledger row carrying a second,
@@ -310,10 +323,10 @@ _RE_TAGS = re.compile(r"</?[^>]*>")
 _RE_INVALID_SLUG_CHAR = re.compile(r"[^\w\- ]", re.UNICODE)
 
 
-# L6.  The build config the browser DOM lanes are declared in, read ONLY.
-# This gate never writes it: `implementation/shadow-cljs.edn` is a hot-zone
-# file with one toucher, and the point here is to READ the lane assignment a
-# row asserts rather than to change it.
+# L6.  The build config the test lanes are declared in, read ONLY.  This gate
+# never writes it: `implementation/shadow-cljs.edn` is a hot-zone file with one
+# toucher, and the point here is to READ the lane assignment a row asserts
+# rather than to change it.
 SHADOW_CLJS = os.path.join(REPO_ROOT, "implementation", "shadow-cljs.edn")
 
 # L6.  The two browser DOM lanes, by build id.  The first blocks a pull
@@ -323,6 +336,25 @@ SHADOW_CLJS = os.path.join(REPO_ROOT, "implementation", "shadow-cljs.edn")
 # lands only in the second is a row asserting a lane it does not run in.
 PR_BLOCKING_DOM_BUILD = ":browser-test"
 SCHEDULED_DOM_BUILD = ":browser-test-freehand-bench"
+
+# L6.  The PR-blocking lane for every OTHER witness (`rf2-xcaph`).  `:node-test`
+# is run by test.yml's `cljs` job — *CLJS (shadow-cljs :node-test)*, which does
+# `npx shadow-cljs compile node-test && node out/node-test.js` — and that job
+# sits in `all-required-passed`'s `needs:` list one line above `cljs-browser`,
+# so the two lanes block a merge on exactly the same footing.  Both are armed
+# per-surface by `detect_changed_surfaces` (`cljs_node_test` / `cljs_browser`)
+# and the aggregator treats a surface-skip as OK; that too is common to both,
+# and it is the standard `rf2-mwr2` verified for the browser lane.
+#
+# WHY THE MAPPING IS PER CLASS AND NOT "any build that selects it".
+# `:node-test`'s `cljs-test$` also matches every `*-dom-cljs-test` namespace, so
+# a rule reading *some* build would let a DOM witness reachable only through the
+# scheduled bench lane pass on the node build's selector — and those namespaces
+# are a STATED SKIP under `:node-test`, their assertions gating on a real DOM
+# (budgets.md sec. 9.1).  That would weaken the browser arm this rule already
+# holds.  Each witness class therefore has exactly one PR-blocking build that
+# owns it, and the row's claim is checked against that one.
+PR_BLOCKING_NODE_BUILD = ":node-test"
 
 _DOM_WITNESS_RE = re.compile(r"_dom_cljs_test\.cljs$")
 _NS_ROOT_RE = re.compile(r"(?:^|/)(re_frame/.*)\.clj[sc]?$")
@@ -347,20 +379,29 @@ def _edn_unescape(literal):
     return "".join(out)
 
 
-def read_dom_lane_selectors(path=SHADOW_CLJS):
-    """`{build-id: compiled ns-regexp}` for the two browser DOM lanes.
+def read_lane_selectors(path=SHADOW_CLJS):
+    """`{build-id: compiled ns-regexp}` for the three lanes L6 adjudicates on.
 
     Raises rather than returning a partial map.  A gate that cannot read the
     lane assignment must REFUSE, not report green: silently skipping the
     check when the config moves would reintroduce, in this rule's own
-    machinery, exactly the fail-open the rule exists to close.
+    machinery, exactly the fail-open the rule exists to close.  That applies
+    to the node build no less than the two browser ones — a rule that fell
+    back to "unverified" for the seven non-DOM witnesses would be the rule
+    `rf2-xcaph` widened it out of.
     """
     with open(path, encoding="utf-8") as handle:
         text = handle.read()
     selectors = {}
-    for build in (PR_BLOCKING_DOM_BUILD, SCHEDULED_DOM_BUILD):
+    for build in (PR_BLOCKING_DOM_BUILD, SCHEDULED_DOM_BUILD,
+                  PR_BLOCKING_NODE_BUILD):
+        # The build id sits alone on its line, optionally behind the `{` that
+        # opens the `:builds` map — `:node-test` is that map's FIRST entry and
+        # so is written `{:node-test`.  Anchoring on the whole line is what
+        # keeps `:target :node-test` and `:node-test-perf-nightly` from being
+        # mistaken for the build's own key.
         match = re.search(
-            r"^\s*%s\s*$\s*\{.*?:ns-regexp\s+\"((?:[^\"\\\\]|\\\\.)*)\""
+            r"^\s*\{?\s*%s\s*$\s*\{.*?:ns-regexp\s+\"((?:[^\"\\\\]|\\\\.)*)\""
             % re.escape(build), text, re.S | re.M)
         if not match:
             raise ValueError(
@@ -409,6 +450,20 @@ def _cells(line):
 def _bare(cell):
     """`cell` with markdown backticks stripped, for a cell holding one token."""
     return cell.replace("`", "").strip()
+
+
+def instrument_parts(cell):
+    """`(witness, lane)` from an instrument cell, or `(None, None)`.
+
+    The cell names *what took the reading* and then, in parentheses at the
+    end, the lane it ran in.  Split once, here, so L6 and its self-test read
+    the cell the same way: a self-test that re-derives the split is one that
+    can go on agreeing with a rule it has stopped describing.
+    """
+    match = _LANE_RE.search(cell)
+    if not match:
+        return None, None
+    return _bare(cell[:match.start()]), match.group(1).strip()
 
 
 def read_ledger(path):
@@ -526,13 +581,14 @@ def check(rows, registered, sections, existing_files, selectors=None):
     `sections` maps a `file.md#anchor` target to the section body it names,
     or to None when it names nothing.  `existing_files` is the set of
     repo-relative paths, among those the ledger cites, that exist.
-    `selectors` maps the two browser DOM build ids to their compiled
-    `:ns-regexp`, read from `implementation/shadow-cljs.edn` when not given.
+    `selectors` maps the two browser DOM build ids and the node build id to
+    their compiled `:ns-regexp`, read from `implementation/shadow-cljs.edn`
+    when not given.
     """
     failures = []
     by_id = {}
     if selectors is None:
-        selectors = read_dom_lane_selectors()
+        selectors = read_lane_selectors()
 
     for row in rows:
         rid = row["id"]
@@ -648,20 +704,18 @@ def check(rows, registered, sections, existing_files, selectors=None):
                 break
 
         # --- L6: the lane is legal --------------------------------------
-        lane_match = _LANE_RE.search(row["instrument"])
-        if not lane_match:
+        witness, lane = instrument_parts(row["instrument"])
+        if lane is None:
             failures.append(
                 "L6 %s names no lane. The instrument cell ends in one of (%s)"
                 % (rid, "), (".join(LANES)))
             continue
-        lane = lane_match.group(1).strip()
         if lane not in LANES:
             failures.append(
                 "L6 %s runs in lane %r, which is not one of %s"
                 % (rid, lane, ", ".join(LANES)))
             continue
         deterministic = rid in DETERMINISTIC_IDS
-        witness = _bare(row["instrument"][:lane_match.start()])
         if deterministic:
             if lane != "PR gate":
                 failures.append(
@@ -672,7 +726,7 @@ def check(rows, registered, sections, existing_files, selectors=None):
                 failures.append(
                     "L6 %s names the witness %s, which does not exist"
                     % (rid, witness))
-            elif _DOM_WITNESS_RE.search(witness):
+            else:
                 # The `PR gate` cell is a CLAIM, and until this check it was
                 # never tested: L6 read that the lane was spelled legally and
                 # that the file was on disk, and took the lane itself on
@@ -681,29 +735,45 @@ def check(rows, registered, sections, existing_files, selectors=None):
                 # gated nothing — and the reasoning was sound even though the
                 # conclusion was wrong on the facts.  A row asserting a lane
                 # nothing verifies is the same shape of fail-open as an
-                # estimand blind to its own failure, one level up.  For a
-                # `*_dom_cljs_test` witness the assignment is exact and
-                # mechanical, so it is checked rather than believed.
+                # estimand blind to its own failure, one level up.
+                #
+                # `rf2-mwr2` checked the DOM witnesses, where the mapping is
+                # exact; `rf2-xcaph` extends the same treatment to the rest,
+                # because a rule that verified seven witnesses out of eight
+                # left the loophole open at its own edge.  `rf2-9vbl1` is the
+                # proof it was not hypothetical: D9 and U6 named the test-kit
+                # FACADE, a library file with no tests that no build selects,
+                # and the DOM-only rule returned green on it.
                 namespace = witness_namespace(witness)
                 if namespace is None:
                     failures.append(
-                        "L6 %s names the DOM witness %s, whose namespace "
-                        "cannot be derived: no `re_frame/` source root in the "
-                        "path, so its lane cannot be verified" % (rid, witness))
-                elif not selectors[PR_BLOCKING_DOM_BUILD].search(namespace):
-                    scheduled = selectors[SCHEDULED_DOM_BUILD].search(namespace)
+                        "L6 %s names the witness %s, whose namespace cannot be "
+                        "derived: no `re_frame/` source root in the path, so no "
+                        "build's selector can be applied and its lane cannot be "
+                        "verified" % (rid, witness))
+                elif _DOM_WITNESS_RE.search(witness):
+                    if not selectors[PR_BLOCKING_DOM_BUILD].search(namespace):
+                        scheduled = selectors[SCHEDULED_DOM_BUILD].search(namespace)
+                        failures.append(
+                            "L6 %s claims the `PR gate` lane, but %s selects "
+                            "nothing for its witness %s (namespace %s). %s A "
+                            "deterministic row must run in a lane that blocks a "
+                            "merge, and this one runs in %s"
+                            % (rid, PR_BLOCKING_DOM_BUILD, witness, namespace,
+                               "It is selected by %s, which freehand-bench.yml "
+                               "drives on schedule and workflow_dispatch only."
+                               % SCHEDULED_DOM_BUILD if scheduled
+                               else "No browser DOM lane selects it at all.",
+                               "the scheduled bench lane" if scheduled
+                               else "no browser lane"))
+                elif not selectors[PR_BLOCKING_NODE_BUILD].search(namespace):
                     failures.append(
                         "L6 %s claims the `PR gate` lane, but %s selects "
-                        "nothing for its witness %s (namespace %s). %s A "
-                        "deterministic row must run in a lane that blocks a "
-                        "merge, and this one runs in %s"
-                        % (rid, PR_BLOCKING_DOM_BUILD, witness, namespace,
-                           "It is selected by %s, which freehand-bench.yml "
-                           "drives on schedule and workflow_dispatch only."
-                           % SCHEDULED_DOM_BUILD if scheduled
-                           else "No browser DOM lane selects it at all.",
-                           "the scheduled bench lane" if scheduled
-                           else "no browser lane"))
+                        "nothing for its witness %s (namespace %s). A witness "
+                        "no test build compiles is a file on disk, not a gate: "
+                        "the row's reading is taken by nothing a merge waits "
+                        "on" % (rid, PR_BLOCKING_NODE_BUILD, witness,
+                                namespace))
         else:
             if lane == "PR gate":
                 failures.append(
@@ -963,7 +1033,7 @@ def self_test():
     red("L6",
         rows=patched("D26", instrument="`%s` (PR gate)" % bench_witness),
         existing_files=existing | {bench_witness})
-    # ...a DOM witness whose namespace cannot be derived at all, which is the
+    # ...a witness whose namespace cannot be derived at all, which is the
     # way this check would otherwise pass by being unable to run...
     kit_witness = "implementation/hicasso/test_kit/src/mounted_dom_cljs_test.cljs"
     red("L6",
@@ -977,17 +1047,67 @@ def self_test():
     # second counter.
     green()
 
+    # L6 — the same claim for a NON-DOM witness (`rf2-xcaph`).  The controls
+    # below are the ones the DOM arm has, rebuilt on the node lane, because a
+    # rule with no red control is a rule that passes vacuously (`rf2-uyhh`).
+    #
+    # First, the defect verbatim: the test-kit FACADE `rf2-9vbl1` found in D9
+    # and U6 — a real file, on disk, under `re_frame/`, whose namespace
+    # `re-frame.hicasso.test-kit.mounted` no test build selects because it does
+    # not end in `cljs-test`.  This is the case the DOM-only rule returned
+    # green on, and it is why this bead exists rather than being a formality.
+    facade_witness = ("implementation/hicasso/test_kit/src/re_frame/hicasso/"
+                      "test/mounted.cljs")
+    assert os.path.isfile(os.path.join(REPO_ROOT, facade_witness)), \
+        "the L6 node-lane control needs the real test-kit facade"
+    assert not _DOM_WITNESS_RE.search(facade_witness), \
+        "the L6 node-lane control must not be routed to the browser arm"
+    red("L6",
+        rows=patched("I9", instrument="`%s` (PR gate)" % facade_witness),
+        existing_files=existing | {facade_witness})
+    # ...and the same for a witness whose namespace ends in `-nightly-test`,
+    # which `:node-test`'s `cljs-test$` deliberately excludes: a plausible
+    # spelling for a counter, and one nothing on a pull request would run.
+    nightly_witness = ("implementation/hicasso/test/re_frame/hicasso/"
+                       "hook_budget_emit_nightly_test.cljs")
+    red("L6",
+        rows=patched("I9", instrument="`%s` (PR gate)" % nightly_witness),
+        existing_files=existing | {nightly_witness})
+    # ...and the eager direction, which is the half that would go unnoticed.
+    # Three of the eight `PR gate` witnesses are NOT DOM tests, so the arm
+    # above is the one deciding them; a later worker narrowing `:node-test`'s
+    # selector — to a namespace prefix, say — reds HERE rather than silently
+    # unhooking the hook budget and the direct-return and parity counters.
+    # Asserted rather than assumed: if the ledger ever holds no such row, this
+    # arm is being proved on planted rows alone and says nothing about main.
+    node_lane_rows = [
+        row["id"] for row in rows
+        for witness, lane in [instrument_parts(row["instrument"])]
+        if lane == "PR gate" and witness and not _DOM_WITNESS_RE.search(witness)]
+    assert node_lane_rows, \
+        "the L6 node-lane arm decides no ledger row, so nothing on main tests it"
+    green()
+
     # L6 — and the gate REFUSES when it cannot read the lane assignment,
     # rather than skipping the check.  A missing build id must not degrade to
     # a pass; that would rebuild the fail-open inside the rule that closes it.
+    # Driven from a file declaring no builds at all, so it holds for whichever
+    # of the three ids `read_lane_selectors` looks for first.
     try:
-        read_dom_lane_selectors(os.path.join(REPO_ROOT, "mkdocs.yml"))
+        read_lane_selectors(os.path.join(REPO_ROOT, "mkdocs.yml"))
     except ValueError:
         pass
     else:
         raise AssertionError(
-            "read_dom_lane_selectors accepted a file declaring no browser "
-            "DOM build, so an unreadable lane assignment would pass")
+            "read_lane_selectors accepted a file declaring no test build, "
+            "so an unreadable lane assignment would pass")
+    # ...and it reads ALL THREE ids, so a later worker dropping one from the
+    # loop cannot pass by the other two still being found.  The refusal above
+    # is driven from a file declaring no builds at all and so cannot tell the
+    # difference; this is the half of that control that can.
+    assert set(read_lane_selectors()) == {
+        PR_BLOCKING_DOM_BUILD, SCHEDULED_DOM_BUILD, PR_BLOCKING_NODE_BUILD}, \
+        "read_lane_selectors stopped reading a lane L6 adjudicates on"
 
     # L7 — the fail-open `rf2-mwr2` found, driven from every direction a
     # later edit could reopen it.  The first is the defect as it stood: U5
@@ -1052,10 +1172,10 @@ def main(argv=None):
     print("no band crossing its line is recorded as a pass; no distributional "
           "row is wired to a pull-request gate;")
     print("no row claiming that work SCALES is decided on one counter;")
-    print("and no deterministic row asserts a `PR gate` lane its DOM witness "
-          "does not actually run in.")
+    print("and every `PR gate` witness is selected by a test build that blocks "
+          "a merge -- checked, not believed.")
     print("An Authority cell is read for SHAPE, not for life. This gate reads "
-          "two markdown files plus the browser lane selectors in "
+          "two markdown files plus the test lane selectors in "
           "implementation/shadow-cljs.edn, and has no tracker access, so it "
           "cannot see that a named bead has closed:")
     print("a row can name a bead reference and have no live owner. Whether "

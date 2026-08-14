@@ -945,9 +945,9 @@ S7 and U1–U4 where they were, so a later edit cannot quietly promote a
 bench-tree figure by rewriting a cell. *Instrument* names the thing that took
 the reading and, in parentheses, the lane it runs in — `PR gate`,
 `P-DEV-1 evidence run`, or `none`. A deterministic row must name a witness file
-that exists and runs in the first lane; a distributional row may never name the
-first lane at all. *Authority* is the bead that owns the row's disposition
-today. *Disposition* is a link that must resolve to a section naming the row.
+that exists, runs in the first lane, and is *selected by a test build that
+blocks a merge*; a distributional row may never name the first lane at all.
+*Authority* is the bead that owns the row's disposition today. *Disposition* is a link that must resolve to a section naming the row.
 
 **[Amended 2026-08-14, `rf2-mwr2`.] The lane is now verified rather than
 believed.** Until this amendment the gate read that the lane was *spelled*
@@ -976,6 +976,34 @@ assertions do gate on a real DOM, which is a *stated skip under `:node-test`*
 and not a skip in the lane that gates. Should a later worker tighten the
 exclusion to the whole bench tree, the gate reds here instead of silently
 unhooking `U5`'s second counter.
+
+**[Amended 2026-08-14, `rf2-xcaph`.] The verification now covers every `PR gate`
+witness, not only the DOM ones.** The amendment above checked seven of the
+eight witnesses this ledger names and left the eighth class — the plain
+`*_cljs_test` counters — exactly where it found them: lane spelled legally,
+file on disk, lane itself believed. That remainder was not hypothetical.
+`rf2-9vbl1` found `D9` and `U6` naming
+`hicasso/test_kit/src/re_frame/hicasso/test/mounted.cljs`, the test-kit
+**facade** — a real library file, under a real source root, containing no tests
+and compiled into no test build — and the DOM-only rule returned green on it.
+So the rule is now the general one: **every `PR gate` witness must be selected
+by a build that blocks a merge**, and a witness no build compiles reds as a file
+on disk rather than a gate.
+
+Each witness class has exactly one such build and is checked against that one —
+a `*_dom_cljs_test` witness against `:browser-test`, run by `test.yml`'s
+`cljs-browser` job; every other against `:node-test`, run by its `cljs` job
+(*CLJS (shadow-cljs :node-test)*). Both jobs sit in the required
+`all-required-passed` `needs:` list, one line apart, and both are armed
+per-surface by the changed-surface classifier: the node lane blocks a merge on
+precisely the footing the paragraph above established for the browser one. The
+mapping is deliberately **per class** and not *any build that selects it*,
+because `:node-test`'s `cljs-test$` also matches every `*-dom-cljs-test`
+namespace — whose assertions are the stated skip just described. Reading that
+match as satisfaction would weaken the browser arm in the act of closing the
+node one, letting a scheduled-lane DOM witness back through on the node build's
+selector. All eight witnesses pass on arrival; the widening reds nothing here
+and closes the class the last one could not see.
 
 **[Amended 2026-08-14, `rf2-mwr2`.] A row that claims work SCALES has to name
 two counters, and the gate refuses one.** `U5` was registered on boundary
