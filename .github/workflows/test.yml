@@ -1311,9 +1311,9 @@ jobs:
     # A DOCS-ONLY PR NO LONGER IMPLIES A SKIP (rf2-61ar). The classifier
     # also arms `implementation_jvm` for prose that a test.yml suite
     # pins — nearly all of `spec/*` (57 of the 60 tracked `spec/**.md`,
-    # via a catch-all), the `docs/core/freehand/*.md` and
-    # `docs/machines/*.md` trees, and three named pages
-    # (`docs/api/re-frame.adapter.uix.md`, `docs/api/re-frame.ssr.md`,
+    # via a catch-all), the `docs/machines/*.md` tree, and three named
+    # pages (`docs/api/re-frame.adapter.uix.md`,
+    # `docs/api/re-frame.ssr.md`,
     # `docs/design/hicasso/product/async-routing-recipes.md`).
     #
     # NEARLY all of `spec/*`, not wholesale, and the difference matters
