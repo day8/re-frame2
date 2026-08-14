@@ -38,7 +38,44 @@
   handwritten React component and a UIx subtree are all foreign React
   components to the interpreted tier, and `native.cljc`'s docstring says
   in terms that this is what keeps native-boundary clause 6 true — the
-  door never names the tier."
+  door never names the tier.
+
+  ## One frame, and why a second would measure nothing HERE (rf2-ap7w)
+
+  Row 4 of the conformance matrix asks for both embedding directions
+  ACROSS TWO FRAMES, and every row below runs under the single
+  `::parity-dom`. That is deliberate, and the reason is a property of
+  this file's subject rather than a budget.
+
+  A frame is a property of what a body READS. None of the three routes
+  here reads anything: [[page]] calls `h/sub` once per arm and hands
+  each route the answer as an ordinary `label` prop, because the axes
+  this file exists to settle — painted DOM, refs, cleanup, element
+  identity across a re-render — are all properties of a route's own
+  rendering, and a subscription inside each route would be three more
+  things that could differ for reasons that are not the ones under
+  test. Mount that tree under two frames and what differs between the
+  two pages is the number React carried down a props chain. That is
+  prop plumbing, and the single-frame run above already settles it for
+  all three routes in one commit.
+
+  So the claim is real but it does not live here, and it is NOT simply
+  covered by the outward bridge's `two-frames-are-two-cells-across-the-
+  bridge` either — that row exercises the minted component's own
+  wrapper, which is the other direction and a different read. The
+  inward two-frame claim belongs where an inward route actually
+  subscribes, and that is
+  `native-abi-dom-cljs-test/two-frames-are-two-cells-through-the-inward-
+  door-as-well`: one hosting body under two roots, four islands reading
+  through `n/use-sub` on the far side of the crossing, two keys, two
+  readers each, and a write that moves one page.
+
+  The raw-React route is why the claim cannot be made three-wide at
+  all. A handwritten React component subscribes through no re-frame2
+  hook by construction — that is what makes it the control it is here —
+  so a three-route reading tree would have to hand it one, and the row
+  would then be measuring a component this file went to some trouble to
+  keep foreign."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [clojure.string :as str]
             [re-frame.adapter.uix :as uix-adapter]
