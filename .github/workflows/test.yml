@@ -1003,7 +1003,7 @@ jobs:
   #   docs/design/hicasso/product/complaints.md   the register: live, reserved,
   #                                               pending-retirement, tombstoned
   #   spec/009-Instrumentation.md                 the rows R3 / R4 / R6 read
-  #   docs/design/hicasso/draft-guide/**          the chapters R8 cites
+  #   docs/core/hicasso/**                        the chapters R8 cites
   #
   # It shipped chained into `npm run test:hicasso-invariants`, whose only hosted
   # invocation is a step of the `cljs` job under
