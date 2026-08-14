@@ -191,7 +191,7 @@ into the live table in the same PR.
 | `:rf.error/hicasso-test-native-is-opaque` | a native-tier element reaching the L2 semantic tree | the test kit's opacity family, once its L2 refusal covers native-tier elements as it already covers host and raw-React ones. The native tier landing does **not** promote this row — the emitter is the test kit's to write |
 | `:rf.error/hicasso-contenteditable-not-controllable` | a controlled `:value` binding on a contenteditable region | the controlled-input law |
 | `:rf.error/hicasso-route-link-bad-prefetch` | a route link's `:prefetch` carrying a value the link does not accept | the route-link door, once `:prefetch` is accepted rather than declined. **Not** `:rf.error/hicasso-route-link-prefetch-declined`, which is live today and retires under *Retiring later* below |
-| `:rf.error/hicasso-overlay-anchor-missing` | an overlay declaring an anchor that resolves to no element | the overlay module. **Spelling provisional** — [`naming-ledger.md`](naming-ledger.md) row 30 holds it for the naming packet; this row catalogues whatever that settles on |
+| `:rf.error/hicasso-overlay-anchor-missing` | an overlay declaring an anchor that resolves to no element | the overlay module. **Spelling SETTLED** — the naming packet sat and [`naming-ledger.md`](naming-ledger.md) rows 30 and 40 applied their defaults (rf2-hic-065), keeping this spelling. What still holds the promotion is the act itself: the emitter and the Spec 009 row land with the move to `live`, and Spec 009 is hot zone |
 
 ## Retiring later
 
