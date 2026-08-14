@@ -254,22 +254,15 @@
                              (pr-str (remove :ok (:checks st))))
                         {:checks (:checks st)}))))
 
-    ;; ---- gate 0b: the two codecs are DEMONSTRABLY different ---------------
-    ;; The fourth arm's whole figure is `donor-fh / donor-r1`, and a reading
-    ;; of 1.0 there means nothing unless the two codec doors are known to be
-    ;; different implementations — the parity gate cannot say so, because
-    ;; making the arms agree is its entire purpose (rf2-2rtt6.29). Fatal, and
-    ;; before anything is measured, on the same argument as `parity-can-fail?`.
-    (let [cd (w/codecs-differ?)]
-      (record! :codecs-differ cd)
-      (set! (.-HD8_CODECS_DIFFER js/window) (clj->js cd))
-      (when-not (:ok? cd)
-        (throw (ex-info (str "the two hiccup codecs did not answer differently on a form they "
-                             "are known to treat differently (" (:probe cd) ") — so a "
-                             "donor-fh / donor-r1 ratio could not be told apart from one arm "
-                             "running one codec twice, and nothing may be measured: "
-                             (pr-str cd))
-                        {:codecs-differ cd}))))
+    ;; ---- gate 0b: RETIRED WITH `:donor-fh` (rf2-m4rpa) ---------------------
+    ;; `codecs-differ?` was fatal here, before anything was measured: it kept
+    ;; a `donor-fh / donor-r1` reading of 1.0 from being ambiguous between
+    ;; *the codecs cost the same* and *the arm ran one codec twice*. Retiring
+    ;; the fourth arm left it with no subject — there is ONE codec door now,
+    ;; and a single door cannot be the same code twice. It is NOT re-pointed
+    ;; at a surviving pair; the closing section of
+    ;; [[re-frame.bench.hicasso.hd8-witnesses]] states the absence and gives
+    ;; the argument. `parity-can-fail?` below remains the anti-vacuity gate.
 
     ;; ---- the fairness gate, before any clock ------------------------------
     (let [problems (rows/parity-problems arm-ids)]
