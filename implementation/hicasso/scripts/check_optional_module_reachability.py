@@ -502,6 +502,10 @@ def scan(sources):
     return problems
 
 
+SYMBOL_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_.*+!?<>=$%&/-:"
+SYMBOL_RE = re.compile(r"[A-Za-z][A-Za-z0-9_.*+!?<>=$%&/-]*")
+
+
 def top_level_value(text, key):
     """The form following `key` at the TOP LEVEL of `text`'s outermost map.
 
@@ -531,10 +535,6 @@ def top_level_value(text, key):
                 return source[start:form_end(source, start)]
         i += 1
     return None
-
-
-SYMBOL_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_.*+!?<>=$%&/-:"
-SYMBOL_RE = re.compile(r"[A-Za-z][A-Za-z0-9_.*+!?<>=$%&/-]*")
 
 
 def names_library(namespace, prefixes):
