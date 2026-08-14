@@ -96,6 +96,18 @@ THE RULES
                      §2 and §7 mechanised, and it is what stops the 5%
                      heap comparison being wired to a hosted runner by a
                      later worker acting in good faith.
+                     AND THE LANE IS VERIFIED, NOT BELIEVED (`rf2-mwr2`).
+                     For a `*_dom_cljs_test` witness the browser lane is
+                     decided by one selector, so the claim is checked
+                     against `implementation/shadow-cljs.edn`: the
+                     PR-blocking `:browser-test` build must select the
+                     witness's namespace. A row whose witness lands only
+                     in `:browser-test-freehand-bench` — the lane
+                     freehand-bench.yml drives on cron and
+                     workflow_dispatch, which gates nothing — is a row
+                     asserting a lane it does not run in, and reds.
+                     Reading a lane claim and never testing it is the
+                     same fail-open shape as L7's, one level up.
   L7  A SCALING CLAIM IS DECIDED ON TWO COUNTERS.
                      A registered line saying work *scales with changed rows*
                      must name a companion ledger row carrying a second,
@@ -298,6 +310,79 @@ _RE_TAGS = re.compile(r"</?[^>]*>")
 _RE_INVALID_SLUG_CHAR = re.compile(r"[^\w\- ]", re.UNICODE)
 
 
+# L6.  The build config the browser DOM lanes are declared in, read ONLY.
+# This gate never writes it: `implementation/shadow-cljs.edn` is a hot-zone
+# file with one toucher, and the point here is to READ the lane assignment a
+# row asserts rather than to change it.
+SHADOW_CLJS = os.path.join(REPO_ROOT, "implementation", "shadow-cljs.edn")
+
+# L6.  The two browser DOM lanes, by build id.  The first blocks a pull
+# request (`cljs-browser` in test.yml's `all-required-passed` needs list);
+# the second is the scheduled bench lane freehand-bench.yml drives on cron
+# and workflow_dispatch, and it gates nothing.  A `PR gate` row whose witness
+# lands only in the second is a row asserting a lane it does not run in.
+PR_BLOCKING_DOM_BUILD = ":browser-test"
+SCHEDULED_DOM_BUILD = ":browser-test-freehand-bench"
+
+_DOM_WITNESS_RE = re.compile(r"_dom_cljs_test\.cljs$")
+_NS_ROOT_RE = re.compile(r"(?:^|/)(re_frame/.*)\.clj[sc]?$")
+
+
+def _edn_unescape(literal):
+    """The characters an EDN string literal stands for.
+
+    Only the two escapes a `:ns-regexp` can carry matter here: `\\\\` for a
+    backslash — every `\\.` in these patterns is written `\\\\.` in the EDN —
+    and `\\"` for a quote.
+    """
+    out, i = [], 0
+    while i < len(literal):
+        ch = literal[i]
+        if ch == "\\" and i + 1 < len(literal):
+            out.append(literal[i + 1])
+            i += 2
+        else:
+            out.append(ch)
+            i += 1
+    return "".join(out)
+
+
+def read_dom_lane_selectors(path=SHADOW_CLJS):
+    """`{build-id: compiled ns-regexp}` for the two browser DOM lanes.
+
+    Raises rather than returning a partial map.  A gate that cannot read the
+    lane assignment must REFUSE, not report green: silently skipping the
+    check when the config moves would reintroduce, in this rule's own
+    machinery, exactly the fail-open the rule exists to close.
+    """
+    with open(path, encoding="utf-8") as handle:
+        text = handle.read()
+    selectors = {}
+    for build in (PR_BLOCKING_DOM_BUILD, SCHEDULED_DOM_BUILD):
+        match = re.search(
+            r"^\s*%s\s*$\s*\{.*?:ns-regexp\s+\"((?:[^\"\\\\]|\\\\.)*)\""
+            % re.escape(build), text, re.S | re.M)
+        if not match:
+            raise ValueError(
+                "%s declares no :ns-regexp for the build %s, so no row's "
+                "`PR gate` lane claim can be verified. This gate refuses "
+                "rather than skipping the check" % (path, build))
+        selectors[build] = re.compile(_edn_unescape(match.group(1)))
+    return selectors
+
+
+def witness_namespace(witness):
+    """The ClojureScript namespace a witness path declares, or `None`.
+
+    Derived from the path below its `re_frame/` source root, which is how
+    every source root on this repo's `:source-paths` lays its namespaces out.
+    """
+    match = _NS_ROOT_RE.search(witness.replace("\\", "/"))
+    if not match:
+        return None
+    return match.group(1).replace("/", ".").replace("_", "-")
+
+
 def slugify(text):
     """The heading slug mkdocs mints, `pymdownx.slugs.slugify(case=lower)`.
 
@@ -429,7 +514,7 @@ def _numbers(text):
     return int(text.replace(",", ""))
 
 
-def check(rows, registered, sections, existing_files):
+def check(rows, registered, sections, existing_files, selectors=None):
     """Every rule, against already-read inputs.
 
     Pure, so `--self-test` drives each red by doctoring one input of a
@@ -441,9 +526,13 @@ def check(rows, registered, sections, existing_files):
     `sections` maps a `file.md#anchor` target to the section body it names,
     or to None when it names nothing.  `existing_files` is the set of
     repo-relative paths, among those the ledger cites, that exist.
+    `selectors` maps the two browser DOM build ids to their compiled
+    `:ns-regexp`, read from `implementation/shadow-cljs.edn` when not given.
     """
     failures = []
     by_id = {}
+    if selectors is None:
+        selectors = read_dom_lane_selectors()
 
     for row in rows:
         rid = row["id"]
@@ -583,6 +672,38 @@ def check(rows, registered, sections, existing_files):
                 failures.append(
                     "L6 %s names the witness %s, which does not exist"
                     % (rid, witness))
+            elif _DOM_WITNESS_RE.search(witness):
+                # The `PR gate` cell is a CLAIM, and until this check it was
+                # never tested: L6 read that the lane was spelled legally and
+                # that the file was on disk, and took the lane itself on
+                # trust.  `rf2-mwr2`'s second audit reasoned from that gap —
+                # that D26's counter sat in the scheduled bench lane and so
+                # gated nothing — and the reasoning was sound even though the
+                # conclusion was wrong on the facts.  A row asserting a lane
+                # nothing verifies is the same shape of fail-open as an
+                # estimand blind to its own failure, one level up.  For a
+                # `*_dom_cljs_test` witness the assignment is exact and
+                # mechanical, so it is checked rather than believed.
+                namespace = witness_namespace(witness)
+                if namespace is None:
+                    failures.append(
+                        "L6 %s names the DOM witness %s, whose namespace "
+                        "cannot be derived: no `re_frame/` source root in the "
+                        "path, so its lane cannot be verified" % (rid, witness))
+                elif not selectors[PR_BLOCKING_DOM_BUILD].search(namespace):
+                    scheduled = selectors[SCHEDULED_DOM_BUILD].search(namespace)
+                    failures.append(
+                        "L6 %s claims the `PR gate` lane, but %s selects "
+                        "nothing for its witness %s (namespace %s). %s A "
+                        "deterministic row must run in a lane that blocks a "
+                        "merge, and this one runs in %s"
+                        % (rid, PR_BLOCKING_DOM_BUILD, witness, namespace,
+                           "It is selected by %s, which freehand-bench.yml "
+                           "drives on schedule and workflow_dispatch only."
+                           % SCHEDULED_DOM_BUILD if scheduled
+                           else "No browser DOM lane selects it at all.",
+                           "the scheduled bench lane" if scheduled
+                           else "no browser lane"))
         else:
             if lane == "PR gate":
                 failures.append(
@@ -831,6 +952,43 @@ def self_test():
     # ...and a lane nobody registered.
     red("L6", rows=patched("D1", instrument="`x` (some other lane)"))
 
+    # L6 — the lane claim itself, which until `rf2-mwr2`'s second audit was
+    # believed rather than checked.  A witness that exists, in a row spelled
+    # legally, whose namespace the PR-blocking browser build does not select:
+    # green under every earlier reading of this rule, and gating nothing.
+    bench_witness = ("implementation/freehand/test/re_frame/freehand/bench/"
+                     "b1_dom_cljs_test.cljs")
+    assert os.path.isfile(os.path.join(REPO_ROOT, bench_witness)), \
+        "the L6 lane control needs a real scheduled-lane witness"
+    red("L6",
+        rows=patched("D26", instrument="`%s` (PR gate)" % bench_witness),
+        existing_files=existing | {bench_witness})
+    # ...a DOM witness whose namespace cannot be derived at all, which is the
+    # way this check would otherwise pass by being unable to run...
+    kit_witness = "implementation/hicasso/test_kit/src/mounted_dom_cljs_test.cljs"
+    red("L6",
+        rows=patched("D1", instrument="`%s` (PR gate)" % kit_witness),
+        existing_files=existing | {kit_witness})
+    # ...and the eager direction: D26's real witness lives in the bench TREE
+    # but its namespace is `re-frame.bench.*`, not `re-frame.freehand.bench.*`,
+    # so the PR-blocking build does select it.  That distinction is the whole
+    # of the audit's refutation, and a later worker tightening the exclusion
+    # to the whole bench tree would red HERE rather than silently unhook U5's
+    # second counter.
+    green()
+
+    # L6 — and the gate REFUSES when it cannot read the lane assignment,
+    # rather than skipping the check.  A missing build id must not degrade to
+    # a pass; that would rebuild the fail-open inside the rule that closes it.
+    try:
+        read_dom_lane_selectors(os.path.join(REPO_ROOT, "mkdocs.yml"))
+    except ValueError:
+        pass
+    else:
+        raise AssertionError(
+            "read_dom_lane_selectors accepted a file declaring no browser "
+            "DOM build, so an unreadable lane assignment would pass")
+
     # L7 — the fail-open `rf2-mwr2` found, driven from every direction a
     # later edit could reopen it.  The first is the defect as it stood: U5
     # registered on bodies alone, its second counter absent from the ledger.
@@ -893,10 +1051,13 @@ def main(argv=None):
           "a bead id and a disposition that resolves;")
     print("no band crossing its line is recorded as a pass; no distributional "
           "row is wired to a pull-request gate;")
-    print("no row claiming that work SCALES is decided on one counter.")
+    print("no row claiming that work SCALES is decided on one counter;")
+    print("and no deterministic row asserts a `PR gate` lane its DOM witness "
+          "does not actually run in.")
     print("An Authority cell is read for SHAPE, not for life. This gate reads "
-          "two markdown files and has no tracker access, so it cannot see "
-          "that a named bead has closed:")
+          "two markdown files plus the browser lane selectors in "
+          "implementation/shadow-cljs.edn, and has no tracker access, so it "
+          "cannot see that a named bead has closed:")
     print("a row can name a bead reference and have no live owner. Whether "
           "the named beads are open is a question for a reader, and it is not "
           "certified here.")
