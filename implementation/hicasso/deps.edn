@@ -14,14 +14,30 @@
 ;; beside `src/` pins each donor file by digest so that claim stays true;
 ;; `scripts/check_freeze.py` is what checks it.
 ;;
-;; DEPENDENCIES. Core alone. Every substrate namespace the runtime reaches
-;; for — `re-frame.adapter.context`, `re-frame.live-frame`,
-;; `re-frame.late-bind`, `re-frame.registrar`, `re-frame.performance`,
-;; `re-frame.trace`, `re-frame.interop` — is core's, and routing is reached
-;; through core's late-bind registry rather than by dependency, so the
-;; packaging graph stays `hicasso -> core late-bind <- routing` with no
-;; cycle (Conventions §Packaging). React itself is an npm dependency,
-;; declared in implementation/package.json, not here.
+;; DEPENDENCIES. Core, plus ssr for the server module alone. Every substrate
+;; namespace the RUNTIME reaches for — `re-frame.adapter.context`,
+;; `re-frame.live-frame`, `re-frame.late-bind`, `re-frame.registrar`,
+;; `re-frame.performance`, `re-frame.trace`, `re-frame.interop` — is core's,
+;; and routing is reached through core's late-bind registry rather than by
+;; dependency, so the packaging graph stays `hicasso -> core late-bind
+;; <- routing` with no cycle (Conventions §Packaging). React itself is an
+;; npm dependency, declared in implementation/package.json, not here.
+;;
+;; `day8/re-frame2-ssr` arrived with `re-frame.hicasso.server` (rf2-b6jkj)
+;; and is reached by ONE namespace, which the public door names nowhere.
+;; The module hands `:payload` to `re-frame.ssr.payload-policy`'s
+;; fail-closed validator and its app-db to that namespace's own egress
+;; projection, so R0 — *nothing Hicasso-specific touches the payload path*
+;; — is a packaging fact rather than a promise; re-spelling those three
+;; helpers locally to keep the dep list at one entry is precisely how the
+;; wire contract drifts. `ssr` itself depends on core alone, so the graph
+;; is the DAG `hicasso -> ssr -> core`.
+;;
+;; It costs a CLASSPATH entry and no bundle bytes: a browser build that
+;; never requires `re-frame.hicasso.server` reaches no `re-frame.ssr`
+;; namespace, which is the same optional-module property `.forms`,
+;; `.overlay` and `.motion` have and which
+;; `scripts/check_optional_module_reachability.py` checks at the door.
 ;;
 ;; NO :clein / :clein/build, deliberately. This artefact is pre-publication:
 ;; it carries no Maven coordinate and is absent from the lockstep array and
@@ -40,7 +56,8 @@
 ;; Nothing under `resources/` is a loadable namespace: the hook file is data
 ;; that clj-kondo's own SCI reads from the config directory.
 {:paths ["src" "resources"]
- :deps  {day8/re-frame2 {:local/root "../core"}}
+ :deps  {day8/re-frame2     {:local/root "../core"}
+         day8/re-frame2-ssr {:local/root "../ssr"}}
 
  :aliases
  ;; This lane was CLASSPATH-PROBE-ONLY until rf2-0yp7w P0, and the paragraph

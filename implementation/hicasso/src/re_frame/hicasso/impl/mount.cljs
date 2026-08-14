@@ -72,10 +72,22 @@
 
 (declare adoption-window-closer)
 
-(defn- tree
+(defn tree
   "The root element for `handle`'s next render — **the one place the root
   tree's SHAPE is decided**, and the reason it is a function of the
   handle rather than of its two callers.
+
+  **Public because the SERVER half calls it too** (rf2-b6jkj).
+  `re-frame.hicasso.server/render` builds its element from this exact
+  function, with a handle carrying a per-request `:adoption` window, so
+  the bytes it emits and the tree [[hydrate-root!]] adopts are the same
+  shape by CONSTRUCTION rather than by two implementations agreeing.
+  That is HS-11 obstruction 2's first candidate repair — *a matching
+  server-render entry* — and taking it here is what makes it a repair
+  rather than a second renderer: were the server to build its own
+  element, the fork this function decides would have to be mirrored in a
+  place nothing forces to follow it, which is the shape of the bug, not
+  of the fix.
 
   A hydrated root carries [[adoption-window-closer]] and its own
   adoption-window provider as a Fragment around the app subtree, and it
@@ -422,27 +434,32 @@
   `react-dom/server`'s own render and the same string here — the
   [[root-options]] section comment is where that is set out.
 
-  **Matching root STRUCTURE is the other half, and today nothing on this
-  arm produces it** (`dispositions.md` HS-11, obstruction 2, MEASURED;
-  obstruction 1 was the prefix and rf2-hic-046 cleared it). React derives
-  a `useId` from tree POSITION as well as from the prefix, and a
-  hydrating root's tree is NOT the app subtree: [[tree]] wraps it in a
-  Fragment whose first child is [[adoption-window-closer]], with the
-  adoption-window provider around the app. The only server path this
-  package has — a hand-rolled `renderToString`, rf2-ggnp's census —
-  emits no counterpart to that fork, so bytes a consumer can bake today
-  hydrate into a text mismatch whose two ids agree on the prefix and
-  differ after it. The same fork is where `:adoption` comes from, and the
-  provider presence reads to start an adopted child `:present` rather
-  than `:mounting` has no server counterpart either.
+  **Matching root STRUCTURE was the other half, and it is now produced**
+  (`dispositions.md` HS-11 obstruction 2, MEASURED; obstruction 1 was
+  the prefix and rf2-hic-046 cleared it). React derives a `useId` from
+  tree POSITION as well as from the prefix, and a hydrating root's tree
+  is NOT the app subtree: [[tree]] wraps it in a Fragment whose first
+  child is [[adoption-window-closer]], with the adoption-window provider
+  around the app. For as long as this package's only server path was a
+  hand-rolled `renderToString` (rf2-ggnp's census) that emitted no
+  counterpart to that fork, bytes a consumer could bake hydrated into a
+  text mismatch whose two ids agreed on the prefix and differed after
+  it.
 
-  **So this door is built and witnessed but NOT on the
-  `re-frame.hicasso` facade** (rf2-k1mp), and the section comment there
-  is the roster's own record of the absence. HS-11 names two candidate
-  repairs — a matching server-render entry of this arm's own, or making
-  the closer a wrapper rather than a sibling — and rules on neither.
-  Until one lands, a caller reaching in here is hydrating against bytes
-  no door in this package emits.
+  `re-frame.hicasso.server/render` is HS-11's first candidate repair —
+  *a matching server-render entry of this arm's own* — and it takes the
+  repair by calling [[tree]], the same function this door calls, with a
+  handle carrying its own per-request window (rf2-b6jkj). So the fork is
+  decided once for both halves, the closer occupies the same tree
+  position on both sides, and the adoption provider presence reads to
+  start an adopted child `:present` rather than `:mounting` has its
+  server counterpart. `hydration-tree-parity-ssr-dom-cljs-test` is the
+  witness, and it fails on the pre-repair shape.
+
+  **So this door is now on the `re-frame.hicasso` facade, as
+  `h/hydrate!`** (rf2-b6jkj lifting rf2-k1mp's hold, under naming-ledger
+  row 13's `hydrate-root!`→`hydrate!` recommendation and row 20's
+  `(node config view)` contract shape).
 
   ## The handle carries `:adoption` — this root's OWN window (rf2-6tmu)
 
