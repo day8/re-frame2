@@ -64,3 +64,44 @@
     (is (= #{:reagent}
            (multi/resolve-substrate-set {} {} :reagent)))))
 
+;; ---- render-view dispatch -----------------------------------------------
+;;
+;; `render-view` is the seam the `render-variant` host-render hook consumes:
+;; `re-frame.story.canonical/render-host-scope` → `render-decorated-view` →
+;; here. It is NOT the canvas grid's path — `safe-render-cell` carries its
+;; own registry lookup and its own diagnostic — so the `:uix` arms in
+;; `story/ui/render_shell_cljs_test.cljs` exercise that copy and never reach
+;; this one, which they only cover on `:reagent`.
+;;
+;; rf2-nfwbt: recovered from the retired re-frame.ui consumer test, which was
+;; the only caller of `render-view` against a foreign substrate in the tree.
+;; A stub render-fn is enough — the point is the dispatch and the degrade,
+;; not any particular substrate, so this needs no adapter dependency.
+
+(deftest render-view-dispatches-to-a-foreign-substrate
+  (testing "a registered NON-:reagent substrate gets the render call, and the
+            (variant-id view-id args) contract arrives intact"
+    (let [seen (atom nil)]
+      (multi/register-substrate! :uix
+        (fn [variant-id view-id args]
+          (reset! seen [variant-id view-id args])
+          [:div.uix-stub "rendered by the stub"]))
+      (is (= [:div.uix-stub "rendered by the stub"]
+             (multi/render-view :uix :story.rv/probe :views/probe {:n 1}))
+          "the substrate's own render result is returned verbatim")
+      (is (= [:story.rv/probe :views/probe {:n 1}] @seen)
+          "the substrate-render contract is (fn [variant-id view-id args])"))))
+
+(deftest render-view-degrades-when-substrate-unregistered
+  (testing "an unregistered substrate yields an inline diagnostic rather than
+            throwing, so the render verb's caller always sees something back"
+    (is (not (contains? (multi/registered-substrates) :uix))
+        "precondition: :uix is not registered in this fixture")
+    (let [rendered (multi/render-view :uix :story.rv/probe :views/probe {})]
+      (is (vector? rendered)
+          "a hiccup vector came back — nothing threw past the caller")
+      (is (re-find #"is not registered" (last rendered))
+          "the diagnostic names the contract the author has to satisfy")
+      (is (re-find #"uix" (last rendered))
+          "and names the substrate that is missing"))))
+
