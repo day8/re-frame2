@@ -147,6 +147,15 @@
  * | zero stale-generation registrations | `zero-stale-registrations` | reader counts AND `identical?` against the pre-save registrations |
  * | the lost-cleanup sabotage turns red | `lost-cleanup-sabotage` | React's unsubscribe swallowed at the renderer seam |
  *
+ * Two more arrived with rf2-y5x6j and rf2-iq0a, and they are one fixture:
+ *
+ * | clause | section | what makes it visible |
+ * |---|---|---|
+ * | HMR through the `React.lazy` bridge | `native-lazy-island-across-a-save` | the LOADER COUNT — a re-minted head gets a fresh payload, so the chunk is fetched again, once per crossing |
+ * | the native tier across a save | same section | the tier marker, `displayName` and `:server` still readable on the far side, on objects that are all new |
+ * | one component through every wrapper | same section | `n/defcomponent` -> `n/memo` -> `n/lazy` -> `defhost` AND `[:>]`, with a `:ref` through both and the save's re-mint over the top |
+ * | the pinned-head sabotage turns red | `pinned-lazy-head-sabotage` | a bridge that cached the head across the reload — the conduct `n/component`'s docstring forbids — fetching once where the row above requires twice |
+ *
  * ### Out of reach here, and named rather than implied
  *
  * - **A real IME.** `Input.imeSetComposition` is a CDP method, so a real
@@ -320,6 +329,8 @@ const REQUIRED_SECTIONS = {
   'child-hook-state-in-a-host': 6,
   'active-imperative-host': 7,
   'frame-routing-across-a-save': 13,
+  'native-lazy-island-across-a-save': 40,
+  'pinned-lazy-head-sabotage': 8,
   'zero-stale-registrations': 28,
   'lost-cleanup-sabotage': 30,
 };

@@ -59,7 +59,8 @@
             [re-frame.frame :as frame]
             [re-frame.hicasso :as h]
             [re-frame.hicasso.impl.collector :as collector]
-            [re-frame.hicasso.impl.inventory :as inventory]))
+            [re-frame.hicasso.impl.inventory :as inventory]
+            [re-frame.hicasso.native :as n]))
 
 ;; ---------------------------------------------------------------------------
 ;; The two frames — the routing row's whole premise
@@ -85,6 +86,39 @@
 (defonce ^:private !reloads   (volatile! 0))
 (defonce ^:private !baseline  (atom nil))
 (defonce ^:private !instances (atom {}))
+(defonce ^:private !island-nodes (atom {}))
+
+(def ^:private island-slots
+  "The two crossings the split region renders, named once. Each is a
+  `data-testid` in the DOM and a ref-sink key here, so a slot added in one
+  place and forgotten in the other is a `nil` sink rather than a silent
+  half-witness."
+  ["island-host" "island-escape"])
+
+(defonce ^:private island-ref-sinks
+  ;; ONE stable function per (frame, slot), for [[ref-sinks]]'s reasons
+  ;; exactly: a callback ref whose identity changed per render would make
+  ;; React detach and re-attach on renders that remounted nothing, and the
+  ;; island rows' no-save control would red for a reason unrelated to a
+  ;; reload. Keyed by slot as well as frame because both crossings render
+  ;; in both roots, and a sink shared across them would hold whichever
+  ;; attached last.
+  (into {} (for [{:keys [frame]} frames
+                 slot island-slots]
+             [[frame slot]
+              (fn [node]
+                (if (nil? node)
+                  (swap! !island-nodes update-in [[frame slot] :detachments] (fnil inc 0))
+                  (swap! !island-nodes update [frame slot]
+                         (fn [s] (-> s
+                                     (assoc :current node)
+                                     (update :attachments (fnil inc 0)))))))])))
+
+(defn- island-refs-for
+  "The sinks one root hands its `app`, keyed by slot."
+  [frame-kw]
+  (into {} (map (fn [slot] [slot (get island-ref-sinks [frame-kw slot])]))
+        island-slots))
 
 (defonce ^:private ref-sinks
   ;; ONE stable function PER FRAME, for the length of the page's life.
@@ -231,7 +265,17 @@
                                 [[frame query] (readers-now frame query)]))
            :instances (into {} (map (fn [{:keys [frame]}]
                                       [frame (get-in @!instances [frame :current])]))
-                            frames)})
+                            frames)
+           ;; The native tier's objects, frozen the same way and for the
+           ;; same reason: every one of them is documented to be REPLACED
+           ;; by a save, and identity is the only instrument that can say
+           ;; so. Held as the raw JS object the module answers, so a head
+           ;; added there appears here without a second roster to keep.
+           :heads    (views/live-heads)
+           :islands  (into {} (for [{:keys [frame]} frames
+                                    slot island-slots]
+                                [[frame slot]
+                                 (get-in @!island-nodes [[frame slot] :current])]))})
   true)
 
 (defn- stale-count
@@ -248,11 +292,46 @@
         now    (readers-now frame-kw query)]
     (count (filter (fn [r] (some #(identical? % r) before)) now))))
 
+(defn- head-report
+  "Which of the native tier's objects survived the save, and what each one
+  still says about itself.
+
+  The two halves answer different bead questions and are deliberately in
+  one place. `same?` is rf2-y5x6j's and rf2-iq0a's shared claim that a
+  reload REPLACES — `n/component`, `n/memo` and `n/defcomponent` each say
+  so in their own docstring and none of them was measured under a real
+  recompile. `name`, `server` and `displayName` are rf2-iq0a's other half:
+  the tier marker has to be READABLE on the far side of a save, because a
+  marker that a reload silently dropped would leave Xray naming an
+  anonymous boundary where an island is, and nothing on the page would
+  look any different."
+  [base]
+  (let [now  (views/live-heads)
+        was  (:heads base)
+        read (fn [k]
+               (let [head   (unchecked-get now k)
+                     marker (n/marker head)]
+                 {:same?       (identical? (unchecked-get was k) head)
+                  :name        (some-> marker (unchecked-get "name"))
+                  :server      (some-> marker (unchecked-get "server"))
+                  :displayName (unchecked-get head "displayName")}))]
+    (into {} (map (fn [k] [k (read k)]))
+          ["islandBody" "islandMemo" "hostHead" "escapeHead" "rendered"])))
+
 (defn- identity-report
   []
   (let [base @!baseline]
     (clj->js
       {:head-same? (identical? (:head base) views/app)
+       :heads       (head-report base)
+       :islands
+       (into {} (for [{:keys [frame]} frames
+                      slot island-slots]
+                  [(str (name frame) " " slot)
+                   {:node-same? (identical?
+                                  (get-in base [:islands [frame slot]])
+                                  (get-in @!island-nodes [[frame slot] :current]))
+                    :attached?  (some? (get-in @!island-nodes [[frame slot] :current]))}]))
        :frames
        (into {} (map (fn [{:keys [frame]}]
                        [(name frame)
@@ -280,7 +359,8 @@
   []
   (doseq [{:keys [frame]} frames]
     (when-some [handle (get @!handles frame)]
-      (h/render! handle [views/app {:ref-sink (get ref-sinks frame)}]))))
+      (h/render! handle [views/app {:ref-sink    (get ref-sinks frame)
+                                    :island-refs (island-refs-for frame)}]))))
 
 (defn- seed!
   [frame-kw label]
@@ -360,7 +440,14 @@
                             (rf/dispatch-sync [:hmr/set-label label]))
                           true)
          :reincarnate   (fn [frame-name label]
-                          (destroy-and-remake! (frame-of frame-name) label))})
+                          (destroy-and-remake! (frame-of frame-name) label))
+         ;; --- the split region (rf2-y5x6j, rf2-iq0a) ---------------------
+         :islandLoads   (fn [] (views/island-loads))
+         :islandRefs    (fn [frame-name slot]
+                          (clj->js (dissoc (get @!island-nodes
+                                                [(frame-of frame-name) slot])
+                                           :current)))
+         :pinEscapeHead (fn [on?] (views/pin-escape-head! (boolean on?)))})
   nil)
 
 (defn ^:export init
@@ -373,6 +460,7 @@
     (swap! !handles assoc frame
            (h/root! (js/document.getElementById container)
                     frame
-                    [views/app {:ref-sink (get ref-sinks frame)}])))
+                    [views/app {:ref-sink    (get ref-sinks frame)
+                                :island-refs (island-refs-for frame)}])))
   (install-door!)
   nil)
