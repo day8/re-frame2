@@ -836,22 +836,40 @@ else
         mcp_conformance=true
         mcp_live=true
         ;;
-      examples/scripts/spec-helpers.cjs|examples/scripts/examples-port.cjs)
-        # rf2-bxdk8 + rf2-cjp0i — the adapter-smoke harness moved to
-        # implementation/adapters/scripts/ (its own case above), but two
-        # of the helpers it imports still live under examples/scripts/
-        # because the example dev runner and the Story launchers share
-        # them: spec-helpers.cjs (the Playwright assertion matchers the
-        # adapter specs use) and examples-port.cjs (rf2-y9o5e3 — the port
-        # resolver the orchestrator's main() calls before any compile/serve;
-        # a break there false-greens the adapter smoke gate). A change to
-        # either still drives the adapter-testbed-smokes job. The rest of
-        # examples/** is test-free per rf2-8cevm. (port-resolver.cjs is
+      examples/scripts/spec-helpers.cjs)
+        # rf2-bxdk8 + rf2-cjp0i — the shared Playwright assertion matchers.
+        # The adapter-smoke harness moved to implementation/adapters/scripts/
+        # (its own case above), but this helper stays under examples/scripts/
+        # because FOUR gate families require it: the adapter smokes + the
+        # re-frame.ui smoke (both testbed spec.cjs files import the matchers;
+        # ui_smoke per rf2-nojiwy — same orchestrator), the Story/Xray
+        # PR-smoke tier (serve-and-run-story-play-scripts.cjs and
+        # tools/xray/testbeds/feature_matrix/scenarios.cjs — the module the
+        # Xray feature gate loads — both require it; the full-gate roster's
+        # is_story_full_gate_path comment above already assumed the shared
+        # helpers were armed for story_xray_browser), and the tenant-switcher
+        # smoke (testbeds/tenant_switcher/spec.cjs requires it). Before the
+        # rf2-6ng7-class fix this case armed only the first pair, so a break
+        # confined to the Story/Xray-only exports (navigate, reloadPage, …)
+        # or the tenant spec's matchers merged green and was caught only by
+        # the nightly. Fire every gate that actually loads the file.
+        adapter_testbed_smokes=true
+        ui_smoke=true
+        story_xray_browser=true
+        tenant_switcher_smoke=true
+        ;;
+      examples/scripts/examples-port.cjs)
+        # rf2-y9o5e3 — the port resolver the adapter-smoke orchestrator's
+        # main() calls before any compile/serve; a break there false-greens
+        # the adapter smoke gate. Its consumers are the adapter-smoke
+        # orchestration + dev runners only (no Story/Xray/tenant edge — the
+        # Story launchers use story-feature-load-port.cjs), so unlike
+        # spec-helpers.cjs above it stays scoped to the smoke pair. The rest
+        # of examples/** is test-free per rf2-8cevm. (port-resolver.cjs is
         # shared with the Story launchers and is handled in its own case
         # below so it fires BOTH gates; examples-staging.cjs likewise.)
         # ui_smoke fires too (rf2-nojiwy): the re-frame.ui smoke rides the
-        # same orchestrator, so a break in these helpers breaks it
-        # identically.
+        # same orchestrator.
         adapter_testbed_smokes=true
         ui_smoke=true
         ;;
@@ -2402,6 +2420,21 @@ else
         # the transitive CLJS-source coverage every other testbed gets.
         cljs_browser=true
         tenant_switcher_smoke=true
+        ;;
+      testbeds/spec-helpers.cjs)
+        # rf2-6ng7 class — the shared Playwright helper require'd ONLY by
+        # tools/xray/testbeds/feature_matrix/scenarios.cjs, the module BOTH
+        # Xray feature-gate tiers load (implementation/scripts/
+        # serve-and-run-xray-feature-gate.cjs; the PR-smoke tier runs
+        # `test:xray-feature-gate:smoke` under story_xray_browser). The
+        # generic testbeds/* fall-through below arms only cljs_browser — a
+        # CLJS compile-and-test lane that never loads a .cjs — so an edit
+        # breaking this helper red-ded no armed PR job and was caught only
+        # by the nightly full gate. Arm the tier that actually executes it;
+        # cljs_browser is deliberately NOT set (no CLJS source is reachable
+        # from this file — same stop-the-walk reasoning as the Story
+        # launcher arm above).
+        story_xray_browser=true
         ;;
       testbeds/*)
         # rf2-7vsfm + rf2-t5slp — Top-level testbeds/* surfaces are

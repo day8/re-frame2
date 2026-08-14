@@ -2848,6 +2848,60 @@ test('examples/scripts/port-resolver.cjs (shared resolver) fires BOTH browser ga
   assert.equal(result.story_xray_browser, 'true');
 });
 
+// rf2-6ng7 class — spec-helpers.cjs is the shared Playwright assertion-matcher
+// module with FOUR live gate-family consumers: the adapter/ui smoke specs, the
+// Story/Xray PR-smoke tier (serve-and-run-story-play-scripts.cjs and
+// tools/xray/testbeds/feature_matrix/scenarios.cjs both require it), and the
+// tenant-switcher smoke (testbeds/tenant_switcher/spec.cjs). Its case used to
+// arm only the smoke pair, so a break confined to the Story/Xray-only exports
+// (navigate, reloadPage, …) or the tenant spec's matchers merged green.
+test('examples/scripts/spec-helpers.cjs (shared matchers) fires every gate that loads it (rf2-6ng7 class)', () => {
+  const result = classify('examples/scripts/spec-helpers.cjs');
+  assert.equal(result.adapter_testbed_smokes, 'true');
+  assert.equal(result.ui_smoke, 'true');
+  assert.equal(
+    result.story_xray_browser,
+    'true',
+    'spec-helpers.cjs is require\'d by serve-and-run-story-play-scripts.cjs and the Xray feature-matrix scenarios; it must fire story_xray_browser',
+  );
+  assert.equal(
+    result.tenant_switcher_smoke,
+    'true',
+    'testbeds/tenant_switcher/spec.cjs requires spec-helpers.cjs; it must fire tenant_switcher_smoke',
+  );
+});
+
+test('examples/scripts/examples-port.cjs stays adapter-smoke-scoped after the spec-helpers split (rf2-6ng7 class)', () => {
+  const result = classify('examples/scripts/examples-port.cjs');
+  assert.equal(result.adapter_testbed_smokes, 'true');
+  assert.equal(result.ui_smoke, 'true');
+  assert.equal(
+    result.story_xray_browser,
+    'false',
+    'examples-port.cjs has no Story/Xray consumer (the Story launchers use story-feature-load-port.cjs); the split must not over-arm it',
+  );
+  assert.equal(result.tenant_switcher_smoke, 'false');
+});
+
+// rf2-6ng7 class — testbeds/spec-helpers.cjs is require'd ONLY by
+// tools/xray/testbeds/feature_matrix/scenarios.cjs, which both Xray
+// feature-gate tiers load. The generic testbeds/* fall-through armed only
+// cljs_browser — a CLJS lane that never loads a .cjs — so an edit breaking it
+// red-ded no armed PR job and was caught only by the nightly full gate.
+test('testbeds/spec-helpers.cjs fires the Xray smoke tier, not the CLJS browser lane (rf2-6ng7 class)', () => {
+  const result = classify('testbeds/spec-helpers.cjs');
+  assert.equal(
+    result.story_xray_browser,
+    'true',
+    'the Xray feature-matrix scenarios module requires testbeds/spec-helpers.cjs; it must fire story_xray_browser',
+  );
+  assert.equal(
+    result.cljs_browser,
+    'false',
+    'no CLJS source is reachable from testbeds/spec-helpers.cjs; the CLJS browser lane buys nothing for it',
+  );
+});
+
 // rf2-eqjxya — examples-staging.cjs is the SHARED staging/cleaning helper
 // (stageShared / cleanStageDirs / stageExample) require'd by the adapter-smoke
 // orchestrator (serve-and-run-adapter-smokes.cjs → adapter_testbed_smokes) AND
