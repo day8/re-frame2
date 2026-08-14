@@ -19,9 +19,11 @@ commit SHA moved, while the three blobs below did not move at all.
 | `hicasso_narrow_app.cljs` | `a201ff16debe57b2aa297fe6ae7d27a19c3831d2` |
 | `hicasso_narrow_run.cjs` | `cbffc0205675b524060f8c956efe2205f9e3570f` |
 
-Authored as `7c51e77b4f` on `worker/bench-audit-cluster`. **If that SHA does
-not resolve, a rebase moved it and the blobs above are what to trust** — this
-finds a commit carrying them, and confirms it:
+Authored as `7c51e77b4f` on `worker/bench-audit-cluster`. That rebase did happen,
+so the authored head resolves in no fresh clone; it landed on `main` as
+`8742413fc8`, which carries all three blobs above and is the tree to check out.
+**If neither SHA resolves, the blobs are what to trust** — this finds a commit
+carrying them, and confirms it:
 
 ```bash
 P=implementation/adapters/reagent/test/re_frame/bench/hicasso_narrow.cljs
