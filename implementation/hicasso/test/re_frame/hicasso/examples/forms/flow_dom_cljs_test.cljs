@@ -290,9 +290,9 @@
       (let [m (mount-screen!)]
         (.focus (subject-node m))
         (type-into! m (subject-node m) "half typed")
-        (hm/render! m [views/details-form {}])
+        (hm/rerender! m [views/details-form {}])
         (is (nil? (subject-node m)) "the field is off the page")
-        (hm/render! m [views/screen {:ikey ticket}])
+        (hm/rerender! m [views/screen {:ikey ticket}])
         (is (= "half typed" (.-value (subject-node m)))
             "and it comes back holding the draft — which lives at an address
              in app-db, not in a fiber that was just thrown away")
