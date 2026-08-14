@@ -215,13 +215,15 @@ This matters more than one row, and `globals.md`'s own opening says why: *"a ros
 |---|---|
 | `mechanism` | a seventh `defmacro`; a render call on an alias that is not a `react-dom` require; a `:require` of an emitter namespace |
 | `retained-tooling` | a checker, a `hicasso` npm script or a tool namespace with no row above, or a row whose Consumer cell is empty |
-| `mutable-globals` | a module-level owner the seven arms find that has no row in [`globals.md`](globals.md) |
+| `mutable-globals` | a module-level owner the seven arms find whose `impl.<ns>/name` identity has no row in [`globals.md`](globals.md) |
 
 Each arm is shown to bite by `--self-test`, which plants the smallest edit that would land the mechanism the arm refuses and asserts the arm reports it.
 
 **Its own consumer, by the standard this page holds everything else to, is [`rf2-hic-064`](correction-ledger.md)** — the final audit, which re-derives rather than trusts. It is deliberately not wired into a workflow, and the precedent is its sibling: [`release-scans.md`](release-scans.md)'s `scripts/check_allocation_non_claim.py` is a census gate on the same footing and is scheduled nowhere either. A census re-run belongs to the audit that needs it rather than to every PR, and `.github/**` was fenced from this bead in any case. It is named here so the row is not missing.
 
 **The mutable-globals arm enforces one direction only**, and the reason is on the page rather than in the script's silence: the reverse check — every rostered row is found by some arm — is what produced this census's own correction, and it cannot be automated honestly, because six identities-roster rows are plain `def`s of React classes and components that no textual arm distinguishes from any other `def`. Enforcing it would mean either a sixth of the roster permanently red or an allowlist that fails open. The direction that *is* enforced is the one the kill rules need: a new owner arrives with no row, and reds.
+
+**And it compares fully qualified identities**, `impl.<ns>/name` on both sides, with the declaring namespace read off the source's path — in ClojureScript the path *is* the declaration, so no parser is involved. The gate shipped comparing bare `def` names, and the merged-PR audit of #8258 showed what that costs: a planted `impl.planted/!cells` inherited `impl.collector/!cells`'s row and returned no finding at all. This tree has two `evidence` namespaces and two `overlay` namespaces, so the collision is not hypothetical. The `--self-test` agreed with the broken gate, because its control only ever planted a name nothing else owned — a control that cannot tell *the arm bit* from *the arm matched the wrong row*. It now discriminates in both directions: the duplicate reds while the rostered `impl.collector/!cells` stays accepted in the same run. Re-running the sweep under qualified identities surfaced no owner the bare matcher had been accepting, so every count above stands as published.
 
 ## What was filed
 
