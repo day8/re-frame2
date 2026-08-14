@@ -586,24 +586,32 @@
      ;; the caller did not name. That is the property rf2-31xm restored and
      ;; the reason `release!` is no longer among them.
      ;;
-     ;; **The HYDRATING door is not here, and the absence is held rather
-     ;; than overlooked** (rf2-k1mp). `impl.mount/hydrate-root!` is built,
-     ;; witnessed, and takes `:identifier-prefix` exactly as `root!` does
-     ;; (rf2-hic-046). What is missing is the OTHER half of the pair: a
-     ;; hydrating door adopts bytes something produced, and this package
-     ;; publishes no server-render door to produce them — `server/render`
-     ;; is taught in the draft guide and rostered in naming-ledger row 22,
-     ;; and `re-frame.hicasso.server` does not exist. `dispositions.md`
-     ;; HS-11 measures what an improvised counterpart does: the adoption
-     ;; closer rides as a SIBLING of the app subtree (`impl.mount/tree`,
-     ;; rf2-6tmu) and React derives a `useId` from tree POSITION as well
-     ;; as from the prefix, so bytes a consumer can bake today hydrate
-     ;; into a text mismatch. Both candidate repairs — a matching
-     ;; server-render entry, or making the closer a wrapper — change
-     ;; behaviour, and neither is ruled. The spelling is open too:
-     ;; naming-ledger row 13 holds `hydrate-root!`→`hydrate!` for the
-     ;; operator's sitting, so an export now would freeze a name the
-     ;; ledger is deliberately keeping open.
+     ;; **The HYDRATING door is HERE now, and rf2-k1mp's hold is lifted**
+     ;; (rf2-b6jkj). The hold was never about the door: `hydrate-root!`
+     ;; was built, witnessed, and took `:identifier-prefix` exactly as
+     ;; `root!` does (rf2-hic-046). What was missing was the OTHER half
+     ;; of the pair — a hydrating door adopts bytes something produced,
+     ;; and this package published no server-render door to produce
+     ;; them. `dispositions.md` HS-11 measured what an improvised
+     ;; counterpart did: the adoption closer rides as a SIBLING of the
+     ;; app subtree (`impl.mount/tree`, rf2-6tmu), React derives a
+     ;; `useId` from tree POSITION as well as from the prefix, and bytes
+     ;; a consumer could bake hydrated into a text mismatch.
+     ;;
+     ;; `re-frame.hicasso.server` is HS-11's first candidate repair and
+     ;; it takes it by CALLING `impl.mount/tree` — one function deciding
+     ;; the root's shape for both halves — so the counterpart now exists
+     ;; and emits the tree this door adopts, position for position.
+     ;;
+     ;; The SPELLING is naming-ledger row 13's recommendation
+     ;; (`hydrate-root!`→`hydrate!`) applied as a default, which is what
+     ;; the ledger header says a recommendation does before the sitting
+     ;; and the route rows 21 and 23 already took (rf2-mo4o, rf2-0ckh).
+     ;; The CONTRACT SHAPE is row 20's `(node config view)` with
+     ;; `:frame` + `:identifier-prefix`, kept as taught. Row 13's other
+     ;; half — `root!`→`mount!` — is NOT taken here: it is a rename of a
+     ;; door that already has an inventory row (HS-10, `h/root!`), so it
+     ;; travels with that row rather than with this addition.
 
      (def ^{:doc "Associate a DOM container, a frame keyword and a hiccup
   tree; returns the handle [[render!]] and [[unmount!]] take. HD-021(b)'s
@@ -627,6 +635,59 @@
   spelled.
   [[re-frame.hicasso.impl.mount/root!]]."}
        root! impl-mount/root!)
+
+     (def ^{:doc "`h/hydrate!` — **adopt a container's existing
+  server-rendered DOM** rather than replacing it; [[root!]]'s hydrating
+  twin, and the client half of every SSR route (rf2-b6jkj):
+
+      (h/hydrate! (js/document.getElementById \"app\")
+                  {:frame :app/main :identifier-prefix \"main\"}
+                  [views/page {}])
+
+  `(node config view)`, and the config carries `:frame` — the frame
+  keyword this root scopes — and optionally `:identifier-prefix`.
+  Returns the handle [[render!]] and [[unmount!]] take, unchanged.
+
+  **State comes first, and it is a different door.** This adopts DOM;
+  `re-frame.ssr/hydrate!` installs the server's app-db through
+  `:rf/hydrate` and must run BEFORE this, so the first client render
+  sees the state the server rendered from:
+
+      (ssr/hydrate! {:frame :app/main})   ;; 1. state
+      (h/hydrate! node {:frame :app/main} [views/page {}])   ;; 2. DOM
+
+  **Hand `:identifier-prefix` the same string the server render used.**
+  React numbers `useId` per root and prefixes it with this option, so a
+  hydrating root given a different prefix — or none, where the server
+  had one — resolves every id in the tree differently from the bytes it
+  is adopting. `re-frame.hicasso.server/render` takes the same key.
+
+  **It returns BEFORE adoption finishes.** React adopts concurrently
+  and nothing here forces it synchronously, so the DOM on the next line
+  is still the server's. A witness waits for the adoption window to
+  close rather than for a flush.
+
+  Root-scoped, like every door in this section: each hydrating root owns
+  its own container, prefix, adoption window and recoverable-error
+  stream, so one root's mismatch is reported against that root and
+  cannot silence a sibling's.
+  ## Why this one is a `defn` where its siblings are aliases
+
+  Every other var here is an alias, because the impl name and the door
+  name mean the same call. This door does not: `impl.mount/hydrate-root!`
+  is `(container frame-kw hiccup opts)` — the prototype's positional
+  shape — and naming-ledger row 20 keeps the guide's `(node config
+  view)` config map, because a config map is what lets
+  `:identifier-prefix` join without a second arity. So the adaptation is
+  three lines here rather than a second signature down in impl, and impl
+  keeps one caller shape for its own witnesses to drive.
+  [[re-frame.hicasso.impl.mount/hydrate-root!]]."}
+       hydrate!
+       ;; `config` reaches `hydrate-root!` as the opts map WHOLE rather
+       ;; than re-built from `:identifier-prefix` — impl reads the keys
+       ;; it owns and a config key added later needs no edit here.
+       (fn hydrate! [container config hiccup]
+         (impl-mount/hydrate-root! container (:frame config) hiccup config)))
 
      (def ^{:doc "Re-render a mounted root in place, synchronously, and
   answer its handle — **the hot-reload door** (rf2-e2al):

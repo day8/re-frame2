@@ -173,23 +173,20 @@ DIVERGENCES = {
         "`root!` takes the frame keyword positionally and carries no "
         "`:initial-events` option; the guide teaches the intended door",
     ),
-    ("re-frame.hicasso", "hydrate!"): (
-        None,
-        "the hydrating root is built and witnessed but held off the public "
-        "door until a server-render counterpart exists to produce the bytes "
-        "it would adopt",
-    ),
 }
 
 # A namespace the guide `:require`s that does not exist yet.  Same contract as
 # a verb row: R3 requires it to still be absent, so the chapter written
 # against it is forced back open the day it lands.
-ABSENT_NAMESPACES = {
-    "re-frame.hicasso.server": (
-        "chapter 18 is written against the intended `server/render` contract; "
-        "the namespace does not exist yet"
-    ),
-}
+#
+# EMPTY SINCE rf2-b6jkj, and R3 worked exactly as designed on the way out.
+# `re-frame.hicasso.server` was the one entry; the module landed, the row went
+# stale, and R3 red naming it -- which is the whole point of the rule, since
+# prose, a digest and a fixture would each have stayed green while chapter 18
+# quietly became true.  `h/hydrate!` left DIVERGENCES in the same pass and for
+# the same reason: the hold on it was the absent server counterpart, so the two
+# gaps closed together or not at all.
+ABSENT_NAMESPACES = {}
 
 
 # ---------------------------------------------------------------------------
