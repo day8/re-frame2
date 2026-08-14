@@ -283,8 +283,10 @@ subject's row in `:renames`:
   why `frozen-sources.edn` retired those rows rather than re-pinning them.
 
 Both are now **measured rather than argued**, because every PORT row has since been executed — see
-[what the ports actually cost](#executed--what-the-ports-actually-cost). The separation is an order
-of magnitude, in the predicted direction.
+[what the ports actually cost](#executed--what-the-ports-actually-cost). The separation is a factor
+of about six, in the predicted direction — measured over the complete port and not over the suite
+bodies alone, which is a distinction that cost this page a correction
+([the support cost](#the-support-cost-the-suite-body-figures-do-not-carry)).
 
 ### 3. What the package already asserts
 
@@ -334,8 +336,13 @@ PORT.** Not one bench original survives: `front/` and `arm1/` in the bench tree 
 fifteen. That turns the sequencing paragraph above from a forecast into a measurement, which is the
 only reason this page is entitled to keep asserting it (rf2-h4o1n).
 
-Each port is a single commit. `lines changed` is that commit's diff between the bench original and
-the package copy, so it is the whole cost of the port and not a sample of it:
+Each port is a single commit. **`lines changed` is that commit's diff between the bench original and
+the package copy — the churn in the suite BODY, which is not the whole cost of the port.** This
+sentence used to claim it was, and three of the fifteen commits refute it: they also had to create
+or extend a support namespace beside the suite, and each says so in its own message. Those are
+accounted separately in
+[the support cost](#the-support-cost-the-suite-body-figures-do-not-carry) below, which is where the
+group totals and the ratio are stated at the strength the complete measurement supports (rf2-h4o1n).
 
 | suite | lines | lines changed by the port | port commit |
 |---|---|---|---|
@@ -355,28 +362,68 @@ the package copy, so it is the whole cost of the port and not a sample of it:
 | `arm1/hframe_dom_cljs_test.cljs` | 458 | +42 / −43 | `ec470969ad` |
 | `arm1/hframe_cljs_test.cljs` | 360 | +74 / −72 | `d7a2f0967d` |
 
-**The `front/*` claim is literally true, not approximately.** Across those seven suites — 4,360
-lines — the ports changed **26 lines in total**, and every one of the 26 is an `ns` form, a
-`:require` entry, or a docstring `[[wiki-link]]` naming the same renamed namespace. No assertion
-moved. `front/codec_cljs_test.cljs` is the case that matters, because it is the largest suite in the
-tree and its subject is the package file that has diverged furthest: 1,593 lines and 67 `deftest`s
-went across for **eight lines** — the `ns`, four `:require`s, two use sites of the corpus alias
-(`slot-test/corpus` → `slot-corpus/corpus`, a consequence of the corpus becoming its own support
-namespace, not of the package moving), and one word in a docstring.
+**The `front/*` claim holds on the suite body, literally and not approximately.** Across those seven
+suites — 4,360 lines — the ports changed **26 lines of suite body in total**, and every one of the 26
+is an `ns` form, a `:require` entry, or a docstring `[[wiki-link]]` naming the same renamed
+namespace. No assertion moved. `front/codec_cljs_test.cljs` is the case that matters, because it is
+the largest suite in the tree and its subject is the package file that has diverged furthest: 1,593
+lines and 67 `deftest`s went across for **eight lines of body** — the `ns`, four `:require`s, two use
+sites of the corpus alias (`slot-test/corpus` → `slot-corpus/corpus`, a consequence of the corpus
+becoming its own support namespace, not of the package moving), and one word in a docstring. **That
+corpus is the largest single support item on the page and it is charged to this group below**; eight
+lines is what the body cost, not what the port cost.
 
-**The `arm1/*` claim is equally true and in the opposite direction.** Those eight suites — 2,744
-lines — cost **317 changed lines**: 11.6% against the `front/*` rows' 0.6%, a factor of nineteen.
+**The `arm1/*` claim is equally true of the body and in the opposite direction.** Those eight suites
+— 2,744 lines — cost **317 changed lines of suite body**: 11.6% against the `front/*` rows' 0.6%.
 The changes are what the paragraph above predicted — `arm1.runtime` call sites re-pointed at
 whichever of the six modules answers for the var (`rt/reset-runtime!` → `collector/reset-runtime!`),
 plus support namespaces swapped (`front.dogfood` → `re-frame.hicasso.todo-support`) — and still no
-assertion moved, which is why they were ports and not re-authorings.
+assertion moved, which is why they were ports and not re-authorings. **On suite body alone that
+separation is a factor of nineteen. It is not the number this page is entitled to**: add the support
+work each port required and it is about six.
+
+#### The support cost the suite-body figures do not carry
+
+**rf2-h4o1n, 2026-08-14.** Three of the fifteen port commits touch a file outside the suite they
+port, and each commit message describes that file as something the port needed:
+
+| port commit | support change | lines | why the port needed it |
+|---|---|---|---|
+| `f4b6122b4b` (`front/codec`) | creates `slot_corpus.cljs` | +84 | the corpus the suite reads lived inside `front/slot_cljs_test.cljc`, the `.cljc` pin that does not move, so it had to become a namespace of its own. Overwhelmingly a lift rather than an authoring: **72 of the 84 lines appear verbatim in the donor**, the other 12 being the new `ns` form and its docstring. |
+| `dd14c8a280` (`arm1/callback_form`) | creates `todo_support.cljs` | +77 | the ported witnesses read a seeded frame, and `front.dogfood` could not be moved to supply it — `shadow-cljs.edn` puts both trees on one `:node-test` source path, so its `:dogfood/*` ids would collide in a shared registry. Newly authored. |
+| `d7f1c3578c` (`arm1/state_dom`) | extends `roots_frames_support.cljs` | +14 | `capture-console!`, the thunk-scoped wrapper that lets the ordinary path be driven inside a capture and asserted **empty** — without it a row can be green over a live exception, because React routes faults to `reportError` and `console.error` and neither reaches `cljs.test`. |
+
+**Those three are the complete set over these fifteen commits, not a sample.** Every one of the
+fifteen was read for files outside its own suite; the other twelve touch nothing else at all. The
+claim is scoped to the port commits the table above cites, which is the same scope the table has —
+it is not a claim about everything the port programme ever cost.
+
+**The corrected group figures**, on the page's own addition-like metric and against the same
+suite-line denominators:
+
+| group | suite lines | suite body | support | total | share of suite lines |
+|---|---|---|---|---|---|
+| `front/*` (7 suites) | 4,360 | 26 | 84 | **110** | **2.5%** |
+| `arm1/*` (8 suites) | 2,744 | 317 | 91 | **408** | **14.9%** |
+
+So the separation is **about 5.9x, not the 19x the body-only figures give.** The direction survives
+the correction and the magnitude does not, which is the whole of what this repair changes.
 
 **Read this as the vindication of the rename-table rule and not of the sentence it replaced.** The
 port cost tracked the arity of the `:renames` row every time, and tracked the size of the divergence
 never: `impl/codec.cljs` moved further than any other package file — 89 of the 141 hunks are its —
-and its suite still ported for **eight lines**, roughly a third of what the cheapest `arm1/*` row
-cost, because a `front/*` row is one-to-one and an `arm1.runtime` row is one-to-six. Size of
+and its suite's body still ported for **eight lines**, roughly a third of what the cheapest `arm1/*`
+row cost, because a `front/*` row is one-to-one and an `arm1.runtime` row is one-to-six. Size of
 divergence predicts nothing here; arity predicts everything.
+
+**And the support cost does not put divergence back in the running, which is worth stating because
+it is the one item that could have.** The codec port's 84-line corpus is the largest support item
+here, and it sits on the row whose subject diverged furthest — so on the face of it, the cost the
+body-only figures hid landed exactly where a divergence-predicts-cost story wants it. It did not
+come from there. The corpus moved because it sat inside `front/slot_cljs_test.cljc`, a `.cljc` file
+pinned on both hosts and unable to move, and 72 of its 84 lines crossed verbatim; not one of
+`impl/codec.cljs`'s 89 hunks is why. That is a fact about the DONOR tree's shape, and a suite whose
+fixtures happened to live in a portable file would have paid none of it.
 
 ---
 
