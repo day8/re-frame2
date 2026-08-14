@@ -223,9 +223,17 @@
 
 (deftest the-request-frame-is-destroyed-even-when-the-render-throws
   (testing "the happy path leaves no frame behind"
+    ;; `app-db-value` answers nil for a frame that is gone AND for one that
+    ;; never existed, so the nil below is only evidence beside a control
+    ;; that a LIVE frame answers something. Without it this row would stay
+    ;; green under a `render` that never made a frame at all.
     (let [{:keys [frame-id]} (server/render (request))]
-      (is (thrown? :default (rf/app-db-value frame-id))
-          "the per-request frame must be gone by the time render returns")))
+      (rf/make-frame {:id ::control :initial-events [[:rf/set-db snapshot]]})
+      (is (some? (rf/app-db-value ::control))
+          "control: a live frame answers its app-db, so nil below means gone")
+      (is (nil? (rf/app-db-value frame-id))
+          "the per-request frame must be gone by the time render returns")
+      (rf/destroy-frame! ::control)))
 
   (testing "and so does a render that threw — the `finally` is the whole
             claim, since a leaked frame per failed request is a leak per
