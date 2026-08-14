@@ -188,7 +188,7 @@ check_version_and_no_mvn_literal() {
 # converse — "is every coordinate deps.edn declares present in this
 # script?" — and the converse is the direction the gate actually drifted.
 # tools/xray/deps.edn grew from one in-repo `:local/root` coordinate to TEN
-# (core, epoch, routing, flows, schemas, resources, machines, freehand,
+# (core, epoch, routing, flows, schemas, resources, machines,
 # machines-viz, reagent-slim) while TOOLS_LOCAL_ROOTS below kept listing
 # one; tools/story-mcp/deps.edn grew a second (mcp-base) while its entry
 # kept listing one. Throughout, the gate printed "PASSED — all 18
@@ -817,19 +817,25 @@ declare -A TOOLS_PATHS=(
 # completeness pass at the end of the tools loop now derives the true set
 # from each deps.edn, so this list cannot silently fall behind again.
 #
-# Xray's `day8/re-frame2-freehand` and `day8/re-frame2-hicasso` lines assert
-# ONLY what the loop below asserts of every entry: that the coordinate is
-# declared at `:local/root` in the committed deps.edn, which is true today
-# and green. Neither asserts the artefact is PUBLISHABLE — implementation/
-# freehand/deps.edn and implementation/hicasso/deps.edn both deliberately
-# carry no `:clein/build` (Freehand's publication is EP-0036 F6 territory;
-# Hicasso's release wiring is rf2-hic-008's), so neither coordinate can be
-# rewritten to any `:mvn/version`. They are the TWO coordinates
-# release-xray.yml deliberately leaves at `:local/root`; the other nine are
-# rewritten there. Whether Xray is publishable before they ship is an OPEN
-# OPERATOR DECISION (rf2-5dut1 / rf2-hic-023) that this gate neither makes
-# nor routes around; preflight-xray-package.sh is where it comes due, by
-# refusing the deploy — and its unpublishable-coordinate pin is the ledger.
+# Xray's `day8/re-frame2-hicasso` line asserts ONLY what the loop below
+# asserts of every entry: that the coordinate is declared at `:local/root` in
+# the committed deps.edn, which is true today and green. It does NOT assert
+# the artefact is PUBLISHABLE — implementation/hicasso/deps.edn deliberately
+# carries no `:clein/build` (its release wiring is rf2-hic-008's), so the
+# coordinate cannot be rewritten to any `:mvn/version`. It is the ONE
+# coordinate release-xray.yml deliberately leaves at `:local/root`; the other
+# nine are rewritten there. Whether Xray is publishable before Hicasso ships
+# is an OPEN OPERATOR DECISION (rf2-hic-023) that this gate neither makes nor
+# routes around; preflight-xray-package.sh is where it comes due, by refusing
+# the deploy — and its unpublishable-coordinate pin is the ledger.
+#
+# rf2-l86mm — `day8/re-frame2-freehand` was the second such line until the
+# Views panel's Mounted Views + Declared View Sites sections retired with the
+# Freehand substrate, taking Xray's only production require on it
+# (`day8.re-frame2-xray.mounted-views`) and the coordinate with them. The
+# completeness pass above is what makes removing this line MANDATORY rather
+# than optional: it derives the true set from tools/xray/deps.edn, so a
+# coordinate listed here and absent there reds.
 TOOLS_LOCAL_ROOTS=$(cat <<'EOF'
 xray|day8/re-frame2 {:local/root "../../implementation/core"}
 xray|day8/re-frame2-epoch {:local/root "../../implementation/epoch"}
@@ -838,7 +844,6 @@ xray|day8/re-frame2-flows {:local/root "../../implementation/flows"}
 xray|day8/re-frame2-schemas {:local/root "../../implementation/schemas"}
 xray|day8/re-frame2-resources {:local/root "../../implementation/resources"}
 xray|day8/re-frame2-machines {:local/root "../../implementation/machines"}
-xray|day8/re-frame2-freehand {:local/root "../../implementation/freehand"}
 xray|day8/re-frame2-hicasso {:local/root "../../implementation/hicasso"}
 xray|day8/re-frame2-machines-viz {:local/root "../machines-viz"}
 xray|day8/reagent-slim {:local/root "../../implementation/adapters/reagent-slim"}
