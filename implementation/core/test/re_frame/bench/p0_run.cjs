@@ -109,10 +109,10 @@ const http = require('node:http');
 const path = require('node:path');
 
 // One build id, N programs, so nothing may cache between them (rf2-2rtt6.20).
-const { resetLaneBuildCache } = require('../../../../freehand/test/re_frame/freehand/bench/lane_cache.cjs');
-// The bench lane's one page-failure collector, reached by path across the
-// test trees exactly as `lane_cache.cjs` is (rf2-sib23).
-const { watchPage } = require('../../../../freehand/test/re_frame/freehand/bench/sentinel.cjs');
+const { resetLaneBuildCache } = require('./lane_cache.cjs');
+// The bench lane's one page-failure collector, a sibling in this same
+// shared bench-helper directory (rf2-sib23).
+const { watchPage } = require('./sentinel.cjs');
 
 const IMPL = path.resolve(__dirname, '../../../..');
 

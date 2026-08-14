@@ -122,7 +122,7 @@ const PORT = Number(process.env.HN_PORT || 8141);
 // now sits beside `navigate.cjs` in the shared bench-helper directory,
 // hoisted there by rf2-9smjn once a second tree needed it.)
 const { resetLaneBuildCache } = require(
-  path.join(IMPL, 'freehand/test/re_frame/freehand/bench/lane_cache.cjs')
+  path.join(IMPL, 'core/test/re_frame/bench/lane_cache.cjs')
 );
 
 // THE LANE'S ONE PAGE-FAILURE COLLECTOR (rf2-sib23), reached the same way and
@@ -132,7 +132,7 @@ const { resetLaneBuildCache } = require(
 // that printed and recorded nothing, so an uncaught throw was announced on
 // stderr and the run exited 0 beneath it.
 const { watchPage } = require(
-  path.join(IMPL, 'freehand/test/re_frame/freehand/bench/sentinel.cjs')
+  path.join(IMPL, 'core/test/re_frame/bench/sentinel.cjs')
 );
 
 // --- the plan ---------------------------------------------------------------
@@ -1081,7 +1081,7 @@ function loadNavigate() {
   try {
     return require(path.join(
       IMPL,
-      'freehand/test/re_frame/freehand/bench/navigate.cjs'
+      'core/test/re_frame/bench/navigate.cjs'
     ));
   } catch (_) {
     const NAV_TIMEOUT_MS = 60 * 1000;

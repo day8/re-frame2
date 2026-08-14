@@ -167,9 +167,9 @@ const fs = require('node:fs');
 const http = require('node:http');
 const path = require('node:path');
 
-const { navigate, NAV_TIMEOUT_MS } = require('../../../../../../freehand/test/re_frame/freehand/bench/navigate.cjs');
-const { resetLaneBuildCache } = require('../../../../../../freehand/test/re_frame/freehand/bench/lane_cache.cjs');
-const guard = require('../../../../../../freehand/test/re_frame/freehand/bench/order_guard.cjs');
+const { navigate, NAV_TIMEOUT_MS } = require('../../../../../../core/test/re_frame/bench/navigate.cjs');
+const { resetLaneBuildCache } = require('../../../../../../core/test/re_frame/bench/lane_cache.cjs');
+const guard = require('../../../../../../core/test/re_frame/bench/order_guard.cjs');
 const seamlib = require('../seam.cjs');
 
 // THE CALIBRATED CHECK STANDARD (rf2-pzqy8) — data, never code. Recalibrating

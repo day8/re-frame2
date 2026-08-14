@@ -155,7 +155,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const { shadowBuildVerdict, reportRefusal } = require('../../../../../hicasso/test/re_frame/bench/hicasso/lane_build.cjs');
-const { resetLaneBuildCache } = require('./lane_cache.cjs');
+const { resetLaneBuildCache } = require('../../../../../core/test/re_frame/bench/lane_cache.cjs');
 
 const IMPL = path.resolve(__dirname, '../../../../..');
 const BUILD_ID = 'freehand-release';

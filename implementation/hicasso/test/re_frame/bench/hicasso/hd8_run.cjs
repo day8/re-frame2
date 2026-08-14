@@ -72,13 +72,13 @@ const path = require('node:path');
 // Both shared with the freehand bench tree, and reached the same way
 // rf2-2rtt6.2's own driver reaches `navigate`: one navigation helper and one
 // arm-order guard for the repository, never a second copy per lane.
-const { navigate, NAV_TIMEOUT_MS } = require('../../../../../freehand/test/re_frame/freehand/bench/navigate.cjs');
-const guard = require('../../../../../freehand/test/re_frame/freehand/bench/order_guard.cjs');
-const { watchPage } = require('../../../../../freehand/test/re_frame/freehand/bench/sentinel.cjs');
+const { navigate, NAV_TIMEOUT_MS } = require('../../../../../core/test/re_frame/bench/navigate.cjs');
+const guard = require('../../../../../core/test/re_frame/bench/order_guard.cjs');
+const { watchPage } = require('../../../../../core/test/re_frame/bench/sentinel.cjs');
 // One build id, N programs, so nothing may cache between them (rf2-2rtt6.20).
 // This driver is where the fault was found: run the P0 lane, then run HD-008,
 // and the page died before taking a sample.
-const { resetLaneBuildCache } = require('../../../../../freehand/test/re_frame/freehand/bench/lane_cache.cjs');
+const { resetLaneBuildCache } = require('../../../../../core/test/re_frame/bench/lane_cache.cjs');
 // shadow-cljs exits 0 on WARNINGS, so a status check is not a gate. The
 // lane's one build door refuses a warned build (rf2-2rtt6.73).
 const { shadowBuild } = require('./lane_build.cjs');

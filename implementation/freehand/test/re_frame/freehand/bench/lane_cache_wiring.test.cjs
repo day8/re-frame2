@@ -218,10 +218,18 @@ const CHECKS = {
     title: 'requires lane_cache.cjs',
     // Over `code`, string bodies and all: a genuine require's path is itself a
     // string literal, so this one cannot be read from executable text.
+    //
+    // THE PREFIX IS DELIBERATELY UNPINNED (rf2-it4y5). `lane_cache.cjs` now
+    // lives in the shared bench-helper directory `core/test/re_frame/bench/`,
+    // which the rider trees reach at different relative depths — five `../`
+    // from here, six from `hicasso/.../shapes/`, `./` from a sibling in core
+    // itself. What this check owns is THAT a rider imports the cache rule;
+    // WHERE the rule sits is not its business, and a pinned prefix would read
+    // a correct re-home as a violation by every rider at once.
     run: ({ file, code }) =>
-      /require\(\s*['"]\.\/lane_cache\.cjs['"]\s*\)/.test(code)
+      /require\(\s*['"][^'"]*lane_cache\.cjs['"]\s*\)/.test(code)
         ? null
-        : `${file} spawns a shared-build-id release and must require ./lane_cache.cjs`,
+        : `${file} spawns a shared-build-id release and must require lane_cache.cjs`,
   },
 
   clearsFirst: {
