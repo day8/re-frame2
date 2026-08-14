@@ -55,6 +55,8 @@ A **concurrently scheduled reveal** — one driven by a timer, a promise, or a t
 
 Activity should be used through native React construction—Hicasso-native, UIx, or a `defhost` declaration. Hicasso needs compatibility, not an Activity DSL.
 
+That recommendation carries the matrix above with it rather than deferring it. `n/use-sub` and `n/use-frame` owe the same conduct as the boundary shell — release on hide, no speculative publication from hidden work, reacquisition of the current read set on reveal, no resurrection of stale membership — and they are held to it under a real `<Activity>` rather than credited with it by construction. The two tiers do resolve a read through the same collector doors, so the inheritance argument is a good one; a route the product recommends is the last place to take an argument in place of a witness. `use-frame` carries the one asymmetry worth stating here: its bundle is the runtime's memo row for a frame incarnation rather than a fiber's, so it crosses a hide unchanged and a callback holding one from before the hide still addresses the live frame. The incarnation rule bites on a reincarnation, never on a hide.
+
 ## External-store transitions have a real ceiling
 
 React's [`useSyncExternalStore`](https://react.dev/reference/react/useSyncExternalStore) documentation states that external-store mutations cannot be marked as non-blocking Transition updates. React may restart a transition as blocking when the snapshot changes, and it discourages suspending from values read from an external store because an update can replace visible content with a Suspense fallback.
