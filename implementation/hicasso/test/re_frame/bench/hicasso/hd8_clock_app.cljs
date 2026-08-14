@@ -45,9 +45,12 @@
   Spec 006 installs exactly one adapter per process, and a mount is a
   one-shot read, so the mount plans carry the frontier and donor arms in
   every run and each run adds the Reagent path native to its adapter —
-  [[re-frame.bench.hicasso.hd8-rows]]'s `arm-ids-for`, minus `:donor-fh`
-  (that arm is `rf2-2rtt6.29`'s page's subject, not this re-take's; the
-  six published arms are what the bead re-takes).
+  [[re-frame.bench.hicasso.hd8-rows]]'s `arm-ids-for`, which this plan now
+  MATCHES exactly. It used to subtract `:donor-fh` from it, because that
+  arm was `rf2-2rtt6.29`'s page's subject rather than this re-take's;
+  `rf2-m4rpa` has since retired `:donor-fh` from `hd8-rows` itself, so the
+  subtraction is gone and the two instruments carry the same six arms on
+  the same 4/5/5 per-run plans.
 
   Owner: rf2-2rtt6.1 (standard); this entry rf2-2rtt6.31."
   (:require ["react-dom/client" :as react-dom-client]
@@ -84,10 +87,14 @@
 ;; ---------------------------------------------------------------------------
 
 (def ^:private arm-ids-for
-  "hd8-rows' mount partition over the SIX PUBLISHED ARMS. `:donor-fh` is
-  deliberately absent — it is rf2-2rtt6.29's arm, measured on its own page;
-  including it here would change `k` for a comparison this bead does not
-  make."
+  "hd8-rows' mount partition over the SIX PUBLISHED ARMS — 4/5/5 by run.
+
+  This was a deliberate subtraction of `:donor-fh` from `hd8-rows`'
+  plan, so that a seventh arm could not change `k` for a comparison
+  rf2-2rtt6.31 does not make. `rf2-m4rpa` retired `:donor-fh` at source,
+  so the map below is no longer a subtraction — it is the same partition
+  `hd8-rows` now carries, held here because the two instruments are
+  separately readable and neither should silently inherit the other's."
   {:uix     [:floor :uix :donor-r1 :donor-r2]
    :reagent [:floor :reagent :uix :donor-r1 :donor-r2]
    :slim    [:floor :reagent-slim :uix :donor-r1 :donor-r2]})
