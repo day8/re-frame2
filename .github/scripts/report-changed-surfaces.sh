@@ -620,8 +620,28 @@ else
     # otherwise SKIP the only job that builds it. The widening the
     # `implementation/freehand/*` case further down anticipated, arrived at from
     # the consumer side.
+    #
+    # rf2-in6c4 — the top-level testbed SOURCES joined this list when
+    # check-examples-compile.cjs widened its derivation to `:testbeds/*`. Same
+    # shape as the two widenings above, and the same reason: that gate is now
+    # the only PR-time job that compiles those fifteen builds. Read the arm
+    # below, not this list — `testbeds/*` is deliberately NOT here, because a
+    # first-match `case` would then swallow the extension narrowing.
     case "$file" in
       examples/*|implementation/adapters/*|implementation/epoch/*|implementation/schemas/*|implementation/machines/*|implementation/routing/*|implementation/flows/*|implementation/http/*|implementation/ssr/*|implementation/ssr-ring/*|implementation/resources/*|implementation/security/*|implementation/ui/*|implementation/freehand/*|implementation/deps.edn|implementation/shadow-cljs.edn|implementation/package.json|implementation/package-lock.json|implementation/scripts/check-examples-compile.cjs)
+        examples_compile=true
+        ;;
+      # rf2-in6c4 — top-level testbed CLJS sources. The extensions are the
+      # narrowing, and they are shadow's own: `testbeds/README.md`,
+      # `testbeds/*/index.html` and `testbeds/spec-helpers.cjs` cannot change
+      # what `shadow-cljs compile` produces, and this is a ~10-minute job. A
+      # NEW testbed build still arms it whatever its files look like, because
+      # declaring one edits `implementation/shadow-cljs.edn`, which is on the
+      # roster above. (`.cljc` is listed for the same reason the route-path
+      # census predicate lists it — a testbed is free to be reader-conditional
+      # — and plain `.clj` is absent for the same reason it is absent there:
+      # shadow does not compile it into a browser build.)
+      testbeds/*.cljs|testbeds/*.cljc)
         examples_compile=true
         ;;
       tools/story/src/*|tools/story/testbeds/*|tools/story/deps.edn|tools/xray/src/*|tools/xray/testbeds/*|tools/xray/deps.edn|tools/machines-viz/src/*|tools/machines-viz/deps.edn)

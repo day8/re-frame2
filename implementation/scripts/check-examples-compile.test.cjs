@@ -1,26 +1,31 @@
 #!/usr/bin/env node
 /*
- * Tests for `check-examples-compile.cjs` — the example-build COMPILE gate
- * (rf2-0vav5.1 + rf2-cn6kc.1).
+ * Tests for `check-examples-compile.cjs` — the standalone-build COMPILE gate
+ * (rf2-0vav5.1 + rf2-cn6kc.1 + rf2-in6c4).
  *
  * The gate derives its compile list from `shadow-cljs.edn`'s `:examples/*`
- * build ids, so a newly-declared example build is swept automatically. The
- * TEETH live here: these tests pin the enumeration so the derivation can't
- * silently under-count (which would let a build ship uncompiled-but-green,
- * the exact regression class the gate exists to prevent). Specifically:
+ * and `:testbeds/*` build ids, so a newly-declared build under either prefix
+ * is swept automatically. The TEETH live here: these tests pin the
+ * enumeration so the derivation can't silently under-count (which would let
+ * a build ship uncompiled-but-green, the exact regression class the gate
+ * exists to prevent). Specifically:
  *
  *   - the parser recovers the previously-uncovered builds (login-uix,
  *     dashboard-uix, login-helix, process-monitor-helix) AND the covered
  *     counter trio — so the gate sweeps the whole standalone example set;
- *   - a NEWLY-declared `:examples/*` build is picked up (proven by feeding
- *     the parser a synthetic edn with an extra build — the enumeration
- *     grows, which is exactly why the live gate would compile it and fail
- *     RED if it were broken);
+ *   - it recovers the twelve non-tenant top-level `:testbeds/*` builds
+ *     rf2-in6c4 found dark, and `tenant-switcher` beside them;
+ *   - a NEWLY-declared build under EITHER prefix is picked up (proven by
+ *     feeding the parser a synthetic edn with an extra build — the
+ *     enumeration grows, which is exactly why the live gate would compile it
+ *     and fail RED if it were broken);
  *   - a build REMOVED from the compiled set is detected (a hardcoded subset
  *     would miss it — proven by feeding an edn missing a known build);
  *   - line comments and mid-line `:examples/...` tokens are NOT mistaken
  *     for build defs (no false coverage / no parser crash);
- *   - the parse over the REAL shadow-cljs.edn is non-vacuous.
+ *   - the parse over the REAL shadow-cljs.edn is non-vacuous UNDER EACH
+ *     PREFIX — a prefix that stops matching cannot hide behind its sibling's
+ *     healthy count.
  *
  * Standalone node-runnable suite — no external test framework, mirroring
  * `_adapter-smoke-filter.test.cjs` / `dev-testbed.test.cjs`. Wired into
@@ -32,9 +37,11 @@
 const assert = require('assert');
 
 const {
+  COMPILED_BUILD_PREFIXES,
   readShadowEdn,
   stripEdnComments,
-  enumerateExampleBuilds,
+  enumerateCompiledBuilds,
+  prefixesBelowFloor,
   parseBuildSummaries,
   buildsWithWarnings,
   normaliseBuildId,
@@ -54,18 +61,21 @@ function it(label, fn) {
   }
 }
 
-console.log('check-examples-compile enumeration tests (rf2-0vav5.1 + rf2-cn6kc.1)');
+console.log(
+  'check-examples-compile enumeration tests (rf2-0vav5.1 + rf2-cn6kc.1 + rf2-in6c4)',
+);
 
 // --- Real-file enumeration: non-vacuous + covers the gap builds -----------
 
 const realEdn = readShadowEdn();
-const realBuilds = enumerateExampleBuilds(realEdn);
+const realBuilds = enumerateCompiledBuilds(realEdn);
 
-it('enumeration over the real shadow-cljs.edn is non-vacuous', () => {
-  assert.ok(
-    realBuilds.length >= 10,
-    `expected the full example set (>=10), got ${realBuilds.length}: ` +
-      realBuilds.join(', '),
+it('enumeration over the real shadow-cljs.edn is non-vacuous under EVERY swept prefix', () => {
+  assert.deepStrictEqual(
+    prefixesBelowFloor(realBuilds),
+    [],
+    `every swept prefix must clear its floor; got ${realBuilds.length} ` +
+      `build(s) total: ${realBuilds.join(', ')}`,
   );
 });
 
@@ -104,24 +114,81 @@ it('enumeration is sorted + de-duplicated', () => {
   );
 });
 
-it('every recovered build is an examples/ coord (no other prefixes leak in)', () => {
-  for (const b of realBuilds) {
+// rf2-in6c4 — the twelve non-tenant top-level testbed builds the gating audit
+// found dark. They are named individually rather than counted: a count would
+// go green again the moment a thirteenth build replaced a deleted twelfth,
+// which is exactly the drift the derivation exists to expose. `tenant-switcher`
+// is listed beside them because it is the same shadow build and costs nothing
+// extra here, even though `tenant_switcher_smoke` already covers it.
+const TOP_LEVEL_TESTBED_BUILDS = [
+  'testbeds/deep-machine',
+  'testbeds/deliberate-throw',
+  'testbeds/drain-depth-trigger',
+  'testbeds/http-toggle',
+  'testbeds/large-dispatcher',
+  'testbeds/long-flow-w-failure',
+  'testbeds/multi-frame',
+  'testbeds/non-trivial-app-db',
+  'testbeds/schema-violation',
+  'testbeds/ssr-basic',
+  'testbeds/ssr-hydration-mismatch',
+  'testbeds/ssr-multi-frame',
+  'testbeds/tenant-switcher',
+];
+
+it('the twelve dark top-level testbed builds are swept (rf2-in6c4 gap)', () => {
+  for (const b of TOP_LEVEL_TESTBED_BUILDS) {
     assert.ok(
-      b.startsWith('examples/'),
-      `${b} is not an examples/ build — :testbeds/* and :story-static/* ` +
-        `must NOT be swept by this gate`,
+      realBuilds.includes(b),
+      `${b} is NOT in the gate's compile set — the top-level testbeds/ tree ` +
+        `holds no test file and no armed lane :requires its namespaces, so ` +
+        `nothing else compiles it at PR time.`,
     );
   }
+});
+
+it('every recovered build sits under a DECLARED swept prefix', () => {
+  const prefixes = Object.keys(COMPILED_BUILD_PREFIXES);
+  for (const b of realBuilds) {
+    assert.ok(
+      prefixes.some((p) => b.startsWith(`${p}/`)),
+      `${b} is not under a declared swept prefix (${prefixes.join(', ')}) — ` +
+        `:story-static/* in particular must NOT be swept here (it is a ` +
+        `release-shaped export with its own story_static_gate).`,
+    );
+  }
+});
+
+it('the per-prefix floor has TEETH: a prefix that stops matching is caught', () => {
+  // The vacuous-pass this closes: widening the roster to two prefixes makes a
+  // single TOTAL floor satisfiable by the examples alone, so the testbeds arm
+  // could silently stop matching and the gate would still pass having dropped
+  // fifteen builds. Feed the checker an examples-only roster well above any
+  // total floor and require it to name `testbeds` anyway.
+  const examplesOnly = realBuilds.filter((b) => b.startsWith('examples/'));
+  assert.ok(
+    examplesOnly.length >= 10,
+    'precondition: the examples roster alone clears any plausible total floor',
+  );
+  const starved = prefixesBelowFloor(examplesOnly);
+  assert.deepStrictEqual(
+    starved.map((s) => s.prefix),
+    ['testbeds'],
+    `an examples-only roster must starve exactly the testbeds prefix, got: ` +
+      JSON.stringify(starved),
+  );
+  // ...and a healthy roster starves nothing.
+  assert.deepStrictEqual(prefixesBelowFloor(realBuilds), []);
 });
 
 // --- Teeth on synthetic edn: ADD a build => the gate grows to cover it ----
 
 it('a NEWLY-declared example build is picked up automatically (auto-cover)', () => {
-  const base = enumerateExampleBuilds(realEdn);
+  const base = enumerateCompiledBuilds(realEdn);
   const withExtra =
     realEdn +
     '\n  :examples/brand-new-demo\n  {:target :browser\n   :output-dir "out/examples/brand-new-demo"\n   :modules {:main {:init-fn brand-new-demo.core/run}}}\n';
-  const grown = enumerateExampleBuilds(withExtra);
+  const grown = enumerateCompiledBuilds(withExtra);
   assert.ok(
     grown.includes('examples/brand-new-demo'),
     'a freshly-declared :examples/* build must appear in the compile set ' +
@@ -134,17 +201,49 @@ it('a NEWLY-declared example build is picked up automatically (auto-cover)', () 
   );
 });
 
+it('a NEWLY-declared TESTBED build is picked up automatically (rf2-in6c4)', () => {
+  // The auto-cover property has to hold under the NEW prefix too, or the hole
+  // rf2-in6c4 closed reopens for the fourteenth testbed rather than the
+  // thirteenth. Same shape as the example case above, one prefix over.
+  const base = enumerateCompiledBuilds(realEdn);
+  const withExtra =
+    realEdn +
+    '\n  :testbeds/brand-new-surface\n  {:target :browser\n   :output-dir "out/testbeds/brand-new-surface"\n   :modules {:main {:init-fn brand-new-surface.core/run}}}\n';
+  const grown = enumerateCompiledBuilds(withExtra);
+  assert.ok(
+    grown.includes('testbeds/brand-new-surface'),
+    'a freshly-declared :testbeds/* build must appear in the compile set ' +
+      'so the gate compiles (and would fail RED on) it',
+  );
+  assert.strictEqual(
+    grown.length,
+    base.length + 1,
+    'adding exactly one testbed build must grow the set by exactly one',
+  );
+});
+
+it('a :story-static/* declaration is NOT swept (prefix roster is closed)', () => {
+  const edn =
+    '  :examples/real {:target :browser}\n' +
+    '  :testbeds/real {:target :browser}\n' +
+    '  :story-static/counter-with-stories {:target :browser}\n';
+  assert.deepStrictEqual(enumerateCompiledBuilds(edn), [
+    'examples/real',
+    'testbeds/real',
+  ]);
+});
+
 // --- Teeth on synthetic edn: REMOVE a build => enumeration shrinks --------
 // A hardcoded subset would still "cover" a deleted build; deriving from the
 // file means a removed declaration is no longer enumerated. This pins that
 // the enumeration tracks the file (so the gate never compiles a phantom).
 
 it('a REMOVED example declaration drops out of the compile set', () => {
-  const base = enumerateExampleBuilds(realEdn);
+  const base = enumerateCompiledBuilds(realEdn);
   assert.ok(base.includes('examples/login-uix'), 'precondition: login-uix present');
   // Remove the login-uix build def header from the source.
   const without = realEdn.replace(/^\s*:examples\/login-uix\s*\{/m, '  :placeholder\n  {');
-  const shrunk = enumerateExampleBuilds(without);
+  const shrunk = enumerateCompiledBuilds(without);
   assert.ok(
     !shrunk.includes('examples/login-uix'),
     'a removed :examples/* declaration must no longer be enumerated',
@@ -162,7 +261,7 @@ it('a commented-out build id is NOT counted (no false coverage)', () => {
   const edn =
     '  :examples/real {:target :browser}\n' +
     '  ;; :examples/commented {:target :browser}  removed build note\n';
-  const builds = enumerateExampleBuilds(edn);
+  const builds = enumerateCompiledBuilds(edn);
   assert.deepStrictEqual(builds, ['examples/real']);
 });
 
@@ -173,7 +272,7 @@ it('a mid-line / prose :examples/... token is NOT counted as a build', () => {
     '  :examples/real {:target :browser}\n' +
     '  ;; see :examples/xray-rhs-smoke for the removed variant\n' +
     '   :modules {:main {:init-fn foo/run}} ;; trailing :examples/nope {\n';
-  const builds = enumerateExampleBuilds(edn);
+  const builds = enumerateCompiledBuilds(edn);
   assert.deepStrictEqual(builds, ['examples/real']);
 });
 
