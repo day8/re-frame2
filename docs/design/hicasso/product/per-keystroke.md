@@ -392,6 +392,7 @@ needed a quiet box are the ones §6 refuses.
 | 9 | control on this page's current base, before P12's rows | `0` | 1,509 / 9,559, 0 failures |
 | 10 | **sabotage** — P12's two new rows asserting the PRE-EVENT text | `1` | captured red naming both lines, below |
 | 11 | P12's discriminating rows, corrected | `0` | 1,509 / 9,561, 0 failures — no census figure moved |
+| 12 | re-taken after rebasing onto `cd58aec50a` | `0` | 1,509 / 9,561, 0 failures — identical to run 11 |
 
 The node lane (`npm run test:cljs`) was run on the same tree and returns `0` at
 13,875 tests / 70,108 assertions. It is not where these figures come from — every
@@ -440,7 +441,7 @@ translates line endings) matched its pre-sabotage value exactly, at
 `7197902f6ed8054daf627122a993eb22ae24ed33`. That hash pins the file **as it
 stood between runs 5 and 6**; it has had three commits since — the `delay` in
 the node-lane fix above, the attribute-trace correction §5 is drawn through, and
-P12's discriminating rows — and **run 11** is the reading that covers the file as
+P12's discriminating rows — and **run 12** is the reading that covers the file as
 it ships.
 
 **Run 10 is the second sabotage, and it is the one that retired P12's
