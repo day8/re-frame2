@@ -348,10 +348,12 @@ const ENGINES = ONLY
 // names, so deleting a witness means deliberately editing the gate that
 // requires it.
 //
-// Sum today: 97, which is what each engine reports.
+// Sum today: 186, which is what each engine reports — 97 from rf2-hic-016's
+// I15 witnesses and 89 from rf2-hic-040's conformance matrix.
 // ---------------------------------------------------------------------------
 
 const REQUIRED_SECTIONS = {
+  // rf2-hic-016 — invariant I15, the controlled-TEXT law
   'same-turn-convergence': 8,
   'beforeinput-does-not-drive-the-converge': 7,
   'caret-across-the-echo': 9,
@@ -364,6 +366,22 @@ const REQUIRED_SECTIONS = {
   'a-revision-arriving-mid-composition': 15,
   'owned-checked-pair': 6,
   'form-reset-and-fill-proxy': 3,
+  // rf2-hic-040 — the control/DOM conformance matrix. One section per row
+  // of `dispositions.md` section 2.3 that this bead owns, so a policy cell
+  // in that table has a section name to cite and a deleted witness reds by
+  // the name the table quotes.
+  'radio-group-echoes-committed': 9,
+  'select-single-echoes-committed': 8,
+  'select-multiple-supported': 5,
+  'reserved-marker-under-reads-a-multiple-select': 5,
+  'file-input-is-uncontrollable': 5,
+  'types-without-a-caret-echo-committed': 7,
+  'contenteditable-is-not-a-controlled-field': 8,
+  'blur-after-unmount': 9,
+  'async-normalization': 5,
+  'form-reset-autofill-and-formdata': 13,
+  'svg-attributes': 8,
+  'custom-element-attributes': 7,
   'armed-edges-are-wired': 9,
 };
 
@@ -389,6 +407,28 @@ const REQUIRED_RECORDS = {
     'eventless-fill-leaves-a-draft',
     'form-reset-clears-the-eventless-draft',
     'value-after-reset',
+  ],
+  // rf2-hic-040. Every one of these is conduct that belongs to the ENGINE
+  // or to React rather than to this runtime, which is why it is measured
+  // rather than required — and every one is measured in all three engines,
+  // so a divergence no narrowing names is still a red gate.
+  'file-input-marker-reading': [
+    'names-the-first-file-only',
+    'is-not-the-file-list',
+  ],
+  'selection-api-on-types-without-a-caret': ['count', 'day', 'level'],
+  'blur-edges-across-an-unmount': [
+    'edges-before-the-unmount',
+    'edges-after-the-unmount',
+    'a-blur-was-reported',
+    'focus-fell-to-the-body',
+  ],
+  'form-reset-across-control-classes': [
+    'text-agrees-with-the-model',
+    'checkbox-agrees-with-the-model',
+    'select-agrees-with-the-model',
+    'checkbox-after-reset',
+    'select-after-reset',
   ],
 };
 

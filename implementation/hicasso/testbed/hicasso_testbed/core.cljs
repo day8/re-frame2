@@ -45,6 +45,35 @@
   cannot outlive it, and \"cannot strand\" is worth witnessing rather than
   reasoning about.
 
+  ## The rest of the control roster (rf2-hic-040)
+
+  Everything above is one shape of control — a text field, in seven model
+  policies — because I15 is a law about text. The CONFORMANCE matrix is a
+  different question: does every control type named in
+  [specification 4.2] have a support-or-refusal policy, in three engines,
+  with none of them silently unsupported. That roster is
+  `docs/design/hicasso/product/dispositions.md` section 2.3, and these
+  are the controls it needs on screen:
+
+  | control | policy behind it | what it is here to settle |
+  |---|---|---|
+  | `radio-a/b/c` | one model slot; the group refuses `\"c\"` | owned `:checked` on a group, and a committed echo where the clicked element is not the one that carries the model |
+  | `pick` (`<select>`) | refuses `\"banned\"` | `impl.controlled` does not apply to a select at all — `convergeable-tag?` says so — so what converges it is React's own restore |
+  | `picks` (`<select multiple>`) | drops `\"banned\"` | the SUPPORTED spelling: `h/hfn`, because `::h/value` reads one option |
+  | `picks-marker` (`<select multiple>`) | takes the one string it is handed | the NAIVE spelling, on screen so the cost of the reserved marker on this control is measured rather than described |
+  | `file` | uncontrolled; `h/hfn` reads `.files` | the only policy a file input can have — `value` refuses every assignment but `\"\"` |
+  | `count` (`number`) | clamps above ten | a controlled type with NO caret: `caret-type?` refuses it, so the converge declines and React's restore is the echo |
+  | `day` (`date`) | refuses any year but 2026 | the same, on a type whose value has a format |
+  | `level` (`range`) | snaps to a multiple of ten | the same, with a normalisation the control's own stepping cannot produce |
+  | `prose` (`contenteditable`) | records what the handler read | NOT a controlled field, and this testbed does not pretend it is |
+  | `blur-probe` | shares `async`'s model | blur after unmount, which is an absence: React synthesises no `blur` for a node it removes |
+  | `async` | accepts; corrected out of band later | async normalization, on the path the keystroke converge is deliberately NOT on |
+  | `svg` / `custom` | none | attribute conformance, read off the live DOM rather than a string |
+
+  The form gained a name on every control, plus a checkbox and a select,
+  because `FormData` reads NAMED controls and a nameless form would make
+  the extraction row pass by reading nothing.
+
   ## The trace, and the two instruments the OPERATOR needs
 
   Everything above is enough for a driver that can call
@@ -126,7 +155,34 @@
     :plain    typed
     :revision typed
     :form-b   typed
+    :async    typed
     :digits   (if (re-matches #"[0-9]*" typed) typed old)
+    ;; --- rf2-hic-040's controls ---------------------------------------------
+    ;; Every one of these REFUSES or NORMALISES, because a control whose
+    ;; policy accepts everything cannot witness "echoes only committed
+    ;; state" — the field would show the same string under a working
+    ;; converge and a broken one.
+    ;;
+    ;; `pick` (select, single) refuses one option, so choosing it must
+    ;; leave the select showing the previous choice.
+    :pick      (if (= typed "banned") old typed)
+    :form-pick typed
+    ;; `count` (number) clamps, so the committed value differs from the
+    ;; typed one at every value over ten.
+    :count    (let [n (js/Number typed)]
+                (cond
+                  (or (= typed "") (js/isNaN n)) old
+                  (> n 10)                       "10"
+                  :else                          typed))
+    ;; `day` (date) refuses any year but 2026. A date field's value is
+    ;; `yyyy-mm-dd` in every engine, which is what makes a string policy
+    ;; legitimate here rather than a simplification.
+    :day      (if (re-matches #"2026-\d{2}-\d{2}" typed) typed old)
+    ;; `level` (range) snaps to a multiple of ten — a normalisation the
+    ;; browser's own stepping cannot produce, so the echo is this
+    ;; runtime's rather than the control's.
+    :level    (let [n (js/Number typed)]
+                (if (js/isNaN n) old (str (* 10 (js/Math.round (/ n 10))))))
     ;; Refusing, and the refusal is the whole point: it is what makes the
     ;; reset's TARGET differ from the draft the field is showing while a
     ;; composition is live. See the table in the namespace docstring.
@@ -153,7 +209,22 @@
    :revision-strict "42"
    :form-a   "FORM"
    :form-b   "form"
-   :mountable "9"})
+   :mountable "9"
+   ;; rf2-hic-040's controls
+   :pick     "one"
+   :form-pick "one"
+   :count    "5"
+   :day      "2026-01-15"
+   :level    "30"
+   :async    "start"})
+
+(def ^:private radio-seed
+  "The radio group's committed choice, and the option its policy refuses.
+  A radio group is one model slot and N elements, so it does not live in
+  `:fields` — the `apply-policy` table is keyed per field, and a refusal
+  here has to be expressed against the group rather than against the
+  element that was clicked."
+  {:choice "b" :refused "c"})
 
 ;; ---------------------------------------------------------------------------
 ;; Events and subscriptions — an ordinary re-frame2 app, nothing else
@@ -165,10 +236,24 @@
 (rf/reg-sub :tb/revision (fn [db _] (:revision db)))
 (rf/reg-sub :tb/mounted? (fn [db _] (:mounted? db)))
 (rf/reg-sub :tb/armed (fn [db _] (:armed db)))
+(rf/reg-sub :tb/radio (fn [db _] (:radio db)))
+(rf/reg-sub :tb/picks (fn [db _] (:picks db)))
+(rf/reg-sub :tb/picks-marker (fn [db _] (:picks-marker db)))
+(rf/reg-sub :tb/files (fn [db _] (:files db)))
+(rf/reg-sub :tb/prose (fn [db _] (:prose db)))
+(rf/reg-sub :tb/focus-log (fn [db _] (:focus-log db)))
+(rf/reg-sub :tb/probe-mounted? (fn [db _] (:probe-mounted? db)))
 
 (rf/reg-event :tb/seed
   (fn [_ _] {:db {:fields seed :edits {} :flag false :revision 0
-                  :mounted? true :armed nil}}))
+                  :mounted? true :armed nil
+                  :radio (:choice radio-seed)
+                  :picks ["a"]
+                  :picks-marker ["a"]
+                  :files []
+                  :prose "hand-written"
+                  :focus-log []
+                  :probe-mounted? true}}))
 
 ;; The arrival counter is bumped on EVERY intent, before the policy is
 ;; consulted — a refusal is an arrival too. That is the whole of what the
@@ -199,6 +284,89 @@
   (fn [{:keys [db]} _] {:db (update db :mounted? not)}))
 
 (rf/reg-event :tb/noop (fn [{:keys [db]} _] {:db db}))
+
+;; ---------------------------------------------------------------------------
+;; rf2-hic-040's controls — the events behind the rest of the roster
+;; ---------------------------------------------------------------------------
+
+;; A radio group is ONE model slot, so its refusal is expressed against the
+;; group. Choosing the refused option leaves the committed choice where it
+;; was, which is what makes "echoes only committed state" observable on a
+;; radio at all: a group whose policy accepts everything shows the clicked
+;; button checked under a working echo and under no echo whatsoever.
+(rf/reg-event :tb/pick-radio
+  (fn [{:keys [db]} [_ choice]]
+    {:db (-> db
+             (cond-> (not= choice (:refused radio-seed)) (assoc :radio choice))
+             (update-in [:edits :radio] (fnil inc 0)))}))
+
+;; The multiple-select, written the SUPPORTED way: `h/hfn`, because the
+;; reserved `::h/value` marker reads `select.value` and that is one option.
+;; The refusal is the same shape as everywhere else — one option the model
+;; will not take, dropped from whatever arrives.
+(rf/reg-event :tb/pick-many
+  (fn [{:keys [db]} [_ chosen]]
+    {:db (-> db
+             (assoc :picks (vec (remove #(= % "banned") chosen)))
+             (update-in [:edits :picks] (fnil inc 0)))}))
+
+;; The SAME control, written the way an author reaches for first: the
+;; reserved marker at the change position. What arrives is a string, and
+;; this handler does the obvious thing with it. The witness measures what
+;; the user loses.
+(rf/reg-event :tb/pick-many-marker
+  (fn [{:keys [db]} [_ marked]]
+    {:db (-> db
+             (assoc :picks-marker (if (= marked "") [] [marked]))
+             (assoc :picks-marker-raw marked)
+             (update-in [:edits :picks-marker] (fnil inc 0)))}))
+
+;; A file input is never value-controlled — `HTMLInputElement.value` is
+;; not settable to anything but `""` from script, by design — so the model
+;; holds what was CHOSEN rather than what is displayed, and `h/hfn` is the
+;; door the facade's own docstring names for it.
+(rf/reg-event :tb/take-files
+  (fn [{:keys [db]} [_ names]]
+    {:db (-> db (assoc :files (vec names))
+             (update-in [:edits :files] (fnil inc 0)))}))
+
+;; Contenteditable: the element's content is the BROWSER's, and the model
+;; records what the author's own handler read off it. There is no owned
+;; slot for a contenteditable region and no converge on it.
+(rf/reg-event :tb/set-prose
+  (fn [{:keys [db]} [_ text]]
+    {:db (-> db (assoc :prose text)
+             (update-in [:edits :prose] (fnil inc 0)))}))
+
+;; Blur after unmount — the model records the focus and blur edges the
+;; browser reports, so "the field that was focused went away" is a reading
+;; of events rather than of a screen.
+(rf/reg-event :tb/focus-edge
+  (fn [{:keys [db]} [_ edge]]
+    {:db (update db :focus-log (fnil conj []) edge)}))
+
+(rf/reg-event :tb/toggle-probe
+  (fn [{:keys [db]} _] {:db (update db :probe-mounted? not)}))
+
+;; ASYNC NORMALIZATION — the correction that arrives a turn later, which
+;; is the shape a server or a debounced validator has. It is deliberately
+;; `:dispatch-later` rather than a synchronous correction: the point of
+;; the row is that the field converges on a path the keystroke converge is
+;; NOT on, so the model has to move outside the discrete event.
+(rf/reg-event :tb/normalise-later
+  (fn [{:keys [db]} [_ field ms]]
+    {:db db
+     :fx [[:dispatch-later {:ms ms :event [:tb/normalise field]}]]}))
+
+;; The correction itself reads the model at FIRE time, not at arm time.
+;; Armed-time capture would make the row pass on a runtime that ignored
+;; every keystroke between the arm and the fire.
+(rf/reg-event :tb/normalise
+  (fn [{:keys [db]} [_ field]]
+    {:db (-> db
+             (assoc-in [:fields field]
+                       (str/upper-case (get-in db [:fields field] "")))
+             (update :normalisations (fnil inc 0)))}))
 
 ;; ---------------------------------------------------------------------------
 ;; The armed edges — the operator's way of reaching mid-composition
@@ -330,19 +498,47 @@
 
 (h/defview reset-form
   "A real form with a real reset button, so `form.reset()` is the
-  browser's own and not a simulation of it."
+  browser's own and not a simulation of it.
+
+  Every control carries a `:name`, which is not decoration: `FormData`
+  reads NAMED controls and skips the rest, so a nameless form is a form
+  whose extraction row would pass by reading nothing. rf2-hic-040 owns
+  the FormData row and added the names, the checkbox and the select; the
+  two text fields and the reset button are rf2-hic-016's and are
+  untouched apart from gaining a name."
   [_]
   [:form {:data-testid "form" :id "form" :on-submit [:tb/noop]}
    [:input {:data-testid "form-a"
             :id          "form-a"
+            :name        "form-a"
             :type        "text"
             :value       (h/sub [:tb/field :form-a])
             :on-input    [:tb/edit :form-a ::h/value]}]
    [:input {:data-testid "form-b"
             :id          "form-b"
+            :name        "form-b"
             :type        "text"
             :value       (h/sub [:tb/field :form-b])
             :on-input    [:tb/edit :form-b ::h/value]}]
+   ;; A controlled checkbox INSIDE the form, so the extraction row reads a
+   ;; control whose owned slot is `::h/checked` rather than a value, and
+   ;; the reset row has a `defaultChecked` mirror to act on.
+   [:input {:data-testid "form-flag"
+            :id          "form-flag"
+            :name        "form-flag"
+            :type        "checkbox"
+            :value       "yes"
+            :checked     (h/sub [:tb/flag])
+            :on-change   [:tb/toggle-flag ::h/checked]}]
+   ;; …and a controlled select, whose extraction is `selected` rather than
+   ;; an attribute.
+   [:select {:data-testid "form-pick"
+             :id          "form-pick"
+             :name        "form-pick"
+             :value       (h/sub [:tb/field :form-pick])
+             :on-change   [:tb/edit :form-pick ::h/value]}
+    [:option {:value "one"} "one"]
+    [:option {:value "two"} "two"]]
    [:button {:data-testid "form-reset" :type "reset"} "reset"]])
 
 (h/defview mountable-field
@@ -357,11 +553,200 @@
              :on-input    [:tb/edit :mountable ::h/value]}]
     [:p {:data-testid "mountable-gone"} "unmounted"]))
 
+;; ---------------------------------------------------------------------------
+;; rf2-hic-040's controls — the rest of the roster, each written the way
+;; authoring.md writes it and NOT the way a harness would find convenient
+;; ---------------------------------------------------------------------------
+
+(h/defview radio-group
+  "Three radios on one model slot. `:checked` is owned off the
+  subscription and the intent carries the option as a constant, because a
+  radio's `::h/checked` is always `true` at the moment it fires — the
+  information is WHICH button, and that is in the hiccup rather than on
+  the event.
+
+  Each element also carries a `:value`, which is what a form submission
+  needs. That is not decoration for this witness: `:value` present on an
+  `input` is exactly what makes
+  `impl.controlled/controlled-text-tag?` answer yes, so these radios go
+  through the shadow component and its `convergeable?` re-ask — the inert
+  path, on a type with no caret."
+  [_]
+  (let [choice (h/sub [:tb/radio])]
+    [:fieldset {:data-testid "radios"}
+     (for [option ["a" "b" "c"]]
+       [:label {:key option}
+        [:input {:data-testid (str "radio-" option)
+                 :type        "radio"
+                 :name        "radio-group"
+                 :value       option
+                 :checked     (= option choice)
+                 :on-change   [:tb/pick-radio option]}]
+        option])]))
+
+(h/defview select-single
+  "A controlled `<select>`. Nothing in `impl.controlled` applies to it —
+  `convergeable-tag?` answers false for `select` and the namespace
+  docstring says why (no text cursor, no `defaultValue` mirror) — so what
+  converges this is React's own controlled restore, and the row measures
+  that rather than assuming it."
+  [_]
+  [:select {:data-testid "pick"
+            :id          "pick"
+            :value       (h/sub [:tb/field :pick])
+            :on-change   [:tb/edit :pick ::h/value]}
+   [:option {:value "one"} "one"]
+   [:option {:value "two"} "two"]
+   [:option {:value "banned"} "banned"]])
+
+(h/defview select-multiple
+  "The same control with `:multiple`, written the SUPPORTED way.
+
+  `h/hfn` rather than `::h/value`, and that is the whole content of this
+  control's policy row: the reserved marker reads `(.-value target)`,
+  which on a multiple select is the FIRST selected option and never the
+  selection. The facade's own docstring names `hfn` as the form for when
+  the event itself is wanted, and a multi-select is that case."
+  [_]
+  [:select {:data-testid "picks"
+            :id          "picks"
+            :multiple    true
+            :value       (h/sub [:tb/picks])
+            :on-change   (h/hfn [e]
+                           [:tb/pick-many
+                            (mapv #(.-value %)
+                                  (array-seq (.. e -target -selectedOptions)))])}
+   [:option {:value "a"} "a"]
+   [:option {:value "b"} "b"]
+   [:option {:value "banned"} "banned"]
+   [:option {:value "c"} "c"]])
+
+(h/defview select-multiple-marker
+  "The same control again, written the way an author reaches for FIRST —
+  the reserved marker at the change position — so that what it costs is
+  measured rather than asserted in prose. The handler does the obvious
+  thing with the one string it is handed."
+  [_]
+  [:select {:data-testid "picks-marker"
+            :id          "picks-marker"
+            :multiple    true
+            :value       (h/sub [:tb/picks-marker])
+            :on-change   [:tb/pick-many-marker ::h/value]}
+   [:option {:value "a"} "a"]
+   [:option {:value "b"} "b"]
+   [:option {:value "c"} "c"]])
+
+(h/defview file-field
+  "A file input, UNCONTROLLED, which is the only thing it can be:
+  `HTMLInputElement.value` refuses every assignment but `\"\"`, so a
+  `:value` off a subscription would be a promise the platform cannot
+  keep. The chosen files reach the model through `h/hfn` — the facade's
+  docstring uses this exact case as its example."
+  [_]
+  [:input {:data-testid "file"
+           :id          "file"
+           :type        "file"
+           :multiple    true
+           :on-change   (h/hfn [e]
+                          [:tb/take-files
+                           (mapv #(.-name %)
+                                 (array-seq (.. e -target -files)))])}])
+
+(h/defview typed-field
+  "One `<input>` of a type with no text cursor — `number`, `date` or
+  `range`. Written identically to the text fields: `:value` off a
+  subscription, an intent at `:on-input`.
+
+  These are the roster's honest middle. `impl.controlled/install!` wraps
+  them for the shadow component (they carry a `:value`) and then declines
+  to install the converge (`caret-type?` answers false), so the echo they
+  get is React's own end-of-event restore and no caret is preserved
+  because there was never one to preserve."
+  [{:keys [field kind extra]}]
+  (let [id (name field)]
+    [:input (merge {:data-testid id
+                    :id          id
+                    :type        kind
+                    :value       (h/sub [:tb/field field])
+                    :on-input    [:tb/edit field ::h/value]}
+                   extra)]))
+
+(h/defview editable-region
+  "A `contenteditable` region. It is NOT a controlled field and this
+  testbed does not pretend otherwise: there is no owned `:value` slot for
+  one, the content is the browser's, and the author's handler reads it
+  back. The model row exists so the read is visible; the region itself is
+  written the way any author would write it."
+  [_]
+  [:div {:data-testid      "prose"
+         :id               "prose"
+         :content-editable "plaintext-only"
+         :suppress-content-editable-warning true
+         :on-input         (h/hfn [e] [:tb/set-prose (.. e -target -textContent)])}
+   (h/sub [:tb/prose])])
+
+(h/defview blur-probe
+  "A controlled field behind a mount flag, carrying focus and blur
+  handlers that write to the model.
+
+  BLUR AFTER UNMOUNT is the roster row this exists for, and the row is
+  about an ABSENCE: React does not synthesise a `blur` for a node it
+  removes, so a field taken away while focused reports `focus` and never
+  reports `blur`. An application that hangs commit-on-blur off that
+  handler loses the edit, and the converge must not care either way — the
+  shadow is one `useState` on the fiber and goes with it. What this
+  witnesses is that the runtime does not strand anything on the way out,
+  and what it RECORDS is where the focus lands afterwards, which is the
+  engines' to differ on."
+  [_]
+  (if (h/sub [:tb/probe-mounted?])
+    [:input {:data-testid "blur-probe"
+             :id          "blur-probe"
+             :type        "text"
+             :value       (h/sub [:tb/field :async])
+             :on-input    [:tb/edit :async ::h/value]
+             :on-focus    [:tb/focus-edge "focus"]
+             :on-blur     [:tb/focus-edge "blur"]}]
+    [:p {:data-testid "blur-probe-gone"} "unmounted"]))
+
+(h/defview svg-figure
+  "SVG, written in the two spellings an author uses: a camel attribute
+  React renames nothing about (`:view-box` → `viewBox`) and kebab
+  presentation attributes (`:stroke-width`, `:stroke-linecap`). The
+  witness reads them off the LIVE DOM, where an SVG element's attributes
+  are case-sensitive and namespaced, rather than out of a string."
+  [_]
+  [:svg {:data-testid "svg" :id "svg" :view-box "0 0 20 20" :width 20 :height 20}
+   [:circle {:data-testid    "svg-circle"
+             :cx             10 :cy 10 :r 6
+             :stroke-width   2
+             :stroke-linecap "round"
+             :fill           "none"
+             :stroke         "black"}]
+   [:text {:data-testid "svg-text" :x 2 :y 18 :font-size 4} "hi"]])
+
+(h/defview custom-element-figure
+  "A custom element. React 19 hands an unknown element's props through as
+  ATTRIBUTES under the name it was given, so the slot rule decides what
+  the DOM ends up with — and the slot rule camelCases a kebab keyword.
+  Both spellings are on the element so the witness can say what each one
+  does rather than assert what one of them ought to do."
+  [_]
+  [:x-widget {:data-testid "custom"
+              :id          "custom"
+              ;; a STRING key is already a React name and passes verbatim
+              "my-attr"    "from-string"
+              ;; a kebab KEYWORD goes through the camelCasing slot rule
+              :my-other-attr "from-keyword"
+              ;; `data-*` is exempt from camelCasing by the slot rule
+              :data-kebab-attr "from-data"}
+   "widget"])
+
 (def ^:private traced-fields
   "Every field, in a stable order, so the trace is a complete reading of
   the store rather than a curated one."
   [:plain :digits :empty :grouped :upper :notes :revision :revision-strict
-   :form-a :form-b :mountable])
+   :form-a :form-b :mountable :pick :count :day :level :async])
 
 (h/defview trace-row
   "One field's committed value and the number of intents that have reached
@@ -430,6 +815,28 @@
    [:button {:data-testid "correct-upper" :on-click [:tb/correct :upper "ZZZZZZ"]}
     "correct upper"]
    [armed-edges {}]
+   ;; --- rf2-hic-040's controls ---------------------------------------------
+   [radio-group {}]
+   [select-single {}]
+   [select-multiple {}]
+   [select-multiple-marker {}]
+   [file-field {}]
+   [typed-field {:field :count :kind "number" :extra {:min 0 :max 100}}]
+   [typed-field {:field :day :kind "date"}]
+   [typed-field {:field :level :kind "range" :extra {:min 0 :max 100 :step 1}}]
+   [editable-region {}]
+   ;; The out-of-band half of the contenteditable row: a model change no
+   ;; edit caused, which a controlled field would converge and this one
+   ;; re-renders as ordinary children.
+   [:button {:data-testid "prose-correct" :on-click [:tb/set-prose "CORRECTED"]}
+    "correct prose"]
+   [blur-probe {}]
+   [:button {:data-testid "toggle-probe" :on-click [:tb/toggle-probe]} "toggle probe"]
+   [:button {:data-testid "normalise-async"
+             :on-click [:tb/normalise-later :async 30]}
+    "normalise async"]
+   [svg-figure {}]
+   [custom-element-figure {}]
    [trace {}]])
 
 ;; ---------------------------------------------------------------------------
@@ -448,7 +855,22 @@
                ;; opposite reasons.
                :edits    (:edits db)
                :flag     (:flag db)
-               :revision (:revision db)}))))
+               :revision (:revision db)
+               ;; rf2-hic-040's controls. Each is model state a driver
+               ;; cannot read off the screen: which radio the GROUP holds
+               ;; (three elements, one slot), the full multi-selection
+               ;; beside the one string the reserved marker delivered,
+               ;; the chosen file names, the contenteditable text the
+               ;; author's handler read back, the focus edges the browser
+               ;; reported, and the async normalisation count.
+               :radio           (:radio db)
+               :picks           (:picks db)
+               :picks-marker    (:picks-marker db)
+               :picks-marker-raw (:picks-marker-raw db)
+               :files           (:files db)
+               :prose           (:prose db)
+               :focus-log       (:focus-log db)
+               :normalisations  (or (:normalisations db) 0)}))))
 
 (defn ^:export init
   []
