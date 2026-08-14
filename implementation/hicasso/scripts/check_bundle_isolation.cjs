@@ -1,14 +1,24 @@
 #!/usr/bin/env node
 /*
  * THE ZERO-RENT PROOF FOR EVERY ISOLATED SURFACE, read off a real
- * production bundle (rf2-hic-034; the forms module added by rf2-sh56).
+ * production bundle (rf2-hic-034; the forms module added by rf2-sh56,
+ * motion and overlay by rf2-ot28g).
  *
- * Two surfaces are measured here and the law each answers to is its own:
- * the NATIVE TIER, whose clause is quoted next, and the optional FORMS
- * MODULE, whose clause is `invariants.md` §1 — *optional libraries:
- * named consumer required; zero reachable production code when absent*.
- * They share this file because they share one instrument and one bundle;
- * each surface's own reasoning is with its rows.
+ * Four surfaces are measured here and the law each answers to is its
+ * own: the NATIVE TIER, whose clause is quoted next, and the optional
+ * MOTION, OVERLAY and FORMS modules, whose clause is `invariants.md` §1
+ * — *optional libraries: named consumer required; zero reachable
+ * production code when absent*. They share this file because they share
+ * one instrument and one bundle; each surface's own reasoning is with
+ * its rows.
+ *
+ * THE HEADING MEANS WHAT IT SAYS OF THE MODULE ROSTER, and the one gap
+ * left is named rather than left to be discovered. Every module
+ * `check_optional_module_reachability.py` rows is measured here EXCEPT
+ * `re-frame.hicasso.server` (rf2-2a0ju), which is source-side only: it
+ * is a Node module and the one bundle this gate reads is a browser
+ * build, so its row here is a different question from the other four's
+ * and is filed as its own bead rather than guessed at.
  *
  * > 6. The native namespace is separately reachable. An interpreted-only
  * >    production dependency graph and bundle contain neither native-tier
@@ -173,6 +183,48 @@
  *     event id and an `app-db` key at once, so the module cannot read or
  *     write a draft without it.
  *
+ * ## Motion and overlay: ONE shape and TWO, decided rather than assumed
+ *
+ * rf2-ot28g closed the gap this file had carried since rf2-sh56: the
+ * source-side gate covered four optional surfaces and this one covered
+ * two, so a green here was reported under a heading reading "every
+ * isolated surface" while saying nothing about motion or overlay. The
+ * file already knew both modules existed — `motion/presence` sat in the
+ * near-miss list below as a string the scan is asserted NOT to fire on —
+ * which made the silence a choice rather than an oversight, and the
+ * wrong one.
+ *
+ * All three new rows are stamped `displayName`s, which is not a new
+ * idiom but the one the `hicassoBoundary` control is already read
+ * through: `codec/mark-boundary!` writes its marker with `unchecked-set`
+ * onto a freshly minted component, and each of these modules writes a
+ * NAME onto that same component in the same expression. The pair
+ * therefore differs by reachability and by nothing else — same function,
+ * same bundle, same moment in the namespace's load — which is the
+ * property that makes an absence a statement about the linker.
+ *
+ * The shape question was settled per module rather than answered once:
+ *
+ *   - MOTION HAS ONE. The module's whole product is `presence`, a single
+ *     component minted at `impl.presence-react`'s namespace load. There
+ *     is no second door to reach it by, so one row covers every way in.
+ *   - OVERLAY HAS TWO, and it is the NATIVE TIER's situation rather than
+ *     the forms module's. `popover` and `modal` are two independent
+ *     top-level components in one namespace; Closure's elimination is
+ *     per-var, so a consumer who re-exports `overlay/popover` beside
+ *     `h/portal` drags the anchor machinery in and leaves the dialog's
+ *     inert-backdrop and focus-wrap code behind. Either sentinel alone
+ *     is green against the other's leak.
+ *
+ * A NOTE ON WHAT WAS NOT CHOSEN, because it is the more obvious string
+ * and it is weaker. `--rf-overlay-` — the CSS dashed-ident prefix
+ * `next-anchor-ident` mints — is genuinely load-bearing, and the
+ * reachability gate's own header already records it measuring ZERO on
+ * this bundle. But it is minted inside a ref callback on the ANCHORED
+ * path only, so it is absent from a bundle that carries the whole of
+ * `modal` and an unanchored `popover`. It is a narrower instrument than
+ * the two names above and would have been green on a real leak.
+ *
  * ## The live half is a test, not a comment
  *
  * A sentinel that has quietly stopped being emitted is absent from every
@@ -276,6 +328,59 @@ const SENTINELS = [
       'Same as above for a whole-module leak. If this row is red ALONE, the ' +
       'draft protocol has moved somewhere the public door reaches — which ' +
       'is an architectural change, not a convenience.',
+  },
+  {
+    surface: 'motion module — the presence boundary\'s stamped name (rf2-ot28g)',
+    sentinel: 'hicasso/presence',
+    source: 'src/re_frame/hicasso/impl/presence_react.cljs',
+    premise: '(aset "displayName" "hicasso/presence")',
+    why:
+      'The `displayName` `impl.presence-react` `aset`s onto the presence ' +
+      'component as it mints it, inside the same `codec/mark-boundary!` call ' +
+      'the `hicassoBoundary` control below is read through. It is written at ' +
+      'namespace load, unconditionally and under no `goog.DEBUG` guard, so ' +
+      'the module cannot be reachable and this string be absent.',
+    remedy:
+      'Find the `:require` of `re-frame.hicasso.motion` — or of ' +
+      '`impl.presence` / `impl.presence-react` directly — that made the ' +
+      'module reachable. Nothing under implementation/hicasso/src/ may name ' +
+      'it and the release entry must not either; an application requires it ' +
+      'in the region that wants presence, and ' +
+      '`check_optional_module_reachability.py` decides the source half of ' +
+      'that exhaustively.',
+  },
+  {
+    surface: 'overlay module — the popover boundary\'s stamped name (rf2-ot28g)',
+    sentinel: 'hicasso/popover',
+    source: 'src/re_frame/hicasso/impl/overlay.cljs',
+    premise: '(unchecked-set "displayName" "hicasso/popover")',
+    why:
+      'The `displayName` stamped onto `impl.overlay/popover` at namespace ' +
+      'load, by the same idiom as the two rows above. THE OVERLAY MODULE ' +
+      'HAS TWO REACHABILITY SHAPES, the native tier\'s situation rather ' +
+      'than the forms module\'s: `popover` and `modal` are two independent ' +
+      'top-level components, so a consumer who re-exports one drags that ' +
+      'one in and Closure drops the other. Either sentinel alone is green ' +
+      'against the other\'s leak, which is why there are two.',
+    remedy:
+      'Find the `:require` of `re-frame.hicasso.overlay` — or of ' +
+      '`impl.overlay` directly — that made the module reachable. If this ' +
+      'row is red alone, only the anchored-panel half was re-exported.',
+  },
+  {
+    surface: 'overlay module — the modal boundary\'s stamped name (rf2-ot28g)',
+    sentinel: 'hicasso/modal',
+    source: 'src/re_frame/hicasso/impl/overlay.cljs',
+    premise: '(unchecked-set "displayName" "hicasso/modal")',
+    why:
+      'The second of the overlay module\'s two shapes — the blocking ' +
+      'dialog, stamped at namespace load exactly as `popover` is. It ' +
+      'reaches a bundle by a different route: `modal` is what a consumer ' +
+      'who wants `showModal` and the inert-backdrop machinery drags in, ' +
+      'and none of `popover`\'s anchor-positioning code comes with it.',
+    remedy:
+      'Same as above — the module became reachable. If this row is red ' +
+      'alone, only the dialog half was re-exported.',
   },
 ];
 
@@ -450,7 +555,20 @@ function selfTest() {
     `${green} … "native" nativeEvent isComposing …`,           // React's own plumbing
     `${green} … re-frame.hicasso/revision re-frame.hicasso/clear …`,
     `${green} … drafts buffered-field myapp.forms/buffered-field :app/drafts …`,
-    `${green} … re-frame.hicasso.motion/presence …`,           // a sibling module
+    // rf2-ot28g. This line used to be here because motion was a sibling
+    // module the scan did not cover. Motion is now rowed, and the string
+    // stays for the OPPOSITE reason: `re-frame.hicasso.motion/presence` is
+    // the door's SYMBOL, which `:advanced` renames and which reaches no
+    // bundle even when the module leaks — the real sentinel is the
+    // `displayName` `hicasso/presence`. A row on the symbol would have been
+    // unfalsifiable, and this is what says so.
+    `${green} … re-frame.hicasso.motion/presence …`,
+    // The same distinction for overlay, plus the near-miss that matters
+    // most: an application is entirely free to have a modal and a popover
+    // of its own, and a bundle carrying either must stay green. This is
+    // why all three new sentinels carry the `hicasso/` prefix the minting
+    // namespaces stamp rather than the bare product name.
+    `${green} … re-frame.hicasso.overlay/popover myapp.views/modal popoverTargetAction …`,
   ];
   for (const bundle of legal) {
     const problems = scan(bundle);
