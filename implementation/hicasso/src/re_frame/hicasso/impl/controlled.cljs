@@ -524,6 +524,40 @@
   (and (convergeable-tag? tag)
        (some? (unchecked-get js-props "value"))))
 
+(defn- file-input-value?
+  "Is this a `:value` on a file input that React will actually WRITE?
+  (rf2-u2tza.)
+
+  A file input is the one form control the platform will not let a model
+  own. `HTMLInputElement.value` is in filename mode there, and its setter
+  refuses every assignment but the empty string — so React's controlled
+  mirror, which is `element.value = …` on both its paths, throws
+  `InvalidStateError` out of the commit. That exception names no view, no
+  framework and no recovery, and React 19.2 carries no
+  controlled-file-input warning of its own, so nothing upstream was ever
+  going to say it. [[install!]] refuses instead.
+
+  **The predicate is non-EMPTY, and that is the whole subtlety.** The
+  obvious reading — refuse a non-nil `:value` — would refuse `:value \"\"`,
+  which is legitimate and is the reset idiom: it is the ONE write the
+  platform accepts, and it clears the control. React skips the assignment
+  entirely when the value already agrees (`initInput` is
+  `value === element.value || (element.value = value)`; `updateInput` is
+  `element.value !== \"\" + getToStringValue(value) && (element.value =
+  …)`), so an empty file input is never written to at all, and one holding
+  a file is written the empty string — legally. Refusing that would have
+  taken the author's only model-driven clear away.
+
+  Non-string values are refused because React stringifies them: `:value 0`
+  becomes `\"0\"` and throws like any other non-empty string. `identical?`
+  is the right test for exactly that reason — it is React's own `===`
+  against the element's empty answer, not a value comparison that would
+  read `0` as empty."
+  [tag js-props]
+  (and (identical? "input" tag)
+       (identical? "file" (unchecked-get js-props "type"))
+       (not (identical? "" (unchecked-get js-props "value")))))
+
 (defn- convergeable?
   "Is this element one whose rendered value React records on the node,
   and which has a handler to converge at the end of? See the namespace
@@ -713,7 +747,22 @@
   `value=\"yes\"` is ACCEPTED, and the revision is simply inert there; an
   `<input type=\"number\">` is likewise accepted, with caret semantics
   that do not apply to it. \"A checkbox is refused\" is the wrong
-  sentence; \"a value-less checkbox is refused\" is the right one."
+  sentence; \"a value-less checkbox is refused\" is the right one.
+
+  ## The file input, refused rather than left to the engine
+
+  One further refusal rides the same branch — [[file-input-value?]],
+  `:rf.error/hicasso-file-input-value-prop`. It is placed there and not
+  earlier so that a page with no controlled inputs pays nothing for it:
+  everything that is not an `input`/`textarea` carrying a `:value` has
+  already gone out the other arm, and what remains pays one string
+  compare and one property read. Unlike the revision refusal above, this
+  one stands in front of an exception rather than a silence — React's
+  controlled mirror would reach `element.value = …` and the platform
+  would throw `InvalidStateError` from inside the commit, attributing
+  nothing. See [[file-input-value?]] for why the predicate is non-EMPTY
+  rather than non-nil, and `re-frame.hicasso.impl.intent/target-value`
+  for the same control's other half."
   [tag js-props]
   (when-not (undefined? (unchecked-get js-props revision-slot))
     (js-delete js-props revision-slot)
@@ -739,7 +788,22 @@
                            (converge! node)))
                        nil))))
   (if (controlled-text-tag? tag js-props)
-    (case tag
-      "input"    shadow-input
-      "textarea" shadow-textarea)
+    (do
+      (when (file-input-value? tag js-props)
+        (fail! :rf.error/hicasso-file-input-value-prop
+               're-frame.hicasso.impl.controlled/install!
+               (str "A file input has no controlled value. React mirrors a "
+                    "controlled :value onto the element with `element.value = "
+                    "…`, and HTMLInputElement.value refuses every assignment "
+                    "but the empty string on a file input — so this render "
+                    "would throw the engine's own InvalidStateError, naming no "
+                    "view and no recovery. The platform owns the selection: "
+                    "leave the file input uncontrolled and read `.files` in an "
+                    "h/fn on :on-change. `:value \"\"` is still accepted — it "
+                    "is the one legal write, and it clears the control.")
+               :leave-the-file-input-uncontrolled-and-read-files-with-an-h-fn
+               {:value (unchecked-get js-props "value")}))
+      (case tag
+        "input"    shadow-input
+        "textarea" shadow-textarea))
     tag))

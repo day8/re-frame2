@@ -98,6 +98,7 @@ rowed in the Hicasso section, and is the single live id without the
 | `:rf.error/hicasso-deferred-read-at-boundary` | let an unforced `delay` reach a boundary's props | ch02, ch15, ch16 |
 | `:rf.error/hicasso-dispatch-in-render-position` | dispatched from a render callback while it was running | ch03, ch09 |
 | `:rf.error/hicasso-empty-vector` | wrote `[]` where hiccup was expected | — |
+| `:rf.error/hicasso-file-input-value-prop` | put a non-empty `:value` on a file input, which the platform refuses and React writes anyway | — |
 | `:rf.error/hicasso-frame-outside-boundary` | asked for the frame with no Hicasso render extent in scope | — |
 | `:rf.error/hicasso-generation-fence-exhausted` | wrote to app-db from a body, on four consecutive runs | — |
 | `:rf.error/hicasso-host-bad-options` | gave a `defhost` declaration options that are not a map — usually a docstring written after the component instead of before it | — |
