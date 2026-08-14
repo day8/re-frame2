@@ -103,8 +103,43 @@
 // serve this one; two four-line readers in the lanes that own them is the
 // smaller thing, and the divergence is deliberate where they differ: that gate
 // treats a singular `1 warning` as UNPARSEABLE and fails, this one reads it and
-// fails NAMING the count.  Both red; this one says why.  If a third lane ever
-// wants the same line, that is the moment to mint one reader for all three.
+// fails NAMING the count.  Both red; this one says why.
+//
+// THERE ARE THREE OF US, NOT TWO — and this is the one place that says so
+// (rf2-040s1).  The paragraph above used to close by promising that a third lane
+// wanting this line would be the moment to mint one reader for all three.  The
+// third lane already existed when that was written: `lane_build.cjs` has read
+// the line since 2026-08-03, cites the same examples gate, and gives the same
+// slash-anchor reason for not reusing it.  Two authors hit one wall eleven days
+// apart and neither found the other, which is the defect the count was meant to
+// catch and did not.  So the roster is stated, and the other two files point
+// here rather than restate it:
+//
+//     implementation/scripts/check-examples-compile.cjs   :examples/* + :testbeds/*
+//     implementation/scripts/compile-node-test.cjs        :node-test-family (this)
+//     hicasso/test/re_frame/bench/hicasso/lane_build.cjs  :hicasso-bench
+//
+// THE COUNT WAS STILL THE WRONG TRIGGER, so it is replaced rather than
+// incremented.  MEASURED at three, against the live parsers: no single pattern
+// serves all three as they stand — the examples regex matches ZERO bare-keyword
+// ids, and this one reads a summary carrying no `[:id]` bracket at all, which
+// that lane's regex cannot.  Nor is the examples slash merely a capture: it is a
+// FILTER, and that gate fails on any summary whose id was not requested, so an
+// id-agnostic shared pattern would hand it every id shadow prints and re-open a
+// settled question inside a gate over 54 builds.  What actually differs between
+// the three is not the regex but the SELECTION POLICY over the rows it yields:
+// that gate reconciles a requested SET, `lane_build.cjs` requires every row to
+// read zero, and this one takes the LAST row so a dependency's summary is never
+// mistaken for the lane's.  A shared module would remove three regexes and leave
+// three policies.
+//
+// SO THE TEST FOR THE NEXT LANE IS ITS POLICY, NOT THE HEADCOUNT.  A lane whose
+// selection policy one of the three already implements should call that reader's
+// export — all three export their parser — instead of writing a fourth.  A lane
+// with a genuinely new policy writes its own four lines and adds itself above.
+// Duplication is affordable here precisely because the shared property cannot
+// fail quietly: all three refuse an unreadable summary, so a shadow-cljs
+// reformat produces three RED gates and one afternoon's work, never a pass.
 //
 // NOT A NAG, deliberately.  shadow-cljs already prints its own `Build
 // completed. (N files, M compiled, W warnings, Ts)` line on every run, so the

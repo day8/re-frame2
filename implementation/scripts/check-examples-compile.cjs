@@ -208,6 +208,20 @@ function prefixesBelowFloor(builds) {
 // ourselves and treat any non-zero warnings as a failure. A build that
 // errors hard instead prints `Build failed` (and shadow exits non-zero),
 // which we surface separately via the spawn status.
+//
+// TWO OTHER LANES READ THIS SAME LINE, each with its own four-line parser:
+// `scripts/compile-node-test.cjs` (the `:node-test` family) and
+// `hicasso/test/re_frame/bench/hicasso/lane_build.cjs` (`:hicasso-bench`). All
+// three refuse an unreadable summary; they are deliberately NOT unified, and
+// `compile-node-test.cjs`'s header carries the measured reasons and the test
+// for whether a fourth lane should mint its own (rf2-040s1). Read it before
+// generalising anything here.
+//
+// THE SLASH IN THE PATTERN BELOW IS LOAD-BEARING, and not merely an id capture:
+// `reconcileRequestedBuilds` treats a summary whose id was NOT requested as a
+// failure, so widening this to bare-keyword ids would admit every id shadow
+// prints in the invocation and turn that rule into a live question. Anyone
+// sharing this regex owes that measurement first.
 // ---------------------------------------------------------------------------
 
 const COMPLETED_RE =

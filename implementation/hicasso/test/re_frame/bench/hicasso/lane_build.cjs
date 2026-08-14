@@ -65,6 +65,16 @@ const path = require('node:path');
 // text. The lane's build id is a BARE keyword (`[:hicasso-bench]`), unlike the
 // slash-bearing `[:examples/login-uix]` ids `check-examples-compile.cjs`
 // parses — hence a looser bracket match rather than a reuse of that regex.
+//
+// THIS IS THE THIRD OF THREE PARSERS OF THAT LINE, the other two being
+// `scripts/check-examples-compile.cjs` and `scripts/compile-node-test.cjs`. All
+// three refuse an unreadable summary; they are deliberately NOT unified, and
+// `compile-node-test.cjs`'s header holds the roster, the measured reasons and
+// the test for whether a fourth lane should mint its own (rf2-040s1). Note that
+// the bracket is REQUIRED here and optional there: this parser reads zero
+// summaries from a line that carries no `[:id]`, which is fine for a lane that
+// always prints one and is why no single pattern serves all three as they
+// stand.
 const ANSI_RE = /\x1B\[[0-9;]*m/g;
 const COMPLETED_RE = /\[(:[^\]\s]+)\]\s+Build completed\.[^\n]*?(\d+)\s+warnings?/g;
 const FAILED_RE = /\[(:[^\]\s]+)\]\s+Build failed/g;
