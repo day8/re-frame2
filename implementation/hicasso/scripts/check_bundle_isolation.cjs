@@ -2,23 +2,23 @@
 /*
  * THE ZERO-RENT PROOF FOR EVERY ISOLATED SURFACE, read off a real
  * production bundle (rf2-hic-034; the forms module added by rf2-sh56,
- * motion and overlay by rf2-ot28g).
+ * motion and overlay by rf2-ot28g, the server module by rf2-fn62g).
  *
- * Four surfaces are measured here and the law each answers to is its
+ * Five surfaces are measured here and the law each answers to is its
  * own: the NATIVE TIER, whose clause is quoted next, and the optional
- * MOTION, OVERLAY and FORMS modules, whose clause is `invariants.md` §1
- * — *optional libraries: named consumer required; zero reachable
- * production code when absent*. They share this file because they share
- * one instrument and one bundle; each surface's own reasoning is with
- * its rows.
+ * MOTION, OVERLAY, FORMS and SERVER modules, whose clause is
+ * `invariants.md` §1 — *optional libraries: named consumer required;
+ * zero reachable production code when absent*. They share this file
+ * because they share one instrument and one bundle; each surface's own
+ * reasoning is with its rows.
  *
- * THE HEADING MEANS WHAT IT SAYS OF THE MODULE ROSTER, and the one gap
- * left is named rather than left to be discovered. Every module
- * `check_optional_module_reachability.py` rows is measured here EXCEPT
- * `re-frame.hicasso.server` (rf2-2a0ju), which is source-side only: it
- * is a Node module and the one bundle this gate reads is a browser
- * build, so its row here is a different question from the other four's
- * and is filed as its own bead rather than guessed at.
+ * THE HEADING MEANS WHAT IT SAYS OF THE MODULE ROSTER, and it now says
+ * it of all five. Every module `check_optional_module_reachability.py`
+ * rows is measured here. The last to arrive was
+ * `re-frame.hicasso.server`, which this file carried for one bead as a
+ * named gap on the ground that it is a Node module and the one bundle
+ * this gate reads is a browser build — see the server section below,
+ * where that objection is answered rather than inherited.
  *
  * > 6. The native namespace is separately reachable. An interpreted-only
  * >    production dependency graph and bundle contain neither native-tier
@@ -225,6 +225,82 @@
  * `modal` and an unanchored `popover`. It is a narrower instrument than
  * the two names above and would have been green on a real leak.
  *
+ * ## The server module: a Node module IS a browser-bundle question
+ *
+ * rf2-fn62g inherited an objection worth answering rather than
+ * repeating. `:hicasso-release` is a BROWSER build and
+ * `re-frame.hicasso.server` is a Node one, so — the reasoning ran — its
+ * row here asks a different question from the other four's, and might
+ * be category-confused.
+ *
+ * IT IS NOT, and the roster comment in
+ * `check_optional_module_reachability.py` says why in the course of
+ * saying something else: *a `:require` of this namespace drags
+ * `react-dom/server` into the bundle of every application that ever
+ * aliased `h`, for a code path no browser will ever run.* This gate
+ * does not ask whether a module works in a browser. It asks whether any
+ * byte of it REACHED one — a question that is meaningful for any
+ * namespace in the package, and sharpest for a Node-only one, because
+ * nothing about this module has any business in a browser bundle at
+ * all. It is the most expensive leak on the roster, not the least
+ * checkable one.
+ *
+ * THE SENTINEL IS `hicasso.ssr`, the keyword NAMESPACE `fresh-frame-id`
+ * mints the per-request frame id under. A string handed to `keyword` as
+ * a runtime argument is a value: `:advanced` can neither rename it nor
+ * drop it while the code that passes it is reachable, and inlining
+ * `fresh-frame-id` into its one caller moves the literal rather than
+ * removing it.
+ *
+ * It is CO-REACHABLE WITH THE EXPENSIVE HALF BY CONSTRUCTION, which is
+ * the property that made it worth taking over the more obvious strings.
+ * `react-dom/server` enters this bundle by exactly one route — `render`
+ * — and `render`'s first binding is `(fresh-frame-id)`. There is no
+ * path on which `renderToString` is in the bundle and this string is
+ * not.
+ *
+ * WHAT IT DOES NOT COVER, named rather than left to be discovered.
+ * `document` and `payload-script` are independently reachable public
+ * vars (naming-ledger row 50 rules all five helpers public), and
+ * Closure's elimination is per-var, so a leak of those ALONE is green
+ * here. That is a deliberate limit rather than an oversight: their rent
+ * is string concatenation over the framework's own escapers with no npm
+ * dependency behind it, and the source-side gate decides the door
+ * exhaustively either way. A second row would buy a sentinel for the
+ * cheapest leak this module can have, which is the direction the
+ * `--rf-overlay-` note above already rules out.
+ *
+ * AND THERE IS A THIRD SHAPE THAT LEAVES NOTHING TO FIND, exactly as
+ * `n/$` has one — the paragraph above is the pattern this one follows
+ * rather than an excuse borrowed for the occasion. Every name in this
+ * module is a `defn` and the namespace has NO top-level side effect, so
+ * unlike `hicasso/presence` and the forms rows — both stamped at
+ * namespace load — a bare `:require` that never calls anything can be
+ * DCE'd to nothing on the CLJS side. That is not a leak this gate is
+ * missing; it is the source-side gate's question, and it decides it
+ * exhaustively by forbidding any `:require` of the module from `src/`
+ * at all. What this row adds is the case that gate cannot see: the
+ * module reachable AND USED, which is the only way `react-dom/server`
+ * earns its bytes, and the only way anyone would author the leak in the
+ * first place — a door does not require a namespace in order to ignore
+ * it.
+ *
+ * WHAT A HIT DOES NOT DISTINGUISH, stated for the same reason. The
+ * prototype this module is the product form of —
+ * `test/re_frame/bench/hicasso/ssr/entry.cljs` — mints the identical
+ * keyword namespace, so a red here names one of two surfaces rather
+ * than one. Both are leaks: a bench fixture in the release bundle is
+ * its own defect and a worse one. The remedy below says to check both,
+ * which is the honest reading of a sentinel two surfaces emit.
+ *
+ * THE CONTROL IS `rf-uix-sub-`, ALREADY ON THE ROSTER, and the pairing
+ * is exact rather than convenient: both are string literals handed to a
+ * runtime name-minting call — one a `gensym` prefix in the UIx adapter
+ * the release entry installs, one a keyword namespace in a namespace
+ * the public door never names. The pair differs by reachability and by
+ * nothing else, which is what this file asks of a pairing. No new
+ * control is minted for this row.
+ *
  * ## The live half is a test, not a comment
  *
  * A sentinel that has quietly stopped being emitted is absent from every
@@ -381,6 +457,31 @@ const SENTINELS = [
     remedy:
       'Same as above — the module became reachable. If this row is red ' +
       'alone, only the dialog half was re-exported.',
+  },
+  {
+    surface: 'server module — the keyword namespace every request frame is minted under (rf2-fn62g)',
+    sentinel: 'hicasso.ssr',
+    source: 'src/re_frame/hicasso/server.cljs',
+    premise: '(keyword "hicasso.ssr"',
+    why:
+      'The namespace `fresh-frame-id` hands `keyword` to mint the ' +
+      'per-request frame id. A string passed as a runtime argument is a ' +
+      'VALUE, so `:advanced` can neither rename nor drop it while the ' +
+      'code that passes it is reachable, and inlining moves the literal ' +
+      'rather than deleting it. It is co-reachable with the expensive ' +
+      'half of this module BY CONSTRUCTION: `react-dom/server` enters a ' +
+      'bundle by exactly one route — `render` — and `render`\'s first ' +
+      'binding is `(fresh-frame-id)`. See the header for what this row ' +
+      'deliberately does not cover.',
+    remedy:
+      'Find the `:require` of `re-frame.hicasso.server` that made the ' +
+      'module reachable. Nothing under implementation/hicasso/src/ may ' +
+      'name it and the release entry must not either — a Node host ' +
+      'requires it, and `check_optional_module_reachability.py` decides ' +
+      'the source half exhaustively. IF NOTHING REQUIRES THE MODULE, ' +
+      'look at `test/re_frame/bench/hicasso/ssr/entry.cljs`: the ' +
+      'prototype mints the identical keyword namespace, and a bench ' +
+      'fixture in the release bundle is its own defect.',
   },
 ];
 
@@ -569,6 +670,18 @@ function selfTest() {
     // why all three new sentinels carry the `hicasso/` prefix the minting
     // namespaces stamp rather than the bare product name.
     `${green} … re-frame.hicasso.overlay/popover myapp.views/modal popoverTargetAction …`,
+    // rf2-fn62g, and this one is the near-miss that matters most for the
+    // server row: THE FRAMEWORK'S OWN SSR SURFACES ARE LEGAL HERE. A
+    // hydrating client carries `re-frame.ssr`'s payload contract by
+    // design — the bootstrap reads the payload script and the policy
+    // keywords come with it — so a sentinel that fired on `re-frame.ssr`
+    // would be red on every correctly hydrating application. The
+    // module's own contribution is the `hicasso.` prefix and nothing
+    // else, which is why the sentinel carries it. The door SYMBOL is
+    // here for the motion row's reason: `:advanced` renames it and it
+    // reaches no bundle even when the module leaks.
+    `${green} … re-frame.hicasso.server/render re-frame.ssr.payload-policy ` +
+      `rf.ssr.payload/whole-app-db rf.ssr/hydration-mismatch myapp.ssr/request …`,
   ];
   for (const bundle of legal) {
     const problems = scan(bundle);
