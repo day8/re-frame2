@@ -223,18 +223,60 @@ presence bridge.
 > **`tools/story` now names Freehand nowhere except in prose recording this removal.** The
 > `re-frame.ui` rows (S1, S7-S10) are untouched and remain open — see rf2-2og6s.
 
+> **ACTIONED, 2026-08-14 18:18:29 AUSEST (rf2-2og6s).** The remaining four rows — S1 and S7-S10,
+> the `re-frame.ui` half — are discharged, and `tools/story` now names neither donor outside prose
+> recording the removals. The rows below are again left as taken.
+>
+> **This overturns the "need no action at all" verdict two sections down, and the premise is what
+> changed rather than the measurement.** That verdict was correct while `implementation/ui/` was
+> going to be *archived*: fixture-only compatibility evidence is exactly what the specification
+> sentence permits a `test/` tree to retain. Mike's ruling of 2026-08-14 is *removal* (`rf2-0yp7w`),
+> and a fixture compiled against a deleted tree is not retained evidence — it is a broken build. So
+> the four consumers and the `day8/re-frame2-ui` coordinate that armed them are gone.
+>
+> The migration resolved as **retire with the donor**, the third instance of the refusal `rf2-jkdy`
+> reached for Xray's Views panel and `rf2-l86mm` re-confirmed for its tool-door reads — and it is
+> the *same* refusal, because Story's consumer asks the donor's questions verbatim. Three of the
+> five projections it shapes (`view-manifest`, `view-dependencies`, `view-event-sites`) are static
+> questions about **a view named by its id**, and Hicasso mints no boundary identity to name: a
+> boundary is keyed by its READ SET, with `:view` and `:source` projected `unknown` under the
+> `:opaque` naming projection. The fourth, `mounted-views`, degrades for the same reason — Story
+> filters it by `:view-id`, which the target's roster does not carry. The JVM half has no target at
+> all: `re-frame.ui.test/render` returns a versioned structural tree (`:rf.ui/tree-version`), and
+> outside the two retiring donors nothing in the repository produces one — `re-frame.hicasso.tool`
+> is `.cljs`-only and Hicasso ships no headless render.
+>
+> **What is deliberately lost, named rather than left silent.** Two claims, and they are not equally
+> replaceable.
+>
+> The first — that a third-party consumer can shape a compiled-view tool tier honestly, absence and
+> version boundary included — has **no surviving subject**. There is no compiled-view tool tier for
+> a consumer to shape once the donors go, and the paragraph above is why there is no target to
+> re-author against. That loss is total and is the point of the row.
+>
+> The second is S10's: a foreign substrate registered at runtime hosts a **real** app's view and its
+> deck plays green through the existing shell. Its mechanism survives — `story/register-substrate!`
+> and `multi/unregister-substrate!` are exercised substrate-neutrally by
+> `test/re_frame/story_multi_substrate_cljs_test.cljs` (`register-and-unregister`,
+> `public-register-substrate-on-story`), and `test/re_frame/story_substrate_isolation_test.clj`
+> pins the invariant that makes the seam opt-in. What goes with S10 is narrower and real: the only
+> caller of `multi/render-view` against a **non-`:reagent`** substrate, and the only end-to-end arm
+> in which a foreign substrate's real app view is played by the runner. Re-acquiring it means a
+> Hicasso or UIx deck standing where the `re-frame.ui` counter stood — a product decision, not this
+> bead's, and tracked as its own bead rather than assumed.
+
 | row | consumer | donor surface named, and how | verdict |
 |---|---|---|---|
-| S1 | `tools/story/deps.edn` → `day8/re-frame2-ui` | `:test`-alias `:extra-deps` only (L92); the comment states the published jar must not depend on it, and every consumer of it is row S7-S10 | FIXTURE-ONLY |
+| S1 | `tools/story/deps.edn` → `day8/re-frame2-ui` | `:test`-alias `:extra-deps` only (L92); the comment states the published jar must not depend on it, and every consumer of it is row S7-S10 | ~~FIXTURE-ONLY~~ → **RETIRED** (rf2-2og6s) |
 | S2 | `tools/story/deps.edn` → `day8/re-frame2-freehand` | `:test`-alias `:extra-deps` only (L110), but it exists to compile S3, which ships in Story's jar | ~~STILL-LIVE~~ → **RETIRED** (rf2-5gka) |
 | S3 | `tools/story/src/re_frame/story/play/presence_host.cljc` | requires `re-frame.freehand.presence-runtime` unconditionally and `re-frame.freehand` under `#?@(:cljs …)`; reads `(:flush-render! v/adapter)` and calls `fh-presence/advance-clock!` | ~~STILL-LIVE~~ → **RETIRED** (rf2-5gka) |
 | S4 | `tools/story/test/re_frame/story/play/presence_cljs_test.cljc` | requires `re-frame.freehand.presence-runtime` — the suite of S3 | ~~STILL-LIVE~~ → **SUBSTRATE-FREE** (rf2-5gka — the file survives; only its bridge arms went) |
 | S5 | `tools/story/test/re_frame/story/play/presence_freehand_dom_cljs_test.cljs` | requires `re-frame.freehand` + `.presence-runtime` — the DOM arm of S3 | ~~STILL-LIVE~~ → **RETIRED** (rf2-5gka) |
 | S6 | `tools/story/test/re_frame/story/play/presence_real_clock_cljs_test.cljs` | requires `re-frame.freehand.presence-runtime` — the real-clock arm of S3 | ~~STILL-LIVE~~ → **RETIRED** (rf2-5gka) |
-| S7 | `tools/story/test/re_frame/story/view_tool.cljc` | requires `re-frame.ui.tool`; shapes the five donor-1 projections for a Story variant | FIXTURE-ONLY |
-| S8 | `tools/story/test/re_frame/story/view_tool_cljs_test.cljc` | requires `re-frame.ui.reactive`, `.tool`, `.tool.evidence` — the CLJS suite of S7 | FIXTURE-ONLY |
-| S9 | `tools/story/test/re_frame/story/view_tool_tree_jvm_test.clj` | requires `re-frame.ui` (`:refer [defview sub]`) + `re-frame.ui.test` — the JVM suite of S7 | FIXTURE-ONLY |
-| S10 | `tools/story/test/re_frame/story/realworld_ui_consumer_cljs_test.cljs` | requires `re-frame.ui` + `re-frame.freehand.presence-runtime`; hosts the realworld `re-frame.ui` app as a foreign substrate through `story/register-substrate!` | FIXTURE-ONLY (its Freehand half went with the bridge — rf2-5gka; the `re-frame.ui` half stands) |
+| S7 | `tools/story/test/re_frame/story/view_tool.cljc` | requires `re-frame.ui.tool`; shapes the five donor-1 projections for a Story variant | ~~FIXTURE-ONLY~~ → **RETIRED** (rf2-2og6s) |
+| S8 | `tools/story/test/re_frame/story/view_tool_cljs_test.cljc` | requires `re-frame.ui.reactive`, `.tool`, `.tool.evidence` — the CLJS suite of S7 | ~~FIXTURE-ONLY~~ → **RETIRED** (rf2-2og6s) |
+| S9 | `tools/story/test/re_frame/story/view_tool_tree_jvm_test.clj` | requires `re-frame.ui` (`:refer [defview sub]`) + `re-frame.ui.test` — the JVM suite of S7 | ~~FIXTURE-ONLY~~ → **RETIRED** (rf2-2og6s) |
+| S10 | `tools/story/test/re_frame/story/realworld_ui_consumer_cljs_test.cljs` | requires `re-frame.ui` + `re-frame.freehand.presence-runtime`; hosts the realworld `re-frame.ui` app as a foreign substrate through `story/register-substrate!` | ~~FIXTURE-ONLY~~ → **RETIRED** (rf2-5gka took its Freehand half; rf2-2og6s took the rest) |
 | S11 | `tools/story/src/re_frame/story/play/runner_events.cljc` | the `:no-presence-host` refusal message in `presence-step-result` (L1064; the `:message` `str` at L1077-1084) tells the user their app is one "that renders Freehand views" (L1080) — a runtime string the code actually uses, load-bearing on the same footing as X13. The file's other three donor hits are docstrings | ~~STILL-LIVE~~ → **REWORDED** (rf2-5gka — the refusal is substrate-neutral, with a test pinning that it names none) |
 
 **Why S3 is STILL-LIVE despite living behind a late-bind hook.** `re-frame.story.play.presence`
@@ -412,6 +454,14 @@ tab already showing those envelopes whole, would be worse than nothing. Neither 
 The 5 FIXTURE-ONLY rows need no action at all: they are precisely the "explicit compatibility
 coverage" the specification sentence permits fixtures to retain. The 10 MIGRATED rows need none
 either — 4 in Xray's Hicasso tab, 6 in Pair.
+
+> **OVERTAKEN for the 5 FIXTURE-ONLY rows, 2026-08-14 (rf2-2og6s) — and by a change of premise,
+> not of measurement.** The sentence above holds only while the donor trees are *archived*. Mike
+> ruled on 2026-08-14 that `re-frame.freehand` and `re-frame.ui` are **removed** (`rf2-0yp7w`),
+> and a fixture compiled against a deleted tree is not retained compatibility coverage — it is a
+> build failure. All five (S1, S7-S10) are therefore retired; see the ACTIONED note in
+> [Story](#story--11-rows-6-still-live-5-fixture-only) for the reasoning and the losses. The 10
+> MIGRATED rows are unaffected: they read the target.
 
 ## The proof statement
 
