@@ -87,6 +87,52 @@
 // `hicasso-narrow`). Coverage that arrives through somebody else's `:require`
 // is exactly what evaporated here once already.
 //
+// ## …and the OPTIONAL MODULES, which nothing warnings-fatal reached (rf2-okhdf)
+//
+// The third entry source is not a lane member at all, and it is here because
+// this is the only instrument in the repository that would have caught it.
+//
+// Hicasso's optional modules — `motion`, `overlay`, `forms`, `native` — are
+// unreachable from the public door BY CONSTRUCTION, which is a product
+// invariant that `hicasso/scripts/check_optional_module_reachability.py`
+// enforces and that holds. The consequence is that no compile which starts at
+// the door reaches them: MEASURED on `out/hicasso-release/main.js`, the
+// artefact's only `:advanced` bundle, `anchorName` / `positionAnchor` /
+// `showPopover` / `rf-overlay-` / `buffered-field` each occur ZERO times
+// against `hicasso` at 75. Their own tests DO compile them — but under
+// `:node-test-hicasso`, which sets `:infer-externs false`, and under
+// `:browser-test`, which infers and then exits 0 on the warnings like every
+// other shadow build. So the modules were compiled in two places and JUDGED in
+// none.
+//
+// What that cost, concretely: four `:infer-warning`s on
+// `(.. el -style -anchorName)` in `impl/overlay.cljs` lived on main until a
+// worker read them off a browser build BY HAND (rf2-9zz0y). Under `:advanced`
+// Closure renames a property it cannot see an extern for, so the trigger claim
+// would have broken silently in every consumer that shipped an overlay.
+//
+// MEASURED, before and after, by re-introducing that exact fault — dropping
+// the `^js` hint from `claim-anchor!`'s `el`:
+//
+//     against this gate BEFORE the roster was added   exit 0, 0 warnings
+//     compiled directly, entry `…hicasso.impl.overlay`  2 x :infer-warning
+//     against this gate AFTER                          exit 1, named
+//
+// The entries are READ FROM THE ROSTER — `check_optional_module_reachability.py
+// --module-namespaces` — rather than restated here, and that is the whole
+// design rather than a convenience. A hand-copied list would leave the NEXT
+// optional module compiled by nothing while this gate went on reporting
+// success, which is the defect being closed, one module later. Rowing a module
+// in that roster is already mandatory for the invariant it exists to enforce;
+// deriving from it means the same edit buys this coverage and there is no
+// second place to remember.
+//
+// It fails CLOSED in four directions — the emitter missing, the emitter
+// erroring, an empty or collapsed list, a malformed namespace — because an
+// entry source that quietly contributed nothing would leave this gate green
+// over exactly the code it was widened to cover. `compile_gate.test.cjs` pins
+// each refusal.
+//
 // ## `:advanced` — MEASURED, and why there is no nightly release gate
 //
 // This block used to say that an "externs-inference fault" was invisible to a
@@ -132,6 +178,23 @@
 // default (`:closure-warnings {:check-types :off}`), so there are no
 // `:advanced`-only type errors to find either.
 //
+// THE OPTIONAL MODULES FALL UNDER THAT SAME VERDICT, and rf2-okhdf asked for
+// an `:advanced` build over them specifically, so the transfer is checked at
+// source rather than assumed. Point (1) is the whole of what that bead's
+// finding needs — `:infer-warning` is bound in both modes, so a DEV compile
+// catches an un-externable property access identically, which the mutation
+// above then demonstrated on the real fault. Point (2) is what the fix does
+// NOT buy: a renaming fault that reaches the DOM emits no diagnostic in any
+// mode, and the `-dom-cljs-test` suites that execute these modules run under
+// `:none`, so nothing in this repository would see one. And the residual
+// `:advanced`-only class is empty here for the same two reasons it is empty
+// over lane sources — none of the seven module namespaces uses `js*`, and the
+// only npm module any of them requires is `react`.
+//
+// So the fix delivered is a COMPILE, not a test, and the difference is not
+// cosmetic: it decides mangling and externs, and it decides nothing about
+// behaviour.
+//
 // So the nightly was NOT built: no fault could be constructed that it would
 // catch and this gate would miss, and a gate nobody can make fire is the
 // fail-open class this lane keeps repairing rather than a repair of it.
@@ -156,6 +219,7 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
+const { spawnSync } = require('node:child_process');
 
 const { shadowBuild } = require('./lane_build.cjs');
 const { resetLaneBuildCache } = require('../../../../../core/test/re_frame/bench/lane_cache.cjs');
@@ -202,6 +266,84 @@ const OUTSIDE_LANE_ENTRIES = [
     why: "that leg's :advanced entry; driven by hicasso_narrow_run.cjs on :hicasso-bench",
   },
 ];
+
+// rf2-okhdf. The optional modules' roster, and the flag that makes it answer.
+// It is the SAME file that forbids anything outside a module from requiring
+// it; see this file's header for why the list is read rather than restated.
+const MODULE_ROSTER = 'hicasso/scripts/check_optional_module_reachability.py';
+const MODULE_ROSTER_FLAG = '--module-namespaces';
+
+// Four optional modules today, seven namespaces between them. The floor is a
+// COLLAPSE detector and not a count: it catches an emitter that has started
+// answering nothing while still exiting 0, which is the only way this entry
+// source can contribute silently. Growth is the roster's business.
+const MIN_MODULE_NAMESPACES = 4;
+
+// A CLJS namespace, as the emitter is contracted to print them. Anything else
+// is a refusal rather than an entry: shadow-cljs would take a malformed token
+// into `:entries` and fail with a resolution error naming a file nobody wrote,
+// which sends the reader somewhere this gate can already say is wrong.
+const NAMESPACE_RE = /^[A-Za-z][A-Za-z0-9._*+!?<>=$%&|-]*$/;
+
+/**
+ * Decide the optional-module entry list from the emitter's result. Pure, so
+ * `compile_gate.test.cjs` can prove each refusal fires without spawning
+ * Python — the shape `lane_build.cjs` uses for the same reason.
+ *
+ * @returns {{ok: true, namespaces: string[]} | {ok: false, reason: string, detail: string[]}}
+ */
+function decideModuleNamespaces({ error, status, stdout, stderr }) {
+  const cmd = `python ${MODULE_ROSTER} ${MODULE_ROSTER_FLAG}`;
+  if (error) {
+    return {
+      ok: false,
+      reason: `could not run \`${cmd}\` — the optional-module roster could not be asked`,
+      detail: [String(error.message || error)],
+    };
+  }
+  if (status !== 0) {
+    return {
+      ok: false,
+      reason: `\`${cmd}\` exited ${status}`,
+      detail: String(stderr || '').split('\n').filter(Boolean),
+    };
+  }
+  const namespaces = String(stdout || '')
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const malformed = namespaces.filter(
+    (ns) => !NAMESPACE_RE.test(ns) || !ns.includes('.'),
+  );
+  if (malformed.length > 0) {
+    return {
+      ok: false,
+      reason: `\`${cmd}\` emitted ${malformed.length} token(s) that are not namespaces`,
+      detail: malformed.map((ns) => JSON.stringify(ns)),
+    };
+  }
+  if (namespaces.length < MIN_MODULE_NAMESPACES) {
+    return {
+      ok: false,
+      reason:
+        `\`${cmd}\` emitted only ${namespaces.length} namespace(s) ` +
+        `(floor ${MIN_MODULE_NAMESPACES}) — the roster emission has collapsed, ` +
+        `and compiling the survivors would report success over the modules it dropped`,
+      detail: namespaces,
+    };
+  }
+  return { ok: true, namespaces: [...new Set(namespaces)].sort() };
+}
+
+/** Ask the roster which namespaces the optional modules own. */
+function optionalModuleNamespaces(impl = IMPL) {
+  const python = process.env.PYTHON || 'python';
+  const r = spawnSync(python, [MODULE_ROSTER, MODULE_ROSTER_FLAG], {
+    cwd: impl,
+    encoding: 'utf8',
+  });
+  return decideModuleNamespaces(r);
+}
 
 /** Every `.cljs` / `.cljc` under the lane, recursively, sorted. */
 function laneSourceFiles(dir = LANE_DIR) {
@@ -273,6 +415,17 @@ if (require.main === module) {
   const listOnly = process.argv.slice(2).includes('--list');
   const { namespaces: walked, unreadable } = laneNamespaces();
   const { namespaces: outside, broken } = outsideLaneEntries();
+  const modules = optionalModuleNamespaces();
+
+  if (!modules.ok) {
+    console.error(
+      `[${TAG}] the optional-module entry source failed (rf2-okhdf): ${modules.reason}. ` +
+        `Refusing to compile a set the optional modules may be missing from — ` +
+        `nothing else in this repository compiles them where warnings are fatal.`,
+    );
+    for (const d of modules.detail) console.error(`  ${d}`);
+    process.exit(1);
+  }
 
   if (broken.length > 0) {
     console.error(
@@ -302,7 +455,7 @@ if (require.main === module) {
     process.exit(1);
   }
 
-  const namespaces = [...new Set([...walked, ...outside])].sort();
+  const namespaces = [...new Set([...walked, ...outside, ...modules.namespaces])].sort();
 
   if (listOnly) {
     for (const ns of namespaces) console.log(ns);
@@ -316,9 +469,10 @@ if (require.main === module) {
   }
 
   console.error(
-    `[${TAG}] compiling all ${namespaces.length} lane namespaces ` +
+    `[${TAG}] compiling all ${namespaces.length} namespaces ` +
       `(${walked.length} walked from ${LANE_DIR}, ${outside.length} rostered ` +
-      `from outside it) -> ${OUT_DIR}`,
+      `from outside it, ${modules.namespaces.length} optional-module namespaces ` +
+      `read from ${MODULE_ROSTER}) -> ${OUT_DIR}`,
   );
 
   // ONE LINE, deliberately: shadow-cljs's CLI re-splits `--config-merge` on
@@ -331,7 +485,9 @@ if (require.main === module) {
   shadowBuild({ impl: IMPL, mode: 'compile', buildId: BUILD_ID, configMerge, tag: TAG });
 
   console.error(
-    `[${TAG}] ok — ${namespaces.length} lane namespaces compiled with zero warnings`,
+    `[${TAG}] ok — ${namespaces.length} namespaces compiled with zero warnings ` +
+      `(including ${modules.namespaces.length} optional-module namespaces no other ` +
+      `warnings-fatal compile reaches)`,
   );
 }
 
@@ -340,6 +496,11 @@ module.exports = {
   namespaceOf,
   laneNamespaces,
   outsideLaneEntries,
+  decideModuleNamespaces,
+  optionalModuleNamespaces,
   MIN_NAMESPACES,
+  MIN_MODULE_NAMESPACES,
+  MODULE_ROSTER,
+  MODULE_ROSTER_FLAG,
   OUTSIDE_LANE_ENTRIES,
 };
