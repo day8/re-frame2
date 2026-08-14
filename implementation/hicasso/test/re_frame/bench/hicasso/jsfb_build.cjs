@@ -43,6 +43,7 @@ const path = require('node:path');
 // shadow-cljs exits 0 on WARNINGS, so a status check is not a gate. The
 // lane's one build door refuses a warned build (rf2-2rtt6.73).
 const { shadowBuildVerdict, reportRefusal } = require('./lane_build.cjs');
+const { resetLaneBuildCache } = require('../../../../../core/test/re_frame/bench/lane_cache.cjs');
 
 const IMPL = path.resolve(__dirname, '../../../../..');
 
@@ -187,8 +188,14 @@ for (const arm of ARMS) {
   // that a failed compile cannot leave the last good bundle in place and be
   // measured as though it were this one; the cache for the one-build-id
   // reason above.
+  //
+  // The cache clear goes through `resetLaneBuildCache` rather than this file's
+  // own `rmrf` (rf2-d19nf). Both remove the same directory, but the shared
+  // helper carries the Windows retry loop — a scanner or a just-exited JVM can
+  // hold a handle for a moment, and a bare `rmSync` throws where the helper
+  // waits. One rule, one implementation.
   rmrf(outDir);
-  rmrf(path.join(IMPL, '.shadow-cljs', 'builds', BUILD_ID));
+  resetLaneBuildCache(IMPL, BUILD_ID);
   fs.mkdirSync(outDir, { recursive: true });
 
   const configMerge =
