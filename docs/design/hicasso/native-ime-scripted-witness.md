@@ -37,7 +37,7 @@ native-IME session of [`native-ime-manual-witness.md`](native-ime-manual-witness
 | **Is not** | the acceptance path. That went back to the manual session at [`native-ime-manual-witness.md`](native-ime-manual-witness.md) on 2026-08-12, and on 2026-08-13 the operator ruled that session retired and the two cells green — so acceptance is a ruling, and no session is outstanding |
 | **Is not** | a CI gate. It cannot become one |
 | **Was built to need** | Windows, an **installed Japanese IME**, a visible desktop session, and the machine's keyboard focus. All were satisfied, and it still could not compose |
-| **Recurring regression net** | unchanged — the synthetic three-engine gate `implementation/hicasso/testbed/spec.cjs`, driven by `serve-and-run-hicasso-controlled-testbed.cjs` in the required `cljs-hicasso-controlled` job, at **97 checks × 3 engines** per PR |
+| **Recurring regression net** | unchanged — the synthetic three-engine gate `implementation/hicasso/testbed/spec.cjs`, driven by `serve-and-run-hicasso-controlled-testbed.cjs` in the required `cljs-hicasso-controlled` job, at **190 checks × 3 engines** per PR (97 when this table was written; `rf2-hic-040` added the control/DOM conformance matrix beside these witnesses without touching them) |
 
 There is no hosted runner with a Japanese IME and a foreground window, so this script runs on a person's desktop, on
 purpose, while they watch. **A green run here is a dated observation, not continuous coverage.** The synthetic gate is
