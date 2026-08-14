@@ -114,9 +114,13 @@
           "the ordinary select is the overwhelming case and answers a string"))))
 
 (deftest an-input-carrying-multiple-is-not-a-select
-  (testing "`<input type=file multiple>` and `<input type=email multiple>` both
-            carry `.multiple`, and neither has a selection"
-    (let [target #js {:multiple true :value "a@b.com,c@d.com"}]
+  (testing "`<input type=email multiple>` carries `.multiple` and has no
+            selection. So does `<input type=file multiple>`, which is why
+            `.multiple` alone would have been the wrong test — but the file
+            input never reaches this branch at all now: it is refused one
+            step earlier, and `file_input_value_dom_cljs_test` owns that
+            row (rf2-lhsvs)."
+    (let [target #js {:files nil :multiple true :value "a@b.com,c@d.com"}]
       (is (= [:tb/pick "a@b.com,c@d.com"]
              (intent/materialize [:tb/pick :re-frame.hicasso/value] (ev target)))
           (str "`.multiple` alone is the WRONG test — it is an <input> "

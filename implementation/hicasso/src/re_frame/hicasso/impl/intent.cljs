@@ -770,8 +770,43 @@
   :re-frame.hicasso/navigate)
 
 (defn- target-value
-  "The event target's current value — `.value`, except on the one control
-  where `.value` is not it (rf2-42vlw).
+  "The event target's current value — `.value`, except on the two controls
+  where `.value` is not it. One is corrected (rf2-42vlw), one is refused
+  (rf2-lhsvs), and the difference between those two answers is the whole
+  of this docstring.
+
+  ## The file input, refused (rf2-lhsvs)
+
+  On an `<input type=\"file\">`, `HTMLInputElement.value` is in FILENAME
+  MODE: it answers the literal fiction `C:\\fakepath\\` followed by the
+  FIRST selected file's name. So `[:app/upload ::h/value]` on a file input
+  is a correct-looking expression that quietly means something else — it
+  names one file out of however many were chosen, over a path the spec
+  mandates as a deliberate privacy fiction, which nothing downstream can
+  open or turn back into a `File`. Same silence as the multi-select below,
+  same plausible-but-wrong string.
+
+  **It is refused rather than corrected, and the guide is what decides
+  that.** The multi-select was a correction because `::h/value` already
+  meant *the control's current value* and a multi-select's current value
+  IS its selection — the marker was answering its own question badly. A
+  file input is not that case: chapter 04's supported-controls table rules
+  it OUT of the marker's surface on purpose (`no controlled value`, with
+  `:on-change` and an `h/fn` reading `.files` as the whole of its event
+  form, *because the platform owns their value*), and answering with a
+  `FileList` here would WIDEN the marker onto a control the design
+  deliberately excludes. The same chapter states the posture that settles
+  it: unsupported controlled shapes are rejected rather than approximated.
+  Handing back the fakepath string is an approximation; so is quietly
+  substituting `.files` for what the author asked for.
+
+  `.files` is the test because it is the discriminator the platform
+  already provides: it is a `FileList` on this control, `null` on every
+  other `<input>`, and absent entirely off an input. It is asked FIRST
+  because this is the one control that must not reach `.value` at all —
+  the cost is one property read on the marker path, and no allocation.
+
+  ## The multi-select, corrected (rf2-42vlw)
 
   HTML defines `HTMLSelectElement.value` as *the value of the first
   option in tree order whose selectedness is set*, and that definition
@@ -798,16 +833,30 @@
 
   ## Why the test is `.multiple` AND `.selectedOptions`
 
-  `.multiple` alone is the wrong test and would break two working
-  controls: `<input type=\"file\" multiple>` and `<input type=\"email\"
-  multiple>` both carry it, and neither has a selection to read. Only a
-  `<select>` has `.selectedOptions`, so asking for it is what confines
-  this branch to the control it is about.
+  `.multiple` alone is the wrong test and would break a working control:
+  `<input type=\"email\" multiple>` carries it too and has no selection to
+  read. (`<input type=\"file\" multiple>` carries it as well, and never
+  reaches this branch — it is refused above.) Only a `<select>` has
+  `.selectedOptions`, so asking for it is what confines this branch to
+  the control it is about.
 
-  `.multiple` is asked FIRST because it is `undefined` on every element
-  that is not one of those three, so the overwhelming case — a text
-  field — reaches `.value` on one extra property read and no allocation."
+  `.multiple` is asked FIRST of the two select tests because it is
+  `undefined` on every element that is not one of those three, so the
+  overwhelming case — a text field — reaches `.value` on one extra
+  property read and no allocation."
   [target]
+  (when (.-files target)
+    (fail! :rf.error/hicasso-file-input-value-marker
+           're-frame.hicasso.impl.intent/target-value
+           (str "::h/value on a file input reads C:\\fakepath\\ followed by the "
+                "FIRST selected file's name — a path nothing can open, naming "
+                "one file out of however many were chosen. A file input has no "
+                "value the model can carry; the platform owns the selection. "
+                "Write an h/fn at the handler and read `.files` off the event "
+                "target: [:input {:type :file :on-change (h/fn [e] [:app/upload "
+                "(js/Array.from (.. e -target -files))])}].")
+           :read-the-file-list-with-an-h-fn
+           {:value (.-value target)}))
   (if (.-multiple target)
     (if-some [options (.-selectedOptions target)]
       (mapv (fn [option] (.-value option)) (array-seq options))
