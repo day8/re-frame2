@@ -133,12 +133,21 @@ not close on a stray backdrop click. Style the native backdrop with
 Focus belongs to the browser. Do not mirror the currently focused element in
 app-db.
 
-**Initial focus.** Put `:auto-focus true` on the control that should receive
-focus when the overlay opens. The attribute is applied once per open, not on
-every re-render. It is inert in server-rendered markup. A modal without an
-autofocus target focuses the dialog itself. A popover normally leaves focus on
-its trigger; menus and comboboxes can use `:aria-activedescendant` instead of
-moving DOM focus.
+**Initial focus.** Focus is decided once, when the overlay opens, by the
+platform's own dialog-focusing steps — and with nothing pointing them
+elsewhere they take the first focusable control in tree order. So order the
+controls to put the one that should receive focus first. In the confirmation
+dialog above that is *Keep it*, which is the right default for a destructive
+action and worth arranging deliberately rather than inheriting.
+
+There is no attribute to reach for. `:auto-focus true` camelCases to React's
+own `autoFocus`, which React honours by calling `.focus()` during the commit —
+one commit before the dialog is shown, while it is still `display: none` and
+nothing inside it is focusable — and it emits no attribute; the unhyphenated
+`:autofocus` React rejects outright. Neither spelling reaches the platform.
+
+A popover normally leaves focus on its trigger; menus and comboboxes can use
+`:aria-activedescendant` instead of moving DOM focus.
 
 **Focus restoration.** When an overlay closes through Escape, light-dismiss,
 or an app-db change, focus returns to the element that had focus when it
@@ -336,7 +345,7 @@ to the next library. The top-layer primitives remove those failure classes.
 | Outside click closes the platform popover, then it opens again | `:on-dismiss` ran but the handler left the app-db flag true | Set the open flag false in the dismiss handler |
 | Escape closes several layers at once | Layers share one address or one dismiss event | Give each overlay its own address and `:on-dismiss` |
 | Focus returns to `<body>` | The opener unmounted while the overlay was open, often because of an unstable list key | Use a stable `:key` for the trigger's row |
-| Opening raises `:rf.error/hicasso-overlay-anchor-missing` | `:anchor` names no element, or multiple instances reuse one id | Generate a unique, stable trigger id from the instance id |
+| Panel opens on the top layer but not beside its trigger, and nothing is raised | `:anchor` names no element, or several instances reuse one id. A missing anchor is a no-op today: the panel takes the browser's default top-layer position, visibly unanchored rather than silently mispositioned | Generate a unique, stable trigger id from the instance id |
 | Dialog is visible but the background still scrolls and receives clicks | A hand-written `<dialog open>` uses the non-modal path | Use `overlay/modal`, which calls `showModal` |
 | Popover flashes in the wrong place for one frame | Positioning happens after mount | Supply `:anchor` and `:placement`; the module positions before paint |
 | Every row menu opens together | All rows share one app-db address | Include the row id in the address ([Ephemeral state](11-ephemeral-state.md#choose-a-stable-instance-address)) |

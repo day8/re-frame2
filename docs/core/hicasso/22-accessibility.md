@@ -127,7 +127,7 @@ Focus movement has specific owners:
 | Moment | Behaviour | Owner |
 | --- | --- | --- |
 | Route change | Focus a keyed `main` region with `:tab-index -1` and `preventScroll` | [Routing and navigation](07-routing-and-navigation.md) |
-| Overlay open and close | Apply `:auto-focus`, use the platform trap, restore the opener | [Overlays and focus](13-overlays-and-focus.md) |
+| Overlay open and close | Put the control that should receive focus first in tree order, use the platform trap, restore the opener | [Overlays and focus](13-overlays-and-focus.md) |
 | Menu or listbox navigation | Keep DOM focus on the trigger and move `:aria-activedescendant` from a `combobox` that `:aria-controls` the list, leaving `:aria-selected` on the committed value | [Overlays and focus](13-overlays-and-focus.md) |
 | Exit animation | Add `:inert` and `:aria-hidden` during unmounting | [Motion and presence](12-motion-and-presence.md) |
 | Virtualised collection | Decide how keyboard users reach items that do not exist in the DOM and verify it in a browser | [Lists and collections](06-lists-and-collections.md) |
