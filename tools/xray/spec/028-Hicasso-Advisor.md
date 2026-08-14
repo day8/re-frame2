@@ -301,6 +301,40 @@ not three phrasings of one. React DevTools answers the first two; the browser's
 own performance tools answer the third. A reader deciding what to open next needs
 to know which one they are missing.
 
+### The projection holds NO TREE, and `:host-opaque` is not a crossing
+
+**Normative.** `slice` is a pure function of the four evidence envelopes and the
+trace window, and none of them carries a node, a child, an element or a
+component. The producer states the same thing at its own door: the
+`mounted-boundaries` naming projection is `:basis :opaque` with `:complete?
+false`, because *the runtime mints no boundary identity and keeps no view
+registry* — a boundary IS the projected edge set it holds. Opacity on this view
+is therefore **total and structural**, never a label attached to a particular
+subtree.
+
+Two consequences follow, and both are asserted rather than described:
+
+1. **Links 5-7 are constants.** `link-host` reads no argument `slice` was given,
+   so an interpreted-only boundary, one rendering an `n/defcomponent` island and
+   one rendering a `[:>]` foreign escape produce three identical rows.
+   `:host-opaque` means *React owns commit and paint for any boundary*; it does
+   **not** mean *a foreign subtree was crossed*, and a consumer must not read it
+   that way. The two are indistinguishable in this output because only the first
+   is a fact this projection computes.
+2. **What changes past the fence is the PREFIX, not the opacity.** An island's
+   `n/use-sub` read builds the same cell, takes the same reader slot and earns
+   its own census row, so it is a first-class slice subject on links 1-4 — Xray
+   names it (by its edge set) and times it (`:rf.sub/elapsed-ms`). A foreign
+   React component reads nothing of the application's and so claims no census row
+   and no reverse edge at all, which is the honest degradation: the tool reports
+   what it holds and fabricates nothing for what it cannot see.
+
+Link 2 is worth reading in that light too. Its roster is the DISPATCH's, taken
+from the bundle and therefore frame-wide; the boundary-scoped question — *which
+of those reads moved at THIS subject* — is link 3's. A consumer treating link 2
+as per-boundary would attribute an island's recompute to the boundary that
+renders it.
+
 The slice's own envelope is `:complete? false` with `:loss {:reason
 :uncorrelated}` **unconditionally**. A slice that reported itself complete
 because its first four links came back green would be claiming the chain, having
@@ -395,6 +429,7 @@ bead: no new sentinel, no new evidence machinery, and no code under
 |---|---|---|
 | `…panels.hicasso-advisor-cljs-test` | node + JVM | the timing fold (untimed ≠ zero; a memo hit is not work; an unnamed run is `:uncorrelated`, never dropped; the per-frame scope); the top-3 against a HAND profile whose frequency order deliberately inverts its time order; the fallback axis says `NOT by time`; the five classifications, each driven from a real window; `:cap` and `:host-opaque` are two remedies in two sentences; **the native refusal as a property over the classifier's whole output**, with the ladder's non-vacuity control beside it; the refusal names a non-Xray authority per candidate |
 | `…panels.hicasso-causal-cljs-test` | node (reactive substrate) | the seven links on a REAL interaction through the real commit seam and the real router; links 1–4 evidenced and 5–7 host-opaque with three distinct authorities; the 2→3 join `:uncorrelated` while the 1→2 join is `:evidenced`; **four mutation rows, each with its positive control**; the loss chips reach the page under distinct testids and change between two genuinely different window states; the advisor answers on the running app and still refuses the ladder; advice and slice come from ONE turn |
+| `…panels.hicasso-causal-native-island-dom-cljs-test` | browser (real React DOM) | the slice over a subject PAST THE FENCE (rf2-t2d3) — a real `n/defcomponent` island reading `n/use-sub`, and a foreign React component reached through `[:>]`, under one boundary. An island's read is a first-class subject: links 1–4 evidenced, its own census row, and the advisor NAMES and TIMES it. Neither subtree's markup reaches any of the four reads, and the foreign component claims no census row and no reverse edge — against a control proving it really rendered and re-rendered. **And the refusal**: links 5–7 are identical over the crossing subject and over an interpreted-only one, with a non-vacuity control showing the two slices otherwise differ, so `:host-opaque` demonstrably does not encode a crossing |
 | `…panels.hicasso-skip-semantics-cljs-test` | node + JVM | **both public results, off ONE window** — a skip-only window is `:memo-hits-only` / `:host-opaque` with `:runs` 0, routed to measure-first and never to the retention knob, while the same window's slice holds `[]` recomputes and one `:skipped`; a bundle carrying all four `:rf.sub` operations gives the advisor's recompute COUNT and the slice's recompute ROSTER the same reading; the three unattributed states are pairwise distinct and exactly one names `:rf.trace/events-retained`; an untagged RUN beside a tagged skip still degrades to `:unknown` with a `:dropped` of 1; **and the four-operation matrix** — every `:rf.sub` operation with an `:rf.sub/id` and without one, each cell asserted against what the operation IS *and* against link 2's reading of the same event |
 
 The pair-in-one-row shape of the third suite is the point: an advisor-only row
@@ -419,7 +454,18 @@ assertions the green run reports — so the plant stopped no namespace. Every
 pre-existing row in the suite stayed GREEN under that plant, which is the
 finding restated as a measurement.
 
-All three suites run in the existing `:node-test` build (`tools/xray/test` is
-already on its source paths) and the two `.cljc` ones additionally under
-`tools/xray`'s `clojure -M:test`. No new build id, no new `:dev-http` port, no
+The native-island suite is the one that needs a fiber, and it is the only one
+here that does. `n/use-sub` is a real React hook, and per
+`docs/design/hicasso/product/lanes/testing-xray.md` foreign regions are
+mounted-test territory with no fake hook dispatcher, ever — so a native-tier
+subject cannot be simulated at the node tier and the namespace takes the
+`-dom-cljs-test` suffix that selects `:browser-test`. `:node-test` compiles it
+too (`cljs-test$` matches both suffixes), where each row degrades to a stated
+skip rather than to a false green.
+
+All four suites run in the existing `:node-test` build (`tools/xray/test` is
+already on its source paths), the two `.cljc` ones additionally under
+`tools/xray`'s `clojure -M:test`, and the native-island one additionally in the
+existing `:browser-test` build, whose `-dom-cljs-test$` selector already reaches
+`tools/xray/test`. No new build id, no new `:dev-http` port, no
 `implementation/shadow-cljs.edn` change.
