@@ -77,15 +77,15 @@
  ;; is gone and the floor applies: 3 tests, and the runner refuses if that ever
  ;; becomes 0.
  ;;
- ;; THE JVM ARM IS NOW UNGATED, AND THAT IS A REAL COST, NOT A DETAIL. The pin
- ;; used to be discovered by `implementation/freehand`'s `:test` alias, which
- ;; is on `scripts/test-jvm-implementation.sh` AND has a required `test.yml`
- ;; job. This artefact is on neither — deliberately, per the "NOT HERE, ON
- ;; PURPOSE" note in that roster script — because `check_jvm_lane_rosters.py`
- ;; R1 refuses a roster entry with no CI job, and the missing half is a
- ;; `jvm-hicasso` job in `.github/workflows/test.yml`, which is hot-zone and
- ;; sequential. So the pin's Node arm still runs on every PR and its JVM arm
- ;; runs only when somebody types `clojure -M:test` here. Filed, not hidden.
+ ;; THE JVM ARM IS GATED, ON EVERY PR. It was not, for one hour and forty-two
+ ;; minutes: this alias landed ungated because `check_jvm_lane_rosters.py` R1
+ ;; refuses a roster entry with no CI job, so the artefact could not join
+ ;; `scripts/test-jvm-implementation.sh` until `.github/workflows/test.yml` —
+ ;; hot-zone and sequential — carried a job to match. `f4c3c53d04` landed both
+ ;; halves together, which is the only way R1/R2 accept either. The artefact is
+ ;; now on that roster and `test.yml` runs `jvm-hicasso` unconditionally, in
+ ;; `all-required-passed`'s `needs:`, so the slot-rule pin's JVM arm no longer
+ ;; waits for somebody to type `clojure -M:test` here (rf2-h2h25).
  ;;
  ;; The lint export's witness (rf2-hic-022) is still NOT a JVM suite. It is
  ;; `scripts/check_lint_export.py`, run by `npm run test:hicasso-lint`, for the
