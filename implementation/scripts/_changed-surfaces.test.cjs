@@ -6709,8 +6709,9 @@ const DECLARED_NO_SURFACE_OUTPUT = {
   // rather than inherited: the surviving guide is docs/core/hicasso/**, and
   // rf2-r5iy7 already measured and REJECTED arming it, because the only output
   // that would reach its checker is cljs_node_test — the ~10-minute node
-  // build, scheduled on a prose typo. Each of the three PR-time gates named
-  // below was re-read at its source and holds.
+  // build, scheduled on a prose typo. Every gate named below was re-read at
+  // its source and holds — including the count: the live hicasso-guide-samples
+  // run reports 188 pinned blocks across 25 pages.
   'docs/core': {
     why: "the human guide. Three PR-time gates read it and none arms a surface output, which is the always-on shape this list exists to record. docs.yml's own docs_surface classifier stages it into the site and runs mkdocs --strict; check_doc_slugs.py validates its links and heading anchors on EVERY PR from test.yml's unconditional verify-readme-links job (rf2-v7fui); and lint.yml runs api-manifest doc-guide-check over docs/core/** minus docs/core/api/**, reconciling every call-position `(rf/<var>` reference against the manifest behind a non-vacuous floor. The Hicasso guide's 188 digest-pinned fenced blocks are covered by the unconditional hicasso-guide-samples job (rf2-r5iy7), which is unconditional PRECISELY so that a guide-only PR runs it.",
     coveredBy: [
