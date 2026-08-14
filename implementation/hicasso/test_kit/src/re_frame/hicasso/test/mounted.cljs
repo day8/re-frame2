@@ -14,7 +14,7 @@
 
       (hm/mount! form opts)             → handle
       (hm/hydrate! form opts)           → promise of handle
-      (hm/render! handle form)          → handle
+      (hm/rerender! handle form)          → handle
       (hm/dispatch-and-settle! h event) → handle
       (hm/settle! handle)               → handle
       (hm/settle-until! handle pred)    → promise of handle
@@ -965,7 +965,7 @@
 ;; Driving
 ;; ---------------------------------------------------------------------------
 
-(defn render!
+(defn rerender!
   "Render `form` into `handle`'s existing root, synchronously, and answer
   the handle. The props-change door: same root, same frame, same DOM
   nodes wherever React can keep them, so identity and effect claims are

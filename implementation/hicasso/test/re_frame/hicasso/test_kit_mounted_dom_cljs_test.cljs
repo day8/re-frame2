@@ -427,7 +427,7 @@
     (async done
       (let [m  (seeded 1)
             li (node-at m ".row")]
-        (hm/render! m [row {:id 2}])
+        (hm/rerender! m [row {:id 2}])
 
         (testing "the new props reached the body and the page moved"
           (is (= "todo 2" (text-at m ".title")))
