@@ -155,6 +155,12 @@ than the count. A rule written as a class does not re-drift.
 State what the worker owns, then what it may not touch **and who holds it**. Naming the
 holder tells the worker whether a conflict means "rebase" or "stop and report".
 
+**A fence is a claim about FILES, so derive it from what each open change actually
+touches rather than from its name.** A name — of a branch, a worker, a task — cannot
+distinguish a change holding four named files from one holding a whole tree, so a fence
+written from names is still a guess about files, which is the guess deriving it was meant
+to replace. Ask your change-listing tool for the paths, not just the names.
+
 **A fence is derived, never remembered — and the worker derives it again at start-up.**
 Step 3 above settles how you establish it; this is what the brief then asks of the worker,
 because a list assembled from memory of who you dispatched is stale inside the dispatch's
