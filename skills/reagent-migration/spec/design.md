@@ -151,8 +151,7 @@ rather than restated.
 ### L9 — Emit only what has shipped, and READ THE DOOR to find out
 
 Hicasso's **draft guide teaches forms that do not exist** —
-`re-frame.hicasso.server/render`, `ssr/hydrate!`, `h/hydrate!`, an `h/mount!`
-taking a config map, an `h/fn` spelling, a key-map restriction to
+an `h/fn` spelling, a key-map restriction to
 `:on-key-down`/`:on-key-up`, a plain `merge` where the shipped answer is the
 reserved `:&` key. The authority is
 `implementation/hicasso/src/re_frame/hicasso.cljc` and the `impl/` namespaces

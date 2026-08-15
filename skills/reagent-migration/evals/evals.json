@@ -2,7 +2,7 @@
   "skill_name": "reagent-migration",
   "schema_version": "1",
   "convention": "anthropics/skills/skill-creator evals.json — two kinds. `kind:\"trigger\"` fixtures carry `should_trigger` for description-optimisation (train/held-out trigger accuracy). `kind:\"behavioural\"` fixtures carry a `tier` (M/D/R) and `expectations[]` asserting the skill applies / reasons / declines correctly on a Reagent→Hicasso fixture input.",
-  "notes": "Positives target Reagent-view→Hicasso prompts on an already-re-frame2 app (h/defview, deref-drop, moving off Reagent hiccup). Negatives target the DIFFERENT v1→v2 events/subs/db migration (re-frame-migration), authoring on re-frame2 (re-frame2), greenfield (re-frame2-setup), live runtime (re-frame2-pair), maintaining day8/re-frame2-ui views (re-frame2-ui), and the first-class 'stay on Reagent' non-goal. Two behavioural fixtures exist specifically to catch OVER-SELLING: the skill must state that the Reagent adapter is first-class and that Hicasso is pre-publication before it starts work. Several exist to catch the failure mode of emitting a spelling the DRAFT GUIDE teaches but the shipped door does not export (re-frame.hicasso.server/render, h/hydrate!, a config-map h/mount!, h/fn). Expectations are verified against the shipped source under implementation/hicasso/src, not against the design corpus.",
+  "notes": "Positives target Reagent-view→Hicasso prompts on an already-re-frame2 app (h/defview, deref-drop, moving off Reagent hiccup). Negatives target the DIFFERENT v1→v2 events/subs/db migration (re-frame-migration), authoring on re-frame2 (re-frame2), greenfield (re-frame2-setup), live runtime (re-frame2-pair), maintaining day8/re-frame2-ui views (re-frame2-ui), and the first-class 'stay on Reagent' non-goal. Two behavioural fixtures exist specifically to catch OVER-SELLING: the skill must state that the Reagent adapter is first-class and that Hicasso is pre-publication before it starts work. Several exist to catch the failure mode of emitting a spelling the DRAFT GUIDE teaches but the shipped door does not export (h/fn, and a plain merge for caller attrs where the shipped answer is the reserved :& key). The SSR/hydration doors are NOT in that set: server/render, ssr/hydrate! and h/hydrate! all shipped under rf2-b6jkj, and eval 23 grades the shipped pipeline rather than a refusal. Expectations are verified against the shipped source under implementation/hicasso/src, not against the design corpus.",
   "evals": [
     {"id": 1,  "kind": "trigger", "name": "explicit-views-to-hicasso",   "should_trigger": true,  "prompt": "Migrate my Reagent views to Hicasso — I'm already on re-frame2 and want the re-frame-native view layer."},
     {"id": 2,  "kind": "trigger", "name": "defn-to-defview",             "should_trigger": true,  "prompt": "Convert these Reagent components to h/defview."},
@@ -25,7 +25,7 @@
        "Answers NO to the premise: the v1→v2 move leaves views on the first-class Reagent adapter (day8/re-frame2-reagent, the default browser substrate) and is COMPLETE at that point — no view rewrite is required to land on re-frame2.",
        "States that rewriting into Hicasso is a separate, OPTIONAL second step chosen for what Hicasso offers, and that it is a rewrite (props become one map, handlers become data, state leaves the component), not a respelling.",
        "States that Hicasso is PRE-PUBLICATION with no released Maven coordinate, so a project can adopt it only from source — and that the coordinate in the draft guide's installation page does not resolve.",
-       "Gives the trade in both directions rather than advocating: what the rewrite buys (handlers as data, value-returning ambient sub, one boundary model, declared foreign-React crossings, IME-gated key maps) against what it costs (no view-local state tier, no component-did-update, no server-render door, provisional spellings).",
+       "Gives the trade in both directions rather than advocating: what the rewrite buys (handlers as data, value-returning ambient sub, one boundary model, declared foreign-React crossings, IME-gated key maps) against what it costs (no view-local state tier, no component-did-update, provisional spellings).",
        "Routes the v1→v2 work to re-frame-migration and does NOT start converting views.",
        "Does not imply the author 'should' move or describe staying on Reagent as half-migrated."
      ]},
@@ -111,14 +111,15 @@
        "Does NOT emit a plain (merge ...) in the props position because the draft guide shows one, and does NOT invent spread / spread-safe verbs — those are a different substrate's."
      ]},
 
-    {"id": 23, "kind": "behavioural", "tier": "R", "name": "r-decline-ssr-hydrate-no-server-door",
+    {"id": 23, "kind": "behavioural", "tier": "D", "name": "d-ssr-hydrate-pipeline-ships",
      "prompt": "Migrate this to Hicasso:\n(ns app.render (:require [reagent.dom.server :as s]))\n(defn render-page [] (s/render-to-string [app]))\n;; the client then hydrates that markup",
      "expectations": [
-       "DECLINES the hydrating path (MIG-23): there is no shipped Hicasso server-render door — re-frame.hicasso.server does not exist — and hydrate-root! is deliberately NOT on the public facade for exactly that reason.",
-       "Names the draft guide explicitly as the trap: it teaches re-frame.hicasso.server/render, ssr/hydrate! and h/hydrate!, and none of the three exists. A design page is not authority for a spelling.",
-       "Keeps the hydrating roots on Reagent and says so plainly, noting the hold is PER-ROOT — client-only roots in the same app can convert normally.",
-       "Does NOT invent a server namespace, a render-to-string equivalent, or a hydrate door.",
-       "Does not present the hold as a failure of the migration."
+       "Routes this to MIG-23 as a D-tier DECISION and does NOT decline it for want of a door: re-frame.hicasso.server is a shipped optional module whose product door is render, and both client doors exist — re-frame.ssr/hydrate! for state and h/hydrate! for the DOM.",
+       "Teaches the client boot as THREE ordered calls — rf/make-frame creates the frame, ssr/hydrate! replaces its state from the __rf_payload script, then h/hydrate! adopts the server DOM — and gives the ordering's reason: h/hydrate! does NOT ensure the frame the way h/mount! does, so without make-frame the :rf/hydrate dispatch is a silent no-op and the page renders empty.",
+       "Names server/render's two REQUIRED opts, :hiccup and :payload, and that :payload is the fail-closed allowlist of the top-level app-db keys the page reads.",
+       "Names the :identifier-prefix contract: the same string goes to server/render and to that root's h/hydrate!, or every useId-generated id in the root resolves differently from the bytes it is adopting.",
+       "Puts the real decision where it belongs — INFRASTRUCTURE, not spelling: React renders the server output and there is no parallel JVM string emitter, so the renderer runs on Node, and an app whose SSR is a JVM handler today is deciding whether to stand up a Node rendering service. A per-root hold on Reagent remains honest if the answer is no.",
+       "Does NOT state that the server namespace, server/render, ssr/hydrate! or h/hydrate! is missing."
      ]},
 
     {"id": 24, "kind": "behavioural", "tier": "R", "name": "r-decline-prev-props-update-protocol",
