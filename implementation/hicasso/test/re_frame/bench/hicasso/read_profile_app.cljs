@@ -75,21 +75,30 @@
   `record-reads!` into it; the readers now live on the cell, so the
   commit pushes one slot per key and the copy prices that instead.
   Phase B prices that half through the runtime's own
-  [[rt/commit-boundary!]] seam on four
-  identically-seeded frames per window (window ~= 4 x 141 acquisitions,
-  clear of the 100 us clock clamp), released and settled between samples
-  with a residue equality gate.
+  [[rt/commit-boundary!]] seam on [[frames-per-window]] identically-seeded
+  frames per window, released and settled between samples with a residue
+  equality gate.
+
+  **That frame count is the window's resolution and it was raised from 4
+  to 32 by rf2-3l6hf**, which found that at 4 the deltas below could not
+  decompose anything: three of the four terms straddled zero across runs
+  of one binary, and a negative delta is arithmetically impossible when
+  the ablation arm does strictly less work. 4 frames was sized to clear
+  the 100 µs clock clamp and nothing more, and clearing the clamp is a
+  much weaker condition than resolving a term. [[frames-per-window]]
+  carries the arithmetic, including why the sample count could not have
+  fixed it.
 
   | arm         | one window is                                     | what it prices |
   |-------------|---------------------------------------------------|----------------|
-  | `commit`    | 4 frames x `rt/commit-boundary!` on the harvested entry | the shipping commit half |
+  | `commit`    | [[frames-per-window]] frames x `rt/commit-boundary!` on the harvested entry | the shipping commit half |
   | `c-local`   | faithful copy: cell mint + subscribe + activation + baseline deref + watch + dispose hook + map insert + reader membership | the ablation baseline, validated against `commit` |
   | `c-noactivate` | `c-local` minus `interop/activate-derived-value!` | the substrate's capture run (rf2-lzpfj) |
   | `c-nowatch` | `c-local` minus add-watch + the disposal hook     | the watch wiring |
   | `c-nosub`   | `c-local` with `compute-sub` in place of subscribe + deref | the reaction build + cache insert (the compute is kept, priced by the swap) |
   | `c-noreaders` | `c-local` minus the cell's reader array and the membership push | the fused reverse edge (rf2-dabt3) |
   | `c-nomap`   | `c-local` minus the per-key cells-map insert      | the cell-map insert |
-  | `b-build`   | 4 frames x 141 bare `subscribe` + deref (torn down sync, outside the window) | build + compute WITHOUT in-window dispose — beside `no-shell` it floors the render read's dispose/evict share |
+  | `b-build`   | [[frames-per-window]] frames x 141 bare `subscribe` + deref (torn down sync, outside the window) | build + compute WITHOUT in-window dispose — beside `no-shell` it floors the render read's dispose/evict share |
 
   Every phase-B delta is quoted as `c-local - variant`, a floor on the
   phase (the stubs are not free). Teardown runs outside every window;
@@ -139,7 +148,47 @@
 
 (def cold-frame ::cold)
 (def warm-frame ::warm)
-(def commit-frames [::c1 ::c2 ::c3 ::c4])
+
+(def ^:private frames-per-window
+  "How many identically-seeded frames ONE phase-B window commits
+  (rf2-3l6hf). It was 4, and 4 could not decompose the commit half.
+
+  **A window's resolution is set here and nowhere else, because the
+  reported statistic is a p50.** `lane/now-ms` is `performance.now`,
+  which Chrome clamps to 100 µs, so every raw window reading is a
+  multiple of 0.1 ms; [[lane/summarise]] takes the mean of the two middle
+  order statistics on an even sample count, which halves that to 0.05 ms;
+  and the row divides by the frame count. The grid a phase-B delta can
+  land on is therefore exactly `0.05 / frames-per-window` ms/commit — at
+  4 frames, 0.0125, which is precisely the spacing every delta rf2-d360z
+  published turned out to be a multiple of.
+
+  **More SAMPLES cannot move that grid.** A median of quantised readings
+  is itself a grid value whatever the sample count; more samples make the
+  p50 land on the right step more often, they do not create a step
+  between two others. So the sample count is a stability knob and the
+  frame count is the resolution knob, and only one of them was ever going
+  to make three sub-quantum terms visible. That is the reasoning
+  rf2-3l6hf's window was opened to act on, and it is why the frame count
+  moved by 8x rather than the sampling alone.
+
+  32 puts the grid at 0.0015625 ms/commit. The terms that need to be seen
+  are the watch wiring, the reader membership and the cell-map insert,
+  which the micro table's anchors price at roughly 0.004-0.02 ms/commit —
+  so the smallest of them is a few grid steps rather than a fraction of
+  one. The window is ~20 ms of wall clock at the absolutes this arm
+  reads, still 200x the clock's own quantum, and the run stays under a
+  minute of sampling.
+
+  **The arbiter that this was enough is not this docstring — it is
+  `c-noactivate`**, which on this UIx host ablates a routed no-op and so
+  reads the instrument's own floor. A term is trustworthy when it stands
+  clear of that arm, and no wider."
+  32)
+
+(def commit-frames
+  (mapv (fn [i] (keyword "rf-readprof.commit" (str "c" i)))
+        (range 1 (inc frames-per-window))))
 
 (defn- seed-frame! [id]
   (lt/make-frame! id)
@@ -513,8 +562,17 @@
      {:id :b-build
       :run (fn [] (mapv (fn [f] (build-only! f roster)) commit-frames))}]))
 
-(def ^:private b-sampling {:warmup 2 :samples 6})
-(def ^:private b-rounds 4)
+(def ^:private b-sampling
+  "The stability half of the rf2-3l6hf widening — see
+  [[frames-per-window]] for the resolution half and for why the two are
+  different knobs. 8 rounds x 8 kept samples is 64 against the old 24:
+  the arm's own distribution has a long right tail (a `max` around twice
+  the `p50`, GC landing inside a window), and a 24-sample median of that
+  moves a grid step or two between runs on its own. This does not buy a
+  finer grid and is not asked to."
+  {:warmup 2 :samples 8})
+
+(def ^:private b-rounds 8)
 
 (defn residue-settle!
   "**The one point behind which every phase-B residue reading is taken** —
@@ -736,7 +794,7 @@
                               (.then
                                 (fn [{:keys [readings samples]}]
                                   (let [ids  [:commit :c-local :c-noactivate :c-nowatch :c-nosub :c-noreaders :c-nomap :b-build]
-                                        rows (arm-rows ids readings 4)
+                                        rows (arm-rows ids readings frames-per-window)
                                         gv-b (lane/guard! samples "read-profile phase B (in-page ms, diagnostic)")]
                                     (lane/record! :read-profile-commit
                                                   (into {} (map (fn [[k v]] [k (-> v (update :min lane/round4)
@@ -744,7 +802,8 @@
                                                                                    (update :p50 lane/round4))])) rows))
                                     (js/console.log ";; ==== READ PROFILE, PHASE B — THE COMMIT HALF (ms per 141-key boundary commit) ====")
                                     (js/console.log (str ";;   design " b-rounds "x(" (:warmup b-sampling) "+" (:samples b-sampling)
-                                                         ")  window = 4 frames/commit each"))
+                                                         ")  window = " frames-per-window " frames/commit each"
+                                                         "  grid = " (fmt (/ 0.05 frames-per-window) 6) " ms/commit"))
                                     (doseq [id ids]
                                       (js/console.log (arm-line id (get rows id))))
                                     (js/console.log ";; ==== PHASE B DELTAS (c-local minus ablation; floors) ====")
