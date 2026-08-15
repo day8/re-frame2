@@ -1817,14 +1817,11 @@ else
         # false-green shape. Binding is at COMMIT granularity, held by
         # `all-required-passed`, not by one job re-running three required lanes.
         #
-        # Only the index. The two sibling documents under this root stay off.
-        # donor-inventory.md is a different ledger: an archive of the withdrawn
-        # absorption programme, whose checker (check_donor_inventory.py) is a
-        # snapshot-integrity check reading that one file and nothing else
-        # (rf2-lrtwj) — so it cannot observe a source change at all. README.md
-        # is the document that DEFINES the addressing scheme — it speaks in
-        # illustrative ids and is excluded from the census's own citation scan
-        # for that reason.
+        # Only the index. The one sibling document left under this root stays
+        # off: README.md is the document that DEFINES the addressing scheme —
+        # it speaks in illustrative ids and is excluded from the census's own
+        # citation scan for that reason. It was TWO siblings until rf2-0yp7w.8
+        # deleted donor-inventory.md with its checker.
         #
         # Still NOT cljs_prod / bundle_isolation — no bundle those two gates
         # measure requires Freehand (the `elision-probe` pair and the examples
@@ -1957,26 +1954,27 @@ else
         # exactly one is armed.
         implementation_jvm=true
         ;;
-      spec/conformance/freehand/README.md|spec/conformance/freehand/donor-inventory.md)
+      spec/conformance/freehand/README.md)
         # A MEASURED EXCLUSION, held ahead of the `spec/*` catch-all below so
         # the catch-all cannot silently reverse it.
         #
-        # rf2-49upn and rf2-lrtwj each read these two files' consumers and
-        # found neither reachable from a lane: README.md DEFINES the
-        # conformance addressing scheme (it speaks in illustrative ids and is
-        # excluded from the census's own citation scan for exactly that
-        # reason), and donor-inventory.md is an archive of the withdrawn
-        # absorption programme whose checker, check_donor_inventory.py, is a
-        # snapshot-integrity check reading that one file and nothing else — so
-        # it cannot observe a source change at all. Neither can change what a
-        # lane proves.
+        # rf2-49upn read this file's consumers and found none reachable from a
+        # lane: README.md DEFINES the conformance addressing scheme — it speaks
+        # in illustrative ids and is excluded from the census's own citation
+        # scan for exactly that reason — so it cannot change what a lane
+        # proves.
+        #
+        # It was TWO files until rf2-0yp7w.8. donor-inventory.md sat here on
+        # the same measurement (rf2-lrtwj: its checker read that one file and
+        # nothing else, so it could not observe a source change at all), and
+        # the retirement deleted the archive and the checker together.
         #
         # `spec/*` below is a POLICY default for spec prose nobody has
-        # measured. These two have been measured, by two beads, and the frozen
-        # mirror pins the result. A general default does not get to overturn a
-        # specific measurement, so the walk stops here. The empty `:` arm is
-        # the same device the story-feature-load launcher case uses further up
-        # for the same purpose.
+        # measured. This one has been measured, and the frozen mirror pins the
+        # result. A general default does not get to overturn a specific
+        # measurement, so the walk stops here. The empty `:` arm is the same
+        # device the story-feature-load launcher case uses further up for the
+        # same purpose.
         :
         ;;
       spec/Spec-Schemas.md)

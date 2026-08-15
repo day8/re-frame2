@@ -5650,16 +5650,13 @@ test('the freehand conformance INDEX arms the lanes that execute its rows (rf2-4
 
 test('freehand conformance PROSE is not the index — no over-broadening (rf2-drpa3.66, rf2-49upn)', () => {
   // The route is the fixtures root plus the index, NOT
-  // spec/conformance/freehand/**. donor-inventory.md is a different ledger: an
-  // archive of the withdrawn absorption programme, and check_donor_inventory.py
-  // is a snapshot-integrity check reading that one file and nothing else
-  // (rf2-lrtwj), so it cannot observe a source change at all. README.md is the
-  // document that DEFINES the addressing scheme: it speaks in illustrative ids
-  // and is excluded from the census's own citation scan for that reason.
-  // Neither can change what a lane proves, so neither pays for three lanes.
+  // spec/conformance/freehand/**. README.md is the document that DEFINES the
+  // addressing scheme: it speaks in illustrative ids and is excluded from the
+  // census's own citation scan for that reason, so it cannot change what a
+  // lane proves and does not pay for three lanes. It was TWO files until
+  // rf2-0yp7w.8 deleted donor-inventory.md with check_donor_inventory.py.
   for (const file of [
     'spec/conformance/freehand/README.md',
-    'spec/conformance/freehand/donor-inventory.md',
   ]) {
     const result = classify(file);
     assert.equal(result.implementation_jvm, 'false', `${file} must not arm implementation_jvm`);
@@ -6403,17 +6400,16 @@ test('the spec/* catch-all does not shadow the narrower spec arms (rf2-61ar)', (
     'the freehand ledger keeps its three lanes (rf2-49upn)');
 });
 
-test('rf2-61ar does not overturn the MEASURED freehand-prose exclusion (rf2-49upn, rf2-lrtwj)', () => {
+test('rf2-61ar does not overturn the MEASURED freehand-prose exclusion (rf2-49upn)', () => {
   // The `spec/*` catch-all is a POLICY default for spec prose nobody has
-  // measured. These two files HAVE been measured — twice, by beads that read
-  // their consumers — and found unreachable from any lane: README.md defines
-  // the addressing scheme in illustrative ids, and donor-inventory.md is an
-  // archived ledger whose checker reads that one file and nothing else. A
-  // general default does not get to overturn a specific measurement, so the
-  // classifier stops the walk on them ahead of the catch-all.
+  // measured. This file HAS been measured — by a bead that read its consumers
+  // — and found unreachable from any lane: README.md defines the addressing
+  // scheme in illustrative ids. A general default does not get to overturn a
+  // specific measurement, so the classifier stops the walk on it ahead of the
+  // catch-all. rf2-lrtwj measured donor-inventory.md the same way and pinned
+  // it here too, until rf2-0yp7w.8 deleted the archive with its checker.
   for (const file of [
     'spec/conformance/freehand/README.md',
-    'spec/conformance/freehand/donor-inventory.md',
   ]) {
     const result = classify(file);
     for (const [key, value] of Object.entries(result)) {

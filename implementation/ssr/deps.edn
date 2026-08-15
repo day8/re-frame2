@@ -74,11 +74,17 @@
                        ;; assert it exists — `frozen-s5-surface` in
                        ;; `implementation/ui/test/.../s5_conformance_profile_jvm_test.clj`
                        ;; (whose `profile-names-real-proof-homes` deftest reds when
-                       ;; the file is absent), `spec/conformance/S5-view-conformance-profile.md`,
-                       ;; and `spec/conformance/freehand/donor-inventory.md` via
-                       ;; `scripts/check_donor_inventory.py`. It dies with the ui
-                       ;; artefact in R2b (rf2-0yp7w.4), alongside the profile that
-                       ;; names it — not before.
+                       ;; the file is absent) and
+                       ;; `spec/conformance/S5-view-conformance-profile.md`. It dies
+                       ;; with the ui artefact in R2b (rf2-0yp7w.4), alongside the
+                       ;; profile that names it — not before.
+                       ;;
+                       ;; A third used to be listed here — the donor-inventory
+                       ;; archive via `scripts/check_donor_inventory.py` — and it
+                       ;; was already wrong: rf2-lrtwj reduced that checker to a
+                       ;; snapshot-integrity read of the archive alone, so it had
+                       ;; stopped asserting anything about the working tree. Both
+                       ;; are gone as of rf2-0yp7w.8.
                        day8/re-frame2-ui         {:local/root "../ui"}
                        ;; Silent-on-success reporter.
                        day8/re-frame2-test-quiet {:local/root "../test-quiet"}}

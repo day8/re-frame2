@@ -1,7 +1,8 @@
 name: freehand-conformance
 
-# Gates for the two Freehand ledgers that have to stay honest: the live
-# executable-law addressing scheme, and the archived donor inventory.
+# Gate for the one Freehand ledger that still has to stay honest: the live
+# executable-law addressing scheme. The archived donor inventory that used to
+# ride this job has been retired — see THE DONOR INVENTORY below.
 #
 # Freehand proves its interpreted/compiled + React/JVM/SSR parity row by row.
 # Each law carries a permanent `FH-<AREA>-<NNN>` id and the index at
@@ -53,55 +54,39 @@ name: freehand-conformance
 # deliberately broken fixture index per defect shape and fails if any of them
 # passes.
 #
-# THE DONOR INVENTORY rides the same job, and is now an ARCHIVE.
-# spec/conformance/freehand/donor-inventory.md was the work-ledger of the
-# Freehand absorption programme; EP-0036 was withdrawn on 2026-07-30, so the
-# file is a snapshot of where absorption stood on the day the programme stopped
-# and `pending` records only that a row was undisposed then. Its checker was
-# converted with it (rf2-lrtwj): the three arms that compared the ledger against
-# the working tree — the donor-tree partition, the live-consumer census, the
-# stale-row scan — are gone, because each enforced a rule about today's code
-# through the historical statuses of a withdrawn programme. What runs here is a
-# snapshot-integrity check that reads nothing but the ledger: no row deleted, no
-# row added, and no pinned row's disposition, slice, status or description
-# drifted. An archive that can quietly shrink or be edited is worse than no
-# archive. Stdlib Python, well under a second.
+# THE DONOR INVENTORY IS GONE (rf2-0yp7w.8). Two steps used to ride this job:
+# a self-test and a snapshot-integrity check over
+# `spec/conformance/freehand/donor-inventory.md`, the work-ledger of the
+# withdrawn Freehand absorption programme. Both, the 906-line
+# `scripts/check_donor_inventory.py` and the 224-row archive itself, were
+# deleted together under the operator's 2026-08-14 retirement ruling.
 #
-# AND IT WAS PUT TO THE QUESTION AND KEPT (rf2-q4qj) — recorded here because
-# the two donor steps below look, correctly, like they do not belong in a
-# workflow named for the conformance index, and the next reader deserves the
-# answer rather than the re-derivation. The case for dropping them is strong
-# and is not disputed: `scripts/check_donor_inventory.py` is 906 lines whose
-# whole live function is "this archived markdown file has not been edited", git
-# already records that immutably, and NOTHING normative cites the archive —
-# every other CI reference to it exists to keep it OUT of the CI graph. On this
-# project's stated posture that is the strongest retire-now candidate in the
-# three Freehand workflows.
+# The two grounds that had kept them (rf2-q4qj) are both spent. The archive's
+# own banner ruled that "this snapshot and its snapshot check therefore retire
+# WITH the donor surfaces they map, in the change that deletes them", deriving
+# from EP-0038 HD-018 — and HD-018 reopens on an operator ruling, which is
+# exactly what 2026-08-14 was. The second ground was HD-018's undischarged
+# conjunction, discharged by the same ruling. What remains of the first ground
+# is honoured rather than waived: the archive and its check left in ONE change,
+# so neither outlived the other and the archive could not shrink between them.
 #
-# It stays anyway, on two grounds that are RECORDED rather than inferred, and
-# neither of them is "it is cheap":
-#
-#   1. The archive's own banner rules the disposition.
-#      `spec/conformance/freehand/donor-inventory.md` says "this snapshot and
-#      its snapshot check therefore retire WITH the donor surfaces they map, in
-#      the change that deletes them" — deriving from EP-0038 HD-018, which
-#      reopens only by operator ruling. The audit that proposed the retirement
-#      grepped for CONSUMERS of the archive and correctly found none; it did
-#      not look for a disposition INSIDE it.
-#   2. HD-018's win condition is a conjunction — "P2 go + v0 bar green +
-#      dogfood preference" — and HD-029 (operator, 2026-08-13) supplied the P2
-#      go while stating in terms that it does NOT discharge the rest. The
-#      change that deletes the donor surfaces is therefore not yet authorised,
-#      and this checker's retirement rides with it.
-#
-# A smaller reason points the same way: this check is the one thing that would
-# stop the archive shrinking between now and the deletion meant to take it
-# whole. So it retires at STAGE 2 of the order in `TESTING.md`, not at stage 0
-# where the audit placed it, and it leaves WITH the archive in one change
-# rather than ahead of it.
+# WHY THE INDEX HALF STAYS, and this is a measurement rather than a preference.
+# `TESTING.md` stage 3 retires this workflow together with the corpus it
+# proves, and the corpus CANNOT go yet: `spec/conformance/freehand/fixtures/**`
+# and `conformance-index.md` are read at MACRO-EXPANSION time by
+# `implementation/freehand/test/re_frame/freehand/{conformance,roster}.cljc`,
+# so deleting either fails the COMPILE of `jvm-freehand`, `cljs` and
+# `cljs-browser` — three REQUIRED jobs. Reproduced 2026-08-16 by moving the
+# corpus aside and loading the suites: "Build-time resource reader:
+# spec/conformance/freehand/fixtures/fh-call-001.edn not found" and the same
+# for `conformance-index.md` out of `roster.cljc`. So the index is LIVE subject
+# matter until `implementation/freehand/` goes (rf2-0yp7w.6), and dropping its
+# validator now would disarm a gate whose subject still stands. Stage 3 lands
+# with that cut.
 #
 # NAMING. The job id and display name stay `index` / `Freehand conformance
-# index` even though the job proves two ledgers. That string is NOT a required
+# index`, which since the donor steps came off is exactly what the job proves.
+# That string is NOT a required
 # status context. The branch ruleset on `main` requires exactly three — `All
 # required checks passed` (test.yml), `Lint required` (lint.yml) and `Docs
 # required` (docs.yml) — and this job can reach none of them, because `needs:`
@@ -150,11 +135,11 @@ on:
   # job and it already runs unfiltered on every PR, so dropping the filter costs
   # main pushes nothing they were not already paying one merge earlier.
   #
-  # The donor snapshot check no longer widens that universe — since rf2-lrtwj it
-  # reads one file. Its census of the whole working tree, which is why the push
-  # filter came off in the first place, went with the withdrawn programme. The
-  # index checker alone still justifies the unfiltered trigger, so nothing here
-  # changes.
+  # The donor snapshot check used to share the job and no longer does
+  # (rf2-0yp7w.8). It had already stopped widening this universe at rf2-lrtwj,
+  # when its census of the whole working tree went with the withdrawn
+  # programme and it was reduced to reading one file. The index checker alone
+  # still justifies the unfiltered trigger, so nothing here changes.
   push:
     branches: [main]
   pull_request:
@@ -191,16 +176,3 @@ jobs:
 
       - name: Validate the Freehand conformance index
         run: python scripts/check_freehand_conformance_index.py --verbose
-
-      # Same order and the same reason: a check that has only ever run against a
-      # ledger it already passes has not been tested. Its fixtures drive one
-      # deliberately mutated archive per defect shape — row removed, row added,
-      # status flipped, disposition changed, description rewritten, identity
-      # duplicated — and fail if any of them passes.
-      - name: Self-test the donor-inventory snapshot check
-        run: python scripts/check_donor_inventory.py --self-test --verbose
-
-      # Prints the population it verified, so a green here is never a silent
-      # `0 of 0`.
-      - name: Check the archived donor-inventory snapshot
-        run: python scripts/check_donor_inventory.py --ci
