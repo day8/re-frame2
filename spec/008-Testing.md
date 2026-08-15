@@ -784,11 +784,7 @@ the two lanes.
 ### How a conformance fixture is executed
 
 A Freehand law carries a permanent `FH-<AREA>-<NNN>` id and resolves to one paragraph
-of normative spec; the [conformance index](conformance/freehand/conformance-index.md)
-binds each id to its canonical paragraph, its applicability cell (the mode/host grammar
-above), and its fixture. The index *addresses* laws; it does not run them
-([conformance/freehand/README.md](conformance/freehand/README.md) §What this is not).
-Executing them is the runner's job.
+of normative spec. Executing a law is the runner's job.
 
 A structural-render law's fixture carries `:cases` of `{:form <markup> :tree <expected
 root>}` and `:rejected` of `{:form <markup> :error-id <id>}`. The runner reads the

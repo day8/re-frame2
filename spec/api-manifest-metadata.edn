@@ -1727,7 +1727,7 @@
 
   ;; =========================================================================
   ;; re-frame.freehand.splitter — the control kit's POINTER witness
-  ;; (rf2-drpa3.182.10; DC-04's other half, proven by FH-CTRL-019).
+  ;; (rf2-drpa3.182.10; DC-04's other half).
   ;; Conventionally aliased `split`. A resizable pane divider: two clocks
   ;; reduced by arithmetic, a keyboard path that is the SAME control, and the
   ;; whole gesture living in ordinary application data.
@@ -1780,7 +1780,7 @@
   ;; =========================================================================
   ;; re-frame.freehand.collection — the FIXED-SIZE VIRTUAL COLLECTION
   ;; (rf2-drpa3.182.11, reshaped by rf2-86i64 into an ENGINE plus a listbox
-  ;; over it; EP-0036, proven by FH-CTRL-021). Conventionally aliased `coll`.
+  ;; over it; EP-0036). Conventionally aliased `coll`.
   ;; Sanctioned as a sibling by the rf2-cfhuv ruling, which considered and
   ;; REJECTED folding it into `re-frame.freehand.controls`: virtualization is
   ;; a cohesive capability with an audience of its own — a library author

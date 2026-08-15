@@ -280,9 +280,6 @@ crossing does change is what the parent can claim: a compiled parent's manifest
 marks each child boundary with the mode it crosses into
 ([004D](004D-Freehand-Compiled-Grammar.md#manifests-mark-the-crossing)).
 
-**Conformance:** [FH-CALL-001](conformance/freehand/conformance-index.md#fh-call--calls),
-FH-CALL-003, FH-CALL-004.
-
 #### The `v/markup` boundary
 
 Interpreted Clojure treats markup as a value — a helper returns Hiccup, a prop
@@ -325,8 +322,6 @@ in the manifest, and addressable in the tree.
 
 Adding a valve later is a new grammar decision and a new grammar version, never
 a widening of `:re-frame.freehand/v1`.
-
-**Conformance:** [FH-CALL-005](conformance/freehand/conformance-index.md#fh-call--calls).
 
 ### Props, children, and `:key`
 
@@ -387,9 +382,6 @@ metadata rather than a schema slot. The schema's grammar, its explicit open
 escape, validation timing, elision and generation dependencies are owned by
 [Spec 004D §Props schemas](004D-Freehand-Compiled-Grammar.md#props-schemas).
 
-**Conformance:** [FH-PROPS-001](conformance/freehand/conformance-index.md#fh-props--props),
-FH-PROPS-002, FH-PROPS-003, FH-PROPS-004, FH-PROPS-005.
-
 ### Vector-head classification
 
 One rule covers every internal vector head — in the interpreter, in the compiled
@@ -422,8 +414,6 @@ arbitrary internal function heads.
 This single rule is what keeps head resolution uniform across interpreted code,
 compiled code, the structural host, hot reload, catalogues, tools, and generated
 edits.
-
-**Conformance:** [FH-CALL-002](conformance/freehand/conformance-index.md#fh-call--calls).
 
 ### Identity, hot reload, and remount
 
@@ -638,9 +628,6 @@ Mount, unmount and host lifecycle are **tool facts, not domain events**
 (governing law 5). Per-mount work belongs to the frame's `:initial-events` or to
 an ordinary re-frame event.
 
-**Conformance:** [FH-EVENT-001](conformance/freehand/conformance-index.md#fh-event--events),
-FH-EVENT-002.
-
 ### Callback roles and identity
 
 Foreign APIs use functions for several unrelated protocols, and a bare function
@@ -707,9 +694,6 @@ uncommitted candidate render, so a mutable "latest body" proxy would be unsafe
 under concurrent rendering; its identity may therefore change on any render. An
 API that treats callback identity as a separate protocol uses `v/raw-fn`, a
 component bridge, or a wrapper, instead of asking Freehand to guess.
-
-**Conformance:** [FH-EVENT-003](conformance/freehand/conformance-index.md#fh-event--events),
-FH-EVENT-004.
 
 ### Controlled inputs
 
@@ -853,9 +837,6 @@ rule; they are ruled by
 [D016](../docs/design/freehand/decisions/D016-buffered-and-revision-controls.md).
 There is no general synchronous-render escape hatch, and render-phase mutation
 of a host node is permanently outside the model.
-
-**Conformance:** [FH-INPUT-001](conformance/freehand/conformance-index.md#fh-input--controlled-input),
-FH-INPUT-002.
 
 ### Semantic controllers
 
@@ -1140,9 +1121,6 @@ and deletes nothing to tidy up. A superseded record keeps its stamp until the ne
 edit replaces it or its owner clears it, so an app-db diff across the caller's event
 names precisely which generation was superseded and which drafts it orphaned.
 
-**Conformance:** [FH-CTRL-006](conformance/freehand/conformance-index.md#fh-ctrl--controllers),
-FH-CTRL-007, FH-CTRL-008, FH-CTRL-009, FH-CTRL-010, FH-CTRL-011.
-
 #### Vocabulary and absences
 
 Control families are **first-party library vocabulary, not framework grammar**.
@@ -1169,9 +1147,6 @@ A Freehand implementation MUST NOT provide:
   extracting something, and the extraction is then its own decision.
 - **a lifecycle cleanup hook.** No unmount callback, dispose registration, or
   per-occurrence teardown slot, in either execution mode.
-
-**Conformance:** [FH-CTRL-001](conformance/freehand/conformance-index.md#fh-ctrl--controllers),
-FH-CTRL-002, FH-CTRL-003, FH-CTRL-004, FH-CTRL-005.
 
 ### Forms and the first-party control kit
 
@@ -1239,9 +1214,6 @@ reader for each key:
   reply carrying a superseded number is inert. `rebase`, `set-errors` and `reset`
   each settle a pending submit, because each of them IS the reply landing.
 
-**Conformance:** [FH-CTRL-012](conformance/freehand/conformance-index.md#fh-ctrl--controllers),
-FH-CTRL-015.
-
 #### Seed, reset and rebase
 
 Three transitions move a form from the outside, and the whole of the design is
@@ -1295,9 +1267,6 @@ that they are **three and not one**.
   unsaved work is not a draft to be rejected, so a control holding a live buffer
   keeps it. A leaf whose draft now equals the new baseline stops being edited;
   there is nothing left to protect there.
-
-**Conformance:** [FH-CTRL-013](conformance/freehand/conformance-index.md#fh-ctrl--controllers),
-FH-CTRL-014.
 
 #### The narrow read
 
@@ -1374,9 +1343,6 @@ be copied and adapted; the correctness machinery is not copy-only. Today it is
 Both declarations are inside the compiled grammar as they stand, so promotion is
 a keyword rather than a rewrite and interpreted/compiled structural parity holds
 by construction.
-
-**Conformance:** [FH-CTRL-016](conformance/freehand/conformance-index.md#fh-ctrl--controllers),
-FH-CTRL-017.
 
 ### Presence
 
@@ -1648,8 +1614,6 @@ value anywhere — while an interpreted one handed to a **compiled** slot lands 
 markup-inside-compiled-markup refusal, with the recovery D010 already states. Caller
 and seam are promoted together, or neither is.
 
-**Conformance:** [FH-CALL-006](conformance/freehand/conformance-index.md#fh-call--calls).
-
 ### Props forwarding
 
 Forwarding a consumer's attribute map onto an element you own is **two different
@@ -1730,8 +1694,6 @@ controlled input stays controlled and its sync door survives
 and the consumer still passes `aria-*`, `data-*`, a class and a style. A general
 `v/spread` claims none of that, which is why it stays the visible-cost escape rather
 than the default.
-
-**Conformance:** [FH-PROPS-006](conformance/freehand/conformance-index.md#fh-props--props).
 
 ### Theming and semantic parts
 
@@ -2053,10 +2015,6 @@ reaches.
 
 This escape is deliberately weaker than `v/defhost`. It is not a second host
 API.
-
-**Conformance:**
-[FH-REACT-006](conformance/freehand/conformance-index.md#fh-react--react-bridges),
-FH-REACT-007, FH-REACT-008.
 
 ### Registered behaviors and commands
 
@@ -2566,9 +2524,6 @@ being reached for, natively and narrowly.
 Real React portals stay behind explicit UIx/Helix wrappers, where they are
 visibly React's protocol rather than the substrate's vocabulary.
 
-**Conformance:** [FH-TOPLAYER-001](conformance/freehand/conformance-index.md#fh-toplayer--top-layer),
-FH-TOPLAYER-002, FH-TOPLAYER-003, FH-TOPLAYER-004, FH-TOPLAYER-005.
-
 ### The outward React bridge
 
 Every other verb on the door points inward: a Freehand tree mounts Freehand
@@ -2610,8 +2565,6 @@ closure is deliberate: prop schemas, child conversion, ref forwarding, callback
 maps and lifecycle options would together amount to a second React component
 model expressed as configuration, and a short wrapper is clearer and more
 powerful than any of it.
-
-**Conformance:** [FH-REACT-001](conformance/freehand/conformance-index.md#fh-react--react-bridges).
 
 #### One shallow prop rule, or one explicit adapter
 
@@ -2664,8 +2617,6 @@ property was consumed. In the adapter arm the adapter is authoring the map
 itself, so a `:frame` key there is a genuine collision — the same name read two
 ways, only one of which can happen — and it is refused naming the view.
 
-**Conformance:** FH-REACT-002.
-
 #### The exported component is stable
 
 React reconciles on component **type**. Exporting the same view twice therefore
@@ -2682,8 +2633,6 @@ different components, because they do different things.
 
 Memoisation is an identity guarantee, not a promise about how often the foreign
 library renders the component. That remains the library's business.
-
-**Conformance:** FH-REACT-003.
 
 #### A frame is selected, never created
 
@@ -2706,8 +2655,6 @@ frame boundary above it supplies one, and a subtree under no frame boundary at
 all fails with the ordinary `:rf.error/no-frame-context`. There is no default
 and no silent fallback in either direction.
 
-**Conformance:** FH-REACT-004.
-
 #### Host and server policy
 
 The bridge is a **browser** verb, published under the same reader conditional as
@@ -2726,8 +2673,6 @@ foreign React tree that renders on a server is outside this contract: the
 integration is client-side, and a use site that must appear in server output
 supplies its own server-truthful fallback rather than expecting the bridge to
 infer one from the foreign library.
-
-**Conformance:** FH-REACT-005.
 
 ### Client-only subtrees
 
@@ -2782,8 +2727,6 @@ region's place everywhere else:
   that touches a host. A host call written into the argument itself, rather
   than inside the view the argument names, has been moved outside the boundary
   that exists to contain it.
-
-**Conformance:** FH-ROOT-008.
 
 ### Structural rendering, roots, and SSR
 
