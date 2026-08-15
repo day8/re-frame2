@@ -1624,6 +1624,66 @@ re-adjudicate without re-running the window. **These three runs recorded only th
 aggregate, so their strict verdict is not recoverable from what was kept, and
 none is claimed here.**
 
+**RE-TAKEN under the strict rule, and it PASSES (`rf2-20uei`).** A SEPARATE
+window of three runs — not a continuation of the ensemble above — was taken back
+to back at commit `2f6cf3165818` on the instrument as it now stands: the same
+five arms, the same five rounds of three warm-up plus six samples, the fairness
+gate again agreeing 1,001 elements three ways and again proven able to answer
+false, Chromium 147.0.7727.15 under `:advanced` with `goog.DEBUG` false, the
+arm-order guard reportable and 0 unverified writes of 270 in each run.
+`lane/control-verdict-strict` adjudicated `:ctl-2x`/`:expanded` ROUND BY ROUND
+against 2.00x with a ±25% band of [1.500 – 2.500], and **all fifteen rounds sat
+inside it** — `:outside` was empty in all three, so no good round vouched for a
+bad one. The values are printed rather than summarised, which is the whole point:
+this window is re-adjudicable under either rule without being re-run.
+
+| re-take | round 1 | round 2 | round 3 | round 4 | round 5 | strict verdict |
+|---|---|---|---|---|---|---|
+| R1 | 2.0400 | 1.9667 | 1.8812 | 2.0230 | 2.1111 | inside, 5 of 5 |
+| R2 | 2.0566 | 2.0211 | 1.9667 | 2.1573 | 1.9659 | inside, 5 of 5 |
+| R3 | 2.0532 | 1.9765 | 1.9277 | 2.0366 | 2.0000 | inside, 5 of 5 |
+
+The lowest of the fifteen is 1.8812, 5.9% under the prediction, and the highest
+2.1573, 7.9% over; the band's edges sit 25% away, so the strict rule was nowhere
+near refusing. **That is what this re-take settles, and the only thing it
+settles**: the control holds every round on this instrument, not merely on
+aggregate overlap.
+
+| re-take | `:merged`/`:expanded` | per-round range | NULL `:expanded-b`/`:expanded` | per `:&` site |
+|---|---|---|---|---|
+| R1 | 1.2410x | 1.1188 – 1.4100 | 0.9700x | 2,375 ns |
+| R2 | 1.2157x | 1.1477 – 1.2641 | 1.0217x | 2,875 ns |
+| R3 | 1.2295x | 1.1566 – 1.2872 | 1.0273x | 2,375 ns |
+
+Same estimator as the table above — a mean of per-round ratios of within-round
+medians — and these CORROBORATE rather than replace. The re-take's effect
+run-means span 1.216 – 1.241 against the original three's 1.217 – 1.270,
+overlapping at the low end and sitting a little under them, and its per-site
+figures read 2,375 ns twice and 2,875 ns once. The separation holds inside the
+new window on its own terms: effect run-means 1.216 – 1.241 against null
+run-means 0.970 – 1.027, two intervals that do not touch. **The headline `25% of
+mount` and `2.4 µs per site` are left exactly as published.** This window was
+taken to settle the control's verdict, and re-pricing an effect on the strength
+of a run taken to test something else is the move this lane refuses; the two
+windows are also not one ensemble and are not pooled here. The remaining
+per-round vectors, printed for the same durability reason — effect
+`[1.41 1.2111 1.1188 1.2184 1.2469]`, `[1.2641 1.2526 1.1556 1.2584 1.1477]`,
+`[1.2872 1.2353 1.1566 1.2317 1.2368]`; null
+`[0.98 0.9889 0.8911 0.9655 1.0247]`, `[1.0189 1.0 1.0333 1.0337 1.0227]`,
+`[1.0532 1.0118 1.0602 1.0244 0.9868]`.
+
+**And what the re-take's dispersion may NOT be attributed to.** R1's null
+run-mean is 0.970 with a per-round low of 0.8911, further from 1.0 than any of
+the original three's null run-means, which ran 1.001 – 1.013; R1 also carries the
+widest effect per-round range of the RE-TAKE's three — though not of the six on
+this page, a span the original run 2's 0.968 – 1.409 still holds. What is known
+about the box is bounded and is stated as such: `\System\Processor Queue Length`
+was sampled ONLY between runs, never inside a measured window — a sample taken
+there reads the benchmark's own load and answers nothing — and of the 31 samples
+so taken, 29 read 0 and two read 1. So this page does not attribute that spread
+to the instrument alone, and does not attribute it to the box either. It is
+printed and left unapportioned, which is all the sampling licenses.
+
 **What that figure is, and what it is not.** It prices the AUTHORING CHANGE whole:
 the caller map each call site builds, the `dissoc` the helper performs on it, and
 the codec's `merge-caller`. That is the honest denominator for HD-023's ergonomic
