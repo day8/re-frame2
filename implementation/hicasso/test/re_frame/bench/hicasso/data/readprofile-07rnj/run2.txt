@@ -2,7 +2,7 @@
 [hicasso] building :advanced bundle — re-frame.bench.hicasso.read-profile-app/-main -> out/hicasso-readprof
 [:hicasso-bench] Compiling ...
 [:hicasso-bench] Build completed. (187 files, 132 compiled, 0 warnings, 21.63s)
-shadow-cljs - config: C:\Users\miket\code\re-frame2-worktrees\measure-07rnj\implementation\shadow-cljs.edn
+shadow-cljs - config: <worktree>\implementation\shadow-cljs.edn   ;; ABSOLUTE PATH REDACTED — see README.md
 ;; order-guard ok   the recorded 2.01x is REFUSED  — ratio 2.0125
 ;; order-guard ok   the same study's uncontaminated slope passes  — forward 2830.7 / reversed 2842.8
 ;; order-guard ok   a single-order result is refused as UNCHECKED  — only 1 stratum — the question was never asked
