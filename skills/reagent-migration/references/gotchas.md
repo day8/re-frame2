@@ -192,7 +192,7 @@ writing them produces a view that will not load:
 
 | Taught in the guide | Reality |
 |---|---|
-| `re-frame.hicasso.server/render`, `ssr/hydrate!`, `h/hydrate!` | none exists — there is no server-render door (MIG-23) |
+| an `h/fn` spelling | shipped is `h/event`; `hfn` was swept to it |
 | "key maps are valid only at `:on-key-down` / `:on-key-up`" | shipped accepts a map at any event position |
 | the reserved vocabulary as four keywords | incomplete — it omits `::h/navigate`, `::h/mounting`, `::h/unmounting`, `::h/clear` |
 | a plain `merge` for forwarding caller attrs | shipped is the reserved `:&` key with the owned-literal law (MIG-28) |
