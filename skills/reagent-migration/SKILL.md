@@ -65,7 +65,7 @@ So rewriting views into Hicasso is a **separate, optional second step, and it is
 | **Handlers are data in the tree.** `{:on-click [:cart/add id]}` — "what does this button do?" is an equality check in a test, with no browser and no click simulation, and a tool can read it. | **Hicasso is pre-publication.** There is no released Maven coordinate; a project adopts it from source. If yours has no path to that, there is nothing to migrate onto yet. |
 | **`h/sub` returns the value.** No reaction object in application code, nothing to deref, nothing to hold; a read inside a `when` or a `for` records an edge only where it happens. | **There is no view-local state tier at all.** Every `r/atom` in a component becomes an ownership decision — app-db, the forms module, or a native component. There is no cell to translate into. |
 | **One boundary model.** An `h/defview` is a real React function component and a legal hiccup head; a plain function in head position is a loud error, not a silent embedding. Reagent's Form-1/2/3 folklore collapses. | **Not every Reagent construct has a home.** `component-did-update` has no mechanism; there is no server-render door, so an SSR-then-hydrate pipeline has nothing to hydrate against. |
-| **Foreign React is declared, not guessed.** `h/defhost` names a crossing once, with a finite callback contract per prop — never inferred from an `on*` spelling. | **Some spellings are provisional.** The shipped macro is `h/hfn` where the intended surface is `h/fn`, and `h/root!` is the root door where `h/mount!` has been proposed. Names may move. |
+| **Foreign React is declared, not guessed.** `h/defhost` names a crossing once, with a finite callback contract per prop — never inferred from an `on*` spelling. | **Some spellings are provisional.** `h/root!` is the root door where `h/mount!` has been proposed. Names may move. |
 | **Keystrokes are IME-safe centrally.** A key map is composition-gated once, which is the half a hand-written `.key` test does not have. | **The rewrite is per-view and irreversible in practice.** A converted view has no ambient `subscribe`/`dispatch`; there is no gradual half-state inside one view. |
 
 **When this skill has a job (both halves, or it does not):** the author is *already on re-frame2*, and *specifically wants Hicasso* for some or all of their views. Anything short of both → they stay where they are and you say so.
@@ -96,7 +96,7 @@ Reagent runs a view **at render time as an ordinary function** that returns hicc
 
 1. **Brackets mount, parens inline.** `[todo-row {:id id}]` mounts a boundary that owns its own subscription edges and memoisation; `(row-bits id)` is an ordinary `defn` helper running inside whoever called it. Changing brackets to parens changes **ownership**, not spelling.
 2. **Deref-drop.** A subscription is read with `(h/sub [:q])`, not `@(subscribe [:q])`. It returns the **value** — there is no reaction object. The read is ambient: legal inside a `when`, a `for`, or an inlined helper, and a branch not taken contributes no edge.
-3. **Handlers become data.** `{:on-click #(dispatch [:ev x])}` becomes `{:on-click [:ev x]}`. The **shape** of the value at an `on-*` position selects the behaviour — vector, key map, `h/hfn`, or plain function — so there is no roster of blessed prop names and `:on-click` and `:onClick` read the same.
+3. **Handlers become data.** `{:on-click #(dispatch [:ev x])}` becomes `{:on-click [:ev x]}`. The **shape** of the value at an `on-*` position selects the behaviour — vector, key map, `h/event`, or plain function — so there is no roster of blessed prop names and `:on-click` and `:onClick` read the same.
 4. **The view holds no state.** Hicasso has **no `local`, no `use-state`, no cell of any kind**, and that absence is the design. Product state goes to app-db (`h/reg-state` is the sugar); a draft-and-commit control is `re-frame.hicasso.forms/buffered-field`; genuine widget mechanics go to a native component where React's own hooks are legal.
 
 ## Cardinal rules (the invariants)
@@ -157,7 +157,7 @@ Hand off: *"Views rewritten into Hicasso where it made sense; the rest stay on R
 - **Don't half-migrate a view** (cardinal rule 2) — coherence over coverage.
 - **Don't auto-spread a bare symbol child** (`[:li item]`) — it is content, not props.
 - **Don't emit a verb because the draft guide names it.** `re-frame.hicasso.server/render`, `h/hydrate!` and the three-argument `h/mount!` are all taught there and none exists.
-- **Don't invent a listener-options map.** There is no `{:event […] :prevent-default true}`, no `:capture`, no `:passive`, no `:once`, no `:stop-propagation` — not undocumented, unrepresentable. `::h/prevent` is a reserved head and imperative event work belongs in `h/hfn`.
+- **Don't invent a listener-options map.** There is no `{:event […] :prevent-default true}`, no `:capture`, no `:passive`, no `:once`, no `:stop-propagation` — not undocumented, unrepresentable. `::h/prevent` is a reserved head and imperative event work belongs in `h/event`.
 - **Don't accept the reporter's `defhost` suggestions unreviewed** — they are labelled guesses, and a render prop declared `:event` blanks the UI silently.
 - **Don't reach into the dataflow layer** — name the `reg-sub`/event the view needs; let the author write it (cardinal rule 5).
 

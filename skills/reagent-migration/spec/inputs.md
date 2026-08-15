@@ -13,7 +13,7 @@ predecessor, this skill's primary input is the source itself, and reading it is
 the check rather than a polish pass.
 
 - **`implementation/hicasso/src/re_frame/hicasso.cljc`** — the public door, and
-  the whole of it. Three macros (`defview`, `hfn`, `defhost`) and thirteen vars
+  the whole of it. Three macros (`defview`, `event`, `defhost`) and thirteen vars
   (`sub`, `use-subs`, `hframe`, `error-boundary`, `reg-state`, `portal`,
   `route-link`, `as-element`, `as-component`, `root!`, `render!`, `unmount!`).
   Its docstrings are unusually load-bearing — the four handler shapes, the
@@ -77,7 +77,6 @@ teaches forms that do not exist. Measured examples, each verified absent from
 |---|---|
 | `re-frame.hicasso.server/render`, `ssr/hydrate!`, `h/hydrate!` | no server namespace; `hydrate-root!` deliberately off the facade |
 | `h/mount!` with `{:frame … :initial-events …}` | shipped is positional `h/root!`, which ensures nothing |
-| `h/fn` | the shipped macro is `hfn`; `h/fn` is the intended surface, not landed |
 | a Maven coordinate on the installation page | does not resolve |
 | key maps "valid only at `:on-key-down`/`:on-key-up`" | accepted at any event position |
 | a plain `merge` for caller attrs | shipped is the reserved `:&` key + owned-literal law |
@@ -123,7 +122,7 @@ for *what*.
 3. **A new construct needs a rule** → add a before→after (M), a decision (D) or a
    hold (R) to the matching catalogue, and add an eval if it exercises a new
    class.
-4. **A provisional spelling settles** — `hfn`→`h/fn`, `root!`→`mount!` — →
+4. **A provisional spelling settles** — `hfn`→`h/event` (landed), `root!`→`mount!` — →
    re-verify every emitted verb against the door. The naming ledger holds several
    of these open deliberately, so this is a *when*, not an *if*.
 5. **Hicasso publishes a coordinate** → design L2's honesty clauses and
