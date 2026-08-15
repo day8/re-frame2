@@ -1521,7 +1521,10 @@ last write silently winning. The fold also deletes the map surgery the shorthand
 merge performed on every element carrying a shorthand; that is a structural change,
 and its clock effect is **not separately measured**. It is inside the figure *Cost,
 measured* prints — the witness's title field routes its class through `:&` — but
-nothing there apportions the fold its own share (`rf2-pqyxz`).
+nothing there apportions the fold its own share (`rf2-pqyxz`). The ladder in
+*Apportioned* does not isolate it either: it lands whole inside that ladder's rung
+(1), where `:expanded` writes the class in the tag and every other arm declares it
+(`rf2-z143r`).
 (d) The **same key and the same law hold at a crossing** (a Hicasso view head, a
 `defhost` head, `[:>]`). `:&` is merged *before* any conversion, and the conversion
 that follows is the position's own — so a forwarded `:className` crosses under the
@@ -1691,7 +1694,99 @@ claim, because `:&` without a wrapper to forward into is not a spelling anybody
 writes. It is NOT a figure for `merge-caller` alone, and nothing here apportions
 the 2.4 µs between the three; nor does it isolate (c″)'s shorthand fold, which
 rides the same measurement rather than being separated from it. Splitting them is
-its own bead and its own window.
+its own bead and its own window — taken below.
+
+**APPORTIONED, and what it apportions goes to the CODEC (`rf2-z143r`).** A separate
+window — ONE run, neither pooled with the two ensembles above nor re-pricing them —
+was taken on the same instrument with two arms added BETWEEN `:expanded` and
+`:merged`, so that each step of the chain changes exactly one thing:
+
+    :expanded --(1)--> :helper --(2)--> :no-dissoc --(3)--> :merged
+
+`:helper` takes explicit arguments and writes no `:&`; `:no-dissoc` is `:helper`'s
+call sites character for character with its five spelled-out keys replaced by one
+`:&`. The five published arms, their bodies and their entries are byte-identical
+and were not touched, so nothing above is re-derived. Because the rungs are a
+CHAIN rather than three independent contrasts, (1) + (2) + (3) is
+`:merged` − `:expanded` round by round: the residual came back as floating-point
+dust (`[-0.0001 0.0001 -0.0 -0.0001 0]` ns) and it is **arithmetic, not
+corroboration**. Authored at `c63a78a219fd6ca9f3ab292f53658edc3ea7df51` on
+`worker/w-z143r`, branched from `11f8efd92368d4647d377c50f488c8ed4a53fb10` on main;
+Chromium 147.0.7727.15 under `:advanced` with `goog.DEBUG` false, the same 100
+boundaries, 1,001 elements and 400 fields, five rounds of three warm-up plus six
+samples.
+
+| rung | what changes between its two arms | whose code | ns/field | ratio |
+|---|---|---|---|---|
+| whole | `:merged` / `:expanded` | author + codec | 1,750 | 1.1754x |
+| (1) wrapper | a caller map per call site, a helper call, attributes as arguments | author's | 500 | 1.0512x |
+| (2) merge | those five attributes through `:&` instead of written as keys | **CODEC'S** | 1,625 | 1.1842x |
+| (3) round trip | `:k`/`:busy?` into the caller map and `dissoc`'d back out | author's | −500 | 0.9448x |
+
+**Two estimators sit in that table and they are not the same one.** `ns/field` is
+the MEDIAN of the five per-round differences of the two arms' within-round median
+mount times, divided by 400 — the statistic the `per :& site` columns above also
+quote. `ratio` is `lane/ratio-between`'s arithmetic MEAN of five per-round ratios,
+each itself a ratio of within-round medians. **The `ns/field` column therefore does
+not add**: (2)'s 1,625 and the author's combined −250 do not make the whole's 1,750,
+because per-column medians of different vectors never have to. Only the per-round
+vectors add, and they do, exactly:
+
+Per round, ns/field — whole `[1750 750 1625 1875 1750]`, (1) `[750 -125 500 500 625]`,
+(2) `[2000 1250 2250 1500 1625]`, (3) `[-1000 -375 -1125 -125 -500]`. Per-round
+ratios — whole `[1.1867 1.0789 1.1912 1.2143 1.2059]`, (1)
+`[1.08 0.9868 1.0588 1.0571 1.0735]`, (2) `[1.1975 1.1333 1.25 1.1622 1.1781]`, (3)
+`[0.9175 0.9647 0.9 0.9884 0.9535]`.
+
+**Rungs (1) and (3) may NOT be quoted on their own, and the ladder says so before
+it is asked.** A single helper cannot omit a key for three fields out of four
+without an `assoc`, so both new arms carry `:class nil` on the three fields that
+have no class — which is exactly what keeps them key-for-key identical and rung (2)
+clean, and it makes that key a passenger ADDED to (1) and SUBTRACTED from (3) in
+equal measure. It is not a small passenger: with the nil class the merged attribute
+map holds nine entries on all four fields and without it eight on three of them, and
+`cljs.core/PersistentArrayMap` promotes to a `PersistentHashMap` at exactly the
+ninth — so on 300 of the 400 fields those two arms are one map REPRESENTATION apart
+rather than one entry apart. That is also why (3) reads NEGATIVE, `:merged` mounting
+faster than `:no-dissoc`: it is not a `dissoc` that pays for itself. **The ladder
+answers two questions, not three** — rung (2) alone, and rungs (1) + (3) summed,
+which is the passenger-free author-side quantity: `[-250 -500 -625 375 125]`
+ns/field, median −250, straddling zero.
+
+**So the apportionment is: the codec's `merge-caller` is the term that moves, and
+the author's own code is the term this window cannot resolve at all.** (2) is
+positive in five rounds of five and its per-round ratio range `[1.1333 – 1.2500]`
+excludes 1.0; the author's combined term changes sign three times across the same
+five rounds. What does NOT follow is that no author-side change could help — only
+that the two this ladder tried (dropping the wrapper, dropping the `dissoc`) do not,
+at this instrument's resolution. **It buys attribution, not a target, and nobody has
+asked for one.**
+
+**WHAT THIS WINDOW DOES NOT ESTABLISH, stated before anything is read off it.** Its
+NULL arm was poor. `:expanded-b`/`:expanded` read `[0.9467 1.4737 1.0294 1 0.9853]`
+— four rounds inside ±5.3% of 1.0 and one at 1.4737, which on the per-field
+arithmetic is +4,500 ns on a difference that is zero by construction. That reading is
+impossible, so it BOUNDS NOTHING: it says only that this instrument's error reached
+at least 4,500 ns/field in this run, which is larger than every term in the table
+above. **No term here is claimed to be outside instrument resolution, including
+(2).** The two published windows are not available to rescue it — they are separate
+ensembles and are not pooled — and this window's own whole (1.1754x, 1,750 ns/field)
+reads BELOW both of theirs (1.217 – 1.270x and 1.216 – 1.241x); why is not known and
+is not guessed at here. As an observation and not as a rule the run was adjudicated
+under: in the four rounds whose null behaved, (2) read +16% to +25% against nulls of
+−5.3% to +2.9%. No round was excluded and all five are printed above.
+
+**The gates the run passed.** The fairness gate agreed FIVE judged arms on one
+1,001-element page (`:expanded`, `:expanded-b`, `:merged`, `:helper`, `:no-dissoc`)
+and was again proven able to answer false; the arm-order guard returned
+**reportable** on all seven arms, by predecessor and by phase; `lane/control-verdict-strict`
+put all five `:ctl-2x`/`:expanded` rounds `[2.3867 2.1974 2.0147 2.3286 1.9559]`
+inside the ±25% band with `:outside` empty; and the read-back tally was **0
+unverified of 360**. The box was bracketed by sixteen `\System\Processor Queue
+Length` samples, eight each side, every one 0 — and never sampled inside the measured
+window, where a sample reads the benchmark's own load and answers nothing. Nothing is
+claimed about within-run quietness beyond that bracketing.
+
 **Reopens** if a witness shows a merge the law cannot express without an escape.
 
 ## HD-024 — One callback form; the position selects the contract
