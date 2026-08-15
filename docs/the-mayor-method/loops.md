@@ -500,6 +500,20 @@ and name the dispatch. Otherwise one line is enough.
 
 Look for items marked in-progress. If no live worker holds one, it may be stranded.
 
+**But start from the worktrees, because that set is routinely empty while workers are
+running.** Unless your dispatches explicitly claim their items, a worker holds items that
+still read *open*, and this loop's nominal input is empty by construction rather than by
+health. Measured here: the in-progress list returned nothing while a worker was provably
+alive — files being written seconds earlier, a gate process burning CPU — and the three items
+it held all read open. A *"nothing in progress, sweep clean"* report is then not evidence of
+anything, and a streak of them is a streak of reads of an empty set.
+
+The failure is worse than a missed strand. A dead worker's items sit open, look dispatchable,
+and the next dispatch tick sends a **second worker to the same branch** — the collision this
+method spends a section forbidding. So enumerate the worktrees first, sweep each for recent
+file activity, and map trees to items; where an item *is* marked in-progress, read it too. It
+is a real signal, just never the complete one.
+
 **Discriminate before acting** — a long-running worker and a stranded one look identical from
 outside, and both readings went wrong in a single day here, in opposite directions.
 
