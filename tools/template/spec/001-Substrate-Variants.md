@@ -150,13 +150,27 @@ Reserved space — not implemented:
   `tools/story/spec/DESIGN-RATIONALE.md` §inline-substrate-failures);
   nothing in this repo has published yet. Once fired the template can
   ship reagent-slim as a third substrate choice.
-- **Hicasso.** Gated on the same trigger as reagent-slim — a published
-  `day8/re-frame2-hicasso` artefact. `release.yml` publishes twelve
-  coords and hicasso is not among them; `:hicasso-release` in
-  `test.yml` is an `:advanced` COMPILE gate, not a publish. An emitted
-  `deps.edn` names `{:mvn/version "{{rf2-version}}"}`, so scaffolding
-  this variant today would hand a new user a project whose very first
-  command fails to resolve its dependencies (rf2-48rk3).
+- **Hicasso.** Gated on a published `day8/re-frame2-hicasso` artefact —
+  which now means **the repository's first `v*` tag**, not a merge.
+  `release.yml` carries a `deploy-hicasso` stage (added by rf2-gra70,
+  gated on `deploy-core` plus the whole `deploy-leaf` matrix, because
+  Hicasso's published `:deps` name a second in-repo artefact besides
+  core), so the release wiring exists. What does not exist is a release:
+  `git ls-remote --tags origin` returns nothing, so no re-frame2
+  coordinate has ever reached Clojars. An emitted `deps.edn` names
+  `{:mvn/version "{{rf2-version}}"}`, so scaffolding this variant today
+  would still hand a new user a project whose very first command fails
+  to resolve its dependencies (rf2-48rk3). Cutting that tag is the
+  operator's act; the trigger to watch is the tag, and after it a
+  `day8/re-frame2-hicasso` that actually resolves.
+
+  (For the record, since an earlier draft of this section miscounted:
+  `release.yml` deploys **thirteen** coordinates — `day8/re-frame2`
+  core, eleven `deploy-leaf` matrix values, and `ssr-ring` in its own
+  ordered job — plus `hicasso` in the stage above. The twelve
+  `artefact:` rows are the non-core leaves, not the workflow's total.
+  `re-frame.ui` is explicitly **not** published, and must not be added
+  to the roster.)
 
   **Hicasso is also not a substrate peer of `:reagent` and `:uix`, and
   that ordering matters.** It mints no adapter — there is no
@@ -166,25 +180,80 @@ Reserved space — not implemented:
   AUTHORING model, not the substrate. So the open design question is
   whether this is a third value of `:substrate` at all, rather than a
   flag on the UIx variant; it is not a mechanical fourth row in the
-  checklist above. Note also that the two `(not= substrate :reagent)`
-  guards in `hooks.clj` are a two-value idiom whose Story/SSR refusal
-  messages name UIx explicitly, and that Xray wiring keys off a `uix?`
-  boolean that a Hicasso host would need to join — Hicasso rides UIx,
-  so Xray cannot mount there either.
+  checklist below, and it wants a ruling rather than an implementer's
+  guess.
+
+  What the emitted app would differ by, established at source so the
+  ruling has something to stand on: the per-substrate transform emits
+  exactly three files, and a Hicasso variant would change **all three**.
+  `deps.edn` gains `day8/re-frame2-hicasso` while keeping
+  `day8/re-frame2-uix` (the adapter is still UIx's); `core.cljs` swaps
+  `uix-dom/render-root` + the `frame-root` element for an explicit
+  `rf/make-frame` plus `h/mount!`; and `views.cljs` is rewritten in the
+  `h/defview` authoring model — hiccup with `h/sub` and intent vectors
+  at `:on-click` — rather than `defui` with `$` and hooks. That is a
+  variant's worth of divergence, not a flag's; but it is blocked on
+  publication regardless, so the choice is recorded, not taken.
+
+  **The two-value idiom this bead also named is now fixed** (rf2-48rk3)
+  and is no longer a cost a Hicasso variant has to pay. Xray, Story and
+  SSR support are DECLARED per substrate in `substrate-registry` and
+  read through one fail-closed `capability` accessor, so a third
+  substrate neither inherits UIx's refusal prose nor falls through to
+  Reagent's Xray wiring. See §Substrate capabilities below.
 - **TypeScript port.** Per Spec 000 — re-frame2 is a pattern, not a
   CLJS library. A `create-re-frame2-app` style npm template is
   reserved for a future iteration.
 
 Adding a substrate requires:
 
-1. A new entry in `valid-substrates` in
-   [`src/day8/re_frame2_template/hooks.clj`](../src/day8/re_frame2_template/hooks.clj).
+1. A new entry in `substrate-registry` in
+   [`src/day8/re_frame2_template/hooks.clj`](../src/day8/re_frame2_template/hooks.clj)
+   — carrying its `:label`, `:badge-url`, **and every key in
+   `substrate-capability-keys`**. `valid-substrates` is derived from
+   this map, so there is one place to edit.
 2. A new resource sub-tree at
    `resources/day8/re_frame2_template/_<substrate>/` (matching the
    existing `_reagent` / `_uix` shape).
 3. A new `case` clause in `template-fn`'s per-substrate transform
-   block.
+   block. Keep it in step with the `:story?` / `:ssr?` capabilities
+   declared in step 1 — the capability says the sources exist, the
+   `case` is where they are named.
 4. A test entry in each of `test/day8/re_frame2_template/`'s test
    files (per-substrate runs in the existing deftests).
 
 The substrate-agnostic `_shared/` tree is reused as-is.
+
+## Substrate capabilities
+
+Whether a substrate gets Xray wiring, and whether `:include-story?` /
+`:include-ssr?` can be honoured on it, are **declared properties** of
+the substrate rather than comparisons against one substrate's name:
+
+| Capability | `:reagent` | `:uix` | What it controls |
+|---|---|---|---|
+| `:xray?` | yes | no | The `{{xray-preload}}` devtools slot, the `[data-rf-xray-host]` layout host, the host CSS, Xray's machine-canvas npm deps, and the README section that promises the panel |
+| `:story?` | yes | no | Whether `:include-story? true` is honoured or refused |
+| `:ssr?` | yes | no | Whether `:include-ssr? true` is honoured or refused |
+
+`capability` reads these, and **throws on an undeclared key** rather
+than reading a missing key as `false`. That distinction is the point of
+the design (rf2-48rk3): the previous code spelled the same Xray
+question two ways — `:xray-npm-deps` asked `(= substrate :reagent)`
+while every sibling `{{xray-*}}` value asked `(= substrate :uix)` — and
+those agree only because the substrate set had two members. A third
+substrate made them diverge, and the emitted project wired the Xray
+preload, the host slot and the README promise while carrying none of
+Xray's npm dependencies, so its first `shadow-cljs watch app` died on a
+missing JS dependency. There is now one predicate and no default arm to
+fall through.
+
+The refusal messages follow the same rule: they name the substrates
+that currently *do* support the feature (from the registry) instead of
+hardcoding "UIx variants follow once…", which was wrong text for any
+refused substrate that is not UIx.
+
+`template_test.clj` holds the guards — every entry declares every
+capability key, the Xray substitution values stay coherent for a
+hypothetical third substrate declared either way, an undeclared
+capability fails closed, and the refusal prose names the supported set.

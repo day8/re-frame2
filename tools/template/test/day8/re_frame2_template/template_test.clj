@@ -22,6 +22,7 @@
   (:require [clojure.test :refer [deftest is testing]]
             [clojure.java.io :as io]
             [clojure.string :as string]
+            [day8.re-frame2-template.hooks :as hooks]
             [day8.re-frame2-template.test-support
              :refer [tmp-dir delete-recursively run-template!
                      run-template-opts! read-edn file-exists?]]))
@@ -860,6 +861,140 @@
             "number substrate is rejected")
         (finally
           (delete-recursively tmp))))))
+
+;; --- three-value safety of the substrate idiom (rf2-48rk3) ---------------
+;;
+;; The template shipped two substrates, and its substrate-conditional
+;; logic was spelled two different ways that AGREE only at cardinality 2:
+;; `:xray-npm-deps` read `(= substrate :reagent)` while every sibling
+;; `{{xray-*}}` value read `(= substrate :uix)`. Adding any third
+;; substrate made them diverge — the emitted project wired the Xray
+;; preload, the `[data-rf-xray-host]` slot and a README promising the
+;; panel, while its package.json carried none of Xray's npm deps, so its
+;; first `shadow-cljs watch app` died on a missing JS dependency.
+;;
+;; Capabilities are now DECLARED per substrate and read through one
+;; accessor. These tests are what keeps that true: they inject a
+;; hypothetical third substrate — the template ships no third variant
+;; today, and deliberately so — and assert the emitted values stay
+;; coherent, plus that an undeclared capability fails closed rather than
+;; reading as false.
+
+(def ^:private hooks-registry
+  (ns-resolve 'day8.re-frame2-template.hooks 'substrate-registry))
+
+(def ^:private hooks-valid
+  (ns-resolve 'day8.re-frame2-template.hooks 'valid-substrates))
+
+(def ^:private capability-keys
+  @(ns-resolve 'day8.re-frame2-template.hooks 'substrate-capability-keys))
+
+(defn- with-third-substrate
+  "Run `f` with `entry` registered as a third substrate `:third`."
+  [entry f]
+  (with-redefs-fn {hooks-registry (assoc @hooks-registry :third entry)
+                   hooks-valid    (conj @hooks-valid :third)}
+    f))
+
+(defn- data-for
+  "The `data-fn` substitution map for `substrate`, with the extra args."
+  [substrate & {:as extra}]
+  (hooks/data-fn (merge {:name "acme/my-app" :top "acme" :main "my-app"
+                         :substrate substrate}
+                        extra)))
+
+(deftest every-substrate-declares-every-capability-test
+  (testing "each substrate-registry entry declares the full capability
+            key set — a missing key would read as false and silently
+            emit a scaffold whose wiring and dependencies disagree"
+    (doseq [[substrate entry] @hooks-registry]
+      (doseq [k capability-keys]
+        (is (contains? entry k)
+            (str substrate " must declare " k
+                 " (see substrate-registry's docstring)"))
+        (is (boolean? (get entry k))
+            (str substrate "'s " k " must be a literal boolean"))))))
+
+(deftest xray-substitution-keys-are-coherent-per-substrate-test
+  (testing "the structural Xray substitution values are all-present or
+            all-absent together, for every substrate INCLUDING a
+            hypothetical third — this is the exact invariant the two
+            spellings broke (preload wired, npm deps missing)"
+    (let [structural [:xray-npm-deps :xray-preload
+                      :xray-host-aside :xray-host-css]
+          check      (fn [substrate expected-xray?]
+                       (let [d (data-for substrate)]
+                         (doseq [k structural]
+                           (is (= expected-xray? (boolean (seq (get d k))))
+                               (str substrate "'s " k
+                                    " must follow its declared :xray? ("
+                                    expected-xray? ")")))
+                         ;; The README section heading is the user-visible
+                         ;; half of the same promise.
+                         (is (= expected-xray?
+                                (boolean (re-find #"## In-app devtools \(Xray\)"
+                                                  (str (:xray-readme-devtools d)))))
+                             (str substrate
+                                  "'s README must promise the Xray panel only "
+                                  "when the substrate wires it"))))]
+      ;; The two shipped substrates.
+      (check :reagent true)
+      (check :uix false)
+      ;; A hypothetical third, both ways round. Neither may produce the
+      ;; mixed state that motivated rf2-48rk3.
+      (with-third-substrate {:label "Third" :badge-url "https://example.invalid/b.svg"
+                             :xray? false :story? false :ssr? false}
+        #(check :third false))
+      (with-third-substrate {:label "Third" :badge-url "https://example.invalid/b.svg"
+                             :xray? true :story? false :ssr? false}
+        #(check :third true)))))
+
+(deftest undeclared-capability-fails-closed-test
+  (testing "a substrate registered without declaring a capability throws
+            naming the omission, rather than reading the missing key as
+            false and emitting a half-wired scaffold"
+    (with-third-substrate {:label "Third" :badge-url "https://example.invalid/b.svg"}
+      (fn []
+        (is (thrown-with-msg?
+              clojure.lang.ExceptionInfo
+              #":rf\.error/template-substrate-capability-undeclared"
+              (data-for :third))
+            "an undeclared capability is a registration error")
+        (let [data (try (data-for :third)
+                        (catch clojure.lang.ExceptionInfo e (ex-data e)))]
+          (is (= :third (:substrate data))
+              "ex-data names the offending substrate")
+          (is (contains? capability-keys (:capability data))
+              "ex-data names which capability was undeclared")
+          (is (= capability-keys (:required data))
+              "ex-data carries the full required key set"))))))
+
+(deftest feature-refusal-messages-name-the-supported-set-test
+  (testing "the Story / SSR refusals name the substrates that DO support
+            the feature rather than hardcoding one substrate's name — the
+            old `(not= substrate :reagent)` guards told every refused
+            caller that 'UIx variants follow', which is wrong text for
+            any substrate that is not UIx"
+    (with-third-substrate {:label "Third" :badge-url "https://example.invalid/b.svg"
+                           :xray? false :story? false :ssr? false}
+      (fn []
+        (doseq [[flag id] [[:include-story?
+                            #":rf\.error/template-include-story-reagent-only"]
+                           [:include-ssr?
+                            #":rf\.error/template-include-ssr-reagent-only"]]]
+          (is (thrown-with-msg? clojure.lang.ExceptionInfo id
+                                (data-for :third flag true))
+              (str flag " is refused on a substrate that does not declare it"))
+          (let [data   (try (data-for :third flag true)
+                            (catch clojure.lang.ExceptionInfo e (ex-data e)))
+                reason (:reason data)]
+            (is (= #{:reagent} (:supported data))
+                (str flag "'s ex-data names the currently supporting set"))
+            (is (not (string/includes? reason "UIx"))
+                (str flag "'s refusal must not name UIx when refusing a "
+                     "substrate that is not UIx — got: " reason))
+            (is (string/includes? reason ":third")
+                (str flag "'s refusal names the substrate actually chosen"))))))))
 
 ;; --- :include-story? flag (003-DepsNew-Rebuild-Plan.md §2.4) -------------
 
