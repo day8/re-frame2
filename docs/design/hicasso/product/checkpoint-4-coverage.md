@@ -161,6 +161,13 @@ it already records `rf2-cfriw`'s corrected diagnosis and `rf2-2l8pw`'s three min
 ordinary amendment under [§3](dispositions.md#3-append-protocol-and-ownership) rather than a coverage finding, so it is
 **filed rather than reached for**: `rf2-oc6rn`. Recorded here so a reader who checks §1.1 against this page's count
 finds the discrepancy explained rather than fresh.
+**[DISCHARGED 2026-08-15, `rf2-oc6rn` (PR #8297). The paragraph above is kept as the record of a cross-page
+disagreement that was real when this page re-ran.]** §1.1's Code splitting cell now reads `Witnessed`, on
+`hmr_spec.cjs`'s `native-lazy-island-across-a-save`, and
+[§1.2](dispositions.md#12-rows-without-a-complete-planned-witness)'s Gap count recomputed from two to one, its own
+2026-08-14 audit bullet carrying a beside-amendment in the same form. The two pages now agree — dispositions reads
+`Witnessed` where this page scores the row **met**. **Nothing in this checkpoint's score moves with it**: that cell was
+always §1.1's to move and never this page's count, which is exactly why the finding was filed rather than reached for.
 
 **One thing found in the doing, and fixed in the same edit rather than filed.** §1.1's SSR row named `rf2-hic-056` as
 its planned witness. That bead is the bounded Node service; the per-surface matrix is `rf2-hic-046`'s and `rf2-hic-005`'s.
