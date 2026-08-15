@@ -45,6 +45,7 @@
   (:require [re-frame.core              :as rf]
             [re-frame.router            :as router]
             [re-frame.frame             :as frame]
+            [re-frame.interop           :as interop]
             #?(:cljs [reagent.core      :as r])
             [re-frame.story.assertions  :as assertions]
             [re-frame.story.config      :as config]
@@ -1462,6 +1463,129 @@
     (or (nil? state)
         (and token (some? (:run-token state)) (not= token (:run-token state))))))
 
+;; ---- step preconditions: the settle rung for asynchrony (rf2-n0sz4) ------
+;;
+;; rf2-ek9qb gave a step's required BOUNDARY a producer: before a step that
+;; reads or drives the DOM, `settle-substrate-for-step!` asks the live
+;; adapter to COMMIT. That closed the render race, and it closed only that
+;; one, because a synchronous commit can only commit what the host has
+;; already SCHEDULED. Two things a play waits on are scheduled but not yet
+;; landed at the instant the step wants them, and no flush can conjure
+;; either (both MEASURED on the browser lane, rf2-n0sz4):
+;;
+;;   1. THE ASYNC DISPATCH. `exec-click!` / `exec-type!` / `exec-focus!` fire
+;;      a synthetic DOM event; React runs the handler; the handler
+;;      dispatches; the router schedules its drain through
+;;      `interop/next-tick` — `goog.async.nextTick`, a genuine macrotask,
+;;      never inline. The next step then read app-db before the handler's
+;;      event had run: `expected 42 at [:count] but got 0`. Note that this
+;;      is NOT "nothing drains the queue" — `dispatch-sync!` pushes its seed
+;;      at the FRONT of the queue and drains, so an assertion dispatched at
+;;      the next step JUMPS AHEAD of the click's still-queued event and
+;;      reads app-db before it lands. Draining harder cannot fix an ordering
+;;      inversion; only waiting for the queue can.
+;;
+;;   2. THE MOUNT. The auto-run resumes from the canvas's
+;;      `component-did-mount`, and sync-class steps `recur` rather than
+;;      yielding, so a script's leading steps run INSIDE that hook — while
+;;      the canvas has committed its loading SKELETON and the variant's own
+;;      markup is not in the document at all. A first `[:assert-dom …]`
+;;      reported `selector matched no node`.
+;;
+;; ## Why a bounded poll, and why that is not `[:wait ms]` with extra steps
+;;
+;; The choice was between growing the flush-hooks contract a new
+;; drain-only rung verb and settling here, in the runner. This is the
+;; runner's own concern and not the host's: every host's router schedules
+;; the same way, so a verb per host would ask each of them to re-describe
+;; one framework-wide fact. It would also be PUBLIC surface added for a
+;; test harness's convenience, which the project's stance rejects. Nothing
+;; below is reachable by an author.
+;;
+;; A poll is not a sleep, and the difference is the whole point of the
+;; bead. `[:wait 300]` proceeds after 300ms whether or not anything
+;; settled — it is a GUESS, it is spec/017's explicit determinism OPT-OUT,
+;; and `assert-deterministic` refuses a script containing one. This
+;; proceeds on an OBSERVED condition, on the first tick the condition
+;; holds (so it costs a tick, not 300ms, on a fast machine), and when the
+;; condition never holds it FAILS LOUDLY naming what never settled rather
+;; than proceeding on a stale read. spec/017 already anticipated exactly
+;; this and assigned it to exactly this layer: `exec-wait-until!` is
+;; one-shot by contract, and its docstring hands the bounded re-check to
+;; "a richer DOM/browser runner … that poll is the adapter caller's
+;; concern".
+;;
+;; CLJS ONLY, by construction. The JVM runner has no event loop to yield
+;; to, `dispatch-sync!` has already drained the queue by the time any step
+;; observes it, and no DOM is available — so every precondition below
+;; reads as met there and the JVM path is byte-for-byte unchanged.
+
+(def settle-poll-timeout-ms
+  "Wall-clock budget for one step's preconditions to settle before the
+  step is FAILED as un-settleable. Generous next to the tick a settle
+  actually costs, and far short of a lane timeout, so a genuine hang
+  reports as this step's readable failure rather than as a dead run."
+  2000)
+
+(def ^:private presence-required-selector-atoms
+  "The DOM assertion atoms whose selector must RESOLVE before the
+  assertion can be evaluated. `:rf.assert/dom-hidden` is deliberately
+  absent — an absent node is its PASS condition, so waiting for one to
+  appear would invert the assertion and burn the whole budget doing it."
+  #{assertions/id-dom-text
+    assertions/id-dom-visible})
+
+(defn- step-required-selector
+  "The DOM selector `step` must be able to resolve before it can run, or
+  nil when the step needs no node present.
+
+  Covers the interaction steps, which cannot fire an event at a node that
+  is not there, and the presence-asserting half of the DOM assertion
+  family — reading the selector out of the FOLDED atom
+  (`[:rf.assert/dom-* selector & args]`, `exec-assert-dom-atom!`'s own
+  shape) as well as off a raw shipping step that bypassed folding."
+  [step]
+  (case (runner/step-type step)
+    (:click :type :focus) (runner/step-selector step)
+    :assert               (let [atom-v (runner/step-assertion step)]
+                            (when (and (vector? atom-v)
+                                       (contains? presence-required-selector-atoms
+                                                  (first atom-v)))
+                              (nth atom-v 1 nil)))
+    :assert-dom           (runner/step-selector step)
+    nil))
+
+(defn- step-precondition-unmet
+  "nil when every precondition `step` needs is already true — the common
+  case, and a pure read costing nothing. Otherwise a readable phrase
+  naming the one that is not, which becomes the timeout message.
+
+  Two preconditions, in the order a step depends on them:
+
+  - the frame's event queue has DRAINED, so the step observes the
+    consequences of every step before it rather than racing them
+    (`queue-empty?` is a real read of the router's `:queue` +
+    `:scheduled?`, not a stub);
+  - the node the step names is PRESENT, when the step names one.
+
+  Both are tolerant of the headless case: `queue-empty?` reads an
+  unregistered frame as drained, and with no DOM available the selector
+  precondition is moot — the executor's own `{:skipped? true}` no-DOM
+  branch is the right answer there and must not be pre-empted by a
+  timeout."
+  [frame-id step]
+  (let [selector (step-required-selector step)]
+    (cond
+      (not (queue-empty? frame-id))
+      "the frame's event queue has not drained"
+
+      (and selector
+           (dom/dom-available?)
+           (nil? (dom/query selector)))
+      (str "no node matches " (pr-str selector))
+
+      :else nil)))
+
 (defn- run-loop!
   "Iterate over the script, running each step. `:wait` steps yield
   to the scheduler and resume from the wait time onwards.
@@ -1481,8 +1605,18 @@
   `:type`, `:wait`) yield one tick so the queued effects drain before
   the next step runs. A blanket setTimeout-0 between every step would
   reintroduce the re-mount race the async-class split avoids — see
-  `runner/async-yield?`."
-  [frame-id play-key token done-cb]
+  `runner/async-yield?`.
+
+  On CLJS a step does not run until its PRECONDITIONS hold
+  (`step-precondition-unmet` — the queue drained, and the node present
+  when the step names one). While one is outstanding the loop yields,
+  commits whatever the substrate has pending, and re-checks, WITHOUT
+  advancing the cursor; `settle-deadline` carries the wall-clock bound
+  across those re-entries and is nil whenever the loop is not mid-poll.
+  Exhausting the bound FAILS the step readably (rf2-n0sz4) — it is never
+  a silent proceed, and never a silent pass."
+  ([frame-id play-key token done-cb] (run-loop! frame-id play-key token done-cb nil))
+  ([frame-id play-key token done-cb settle-deadline]
   (let [state (current-state-for-play frame-id play-key)]
     (cond
       ;; The slot is no longer ours — the frame was torn down mid-run, or a
@@ -1502,7 +1636,12 @@
       :else
       (let [idx  (:step-idx state)
             step (runner/current-step state)
-            nm   (:name state)]
+            nm   (:name state)
+            ;; Read once per pass. CLJS-only: the JVM runner has no event
+            ;; loop to yield to and no DOM, so it never polls and never
+            ;; needs the answer.
+            unmet #?(:cljs (step-precondition-unmet frame-id step)
+                     :clj  nil)]
         (cond
           (= :wait (runner/step-type step))
           (let [ms (or (runner/step-wait-ms step) 0)]
@@ -1515,8 +1654,46 @@
             ;; flat. CLJS keeps async `setTimeout` scheduling so the event loop
             ;; drains between steps (rf2-epqsvh).
             #?(:clj  (do (when (pos? ms) (Thread/sleep ^long ms))
-                         (recur frame-id play-key token done-cb))
-               :cljs (schedule! ms #(run-loop! frame-id play-key token done-cb))))
+                         (recur frame-id play-key token done-cb nil))
+               :cljs (schedule! ms #(run-loop! frame-id play-key token done-cb nil))))
+
+          ;; The step's preconditions are not met YET (CLJS only — see
+          ;; `step-precondition-unmet`). Something is in flight that the
+          ;; step depends on: the router's `next-tick` drain after a
+          ;; synthetic DOM event, or the render that puts the variant's
+          ;; markup in the document. Give the host a turn, ask the
+          ;; substrate to commit whatever is pending, and re-check —
+          ;; WITHOUT advancing the cursor, so this step still runs.
+          #?@(:cljs
+              [(and (some? unmet)
+                    (or (nil? settle-deadline)
+                        (< (interop/now-ms) settle-deadline)))
+               (let [deadline (or settle-deadline
+                                  (+ (interop/now-ms) settle-poll-timeout-ms))]
+                 ;; Commit anything the substrate has already scheduled. This
+                 ;; is rf2-ek9qb's own rung, reused: on a rAF-scheduled
+                 ;; substrate in a throttled tab the pending render would
+                 ;; otherwise never land no matter how long we yielded. Its
+                 ;; refusal result is deliberately discarded — `exec-step!`
+                 ;; establishes the same boundary and reports a refusal
+                 ;; properly when the step actually runs.
+                 (settle-substrate-for-step! frame-id idx step)
+                 (js/setTimeout
+                   #(run-loop! frame-id play-key token done-cb deadline) 0))
+
+               ;; Budget exhausted. FAIL LOUDLY, naming what never settled —
+               ;; never a silent proceed onto a stale read (which is what a
+               ;; wall-clock `[:wait ms]` does by construction).
+               (some? unmet)
+               (do
+                 (record-result!
+                   frame-id play-key nm idx step
+                   (runner/step-fail
+                     idx step
+                     {:message (str "step preconditions never settled within "
+                                    settle-poll-timeout-ms "ms — " unmet)}))
+                 (js/setTimeout
+                   #(run-loop! frame-id play-key token done-cb nil) 0))])
 
           :else
           (let [_      (record-settle-boundary! frame-id play-key step)
@@ -1575,7 +1752,7 @@
                            ;; continuation, which the play-promise and the
                            ;; outer `run-variant` promise resolve through.
                            (js/setTimeout
-                             #(run-loop! frame-id play-key token done-cb) 0)))
+                             #(run-loop! frame-id play-key token done-cb nil) 0)))
                  :clj  nil)
               (do
                 (record-result! frame-id play-key nm idx step result)
@@ -1587,9 +1764,10 @@
                 ;; queued router work / synthetic DOM event handlers drain
                 ;; before the next step runs.
                 #?(:cljs (if yield?
-                           (js/setTimeout #(run-loop! frame-id play-key token done-cb) 0)
-                           (recur frame-id play-key token done-cb))
-                   :clj  (recur frame-id play-key token done-cb))))))))))
+                           (js/setTimeout
+                             #(run-loop! frame-id play-key token done-cb nil) 0)
+                           (recur frame-id play-key token done-cb nil))
+                   :clj  (recur frame-id play-key token done-cb nil)))))))))))
 
 ;; ---- public driver -------------------------------------------------------
 

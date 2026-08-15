@@ -942,6 +942,41 @@ the existing framework drain and a flush-hook seam over it.
   same set the assert executor routes on. Steps below `:cljs-reactive` are
   untouched, and on a host whose hooks register no richer flush the whole
   mechanism is inert.
+
+  **A boundary commits what is SCHEDULED; it cannot commit what has not
+  happened yet.** Two things a script depends on are in flight at the
+  instant a step wants them, and no flush can conjure either: the ASYNC
+  DISPATCH behind a synthetic DOM event (`exec-click!` / `exec-type!` /
+  `exec-focus!` fire the event and the handler's `dispatch` schedules its
+  drain through `interop/next-tick`, a macrotask, never inline), and the
+  MOUNT the auto-run outruns (leading sync-class steps run inside the
+  canvas's post-commit hook, while the canvas has committed its loading
+  skeleton and the variant's own markup is not yet in the document).
+  Note the dispatch case is not "nothing drains the queue": `dispatch-sync*`
+  pushes its seed at the FRONT of the queue and drains, so an assertion
+  dispatched at the next step jumps AHEAD of the still-queued event and
+  reads app-db before it lands. Draining harder cannot fix an ordering
+  inversion.
+
+  So on CLJS a step ALSO does not run until its **preconditions** hold:
+  the frame's event queue has drained, and the node the step names is
+  present when it names one. While one is outstanding the runner yields,
+  asks the substrate to commit whatever is pending, and re-checks —
+  without advancing the cursor. This is a settle, not a sleep: it
+  proceeds on the first tick the OBSERVED condition holds rather than
+  after a fixed duration, and it is **bounded** — exhausting the budget
+  FAILS the step readably, naming what never settled, never a silent
+  proceed onto a stale read. `:rf.assert/dom-hidden` is deliberately
+  exempt from the node precondition, an absent node being its pass
+  condition. The mechanism is CLJS-only by construction: the JVM runner
+  has no event loop to yield to, `dispatch-sync*` has already drained by
+  the time any step observes the queue, and no DOM is available — so
+  every precondition reads as met and the headless path is unchanged.
+
+  This is what lets an interaction script be **deterministic** end to end
+  with no `[:wait ms]` (§Determinism gate) — the settle-on-condition
+  discipline `[:wait-until pred]` names, applied automatically at the one
+  place a step's own precondition is knowable.
 - `dispatch-and-settle!` — the entry point `[:dispatch event-vector]`
   lowers to: dispatch through the supplied `:dispatch!`, then run each
   registered flush whose level is `<= required` in ladder order. It
