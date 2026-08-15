@@ -15,12 +15,17 @@ on ordinary Hicasso throughout that process.
 | Controlled keystroke | State converges in the same browser turn and the visible echo arrives within **one 60 Hz frame at p95** |
 | Broad operation | Bulk replacement or a large filter change completes within **100 ms p95**, unless explicitly classified as background work |
 | Drag or animation | Remains inside the frame budget, usually by keeping high-rate mechanics inside a host |
-| Narrow update | View-body work scales with changed rows or cells, not all mounted rows or cells |
+| Narrow update | View-body work **and rows of markup built** scale with changed rows or cells, not all mounted rows or cells |
 | Teardown | Returns to **zero additional residue** after quiescence |
 
 A screen that meets its user-visible budgets is fast enough even when a
 synthetic benchmark says another implementation can execute an isolated
 operation faster.
+
+The narrow-update row carries two counters rather than one, and the second is
+what catches a coarse view model. A parent that rebuilds every row for a
+one-row change does that work *inside* one body, so a counter that only counts
+bodies run reports a pass. Count rows of markup built as well.
 
 !!! note "Measure production behaviour"
     Use production builds, mid-tier hardware, and p95 across repeated runs.
@@ -124,6 +129,12 @@ least one of these conditions:
 Otherwise remove it and return to the previous level. “It may matter later” is
 not a fourth condition. Re-run the comparison when the surrounding path
 changes materially.
+
+This rule governs an escape taken **for speed**, because it compares against the
+same screen written the ordinary way. An escape taken because there is no
+ordinary spelling at all — a foreign React library, an SDK that owns its own DOM
+node — has nothing to be compared with and is judged by different questions
+([The escape ladder](escape-ladder.md#the-rule-an-interoperability-escape-is-not-judged-by)).
 
 ## Trace one controlled keystroke
 

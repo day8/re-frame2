@@ -24,6 +24,12 @@ least 20%, at least 2 ms at p95, or enough to move a user-visible budget from
 fail to pass. Otherwise remove it. A small explicit diff is easier to maintain
 than a permanent second authoring style with no demonstrated benefit.
 
+That rule is about speed, and this ladder is the speed ladder. A crossing taken
+because a component has no interpreted spelling at all belongs to
+[Interop](09-interop.md) and is judged by other questions; both descents, and
+which rule applies to which, are set out in
+[The escape ladder](escape-ladder.md).
+
 ## Return native elements from a Hicasso view
 
 Assume a windowed watchlist has stable keys and each visible row makes one
