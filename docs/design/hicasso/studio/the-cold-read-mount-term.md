@@ -78,13 +78,14 @@ and settled between samples behind a residue equality gate that never fired):
 |---|---|---|
 | whole commit (`commit`, shipping seam) | 0.8875 [0.8000–1.0750] | — (6.29 µs/key; copy fidelity c-local/commit = 0.9718) |
 | — **reaction build + cache insert** (`c-local − c-nosub`) | **0.4125** | **47.8%** |
-| — index write (`c-local − c-noindex`) | 0.0750 | 8.7% |
+| — index write (`c-local − c-noindex`) — **arm and structure both retired since; see the window note below** | 0.0750 | 8.7% |
 | — cell-map insert (`c-local − c-nomap`) | 0.0375 | 4.3% |
 | — watch wiring (`c-local − c-nowatch`) | 0.0250 | 2.9% |
 | `b-build` (141 × subscribe + deref, no in-window dispose) | 0.6000 | context: build + compute alone |
 
-> **These rows are dated `cb41ee537b`, and one change has landed under them**
-> (rf2-gttif). `rf2-aqgr2` (`f7fd0c6a52`) stopped the runtime minting a
+> **These rows are dated `cb41ee537b`, and one change had landed under them
+> when this note was written** (rf2-gttif; two more have landed since — see the
+> window note below). `rf2-aqgr2` (`f7fd0c6a52`) stopped the runtime minting a
 > `Keyword` per key cell — 141 mints per commit on this shape — so **0.8875
 > and 6.29 µs/key are now upper bounds** on the shipping seam, and the shares,
 > which divide by `c-local` (0.8625 here), are lower bounds by the same term:
@@ -92,7 +93,9 @@ and settled between samples behind a residue equality gate that never fired):
 > there as well. The term is small — 141 mints against a phase-B grid that
 > resolves to 0.025 ms/commit, and the nearest anchor in the micro table below
 > is 53 ns for a two-element vector — so it is about one quantum, and only a
-> re-take on a quiet box settles it (`rf2-d360z`). **The four deltas do not
+> re-take on a quiet box could settle it (`rf2-d360z`). That re-take has since
+> run; the note below is its verdict, and it also found that the mint is not the
+> only change to have landed under these rows. **The four deltas do not
 > move at all**: the mint was bound above `commit-local!`'s `C-NOWATCH` guard
 > and present in every mode, so it stood on both sides of each and cancelled
 > exactly. **Nor does the fidelity ratio** — both arms carried the mint and
@@ -100,43 +103,74 @@ and settled between samples behind a residue equality gate that never fired):
 > once again *structurally* identical to the seam it prices, which warrants
 > the `c-*` ablations better than a clock agreement on its own ever did.
 
-> **THE QUIET-BOX RE-TAKE WAS ATTEMPTED AND REFUSED — the figures above stand
-> unchanged, still as upper bounds** (`rf2-d360z`, 2026-08-07, `abcb34217c`,
-> Processor Queue Length 0 before the attempt). `read_profile_app` reaches
-> phase A and stops: **both attempts threw at the phase-B residue gate, on the
-> `commit` arm, with the identical counts** — baseline
-> `{:cells 141 :cell-refs 141 :boundaries 1 :edges 141 :entries 6}` against a
-> measured `:entries 5`. Runner exit `1` both times; nothing from phase B was
-> produced, let alone published.
+> **THE QUIET-BOX RE-TAKE HAS NOW RUN, AND THE FIGURES ABOVE STAND UNRESTATED**
+> (`rf2-d360z`, 2026-08-15, `2c95c22386`, instrument blob `7f2a7edccf`,
+> `:advanced`, HeadlessChrome 147.0.7727.15). The 2026-08-07 attempt is history:
+> it refused twice at the phase-B residue gate without reaching a number,
+> because `rf2-2rtt6.84` had moved the entry reaper's horizon outside the single
+> macrotask `lane/settle!` yields. `rf2-981nt` (`a5cb33f708`) repaired that by
+> baselining behind the runtime's own quiescence point, and phase B now runs to
+> completion — **three times in this window, `exit 0` each, both arm-order
+> guards reportable and the positive control passing on every run, the residue
+> gate never firing.** One session, one rig, Processor Queue Length 0 across
+> every measurement sample:
 >
-> **The cause is not the box and not this instrument.** `rf2-2rtt6.84`
-> (`337b2c2fb4`, 2026-08-04) moved `arm1/runtime.cljs`'s
-> `entry-reap-horizon-ms` from **0 to 4** so the entry reaper could not beat
-> React back to its own passive flush on a `hydrateRoot`. `lane/settle!` is
-> one macrotask — a bare `setTimeout 0` — and 4 ms is strictly outside it, so
-> the two no longer interleave the way the gate's baseline assumes. Phase B's
-> setup harvests four read-set entries through `rt/render-body`, each minted
-> with `refs` 0 and each arming a reaper at +4 ms; the baseline `rt/residue` is
-> read after ONE settle, at ~0 ms, so it counts all six entries. The reapers
-> then fire during the first sampled arm, `commit` is the only arm that raises
-> `refs` at all, and any entry whose reaper lands while `refs` is 0 is evicted.
-> The gate compares by EQUALITY and refuses. **Both published phase-B runs
-> (`cb41ee537b`, `0c0ff21f0d`, both 2026-08-02) predate that change**, which is
-> exactly why §1 could record a residue gate that never fired.
+> | run | `commit` p50 ms [min–max] | `c-local` p50 ms [min–max] | c-local/commit |
+> |---|---|---|---|
+> | 1 | 0.5500 [0.3750–0.7250] | 0.4875 [0.3750–1.0750] | 0.8864 |
+> | 2 | 0.4500 [0.3750–1.2250] | 0.4250 [0.3750–0.7750] | 0.9444 |
+> | 3 | 0.4625 [0.3750–0.9000] | 0.4250 [0.3750–0.9000] | 0.9189 |
 >
-> **The gate is right and was not touched.** What it is telling us is that the
-> baseline phase B hands it is no longer reachable — an instrument-versus-
-> runtime disagreement, filed as `rf2-981nt`, not something to widen.
+> **The two absolutes are not restated, and the reason is stronger than the
+> "it came back inside the quantum" result the bead anticipated.** The `commit`
+> arm's spread across three runs of one binary on a certified-quiet box is
+> 0.100 ms — **four grid steps, in one session, with nothing changing between
+> runs.** The effect commissioned for sight is 141 keyword mints, which this
+> window's own micro readings price at 14–32 ns each (the micro table below is
+> the published run's and is not restated): **0.002–0.005 ms/commit, an eighth
+> of one grid step and about a thirtieth of the dispersion just quoted.** The
+> term is not merely under the instrument's resolution — it is far under the
+> instrument's own run-to-run noise, and more runs would not change that.
 >
-> **And the prize was under the grid in any case, which the refusal does not
-> change.** 141 mints at the micro table's nearest anchor of 53 ns is
-> **0.0075 ms/commit against a 0.025 ms quantum — under a third of one grid
-> step**, and the two absolutes this page already carries (0.8875 here, 0.7625
-> in §4) sit **5 quanta apart** across two runs taken an hour apart at
-> different commits. The drift is smaller than the instrument's resolution and
-> far smaller than its run-to-run dispersion, so no re-take on this clock could
-> have attributed a difference to `rf2-aqgr2`/`rf2-6wh9o` even had phase B run.
-> A quiet box does not fix that.
+> **A restatement of two cells could no longer be honest in any case, because
+> two further changes have landed under this table, neither of them the mint,
+> and neither anticipated by `rf2-gttif` or `rf2-d360z` — both written on
+> 2026-08-03, hours before the first of them.**
+>
+> - **`rf2-dabt3` (`383ba2d645`) retired the sub-index into the cell table.**
+>   `front/sub_index.cljs` is deleted, the shipping commit half no longer
+>   performs an `index/mount!` plus a whole-set `record-reads!` but pushes one
+>   reader slot per key, and the same commit replaced the instrument's
+>   `c-noindex` arm with `c-noreaders`. **The `index write` row above therefore
+>   prices a structure that no longer exists**, and both absolutes lost that
+>   work on top of losing the mint.
+> - **`rf2-lzpfj` (`04bb0fa73a`) added `interop/activate-derived-value!` to
+>   `commit-local!`** so the copy matches `wire-cell!`'s shape. `c-local` now
+>   performs work it was not performing when 0.8625 was taken.
+>
+> So `c-local` — the denominator every share in this table divides by — is not
+> the arm that produced 0.8625: it has since lost the index write, lost the
+> mint, and gained the activation. Dividing 2026-08-02 numerators by a
+> 2026-08-15 denominator is arithmetic across two instruments, which is the one
+> thing this page's discipline exists to prevent. **The share column cannot be
+> repaired by re-measuring its denominator. The decomposition needs a whole
+> re-take, every arm at one commit** — filed rather than improvised here.
+>
+> **And the instrument cannot support that re-take yet, which is this window's
+> other finding.** Across the three runs the cell-map insert read 0.1125 /
+> 0.0250 / −0.0500, the watch wiring −0.0125 / +0.0375 / 0.0000, and the new
+> `c-noreaders` term −0.0375 / −0.0375 / +0.0250. **A negative delta is
+> arithmetically impossible** — the ablation arm does strictly less work — so
+> three of the four terms that must be positive sit below the phase-B window's
+> floor, and only the reaction build + cache insert (0.2250 – 0.2875) resolves
+> at all. Phase B needs a longer window before it can decompose anything again;
+> that is filed too, and deliberately not attempted mid-window.
+>
+> **The fidelity ratio is not restated either, and does not need to be.** It
+> read 0.8864 / 0.9444 / 0.9189 against the published 0.9718 — a spread of
+> 0.058 that loosely brackets it — and it stays common-mode for the reason
+> `rf2-gttif` gave: every term that has left or joined `c-local` left or joined
+> the seam it is divided by.
 
 Micro table, over the page's own roster (ns/op): `subscribe-once` 5,284;
 `compute-sub` 1,170; the raw handler invoke 227; `registrar/lookup` 67;
@@ -315,10 +349,14 @@ designed: the durable wiring, amortised over the mount. That re-read is
 `0c0ff21f0d`'s and carries §1's staleness for the same reason — the per-cell
 keyword mint was still on both arms — so it is an upper bound and its shares
 lower bounds, by the same about-one-quantum term. **`rf2-d360z`'s quiet-box
-re-take of this figure was attempted on 2026-08-07 at `abcb34217c` and
-refused twice at the phase-B residue gate before producing a number** — same
-cause, same evidence, stated in full under §1's table. 0.7625 and its
-51.9 / 5.6 / 3.7% shares therefore stand exactly as they are.
+re-take ran on 2026-08-15 at `2c95c22386`, three times, `exit 0` and controls
+clean on every run, and declined to restate this figure** — the `commit` arm's
+own same-session dispersion is four grid steps against a prize an eighth of one,
+and the arm has since lost the index write and gained the activation, so it is
+no longer the arm 0.7625 priced. The evidence is under §1's table and is not
+repeated here. 0.7625 and its 51.9 / 5.6 / 3.7% shares therefore stand exactly
+as they are, and the `index write` share among them names a structure
+`rf2-dabt3` has since deleted.
 
 ## 5. The parity gap the re-take tripped over — found, bisected, repaired
 
