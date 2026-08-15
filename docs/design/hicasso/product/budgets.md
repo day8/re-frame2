@@ -1119,26 +1119,26 @@ loses no address.
 | D26 | 1 row of markup built for a one-row write under a fine topology, at every row count | 1 at B = 100, 300 and 1,000 — the coarse arm builds B, the chunked k=25, the windowed 1 | bench-tree | `MET` | `implementation/hicasso/test/re_frame/bench/hicasso/topo/census_dom_cljs_test.cljs` (PR gate) | `rf2-mwr2` | — |
 | S1 | 1,024 B, R=0 shell, Reagent segment | 1,100 B [1,091–1,107] | package | `BREACH` | P0 heap ladder, package candidate arm (P-DEV-1 evidence run) | `rf2-0xx2` | [substrate-decision §5.2](substrate-decision.md#52-the-read-free-boundary-shell--the-disposition); scoped acceptance 2026-08-13, [§5](budgets.md#5-the-read-free-boundary-shell-the-byte-exact-line-now-frozen-at-1024-b) — ceiling unchanged at 1,024 B, accepted to 1,107 B |
 | S2 | 1,024 B, R=0 shell, UIx segment | 1,095 B [1,087–1,101] | package | `BREACH` | P0 heap ladder, package candidate arm (P-DEV-1 evidence run) | `rf2-0xx2` | [substrate-decision §5.2](substrate-decision.md#52-the-read-free-boundary-shell--the-disposition); scoped acceptance 2026-08-13, [§5](budgets.md#5-the-read-free-boundary-shell-the-byte-exact-line-now-frozen-at-1024-b) — ceiling unchanged at 1,024 B, accepted to 1,101 B |
-| S3 | ≤ 10% regression on the same pinned witness | 1,417 vs Reagent 948 per read | package | `UNRESOLVED` | P0 heap ladder, package candidate arm (P-DEV-1 evidence run) | `rf2-hic-071` | [substrate-decision §6](substrate-decision.md#6-what-this-page-does-not-decide) |
+| S3 | ≤ 10% regression on the same pinned witness | 1,417 vs Reagent 948 per read | package | `UNRESOLVED` | P0 heap ladder, package candidate arm (P-DEV-1 evidence run) | `rf2-85og2` | [substrate-decision §6](substrate-decision.md#6-what-this-page-does-not-decide) |
 | S4 | ≤ 10% regression on the same pinned witness | 2,115 vs UIx 2,980 per read | package | `MET` | P0 heap ladder, package candidate arm (P-DEV-1 evidence run) | `rf2-hic-070` | — |
 | S5 | teardown retained indistinguishable from 0 | indistinguishable from 0; all ten rungs' bands straddle it | package | `MET` | P0 heap ladder, package candidate arm (P-DEV-1 evidence run) | `rf2-hic-089` | — |
 | S6 | 1.10x cold mount against direct UIx-on-subs | 1.1718x [1.1263–1.2190] n=8; 1.1976x [1.1504–1.2468] n=6 | bench-tree | `BREACH` | final K1 estimator (P-DEV-1 evidence run) | `rf2-hic-085` | [§9.2](budgets.md#92-what-each-not-green-row-is-waiting-on) |
-| S7 | warm allocation, a fitted series clearing the quality floor | no publishable claim | bench-tree | `UNPINNED` | — (none) | `rf2-hic-071` | [§9.2](budgets.md#92-what-each-not-green-row-is-waiting-on) |
+| S7 | warm allocation, a fitted series clearing the quality floor | no publishable claim | bench-tree | `UNPINNED` | — (none) | `rf2-85og2` | [§9.2](budgets.md#92-what-each-not-green-row-is-waiting-on) |
 | S8 | C8's first disjunct: an escape recovers ≥ 20% | `0.7418x` [0.6458–0.8409] — 25.8% recovered [15.9–35.4%], run 1 alone, on a 200-boundary mount; an observed range across per-round ratios, not a confidence interval | package | `UNRESOLVED` | P0 lane direct-return clock arm (P-DEV-1 evidence run) | `rf2-5yn9` | [§9.2](budgets.md#92-what-each-not-green-row-is-waiting-on) |
-| U1 | echo within one 60 Hz frame at p95 | — | — | `UNPINNED` | — (none) | `rf2-hic-071` | [§9.2](budgets.md#92-what-each-not-green-row-is-waiting-on) |
-| U2 | ≤ 50 ms p95 and ≤ 100 ms p99 to next paint | — | — | `UNPINNED` | — (none) | `rf2-hic-071` | [§9.2](budgets.md#92-what-each-not-green-row-is-waiting-on) |
-| U3 | ≤ 100 ms p95 for broad operations | — | — | `UNPINNED` | — (none) | `rf2-hic-071` | [§9.2](budgets.md#92-what-each-not-green-row-is-waiting-on) |
-| U4 | dragging and animation inside the frame budget | — | — | `UNPINNED` | — (none) | `rf2-hic-071` | [§9.2](budgets.md#92-what-each-not-green-row-is-waiting-on) |
+| U1 | echo within one 60 Hz frame at p95 | — | — | `UNPINNED` | — (none) | `rf2-85og2` | [§9.2](budgets.md#92-what-each-not-green-row-is-waiting-on) |
+| U2 | ≤ 50 ms p95 and ≤ 100 ms p99 to next paint | — | — | `UNPINNED` | — (none) | `rf2-85og2` | [§9.2](budgets.md#92-what-each-not-green-row-is-waiting-on) |
+| U3 | ≤ 100 ms p95 for broad operations | — | — | `UNPINNED` | — (none) | `rf2-85og2` | [§9.2](budgets.md#92-what-each-not-green-row-is-waiting-on) |
+| U4 | dragging and animation inside the frame budget | — | — | `UNPINNED` | — (none) | `rf2-85og2` | [§9.2](budgets.md#92-what-each-not-green-row-is-waiting-on) |
 | U5 | body work scales with changed rows, not mounted rows | 2 bodies at 25 cells and at 100, and — on the second counter D26 — 1 row of markup for a one-row write where a coarse arm rebuilds every row | package | `MET` | `implementation/hicasso/test/re_frame/hicasso/examples/grid/scaling_dom_cljs_test.cljs` (PR gate) | `rf2-hic-089` | — |
 | U6 | teardown residue zero after quiescence | zero counters (D9); bytes indistinguishable from 0 (S5) | package | `MET` | `implementation/hicasso/test/re_frame/hicasso/test_kit_mounted_dom_cljs_test.cljs` (PR gate) | `rf2-hic-089` | — |
-| C1 | ≤ 5% regression on the same witness and instrument | — | — | `UNPINNED` | — (none) | `rf2-hic-071` | [§9.2](budgets.md#92-what-each-not-green-row-is-waiting-on) |
+| C1 | ≤ 5% regression on the same witness and instrument | — | — | `UNPINNED` | — (none) | `rf2-85og2` | [§9.2](budgets.md#92-what-each-not-green-row-is-waiting-on) |
 | C2 | 1.10x cold mount, the registered line | see S6 | bench-tree | `BREACH` | final K1 estimator (P-DEV-1 evidence run) | `rf2-hic-085` | [§9.2](budgets.md#92-what-each-not-green-row-is-waiting-on) |
-| C3 | ≤ 1.25x the best relevant adapter on broad updates | — | — | `UNPINNED` | — (none) | `rf2-hic-071` | [§9.2](budgets.md#92-what-each-not-green-row-is-waiting-on) |
-| C4 | no sustained 1.5x as ordinary Hicasso | — | — | `UNPINNED` | — (none) | `rf2-hic-071` | [§9.2](budgets.md#92-what-each-not-green-row-is-waiting-on) |
+| C3 | ≤ 1.25x the best relevant adapter on broad updates | — | — | `UNPINNED` | — (none) | `rf2-85og2` | [§9.2](budgets.md#92-what-each-not-green-row-is-waiting-on) |
+| C4 | no sustained 1.5x as ordinary Hicasso | — | — | `UNPINNED` | — (none) | `rf2-85og2` | [§9.2](budgets.md#92-what-each-not-green-row-is-waiting-on) |
 | C5 | 1,024 B byte-exact, not governed by baseline-plus-10% | 1,100 B / 1,095 B [1,087–1,107] | package | `BREACH` | P0 heap ladder, package candidate arm (P-DEV-1 evidence run) | `rf2-0xx2` | [§9.2](budgets.md#92-what-each-not-green-row-is-waiting-on); scoped acceptance 2026-08-13, [§5](budgets.md#5-the-read-free-boundary-shell-the-byte-exact-line-now-frozen-at-1024-b) — ceiling unchanged at 1,024 B, accepted to 1,107 B / 1,101 B |
-| C6 | ≤ 10% per-read regression on the same pinned witness | see S3 / S4 | package | `UNRESOLVED` | P0 heap ladder, package candidate arm (P-DEV-1 evidence run) | `rf2-hic-071` | [§9.2](budgets.md#92-what-each-not-green-row-is-waiting-on) |
-| C7 | a native island within 5% or 1 ms of the same component mounted directly | — | — | `UNPINNED` | — (none) | `rf2-hic-071` | [§9.2](budgets.md#92-what-each-not-green-row-is-waiting-on) |
-| C8 | an escape taken for a benefit recovers ≥ 20%, saves ≥ 2 ms p95, or flips a failed budget; an interoperability escape is outside the population | — | — | `UNPINNED` | — (none) | `rf2-hic-071` | [§9.2](budgets.md#92-what-each-not-green-row-is-waiting-on) |
+| C6 | ≤ 10% per-read regression on the same pinned witness | see S3 / S4 | package | `UNRESOLVED` | P0 heap ladder, package candidate arm (P-DEV-1 evidence run) | `rf2-85og2` | [§9.2](budgets.md#92-what-each-not-green-row-is-waiting-on) |
+| C7 | a native island within 5% or 1 ms of the same component mounted directly | — | — | `UNPINNED` | — (none) | `rf2-85og2` | [§9.2](budgets.md#92-what-each-not-green-row-is-waiting-on) |
+| C8 | an escape taken for a benefit recovers ≥ 20%, saves ≥ 2 ms p95, or flips a failed budget; an interoperability escape is outside the population | — | — | `UNPINNED` | — (none) | `rf2-85og2` | [§9.2](budgets.md#92-what-each-not-green-row-is-waiting-on) |
 | I9 | ≤ 2 React hooks per boundary shell, invariant in read count | 2 | package | `MET` | `implementation/hicasso/test/re_frame/hicasso/hook_budget_cljs_test.cljs` (PR gate) | `rf2-hic-018` | — |
 
 <!-- rf2-hic-089: end-ledger -->
@@ -1414,6 +1414,27 @@ or `C5` changes with it.
   same-witness comparison actually decides it"* read from the authority side.
   The handoff moves custody and nothing else: both rows stay `UNRESOLVED`,
   both readings stand, and `S3`'s disposition still points where it did.
+  **[Amended 2026-08-15, `rf2-3e4iq`.]** The paragraph above stands as the
+  record of a custody move that happened, and custody has moved once more:
+  `rf2-hic-071` CLOSED on 2026-08-14 and its measurement remainder was split
+  to `rf2-85og2` under the operator's direction, so an *Authority* cell naming
+  it on a row whose disposition is still open names a bead that owns nothing.
+  Under the two-mode reading of [§9.1](#91-how-to-read-a-row) ruled on
+  `rf2-iay8` and confirmed by `rf2-4h0l8`, a live-route row must name a LIVE
+  bead and only a settled row may keep a closed decider — which is why `S1`,
+  `S2` and `C5` keep `rf2-0xx2` and `S6` and `C2` keep `rf2-hic-085`, and
+  those five cells are deliberately untouched here. Twelve live-route cells
+  therefore move from `rf2-hic-071` to `rf2-85og2`: `S3` and `C6`, whose
+  remaining forward same-witness comparison is the ladder re-pin `rf2-85og2`
+  carries, and the ten `UNPINNED` rows `S7`, `U1`–`U4`, `C1`, `C3`, `C4`, `C7`
+  and `C8`, each waiting on one of the three things
+  [§9.3](#93-where-this-ledger-stops-and-rf2-hic-071-begins) hands on — the
+  clock instrument, the ladder re-pin, the escape-benefit population.
+  **This moves custody and nothing else.** No reading, status, population,
+  instrument or disposition cell is touched — the twelve rows differ from
+  their predecessors in the *Authority* column and in no other — and the
+  ledger gate reads the same 49 rows, 31 `MET`, 5 `BREACH`, 3 `UNRESOLVED`
+  and 10 `UNPINNED` after the repoint as before it.
 
 ### 9.3 Where this ledger stops and rf2-hic-071 begins
 
