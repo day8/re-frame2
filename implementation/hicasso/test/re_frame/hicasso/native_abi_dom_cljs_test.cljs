@@ -25,7 +25,34 @@
   | [[a-ref-reaches-a-real-dom-node-through-the-memo-helper]] | why there is no third helper | a `forward-ref` helper — the row is green with and without it, and the point is that it is green WITHOUT |
   | [[a-lazy-head-suspends-and-then-names-its-own-component]] | the marker is filled by arrival, in the object minted at declaration | a second marker minted on resolve |
   | [[teardown-across-the-bridge-releases-exactly-what-mount-acquired]] | the bridge adds no ownership of its own | a wrapper holding a cell reference past unmount |
+  | [[a-consumer-built-root-hydrates-a-bridged-subtree-with-no-framework-reporter]] | HS-21's mismatch-attribution half, measured as a BOUNDARY with its control beside it | a claim that attribution is missing when in truth the harness never diverged |
   | [[the-declared-population-was-actually-exercised]] | the roster, asserted rather than described | a row that started returning early |
+
+  ## HS-21's mismatch attribution, and why it stops at the consumer's root
+
+  Checkpoint 3 recorded row 5's *mismatch attribution* clause as unmet for
+  the outward bridge, and it is worth writing down that this is a SCOPE
+  rather than a gap (rf2-s52w).
+
+  A bridged subtree is a child of a root the CONSUMER built with their own
+  `createElement` and adopts with their own `hydrateRoot`. Spec 011's
+  Hydration-mismatch detection carries the consequence already, in its
+  native-adoption section and in as many words: the framework reporter
+  rides the package's own hydrate path, and *\"hydrating via the
+  substrate-native renderer directly (`uix.dom/hydrate-root`, react-dom
+  `hydrateRoot`) bypasses the reporter and falls back to React's default
+  (silent) handling\"*. `onRecoverableError` is a ROOT option, and a root
+  the package did not open takes none of ours.
+
+  So attribution is scoped to roots the package adopts, and the boundary is
+  a consequence of who owns the root rather than an omission in the bridge.
+  Nothing here argues that: the row below MEASURES it, and does so with the
+  package's own door as the control, so a zero can never be read as a
+  harness that failed to diverge.
+
+  What this file does NOT settle is HS-21's disposition row and row 5's
+  required-result sentence — `docs/design/hicasso/product/dispositions.md`
+  is the ledger keeper's, and a witness may not amend the row it witnesses.
 
   ## Browser lane
 
@@ -45,7 +72,9 @@
             [re-frame.hicasso.roots-frames-support :as support]
             [re-frame.test-support :as test-support]
             [uix.core :as uix :refer-macros [defui]]
-            ["react" :as react]))
+            ["react" :as react]
+            ["react-dom/client" :as react-dom-client]
+            ["react-dom/server" :as react-dom-server]))
 
 (def ^:private alpha ::alpha)
 (def ^:private beta  ::beta)
@@ -70,7 +99,8 @@
     :bridge/strict-mode
     :helper/ref-to-a-node
     :helper/lazy-arrival
-    :bridge/teardown})
+    :bridge/teardown
+    :bridge/no-reporter})
 
 (defonce ^:private !exercised (atom #{}))
 
@@ -854,6 +884,142 @@
             ;; roots go down first, and the single `done` is the last act,
             ;; with nothing after it.
             (.then (fn [_] (release-minted!) (done))))))))
+
+;; ---------------------------------------------------------------------------
+;; 5. HS-21's mismatch attribution — the boundary, with the door as its control
+;; ---------------------------------------------------------------------------
+
+(defn- consumer-element
+  "The tree a CONSUMER writes for a bridged view: their own
+  `createElement` over the minted [[card]], under the frame provider the
+  bridge needs — and nothing else.
+
+  `impl.mount/tree` is deliberately not reached for. That function is what
+  wraps a hydrating root in its adoption-window closer and is called only
+  from doors that also pass root options; a consumer who has bridged a view
+  into a tree of their own calls neither. So this element is the exact
+  shape the package cannot install an `onRecoverableError` on, and building
+  it by hand is what keeps the row about the consumer's root rather than
+  about a door with its options removed."
+  [frame-kw article-id]
+  (mount/provider
+    frame-kw
+    (react/createElement "section" #js {:className "consumer"}
+                         (react/createElement card #js {:articleId article-id}))))
+
+(defn- relabel!
+  "Move `frame-kw`'s label after its server bytes were taken, so the
+  client tree disagrees with the DOM it is about to adopt. A TEXT
+  divergence specifically: React recovers from those and reports them,
+  where an attribute-only divergence is outside `onRecoverableError` by
+  React's own contract (Spec 011 §Hydration-mismatch detection), and a row
+  built on one would read zero on BOTH arms and prove nothing."
+  [frame-kw label]
+  (rf/with-frame frame-kw (rf/dispatch-sync [::relabel label]))
+  nil)
+
+(deftest a-consumer-built-root-hydrates-a-bridged-subtree-with-no-framework-reporter
+  (async done
+    (if-not (mount/browser?)
+      (do (support/skip! ":node-test has no React DOM, so nothing hydrates") (done))
+      (do
+        (seat! alpha "server")
+        (seat! beta "server")
+        (let [;; CONTROL FIRST, and the order is load-bearing: the arm that
+              ;; must see a diagnostic runs before the arm that must see
+              ;; none, so a zero below can never be a harness that stopped
+              ;; diverging.
+              control-html      (support/server-html! alpha [article-card {:article-id 7}])
+              control-container (support/server-dom! control-html)
+              control-watch     (support/watch-mismatches!)
+              _                 (relabel! alpha "client")
+              ;; MANUFACTURED fault, asserted on — the one call site
+              ;; `:swallow-uncaught?` belongs at (rf2-mwx08).
+              control-console   (support/open-console-capture! {:swallow-uncaught? true})
+              control-handle    (mount/hydrate-root! control-container alpha
+                                                     [article-card {:article-id 7}])]
+          (-> (support/adopted! control-handle)
+              (.then
+                (fn [ok]
+                  ((:close! control-console))
+                  ((:stop! control-watch))
+                  (testing "CONTROL — the package's OWN door, the same
+                            divergence. `impl.mount/hydrate-root!` opens the
+                            root, so the root's options are the package's to
+                            set and Spec 011's diagnostic fires with this
+                            door's site on it. Without this arm the row below
+                            is an absence with no meaning"
+                    (is (true? ok) "the adoption completed")
+                    (is (= 1 (count @(:seen control-watch)))
+                        (str "the door emitted exactly one "
+                             ":rf.ssr/hydration-mismatch. Saw: "
+                             (pr-str @(:seen control-watch))))
+                    (when-let [mm (first @(:seen control-watch))]
+                      (is (= 're-frame.hicasso.impl.mount/hydrate-root!
+                             (:where (support/tags-of mm)))
+                          "tier-discriminated by :where — this door's site"))
+                    (is (seq @(:captured control-console))
+                        (str "and React itself complained, which is what says
+                              the divergence was real: "
+                             (pr-str @(:captured control-console)))))
+                  (mount/unmount! control-handle)
+                  nil))
+              (.then
+                (fn [_]
+                  ;; THE MEASUREMENT. Same view, same divergence, same
+                  ;; renderer — a root the consumer opened.
+                  (let [html      (react-dom-server/renderToString
+                                    (consumer-element beta 7))
+                        container (support/server-dom! html)
+                        watch     (support/watch-mismatches!)
+                        _         (relabel! beta "client")
+                        console   (support/open-console-capture! {:swallow-uncaught? true})
+                        root      (react-dom-client/hydrateRoot
+                                    container (consumer-element beta 7))]
+                    (-> (support/wait-until!
+                          #(= "#7 client" (some-> (.querySelector container ".card")
+                                                  .-textContent)))
+                        (.then
+                          (fn [recovered?]
+                            ((:close! console))
+                            ((:stop! watch))
+                            (testing "the server's bytes really did say
+                                      `server` and the consumer's root really
+                                      did adopt them — the premise, so the
+                                      zero below is about attribution and not
+                                      about a render that never happened"
+                              (is (re-find #"#7 server" html)
+                                  (str "the bridged view rendered under the
+                                        consumer's own createElement — " html))
+                              (is (true? recovered?)
+                                  "React recovered the text divergence by
+                                   replacing it with the client's model")
+                              (is (seq @(:captured console))
+                                  (str "and complained while doing it: "
+                                       (pr-str @(:captured console)))))
+                            (testing "**HS-21, measured.** A mismatch inside a
+                                      bridged subtree is attributed to NOTHING
+                                      the instrumentation stream can see. The
+                                      reporter is a ROOT option and this root
+                                      is the consumer's, so no Spec 011
+                                      diagnostic is emitted — the scope Spec
+                                      011 states for direct `hydrateRoot`
+                                      hydration, here as a reading rather than
+                                      as a sentence.
+
+                                      This row inverts the day the package
+                                      grows a door for a consumer-built root;
+                                      it is not to be re-pinned by loosening
+                                      the assertion"
+                              (is (= [] @(:seen watch))
+                                  (str "a consumer-built root installs no "
+                                       ":rf.ssr/hydration-mismatch reporter. "
+                                       "Saw: " (pr-str @(:seen watch)))))
+                            (.unmount root)
+                            (exercised! :bridge/no-reporter)
+                            nil))))))
+              (.catch (report-failure! "no-reporter"))
+              (.then (fn [_] (release-minted!) (done)))))))))
 
 (deftest the-declared-population-was-actually-exercised
   (if-not (mount/browser?)
