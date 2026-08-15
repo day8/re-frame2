@@ -180,10 +180,10 @@ implementation/                CLJS reference implementation — per-artefact su
                                jar with its own deps.edn, on the top-level shadow-cljs classpath.
   core/                        day8/re-frame2 — registry, drain, fx, dispatch, subscribe,
                                frame-provider, trace, source-coords, substrate, elision
-  freehand/                    re-frame.freehand — the re-frame-native view layer (EP-0036).
-                               In-tree only so far; publication lands with its own gate
-  ui/                          re-frame.ui, the compiled-view substrate — in-tree only, never
-                               published; the donor being absorbed into Freehand (EP-0036)
+  freehand/                    re-frame.freehand — RETIRED, awaiting removal.
+                               In-tree only; never published
+  ui/                          re-frame.ui, the compiled-view substrate — RETIRED, awaiting
+                               removal. In-tree only; never published
   adapters/
     reagent/                   day8/re-frame2-reagent — the Reagent adapter (browser default)
     reagent-slim/              day8/reagent-slim — slim Reagent fork (reagent2.core); same view

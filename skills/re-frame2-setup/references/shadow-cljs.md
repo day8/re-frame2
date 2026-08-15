@@ -5,7 +5,7 @@ The minimal `shadow-cljs.edn` build for a greenfield re-frame2 Reagent single-pa
 ## Contents
 
 - The day-one `shadow-cljs.edn`
-- If you add the `re-frame.ui` donor substrate: one required top-level setting
+- If you add the retired `re-frame.ui` substrate: one required top-level setting
 - The `index.html` that loads the bundle
 - `:devtools` block (the Xray preload + hot reload)
 - `.gitignore` — what the build generates
@@ -46,9 +46,9 @@ The template also ships a second `:test {:target :node-test ...}` build under `:
 
 The build id (`:app` above) is the name for `shadow-cljs watch <build-id>`; `:app` is convention.
 
-## If you add the `re-frame.ui` donor substrate: one required top-level setting
+## If you add the retired `re-frame.ui` substrate: one required top-level setting
 
-`day8/re-frame2-ui` — the compiled-view substrate — is **not** in the day-one set, and the build above is complete without it. It is also the **donor** being absorbed into **Freehand**, re-frame2's re-frame-native view layer, so a greenfield project has no reason to reach for it: pick an adapter (the day-one Reagent set above, or UIx) and read [`views.md` §Freehand](../../re-frame2/references/fundamentals/views.md#freehand--the-re-frame-native-peer) for where the re-frame-native layer is heading. The section below is here for a project that already has it, or is deliberately adding it.
+`day8/re-frame2-ui` — the compiled-view substrate — is **not** in the day-one set, and the build above is complete without it. It is also **retired and awaiting removal**, so a greenfield project has no reason to reach for it: pick an adapter (the day-one Reagent set above, or UIx). The section below is here only for a project that already has it.
 
 It is the one artefact whose arrival is more than a coordinate: adding it to `deps.edn` obliges you to add one setting to `shadow-cljs.edn` in the same change.
 
