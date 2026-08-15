@@ -85,8 +85,9 @@ R2  RESOLVED.  Every `alias/verb` a Clojure block names — where `alias` is one
     R5 below, and the two are kept apart deliberately rather than by folding
     a scope test into R2 and giving one rule two jobs.
 
-R5  SELF-CONTAINED.  Every alias a Clojure block USES is bound by the `(ns …)`
-    form governing that block's section.  A block that names `rf/reg-event`
+R5  SELF-CONTAINED.  The `(ns …)` form governing a Clojure block's section
+    binds every `::alias/name` the block reads, and every `alias/name` symbol
+    whose alias the guide binds anywhere.  A block that names `rf/reg-event`
     while its own `ns` form requires no `re-frame.core` cannot compile, and
     before this rule nothing here could see it (rf2-vz6dg).
 
@@ -110,9 +111,27 @@ R5  SELF-CONTAINED.  Every alias a Clojure block USES is bound by the `(ns …)`
     `re-frame.core` and a missing `my.app.subs` are the same failure, seen
     once through a symbol and once through a keyword.
 
-    Only aliases THE GUIDE ITSELF BINDS somewhere are in scope, by the same
-    construction R2 uses: `js/`, `goog/` and a reader's own spellings are
-    never flagged, because the guide never requires them.
+    THE TWO KINDS ARE NOT HELD TO THE SAME STANDARD, because the two
+    spellings are not equally certain, and the headline above says so rather
+    than claiming a reach the code does not have.
+
+    A `::alias/name` keyword is checked UNCONDITIONALLY.  The spelling means
+    "resolve this alias, now" and can mean nothing else, so an alias the
+    guide binds NOWHERE is not an out-of-scope qualifier — it is the reader
+    failure this rule exists to catch, and it is exactly where a TYPO lands,
+    a typo being by definition bound nowhere.  Gating it on "an alias the
+    guide binds somewhere else" made the rule blindest at its own centre.
+
+    A bare `alias/name` SYMBOL is checked only when the guide itself binds
+    that alias somewhere, by the derived construction R2 uses: the spelling
+    is ambiguous — `js/`, `goog/`, a fully qualified namespace, a reader's
+    own — and the alternative is the maintained exclusion list both rules
+    exist to avoid.  This is a deliberate ceiling, not an oversight: a var
+    use of an alias no page anywhere requires goes unseen here.
+
+    DISCOVERY READS MASKED TEXT.  A `:require` vector inside a comment or a
+    string binds nothing, and reading the raw body let a commented-out
+    require satisfy the very block it was missing from.
 
 R3  THE LEDGER IS LIVE.  This is the rule the Freehand mechanism did not have,
     and the reason the promotion's coverage loss is worth more than a digest.
@@ -497,6 +516,13 @@ def section_scopes(text: str) -> list[dict[str, str] | None]:
     reports 21 sites on a corpus that is correct, because a page regularly
     finishes with one namespace and begins illustrating another under the
     next heading without a fresh `ns` form.
+
+    BOTH the `ns` form and its requires are read from [[mask]]ed text, never
+    the raw body.  Inert text binds nothing: a `;; [re-frame.core :as rf]`
+    the author commented out is precisely the require the sample is MISSING,
+    and reading it as a binding let the rule certify a block that does not
+    compile — a false green this rule shipped with (rf2-vz6dg).  The same
+    masking is why a commented-out `(ns …)` opens no scope at all.
     """
     lines = text.replace("\r\n", "\n").split("\n")
     out: list[dict[str, str] | None] = []
@@ -515,9 +541,11 @@ def section_scopes(text: str) -> list[dict[str, str] | None]:
         while j < len(lines) and not lines[j].startswith("```"):
             j += 1
         body = lines[i + 1:j]
-        if lang in CLOJURE_LANGS and _NS_FORM_RE.search("\n".join(body)):
-            scope = {alias: ns
-                     for ns, alias in _ANY_REQUIRE_RE.findall("\n".join(body))}
+        if lang in CLOJURE_LANGS:
+            code = "\n".join(mask(body))
+            if _NS_FORM_RE.search(code):
+                scope = {alias: ns
+                         for ns, alias in _ANY_REQUIRE_RE.findall(code)}
         out.append(scope)
         i = j + 1
     return out
@@ -782,7 +810,7 @@ def r5_unbound_alias(
     corp: dict[str, list[dict]],
     vocabulary: dict[str, str],
 ) -> list[str]:
-    """R5 — a block's own section binds every alias the block uses.
+    """R5 — a block's own section binds the aliases the block uses.
 
     The rule R1 and R2 could not between them express.  R1 pins BYTES, so it
     certifies "nobody edited this", not "this compiles"; R2 pools aliases
@@ -794,6 +822,12 @@ def r5_unbound_alias(
     a block declares no compilation unit, so there is nothing it could be
     failing to declare.  The rule speaks exactly where the guide has made a
     claim about what a namespace contains.
+
+    THE TWO KINDS ARE HELD TO DIFFERENT STANDARDS, and `vocabulary` gates the
+    var arm ONLY — see the module docstring for why.  A `::alias/name` keyword
+    is checked unconditionally, because that spelling has exactly one meaning
+    and an alias bound nowhere in the guide is the reader failure this rule
+    exists to catch rather than an out-of-scope qualifier.
     """
     problems: list[str] = []
     for page in sorted(corp):
@@ -802,20 +836,30 @@ def r5_unbound_alias(
             if block["lang"] not in CLOJURE_LANGS or scope is None:
                 continue
             for alias, name, kind in sorted(used_aliases(block["body"])):
-                if alias in vocabulary and alias not in scope:
+                if alias in scope:
+                    continue
+                if kind == "keyword":
                     detail = (
                         "an auto-resolved keyword needs its alias AT READ "
                         "TIME, so this block does not parse"
-                        if kind == "keyword"
-                        else "an undeclared var"
                     )
-                    problems.append(
-                        f"{page} block {block['n']} uses `{alias}/{name}` but "
-                        f"the `ns` form governing its section does not require "
-                        f"`{vocabulary[alias]}` — {detail}. Add the alias to "
-                        f"that `ns` form, or move the block under one that has "
-                        f"it"
-                    )
+                elif alias in vocabulary:
+                    detail = "an undeclared var"
+                else:
+                    continue
+                # A keyword's alias can be one the guide binds NOWHERE — the
+                # typo case — so the namespace it should name is unknown.
+                wanted = (
+                    f"`{vocabulary[alias]}`" if alias in vocabulary
+                    else f"any namespace under the alias `{alias}`"
+                )
+                problems.append(
+                    f"{page} block {block['n']} uses `{alias}/{name}` but "
+                    f"the `ns` form governing its section does not require "
+                    f"{wanted} — {detail}. Add the alias to "
+                    f"that `ns` form, or move the block under one that has "
+                    f"it"
+                )
     return problems
 
 
@@ -1043,8 +1087,9 @@ def run_check(verbose: bool = False) -> int:
         f"Hicasso guide samples: {total_blocks} fenced blocks pinned across "
         f"{len(corp)} pages ({code_blocks} Clojure), "
         f"{len(uses)} hicasso verb use-sites resolved, "
-        f"{scoped_blocks} block(s) checked self-contained against "
-        f"{len(vocabulary)} guide alias(es), "
+        f"{scoped_blocks} block(s) checked self-contained "
+        f"(every `::alias/name`; var uses against {len(vocabulary)} "
+        f"guide alias(es)), "
         f"{len(DIVERGENCES)} declared divergence(s) + "
         f"{len(ABSENT_NAMESPACES)} absent namespace(s) still live."
     )
@@ -1275,6 +1320,57 @@ def self_test() -> int:
     check("R5 is silent on an alias used inside a string or comment",
           r5("## S\n\n```clojure\n(ns a (:require [re-frame.core :as rf]))\n"
              '(def d "subs/row-count") ; str/join\n```\n') == [])
+
+    # The two false greens the merged-PR audit of #8321 found in this rule as
+    # it first shipped.  Both are the SAME mistake read from opposite ends —
+    # trusting text that binds nothing — and both are reproduced in the exact
+    # shape the audit used, because each one certified a sample that does not
+    # compile.
+
+    # 1. The require is COMMENTED OUT, so it is not a binding.  Scope
+    # discovery read the raw body and took it for one, which made the rule
+    # green on precisely the omission it is for.
+    commented_require = (
+        "## A recipe\n\n"
+        "```clojure\n(ns my.app.views\n"
+        "  ;; [re-frame.core :as rf]\n"
+        "  (:require [re-frame.hicasso :as h]))\n\n"
+        "(rf/reg-event :x)\n```\n"
+    )
+    check("R5 does not accept a COMMENTED-OUT require as a binding",
+          any("`rf/reg-event`" in p for p in r5(commented_require)))
+    check("a commented-out require binds nothing in the scope itself",
+          section_scopes(commented_require) == [{"h": "re-frame.hicasso"}])
+    # The other half of the same masking edit: a commented-out `ns` form is
+    # not an `ns` form, so it opens no scope for the rule to check against.
+    check("a commented-out ns form opens no scope",
+          section_scopes("## S\n\n```clojure\n;; (ns my.app.views\n"
+                         ";;   (:require [re-frame.core :as rf]))\n"
+                         "(rf/reg-event :x)\n```\n") == [None])
+
+    # 2. `::sbus/row-count` under an ns binding only `h`, with `sbus` bound
+    # NOWHERE in the guide.  Gating the keyword arm on the derived vocabulary
+    # let every misspelt alias through — and a typo is bound nowhere by
+    # definition, so the guard was weakest exactly where the reader error is.
+    unknown_kw = (
+        "## A recipe\n\n"
+        "```clojure\n(ns my.app.views\n"
+        "  (:require [re-frame.hicasso :as h]))\n\n"
+        "(h/defview ledger [_]\n"
+        "  (let [total (h/sub [::sbus/row-count])]\n"
+        "    [:div total]))\n```\n"
+    )
+    problems = r5(unknown_kw)
+    check("R5 catches a KEYWORD alias the guide binds NOWHERE",
+          any("`sbus/row-count`" in p for p in problems))
+    check("R5 names no namespace for an alias it has never seen bound",
+          any("any namespace under the alias `sbus`" in p for p in problems))
+    # The ceiling that keeps the var arm derived rather than filtered: the
+    # same unknown alias as a SYMBOL stays out of scope, which is what lets
+    # `js/` and `goog/` need no exclusion list.
+    check("R5 leaves an unknown alias in VAR position alone",
+          r5("## S\n\n```clojure\n(ns a (:require [re-frame.hicasso :as h]))\n"
+             "(sbus/row-count 1)\n```\n") == [])
 
     # `section_scopes` stays aligned with `blocks`, which is what lets R1's
     # ordinals and R5's scopes describe the same block.
