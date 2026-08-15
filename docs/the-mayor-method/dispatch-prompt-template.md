@@ -494,8 +494,7 @@ superseded instructions.
 BUT FIND THE NEWEST BY DATE, NOT BY POSITION. The bottom of the output is NOT
 reliably the newest text — audit notes often append into the DESCRIPTION block while
 dated comments render after it, so the last lines on screen can be older than material
-higher up. Locate the latest date first:
-`bd show <id> | grep -n "AUDIT\|202[0-9]-[0-9][0-9]-[0-9][0-9]"`, then read around it.
+higher up. Search the item for dates and read around the latest one; do not tail it.
 If the item has children, re-enumerate them too: a ruling is sometimes recorded as a
 NEW CHILD ITEM rather than as a note.
 
@@ -678,8 +677,8 @@ run.** Re-run it, and say whether you re-ran the whole gate or one step.
 
 **A search that returns ZERO is not a check that passed.** A wrong *pattern* answers "no matches" in the same voice
 as "nothing is wrong" — the recurring instance is a backslash-bearing literal, quoted so the shell strips them,
-matching none of the files that plainly contained it. Match fixed strings as fixed strings (`grep -F`). When a search
-underwrites a claim, run it once against something it should find.
+matching none of the files that plainly contained it. Match fixed strings as fixed strings, in whatever way your
+search tool affords. When a search underwrites a claim, run it once against something it should find.
 
 **Put every gate artefact where version control ignores it, and name each one for your worktree AND for the
 attempt** — the log and the exit-code file both. Neither half is tidiness; a name missing either fails the gate
