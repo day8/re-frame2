@@ -168,7 +168,8 @@ Those need a draft in front of the committed value.
 
 ```clojure
 (ns my.app.views
-  (:require [re-frame.hicasso :as h]
+  (:require [re-frame.core :as rf]
+            [re-frame.hicasso :as h]
             [re-frame.hicasso.forms :as forms]
             [my.app.events :as events]
             [my.app.subs :as subs]))
@@ -296,6 +297,8 @@ Declare the crossing once, then use the resulting var as a Hiccup head anywhere.
 ```clojure
 (ns my.app.views
   (:require [re-frame.hicasso :as h]
+            [my.app.events :as events]
+            [my.app.subs :as subs]
             [my.app.vendor :as vendor]))
 
 (h/defhost rows
@@ -425,6 +428,20 @@ client installs the state **and then** adopts the DOM.
     {:status 200 :headers {"content-type" "text/html"} :body document}))
 ```
 
+**Check determinism where the renderer is**, which is here, in the server
+namespace. A view reading `Date.now` or generating a random id produces a
+document that differs run to run, which hydration then reports as a mismatch on
+someone else's machine. Hand `render-twice` the same options map you hand
+`render`:
+
+```clojure
+(let [{:keys [identical? differs-at]} (server/render-twice opts)]
+  (assert identical? (str "server render is not deterministic at " differs-at)))
+```
+
+The client half is a different file, and it installs state before it touches
+the DOM:
+
 ```clojure
 (ns my.app
   (:require [re-frame.ssr :as ssr]
@@ -453,14 +470,5 @@ from the bytes it is adopting.
 `flushSync`, so the DOM on the next line is still the server's. Anything that
 must run after adoption waits for the adoption window to close rather than for a
 flush.
-
-**Check determinism where the renderer is.** A view reading `Date.now` or
-generating a random id produces a document that differs run to run, which
-hydration then reports as a mismatch on someone else's machine:
-
-```clojure
-(let [{:keys [identical? differs-at]} (server/render-twice opts)]
-  (assert identical? (str "server render is not deterministic at " differs-at)))
-```
 
 Chapter: [SSR and hydration](18-ssr-and-hydration.md).
