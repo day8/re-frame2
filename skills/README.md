@@ -69,8 +69,8 @@ the situation they cover:
   sequences but never duplicates it.
 
 - **[`re-frame2-ui/`](re-frame2-ui)** — maintain view code on
-  **`re-frame.ui`**, the compiled-view substrate that is now the **donor**
-  being absorbed into Freehand (the Reagent/UIx/reagent-slim adapters remain
+  **`re-frame.ui`**, the compiled-view substrate that is now **retired and
+  awaiting removal** (the Reagent/UIx/reagent-slim adapters remain
   first-class). Teaches `defview` components in the closed template grammar,
   handlers-as-data, reactive `(sub …)` reads, view-local state and effects,
   frames and roots, presence, interop boundaries, structural tests via
@@ -84,16 +84,18 @@ the situation they cover:
 
 - **[`reagent-migration/`](reagent-migration)** — the **optional, second**
   step *after* `re-frame-migration`: migrate Reagent **view** code to
-  **Freehand**, re-frame2's re-frame-native view layer. A Reagent hiccup
-  view becomes a `v/defview` mounted in brackets and never called;
-  `@(subscribe …)` becomes `(v/sub …)`; `#(dispatch …)` handlers lift to
-  event vectors; Form-2 atoms and Form-3 lifecycle re-home to re-frame or
-  to a registered behavior. An **AI skill that applies judgment, not a
+  **Hicasso** (`re-frame.hicasso`, alias `h`), re-frame2's re-frame-native
+  view layer. A Reagent hiccup view becomes an `h/defview` mounted in
+  brackets and never called;
+  `@(subscribe …)` becomes `(h/sub …)`; `#(dispatch …)` handlers lift to
+  event vectors; Form-2 atoms and Form-3 lifecycle move out of the
+  component. An **AI skill that applies judgment, not a
   codemod** — it applies the mechanical `MIG-NN` rewrites directly, reasons
-  through the judgment calls, and declines the cases Freehand doesn't yet
+  through the judgment calls, and declines the cases Hicasso doesn't yet
   handle ("stay on Reagent, or wait"). **Staying on Reagent views is a
   first-class, fully-supported choice** — this skill's trigger is narrow:
-  already on re-frame2 AND specifically wanting to trial Freehand.
+  already on re-frame2 AND specifically wanting to trial Hicasso, which is
+  **pre-publication with no released Maven coordinate**.
 
 - **[`re-frame2-improver/`](re-frame2-improver)** — critique-mode for
   **existing** re-frame2 ClojureScript code. Reviews a body of source
@@ -164,8 +166,8 @@ migration report is signed off.
 | Bootstrap a brand-new re-frame2 ClojureScript project from nothing (or an empty CLJS project with shadow-cljs/Clojure but zero re-frame2 wiring) | "start a re-frame2 project", "scaffold re-frame2", "hello-world re-frame2 app", "new re-frame2 app", build failure on a freshly-scaffolded project tracing to missing `re-frame.core` / `re-frame.adapter.reagent` wiring | [`re-frame2-setup/`](re-frame2-setup) |
 | Write new application code on a working re-frame2 project | events, subs, fx, cofx, frames, state machines, schemas, stories, routing, canonical patterns; `reg-event`, `reg-sub`, `reg-fx`, `reg-machine`, `reg-view`, `reg-route`, `reg-story`, `reg-app-schema`, `reg-interceptor`, `dispatch`, `subscribe`, `app-db` | [`re-frame2/`](re-frame2) |
 | Migrate an existing re-frame v1.x ClojureScript codebase to re-frame2 | "migrate to re-frame2", "upgrade re-frame", "v1 to v2", "what breaks under re-frame2", or any v1 surface (`re-frame.db`, `dispatch-with`, `reg-global-interceptor`, `reg-sub-raw`, `^:flush-dom`, `re-frame.alpha`, `re-frame-test`, old top-level `:dispatch` / `:dispatch-n` effect-map keys) | [`re-frame-migration/`](re-frame-migration) |
-| Migrate Reagent **view** code to **Freehand**, the re-frame-native view layer — the OPTIONAL, SECOND step, done only after the v1→v2 move and only if Freehand is wanted | "migrate my Reagent views to Freehand", "convert reg-view to defview", "move off Reagent hiccup", "the re-frame-native views", deref-drop, or a Reagent view surface named in a Freehand context (`r/atom` / `r/with-let` / `r/create-class` / `adapt-react-class` / `@(subscribe …)` in a view / `:onClick` camelCase props) — **on an already-re-frame2 app** | [`reagent-migration/`](reagent-migration) |
-| Maintain **view** code an app already has on `re-frame.ui`, the compiled-view substrate now being absorbed into Freehand — `defview` components, the closed template grammar, handlers-as-data, `(sub …)` reads, frames/roots, presence, interop, `re-frame.ui.test`, the Shadow build-hook install, and the generated `:rf.ui.compile/*` compile-rejection roster | `defview`, `ui/sub`, `frame-root`, `ui/mount`, "compiled views" / "compiled hiccup", ui.test, "re-frame.ui context sheet", "what does `:rf.ui.compile/…` mean" — **in an app that already depends on `day8/re-frame2-ui`** (new view work does not start here) | [`re-frame2-ui/`](re-frame2-ui) |
+| Migrate Reagent **view** code to **Hicasso**, the re-frame-native view layer — the OPTIONAL, SECOND step, done only after the v1→v2 move and only if Hicasso is wanted | "migrate my Reagent views to Hicasso", "port this component to h/defview", "move off Reagent hiccup", "the re-frame-native views", deref-drop, or a Reagent view surface named in a Hicasso context (`r/atom` / `r/with-let` / `r/create-class` / `adapt-react-class` / `@(subscribe …)` in a view / `[:> …]` prop dialect) — **on an already-re-frame2 app** | [`reagent-migration/`](reagent-migration) |
+| Maintain **view** code an app already has on `re-frame.ui`, the compiled-view substrate now retired and awaiting removal — `defview` components, the closed template grammar, handlers-as-data, `(sub …)` reads, frames/roots, presence, interop, `re-frame.ui.test`, the Shadow build-hook install, and the generated `:rf.ui.compile/*` compile-rejection roster | `defview`, `ui/sub`, `frame-root`, `ui/mount`, "compiled views" / "compiled hiccup", ui.test, "re-frame.ui context sheet", "what does `:rf.ui.compile/…` mean" — **in an app that already depends on `day8/re-frame2-ui`** (new view work does not start here) | [`re-frame2-ui/`](re-frame2-ui) |
 | Tour the **Xray** in-app devtools panel — how to launch it (true-inline, pop-out, programmatic `init!`, hotkeys, the Dynamic ↔ Static mode toggle) or **which tab / mode surfaces X** | "open Xray", "where is X in Xray", "which Xray panel/tab shows…", "Xray Static mode", "browse registered machines/routes/schemas in Xray", "Ctrl+Shift+C", "Xray hotkey", "Xray popout", "Xray machine inspector", "Xray epoch cascade", "where do Xray issues show up" — the user wants to *read* the panel, not drive a runtime | [`re-frame2-xray/`](re-frame2-xray) |
 | Pair-program against a **running** re-frame2 application — attach to a live shadow-cljs nREPL, inspect a frame's `app-db`, dispatch events, hot-swap handlers, walk traces / epochs, time-travel with `restore-epoch` | live runtime is involved; user is operating on (or wants to operate on) a running local app | [`re-frame2-pair/`](re-frame2-pair) |
 | Retrospect on a `re-frame2-pair` session and turn it into prioritised improvement ideas for the pair-tool skill, scripts, MCP surface, or upstream `re-frame2` Tool-Pair contract | concrete `re-frame2-pair` session in the conversation **or** a user-supplied recap of one; user explicitly asks for a retro ("retro on this pair session", "review my re-frame2-pair session", "draft an issue about that"), OR a post-error post-mortem trigger fires within a live re-frame2-pair session | [`re-frame2-pair-retro/`](re-frame2-pair-retro) |
@@ -208,9 +210,9 @@ family rule — single source below:
 | `re-frame2-pair` | drive a live runtime | the agent, against the live app | a grounding live read after every change (Pillar 4) | the role *is* driving a runtime — executing against it is the point |
 | `re-frame2-implementor` | implementation driver (build the runtime) | the agent, narrowly | a per-EP slice gate from the **port's own** scripts, before calling an EP landed | acceptance criterion *is* spec-conformance; the slice gate operationalises it (the only skill carrying a per-EP gate — by design) |
 | `re-frame-migration` | migrate v1 code on an existing reference | the **author** in their own env | the author's own build / test / smoke | hard trust boundary — the skill bars the agent from running build/test/smoke in the author's app env |
-| `reagent-migration` | migrate Reagent views to Freehand on an existing re-frame2 app | **split** — the skill runs the discovered safe noninteractive gates; the programmer owns the interactive/visual step | the skill's discovered **compile + tests** pass per closed subtree **and** the programmer has **rendered** and eyeballed the converted views | trust-the-explicit-invoker baseline — the skill discovers and runs the nearest safe noninteractive gate (compile the subtree, run its tests), but "compiles" is not the done-bar: interpreted Freehand moves most view errors to run time by design, so a converted view must still be *rendered* and eyeballed, which stays the programmer's when there is no runtime to drive |
+| `reagent-migration` | migrate Reagent views to Hicasso on an existing re-frame2 app | **split** — the skill runs the discovered safe noninteractive gates; the programmer owns the interactive/visual step | the skill's discovered **compile + tests** pass per closed subtree **and** the programmer has **rendered** and eyeballed the converted views | trust-the-explicit-invoker baseline — the skill discovers and runs the nearest safe noninteractive gate (compile the subtree, run its tests), but "compiles" is not the done-bar: interpreted Hicasso moves most view errors to run time by design, so a converted view must still be *rendered* and eyeballed, which stays the programmer's when there is no runtime to drive |
 | `re-frame2` (authoring) | emit authoring recipes | the **human** who pastes the recipe | the human's project gates | Pillar-4 / Q14 lock: no runtime the agent drives, no conformance corpus |
-| `re-frame2-ui` | maintain donor compiled-view code | the **human** who pastes the recipe | the human's project gates — and the re-frame.ui compiler itself (didactic rejections are the feedback loop) | authoring-only, mirroring `re-frame2`'s Q14 lock; the closed grammar makes the compiler the first reviewer |
+| `re-frame2-ui` | maintain retired compiled-view code | the **human** who pastes the recipe | the human's project gates — and the re-frame.ui compiler itself (didactic rejections are the feedback loop) | authoring-only, mirroring `re-frame2`'s Q14 lock; the closed grammar makes the compiler the first reviewer |
 | `re-frame2-setup` | scaffold greenfield | the **author**, following steps | the counter mounts under `shadow-cljs watch` | greenfield bootstrap; no agent-driven runtime |
 | `re-frame2-improver` | critique existing code | nobody runs; static critique | findings cross-linked to canonical idioms | review-only; proposes `Edit`s, runs no suite |
 | `re-frame2-xray` | read-only tour of the devtools panel | nobody runs; read-only | n/a (read-only tour) | owns the *seeing*, not the *driving* |

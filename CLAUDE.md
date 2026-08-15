@@ -117,7 +117,7 @@ Docs build from repo root with `mkdocs build --strict` (config in `mkdocs.yml`).
 
 **The spec is the artefact; the code is downstream.** The normative description of re-frame2 lives in [`spec/`](spec/) (~22K lines across 35+ documents); [`implementation/`](implementation/) is a CLJS reference that validates the spec end-to-end. See the repo-root [`README.md`](README.md) for the marketing-voice introduction and the project-layout map, and [`spec/README.md`](spec/README.md) for the spec index.
 
-Status that the directory tree does not tell you: under `implementation/`, `ui/` (re-frame.ui) is the **EXPERIMENTAL** compiled-view substrate, offered alongside the `adapters/` (Reagent, reagent-slim, UIx), which are **first-class and actively supported**.
+Status that the directory tree does not tell you: under `implementation/`, both `ui/` (re-frame.ui) and `freehand/` (re-frame.freehand) are **RETIRED and awaiting removal** (Mike, 2026-08-14 — rf2-0yp7w); do not build on either. The `adapters/` (Reagent, reagent-slim, UIx) are **first-class and actively supported**, and `hicasso/` (re-frame.hicasso) is the re-frame-native view layer.
 
 `tools/` holds dev/inspection tools consuming the Spec 009 instrumentation API and Tool-Pair contract. They are bundle-isolated from production builds: **nothing in `implementation/` may `:require` from `tools/`.**
 
