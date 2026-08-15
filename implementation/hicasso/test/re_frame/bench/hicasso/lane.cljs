@@ -518,26 +518,48 @@
   (atom {:pos 0 :prev nil :samples []}))
 
 (defn observe!
-  "Record that arm `id` RAN, without banking a sample.
+  "Advance the collector's `:prev` pointer WITHOUT banking a sample.
+  Warm-up samples call this.
 
-  A WARM-UP SAMPLE IS STILL A PREDECESSOR. [[collect!]] carries `:prev`
-  forward from the last sample it BANKED, so across a round's warm-up gap
-  it named the previous round's last measured arm — and the arm that
-  actually ran immediately before was a warm-up sample nobody told it
-  about. Replaying this schedule shows the cost precisely: on every arm
-  count tried (4, 5, 7, 8) exactly one arm — the one holding the first
-  slot at `s = warmup` — carried 5 of its 30 samples under a predecessor
-  that never preceded it. On the seven-arm `amp_merge_clock` schedule that
-  arm is `:expanded-b`, the NULL, and 4 of its samples were filed under
-  `floor`, which never runs before it; on the five-arm schedule the same 4
-  were filed under `expanded-b` ITSELF, which is not a predecessor any
-  schedule can produce.
+  A WARM-UP SAMPLE IS STILL A PREDECESSOR. [[collect!]] both banks a
+  sample and advances the pointer, so a harness that skips it during
+  warm-up leaves the first RECORDED sample of a block tagged with whatever
+  ran before the warm-up — an arm that has not touched the site for a
+  whole warm-up block. A predecessor label that names something which did
+  not run immediately before is not a weaker fact than a real one; it is a
+  different fact wearing its clothes.
 
-  That is a fabricated stratum in the guard's `:predecessor` factor, and a
-  guard adjudicating a contrast that did not happen is the fail-open
-  shape this lane exists to refuse. The repair is to tell the collector
-  about every execution and to bank only the measured ones — the position
-  counter is untouched, because a discarded sample has no position."
+  ## This repair was made TWICE before it was made here (rf2-6ta5r)
+
+  `p0_converge_app` and `coldmount_app` hand-roll their sampling loops,
+  both hit this, and both fixed it locally — as a private
+  `mark-predecessor!` whose body was these same three lines. Their
+  incident is recorded: `p0_converge`'s first cut published the fault and
+  the guard REFUSED it, `narrow/reagent-subs/ctl-2x` contaminated by a
+  two-sample stratum labelled `M1/reagent-subs/reagent-subs`, an arm from
+  a different ROW; `rf2-2rtt6.4` met the same class from the other side,
+  where the untagged samples became a `<none>` stratum reading 1.35x its
+  siblings.
+
+  What never got the repair was [[rounds!]] — the SHARED loop every other
+  harness on this lane rides. Nine bench apps ran on it carrying the
+  fault, and the two that had fixed it were the two that did not use it.
+  This is that fix moved to the one place it belongs, and the private
+  copies now call it: a second authority with nothing holding it in step
+  is the shape that let the `k = 2` degeneracy in [[slot-order]] survive a
+  fix to its own sibling.
+
+  ## What it cost on the two clocks this bead came from
+
+  Replaying the schedule prices it exactly: at every arm count this lane
+  uses (4, 5, 7, 8) one arm — whichever holds the first slot at
+  `s = warmup` — carried 5 of its 30 samples under an adjacency that did
+  not happen. On the seven-arm `amp_merge_clock` schedule that arm is
+  `:expanded-b`, THE NULL, with 4 samples filed under `floor`, which never
+  runs before it; on the five-arm schedule those same 4 were filed under
+  `expanded-b` ITSELF, which no schedule can produce. The position counter
+  is untouched by this function, because a discarded sample has no
+  position."
   [coll id]
   (swap! coll assoc :prev id)
   nil)
