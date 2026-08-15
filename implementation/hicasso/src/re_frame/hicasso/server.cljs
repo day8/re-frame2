@@ -14,27 +14,61 @@
 
       (:document (server/render {:hiccup [views/page {}] …}))
 
-  ## THE PUBLIC SURFACE IS SIX NAMES, and a ledger row owns them
+  ## THE PUBLIC SURFACE IS FOUR NAMES, and a ledger row owns them
 
-  [[render]] is the product door. Beside it stand five composition
-  helpers — [[fresh-frame-id]], [[setup-events]], [[payload-script]],
-  [[document]] and [[render-twice]] — and they are public BY DECISION
-  rather than by omission, which is the thing an ordinary `defn` cannot
-  say on its own. Naming-ledger row 50 rules *keep all five as shipped*:
-  they are the request pipeline [[render]] composes, exposed so a host
-  can assemble a non-standard shell **without writing a second
-  renderer** — the one thing row 22 exists to prevent, since hydration
-  parity holds by construction only while one runtime renders both
-  halves. `render-options` is the only private name here, and it is
-  private because nothing composes with it: it is `renderToString`'s
+  [[render]] is the product door. Beside it stand three composition
+  helpers — [[payload-script]], [[document]] and [[render-twice]] — and
+  they are public BY DECISION rather than by omission, which is the
+  thing an ordinary `defn` cannot say on its own. Naming-ledger row 50
+  carries that decision as an operator override (rf2-sc1dt), and the
+  test each survivor passes is one test rather than three: **an external
+  host does something with it that [[render]]'s returned values alone
+  cannot do.**
+
+  - [[payload-script]] — a host that mutates the payload and re-`pr-str`s
+    it has to re-wrap the result, and the tag must stay byte-identical
+    to `re-frame.ssr.ring.shell/payload-script-tag`. The id is the
+    client bootstrap's `getElementById` contract, and the body goes
+    through the framework's EDN-aware escaper, which fails loud on a
+    genuine `</script` breakout. Public is what stops a host
+    hand-writing the tag and getting the escaping wrong.
+  - [[document]] — a host post-processing `:html` (a CSP nonce, say) has
+    to rebuild the envelope, and by hand that means re-spelling
+    `escape-html` and `escape-attr`. It is the one string of HTML in
+    this package that is not React's.
+  - [[render-twice]] — nondeterminism is a HOST-authored bug class (a
+    view reading `Date.now`, a random id), and this is the ready-made
+    host-side CI diagnostic, with `:differs-at` to make a red run
+    diagnosable. It carries no incidental cost, since the double work
+    happens only when it is called, and it cannot move to a test kit
+    without dragging `react-dom/server` into that kit's dependency
+    graph. Beside [[render]] is its only sane home.
+
+  Three names are private, for two different reasons. `render-options`
+  is private because nothing composes with it: it is `renderToString`'s
   options object and has no life outside the call below it.
+  `fresh-frame-id` and `setup-events` are private because **no public
+  path consumes their return values.** [[render]] mints its own frame
+  id and installs it over `:frame-opts` — `:id` cannot be overridden —
+  then destroys the frame before returning, so a caller could obtain a
+  fresh id and do nothing with it through this surface. The setup
+  vector is a three-line `cond->` over `:rf/set-db` plus ordinary
+  events that [[render]] already accepts directly as `:snapshot` and
+  `:initial-events`, so it is derivable rather than exposed. Both
+  shipped public with the module and neither ever acquired a caller;
+  a public name for either invites a host to couple to choreography
+  [[render]] deliberately owns. Rebuilding that pipeline from public
+  parts is impossible in any case — `impl.mount/tree` and
+  `impl.roots/open-adoption-window!` are impl namespaces, and rf2-sc1dt
+  records that reopening either privacy means reopening those doors
+  first.
 
   **`check_facade_inventory.py` does not reach this list, by that
   gate's own design rather than by an omission.** It reads ONE door —
   `re-frame.hicasso` — and says so in terms, because deciding what an
   optional module's public roster IS is a judgement its own tier has to
   record and not a data change anyone can make. Row 50 is that
-  judgement for this module. What guards the BOUNDARY these six sit
+  judgement for this module. What guards the BOUNDARY these four sit
   behind is `check_optional_module_reachability.py`, whose roster
   gained this module under rf2-2a0ju, and `check_bundle_isolation.cjs`,
   which reads the same claim off a real `:advanced` browser bundle.
@@ -193,15 +227,27 @@
 ;; The per-request frame
 ;; ---------------------------------------------------------------------------
 
-(defn fresh-frame-id
+(defn- fresh-frame-id
   "A frame id no other request holds. `gensym` rather than a UUID because
   the id is a projection target that lives for one synchronous render and
   is destroyed before [[render]] returns — it needs to be unique in this
-  process and nothing more, and it never reaches the wire."
+  process and nothing more, and it never reaches the wire.
+
+  **DO NOT RENAME THE `hicasso.ssr` KEYWORD NAMESPACE.**
+  `scripts/check_bundle_isolation.cjs` pins the source literal
+  `(keyword \"hicasso.ssr\"` in this file as the premise for the server
+  module's bundle-side zero-rent sentinel (rf2-fn62g): the string is a
+  runtime ARGUMENT, so `:advanced` can neither rename nor drop it while
+  the code passing it is reachable, and it is co-reachable with
+  `react-dom/server` by construction because that dependency enters a
+  bundle by exactly one route and [[render]]'s first binding is this
+  call. Privacy does not disturb that — the sentinel is about
+  reachability from [[render]], which is unchanged — but renaming the
+  namespace reds the premise check, loudly and by design."
   []
   (keyword "hicasso.ssr" (str (gensym "request-"))))
 
-(defn setup-events
+(defn- setup-events
   "The construction-time setup vector for one request.
 
   Both doors are the framework's own. `:rf/set-db` is the reserved
