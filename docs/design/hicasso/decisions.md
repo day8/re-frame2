@@ -1581,8 +1581,14 @@ mounted through `run.cjs` on `:hicasso-bench` under `:advanced` with
 judged arms build one 1,001-element page and is proven able to answer false before
 any clock is read.
 
-Three run-medians, each five rounds of three warm-up plus six samples, taken back
-to back on a quiet box, positive control passing in all three:
+Three runs, each five rounds of three warm-up plus six samples, taken back to
+back on a quiet box. **Each run's figure is the ARITHMETIC MEAN of that run's
+five per-round ratios**, each of which is a ratio of the two arms' *within-round
+median* mount times — a mean over medians, and not a median of anything at the
+run level. That is what `lane/ratio-between` computes and hands the table; an
+earlier draft of this paragraph called the three values "run-medians" and their
+spans "effect medians", which named an estimator the instrument never used
+(`rf2-pqyxz`).
 
 | run | `:merged`/`:expanded` | per-round range | NULL `:expanded-b`/`:expanded` | per `:&` site |
 |---|---|---|---|---|
@@ -1592,10 +1598,31 @@ to back on a quiet box, positive control passing in all three:
 
 So on a page where every input carries one, the `:&` spelling costs about **25% of
 mount**, and about **2.4 µs per site**. It is outside instrument resolution: the
-three effect medians span 1.217 – 1.270 while the three null medians span
-1.001 – 1.013, and those two intervals do not touch. The per-round ranges are
-weaker evidence than that and are printed rather than leaned on — run 2's includes
-1.0, which is why the separation is claimed between runs and not within one.
+three effect run-means span 1.217 – 1.270 while the three null run-means span
+1.001 – 1.013, and those two intervals do not touch. **Naming the estimator
+correctly moves none of those numbers and the conclusion stands**: both columns
+always were the same statistic computed the same way, so the effect-versus-null
+comparison that carries the claim is untouched by the correction. What the
+correction does do is make the hedge below read as it should — a mean over five
+rounds is more moveable by one round than a median would be, which is precisely
+why the separation is claimed between runs and not within one. The per-round
+ranges are weaker evidence than that and are printed rather than leaned on —
+run 2's includes 1.0.
+
+**The positive control, and the rule it passed under (`rf2-egdaq`).** `:ctl-2x`
+predicts 2.00x by construction and passed in all three runs: measured 8.250 ms
+against a predicted 8.100, 8.350 against 8.500, and 8.500 against 8.600 — every
+one within 2% of its own prediction. That verdict was `lane/control-verdict`'s
+**overlap** rule applied to *cross-round aggregates*, which is the weaker of the
+lane's two readings and is not the same claim as *every round sat inside the
+band*. The instrument now adjudicates this control per round under
+`lane/control-verdict-strict` — the ruling that keeps overlap for legs sitting on
+Chrome's 100 µs clamp names a batched window clear of the quantum as its own
+revisit trigger, and these legs read ~4 ms judged against ~8 ms control, forty to
+eighty quanta clear — and records the per-round values so a later reader can
+re-adjudicate without re-running the window. **These three runs recorded only the
+aggregate, so their strict verdict is not recoverable from what was kept, and
+none is claimed here.**
 
 **What that figure is, and what it is not.** It prices the AUTHORING CHANGE whole:
 the caller map each call site builds, the `dissoc` the helper performs on it, and
