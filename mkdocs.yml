@@ -254,6 +254,8 @@ nav:
       - "20. Migrating from Reagent": core/hicasso/20-migration-from-reagent.md
       - "21. Code splitting and lazy loading": core/hicasso/21-code-splitting.md
       - "22. Accessibility": core/hicasso/22-accessibility.md
+      - "API reference": core/hicasso/api-reference.md
+      - "Cookbook": core/hicasso/cookbook.md
       - "Troubleshooting": core/hicasso/troubleshooting.md
       - "The escape ladder": core/hicasso/escape-ladder.md
       - "Glossary": core/hicasso/glossary.md
