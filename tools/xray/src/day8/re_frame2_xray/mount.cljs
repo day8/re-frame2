@@ -216,7 +216,20 @@
   (rf2-0yp7w) and Xray no longer reads a Freehand host at all (rf2-l86mm),
   but a stale co-loaded build could still present the kind, and refusing it
   costs nothing. The refusal is what makes the difference a diagnostic
-  instead of an uncaught React child error."
+  instead of an uncaught React child error.
+
+  HICASSO IS COVERED BY THE `:rf.adapter/uix` ENTRY, AND HAS NO ENTRY OF ITS
+  OWN BECAUSE IT MINTS NO KIND (rf2-wtznc). There is no `:rf.adapter/hicasso`
+  — Hicasso ships no adapter at all. A Hicasso host installs the UIx adapter
+  and then mounts Hicasso boundaries through it (`(rf/init!
+  uix-adapter/adapter)` then `(h/mount! …)`, both Hicasso testbeds), so
+  `re-frame.substrate.adapter/current-adapter` returns `:rf.adapter/uix` on a
+  Hicasso page and this set refuses it on the entry above — for the right
+  structural reason, since the `:render` doing the work IS the UIx adapter's
+  element-shaped one. The absence of a hicasso member is therefore correct
+  and load-bearing, not an oversight: adding one would name a kind the
+  runtime never produces, and reading it as a gap is the mistake this
+  paragraph exists to prevent."
   #{:rf.adapter/ui :rf.adapter/uix :rf.adapter/helix :rf.adapter/freehand})
 
 (defn- unsupported-substrate-diagnostic [kind]
