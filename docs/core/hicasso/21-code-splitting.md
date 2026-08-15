@@ -214,13 +214,14 @@ when its code arrives ([SSR and hydration](18-ssr-and-hydration.md)).
 
 ## What happens to reads during suspension
 
-Committed renders own subscriptions and demand. Speculative renders do not.
+Committed renders own subscriptions. Speculative renders do not.
 
 ### A suspended attempt acquires nothing
 
 A view may probe `h/sub` while React attempts a render. If that attempt
 suspends and React shows the fallback, the attempted subtree did not commit.
-It installs no subscriptions and acquires no demand-driven resources.
+It installs no subscriptions — and since a read never fetches, an abandoned
+attempt could not have started a request in any case.
 
 When the code arrives and the real subtree commits, the committed read set is
 installed once.
@@ -268,7 +269,8 @@ While hidden:
 
 - React cleans up effects;
 - committed subscription ownership releases;
-- demand-driven resources release;
+- resource entries keep their owners — releasing one is an event's job
+  ([Async resources](08-async-resources.md));
 - app-db state remains unchanged;
 - retained React UI state, such as a browser-owned scroll position, can remain.
 

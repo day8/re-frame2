@@ -232,10 +232,11 @@ prefer the live one.
        [:span.busy {:aria-live "polite"} "Busy"])]))
 ```
 
-**The read is the demand.** `[::subs/suggestions term]` is live exactly while
-this panel is rendered with that term: mount it and the resource is wanted,
-change `term` and a different one is wanted, stop rendering it and none is. So
-render the panel conditionally rather than rendering it always and disabling it.
+**The read is passive, so something else has to cause the fetch.**
+`[::subs/suggestions term]` projects whatever the cache already holds for that
+term. Rendering the panel starts no request and unrendering it releases nothing.
+The event that decides a new term is wanted is the one that releases the
+previous owner and ensures the new read.
 
 **Refresh-with-data is a policy, and it is yours.** Keeping the held rows on
 screen while a new request is out is the right default for a typeahead and the

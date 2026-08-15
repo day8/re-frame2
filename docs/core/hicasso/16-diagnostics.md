@@ -259,7 +259,7 @@ Installed modules can add bounded projections:
 - forms: draft ownership;
 - overlays: active top-layer regions;
 - motion: transition posture;
-- resources: live demand.
+- resources: which owners hold an entry, and the cause that started each fetch.
 
 An unused or uninstalled module contributes no projection.
 
