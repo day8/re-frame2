@@ -224,6 +224,15 @@ distinguish a change holding four named files from one holding a whole tree, so 
 written from names is still a guess about files, which is the guess deriving it was meant
 to replace. Ask your change-listing tool for the paths, not just the names.
 
+**But check whether that tool PAGINATES, because a truncated list under-reports silently
+and in the expensive direction.** A hosted API asked for a change's files commonly answers
+with one page and no marker that it stopped. Measured here: a change of 722 files returned
+exactly 100, and not one of the files a pending fence turned on was among them — a fence
+derived from that answer would have declared the surface free and cleared a second worker
+onto it. **A round number is the tell**; treat 100, 250 or 1000 as a page size until you
+have proved otherwise. Where the change is large, derive the paths from version control
+instead, diffing the trunk against the branch, which reports all of them.
+
 **And a listing built from committed history is blind to work already done but not yet
 committed** — which is the state a freshly dispatched worker stays in until its first
 commit, so an empty answer from it is not evidence of an empty fence. Ask the worker's own
