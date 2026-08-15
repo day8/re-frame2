@@ -35,6 +35,7 @@ exclude_docs: |
   migration/reagent-to-hicasso/codemod/
   design/freehand/
   design/hicasso/
+  design/retirement/
 
 # Build-time hooks. mkdocs_hooks.py rewrites core/* cross-references
 # from ../../spec/ (correct for GitHub source-tree browsing, where spec/
