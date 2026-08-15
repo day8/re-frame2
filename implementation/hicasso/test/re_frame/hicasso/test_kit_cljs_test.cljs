@@ -527,10 +527,19 @@
 
   (testing "and an unforced `delay` is refused rather than forced — forcing
             an author's explicit deferral would change what their program
-            means, which is the runtime's own ruling at a crossing"
-    (is (= :rf.error/hicasso-deferred-read-at-boundary
-           (:rf.error/id
-            (:refused (outcome #(ht/tree [(fn [_] [:div (delay [:p])]) {}]))))))))
+            means, which is the runtime's own ruling at a crossing.
+
+            THE WHOLE IDENTITY, not the id alone (rf2-tsdik). This assertion
+            read only `:rf.error/id` for a release, so the kit could and did
+            answer the runtime's id with its OWN opacity recovery,
+            `:assert-it-at-l3` — a pointer to a tier where the identical
+            refusal waits — and stayed green throughout (rf2-llps1). A
+            borrowed id brings the advice with it or it is not a borrowing."
+    (is (= {:rf.error/id :rf.error/hicasso-deferred-read-at-boundary
+            :where       're-frame.hicasso.test
+            :recovery    :hand-a-function-or-deref-it-in-this-body}
+           (refusal (outcome #(ht/tree [(fn [_] [:div (delay [:p])]) {}]))
+                    [])))))
 
 (deftest a-plain-function-in-head-position-refuses-as-the-runtime-does
   (testing "HD-016 makes it a loud error in Hicasso, so the kit refuses it
