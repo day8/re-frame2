@@ -32,7 +32,22 @@ docstrings are dense with worked examples -- `(defhost modal Modal …)`,
 [props] …)`. Every one of those is PROSE, and a grep-derived roster counts
 all three as public names. So the source is read as CODE: [[code_only]]
 blanks strings, comments, character literals and reader-discarded forms,
-and what survives is walked for `(def…)` heads.
+and what survives is walked for `(def…)` heads -- QUALIFIED or not.
+
+
+## A DEFINING MACRO MAY BE QUALIFIED (rf2-wyazi)
+
+`(h/defview buffered-field …)`. A module mints its public surface with the
+package's OWN macro, so the head is `h/defview` rather than `defview`, and
+a pattern matching only bare `def*` heads does not see the name at all.
+That was this gate's state when it was armed: it reported 103 public names
+and 0 unrostered while `forms/buffered-field` shipped, was rostered and was
+taught, and it exited 0 the whole time. **It failed GREEN**, which is the
+direction an absence check has no defence against, and it is why the
+qualifier is in [[DEF_HEAD_RE]] rather than being left for the day a second
+one lands. `check_guide_samples.py`'s `_DEF_RE` already carried the same
+optional `alias/`, for the same reason, written down in its own comment;
+this is that character class ported, not a second pattern invented.
 
 
 ## A DEFINITION OPENS A LINE
@@ -58,6 +73,13 @@ definition. No such call exists in the ten namespaces -- both of
 -- and the failure it would produce is a phantom name reported UNROSTERED,
 which is a false RED. That is the safe direction, and it is why a bracket
 depth tracker is not being built for it.
+
+The qualified arm inherits that limit unchanged and widens nothing else: a
+line-opening `(alias/defaults …)` call would mint `defaults` the same way a
+line-opening `(defaults …)` already would. Measured on the ten namespaces
+the day the arm landed, the only line-opening qualified `def*` head in the
+tree is `forms.cljs`'s `(h/defview buffered-field …)`, and the CALLS note
+was unchanged -- still `evidence.cljs`'s two, still mid-line.
 
 
 ## The root is an ABSOLUTE argument, and it is printed
@@ -302,7 +324,9 @@ def code_only(text):
 # ---------------------------------------------------------------------------
 
 SYMBOL_TAIL = r"[A-Za-z0-9_.*+!?<>=$%&/'-]"
-DEF_HEAD_RE = re.compile(r"\((def" + SYMBOL_TAIL + r"*)")
+# The optional `alias/` is `check_guide_samples.py`'s `_DEF_RE` character class,
+# ported unchanged and for that gate's own stated reason (rf2-wyazi).
+DEF_HEAD_RE = re.compile(r"\((?:[a-zA-Z0-9.*+!?<>=_-]+/)?(def" + SYMBOL_TAIL + r"*)")
 NAME_RE = re.compile(r"[A-Za-z*+!?<>=$%&_-]" + SYMBOL_TAIL + r"*")
 
 
@@ -573,6 +597,25 @@ def self_test():
     checks += 1
     print("  ok  an unknown `def*` head is public; a computed name is reported")
 
+    # A NAMESPACE-QUALIFIED defining macro is still a definition (rf2-wyazi).
+    # `forms.cljs` mints its one public view with the package's OWN macro --
+    # `(h/defview buffered-field …)` -- and a pattern reading only bare `def*`
+    # heads was blind to it.  Blind in the ABSENCE direction, so the run stayed
+    # green: 103 names, 0 unrostered, exit 0, with a rostered name it never saw.
+    # The other two rules must survive the qualifier rather than be bypassed by
+    # it, so a qualified `defn-` and a qualified mid-line CALL are asserted here
+    # too.
+    minted, _, qualified_mid = roster(
+        "(h/defview qualified [props] 1)\n"
+        "(h/defn- quiet-qualified [] 2)\n"
+        "  (when x (n/defcomponent called-not-defined y))\n"
+    )
+    assert minted == ["qualified"], minted
+    assert qualified_mid == ["defcomponent"], qualified_mid
+    checks += 1
+    print("  ok  a QUALIFIED `def*` head is a definition -- and is still "
+          "subject to the private and open-the-line rules")
+
     # ---- the green baseline ----------------------------------------------
     rows, _, notes, _ = case("a fully rostered tree is GREEN", [])
     assert len(rows) == 3, rows
@@ -598,6 +641,16 @@ def self_test():
         [],
         two=seeded,
         ledger=_LEDGER + "| 4 | `g/seeded-export` |\n",
+    )
+
+    # ...and the same control minted the way `forms/buffered-field` is.  This
+    # one is the regression that stops the blind spot regrowing: it is a whole
+    # SYNTHETIC CORPUS rather than a roster case, so it fails the way the live
+    # gate failed -- a public name simply absent from a green run.
+    case(
+        "a SEEDED export minted by a QUALIFIED macro is caught",
+        ["g/qualified-export"],
+        two=_TWO + "(h/defview qualified-export [props] :escaped)\n",
     )
 
     # A private export is not a public name and owes no row.
