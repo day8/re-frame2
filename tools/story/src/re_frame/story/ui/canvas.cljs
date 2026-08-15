@@ -460,11 +460,18 @@
             ;; this exactly-once even though the shell also schedules a resume.
             (runtime/resume-run! variant-id)))))))
 
-(defn- variant-substrate-set
+(defn variant-substrate-set
   "Resolve the variant's effective substrate set. Per `001-Authoring.md` §Registration macros
   the variant body's `:substrates` wins, otherwise the parent story's
   `:substrates`, otherwise the shell's host substrate. The canvas uses
-  this to decide single-substrate vs side-by-side rendering."
+  this to decide single-substrate vs side-by-side rendering.
+
+  Public for the same reason `run-key`, `render-view`'s caller and
+  `safe-decorated-view` are: the workspace cell (`ui/workspace.cljc`)
+  renders a variant too, and must resolve its substrate by the SAME policy
+  rather than a second copy of it (rf2-r4coe). The resolution order is
+  itself the answer to \"declared set or host substrate?\" — it is both,
+  in that precedence, with the shell's substrate as the fallback."
   [variant-id]
   (let [vb (registrar/handler-meta :variant variant-id)
         sid (args/parent-story-id variant-id)

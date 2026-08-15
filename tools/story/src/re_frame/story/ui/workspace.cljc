@@ -89,6 +89,7 @@
                        ;; subtree to `:y` — a frame that does not exist.
                        [re-frame.story.ui.assertion-strip :as assertion-strip]
                        [re-frame.story.ui.canvas :as canvas]
+                       [re-frame.story.ui.multi-substrate :as multi-substrate]
                        [re-frame.story.ui.state :as state]])
             #?(:cljs [re-frame.story.ui.markdown :as md])
             [re-frame.story.theme.typography :as typography :refer [mono-stack]]
@@ -332,8 +333,16 @@
    (defn- variant-cell-inner
      "Read the variant's resolved view + decorator pack + effective
      args and render the variant body inside the cell. Mirrors
-     `canvas/canvas-inner` at a smaller scale — single substrate, no
+     `canvas/canvas-inner` at a smaller scale — a SINGLE-TREE render, no
      share affordance, errors render inline.
+
+     'Single substrate' describes the render's SHAPE, not an assumption
+     about which one: since rf2-r4coe the cell resolves the substrate
+     through `canvas/variant-substrate-set` and reduces it with
+     `multi-substrate/single-render-substrate`, rather than painting
+     Reagent whatever the variant declared. A workspace never grids a
+     single variant across substrates the way the canvas can — that is
+     what stays smaller here.
 
      Per /spec/007-Stories.md §Relationship with frames + tools/story
      feature-set §4.2: each variant cell wraps the rendered view in a
@@ -383,38 +392,67 @@
            "variant has no :component registered — register one on the story or variant body"]
 
           :else
-          (let [resolved-view (rf/view view-id)]
-            (if resolved-view
-              ;; Scope the rendered view's subscribe / dispatch to the
-              ;; variant's allocated frame via the namespace-preserving
-              ;; provider exported by canvas. The cells in a workspace
-              ;; share a parent React tree, so per-cell wraps are the
-              ;; load-bearing isolation — without them every cell
-              ;; subscribes against whichever frame happened to be the
-              ;; React-context default at the workspace's mount site,
-              ;; and the variant body's :counter/initialise dispatches
-              ;; (which DID route to the variant's frame) become
-              ;; invisible to the view. The merged `rf/frame-provider
-              ;; {:frame …}` shape (scope-only — the frame is already
-              ;; allocated) routes through Reagent's `:r>` interop head, so
-              ;; the namespace of a `:story.x/y`-shaped variant id survives
-              ;; the React-context round trip (a plain `[:> Provider …]`
-              ;; mount calls `(name kw)` on prop values and drops the
-              ;; namespace before React sees it).
-              ;; Per rf2-qgms1: stamp `data-rf-story-variant-root` on
-              ;; the immediate wrapper around the decorated view (same
-              ;; reason as canvas.cljs) so the a11y panel can scope
-              ;; axe-core to ONLY the variant's rendered tree.
-              [rf/frame-provider {:frame variant-id}
-               [:div {:data-rf-story-variant-root (pr-str variant-id)}
-                (canvas/safe-decorated-view
-                  [resolved-view eff-args]
-                  (:hiccup decorator-pack)
-                  eff-args)]]
-              [:div {:style {:color (:text-secondary colors/tokens) :font-style "italic"
-                             :padding "8px 0"}}
-               (str ":component " (pr-str view-id)
-                    " is not registered as a view")])))
+          ;; Resolve the renderer through the SUBSTRATE REGISTRY, by the same
+          ;; policy the canvas uses (`canvas/variant-substrate-set` →
+          ;; declared set, else the shell's host substrate) reduced to the one
+          ;; substrate a single-tree render can paint under
+          ;; (`multi-substrate/single-render-substrate`).
+          ;;
+          ;; rf2-r4coe: this branch used to call `(rf/view view-id)` itself and
+          ;; embed the result as a Reagent hiccup vector — the identical bypass
+          ;; rf2-3afns removed from the canvas single-pane path, down to the
+          ;; missing-view diagnostic string. The bead that filed it read the
+          ;; cell as having NO substrate axis, so that giving it one would be
+          ;; new behaviour needing a ruling. At source it already had one, and
+          ;; used it everywhere except here: `run-variant-with-shell-opts!`
+          ;; threads `:substrate (:substrate shell)` into every run, and
+          ;; `canvas/run-key` — which `variant-cell` keys its re-runs on —
+          ;; carries `:substrate` precisely so the cell re-renders when the
+          ;; user flips it. Painting Reagent regardless made that re-run a lie.
+          ;; So this is a bypass removal, not a feature: the cell now honours
+          ;; the substrate it was already reacting to.
+          ;;
+          ;; `render-view` also owns the two misses this branch hand-rolled: an
+          ;; unregistered VIEW degrades to the same italic diagnostic (via
+          ;; `reagent-render`), and an unregistered SUBSTRATE now degrades
+          ;; LOUDLY to `substrate :<id> is not registered` instead of silently
+          ;; painting Reagent — the user-visible half, exactly as on the canvas.
+          ;;
+          ;; Decoration stays HERE, exactly once. `render-decorated-view`
+          ;; bundles render + decorate but resolves decorator refs WITHOUT the
+          ;; mode / cell-override `run-opts` threaded into `resolve-decorators`
+          ;; above, so the cell consumes the render half and keeps its own
+          ;; `safe-decorated-view` wrap — the same trap rf2-3afns navigated.
+          (let [substrate (multi-substrate/single-render-substrate
+                            (canvas/variant-substrate-set variant-id)
+                            :reagent)]
+            ;; Scope the rendered view's subscribe / dispatch to the
+            ;; variant's allocated frame via the namespace-preserving
+            ;; provider exported by canvas. The cells in a workspace
+            ;; share a parent React tree, so per-cell wraps are the
+            ;; load-bearing isolation — without them every cell
+            ;; subscribes against whichever frame happened to be the
+            ;; React-context default at the workspace's mount site,
+            ;; and the variant body's :counter/initialise dispatches
+            ;; (which DID route to the variant's frame) become
+            ;; invisible to the view. The merged `rf/frame-provider
+            ;; {:frame …}` shape (scope-only — the frame is already
+            ;; allocated) routes through Reagent's `:r>` interop head, so
+            ;; the namespace of a `:story.x/y`-shaped variant id survives
+            ;; the React-context round trip (a plain `[:> Provider …]`
+            ;; mount calls `(name kw)` on prop values and drops the
+            ;; namespace before React sees it).
+            ;; Per rf2-qgms1: stamp `data-rf-story-variant-root` on
+            ;; the immediate wrapper around the decorated view (same
+            ;; reason as canvas.cljs) so the a11y panel can scope
+            ;; axe-core to ONLY the variant's rendered tree.
+            [rf/frame-provider {:frame variant-id}
+             [:div {:data-rf-story-variant-root (pr-str variant-id)}
+              (canvas/safe-decorated-view
+                (multi-substrate/render-view
+                  substrate variant-id view-id eff-args)
+                (:hiccup decorator-pack)
+                eff-args)]]))
         (when (seq errors)
           [:div {:style {:background (:danger-bg colors/tokens)
                          :border "1px solid #be4040"
