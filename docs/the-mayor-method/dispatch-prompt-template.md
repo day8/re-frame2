@@ -150,6 +150,36 @@ than the count. A rule written as a class does not re-drift.
 
 ---
 
+## A lean is a claim too — demand the number that decides it
+
+When a brief poses a choice between two designs and names which one the author favours,
+that lean is as unreliable as any count, and it fails in a worse way: the worker reads it
+as guidance rather than as a premise, so the premises-are-claims sentence does not catch it.
+
+So attach the measurement to the lean in the same breath. *"I think A beats B, and I want
+the cost that decides it, not a preference."*
+
+The evidence is one dispatch where every part of the author's lean was wrong and the number
+found it. The brief said compiling a doc corpus would beat growing a static checker, and
+guessed that speed was the risk. The worker measured: the compile takes **24.73s for 441
+files**, so the speed argument died. It then rejected compiling anyway, on three grounds the
+brief had not imagined — **12 of 25 required namespaces are imaginary**, so the compile runs
+against stubs whose fidelity nobody owns; only **52 of 206 blocks** open a namespace form, so
+the other 154 need grouping by hand, which is the very per-block harness the brief had named
+as disqualifying; and the job would move to a slower CI class already rejected elsewhere. Final
+margin: **0.12s against 46s, about 380x, for the same catch**.
+
+The same brief's fallback was wrong in a checkable way too — it prescribed scoping a rule
+**per page**, which flags **21 sites on a corpus that is correct**, where the item's own shape,
+**per section**, measures **0**. The worker followed the item over the brief and was right to.
+
+Two rules come out of that. **Ask for the cost whenever you state a lean** — it converts a
+confident wrong brief into a correct outcome, and costs the worker one measurement. And
+**say plainly that the item outranks the brief on scope**, because here the item's shape was
+right and the author's prescription was not.
+
+---
+
 ## Fences
 
 State what the worker owns, then what it may not touch **and who holds it**. Naming the
