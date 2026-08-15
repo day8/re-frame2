@@ -133,16 +133,21 @@
         ;; DOM the server already delivered, which is the flash this
         ;; branch exists to avoid.
         ;;
-        ;; THE SERVER HALF DOES NOT EXIST YET (rf2-kpig). Nothing in
-        ;; this tier opens a window around a server render, so
-        ;; `adopting-here?` reads `nil` there and the tray emits
-        ;; `:mounting` children that the hydrating client then renders
-        ;; `:present` — the divergence measured in
-        ;; `re-frame.hicasso.presence-ssr-seam-dom-cljs-test`.
-        ;; rf2-hic-046 has RULED the Render arm: a request-scoped
-        ;; server door will mint one window per request and make the
-        ;; two halves agree by construction. Until it lands, this line
-        ;; is client-only.
+        ;; THE SERVER HALF EXISTS NOW, ON ONE PATH (rf2-kpig, corrected
+        ;; by rf2-doadc). `re-frame.hicasso.server/render` opens a
+        ;; window per request and renders through `impl.mount/tree`, so
+        ;; `adopting-here?` reads a real open window on the server, this
+        ;; line settles, and the tray's children are `present` in the
+        ;; bytes — the phase the hydrating client's first pass also
+        ;; computes. That is the Render arm rf2-hic-046 ruled, landed.
+        ;;
+        ;; A server render taken by hand — `renderToString` over the app
+        ;; element, with no door — scopes no window, so `adopting-here?`
+        ;; reads `nil` there and the tray still emits `:mounting`
+        ;; children that the hydrating client renders `:present`. Both
+        ;; paths are measured in
+        ;; `re-frame.hicasso.presence-ssr-seam-dom-cljs-test`: §1 the
+        ;; windowless one, §5 the product door.
         next       (if (roots/adopting-here?) (presence/settle stepped) stepped)]
     ;; Adjusting state while rendering — React's own answer to "a value
     ;; derived from props that must persist". `step` is idempotent, so the

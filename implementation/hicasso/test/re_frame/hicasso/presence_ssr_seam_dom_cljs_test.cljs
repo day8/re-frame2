@@ -6,11 +6,19 @@
   ## What this file is, said plainly
 
   It is a **RECORD OF A MISSING REFUSAL, not a proof of parity.**
-  Presence has a server/client seam and the seam is currently OPEN: the
-  client half exists and the server half does not. Every row below drives
-  `react-dom/server` for real and hydrates those actual bytes, and what
-  they establish is the divergence, its cause, and the exact shape of the
-  repair that closes it. Nothing here claims presence round-trips.
+  Presence has a server/client seam, and §1–§4 measure it on the path
+  where it is open: a server render with no adoption window scoped over
+  it. Every one of those rows drives `react-dom/server` for real and
+  hydrates those actual bytes, and what they establish is the divergence,
+  its cause, and the exact shape of the repair that closes it.
+
+  **The repair has since landed as a product door**, and §5 is the
+  measurement of it: `re-frame.hicasso.server/render` opens a window per
+  request, and through it the tray's bytes say `present` (rf2-doadc). So
+  the verdict this file returns is now a SPLIT one — closed through the
+  package's server entry, open through a hand-rolled `renderToString` —
+  and neither half is claimed for the other. Nothing here claims presence
+  round-trips on a path §5 did not drive.
 
   ## The surface is dispositioned, and it does not do what its
   disposition says
@@ -40,20 +48,34 @@
   ## The census that says so
 
   `re-frame.hicasso.impl.roots/with-adoption` is the ONLY door onto the
-  adoption window's React context. Over the whole tree it has exactly one
-  product-source caller:
+  adoption window's React context. It is reached from exactly one place —
+  `impl.mount/tree`, and only for a handle carrying an `:adoption` window
+  — so the census is really a census of that window's MINTERS. When this
+  file was written there was one, `impl.mount/hydrate-root!`, and no
+  server entry, request scope or render helper anywhere.
 
-      implementation/hicasso/src/re_frame/hicasso/impl/mount.cljs:107
-        — inside `impl.mount/tree`, and only for a handle carrying an
-          `:adoption` window, which only `hydrate-root!` mints.
+  **THERE ARE TWO NOW, AND THE SECOND IS A SERVER DOOR** (rf2-doadc, the
+  door landed by rf2-b6jkj). `re-frame.hicasso.server/render` opens a
+  window PER REQUEST, hands `impl.mount/tree` a
+  `{:frame … :adoption <window>}` handle — the hydrating shape, so the
+  same fork on both sides of the wire — and closes it in a `finally`.
+  §5 drives that door and measures what it does to this seam, which is
+  the honest answer to the paragraph below: the seam is CLOSED on the
+  product path and stays open on the bare one.
 
-  There is no second caller anywhere: no server entry, no request scope,
-  no render helper. So on **every** server render `roots/adopting-here?`
-  reads the context default `nil`, `roots/adopting?` calls that closed,
-  and `impl.presence-react/presence-body` takes its ordinary
-  `:mounting` branch. The client's hydrating root reads a real open
-  window one line later and takes `:present`. Two different phases for
-  the same tree, decided on opposite sides of a wire.
+  So on a server render **that no window is scoped over**
+  `roots/adopting-here?` reads the context default `nil`,
+  `roots/adopting?` calls that closed, and
+  `impl.presence-react/presence-body` takes its ordinary `:mounting`
+  branch. The client's hydrating root reads a real open window one line
+  later and takes `:present`. Two different phases for the same tree,
+  decided on opposite sides of a wire.
+
+  That windowless render is still a path a consumer can spell — a
+  hand-rolled `renderToString`, which is exactly what [[server-bytes!]]
+  performs — so no row below is wrong and none is deleted here. What was
+  stale was the RECORD: this page read as though the seam had no product
+  answer, and one had landed.
 
   §1 measures that as a property rather than restating it, and its
   control shows the divergence is caused by the missing provider and by
@@ -77,9 +99,11 @@
                                    `:mounting` children
 
   Both now cite rf2-hic-046's RULED Render arm as DECIDED rather than
-  built, and both cite this file. §1 and §3 remain the
-  counter-measurement standing behind them: the two halves do not
-  agree, and nothing opens a window around a request.
+  built, and both cite this file. Both have since gone stale the other
+  way and are corrected again by rf2-doadc, because a window IS opened
+  around a request now. §1 and §3 remain the counter-measurement for the
+  path they name — the windowless render — and §5 is the measurement for
+  the path that has one.
 
   ## Why the existing presence witness did not catch this
 
@@ -111,9 +135,18 @@
 
   **RENDER.** A product server-render door that mints one window per
   request and scopes it over that request's tree — the fifth item of
-  rf2-6tmu's adopted repair shape, explicitly deferred there to
-  rf2-hic-046. §1's control is that door in one line, so the cost is
-  already measured. When it lands:
+  rf2-6tmu's adopted repair shape, deferred there to rf2-hic-046. §1's
+  control is that door in one line, so the cost was measured before it
+  existed.
+
+  **IT EXISTS** — `re-frame.hicasso.server/render` (rf2-b6jkj), driven by
+  §5. What that does NOT do is close this file, and the distinction is
+  the whole of rf2-doadc's triage: the rows below are about a render with
+  no window, which remains spellable by hand, so they keep measuring
+  what they always measured. What closing the file needs is a decision
+  that the windowless spelling is out of scope — and HS-33's disposition
+  is `docs/design/hicasso/product/dispositions.md`'s, not a witness's.
+  The transitions below stay written down for whoever takes it:
 
     §1  the `\"mounting\"` expectation becomes `\"present\"`, and the
         hand-installed control is deleted because the product does it.
@@ -185,6 +218,7 @@
             [re-frame.hicasso.impl.roots :as roots]
             [re-frame.hicasso.motion :as motion]
             [re-frame.hicasso.roots-frames-support :as sup]
+            [re-frame.hicasso.server :as server]
             [re-frame.test-support :as test-support]
             ["react-dom/server" :as react-dom-server]))
 
@@ -319,7 +353,8 @@
   (some-> (.querySelector container sel) .-textContent))
 
 ;; ---------------------------------------------------------------------------
-;; §1 — the real server render installs no adoption window
+;; §1 — a server render with NO window scoped over it installs no adoption
+;;      context, so presence enters
 ;; ---------------------------------------------------------------------------
 
 ;; The census, turned into a measurement. `renderToString` runs the tray's
@@ -332,7 +367,7 @@
 ;; [[server-bytes-under-a-hand-held-window!]] — and this row reds three ways
 ;; at once: `"present"` in the bytes, `:present` off the machine, and the
 ;; control no longer differing from the measurement it controls.
-(deftest the-real-server-render-installs-no-adoption-window-so-presence-enters
+(deftest a-windowless-server-render-installs-no-adoption-context-so-presence-enters
   (fresh!)
   (reset! !phases {})
   (let [real (server-bytes! [tray-screen {:tag :server}])]
@@ -603,3 +638,65 @@
                         (is (sup/every-server-node? ca ".screen, .value")))
 
                       (finally (mount/release! ha) (done))))))))))))
+
+;; ---------------------------------------------------------------------------
+;; §5 — the PRODUCT server door, which does scope a window, and what that
+;;      does to the seam §1 records
+;; ---------------------------------------------------------------------------
+
+;; THE ROW rf2-doadc ASKS FOR. §1 measures a `renderToString` with no window
+;; over it; this measures `re-frame.hicasso.server/render`, which opens one
+;; per request and hands `impl.mount/tree` the hydrating handle shape. The
+;; two rows differ in exactly one thing, so what separates their bytes is
+;; the window and nothing else — which is §1's control, now taken through a
+;; product door instead of by hand.
+;;
+;; It answers the triage question at source: the presence seam is CLOSED
+;; through this entry. `adopting-here?` reads a real open window on the
+;; server, `impl.presence-react/presence-body` settles, and the tray's
+;; children are `present` in the bytes a consumer ships — the phase that
+;; hydrates against a client whose first pass is also `present`.
+;;
+;; WHAT IT DOES NOT DO is retire §1. A hand-rolled `renderToString` is still
+;; a path a consumer can spell, and §1 is what that path costs. Which of the
+;; two spellings HS-33 is dispositioned against is `dispositions.md`'s, and
+;; a witness does not amend the row it witnesses.
+;;
+;; Node-safe for the same reason §1 is: `server/render` is a `renderToString`
+;; call and reads no `document`.
+(deftest the-product-server-door-scopes-a-window-so-presence-is-present-in-its-bytes
+  (fresh!)
+  (reset! !phases {})
+  (let [{:keys [html]} (server/render {:hiccup   [tray-screen {:tag :product}]
+                                       :snapshot {:label "alpha"}
+                                       :payload  [:label]})]
+
+    (testing "premise: the door rendered this tree, and the frame it minted
+              per request resolved the subscription"
+      (is (re-find #"class=\"screen\"" html) (str "got " html))
+      (is (re-find #"alpha" html)
+          (str "the per-request frame's subscription resolved — " html)))
+
+    (testing "**the seam is closed on this path.** The tray's child is
+              `present` in the bytes `re-frame.hicasso.server/render`
+              delivers, where §1's windowless render emits `mounting`.
+              `roots/adopting-here?` reads the window this door opened, so
+              `presence-body` settles on the server and the page ships the
+              phase a hydrating client's first pass also computes"
+      (is (= "present" (probe-text html))
+          (str "got " (pr-str (probe-text html)) " from " html))
+      (is (= :present (first (get @!phases :product)))
+          (str "and the machine computed it that way on the server's first
+                render; saw " (pr-str (get @!phases :product)))))
+
+    (testing "and the two producers really do differ, which is what makes
+              this a measurement of the WINDOW rather than of the door's
+              name. §1's bare `renderToString` over the same tree still
+              emits the enter phase"
+      (reset! !phases {})
+      (let [bare (server-bytes! [tray-screen {:tag :bare}])]
+        (is (= "mounting" (probe-text bare))
+            (str "got " (pr-str (probe-text bare)) " from " bare))
+        (is (not= (probe-text html) (probe-text bare))
+            "the product door and the hand-rolled path must differ, or this
+             row is measuring nothing")))))

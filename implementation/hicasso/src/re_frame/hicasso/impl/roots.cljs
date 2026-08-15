@@ -51,18 +51,22 @@
 (defn open-adoption-window!
   "Open a window and answer it — the ONLY handle on it there is.
 
-  Minted per `hydrate-root!` call — TODAY'S ONLY MINTER. Its one
-  product consumer is `impl.mount/tree`, which scopes it over that
-  root's subtree with [[with-adoption]] when the handle carries an
-  `:adoption`. **No server-render entry exists in this tier**, so a
-  server render finds no provider above it, reads the adoption
-  context's `nil` default, and [[adopting?]] calls that closed —
-  measured in `re-frame.hicasso.presence-ssr-seam-dom-cljs-test`.
+  TWO MINTERS, and each hands the window to the same consumer —
+  `impl.mount/tree`, which scopes it over the subtree with
+  [[with-adoption]] when the handle carries an `:adoption`:
 
-  rf2-hic-046 has RULED the Render arm for motion and presence, which
-  adds a second minter: one window per server render/request, scoped
-  over that request's tree (rf2-6tmu's repair shape, item 5). That
-  door is named here because it is DECIDED, not because it is built.
+  - `impl.mount/hydrate-root!`, once per hydrating client root; and
+  - `re-frame.hicasso.server/render`, once per REQUEST, closed in that
+    door's `finally` (rf2-b6jkj — the Render arm rf2-hic-046 ruled and
+    rf2-6tmu shaped as item 5 of its repair). Because both call `tree`,
+    the fork is decided once for both sides of the wire.
+
+  A render that neither door took — a hand-rolled `renderToString` over
+  the app element — still finds no provider above it, reads the adoption
+  context's `nil` default, and [[adopting?]] calls that closed. Both
+  paths are measured in
+  `re-frame.hicasso.presence-ssr-seam-dom-cljs-test`: §1 the windowless
+  one, §5 the product door.
 
   Born open: the renders that follow it are adopting server-rendered
   DOM until something calls [[close-adoption-window!]] on this very
