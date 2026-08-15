@@ -492,10 +492,6 @@
 ;; One round of this page's row in one segment
 ;; ---------------------------------------------------------------------------
 
-(defn- mark-predecessor! [coll id]
-  (swap! coll assoc :prev id)
-  nil)
-
 (defn- mount-round!
   [coll t {:keys [row-key props arms-for] :as spec} segment-id]
   (let [arms   (arms-for segment-id)
@@ -517,7 +513,7 @@
             (if (>= s (:warmup mount-sampling))
               (do (lane/collect! coll label ms)
                   (swap! acc update (:id arm) conj ms))
-              (mark-predecessor! coll label))))))
+              (lane/observe! coll label))))))
     @acc))
 
 (defn- run-round!

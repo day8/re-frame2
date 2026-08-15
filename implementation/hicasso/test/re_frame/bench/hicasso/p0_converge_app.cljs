@@ -185,9 +185,13 @@
   labelled with an arm from a DIFFERENT ROW, an artefact of the shared
   collector advancing its predecessor pointer only for recorded samples.
   The repairs are one ROW per page (a quarter of the work in a page, and
-  no cross-row adjacency to mislabel) and [[mark-predecessor!]] (the
-  warm-up advances the pointer without banking a sample, so every recorded
-  sample carries its real predecessor). The tolerance was not touched.
+  no cross-row adjacency to mislabel) and
+  [[re-frame.bench.hicasso.lane/observe!]] (the warm-up advances the
+  pointer without banking a sample, so every recorded sample carries its
+  real predecessor). The tolerance was not touched. That second repair
+  lived HERE, as a private `mark-predecessor!`, until `rf2-6ta5r` found
+  the same fault still standing in `lane/rounds!` — the shared loop this
+  entry does not use — and moved the one copy to the lane.
 
   ## What this entry does NOT measure
 
@@ -244,27 +248,6 @@
 
 (defonce ^:private gen (atom 1000))
 (defn- next-gen! [] (swap! gen inc))
-
-(defn- mark-predecessor!
-  "Advance the sample collector's `:previous` pointer WITHOUT banking a
-  sample. Warm-up samples call this.
-
-  `lane/collect!` both banks a sample and advances the pointer, so a
-  harness that skips it during warm-up leaves the first RECORDED sample of
-  a block tagged with whatever ran before the warm-up — an arm that has
-  not touched the site for twenty operations. The first cut of this entry
-  published exactly that and the guard refused it: `narrow/reagent-subs/
-  ctl-2x` was contaminated by a two-sample stratum labelled
-  `M1/reagent-subs/reagent-subs`, an arm from a different ROW. rf2-2rtt6.4
-  met the same class from the other side, where the untagged samples
-  became a `<none>` stratum reading 1.35x its siblings.
-
-  A predecessor label that names something that did not run immediately
-  before is not a weaker fact than a real one; it is a different fact
-  wearing its clothes."
-  [coll id]
-  (swap! coll assoc :prev id)
-  nil)
 
 ;; ---------------------------------------------------------------------------
 ;; Segments
@@ -768,7 +751,7 @@
                   (swap! acc update (:id arm) conj ms))
               ;; A warm-up sample is DISCARDED but it still ran, so it is
               ;; still the next sample's predecessor.
-              (mark-predecessor! coll label))))))
+              (lane/observe! coll label))))))
     @acc))
 
 ;; ---------------------------------------------------------------------------
@@ -865,7 +848,7 @@
                                        (swap! legs update [kind segment-id id] (fnil conj [])
                                               {:write write-ms :gap gap-ms :force force-ms})
                                        (update-in acc [:readings id] conj ms))
-                                   (do (mark-predecessor! coll label)
+                                   (do (lane/observe! coll label)
                                        acc))))))))))
 
 ;; ---------------------------------------------------------------------------
