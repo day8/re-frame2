@@ -762,7 +762,14 @@
     (set! (.-reaction cell) nil)
     (js/queueMicrotask
       (fn []
-        (when-not (.-disposed cell)
+        ;; `(nil? (.-reaction cell))` because [[acquire-cell!]] rebuilds the
+        ;; attachment too, the moment a commit reuses a cell this call left
+        ;; empty (rf2-phabt). Wiring a cell that already holds a reaction
+        ;; would add a SECOND `add-on-dispose!` hook to it, so the next
+        ;; disposal would invalidate twice, wire twice and compound — the
+        ;; guard is what makes the two writers idempotent with respect to
+        ;; each other rather than merely both correct.
+        (when (and (not (.-disposed cell)) (nil? (.-reaction cell)))
           (if (nil? (frame/frame-incarnation-token (.-frameKw cell)))
             (dispose-cell! cell)
             (do (wire-cell! cell)
@@ -940,6 +947,24 @@
                    (wire-cell! fresh)
                    (swap! !cells assoc sub-key fresh)
                    fresh))]
+    ;; **A REUSED cell may be holding nothing** (rf2-phabt).
+    ;; [[invalidate-cell!]] drops the reaction synchronously and defers the
+    ;; rewire to the microtask checkpoint, so between those two moments the
+    ;; table holds a cell with no reaction and no watch. A reader attached to
+    ;; it then is unreachable by [[mark-dirty!]] — the boundary renders the
+    ;; right value (a reaction-less cell takes [[cold-read!]]'s probe) and
+    ;; nothing notifies it until the deferred rewire lands. Measured: a
+    ;; boundary mounted in that window painted once and did not move on a
+    ;; write taken in the same turn.
+    ;;
+    ;; So the acquire wires it, and that is not a second owner of the rewire
+    ;; — it is this function keeping the promise its own first line makes.
+    ;; The deferral exists because `invalidate-cell!` is called from inside
+    ;; the registrar's hooks and frame teardown, *\"and none of them is a
+    ;; place to subscribe\"*; a commit is precisely such a place, which is why
+    ;; the whole cell table is commit-owned. Whichever of the two gets here
+    ;; first wires the cell and the other finds a reaction and does nothing.
+    (when (nil? (.-reaction cell)) (wire-cell! cell))
     (.push (.-readers cell) reg)
     cell))
 
