@@ -150,6 +150,27 @@ Reserved space — not implemented:
   `tools/story/spec/DESIGN-RATIONALE.md` §inline-substrate-failures);
   nothing in this repo has published yet. Once fired the template can
   ship reagent-slim as a third substrate choice.
+- **Hicasso.** Gated on the same trigger as reagent-slim — a published
+  `day8/re-frame2-hicasso` artefact. `release.yml` publishes twelve
+  coords and hicasso is not among them; `:hicasso-release` in
+  `test.yml` is an `:advanced` COMPILE gate, not a publish. An emitted
+  `deps.edn` names `{:mvn/version "{{rf2-version}}"}`, so scaffolding
+  this variant today would hand a new user a project whose very first
+  command fails to resolve its dependencies (rf2-48rk3).
+
+  **Hicasso is also not a substrate peer of `:reagent` and `:uix`, and
+  that ordering matters.** It mints no adapter — there is no
+  `:rf.adapter/hicasso` — and a Hicasso app installs the *UIx* adapter,
+  then mounts boundaries through it (`(rf/init! uix-adapter/adapter)`
+  then `(h/mount! …)`). What differs from the `:uix` variant is the
+  AUTHORING model, not the substrate. So the open design question is
+  whether this is a third value of `:substrate` at all, rather than a
+  flag on the UIx variant; it is not a mechanical fourth row in the
+  checklist above. Note also that the two `(not= substrate :reagent)`
+  guards in `hooks.clj` are a two-value idiom whose Story/SSR refusal
+  messages name UIx explicitly, and that Xray wiring keys off a `uix?`
+  boolean that a Hicasso host would need to join — Hicasso rides UIx,
+  so Xray cannot mount there either.
 - **TypeScript port.** Per Spec 000 — re-frame2 is a pattern, not a
   CLJS library. A `create-re-frame2-app` style npm template is
   reserved for a future iteration.
