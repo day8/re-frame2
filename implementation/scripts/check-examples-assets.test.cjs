@@ -247,58 +247,16 @@ it('isStandaloneExampleProject is true iff the dir carries its own shadow-cljs.e
   );
 });
 
-// Discover the standalone project roots on disk, and the host pages each one
-// actually serves. This is the PRECONDITION half of the prune assertion
-// (rf2-72gaq): the old LIVE test was a bare negative naming one path
-// (`ui/minimal-counter/`), so the day that scaffold is deleted — or merely
-// relocated, its ledger row being MOVE — it would assert 0 of 0 and stay green,
-// indistinguishable from a real pass by exit code. Discovering the subjects
-// instead of naming one keeps the assertion alive across the relocation, and
-// makes the day the LAST standalone project leaves examples/ a loud failure
-// rather than a quiet one. The walk deliberately does NOT prune standalone
-// roots (that is the behaviour under test) — it stops AT one, since the whole
-// subtree belongs to that project.
-function findStandaloneProjects(root) {
-  const fs = require('fs');
-  const found = [];
-  const hostPagesUnder = (dir) => {
-    const out = [];
-    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-      const full = path.join(dir, entry.name);
-      if (entry.isDirectory()) {
-        if (entry.name === 'node_modules') continue;
-        out.push(...hostPagesUnder(full));
-      } else if (entry.isFile() && isExampleHostPage(entry.name)) {
-        out.push(full);
-      }
-    }
-    return out;
-  };
-  const walk = (dir) => {
-    if (dir !== root && isStandaloneExampleProject(dir)) {
-      found.push({ root: dir, hostPages: hostPagesUnder(dir) });
-      return;
-    }
-    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-      if (!entry.isDirectory()) continue;
-      if (entry.name === 'node_modules' || entry.name === '_shared') continue;
-      walk(path.join(dir, entry.name));
-    }
-  };
-  walk(root);
-  return found;
-}
-
-const standaloneProjects = findStandaloneProjects(EXAMPLES_ROOT);
-
 // rf2-0yp7w.6 — the LIVE prune witness is RETIRED, on the instruction its own
 // vacuity guard carried: `examples/ui/minimal-counter` was the last standalone
 // example project (a dir bearing its own shadow-cljs.edn) and it retired with
 // the Freehand substrate it scaffolded, so the assertion has no subject and
-// could only pass 0-of-0. The PRUNE RULE itself stays — `isStandaloneExampleProject`
-// and the walk still drop such a project from the gallery asset walk, and the
-// unit test above pins the predicate — so a future standalone scaffold is
-// pruned on arrival rather than needing this rule rebuilt.
+// could only pass 0-of-0. Its on-disk discovery walk went with it — a helper
+// whose only caller was that assertion. The PRUNE RULE itself is untouched:
+// `check-examples-assets.cjs` still drops a standalone project from the
+// gallery asset walk, and `isStandaloneExampleProject` is pinned by the unit
+// test above — so a future standalone scaffold is pruned on arrival rather
+// than needing this rule rebuilt.
 
 // ---- FAIL-CLOSED host-page enumeration (rf2-3fc89f.31) -------------------
 //

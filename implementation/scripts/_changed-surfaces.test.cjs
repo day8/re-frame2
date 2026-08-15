@@ -4984,49 +4984,6 @@ test('the standalone freehand-artefact workflow is gone (one owner, not two) (rf
 });
 
 // ---------------------------------------------------------------------------
-// rf2-xwa4n — the F4g evidence-elision gate's CI arm.
-//
-// PR #6880 shipped a real control-build proof (`npm run
-// test:freehand-evidence-elision`: `:freehand-release` vs its goog.DEBUG=true
-// twin `:freehand-release-control`, the evidence doors ABSENT in one and
-// PRESENT in the other) and wired it into NOTHING. `rg
-// test:freehand-evidence-elision .github` returned no invocation, so the next
-// change to the schema, the dev gate, the mounted commit edge, the release
-// entry, the build config or the checker could merge without the proof running.
-//
-// Same three-part shape as rf2-drpa3.58 above: the classifier must ARM the
-// producer surfaces, the job must be gated on that output and run the command,
-// and the aggregator must depend on it. Break any one and the proof is
-// decorative.
-// ---------------------------------------------------------------------------
-
-const FREEHAND_EVIDENCE_PRODUCERS = [
-  'implementation/freehand/src/re_frame/freehand/evidence.cljc',
-  'implementation/freehand/src/re_frame/freehand/cell.cljc',
-  // rf2-xftdv — the dev-only CURRENT-OCCURRENCE index the commit seam writes
-  // and `disconnect!` drops from. It is a `defonce` atom on the render path,
-  // which is exactly the kind of state that must not ship, and it carries no
-  // runtime string literal so it can root no sentinel of its own: its absence
-  // follows from cell.cljc's gate. A change here is therefore a change to what
-  // the gate is holding back, and worth re-running the proof.
-  'implementation/freehand/src/re_frame/freehand/occurrences.cljc',
-  // rf2-xwa4n, merged-PR audit of #6888 — the SOLE mounted commit edge
-  // (`cell/commit!` in the useLayoutEffect reconcile) is what ROOTS
-  // `emit-commit-evidence!` and both positive-control door strings. It was
-  // missing from the shipped arm, so a shell change that deleted or redirected
-  // that call could strip the control bundle of its sentinels while the
-  // required job SKIPPED. The always-armed sole-requirer walk cannot cover it:
-  // that law proves require-reachability, and both namespaces stay
-  // require-reachable once the CALL is gone.
-  'implementation/freehand/src/re_frame/freehand/shell.cljs',
-  'implementation/freehand/test/re_frame/freehand/release_app.cljs',
-  'implementation/scripts/check-freehand-evidence-elision.cjs',
-  'implementation/shadow-cljs.edn',
-  'implementation/package.json',
-  'implementation/package-lock.json',
-];
-
-// ---------------------------------------------------------------------------
 // rf2-3mh2f — the .beads PR-boundary guard's CI arm.
 //
 // The classifier, the pre-commit hook and scripts/check-beads-pr-boundary.sh

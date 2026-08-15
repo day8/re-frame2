@@ -958,11 +958,10 @@
     :producer-ns '[re-frame.adapter.reagent
                    re-frame.adapter.reagent-slim
                    re-frame.adapter.uix
-                   re-frame.adapter.test-react
-                   re-frame.ui.substrate]
+                   re-frame.adapter.test-react]
     :chained?    true
     :design-bead "rf2-d4sf"
-    :description "React-context-tier frame-id reader (each adapter routes via current-adapter). rf2-vxgfnd.24: re-frame.ui.substrate routes it against plain-atom for the pure compiled-view runtime."}
+    :description "React-context-tier frame-id reader (each adapter routes via current-adapter)."}
    {:key         :adapter/current-component
     :producer-ns '[re-frame.adapter.reagent
                    re-frame.adapter.reagent-slim]
@@ -1034,8 +1033,7 @@
    {:key         :adapter/arm-hiccup-emitter-if-unarmed!
     :producer-ns '[re-frame.adapter.reagent
                    re-frame.adapter.reagent-slim
-                   re-frame.adapter.uix
-                   re-frame.ui.substrate]
+                   re-frame.adapter.uix]
     :chained?    true
     :design-bead "rf2-h9szm"
     :description "Precedence-safe, routed install-replay arm for the retained SSR hiccup emitter. `re-frame.substrate.adapter/install-adapter!` calls it (with the durable `:ssr/current-hiccup-emitter`) as part of its failure-atomic install transaction so a destroy → re-init cycle — or an SSR-before-adapter load order — re-arms the freshly-installed generation's `render-to-string` slot. Routed via `route-hook!` so ONLY the installed adapter's slot is re-armed (a loaded inactive adapter's arm never runs, so its throw cannot break the active boot); each adapter's impl arms its per-generation `emitter-cell` ONLY when otherwise unarmed, so a pre-init explicit custom emitter / reset is not silently overwritten by the retained default. Distinct from the broadcast `:reagent/set-hiccup-emitter!` chain the earlier replay used (rf2-h9szm). Not published by plain-atom / test-react, whose emitters are retained across a no-op dispose (no re-arm required)."}
@@ -1155,21 +1153,11 @@
     :design-bead "rf2-931pm"
     :description "Restore the no-op default focus predicate (no epoch focused). Withdraw counterpart of `:trace.cascade/set-focus-predicate!`; same no-Xray-consumer status — only the core `trace_cascade_captured_test` calls `re-frame.trace.cascade/clear-focus-predicate!` directly."}
 
-   ;; ---- re-frame.ui (compiled-view substrate; day8/re-frame2-ui) -----------
-   {:key         :ui/on-frame-destroyed!
-    :producer-ns 're-frame.ui.frames
-    :design-bead "rf2-vxgfnd.42"
-    :description "Transition the bounded frame-destroy victim set to :dead (re-frame.ui.reactive/teardown-frame!): every currently-connected ViewCell whose retained subscription targets name the destroyed frame, PLUS every still-disconnected but React-retained root-owned ViewCell whose last published subscription site values name it. The union is deduplicated and incarnation-scoped, so a same-id successor frame is never reaped; a ViewCell whose retained React fiber was already collected has left the weak-live root-cells registry and is not scanned. A dead cell's later read/probe follows the 03 §4 dead-cell lifecycle instead of throwing :rf.error/frame-destroyed off the observation port. Consumed by frame/destroy-frame! (fired before the liveness flip, against the still-live sub-cache); no-op when the day8/re-frame2-ui artefact is absent from the classpath. The disconnected-cell obligation is pinned by re-frame.ui.reactive-frame-teardown-cljs-test/frame-destroy-reaps-an-activity-hidden-cell."}
-
-   {:key         :freehand/on-frame-destroyed!
-    :producer-ns 're-frame.freehand.root
-    :description "Invalidate the Freehand INTERPRETED-mount root-ownership ledger on frame destroy — step 7 of the Spec 002 destroy recipe, the callback verb (pure side-table bookkeeping). Invoked as (f frame-id dying-incarnation-token): re-frame.freehand.root keeps a frame-id-keyed {:ownership {:handle :plan-author :plan-fingerprint} :refs} row, incarnation-scoped on the recorded handle token. When the dying incarnation's token is identical? to a row's handle token it TOMBSTONES that row (drops :handle, stamps :destroyed-at) — the epoch layer's step-11 compare-clean discipline, so a same-id successor row is untouched — and emits the loud :rf.warning/root-ensured-frame-destroyed-under-live-roots diagnostic when the tombstoned row still carries live refs (a root-ensured frame destroyed under N live roots, naming them). The DYING incarnation's token is threaded because the frame is already marked :destroyed? at hook time (frame-incarnation-token would read nil). Best-effort Layer-2 freshness/diagnostics ONLY: re-frame.freehand.root/frame-standing's live-token join stays the sole ownership authority even if this never fired. No-op when the day8/re-frame2 freehand artefact is absent (unbound). Published by re-frame.freehand.root, consumed by frame/destroy-frame!."}
-
    ;; ---- re-frame.hicasso (native-tier substrate; day8/re-frame2-hicasso) ---
    {:key         :hicasso/on-frame-destroyed!
     :producer-ns 're-frame.hicasso.impl.frames
     :design-bead "rf2-uejlj"
-    :description "Drop the Hicasso frame-ops row on frame destroy — step 7 of the Spec 002 destroy recipe, the callback verb (pure side-table bookkeeping). Invoked as (f frame-id): re-frame.hicasso.impl.frames memoises ONE row per frame — the `rf/capture-frame` bundle plus the ambient dispatch closure over it, both pinned to the incarnation that minted them — and its own eviction is LAZY, done by the SUCCESSOR's first lookup under the same id (rf2-hic-013 / rf2-x874). That bounds a client frame id, which is reused across incarnations, and bounds nothing for an id that never gets a successor: `re-frame.hicasso.server/render` mints a fresh `(gensym \"request-\")` per request, so before this hook a long-lived SSR process retained one captured bundle per request served. UNCONDITIONAL by key and carrying NO incarnation token, unlike the `:freehand/on-frame-destroyed!` sibling — a same-id successor is constructable only after the step-10 dissoc, so every row standing at hook time already belongs to a dead incarnation. RETENTION ONLY: eviction-on-destruction was measured and rejected as Hicasso's reincarnation SAFETY mechanism (PR #7749's NC6) and that verdict is unchanged — the lazy replacement remains the safety argument, and this hook merely stops an unreachable row outliving the process. No-op when the day8/re-frame2-hicasso artefact is absent (unbound). Published by re-frame.hicasso.impl.frames, consumed by frame/destroy-frame!."}
+    :description "Drop the Hicasso frame-ops row on frame destroy — step 7 of the Spec 002 destroy recipe, the callback verb (pure side-table bookkeeping). Invoked as (f frame-id): re-frame.hicasso.impl.frames memoises ONE row per frame — the `rf/capture-frame` bundle plus the ambient dispatch closure over it, both pinned to the incarnation that minted them — and its own eviction is LAZY, done by the SUCCESSOR's first lookup under the same id (rf2-hic-013 / rf2-x874). That bounds a client frame id, which is reused across incarnations, and bounds nothing for an id that never gets a successor: `re-frame.hicasso.server/render` mints a fresh `(gensym \"request-\")` per request, so before this hook a long-lived SSR process retained one captured bundle per request served. UNCONDITIONAL by key and carrying NO incarnation token — a same-id successor is constructable only after the step-10 dissoc, so every row standing at hook time already belongs to a dead incarnation. RETENTION ONLY: eviction-on-destruction was measured and rejected as Hicasso's reincarnation SAFETY mechanism (PR #7749's NC6) and that verdict is unchanged — the lazy replacement remains the safety argument, and this hook merely stops an unreachable row outliving the process. No-op when the day8/re-frame2-hicasso artefact is absent (unbound). Published by re-frame.hicasso.impl.frames, consumed by frame/destroy-frame!."}
 
    ;; NOTE: `:subs/resolve-sub-override` — the SUBSTITUTIVE
    ;; dev-only sub-override seam consulted by `re-frame.subs/subscribe`
