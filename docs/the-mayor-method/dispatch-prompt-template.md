@@ -178,6 +178,14 @@ confident wrong brief into a correct outcome, and costs the worker one measureme
 **say plainly that the item outranks the brief on scope**, because here the item's shape was
 right and the author's prescription was not.
 
+**A number the brief asserts is a lean too**, and it slips through by the same mechanism: a
+figure stated as guidance is read as instruction, so the premises-are-claims sentence never
+reaches it. Before writing a predecessor's figure into a brief, ask what produced it. One
+such figure — a bound a measurement window had derived from its own most-negative reading —
+went into the next brief as guidance and was reported to the operator before two independent
+refutations caught it, and one question would have caught it first: *what null arm produced
+that bound?*
+
 ---
 
 ## Fences
@@ -336,6 +344,36 @@ at all.
   about.
 - **One run at a time, never concurrent.** Concurrency is precisely the contention the window exists to
   exclude, so two runs the worker believes are independent still are not.
+- **Your published sentences are claims too, and they are audited.** For every summarising statement you
+  write, name the exact evidence that licenses it and check the arithmetic of any comparison in it. Do
+  not attribute an observed spread to a single cause unless your own data excludes the others — if your
+  queue samples include a non-zero inside a measurement phase, you may not call the dispersion the
+  instrument's alone. Name the estimator you actually computed, not the one the surrounding prose
+  habitually says. A hedged sentence that survives audit is worth more than a confident one that does
+  not. The warrant is three for three: every measurement change merged on one day was audited, and every
+  one had its published claim stated slightly stronger than its evidence — three different workers, all
+  exemplary on the run itself. One called three values *run-medians* when the code stored the arithmetic
+  MEAN of five per-round ratios, and the effect-versus-null separation those values carried was the whole
+  stated basis for the conclusion. One said a spread "loosely brackets" a figure that sat *above* the
+  maximum of its own three measured ratios, so it bracketed nothing. What slipped every time is the prose
+  ONE LAYER ABOVE the number: a worker that has just spent an hour being rigorous writes its summary in
+  ordinary confident English, and ordinary confident English overclaims. Not one audit overturned a
+  measurement or a refusal — what they corrected is the sentence a future reader will quote, and readers
+  quote the sentence, not the log. That is how a measured result becomes a false premise in someone
+  else's brief three weeks later. Premises-are-claims catches that on the INPUT side; this is the same
+  defect on the OUTPUT side, and nothing was checking it.
+- **An impossible reading cannot bound the quantity.** It tells you the instrument's error reached at
+  least that far. It does not calibrate the error and it does not bound the thing you are measuring. If
+  you report a bound, name the NULL OR CONTROL ARM that produced it. A bound derived from the impossible
+  readings themselves is not a bound — report the term as UNRESOLVED instead. The arithmetic: let an
+  observed delta *y* be an unknown positive true cost *t* plus estimator error *e*. A reading of
+  *y* = −0.0062 proves only that the negative error excursion exceeded 0.0062 + *t*; it does not make
+  ±0.0062 a calibrated symmetric floor, and it cannot upper-bound *t*. A most-negative observation is a
+  statement about the ERROR TERM, not about the quantity. Comparing most-negative readings from
+  *different* positive-cost arms at two window widths likewise cannot establish a floor-scaling factor.
+  One window reported membership as "bounded: < 0.006 ms/commit" from its own most-negative reading; the
+  merged-change audit refuted it, and the next window's second run then read −0.0141 — more than twice
+  the claimed floor — refuting it again on independent arithmetic.
 
 Report what ran, what refused and on which control, the raw numbers, and — as its own heading — what was
 **not** concluded. A window that publishes nothing still reports everything.
