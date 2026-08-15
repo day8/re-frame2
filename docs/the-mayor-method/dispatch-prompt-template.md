@@ -173,6 +173,21 @@ item's number. Measured drifts in one session: 8 to 9; "four hits" to 23 lines; 
 Better still, when the number will keep moving: brief the fix to name the **class** rather
 than the count. A rule written as a class does not re-drift.
 
+**An item's LIST OF SITES goes stale the same way, and it is worse than a count, because it
+drifts in MEMBERSHIP rather than in magnitude.** A count that has drifted is obviously
+suspect once re-run. A list looks equally authoritative whether or not its entries are still
+true, and it is wrong in two directions at once: an entry somebody else already fixed sends
+a worker to edit correct text — or to revert a repair — while a site the list never had is
+left live. Four items in one session named sites that were already amended, or asserted a
+verification that a different change had since falsified; one named "three of four" when the
+standing state was one.
+
+**So require the list be RE-DERIVED at the current tip, and require the DELTA to be
+reported.** The delta is a deliverable in its own right, not bookkeeping: it is the only
+signal that the item was stale, and without it the next reader inherits the same list with
+the same confidence. Where a worker returns "two of these five were already done", that is
+the item being corrected by the work, which is the system functioning.
+
 ---
 
 ## A lean is a claim too — demand the number that decides it
