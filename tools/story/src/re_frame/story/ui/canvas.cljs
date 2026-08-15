@@ -18,11 +18,20 @@
   - Surfaces variant-level errors inline (per `002-Runtime.md` §Substrate hooks +
     `:assertions`).
 
-  The canvas reads the registered `:component` keyword and renders via
-  `(re-frame.core/view <id>)` — this is the late-bind view lookup that
-  spec/004 exposes. The view must be registered against the
-  variant's frame; the runtime allocates the frame, so any
-  frame-scoped subscriptions resolve through it correctly."
+  The canvas reads the registered `:component` keyword and renders it
+  through the SUBSTRATE REGISTRY — `multi-substrate/render-view` looks the
+  variant's declared substrate up in `substrate->render-fn` and calls its
+  render fn. Both render branches resolve the renderer that way: the
+  side-by-side grid for a variant declaring two or more substrates, and the
+  single pane for a variant declaring one. The built-in `:reagent` render fn
+  is what performs the `(re-frame.core/view <id>)` late-bind lookup spec/004
+  exposes; a variant declaring `:substrates #{:uix}` reaches the UIx render
+  fn its host registered instead (rf2-3afns — before which the single-pane
+  branch called `rf/view` itself and painted Reagent regardless).
+
+  The view must be registered against the variant's frame; the runtime
+  allocates the frame, so any frame-scoped subscriptions resolve through it
+  correctly."
   (:require [clojure.string :as str]
             [reagent.core :as r]
             [re-frame.core :as rf]
@@ -607,41 +616,65 @@
         [multi-substrate/multi-substrate-grid variant-id]]
 
        :else
-       (let [resolved-view (rf/view view-id)]
-         (if resolved-view
-           ;; The variant's frame is already allocated; scope the
-           ;; rendered view's subscribe / dispatch to it (scope-only)
-           ;; via the merged `rf/frame-provider {:frame …}` shape, which
-           ;; routes through Reagent's `:r>` interop head so the namespace
-           ;; of a `:story.x/y`-shaped variant id survives the
-           ;; React-context round trip (a plain `[:> Provider …]` mount
-           ;; calls `(name kw)` on prop values and drops the namespace
-           ;; before React sees it).
-           ;;
-           ;; Stamp `data-rf-story-variant-root` on the
-           ;; immediate wrapper around the user-authored decorated view
-           ;; so the a11y panel (ui/a11y.cljs) can scope axe-core's
-           ;; scan to ONLY the variant's rendered tree — excluding the
-           ;; surrounding Story chrome (title bar, share button, open-
-           ;; in-editor chip, panels, sidebar, toolbar). Without this
-           ;; marker axe-core's `run()` against `document.body` flags
-           ;; Story's own UI as the source of violations, which is
-           ;; wrong: Story chrome a11y is Story's concern, not the
-           ;; variant author's.
-           ^{:key (str "single-" variant-id)}
-           [rf/frame-provider {:frame variant-id}
-            [:div {:key (str "variant-root:" (pr-str variant-id))
-                   :data-rf-story-variant-root (pr-str variant-id)}
-             ;; Bind the variant's resolved view-state
-             ;; subscription overrides for the view-render extent (a no-op
-             ;; wrapper when the variant authors none).
-             [sub-overrides-scope sub-ovr
-              (safe-decorated-view
-                [resolved-view eff-args]
-                (:hiccup decorator-pack)
-                eff-args)]]]
-           [:div {:style (:empty styles)}
-            (str ":component " (pr-str view-id) " is not registered as a view")])))
+       ;; SINGLE-PANE render. The renderer is resolved through the SAME
+       ;; substrate registry the grid branch above consults —
+       ;; `multi-substrate/render-view` → `substrate->render-fn` — keyed on
+       ;; the variant's ONE declared substrate.
+       ;;
+       ;; rf2-3afns: this branch used to call `(rf/view view-id)` itself and
+       ;; embed the result as a Reagent hiccup vector, so a variant declaring
+       ;; `:substrates #{:uix}` — a set of size one, which is exactly what a
+       ;; single-substrate UIx story looks like — rendered under REAGENT, with
+       ;; nothing said. The registry was real, public and simply not on the
+       ;; path almost every story takes. The `multi?` count above decides GRID
+       ;; vs SINGLE PANE and nothing else; it never decided the renderer, and
+       ;; the two arms now resolve one the same way.
+       ;;
+       ;; `render-view` also owns the two misses this branch used to hand-roll
+       ;; or swallow. A `:component` naming an unregistered view degrades to
+       ;; the same message via `reagent-render`; an unregistered substrate now
+       ;; degrades LOUDLY to `substrate :<id> is not registered` instead of
+       ;; silently painting Reagent — which is the user-visible half of this
+       ;; fix. Both are FRAGMENT-level; the grid keeps its own CELL-level pair,
+       ;; and `render-view`'s docstring says why the two are not folded.
+       ;;
+       ;; Decoration stays HERE, exactly once. `render-decorated-view` bundles
+       ;; render + decorate, but resolves the decorator refs itself, WITHOUT
+       ;; the mode / cell-override `run-opts` threaded into `resolve-decorators`
+       ;; above (see that binding's comment — an `[:arg …]` resolvable only
+       ;; through a mode layer throws without them). Calling it here would
+       ;; either decorate twice or lose those opts, so the canvas consumes the
+       ;; render half and keeps its own `safe-decorated-view` wrap.
+       ;;
+       ;; The variant's frame is already allocated; scope the rendered view's
+       ;; subscribe / dispatch to it (scope-only) via the merged
+       ;; `rf/frame-provider {:frame …}` shape, which routes through Reagent's
+       ;; `:r>` interop head so the namespace of a `:story.x/y`-shaped variant
+       ;; id survives the React-context round trip (a plain `[:> Provider …]`
+       ;; mount calls `(name kw)` on prop values and drops the namespace before
+       ;; React sees it).
+       ;;
+       ;; Stamp `data-rf-story-variant-root` on the immediate wrapper around
+       ;; the user-authored decorated view so the a11y panel (ui/a11y.cljs) can
+       ;; scope axe-core's scan to ONLY the variant's rendered tree — excluding
+       ;; the surrounding Story chrome (title bar, share button, open-in-editor
+       ;; chip, panels, sidebar, toolbar). Without this marker axe-core's
+       ;; `run()` against `document.body` flags Story's own UI as the source of
+       ;; violations, which is wrong: Story chrome a11y is Story's concern, not
+       ;; the variant author's.
+       ^{:key (str "single-" variant-id)}
+       [rf/frame-provider {:frame variant-id}
+        [:div {:key (str "variant-root:" (pr-str variant-id))
+               :data-rf-story-variant-root (pr-str variant-id)}
+         ;; Bind the variant's resolved view-state
+         ;; subscription overrides for the view-render extent (a no-op
+         ;; wrapper when the variant authors none).
+         [sub-overrides-scope sub-ovr
+          (safe-decorated-view
+            (multi-substrate/render-view
+              (first substrates) variant-id view-id eff-args)
+            (:hiccup decorator-pack)
+            eff-args)]]])
      (render-errors (:errors decorator-pack))
      (render-assertions assertions)]))
 

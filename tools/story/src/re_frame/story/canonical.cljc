@@ -120,26 +120,41 @@
      descendant subscribe reads the override at deref time via the
      `:subs/resolve-sub-override` core hook (consulted dev-only inside
      `subscribe`'s `interop/debug-enabled?` gate). See
-     `re-frame.story.sub-overrides` ns docstring §STATUS."
-     [{:keys [view frame effective-args sub-overrides decorators]}]
+     `re-frame.story.sub-overrides` ns docstring §STATUS.
+
+     The substrate is READ off the variant, not assumed. rf2-3afns: this hook
+     passed a LITERAL `:reagent` into the seam, so `render-variant` painted a
+     `:substrates #{:uix}` variant under Reagent — the same defect the canvas
+     single-pane branch carried, which is why the two agreed with each other.
+     The declared set rides the compiled plan at `[:world :substrates]` (folded
+     there by `plan/variant-plan`, so it arrives already `:extends`-merged) and
+     `ui-multi-substrate/single-render-substrate` reduces it to the one
+     substrate a single-tree render can paint under. Multi-substrate variants
+     that declare `:reagent` are unaffected."
+     [{:keys [view frame effective-args sub-overrides decorators plan]}]
      (sub-overrides/override-provider sub-overrides
        (ui-multi-substrate/render-decorated-view
-         :reagent frame view effective-args decorators))))
+         (ui-multi-substrate/single-render-substrate
+           (get-in plan [:world :substrates]) :reagent)
+         frame view effective-args decorators))))
 
 #?(:cljs
    (defn- install-render-host!
      "Wire the `render-variant` host-render hook. The
      render-prep core (`re-frame.story.render/prepare-render`) is host-free
      + JVM-testable; the actual painting of the active view is this CLJS
-     hook. It renders the active `:view` under the host substrate's render
-     fn, wrapped in the variant's `:hiccup` decorators via the SHARED
+     hook. It renders the active `:view` under the render fn registered for
+     the variant's DECLARED substrate, wrapped in the variant's `:hiccup`
+     decorators via the SHARED
      `re-frame.story.ui.multi-substrate/render-decorated-view` seam the
      canvas single-pane path also uses, inside the
      `render-host-scope` component so the resolved `:sub-overrides` surface
      at React render time via the override-context carriage
-     (spec/017 §View-state subscription overrides). The
-     result is a hiccup tree (the Reagent default) — the SAME decorated
-     render the canvas paints, so render-variant and the live shell agree.
+     (spec/017 §View-state subscription overrides). The result is whatever
+     that substrate's render fn returns — a hiccup tree for the `:reagent`
+     default — and it is the SAME decorated render the canvas paints, so
+     render-variant and the live shell agree. They agree on the SUBSTRATE too
+     (rf2-3afns): both read the declared set rather than assuming Reagent.
 
      The bare JVM installs NO render host, so `render-variant` returns
      `:cannot-run` there rather than a silent empty render."

@@ -262,6 +262,30 @@ each substrate **inline** in its own pane.
 The rationale for inline-rendering substrate failures is documented in
 [`DESIGN-RATIONALE.md`](DESIGN-RATIONALE.md) §inline-substrate-failures.
 
+### One declared substrate — the single pane
+
+The size of the declared set decides side-by-side panes versus a single
+pane, and **nothing else**. It does not decide the renderer. A variant
+declaring `:substrates #{:uix}` renders through the render fn registered
+under `:uix`, exactly as the `:uix` pane of a two-substrate variant would;
+Reagent is the default only because it is the default *declaration*, never
+because a set happens to hold one element.
+
+That matters for the substrate a story never names as much as for the one
+it does. Both render paths — the live canvas and the `render-variant` verb —
+resolve the renderer by looking the declared substrate up in the registry
+`register-substrate!` writes to. A single-tree render reduces the declared
+set to one substrate under a rule worth stating outright: **it never paints
+under a substrate the variant did not declare.** One declared substrate wins
+outright; a multi-substrate variant keeps the host default when it declared
+it, and otherwise gets a name-sorted pick from what it did declare.
+
+A declared substrate with no registered render fn is a **failure that says
+so**. The single pane renders the same inline diagnostic naming the missing
+substrate that the grid's error cell carries — it does not quietly fall back
+to Reagent, because a silent fallback tells the author their UIx component
+works when what they watched render was Reagent.
+
 ### Substrate-portable post-render hook
 
 DOM-mutating chrome that runs against the rendered output of a variant
