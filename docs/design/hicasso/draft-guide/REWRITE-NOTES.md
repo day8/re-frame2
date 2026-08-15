@@ -103,7 +103,7 @@ is not taught.
 
 ### Event callbacks
 
-The guide uses `h/fn` consistently. `:handler` remains a valid `defhost`
+The guide uses `h/event` consistently. `:handler` remains a valid `defhost`
 callback-contract value and is not the same thing as an `h/handler` macro.
 
 An `:on-submit` intent auto-prevents — the one position that does, and no second
@@ -127,7 +127,7 @@ These names are taught as the current guide contract but were identified by
 the source audit as names requiring explicit naming-ledger approval or final
 implementation confirmation:
 
-- `h/fn` and `h/frame`
+- `h/frame` (the callback form is settled: `h/event`, under `rf2-hic-066`)
 - artifact coordinates for Hicasso
 - root lifecycle configuration around `h/mount!`, `h/hydrate!`, `h/render!`,
   and `h/unmount!`
@@ -192,14 +192,15 @@ The following older draft ideas are not restored:
 - position-dependent callback forms
 - Chromium-only IME wording
 - pre-React-19 ref contracts
-- invented `h/event` spelling (product form is `h/fn`)
+- the retired `h/fn` spelling (the product form is `h/event`, renamed under
+  `rf2-hic-066`)
 - `::motion/*` override keys (shipped markers remain `::h/mounting` /
   `::h/unmounting`)
 
-The current guide teaches `h/fn` as the one callback form, `(rf/capture-frame
-(h/frame))` at foreign edges, app-db state ownership, CSS tokens, two server
-policies, a dedicated motion/presence chapter, user-visible budgets, and the
-browser-neutral controlled-input contract.
+The current guide teaches `h/event` as the one callback form,
+`(rf/capture-frame (h/frame))` at foreign edges, app-db state ownership, CSS
+tokens, two server policies, a dedicated motion/presence chapter, user-visible
+budgets, and the browser-neutral controlled-input contract.
 
 ## Chapter-level preservation record
 
