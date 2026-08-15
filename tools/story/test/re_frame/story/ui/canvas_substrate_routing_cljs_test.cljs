@@ -117,6 +117,15 @@
      :component  :views/probe
      :substrates #{:uix}
      :loaders    [[:noop/loader]]})
+  ;; rf2-sc5g0 — the same declaration, one level up. The STORY names the
+  ;; subject and the layer; the variant names neither and inherits both.
+  (story/reg-story* :story.substrate-story-scope
+    {:doc        "rf2-sc5g0 witness — story-level :component + :substrates"
+     :component  :views/probe
+     :substrates #{:uix}})
+  (story/reg-variant* :story.substrate-story-scope/inherits
+    {:doc     "Declares neither :component nor :substrates."
+     :loaders [[:noop/loader]]})
   (story/reg-variant* :story.substrate-routing/reagent-only
     {:doc        "Declares ONE substrate, Reagent — the unchanged baseline."
      :component  :views/probe
@@ -230,6 +239,59 @@
       (is (not (rendered-under-reagent? tree))
           "and not through Reagent")
       (story/destroy-variant! :story.substrate-routing/uix-only))))
+
+;; ===========================================================================
+;; rf2-sc5g0 — the same disagreement with the declaration ONE LEVEL UP
+;; ===========================================================================
+;;
+;; `plan/variant-plan` folded `:substrates` and `:component` from the VARIANT
+;; and its `:extends` chain only, so a STORY-level declaration never reached
+;; `[:world …]`. The canvas was unaffected (`variant-substrate-set` and
+;; `variant-component` walk to the story themselves) while `render-variant`
+;; read the plan and got nothing — the `:reagent` host default and a nil
+;; view. The two rows below are the pair: the canvas half is the CONTROL that
+;; was already right, the host half is the one that was wrong. Asserting only
+;; the host would not say they now agree, which is the property rf2-3afns
+;; established the plan exists to guarantee.
+
+(deftest story-level-declaration-reaches-the-render-variant-host
+  (testing "rf2-sc5g0 — a story declares the subject and the layer once; its
+            variant declares neither. `render-variant` must paint through
+            the :uix render fn. Before the fix the plan carried no
+            `:substrates` (so the host default :reagent won) and no
+            `:component` (so the view was nil)."
+    (story/register-substrate! :uix uix-stub-render)
+    (let [result (render/render-variant :story.substrate-story-scope/inherits)
+          tree   (e2e/expand-tree (:rendered result))]
+      (is (= :rendered (:status result)))
+      (is (rendered-under-uix? tree)
+          "the inherited layer reached the host — the substrate half")
+      (is (re-find #":views/probe" (e2e/text-nodes tree))
+          "and the inherited SUBJECT reached it too: the uix stub prints the
+           view-id it was handed, so a nil view would print `nil` here. This
+           is the `:component` half, which had no fallback in
+           `render/prepare-render` at all.")
+      (is (not (rendered-under-reagent? tree))
+          "and it did NOT fall back to Reagent")
+      (story/destroy-variant! :story.substrate-story-scope/inherits))))
+
+(deftest story-level-declaration-makes-canvas-and-host-agree
+  (testing "rf2-sc5g0 — the canvas single-pane path ALREADY honoured a
+            story-level declaration, which is exactly why the disagreement
+            was invisible: the live shell painted UIx while `render-variant`
+            painted Reagent, for the same variant. Both must now be UIx."
+    (story/register-substrate! :uix uix-stub-render)
+    (let [variant-id  :story.substrate-story-scope/inherits
+          canvas-tree (ready-tree variant-id)
+          host-tree   (e2e/expand-tree
+                        (:rendered (render/render-variant variant-id)))]
+      (is (and (rendered-under-uix? canvas-tree)
+               (not (rendered-under-reagent? canvas-tree)))
+          "the canvas — the control, unchanged by this fix")
+      (is (and (rendered-under-uix? host-tree)
+               (not (rendered-under-reagent? host-tree)))
+          "and the host, which is what changed")
+      (story/destroy-variant! variant-id))))
 
 ;; ===========================================================================
 ;; single-render-substrate — the policy, on its own terms
