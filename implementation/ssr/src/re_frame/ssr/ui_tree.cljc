@@ -7,7 +7,7 @@
   ## What this is, and what it is NOT
 
   `emit-ui-tree` receives an ALREADY-RENDERED version-1 structural tree
-  (the value `re-frame.ui.tree/render` / `ui.test/render` produced on the
+  (the value a compiled-view substrate's JVM render produced on the
   JVM) and folds it to an HTML string. It calls NOTHING: no view is
   invoked, no subscription is resolved, no frame is bound. Every view has
   run and every dynamic value is already a literal in the tree — a view
@@ -31,31 +31,32 @@
   code-bug `:rf.error/ui-tree-malformed` a malformed node past the gate
   throws. Two ids, one per failure class: version = the new id;
   structural = the shared tree-consumer id (004B §The SSR consumption
-  boundary; ruling on rf2-vxgfnd.97, Fable 2026-07-19). The Tier-1 gate
-  `re-frame.ui.semantic/normalize` keeps its deliberate REUSE of the
-  shared id — a different boundary, unchanged.
+  boundary; ruling on rf2-vxgfnd.97, Fable 2026-07-19). A Tier-1 normalize
+  gate REUSES the shared id deliberately — a different boundary, unchanged.
 
   ## One table, carried by the seam
 
   Emission applies the SERIALISATION HALF of [the DOM conversion table]
   (../../../spec/004B-UI-Tree-and-Conversion.md#the-dom-conversion-table--normative-rows)
-  and adds nothing to it. That table has two consumers — the `re-frame.ui`
-  client emitter and this JVM serialiser — and, because the Independence
-  rule forbids `re-frame.ssr` requiring `re-frame.ui` (production
-  `re-frame.ssr` never pulls the compiler onto the classpath), the seam
-  carries its OWN copy of the version-pinned rows. This is the same
-  `duplicated by intent` pattern `re-frame.ssr.emit/void-elements` and
-  `re-frame.ssr.html-helpers/unitless-style-props-camel` already use.
-  Provenance is `re-frame.ui.rules` / `re-frame.ui.semantic`; the copies
-  below are pinned byte-for-byte against that source by
-  `re-frame.ssr.emit-ui-tree-cljs-test` (which requires the UI compiler as
-  a TEST-ONLY dep), and the parity corpus catches any drift the two
-  emitters develop against react-dom.
+  and adds nothing to it. The rows below were once a deliberate verbatim
+  COPY of `re-frame.ui.rules` / `re-frame.ui.semantic`, carried because the
+  Independence rule forbids `re-frame.ssr` requiring `re-frame.ui`, and
+  pinned byte-for-byte against that source by a sibling test. **That
+  substrate has been retired (rf2-0yp7w), so these tables are now the
+  ORIGINALS and the pin is gone.** Nothing is duplicated any more and
+  nothing upstream can drift from them.
+
+  What keeps them honest without a second copy to compare against: the
+  react-dom parity corpus (004B §Emission is pure), which tests the rows
+  against react-dom's documented behaviour — the authority both copies
+  were always transcribing — plus the row-level assertions in
+  `re-frame.ssr.emit-ui-tree-cljs-test`. The react-dom version these rows
+  track is named per-table below; that version string is the thing to
+  check a row against, not another namespace.
 
   Scope note (rf2-3omxp): this seam is the tree->HTML CODE. The FULL
-  react-dom byte-parity corpus that pins the two emitters against each
-  other (004B §Emission is pure) is a separate S5 leaf; a compact copy of
-  the conversion-table rows the seam needs ships here."
+  react-dom byte-parity corpus (004B §Emission is pure) is a separate S5
+  leaf; only the conversion-table rows the seam actually needs ship here."
   (:require [clojure.string :as str]
             [re-frame.error :as error]
             [re-frame.ssr.hash :as hash]
@@ -68,9 +69,8 @@
 (def supported-tree-versions
   "The node-schema versions `emit-ui-tree` accepts. `#{1}` is a versioning
   scheme with exactly one implementation; bumping the integer edits this
-  set DELIBERATELY, in lockstep with the walk below. Mirrors
-  `re-frame.ui.semantic/supported-tree-versions` — the Tier-1 gate over
-  the same field."
+  set DELIBERATELY, in lockstep with the walk below. The Tier-1 gate over
+  the same field carries the matching set."
   #{1})
 
 (defn- validate-tree-version!
@@ -103,17 +103,16 @@
                     :supported supported-tree-versions}}))))
 
 ;; ---------------------------------------------------------------------------
-;; Conversion table — carried copies (provenance: re-frame.ui.rules /
-;; re-frame.ui.semantic; pinned byte-for-byte by the sibling test).
+;; Conversion table — the ORIGINAL rows (rf2-0yp7w retired the substrate
+;; these were once copied from and pinned against). Authority: react-dom.
 ;; ---------------------------------------------------------------------------
 
 (def standard-names
   "react-dom 19.2.0 `possibleStandardNames`, reduced to non-identity
   entries and keyed by both the kebab and the hyphen-collapsed lowercase
-  form. Verbatim copy of `re-frame.ui.rules/standard-names` (pinned by the
-  sibling test). Lookup rule (`react-prop-name`): data-*/aria-* verbatim;
-  exact key hit; collapsed-key hit; else verbatim (React's
-  unrecognized-name pass-through)."
+  form. Lookup rule (`react-prop-name`): data-*/aria-* verbatim; exact key
+  hit; collapsed-key hit; else verbatim (React's unrecognized-name
+  pass-through)."
   {"accent-height" "accentHeight"
    "accentheight" "accentHeight"
    "accept-charset" "acceptCharset"
@@ -407,9 +406,8 @@
 
 (def dom-attr-aliases
   "React prop name -> the DOM attribute name react-dom/server writes when
-  the two differ — the serialiser half of the conversion table. Verbatim
-  copy of `re-frame.ui.rules/dom-attr-aliases` (pinned by the sibling
-  test). Everything NOT in this map serialises as the prop name verbatim
+  the two differ — the serialiser half of the conversion table. Tracks
+  react-dom 19.2.0. Everything NOT in this map serialises as the prop name verbatim
   (react-dom 19.2.0 emits e.g. `readOnly` verbatim — HTML attribute names
   are ASCII case-insensitive)."
   (merge (into {}
@@ -436,7 +434,7 @@
   "Author kebab prop NAME (string, no namespace) -> React prop name.
   data-*/aria-* verbatim; recognized names via the react-dom vocabulary
   (kebab or hyphen-collapsed hit); unrecognized names verbatim (React 16+
-  pass-through). Mirrors `re-frame.ui.rules/react-prop-name`."
+  pass-through)."
   [n]
   (if (or (str/starts-with? n "data-") (str/starts-with? n "aria-"))
     n
@@ -448,7 +446,7 @@
   "Author kebab attr NAME (string, no namespace) -> the serialised DOM
   attribute name. data-*/aria-* verbatim; otherwise the React prop name
   mapped through `dom-attr-aliases`, falling back to the prop name
-  verbatim. Mirrors `re-frame.ui.rules/dom-attr-name`."
+  verbatim."
   [n]
   (if (or (str/starts-with? n "data-") (str/starts-with? n "aria-"))
     n
@@ -456,8 +454,7 @@
       (get dom-attr-aliases p p))))
 
 (def void-tags
-  "Tags that self-close and carry no children. Verbatim copy of
-  `re-frame.ui.rules/void-tags` (pinned by the sibling test); react-dom/
+  "Tags that self-close and carry no children. react-dom/
   server 19.2.0 throws for children on all of these INCLUDING param and
   keygen (menuitem also rejects children but is not self-closing, so it is
   not here)."
@@ -466,35 +463,32 @@
 
 (def boolean-attrs
   "HTML boolean attributes: true -> presence (attr=\"\"), false/absent ->
-  omitted. Verbatim copy of `re-frame.ui.rules/boolean-attrs` (pinned by
-  the sibling test); keyed by the hyphen-collapsed lowercase author name."
+  omitted. Tracks react-dom 19.2.0; keyed by the hyphen-collapsed
+  lowercase author name."
   #{"allowfullscreen" "async" "autofocus" "autoplay" "checked" "controls"
     "default" "defer" "disabled" "formnovalidate" "hidden" "inert" "ismap"
     "itemscope" "loop" "multiple" "muted" "nomodule" "novalidate" "open"
     "playsinline" "readonly" "required" "reversed" "selected"})
 
 (def booleanish-attrs
-  "true/false -> \"true\"/\"false\", never omitted. Verbatim copy of
-  `re-frame.ui.rules/booleanish-attrs` (pinned by the sibling test)."
+  "true/false -> \"true\"/\"false\", never omitted. Tracks react-dom 19.2.0."
   #{"contenteditable" "draggable" "spellcheck"})
 
 (def overloaded-boolean-attrs
   "true -> bare presence, false -> omitted, other values stringify.
-  Verbatim copy of `re-frame.ui.rules/overloaded-boolean-attrs` (pinned by
-  the sibling test)."
+  Tracks react-dom 19.2.0."
   #{"download" "capture"})
 
 (def property-only-attrs
-  "Names React never serialises to markup on NON-custom elements. Verbatim
-  copy of `re-frame.ui.rules/property-only-attrs` (pinned by the sibling
-  test); kept EMPTY as the named home for any future member the parity
+  "Names React never serialises to markup on NON-custom elements. Tracks
+  react-dom 19.2.0; kept EMPTY as the named home for any future member the parity
   corpus finds."
   #{})
 
 (defn escape-html
   "Full 5-char escaping (& < > \" ') for text and attribute values —
-  trusted-HTML (`:html`) nodes are the single bypass. Verbatim copy of
-  `re-frame.ui.rules/escape-html` (matches React's escapeTextForBrowser —
+  trusted-HTML (`:html`) nodes are the single bypass. Matches React's
+  escapeTextForBrowser (
   `'` -> `&#x27;`, NOT the `&#39;` `re-frame.ssr.html-helpers` uses for the
   hiccup tier)."
   [s]
@@ -606,8 +600,7 @@
 
 (defn- serialise-attr
   "One author-space `[k v]` -> `[final-name serialised-value]` or nil
-  (attribute absent from markup). Mirrors
-  `re-frame.ui.semantic/serialise-attr`. `:class` / `:style` are handled by
+  (attribute absent from markup). `:class` / `:style` are handled by
   the caller before this."
   [k v]
   (let [n         (name k)
@@ -954,8 +947,7 @@
   "The `:value`-on-`:select` row: inject `:selected true` into the option
   child(ren) whose value (their `:value` attr, else their text content) is
   in `selected`. Recurses into non-option element children (e.g.
-  `:optgroup`). Mirrors `re-frame.ui.semantic/mark-selected-options`, at the
-  raw-tree (author-space) level."
+  `:optgroup`). Operates at the raw-tree (author-space) level."
   [children selected]
   (mapv (fn [c]
           (cond
