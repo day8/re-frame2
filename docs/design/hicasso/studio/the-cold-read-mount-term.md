@@ -271,11 +271,15 @@ and settled between samples behind a residue equality gate that never fired):
 > because the sampling here is continuous rather than spaced, not because the
 > box was busier.
 >
-> Raw driver output for all three runs, unedited, is committed beside the
-> instrument at
+> Raw driver output for all three runs is committed beside the instrument at
 > `implementation/hicasso/test/re_frame/bench/hicasso/data/readprofile-07rnj/`
 > (`run1.txt`, `run2.txt`, `run3.txt` — `.txt` because the repo ignores
-> `*.log`).
+> `*.log`). Verbatim **except for one line per file**: the `shadow-cljs -
+> config:` banner, whose absolute path is replaced by `<worktree>` and marked
+> inline as redacted, because the portability gate refuses a tracked personal
+> home path and is right to. No figure, guard verdict or exit line was touched;
+> the directory's `README.md` states the redaction, and re-running the
+> reproduction above prints the banner with the reader's own checkout in it.
 > Reproduction: `HICASSO_INIT_FN=re-frame.bench.hicasso.read-profile-app/-main
 > HICASSO_OUT_DIR=out/hicasso-readprof node
 > implementation/hicasso/test/re_frame/bench/hicasso/run.cjs`.
