@@ -112,8 +112,11 @@ and settled between samples behind a residue equality gate that never fired):
 > baselining behind the runtime's own quiescence point, and phase B now runs to
 > completion — **three times in this window, `exit 0` each, both arm-order
 > guards reportable and the positive control passing on every run, the residue
-> gate never firing.** One session, one rig, Processor Queue Length 0 across
-> every measurement sample:
+> gate never firing.** One session, one rig. Processor Queue Length was sampled
+> 85 times across the window and read **0 on 82 of them**; the three non-zero
+> readings (1, 1, 2) all fell within a minute of a `shadow-cljs` compile start,
+> and two of those cannot be proven to sit outside run 3's measurement phase, so
+> they are quoted rather than dismissed:
 >
 > | run | `commit` p50 ms [min–max] | `c-local` p50 ms [min–max] | c-local/commit |
 > |---|---|---|---|
