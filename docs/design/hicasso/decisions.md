@@ -1519,7 +1519,9 @@ position in the same sense `ref` is — its value is coerced by the class rule r
 than by the generic prop conversion, and two spellings of it compose rather than the
 last write silently winning. The fold also deletes the map surgery the shorthand
 merge performed on every element carrying a shorthand; that is a structural change,
-and its clock effect is **unmeasured** like the rest of `:&`.
+and its clock effect is **not separately measured**. It is inside the figure *Cost,
+measured* prints — the witness's title field routes its class through `:&` — but
+nothing there apportions the fold its own share (`rf2-pqyxz`).
 (d) The **same key and the same law hold at a crossing** (a Hicasso view head, a
 `defhost` head, `[:>]`). `:&` is merged *before* any conversion, and the conversion
 that follows is the position's own — so a forwarded `:className` crosses under the
@@ -1557,12 +1559,52 @@ and the dispatched intents asserted identical between the renderings. The
 authoring result: four repeated attribute maps become one `field` helper and four
 call sites, and — the part that matters — the helper does not have to defend
 itself against what a caller forwards.
-**Cost, stated.** `:&` is an addition to the codec this programme took from
-reagent-slim, and the ruling that Hicasso authors no codec carries a caveat that
-such additions be measured rather than assumed. Structurally this one is a single
-`contains?` per attribute map, returning the map by identity when the key is
-absent, so it allocates nothing on an element that does not use it — but its clock
-cost is **unmeasured** and is named here rather than claimed away.
+**Cost, measured — the spelling is NOT free, and the ergonomic win is quoted with
+its price (`rf2-pqyxz`).** `:&` is an addition to the codec this programme took
+from reagent-slim, and the ruling that Hicasso authors no codec carries a caveat
+that such additions be measured rather than assumed. On an element that does NOT
+use it the structural claim stands and is unchanged: one `contains?` per attribute
+map, the map back by identity, nothing allocated. On an element that DOES use it,
+the clock was named here as unmeasured and now is not.
+
+The instrument is
+`implementation/hicasso/test/re_frame/bench/hicasso/amp_merge_clock_app.cljs`,
+built on the arm-pair shape `rf2-5yn9` uses for the direct-return escape: the
+*same page written twice* — the four attribute maps written out, against the
+`field` helper plus four `:&` call sites — read against a floor, a `:ctl-2x`
+positive control predicting 2.00x by construction, and a NULL arm (`:expanded-b`,
+a second boundary head over the identical body) whose reading is the instrument's
+resolution rather than a result. The witness is the same article-editor fieldset
+the paragraph above ports, at 100 boundaries: 1,001 elements, 400 `:&` sites,
+mounted through `run.cjs` on `:hicasso-bench` under `:advanced` with
+`goog.DEBUG` false, Chromium 147.0.7727.15. The fairness gate agrees the three
+judged arms build one 1,001-element page and is proven able to answer false before
+any clock is read.
+
+Three run-medians, each five rounds of three warm-up plus six samples, taken back
+to back on a quiet box, positive control passing in all three:
+
+| run | `:merged`/`:expanded` | per-round range | NULL `:expanded-b`/`:expanded` | per `:&` site |
+|---|---|---|---|---|
+| 1 | 1.270x | 1.188 – 1.386 | 1.013x | 2,625 ns |
+| 2 | 1.217x | 0.968 – 1.409 | 1.002x | 2,375 ns |
+| 3 | 1.253x | 1.195 – 1.405 | 1.001x | 2,375 ns |
+
+So on a page where every input carries one, the `:&` spelling costs about **25% of
+mount**, and about **2.4 µs per site**. It is outside instrument resolution: the
+three effect medians span 1.217 – 1.270 while the three null medians span
+1.001 – 1.013, and those two intervals do not touch. The per-round ranges are
+weaker evidence than that and are printed rather than leaned on — run 2's includes
+1.0, which is why the separation is claimed between runs and not within one.
+
+**What that figure is, and what it is not.** It prices the AUTHORING CHANGE whole:
+the caller map each call site builds, the `dissoc` the helper performs on it, and
+the codec's `merge-caller`. That is the honest denominator for HD-023's ergonomic
+claim, because `:&` without a wrapper to forward into is not a spelling anybody
+writes. It is NOT a figure for `merge-caller` alone, and nothing here apportions
+the 2.4 µs between the three; nor does it isolate (c″)'s shorthand fold, which
+rides the same measurement rather than being separated from it. Splitting them is
+its own bead and its own window.
 **Reopens** if a witness shows a merge the law cannot express without an escape.
 
 ## HD-024 — One callback form; the position selects the contract
