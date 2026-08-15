@@ -256,19 +256,20 @@ and settled between samples behind a residue equality gate that never fired):
 > there is no republished decomposition.
 >
 > **The box, sampled with real counters and reported whole.** Processor Queue
-> Length (`\System\Processor Queue Length`) was sampled **235 times** across
-> the window, back-to-back at 1 s during every run, and read **0 on 211 of
-> them**. Of the 24 non-zero readings: **10 are build-phase** — `run.cjs`
+> Length (`\System\Processor Queue Length`) was sampled **243 times** across
+> the window, back-to-back at 1 s during every run, and read **0 on 218 of
+> them**. Of the 25 non-zero readings: **10 are build-phase** — `run.cjs`
 > rebuilds the `:advanced` bundle unconditionally on every run and that
 > compile saturates this box — and they are the only large ones (2, 34, 57, 1,
 > 26 in run 2; 1, 1, 1, **93**, 1 in run 3), every one of them before the
 > bundle's own mtime. **10 are measurement-phase** and none exceeds 2 (five
 > 1s in run 2; 2, 1, 1, 1, 1 in run 3). Three more (all 1) fall inside run 1,
 > which was sampled without timestamps and whose readings therefore **cannot
-> be proven to sit in either phase**; the remaining one is a 1 on the idle box
-> before certification. The non-zero count is higher than the predecessor
-> windows' because the sampling here is continuous rather than spaced, not
-> because the box was busier.
+> be proven to sit in either phase**; the remaining two are a 1 on the idle box
+> before certification and a 1 on the idle box at close, with no run in flight
+> for either. The non-zero count is higher than the predecessor windows'
+> because the sampling here is continuous rather than spaced, not because the
+> box was busier.
 >
 > Raw driver output for all three runs, unedited, is committed beside the
 > instrument at
