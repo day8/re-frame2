@@ -96,7 +96,7 @@ State ownership is explicit: durable and application-visible ephemera live at ad
 ## Surface boundaries and exclusions
 
 - Prevention is explicit at every position except `:on-submit`, whose data spelling auto-prevents as the census-weighted default; no second auto-preventing position may be added, and a callback always owns its own event.
-- Callback contracts use literal intents, `h/event`, and ordinary functions rather than a positional taxonomy.
+- Callback *carriers* are literal intents, `h/event`, and ordinary functions — one small authoring roster, rather than a taxonomy of carrier forms the author picks a contract from. The *contract* each carrier is read under still comes from its position: HD-024 tabulates event, as-declared and render, as the [`h/event` entry](#proposed-core-surface) above states. (*This clause read* "Callback contracts use literal intents, `h/event`, and ordinary functions rather than a positional taxonomy" *until 2026-08-16, `rf2-0fd3b`.* What the exclusion rules out is a roster of forms; as written it denied the position table on its own page.)
 - Attribute forwarding uses an owned-wins pure merge recipe; a public helper exists only if repeated code warrants it.
 - Keep key maps restricted to keyboard event props.
 - Validate React refs instead of reserving an unproven vector-ref syntax.
