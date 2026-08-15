@@ -48,7 +48,11 @@ The order is what makes it accurate. Each step is a check the next depends on.
    **The plain history listing tells you a newer mutation exists, not what it says** —
    it prints commit, time, author and the item's title and status, and names no changed
    field. To see the change itself, `bd history <id> --json` carries a full item
-   snapshot per commit: compare the newest against its predecessor. **And if the bead
+   snapshot per commit. **Walk adjacent pairs newest-first until you reach the first
+   change to a text-bearing field** — description, notes, acceptance, design — because
+   the history carries duplicate checkpoint snapshots and status-only mutations, so
+   comparing the newest pair alone can truthfully report "nothing changed" while a
+   still-current instruction change sits a few pairs back. **And if the bead
    has children, re-enumerate them before concluding a decision is absent** — a ruling
    is sometimes recorded as a *new child bead*, where no amount of reading the parent
    will find it.
@@ -512,7 +516,10 @@ edited description can be the newest field on the bead. Use `bd history <id>`, w
 lists real mutation times newest-first, and `bd comments <id> --json` for comment
 `created_at`. THE PLAIN LISTING TELLS YOU A NEWER MUTATION EXISTS, NOT WHAT IT SAYS —
 it names no changed field, so for the change itself use `bd history <id> --json`, which
-carries a full snapshot per commit, and compare the newest against its predecessor. If
+carries a full snapshot per commit. WALK ADJACENT PAIRS NEWEST-FIRST UNTIL THE FIRST
+CHANGE TO A TEXT-BEARING FIELD (description, notes, acceptance, design): the history
+holds duplicate checkpoint snapshots and status-only mutations, so the newest pair alone
+can truthfully say nothing changed while a live instruction change sits behind it. If
 the bead has children, re-enumerate them too: a ruling is sometimes recorded as a NEW
 CHILD BEAD rather than as a note.
 
