@@ -250,16 +250,6 @@
      re-frame.ssr.error-projector
      re-frame.ssr.ring.lifecycle
      re-frame.router
-     ;; rf2-drpa3.35 / EP-0036 F4e — `re-frame.freehand.errors`'s
-     ;; `promote-egress!` ships the `:rf.error/view-render-failed` contained-
-     ;; render record. VETTED structural-only BY CONSTRUCTION: the `:summary`
-     ;; slot is the SAFE PUBLIC ENVELOPE (D019) — stable diagnostic id, view-id
-     ;; keywords, finite phase, frame id, fingerprint string, D020 evidence —
-     ;; carrying NO app-db, no props, no event payloads, no `ex-data`. The
-     ;; record adds only a host `:exception` residual (the documented exception
-     ;; non-goal) + a `:component-stack` host string + `:recovery :contained`.
-     ;; No slot lifts a value out of an event / app-db slice.
-     re-frame.freehand.errors
 
      ;; rf2-ov56u / ruling rf2-rqje9 — `re-frame.routing.url-change`'s
      ;; `emit-route-miss-error!` ships the URL-driven `:rf.error/no-such-handler`

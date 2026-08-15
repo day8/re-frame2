@@ -118,17 +118,17 @@
   rf2-sk5hf's first landing widened the walk to every artefact and guarded
   that with `(> artefact-count 1)` and `(>= file-count 8)`, which is not a
   guard on the claim it was written for: the tracked corpus is core=7,
-  epoch=1, freehand=1, routing=1, ssr=1, so dropping epoch, freehand, routing
-  OR ssr leaves 10 files across 4 artefacts and BOTH assertions stay green
-  while the honesty test goes blind to the omitted tree. The audit of that PR
-  measured exactly that.
+  epoch=1, routing=1, ssr=1, so dropping epoch, routing OR ssr leaves 9 files
+  across 3 artefacts and BOTH assertions stay green while the honesty test
+  goes blind to the omitted tree. The audit of that PR measured exactly that
+  against a five-artefact corpus, `freehand` being the fifth.
 
   A SUBSET rather than an equality: a new artefact with a claiming file must
   be scanned the moment it lands, and having to edit this set first would be
   the failure mode inverted — the walk narrowed by a red that looks like the
   gate working. So the set below is a floor on reach, and growth is silent by
   design. Removing an artefact from the repo is what edits it."
-  #{"core" "epoch" "freehand" "routing" "ssr"})
+  #{"core" "epoch" "routing" "ssr"})
 
 (defn- posix
   "`f`'s path with forward slashes, so one path predicate reads the same on
@@ -243,7 +243,8 @@
 
 (defn- artefacts-of
   "The artefacts contributing at least one of `files` to the domain — `core`,
-  `epoch`, `freehand`, `routing`, `ssr` as measured at rf2-sk5hf."
+  `epoch`, `routing`, `ssr`; `freehand` was the fifth at rf2-sk5hf and left
+  with its tree (rf2-0yp7w.6)."
   [^java.io.File root files]
   (if root
     (into (sorted-set) (keep #(artefact-of root %)) files)
