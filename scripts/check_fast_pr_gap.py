@@ -1170,10 +1170,17 @@ def run_self_tests(verbose: bool) -> int:
     check("real repo: >= 60 required jobs discovered", len(real.required) >= 60)
     check("real repo: at least one PARTIAL job (the item-3 class)", len(real.partial) >= 1)
     check(
-        "real repo: the EP-0036 donor grep is reported as an unrun STEP",
+        # The item-3 class needs a NAMED witness, not merely a non-empty count:
+        # one step, inside a job the spine DOES run, that the spine does not.
+        # This was the EP-0036 donor `git grep` inside `jvm-freehand` until
+        # rf2-0yp7w.6 deleted that job with the Freehand tree. The `cljs` job's
+        # Hicasso `:advanced` release build is the same shape and stands in its
+        # place: `test-fast-pr.sh` matches the `cljs` lane through its node-test
+        # run and never builds that bundle.
+        "real repo: an unrun STEP inside a spine-run job is reported (item-3 class)",
         any(
-            job.job_id == "jvm-freehand"
-            and any("git grep" in s.command for s in uncovered)
+            job.job_id == "cljs"
+            and any("build:hicasso-release" in s.command for s in uncovered)
             for job, uncovered in real.partial
         ),
     )
