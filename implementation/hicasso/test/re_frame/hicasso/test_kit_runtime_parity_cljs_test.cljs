@@ -95,7 +95,14 @@
       [:element tag]  is a native element
       [:fragment]     is a fragment
       [:opaque]       is an element only React can interpret
+      [:deferred]     is an unforced `delay`, handed onward untouched
       [:refused id r] is a loud error, with its id and its recovery
+
+  `[:deferred]` is a token rather than `[:foreign (pr-str v)]` because
+  the print of a `Delay` carries its `:status` and `:val` — a pin on
+  ClojureScript's internals that would red on a print change and say
+  nothing about Hicasso. What the row is about is that the value crosses
+  UNFORCED, and the token says exactly that.
 
   The refusal token carries the RECOVERY as well as the id, because the
   advice is half of what a refusal is: the audit that reopened this bead
@@ -112,6 +119,7 @@
           (nil? v)    [:nothing]
           (string? v) [:text v]
           (number? v) [:text (str v)]
+          (delay? v)  [:deferred]
           (react/isValidElement v)
           (let [t (.-type v)]
             (cond
@@ -288,6 +296,28 @@
                   "distinct. `:where` is the KIT here, deliberately: L2's own "
                   "opacity is the kit's claim to make, and the rows above show "
                   "what it looks like when a refusal is the runtime's instead.")}
+
+   {:case    "an unforced `delay` child carries the runtime's id AND its recovery"
+    :form    [:div (delay [:p])]
+    :subject (delay [:p])
+    :runtime [:deferred]
+    :refuses {:rf.error/id :rf.error/hicasso-deferred-read-at-boundary
+              :where       're-frame.hicasso.test
+              :recovery    :hand-a-function-or-deref-it-in-this-body}
+    :why     (str "THE ROW THE RECOVERY COLUMN EXISTS FOR (rf2-tsdik, after "
+                  "rf2-llps1). The kit borrows the RUNTIME's id here, and the "
+                  "runtime's recovery has to come with it: opacity is honest "
+                  "only where the runtime CAN read a form, and the `:runtime` "
+                  "column says it cannot read this one — an unforced `delay` "
+                  "crosses a native child position untouched, so the refusal "
+                  "waiting for the author is the crossing's, not React's. The "
+                  "kit answered this id with `:assert-it-at-l3` for a release, "
+                  "which pointed at a tier where the identical refusal waits, "
+                  "and a document gate (R10) had to be the thing that noticed "
+                  "— because the only test over the path asserted the id "
+                  "ALONE. `:where` is the KIT, on the `defhost` row's "
+                  "precedent: what is borrowed is the id and the advice, never "
+                  "the raising site.")}
 
    {:case    "an SVG subtree carries `:ns`, and `:foreignObject` reverts"
     :form    [:svg {:view-box "0 0 1 1"}
