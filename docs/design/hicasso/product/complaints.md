@@ -126,6 +126,7 @@ rowed in the Hicasso section, and is the single live id without the
 | `:rf.error/hicasso-native-map-as-child` | wrote a dynamic map in native props position, where it lands as a child | — |
 | `:rf.error/hicasso-native-slot-collision` | gave a native props map two source keys normalising to one React slot | — |
 | `:rf.error/hicasso-native-unknown-option` | gave an `n/defcomponent` declaration map a key outside its roster `#{:server}` — `:fallback`, `defhost`'s sibling option, being the one most often borrowed | — |
+| `:rf.error/hicasso-overlay-anchor-missing` | gave an overlay an `:anchor` naming a DOM id no element in the document carries. Omitting `:anchor` is legal and silent; naming one that resolves to nothing is the typo this catches | ch13 |
 | `:rf.error/hicasso-portal-no-target` | gave `h/portal` a `:target` that is not a DOM container — usually a lookup that answered nothing | — |
 | `:rf.error/hicasso-presence-child-not-hiccup` | gave a presence boundary a child that is not a hiccup vector | — |
 | `:rf.error/hicasso-presence-child-unkeyed` | gave a presence child no `:key` | — |
@@ -191,7 +192,6 @@ into the live table in the same PR.
 | `:rf.error/hicasso-test-native-is-opaque` | a native-tier element reaching the L2 semantic tree | the test kit's opacity family, once its L2 refusal covers native-tier elements as it already covers host and raw-React ones. The native tier landing does **not** promote this row — the emitter is the test kit's to write |
 | `:rf.error/hicasso-contenteditable-not-controllable` | a controlled `:value` binding on a contenteditable region | the controlled-input law |
 | `:rf.error/hicasso-route-link-bad-prefetch` | a route link's `:prefetch` carrying a value the link does not accept | the route-link door, once `:prefetch` is accepted rather than declined. **Not** `:rf.error/hicasso-route-link-prefetch-declined`, which is live today and retires under *Retiring later* below |
-| `:rf.error/hicasso-overlay-anchor-missing` | an overlay declaring an anchor that resolves to no element | the overlay module. **Spelling SETTLED** — the naming packet sat and [`naming-ledger.md`](naming-ledger.md) rows 30 and 40 applied their defaults (rf2-hic-065), keeping this spelling. What still holds the promotion is the act itself: the emitter and the Spec 009 row land with the move to `live`, and Spec 009 is hot zone |
 
 ## Retiring later
 

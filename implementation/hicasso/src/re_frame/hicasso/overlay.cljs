@@ -162,31 +162,34 @@
   controls inside anyway, and the wrap yields to a press one of them has
   already claimed with `preventDefault`.
 
-  ## Two things this bead deliberately did not do
+  ## An `:anchor` that names no element now REFUSES
 
-  **`:exit-ms` is not here.** Retaining a leaving node for its exit
-  animation is `re-frame.hicasso.motion`'s subject and already has a
-  machine, a terminal bound and a witness. Composing the two is worth
-  doing and is not this bead's; a second retention clock inside this
-  module would be the duplicate `motion` exists to prevent.
+  It used to be a no-op — the panel opened in the top layer at the UA's
+  default position, visibly unanchored, and said nothing. rf2-1ppe0
+  promoted the reservation, which per
+  `docs/design/hicasso/product/complaints.md` is ONE act and not three:
+  the emitter, the `spec/009-Instrumentation.md` row and the move of the
+  register row to `live` land together, because R3 and R6 of
+  `check_complaint_catalogue.py` red on either half alone. The spelling
+  was already settled by the naming packet (rf2-hic-065; ledger rows 30
+  and 40 applied their defaults, and row 30 records it as the corpus's
+  single deliberate mint), so what this took was the act rather than a
+  ruling.
 
-  **A missing `:anchor` does not refuse, and what holds the mint has
-  CHANGED.** The naming packet has sat (rf2-hic-065): ledger rows 30 and
-  40 applied their defaults, so `:rf.error/hicasso-overlay-anchor-missing`
-  is SETTLED and no longer a provisional spelling — row 30 records it as
-  the corpus's single deliberate mint and therefore a complaint-catalogue
-  obligation, not only a name. What remains is the promotion rule itself.
-  `docs/design/hicasso/product/complaints.md` carries the id as RESERVED,
-  and a reservation is promoted in ONE act — write the emitter, write the
-  `spec/009-Instrumentation.md` row, move the register row to `live` —
-  which R3 and R6 of `check_complaint_catalogue.py` enforce together, and
-  half of which is a hot-zone spec edit this module's surface does not
-  reach. Nothing in the module blocks it: `impl.overlay/claim-anchor!`'s
-  `when-some` is exactly where the missing element is dropped today, and
-  `impl.error/fail!` is the constructor the refusal would use. So an
-  `:anchor` that names no element is a no-op today: the panel opens in
-  the top layer at the UA's default position, visibly unanchored rather
-  than silently mispositioned."
+  `:rf.error/hicasso-overlay-anchor-missing` is raised from
+  [[re-frame.hicasso.impl.overlay/claim-anchor!]] — the ref callback, the
+  first moment the id can honestly be resolved. **Omitting `:anchor`
+  remains legal and silent**: a modal takes none, and a popover without
+  one is asking for the default position rather than failing to find a
+  trigger.
+
+  ## `:exit-ms` is still not here
+
+  Retaining a leaving node for its exit animation is
+  `re-frame.hicasso.motion`'s subject and already has a machine, a
+  terminal bound and a witness. Composing the two is worth doing and is
+  not this module's; a second retention clock inside it would be the
+  duplicate `motion` exists to prevent."
   (:require [re-frame.hicasso.impl.overlay :as impl-overlay]))
 
 (def ^{:doc "`overlay/popover` — an anchored, light-dismissable panel on
