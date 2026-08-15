@@ -318,6 +318,35 @@
       (when (seq (:substrates story-body))   (:substrates story-body))
       #{host-substrate}))
 
+(defn single-render-substrate
+  "Pick the ONE substrate a single-tree render paints under, given the
+  variant's declared substrate set and the host default. Pure data → data.
+
+  The side-by-side grid renders every declared substrate; a single-tree
+  render — the `render-variant` host hook — has to choose one, and the
+  choice is constrained by a rule this ns had no way to state before
+  rf2-3afns: **never paint under a substrate the variant did not declare.**
+
+  - Exactly one declared → that one. This is the whole point: a variant
+    declaring `#{:uix}` paints under `:uix`.
+  - More than one declared → `host-default` when the variant actually
+    declared it (the overwhelmingly common `#{:reagent :uix}` case, whose
+    behaviour is therefore unchanged), otherwise the name-sorted first of
+    the declared set. Sorted rather than `first`, because `first` over a
+    set of two is not a decision, it is whatever the hash order was.
+  - Nothing declared → `host-default`.
+
+  Choosing a single tree for a MULTI-substrate variant is a policy this
+  fn pins, not a feature: `render-variant` returns one render result and
+  always did. The grid remains the surface that shows all of them."
+  [substrates host-default]
+  (let [declared (set substrates)]
+    (cond
+      (empty? declared)                  host-default
+      (= 1 (count declared))             (first declared)
+      (contains? declared host-default)  host-default
+      :else                              (first (sort-by name declared)))))
+
 ;; ---- the multi-substrate grid component ---------------------------------
 
 (defn multi-substrate-grid
