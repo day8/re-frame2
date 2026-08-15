@@ -1665,11 +1665,11 @@ run-means 0.970 – 1.027, two intervals that do not touch. **The headline `25% 
 mount` and `2.4 µs per site` are left exactly as published.** This window was
 taken to settle the control's verdict, and re-pricing an effect on the strength
 of a run taken to test something else is the move this lane refuses; the two
-windows are also not one ensemble and are not pooled here. The remaining
-per-round vectors, printed for the same durability reason — effect
-`[1.41 1.2111 1.1188 1.2184 1.2469]`, `[1.2641 1.2526 1.1556 1.2584 1.1477]`,
-`[1.2872 1.2353 1.1566 1.2317 1.2368]`; null
-`[0.98 0.9889 0.8911 0.9655 1.0247]`, `[1.0189 1.0 1.0333 1.0337 1.0227]`,
+windows are also not one ensemble and are not pooled here. The window's remaining
+per-round vectors are printed for the same durability reason as the control's.
+Effect: `[1.41 1.2111 1.1188 1.2184 1.2469]`,
+`[1.2641 1.2526 1.1556 1.2584 1.1477]`, `[1.2872 1.2353 1.1566 1.2317 1.2368]`.
+Null: `[0.98 0.9889 0.8911 0.9655 1.0247]`, `[1.0189 1.0 1.0333 1.0337 1.0227]`,
 `[1.0532 1.0118 1.0602 1.0244 0.9868]`.
 
 **And what the re-take's dispersion may NOT be attributed to.** R1's null
