@@ -268,8 +268,8 @@ work cannot run in parallel.
 
 **Shape 1 — Solo.** One item, one change. Item id and verbatim title; two to four paragraphs of
 context with `file:line` citations; numbered concrete steps; a dedicated worktree and branch; the
-boundary block; claim the item; gates with exact commands; push and open the change with a
-`## Quality gates` section; report the change URL, a per-step summary and test deltas.
+boundary block; claim the item; gates with exact commands; push and open the change **as a draft**
+with a `## Quality gates` section; report the change URL, a per-step summary and test deltas.
 
 *A coverage or rigour pass must add at least one adversarial or negative case per surface.*
 Assertion-count growth alone only exercises the happy path.
@@ -377,6 +377,30 @@ at all.
 
 Report what ran, what refused and on which control, the raw numbers, and — as its own heading — what was
 **not** concluded. A window that publishes nothing still reports everything.
+
+---
+
+## Publishing the change
+
+**Push continuously, and publish the change as a DRAFT.** Pushed commits are the only durable worker
+state — a worker that dies mid-run takes its local commits with it — so the change goes up as soon as
+commits exist rather than at the end, and a gate still running is declared in the `## Quality gates`
+section as reliance on CI rather than waited out in silence.
+
+**Mark it ready for review as the last act before reporting done.** That one line is what stops
+push-as-you-go colliding with a merge loop that merges the moment CI goes green, because the merge
+criterion tests the CHANGE and nothing in it can see whether the author has finished. Twice in one
+session here a change was merged out from under a live worker: once the host's delete-on-merge removed
+the branch and the worker's next push recreated it, producing a duplicate change carrying a
+byte-identical diff; once a merge landed mid-gate, and the remainder took a whole extra change and
+review cycle to carry. Neither merge was wrong on the criterion — both were green on every clause.
+
+**Use the host's own draft flag rather than a rule to remember.** Merge commands refuse a draft, so the
+interlock is enforced where it cannot be forgotten, which is the property the no-stash rule and a
+mayor-side commit guard both have and the reason they hold. The rejected alternative was to have the
+mayor check worker liveness before every merge: it works, but it must be remembered on every merge
+forever, and it re-introduces exactly the worktree-activity sweep the merge loop deliberately does not
+do.
 
 ---
 
@@ -734,6 +758,8 @@ that noise.
   check, which is the half observed to actually catch it.
 - Worktree cleanup deleting *through* a link into the shared tree it points at → the worker unlinks before reporting
   done, and the cleanup path disarms before removing.
+- A change merged out from under a worker still working on it → it is published as a draft and marked ready
+  only as the author's last act, which the host enforces by refusing to merge a draft.
 - "Green locally" merged into a red CI gate → gate the transitive surface; merge on CI, not on the hand-off; a real
   failure gets a fix worker, never an override.
 - A passing synthetic test that routes around the real bug → reproduce the actual failing path.
