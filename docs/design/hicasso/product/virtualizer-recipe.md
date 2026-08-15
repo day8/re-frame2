@@ -22,7 +22,7 @@ The repo-root `examples/` tree was the other candidate and is the wrong home: ex
 
 That is the entire interop surface. Two declared positions carrying two different contracts, neither inferred from the prop's spelling; every other prop — `:count`, `:row-height`, `:viewport-height`, `:overscan`, `:pinned-index` — is ordinary data and needs no declaration at all.
 
-Both callbacks are written with `h/fn` rather than as intent vectors, and for one reason: the vendor invokes them **value-first** — `renderRow(index, offset)`, `onWindow(from, to)` — so there is no DOM event at argument one and nothing for a vector's markers to read. That is HD-024's motivating shape, and the one callback form receives the library's own arguments, in order.
+Both callbacks are written with `h/event` rather than as intent vectors, and for one reason: the vendor invokes them **value-first** — `renderRow(index, offset)`, `onWindow(from, to)` — so there is no DOM event at argument one and nothing for a vector's markers to read. That is HD-024's motivating shape, and the one callback form receives the library's own arguments, in order. The spelling is `h/event` at the `:render` position too, and that is not a slip: it is the single callback form, and which of its contracts applies comes from the position the declaration above named, never from the name.
 
 The application's foreign-dependency roster is **four** namespaces: `re-frame.core`, `re-frame.hicasso`, `re-frame.adapter.uix`, and the vendor. Three of those four are what the 100-cell grid names. Read as a table, that is the headline: **a serious third-party component costs one line on the roster and one declaration in the view.** No wrapper library, no adapter namespace, no interop shim.
 
@@ -31,7 +31,7 @@ The application's foreign-dependency roster is **four** namespaces: `re-frame.co
 ### Rule 1 — the key is the row's place in the MODEL
 
 ```clojure
-:render-row (h/fn [i offset]
+:render-row (h/event [i offset]
               (h/as-element
                 [ledger-row {:key (row-key i) :index i :offset offset}]))
 ```
@@ -76,7 +76,7 @@ The spec's adjective is doing work. Three properties, all of them real library f
 
 ### Which packages have them, audited by version
 
-A claim about a third-party API is not a fact until a version is attached to it, and these two packages have both changed their answer at least once. Each cell below names the API that answers the property and the release it was read from. The reading is off each package's own published declarations and source rather than its prose — `react-window@2.3.0/dist/react-window.d.ts` and its source map, `react-window@1.8.11/src/createListComponent.js`, and `@tanstack/virtual-core@3.17.7/dist/esm/index.d.ts`, the core that `@tanstack/react-virtual@3.14.9` depends on — taken 2026-08-13.
+A claim about a third-party API is not a fact until a version is attached to it, and these two packages have both changed their answer at least once. Each cell below names the API that answers the property and the release it was read from. The reading is off each package's own published declarations and source rather than its prose — `react-window@2.3.0/dist/react-window.d.ts` and its source map, `react-window@1.8.11/src/createListComponent.js`, and `@tanstack/virtual-core@3.17.7/dist/esm/index.d.ts`, the core that `@tanstack/react-virtual@3.14.9` depends on — taken 2026-08-13, and re-read off the same published declarations on 2026-08-16, when every cell below still held and each package's `latest` tag still resolved to the version named in its column heading.
 
 | property | `@tanstack/react-virtual` 3.14.9 | `react-window` 2.3.0 | `react-window` 1.8.11 |
 |---|---|---|---|
