@@ -698,6 +698,12 @@ version control's own object database. Never spray that acknowledgement across a
 
 Delete merged local and remote worker branches — **never one whose change is not verifiably merged**.
 
+**Enumerate the remote set separately, because it is not a subset of the local one.** Everything else in
+this loop starts from the worktrees, which is right for reaping and blind here: a branch whose worktree
+was removed and whose local ref was deleted still exists on the remote, and nothing you are looking at
+mentions it. One sat merged and undeleted through two hygiene passes, surfacing only when the remote list
+happened to be printed.
+
 **"Verifiably merged" needs a test, and where the project merges by REBASE the two obvious ones are
 both wrong — in opposite directions.** A rebase replays every commit under a new identity, so a
 merged branch never becomes an ancestor of the trunk and never stops reading as *ahead* of it.
