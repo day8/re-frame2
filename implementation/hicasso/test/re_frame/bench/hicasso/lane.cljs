@@ -596,7 +596,7 @@
                             ;; is what the next measured sample actually
                             ;; followed; [[observe!]] carries that across
                             ;; the gap so the guard's `:predecessor` factor
-                            ;; strata what ran rather than what was banked.
+                            ;; stratifies what ran rather than what was banked.
                             (observe! coll (label arm))))))
                     @acc))
                 (range rounds))]
