@@ -40,6 +40,17 @@ The evidence this freeze reads is reported, not restated, in
 > [`naming-findings-cp2.md`](naming-findings-cp2.md)'s for `rf2-hic-065` to consolidate. **Fourteen of
 > fourteen** laws remain frozen, unchanged by this. (`rf2-ewn6y`)
 
+> **Amended 2026-08-15.** [§5](#5-what-is-not-in-the-ordinary-surface)'s three naming rows had outlived
+> their spellings, and the post-rename recertification (`rf2-hic-090`) annotates them where §1's row was
+> annotated rather than rewriting any finding. `hfn` is on the facade as `event` (`rf2-hic-066`), so the
+> `h/handler` row's open question is settled — naming-ledger row 1 ruled `h/event` (operator, 2026-08-11)
+> and rejected `h/handler` as a cross-adaptor false friend. **The `hframe` row moved the other way and is
+> deliberately NOT closed**: row 18's *recommendation* is now an operator *ruling* to retire, but the
+> ruling is unexecuted, because the core seam it retires in favour of is `rf2-t32wg` — open, and awaiting
+> an operator spec ruling. So `hframe` is still on the door, its 152 occurrences across 39 files stay put
+> by `rf2-t32wg`'s own instruction, and nothing here may be read as retiring it. **Which names two
+> applications reached is untouched, and fourteen of fourteen laws remain frozen.**
+
 ## Where each fact lives
 
 | Fact | Owner |
@@ -209,13 +220,13 @@ Deliberately chosen breadth, twice, and neither application reached any of these
 
 | Not ordinary | Where it belongs |
 |---|---|
-| `hfn` — the one callback form | real callbacks, render props and imperative APIs (§4.1). An application with two text fields, a checkbox, a select and five buttons never needed one, because an intent vector said everything. |
-| `hframe` | [`naming-ledger.md`](naming-ledger.md) row 18 holds a **retire** recommendation — §4 already says core's frame doors are the frame doors. |
+| `hfn` — the one callback form, on the facade as `event` since `rf2-hic-066` | real callbacks, render props and imperative APIs (§4.1). An application with two text fields, a checkbox, a select and five buttons never needed one, because an intent vector said everything. |
+| `hframe` | [`naming-ledger.md`](naming-ledger.md) row 18 now carries an operator **ruling** to retire it, not the recommendation this row was written against — and the ruling is **not executed**: the seam it retires in favour of is `rf2-t32wg`, still open. §4 already says core's frame doors are the frame doors. |
 | `defhost`, `as-element`, `as-component`, `portal` | §4.3 host interop — Phase 3 freezes them from host witnesses, not from these. |
 | `::h/revision` | a reset that leaves **every other read the body makes `=`** — measured, not assumed (`rf2-36bd`). `impl.codec`'s `revision-key` is the mechanism: the revision is a value the body reads and its change *re-runs the body*, and the re-run's commit re-asserts the model over the DOM — so any re-render already does it. An ordinary discard moves three of the slice editor's reads and needs nothing. The populations that do need it are a **rejecting or normalising** field, and a DOM drifted by a route React never saw (autofill, an extension, a live composition); the controlled testbed's `revision` / `revision-strict` arms are the corpus's witnesses for both. |
 | `motion/presence` | the optional motion module. |
 | the whole `n/*` native tier | §5's rungs 3–5; Phase 3 freezes its grammar and ABI. |
-| `h/handler` (§4's spelling of the callback form) | the same row as `hfn`; the spelling is [`naming-ledger.md`](naming-ledger.md) row 1's. |
+| `h/handler` (§4's spelling of the callback form when this page was written) | the same row as `hfn`. [`naming-ledger.md`](naming-ledger.md) row 1 has since settled it: ruled `h/event` (operator, 2026-08-11) and swept by `rf2-hic-066`, with `h/handler` rejected as a cross-adaptor false friend. |
 | grouped-`use-subs` ergonomics beyond one call site | one grouped read between two applications. Consistent with the operator's standing ruling that it sits below the ergonomics bar. |
 
 **Being absent from this list is not a demotion.** Each has a real use case named in the
