@@ -15,24 +15,109 @@
    syntax. Variants with structural differences therefore use separate
    source files; small textual differences use substitution values
    (`{{story-tag}}`, `{{test-script}}`, and the `{{xray-*}}` /
-   `{{csp-style-src-note*}}` family carrying the Reagent-only Xray wiring
-   per the rf2-p6f6u ruling)."
+   `{{csp-style-src-note*}}` family carrying the Xray wiring per the
+   rf2-p6f6u ruling).
+
+   Which substrates get Xray, Story and SSR is DECLARED per substrate in
+   `substrate-registry` and read through `capability` — never derived by
+   comparing the substrate against one name. See that registry's
+   docstring for why (rf2-48rk3)."
   (:require [clojure.set :as set]
             [clojure.string :as string]))
 
 ;; -- substrate registry -----------------------------------------------------
 ;;
-;; Labels and badges share the same key set used for substrate validation.
+;; Labels, badges AND capabilities share the same key set used for
+;; substrate validation.
+;;
+;; WHY CAPABILITIES ARE DATA HERE RATHER THAN PREDICATES AT EACH USE SITE
+;; (rf2-48rk3). With exactly two substrates, "does this one ship Xray?"
+;; can be spelled either `(= substrate :reagent)` or `(not= substrate
+;; :uix)`, and the two agree — but only by the arithmetic of a two-element
+;; set. Both spellings were live in this file, and a third substrate made
+;; them DIVERGE: the emitted project got the Xray preload, the
+;; `[data-rf-xray-host]` slot and a README promising the panel, while
+;; `:xray-npm-deps` emitted empty — so its very first `shadow-cljs watch
+;; app` died on a missing JS dependency, the exact failure the
+;; `:xray-npm-deps` comment below records being bitten by once already.
+;;
+;; A capability is therefore a DECLARED property of a substrate, read
+;; through `capability` (which throws on an undeclared key rather than
+;; treating a missing key as false). There is no default arm for a new
+;; substrate to fall through, so the two-value idiom cannot come back.
+
+(def ^:private substrate-capability-keys
+  "Every key a `substrate-registry` entry must declare. Adding a
+   capability here without declaring it on every entry fails closed at
+   the first `capability` read — deliberately: a silently-false
+   capability is how the two-value idiom produced an emitted project
+   that could not compile."
+  #{:xray? :story? :ssr?})
 
 (def ^:private substrate-registry
-  {:reagent {:label "Reagent"
-             :badge-url "https://img.shields.io/badge/substrate-Reagent-1abc9c.svg"}
-   :uix     {:label "UIx"
-             :badge-url "https://img.shields.io/badge/substrate-UIx-3498db.svg"}})
+  "Substrate metadata + declared capabilities.
+
+   - `:xray?`  — the scaffold wires Xray (preload, `[data-rf-xray-host]`
+     layout host, host CSS, the machine-canvas npm deps, and the README
+     section that promises the panel). Xray's shell renders through the
+     ratom-family substrates; on an element-shaped React substrate the
+     panel cannot mount (rf2-p6f6u / rf2-qgfo4), so those substrates
+     promise nothing.
+   - `:story?` / `:ssr?` — the substrate has Story / SSR sources under
+     its `_<substrate>/` resource tree, so `:include-story?` /
+     `:include-ssr?` can be honoured. `template-fn`'s per-substrate
+     `case` is the other half of this fact; keep them in step."
+  {:reagent {:label     "Reagent"
+             :badge-url "https://img.shields.io/badge/substrate-Reagent-1abc9c.svg"
+             :xray?     true
+             :story?    true
+             :ssr?      true}
+   :uix     {:label     "UIx"
+             :badge-url "https://img.shields.io/badge/substrate-UIx-3498db.svg"
+             :xray?     false
+             :story?    false
+             :ssr?      false}})
 
 ;; -- :substrate coercion ----------------------------------------------------
 
 (def ^:private valid-substrates (set (keys substrate-registry)))
+
+(defn- capability
+  "Read declared capability `k` off `substrate`'s registry entry.
+
+   Fails closed on an UNDECLARED key rather than reading the `nil` a
+   missing key would return as false. That distinction is the whole
+   point: a substrate added without declaring `:xray?` should stop the
+   scaffold with a message naming the omission, not silently emit a
+   project whose Xray wiring and Xray dependencies disagree."
+  [substrate k]
+  (let [entry (substrate-registry substrate)]
+    (if (contains? entry k)
+      (boolean (get entry k))
+      (throw (ex-info ":rf.error/template-substrate-capability-undeclared"
+                      {:rf.error/id :rf.error/template-substrate-capability-undeclared
+                       :where      'template/capability
+                       :recovery   :fix-registration
+                       :reason     (str "Substrate " (pr-str substrate)
+                                        " does not declare the capability "
+                                        (pr-str k)
+                                        ". Every substrate-registry entry must "
+                                        "declare all of "
+                                        (pr-str substrate-capability-keys)
+                                        " — see the registry docstring "
+                                        "(rf2-48rk3).")
+                       :substrate  substrate
+                       :capability k
+                       :required   substrate-capability-keys})))))
+
+(defn- substrates-supporting
+  "The substrates whose registry entry declares capability `k` true.
+   Used to build refusal messages that name the CURRENT supporting set
+   rather than hardcoding one substrate's name."
+  [k]
+  (into (sorted-set)
+        (keep (fn [[substrate entry]] (when (get entry k) substrate))
+              substrate-registry)))
 
 (defn- coerce-substrate
   "Validate the `:substrate` arg. Accepts only a keyword (one of
@@ -265,33 +350,40 @@
                 :include-story? include-story?
                 :include-ssr?   include-ssr?})))
 
-    ;; Story and SSR currently have Reagent implementations only.
-    (when (and include-story? (not= substrate :reagent))
+    ;; Story and SSR are honoured only where the substrate DECLARES the
+    ;; sources for them (`:story?` / `:ssr?` in substrate-registry). The
+    ;; refusal used to read `(not= substrate :reagent)` — a two-value
+    ;; idiom that happened to be right, attached to a message that named
+    ;; UIx as the substrate being refused. Both now come off the registry,
+    ;; so the message names the CURRENT supporting set for any substrate.
+    (when (and include-story? (not (capability substrate :story?)))
       (throw (ex-info
                ":rf.error/template-include-story-reagent-only"
                {:rf.error/id :rf.error/template-include-story-reagent-only
                 :where     'template/data-fn
                 :recovery  :fix-registration
-                :reason    (str ":include-story? is Reagent-only in v1 "
-                                "(got :substrate " substrate
-                                "). UIx variants follow once "
-                                "Story's adapter coverage matches "
-                                "Reagent's.")
+                :reason    (str ":include-story? is not available on :substrate "
+                                substrate ". The Story playground is scaffolded "
+                                "for " (pr-str (substrates-supporting :story?))
+                                " today; the other substrates follow once "
+                                "Story's adapter coverage extends to them.")
                 :substrate substrate
+                :supported (substrates-supporting :story?)
                 :include-story? include-story?})))
 
-    (when (and include-ssr? (not= substrate :reagent))
+    (when (and include-ssr? (not (capability substrate :ssr?)))
       (throw (ex-info
                ":rf.error/template-include-ssr-reagent-only"
                {:rf.error/id :rf.error/template-include-ssr-reagent-only
                 :where     'template/data-fn
                 :recovery  :fix-registration
-                :reason    (str ":include-ssr? is Reagent-only in v1 "
-                                "(got :substrate " substrate
-                                "). UIx SSR variants follow once "
-                                "the per-substrate adapters demonstrate "
-                                "parity.")
+                :reason    (str ":include-ssr? is not available on :substrate "
+                                substrate ". SSR is scaffolded for "
+                                (pr-str (substrates-supporting :ssr?))
+                                " today; the other substrates follow once "
+                                "their adapters demonstrate SSR parity.")
                 :substrate substrate
+                :supported (substrates-supporting :ssr?)
                 :include-ssr? include-ssr?})))
     (let [{:keys [label badge-url]} (substrate-registry substrate)
           top             (:top data)
@@ -300,16 +392,24 @@
           main-file       (->file-path main)
           top-ns          (->ns-form top)
           main-ns         (->ns-form main)
-          ;; Xray wiring is REAGENT-ONLY (rf2-p6f6u ruling, 2026-07-22).
-          ;; Xray's panel shell renders through the ratom-family
-          ;; substrates; on the element-shaped React substrate (UIx) the
-          ;; panel cannot mount (rf2-qgfo4 made the mount verbs refuse
-          ;; cleanly), so the :uix scaffold stops promising it: no
-          ;; preload, no [data-rf-xray-host] layout host, no
+          ;; Xray wiring rides the substrate's DECLARED `:xray?`
+          ;; capability (rf2-p6f6u ruling, 2026-07-22; made a declared
+          ;; capability by rf2-48rk3). Xray's panel shell renders through
+          ;; the ratom-family substrates; on an element-shaped React
+          ;; substrate the panel cannot mount (rf2-qgfo4 made the mount
+          ;; verbs refuse cleanly), so such a scaffold stops promising it:
+          ;; no preload, no [data-rf-xray-host] layout host, no
           ;; day8/re-frame2-xray coord, no Xray npm deps — until real
           ;; element-substrate support lands (rf2-p6f6u (a), parked
           ;; behind a demand trigger).
-          uix?            (= substrate :uix)]
+          ;;
+          ;; THIS IS THE ONLY XRAY PREDICATE IN THE FILE, and it must
+          ;; stay that way: every `{{xray-*}}` / `{{csp-style-src-note*}}`
+          ;; value below branches on this one boolean. They previously
+          ;; branched on two different spellings of it, which agreed only
+          ;; because the substrate set had two members — see the
+          ;; substrate-registry docstring.
+          xray?           (capability substrate :xray?)]
       {:substrate           (name substrate)
        :substrate-kw        substrate
        :substrate-label     label
@@ -323,46 +423,51 @@
        ;; shell also loads the Tailwind dev compiler.
        :css-name            (if css (name css) "")
        :story-tag           (if include-story? ", with Story playground" "")
-       ;; Xray rides the dev build of the REAGENT scaffold only (the
+       ;; Xray rides the dev build of an `:xray?` scaffold only (the
        ;; {{xray-preload}} slot in the shared shadow-cljs.edn), and its
        ;; machine canvas compiles against two npm packages (@xyflow/react +
        ;; elkjs, required by day8/re-frame2-machines-viz). shadow-cljs
        ;; resolves JS deps from the project-local node_modules at compile
-       ;; time, so the Reagent package.json must carry both — omit them and
-       ;; the scaffold's first `shadow-cljs watch app` fails with a missing
-       ;; JS dependency (found by the rf2-b16va G1-G4 external-consumer
-       ;; validation; the in-repo emitted-test tier masks it by junctioning
-       ;; implementation/node_modules). The :uix variant ships no Xray
-       ;; pieces (rf2-p6f6u — see the `uix?` note above), so it emits
-       ;; empty. Pins ride lockstep with implementation/package.json
-       ;; (version_lockstep_test.clj).
-       :xray-npm-deps       (if (= substrate :reagent)
+       ;; time, so an Xray-wiring package.json must carry both — omit them
+       ;; and the scaffold's first `shadow-cljs watch app` fails with a
+       ;; missing JS dependency (found by the rf2-b16va G1-G4
+       ;; external-consumer validation; the in-repo emitted-test tier masks
+       ;; it by junctioning implementation/node_modules). THIS KEY IS WHY
+       ;; the predicate is now a declared capability: it was the one Xray
+       ;; value spelled `(= substrate :reagent)` while its siblings were
+       ;; spelled `(= substrate :uix)`, so a third substrate wired the
+       ;; preload and omitted these deps — exactly the missing-JS-dependency
+       ;; failure above (rf2-48rk3). A non-`:xray?` substrate ships no Xray
+       ;; pieces (rf2-p6f6u), so it emits empty. Pins ride lockstep with
+       ;; implementation/package.json (version_lockstep_test.clj).
+       :xray-npm-deps       (if xray?
                               (str ",\n    \"@xyflow/react\": \"12.4.2\","
                                    "\n    \"elkjs\": \"^0.11.1\"")
                               "")
-       ;; The shared shadow-cljs.edn's :app-build devtools slot. Reagent
-       ;; wires the Xray preload; :uix wires nothing (the emitted build map
-       ;; simply has no :devtools key).
-       :xray-preload        (if uix?
-                              ""
+       ;; The shared shadow-cljs.edn's :app-build devtools slot. An
+       ;; `:xray?` substrate wires the Xray preload; the others wire
+       ;; nothing (the emitted build map simply has no :devtools key).
+       :xray-preload        (if xray?
                               (str "\n   ;; :devtools/preloads loads Xray in dev watch/compile builds."
                                    "\n   ;; Once rf/init! installs the adapter, Xray auto-mounts into"
                                    "\n   ;; resources/public/index.html's [data-rf-xray-host] right-side host."
                                    "\n   ;; Cut from release builds automatically."
-                                   "\n   :devtools   {:preloads [day8.re-frame2-xray.preload]}"))
+                                   "\n   :devtools   {:preloads [day8.re-frame2-xray.preload]}")
+                              "")
        ;; The [data-rf-xray-host] right-side layout host in both
-       ;; index.html variants (root/ + _css_tailwind/). Dropped from :uix
-       ;; (no panel can fill it); kept on :reagent.
-       :xray-host-aside     (if uix?
-                              ""
+       ;; index.html variants (root/ + _css_tailwind/). Dropped from a
+       ;; non-`:xray?` substrate (no panel can fill it); kept where Xray
+       ;; mounts.
+       :xray-host-aside     (if xray?
                               (str "\n      <aside class=\"rf2-xray-host\""
-                                   " data-rf-xray-host></aside>"))
+                                   " data-rf-xray-host></aside>")
+                              "")
        ;; The .rf2-xray-host sizing rules + rationale comment in both
        ;; app.css variants. One value serves both files (their blocks are
-       ;; identical); empty for :uix, whose index.html ships no host.
+       ;; identical); empty for a non-`:xray?` substrate, whose index.html
+       ;; ships no host.
        :xray-host-css
-       (if uix?
-         ""
+       (if xray?
          (str "\n/* The Xray host reserves a RIGHT-side column (the aside follows"
               "\n * `<main id=\"app\">` in the DOM, so flex flow lays it to the right)."
               "\n * It only takes up space once Xray has populated it. In dev, the"
@@ -384,38 +489,29 @@
               "\n  box-sizing: border-box;"
               "\n  border-left: 1px solid #2a2a2a;"
               "\n}"
-              "\n.rf2-xray-host:empty { display: none; }"))
+              "\n.rf2-xray-host:empty { display: none; }")
+         "")
        ;; The plain-CSS index.html's CSP-comment style-src bullet. The
-       ;; Reagent text names Xray's inline-style reliance; the :uix text
+       ;; `:xray?` text names Xray's inline-style reliance; the other
        ;; doesn't reference a panel the scaffold doesn't ship.
        :csp-style-src-note
-       (if uix?
-         (str "- `style-src 'self' 'unsafe-inline'` — the generated views use"
-              "\n           inline `:style` props. Without `'unsafe-inline'` the first"
-              "\n           page would emit CSP violations. (To run with a strict"
-              "\n           `style-src 'self'`, move all inline styles to external CSS /"
-              "\n           a nonce — see README \"Production hardening\".)")
+       (if xray?
          (str "- `style-src 'self' 'unsafe-inline'` — the generated views use"
               "\n           inline `:style` props, and the default-on Xray devtools surface"
               "\n           injects `<style>` blocks and inline styles. Without"
               "\n           `'unsafe-inline'` the first page would emit CSP violations and"
               "\n           Xray's styling would be blocked. (To run with a strict"
               "\n           `style-src 'self'`, move all inline styles to external CSS /"
-              "\n           a nonce and drop Xray — see README \"Production hardening\".)"))
+              "\n           a nonce and drop Xray — see README \"Production hardening\".)")
+         (str "- `style-src 'self' 'unsafe-inline'` — the generated views use"
+              "\n           inline `:style` props. Without `'unsafe-inline'` the first"
+              "\n           page would emit CSP violations. (To run with a strict"
+              "\n           `style-src 'self'`, move all inline styles to external CSS /"
+              "\n           a nonce — see README \"Production hardening\".)"))
        ;; The Tailwind index.html's CSP-comment style-src bullet — same
        ;; honesty split, with the Tailwind Play-CDN clauses shared.
        :csp-style-src-note-tailwind
-       (if uix?
-         (str "- `style-src 'self' 'unsafe-inline'` — the generated views use"
-              "\n           inline `:style` props, the inline"
-              "\n           `<style type=\"text/tailwindcss\">` Tailwind SOURCE block below is"
-              "\n           an inline stylesheet, AND the @tailwindcss/browser CDN compiler"
-              "\n           injects a runtime `<style>` block of compiled utilities. Without"
-              "\n           `'unsafe-inline'` the first page would emit CSP violations and"
-              "\n           Tailwind's utilities would be blocked."
-              "\n           (To run with a strict `style-src 'self'`, move to the"
-              "\n           `@tailwindcss/cli` compiled build + external CSS / a nonce"
-              "\n           — see README \"Production hardening\".)")
+       (if xray?
          (str "- `style-src 'self' 'unsafe-inline'` — the generated views use"
               "\n           inline `:style` props, the default-on Xray devtools surface"
               "\n           injects `<style>` blocks and inline styles, the inline"
@@ -426,27 +522,25 @@
               "\n           both Xray's styling and Tailwind's utilities would be blocked."
               "\n           (To run with a strict `style-src 'self'`, move to the"
               "\n           `@tailwindcss/cli` compiled build + external CSS / a nonce and"
-              "\n           drop Xray — see README \"Production hardening\".)"))
-       ;; README "In-app devtools" section: Reagent documents the shipped
-       ;; panel; :uix notes the devtools story honestly (Xray rides the
-       ;; ratom-family substrates today, so the scaffold doesn't ship a
-       ;; panel it cannot mount).
+              "\n           drop Xray — see README \"Production hardening\".)")
+         (str "- `style-src 'self' 'unsafe-inline'` — the generated views use"
+              "\n           inline `:style` props, the inline"
+              "\n           `<style type=\"text/tailwindcss\">` Tailwind SOURCE block below is"
+              "\n           an inline stylesheet, AND the @tailwindcss/browser CDN compiler"
+              "\n           injects a runtime `<style>` block of compiled utilities. Without"
+              "\n           `'unsafe-inline'` the first page would emit CSP violations and"
+              "\n           Tailwind's utilities would be blocked."
+              "\n           (To run with a strict `style-src 'self'`, move to the"
+              "\n           `@tailwindcss/cli` compiled build + external CSS / a nonce"
+              "\n           — see README \"Production hardening\".)"))
+       ;; README "In-app devtools" section: an `:xray?` substrate documents
+       ;; the shipped panel; the others note the devtools story honestly
+       ;; (Xray rides the ratom-family substrates today, so the scaffold
+       ;; doesn't ship a panel it cannot mount). The non-Xray text names
+       ;; the chosen substrate via `label` rather than hardcoding "UIx",
+       ;; so it stays true for whichever substrate receives it.
        :xray-readme-devtools
-       (if uix?
-         (str "## In-app devtools"
-              "\n"
-              "\nThis scaffold does not wire Xray (re-frame2's in-app devtools"
-              "\npanel). Xray's panel shell renders through the ratom-family"
-              "\n(Reagent) substrates today; on a UIx app — an element-shaped React"
-              "\nsubstrate — the panel cannot mount, so the scaffold ships no"
-              "\npreload, no layout host, and no dependency it cannot honour. The"
-              "\nReagent scaffold ships Xray on by default; UIx support follows once"
-              "\nXray mounts on element substrates."
-              "\n"
-              "\nYou still get re-frame2's instrumentation without the panel: the"
-              "\nerror sink registered at the top of `events.cljs` surfaces every"
-              "\ndispatch-pipeline error on the console, and `dev/scratch.cljs` is"
-              "\nthe REPL on-ramp for driving the running app.")
+       (if xray?
          (str "## In-app devtools (Xray)"
               "\n"
               "\n`shadow-cljs.edn` wires `day8.re-frame2-xray.preload` into"
@@ -466,36 +560,50 @@
               "\n/ fx / interceptor rows) renders a jump-to-source link, so you can"
               "\nclick straight from a dispatch in the log to the form that defined the"
               "\nhandler. No extra preload or wiring — it ships with the Xray preload"
-              "\nabove."))
+              "\nabove.")
+         (str "## In-app devtools"
+              "\n"
+              "\nThis scaffold does not wire Xray (re-frame2's in-app devtools"
+              "\npanel). Xray's panel shell renders through the ratom-family"
+              "\n(Reagent) substrates today; on a " label " app — an element-shaped React"
+              "\nsubstrate — the panel cannot mount, so the scaffold ships no"
+              "\npreload, no layout host, and no dependency it cannot honour. The"
+              "\nReagent scaffold ships Xray on by default; " label " support follows once"
+              "\nXray mounts on element substrates."
+              "\n"
+              "\nYou still get re-frame2's instrumentation without the panel: the"
+              "\nerror sink registered at the top of `events.cljs` surfaces every"
+              "\ndispatch-pipeline error on the console, and `dev/scratch.cljs` is"
+              "\nthe REPL on-ramp for driving the running app."))
        ;; README "Production hardening" — the development-flavoured meta
-       ;; CSP paragraph. The Reagent text explains Xray's inline-style
-       ;; reliance; the :uix text stands on the views' inline :style props.
+       ;; CSP paragraph. The `:xray?` text explains Xray's inline-style
+       ;; reliance; the other stands on the views' inline :style props.
        :xray-readme-csp-note
-       (if uix?
-         (str "**The shipped meta CSP is development-flavoured.** It sets"
-              "\n`style-src 'self' 'unsafe-inline'` because the generated views use"
-              "\ninline `:style` props — a strict `style-src 'self'` would emit CSP"
-              "\nviolations on the first page. The meta tag also drops"
-              "\n`frame-ancestors` (browsers ignore it from `<meta>`).")
+       (if xray?
          (str "**The shipped meta CSP is development-flavoured.** It sets"
               "\n`style-src 'self' 'unsafe-inline'` because the generated views use"
               "\ninline `:style` props and the default-on Xray devtools surface injects"
               "\n`<style>` blocks and inline styles — a strict `style-src 'self'` would"
               "\nemit CSP violations on the first page and block Xray styling. The meta"
-              "\ntag also drops `frame-ancestors` (browsers ignore it from `<meta>`)."))
+              "\ntag also drops `frame-ancestors` (browsers ignore it from `<meta>`).")
+         (str "**The shipped meta CSP is development-flavoured.** It sets"
+              "\n`style-src 'self' 'unsafe-inline'` because the generated views use"
+              "\ninline `:style` props — a strict `style-src 'self'` would emit CSP"
+              "\nviolations on the first page. The meta tag also drops"
+              "\n`frame-ancestors` (browsers ignore it from `<meta>`)."))
        ;; README "Production hardening" — the drops-'unsafe-inline'
-       ;; parenthetical. Reagent names the Xray preload/nonce options; :uix
-       ;; needs only the externalise-styles step.
+       ;; parenthetical. The `:xray?` text names the Xray preload/nonce
+       ;; options; the other needs only the externalise-styles step.
        :xray-readme-inline-styles-note
-       (if uix?
-         (str "do this only after you have externalised"
-              "\nall inline styles — move the views' `:style` props to `css/app.css`"
-              "\nclasses")
+       (if xray?
          (str "do this only after you have externalised"
               "\nall inline styles — move the views' `:style` props to `css/app.css`"
               "\nclasses, and either drop the dev-only Xray preload from your release"
               "\nbuild [it already is — see \"In-app devtools\" above] or serve Xray under"
-              "\na nonce"))
+              "\na nonce")
+         (str "do this only after you have externalised"
+              "\nall inline styles — move the views' `:style` props to `css/app.css`"
+              "\nclasses"))
        ;; SSR emits a JVM test instead of the shared CLJS test.
        :test-script         (if include-ssr?
                               "clojure -M:test"

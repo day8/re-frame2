@@ -263,9 +263,13 @@ Three follow-on beads under [rf2-dolpf](003-DepsNew-Rebuild-Plan.md) §2.x:
 - README quick-start update (split README or `_with_ssr` variant —
   see §2.1).
 
-Scope: ~ Reagent only. UIx + Helix throw with a clear message
-("`:include-ssr?` is Reagent-only in v1; UIx + Helix variants
-follow once the SSR worked-example coverage matches Reagent's.")
+Scope: ~ Reagent only. Any substrate that does not declare the `:ssr?`
+capability throws with a clear message naming the chosen substrate and
+the set that currently supports SSR — see
+[001 §Substrate capabilities](001-Substrate-Variants.md#substrate-capabilities).
+(This plan predates that mechanism and originally specified a message
+hardcoding "UIx + Helix variants follow"; rf2-48rk3 replaced the
+hardcoded substrate names with the registry-derived supported set.)
 
 ### 3.2 Bead B — emit the SSR file body under `_reagent/`
 
