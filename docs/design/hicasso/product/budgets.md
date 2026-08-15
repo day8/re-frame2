@@ -498,9 +498,61 @@ containment statement above stands only as stated, against the aggregate
 denominator, and run 2's exclusion rests on the same aggregate — it is the
 conservative direction, and the published figure is run 1 alone either way.
 The instrument now records `:per-round` for the control alongside the escape,
-so the **next** run's verdict is readable from what it keeps. Taking that run
-is its own window and its own bead (`rf2-zcgps`); nothing here re-adjudicates
-`0.7418x`, which is an escape figure and not a control one.
+so the **next** run's verdict is readable from what it keeps.
+
+**That next run was taken on 2026-08-16, and it REFUSED — at the arm-order
+guard, not at the control (`rf2-zcgps`).** One run of the instrument as it now
+stands, on P-DEV-1, with `\System\Processor Queue Length` reading `0` across
+eight samples immediately before the run and `0` across eight immediately
+after. **No sample was taken inside the measured window** — a sample taken
+there reads the benchmark's own load — so nothing here claims the box was quiet
+*within* the window beyond that bracketing. The fairness gate agreed at 601
+elements two ways and was proven able to answer false, and `0` of `225`
+measured mounts failed their own read-back. The arm-order guard then refused:
+`:hiccup` read a `p50` of `2.3000 ms` `[2.1000–4.9000]` over the first third of
+the run against `1.9000 ms` `[1.7000–2.0000]` over the last — `1.2105×` apart
+with **disjoint** ranges — and a figure whose value depends on where in the plan
+it was measured is not a figure. `run.cjs` exited `2` and the guard's own
+verdict line is that no figure from the run may be published as measured.
+
+**`0.7418x` does not come off the page, and S8 still carries no strict
+verdict.** Those are two findings and not one. The rule `rf2-zcgps` was given
+is that the published escape falls if the STRICT CONTROL refuses, and it did
+not: computed on this run's samples it read `:ok? true`, all five rounds inside
+`[1.500–2.500]`. But `:hiccup` is the denominator of the control *and* of the
+escape, so the guard's refusal reaches both legs of the run that produced that
+verdict — it is recorded below as data, never quoted as a verdict, and **the
+absence this section records stands unchanged.** The published figure is still
+run 1's, on run 1's own basis, and no window has yet re-adjudicated it.
+
+**The refused run's per-round values, so it can be re-adjudicated without being
+re-run.** This is the durability the two published runs lack, and it is kept
+here whether or not the run was reportable:
+
+- Control, per-round `:ctl-2x`/`:hiccup`: `[1.7143, 2.0714, 1.9535, 1.9167,
+  2.0263]` against the band `[1.500–2.500]`, `:outside` empty — worst round
+  `14.3%` under the `2.00x` prediction, best `3.6%` over.
+- Escape, per-round `:direct`/`:hiccup`: `[0.6250, 0.8095, 0.7907, 0.7778,
+  0.7895]`, whose `0.7585x` is an **arithmetic mean of those five per-round
+  ratios, each itself a ratio of within-round medians** — not a median at run
+  level.
+- Absolute per-mount `p50`s across the five rounds: floor `0.2500 ms`, hiccup
+  `2.1000 ms`, direct `1.7000 ms`, ctl-2x `4.2000 ms`.
+
+**The drift the guard caught is not `:hiccup`'s alone, and this page does not
+say what caused it.** All three page-mounting arms read slower in the run's
+first third than in its last by a similar factor — `:hiccup` `1.2105×`,
+`:ctl-2x` `1.2338×`, `:direct` `1.2000×` — and only `:hiccup`'s two ranges were
+disjoint, its last-third range being the tightest of the three at
+`[1.7000–2.0000]`. Every by-predecessor contrast passed on every arm. A common
+within-run decay of that shape is what an under-warmed run looks like, but one
+run, three warm-up samples per arm per round and a box read quiet only at its
+two ends do not separate warm-up from anything else that decayed over the same
+run, and no second cause was measured or excluded. Repairing it is the arm's
+job and the guard names the moves — more warm-up, fewer arms per round, a
+longer measured window — which is a rig change with its own bead (`rf2-h904p`)
+rather than a tolerance this page may widen. S8's strict verdict waits on that
+repair and a fresh window.
 
 ### The §6 user-visible budgets
 
