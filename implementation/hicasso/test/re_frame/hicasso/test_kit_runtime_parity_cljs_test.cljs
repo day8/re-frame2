@@ -148,6 +148,8 @@
 
 (h/defhost a-host js/Object {:server :client-only})
 
+(h/defview a-boundary [props] [:i (str (:x props))])
+
 (defn- raw-component [] nil)
 
 (def ^:private v ht/tree-version)
@@ -318,6 +320,45 @@
                   "ALONE. `:where` is the KIT, on the `defhost` row's "
                   "precedent: what is borrowed is the id and the advice, never "
                   "the raising site.")}
+
+   {:case    "an unforced `delay` in a BOUNDARY's PROPS — the row both sides refuse"
+    :form    [a-boundary {:x (delay 1)}]
+    :runtime [:refused :rf.error/hicasso-deferred-read-at-boundary
+              :hand-a-function-or-deref-it-in-this-body]
+    :refuses {:rf.error/id :rf.error/hicasso-deferred-read-at-boundary
+              :where       're-frame.hicasso.test
+              :recovery    :hand-a-function-or-deref-it-in-this-body}
+    :why     (str "THE POSITION THE ID IS NAMED FOR (rf2-dr0ad). The row above "
+                  "is a delay the runtime hands ONWARD; this is the one form "
+                  "it genuinely REFUSES — `codec/realize-deep` runs at the "
+                  "crossing and will not force an author's explicit deferral, "
+                  "so the props map is where the walk raises. Spec 009's row "
+                  "for this id states that trigger in those words. The kit "
+                  "answered its own generic `:rf.error/ui-tree-malformed` with "
+                  "`:hoist-it-to-its-own-site` here for a release — strictly "
+                  "vaguer than the runtime at exactly the crossing the refusal "
+                  "exists for, and advice with no exit, because the delay was "
+                  "already at its own site. Same class as rf2-llps1, cases "
+                  "reversed. `:where` is the KIT, on the row above's "
+                  "precedent.")}
+
+   {:case    "a REALIZED `delay` in a boundary's props CROSSES — the row above's control"
+    :form    [a-boundary {:x (doto (delay 1) deref)}]
+    :runtime [:opaque]
+    :refuses {:rf.error/id :rf.error/ui-tree-malformed}
+    :why     (str "`realize-deep` refuses only an UNFORCED delay: one the "
+                  "author already deref'd in their own body carries a computed "
+                  "value, derefs to it without calling anything, and is "
+                  "harmless wherever it goes — so the runtime builds the "
+                  "element and the `:runtime` column is opaque like any "
+                  "boundary's. Without this row the narrowing above is a "
+                  "predicate no test has ever seen false, and 'the kit refuses "
+                  "every delay in props' would read identically. The kit still "
+                  "refuses — a `Delay` is outside 004B's value grammar however "
+                  "forced — but with its OWN id, which is the honest one: "
+                  "nothing is waiting for this author at the crossing. The id "
+                  "ALONE is asserted; the generic arm's recovery wording is "
+                  "not this table's to endorse.")}
 
    {:case    "an SVG subtree carries `:ns`, and `:foreignObject` reverts"
     :form    [:svg {:view-box "0 0 1 1"}
