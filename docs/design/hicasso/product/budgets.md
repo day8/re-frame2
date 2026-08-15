@@ -1062,6 +1062,31 @@ bead on the K1 pattern — `rf2-hic-085` is the worked example — never to read
 settled row back into live-route mode. The gate is indifferent to all of this:
 it reads the cell for **shape, not for life**, and says so in its own output.
 
+**[Amended 2026-08-15, `rf2-4h0l8`.]** `S6` and `C2` **leave the live-route
+list above**, by this definition's own test rather than against it. The
+operator's delegated ruling of 2026-08-15 reads their *Disposition* — the K1
+price acceptance, ratified 2026-08-13 with its effective revision filled — as a
+**taken, complete** ruling carrying its own reopen conditions
+([`k1-price-acceptance.md` §7.1](k1-price-acceptance.md#71-reopen-conditions))
+and revert trigger ([§7.2](k1-price-acceptance.md#72-revert-condition)), which
+is the second mode's test verbatim; a remaining contingency is not a live
+transition. Both cells therefore keep `rf2-hic-085` as the bead that **took**
+the recording, exactly as `S1`, `S2` and `C5` keep `rf2-0xx2`, and the closed
+id there is correct rather than a defect. The discriminator is untouched, and
+it is what did the work: disposition state, never bead liveness.
+
+With that classification the **worked example retires**. `rf2-hic-085` is no
+longer a standing amendment-route bead, so the sentence above no longer has a
+live one to point at, and the escape hatch it describes is read
+**change-scoped**: should a taken disposition need amending, the fix is a route
+bead filed **when a concrete amendment is proposed**, scoped to that amendment
+and returning it to the record's named decider — not a bead held open against
+the possibility. That is the same repair at a later moment, and it leaves the
+sentence's prohibition exactly as written: a settled row is still never read
+back into live-route mode. The record's own machinery does the summoning either
+way, and `bd reopen rf2-hic-085` reuses the same id, so retiring the sentinel
+loses no address.
+
 <!-- rf2-hic-089: ledger -->
 
 | # | Registered line | Current value | Population | Status | Instrument (lane) | Authority | Disposition |
@@ -1187,6 +1212,15 @@ would fabricate ownership the programme withheld. Contrast `S6` and `C2` below,
 where a route to change the record does exist and the cell names it: same rule,
 other mode.
 
+**[Amended 2026-08-15, `rf2-4h0l8`.]** The contrast drawn in that last sentence
+no longer holds, and it is kept because this page annotates and never erases.
+`S6` and `C2` are **settled-mode rows too**, by the operator's delegated ruling
+of 2026-08-15: the K1 price acceptance is a taken, complete ruling carrying its
+own reopen and revert machinery, so the live route those two cells were said to
+name has retired with the classification. Same rule, and now the **same** mode
+— the reasoning is at the `S6` and `C2` bullet below. Nothing about `S1`, `S2`
+or `C5` changes with it.
+
 - **No package-resident clock instrument exists.** `U1`, `U2`, `U3` and `U4`
   are latency budgets, and §4 says in terms that they cannot be pinned until
   such an instrument exists. `C3` and `C4` are the comparative rules stated on
@@ -1240,6 +1274,26 @@ other mode.
   and the consequence is written down rather than worked around: `rf2-hic-085`
   stays open while this record stands, and closing it would leave both rows
   pointing at nobody.
+  **[Amended 2026-08-15, `rf2-4h0l8`.]** The last two sentences above are
+  superseded, and are kept because this page annotates and never erases.
+  `rf2-hic-085` does **not** stay open while this record stands, and closing it
+  leaves neither row pointing at nobody. What was unsettled when that paragraph
+  was written is now settled: the operator's delegated ruling of 2026-08-15
+  classifies this disposition **settled mode** under
+  [§9.1](#91-how-to-read-a-row) — the K1 price acceptance is a **taken,
+  complete** ruling, ratified 2026-08-13 with its effective revision filled,
+  carrying its own reopen conditions and revert trigger, and a remaining
+  contingency is not a live transition. Both rows therefore keep `rf2-hic-085`
+  **byte-unchanged** in their *Authority* cell, now read as the bead that
+  **took** the recording rather than the one holding a route open, exactly as
+  `S1`, `S2` and `C5` keep closed `rf2-0xx2` above. The closed id is the durable
+  record and the reopen handle in one: `bd reopen rf2-hic-085` reuses this same
+  id, and a fired
+  [§7.1](k1-price-acceptance.md#71-reopen-conditions) condition or
+  [§7.2](k1-price-acceptance.md#72-revert-condition) lapse returns that record
+  to its decider by its own text, with or without a bead. The route survives;
+  what retires is the sentinel. Nothing here re-pins a line, moves a figure or
+  touches either row's `BREACH` status.
 - **`S8`'s range crosses C8's own line, which is what `UNRESOLVED` is for.** The
   reading is not thin and the rig is not the problem: the arm-order guard
   returned `reportable`, the positive control saw the doubling its own
