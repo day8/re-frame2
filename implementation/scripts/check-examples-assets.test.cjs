@@ -291,41 +291,14 @@ function findStandaloneProjects(root) {
 
 const standaloneProjects = findStandaloneProjects(EXAMPLES_ROOT);
 
-it('LIVE: every standalone example project is pruned from the gallery host-page walk (rf2-vxgfnd.281)', () => {
-  assert.ok(
-    standaloneProjects.length >= 1,
-    'no standalone example project (a dir bearing its own shadow-cljs.edn) exists ' +
-      'under examples/, so this negative assertion has no subject and would pass ' +
-      'vacuously — 0 of 0. Either a standalone scaffold is staged and the walk lost ' +
-      'sight of it, or the last one is gone and the prune rule should be retired ' +
-      'together with its final subject.',
-  );
-  const rel = realIndexes.map((p) => path.relative(EXAMPLES_ROOT, p).split(path.sep).join('/'));
-  let prunedPages = 0;
-  for (const project of standaloneProjects) {
-    const projectRel = path.relative(EXAMPLES_ROOT, project.root).split(path.sep).join('/');
-    assert.ok(
-      project.hostPages.length >= 1,
-      `the standalone project '${projectRel}' serves NO host page, so pruning it ` +
-        `proves nothing — the walk had no candidate to drop. A standalone scaffold ` +
-        `without a host page cannot witness this rule.`,
-    );
-    for (const page of project.hostPages) {
-      const pageRel = path.relative(EXAMPLES_ROOT, page).split(path.sep).join('/');
-      assert.ok(
-        !rel.includes(pageRel),
-        `the standalone project '${projectRel}' must be pruned from the gallery ` +
-          `asset walk (its host-page contract is owned by its own scaffold smoke), ` +
-          `but '${pageRel}' was enumerated`,
-      );
-      prunedPages++;
-    }
-  }
-  console.log(
-    `        (checked ${standaloneProjects.length} standalone project(s), ` +
-      `${prunedPages} candidate host page(s) proven pruned)`,
-  );
-});
+// rf2-0yp7w.6 — the LIVE prune witness is RETIRED, on the instruction its own
+// vacuity guard carried: `examples/ui/minimal-counter` was the last standalone
+// example project (a dir bearing its own shadow-cljs.edn) and it retired with
+// the Freehand substrate it scaffolded, so the assertion has no subject and
+// could only pass 0-of-0. The PRUNE RULE itself stays — `isStandaloneExampleProject`
+// and the walk still drop such a project from the gallery asset walk, and the
+// unit test above pins the predicate — so a future standalone scaffold is
+// pruned on arrival rather than needing this rule rebuilt.
 
 // ---- FAIL-CLOSED host-page enumeration (rf2-3fc89f.31) -------------------
 //

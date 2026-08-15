@@ -275,26 +275,8 @@ DISPOSITIONS: dict[str, dict] = {
     # Closure error exits non-zero), it is simply already rendered elsewhere,
     # and pinning the cover means the day that gate leaves CI these go red
     # instead of quietly becoming the only thing compiling those build ids.
-    # The other three — `build:hicasso-release` (test.yml's `cljs` job),
-    # `build:machines-viz-viewer` (test.yml) and `build:freehand-matched`
-    # (freehand-bench.yml) — are scheduled and need no entry.
-    "build:freehand-release": {
-        "kind": "covered-by",
-        "by": "test:freehand-evidence-elision",
-        "why": "a one-word alias for `shadow-cljs release freehand-release`. "
-               "That gate releases the same build id (alongside its control) "
-               "and then asserts on the output, so the compile this alias "
-               "performs is performed there and judged there",
-    },
-    "build:freehand-evidence-elision": {
-        "kind": "covered-by",
-        "by": "test:freehand-evidence-elision",
-        "why": "byte-for-byte the release half of that gate — the same two "
-               "build ids, `freehand-release freehand-release-control`, minus "
-               "the `check-freehand-evidence-elision.cjs` verdict chained "
-               "after them. The names differing by one word is the whole "
-               "difference",
-    },
+    # The other two — `build:hicasso-release` (test.yml's `cljs` job) and
+    # `build:machines-viz-viewer` (test.yml) — are scheduled and need no entry.
     # `test:hicasso-lint` (rf2-hic-022) was declared `unscheduled` here for
     # exactly one commit, and its entry is DELETED rather than kept: the
     # fixture witness now runs as a step of lint.yml's required `clj-kondo`

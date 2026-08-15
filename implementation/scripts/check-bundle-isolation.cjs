@@ -335,27 +335,6 @@ const ARTEFACTS = [
     expectedAllowListHits: 0,
   },
 
-  {
-    // re-frame.ui, the compiled-view substrate. In-tree only — never published
-    // (rf2-a32r7) — but browser-capable, so it is still worth proving its client
-    // kernel stays out of an app that never asks for it. The counter example is a Reagent app
-    // that never `:require`s any re-frame.ui.* namespace (shadow-cljs.edn pins
-    // "no production build requires re-frame.ui.*"), so the ui client kernel's
-    // bodies must be absent from the counter bundle. The sentinel is the
-    // :rf.error/ui-tree-malformed reason-id raised by re-frame.ui.runtime's
-    // render/slot arity guards — a ui-owned string absent from core and the
-    // reagent adapter. A non-zero hit means a re-frame.ui.* body slipped into the
-    // no-feature bundle (most likely a stray `:require` from a core/* ns).
-    name: 'ui',
-    relPath: 'ui',
-    internalSentinels: [
-      { source: 're-frame.ui.runtime render/slot arity guards (ui-tree-malformed)',
-        sentinel: 'rf.error/ui-tree-malformed' },
-    ],
-    consumerAllowList: null,
-    expectedAllowListHits: 0,
-  },
-
   // re-frame.trace.tooling (rf2-qwm0a — dev-tooling buffer + listener
   // surface split off from re-frame.trace for production DCE). The
   // counter example never `:require`s `re-frame.trace.tooling`
@@ -760,11 +739,6 @@ const POSITIVE_CONTROL = {
   flows:               { onModule: 'flows' },
   epoch:               { onModule: 'epoch' },
   ssr:                 { onModule: 'ssr' },
-  // The :ui module (scripts/bundle-isolation-positive-control/
-  // src/.../ui.cljs) references re-frame.ui.runtime fns that raise
-  // :rf.error/ui-tree-malformed, so the sentinel is present in out/bundle-
-  // isolation-positive-control/ui.js and a drifted/renamed reason-id fails loud.
-  ui:                  { onModule: 'ui' },
   // The :hicasso module (scripts/bundle-isolation-positive-control/
   // src/.../hicasso.cljs) references the re-frame.hicasso.impl.codec fns whose
   // bodies carry both sentinels, so they are present in out/bundle-isolation-

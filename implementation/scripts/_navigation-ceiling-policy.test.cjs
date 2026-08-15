@@ -133,13 +133,6 @@ const PRUNED_DIRS = new Set([
  * REACHES them. That is the one thing deleting a waiver silently loses.
  */
 const FORMERLY_WAIVED = [
-  // Held by worker/bench-method-88pie while rf2-taj9b ran. The SHARP end of the
-  // class; all four now route through `bench/navigate.cjs`, which refuses a
-  // navigation with no timeout.
-  { file: 'implementation/freehand/test/re_frame/freehand/bench/b6_prod_run.cjs', bead: 'rf2-p9fa3' },
-  { file: 'implementation/freehand/test/re_frame/freehand/bench/b6_profile_run.cjs', bead: 'rf2-p9fa3' },
-  { file: 'implementation/freehand/test/re_frame/freehand/bench/b7_run.cjs', bead: 'rf2-p9fa3' },
-  { file: 'implementation/freehand/test/re_frame/freehand/bench/b8_run.cjs', bead: 'rf2-p9fa3' },
   // `docs/**` was outside the rf2-taj9b fence. Both wait on `networkidle`,
   // which settles LATER than `load`, so the 30s default bit harder here.
   { file: 'docs/scripts/generate-story-tutorial-screenshots.cjs', bead: 'rf2-rbyyx' },
@@ -399,11 +392,13 @@ test('a runner that ALIASES its navigation ceiling says so, and never disclaims 
     if (!text.includes(SHARED_BUDGET_MARKER)) unmarked.push(rel);
   }
 
-  // The gate must have something to be true ABOUT: if the three aliasing
-  // runners are ever renamed away, this assertion fails rather than passing
-  // vacuously over an empty set.
+  // The gate must have something to be true ABOUT: if the aliasing runners are
+  // ever renamed away, this assertion fails rather than passing vacuously over
+  // an empty set. The floor was three until rf2-0yp7w.4 retired two of them
+  // (run-ui-g8.cjs / run-ui-g13.cjs) with the re-frame.ui substrate; what the
+  // gate proves about the survivor is unchanged.
   assert.ok(
-    aliasing.length >= 3,
+    aliasing.length >= 1,
     `expected the aliasing runners to still alias (found ${aliasing.length}: ` +
       `${aliasing.join(', ')})`,
   );

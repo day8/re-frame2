@@ -6,7 +6,7 @@
  {:doc
  "GENERATED public-API manifest — do NOT hand-edit the :vars list. Regenerate with: clojure -M -m re-frame.api-manifest.gen (run from implementation/scripts/api-manifest/). The tier/owner/status axes are curated in spec/api-manifest-metadata.edn; existence + kind + facade? are derived from live public vars. See that generator ns for the design.",
  :keystone "rf2-3nbl5.2",
- :var-count 567,
+ :var-count 482,
  :tier-vocab
  [:front-porch
   :advanced
@@ -192,91 +192,6 @@
   {:namespace "re-frame.flows", :var "reset-flows!", :tier :implementation, :kind :fn, :owner "013", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.flows", :var "reset-last-inputs!", :tier :implementation, :kind :fn, :owner "013", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.flows", :var "run-flows-on-db", :tier :implementation, :kind :fn, :owner "013", :status "v1", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.freehand", :var "->react", :tier :advanced, :kind :fn, :owner "004", :status "EP-0036", :facade? true, :runtime-verified? false}
-  {:namespace "re-frame.freehand", :var "active-connections", :tier :tooling, :kind :fn, :owner "004", :status "EP-0036", :facade? true, :runtime-verified? false}
-  {:namespace "re-frame.freehand", :var "adapter", :tier :front-porch, :kind :var, :owner "006", :status "EP-0036", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.freehand", :var "behavior", :tier :advanced, :kind :var, :owner "004", :status "EP-0036", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.freehand", :var "check", :tier :tooling, :kind :fn, :owner "004D", :status "EP-0036", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.freehand", :var "client-only", :tier :advanced, :kind :fn, :owner "004", :status "EP-0036", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.freehand", :var "command-log", :tier :tooling, :kind :fn, :owner "004", :status "EP-0036", :facade? true, :runtime-verified? false}
-  {:namespace "re-frame.freehand", :var "controller-current?", :tier :advanced, :kind :fn, :owner "004", :status "EP-0036", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.freehand", :var "controller-key", :tier :advanced, :kind :fn, :owner "004", :status "EP-0036", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.freehand", :var "controller-revision", :tier :advanced, :kind :fn, :owner "004", :status "EP-0036", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.freehand", :var "custom-element", :tier :advanced, :kind :macro, :owner "004D", :status "EP-0036", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.freehand", :var "defbehavior", :tier :advanced, :kind :macro, :owner "004", :status "EP-0036", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.freehand", :var "defhost", :tier :advanced, :kind :macro, :owner "004", :status "EP-0036", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.freehand", :var "defview", :tier :front-porch, :kind :macro, :owner "004", :status "EP-0036", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.freehand", :var "describe", :tier :tooling, :kind :fn, :owner "004", :status "EP-0036", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.freehand", :var "error-boundary", :tier :advanced, :kind :var, :owner "004", :status "EP-0036", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.freehand", :var "event", :tier :advanced, :kind :macro, :owner "004", :status "EP-0036", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.freehand", :var "handler", :tier :advanced, :kind :macro, :owner "004", :status "EP-0036", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.freehand", :var "html", :tier :advanced, :kind :fn, :owner "004", :status "EP-0036", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.freehand", :var "hydrate-root", :tier :front-porch, :kind :fn, :owner "011", :status "EP-0036", :facade? true, :runtime-verified? false}
-  {:namespace "re-frame.freehand", :var "manifest", :tier :tooling, :kind :fn, :owner "004", :status "EP-0036", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.freehand", :var "markup", :tier :advanced, :kind :var, :owner "004", :status "EP-0036", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.freehand", :var "materialize-event", :tier :advanced, :kind :fn, :owner "004", :status "EP-0036", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.freehand", :var "mount", :tier :front-porch, :kind :fn, :owner "004C", :status "EP-0036", :facade? true, :runtime-verified? false}
-  {:namespace "re-frame.freehand", :var "presence", :tier :advanced, :kind :fn, :owner "004", :status "EP-0036", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.freehand", :var "presence-phase", :tier :advanced, :kind :fn, :owner "004", :status "EP-0036", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.freehand", :var "projections", :tier :advanced, :kind :var, :owner "004", :status "EP-0036", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.freehand", :var "raw-fn", :tier :advanced, :kind :fn, :owner "004", :status "EP-0036", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.freehand", :var "render-fn", :tier :advanced, :kind :macro, :owner "004", :status "EP-0036", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.freehand", :var "render-static", :tier :advanced, :kind :macro, :owner "011", :status "EP-0036", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.freehand", :var "route-link", :tier :advanced, :kind :var, :owner "012", :status "EP-0036", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.freehand", :var "slot", :tier :advanced, :kind :fn, :owner "004", :status "EP-0036", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.freehand", :var "spread", :tier :advanced, :kind :fn, :owner "004", :status "EP-0036", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.freehand", :var "spread-safe", :tier :advanced, :kind :fn, :owner "004", :status "EP-0036", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.freehand", :var "sub", :tier :front-porch, :kind :fn, :owner "006", :status "EP-0036", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.freehand", :var "unmount!", :tier :front-porch, :kind :fn, :owner "004C", :status "EP-0036", :facade? true, :runtime-verified? false}
-  {:namespace "re-frame.freehand", :var "view?", :tier :advanced, :kind :fn, :owner "004", :status "EP-0036", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.freehand.collection", :var "reveal-offset", :tier :advanced, :kind :fn, :owner "004", :status "EP-0036", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.freehand.collection", :var "virtual-collection", :tier :advanced, :kind :var, :owner "004", :status "EP-0036", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.freehand.collection", :var "virtual-list", :tier :advanced, :kind :var, :owner "004", :status "EP-0036", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.freehand.collection", :var "window", :tier :advanced, :kind :fn, :owner "004", :status "EP-0036", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.freehand.controls", :var "buffered-field", :tier :front-porch, :kind :var, :owner "004", :status "EP-0036", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.freehand.controls", :var "cancel-key", :tier :advanced, :kind :var, :owner "004", :status "EP-0036", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.freehand.controls", :var "commit-key", :tier :advanced, :kind :var, :owner "004", :status "EP-0036", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.freehand.controls", :var "composing?", :tier :advanced, :kind :fn, :owner "004", :status "EP-0036", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.freehand.controls", :var "field", :tier :front-porch, :kind :var, :owner "004", :status "EP-0036", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.freehand.controls", :var "key-intent", :tier :advanced, :kind :fn, :owner "004", :status "EP-0036", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.freehand.controls", :var "release", :tier :front-porch, :kind :fn, :owner "004", :status "EP-0036", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.freehand.form", :var "attempt-submit", :tier :front-porch, :kind :fn, :owner "004", :status "EP-0036", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.freehand.form", :var "edit", :tier :front-porch, :kind :fn, :owner "004", :status "EP-0036", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.freehand.form", :var "field", :tier :front-porch, :kind :fn, :owner "004", :status "EP-0036", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.freehand.form", :var "init", :tier :front-porch, :kind :fn, :owner "004", :status "EP-0036", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.freehand.form", :var "path-key", :tier :advanced, :kind :var, :owner "004", :status "EP-0036", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.freehand.form", :var "rebase", :tier :front-porch, :kind :fn, :owner "004", :status "EP-0036", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.freehand.form", :var "reset", :tier :front-porch, :kind :fn, :owner "004", :status "EP-0036", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.freehand.form", :var "reset-key", :tier :front-porch, :kind :fn, :owner "004", :status "EP-0036", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.freehand.form", :var "seed", :tier :front-porch, :kind :fn, :owner "004", :status "EP-0036", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.freehand.form", :var "set-errors", :tier :front-porch, :kind :fn, :owner "004", :status "EP-0036", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.freehand.form", :var "visit", :tier :front-porch, :kind :fn, :owner "004", :status "EP-0036", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.freehand.splitter", :var "bounds", :tier :advanced, :kind :fn, :owner "004", :status "EP-0036", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.freehand.splitter", :var "cancel", :tier :advanced, :kind :fn, :owner "004", :status "EP-0036", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.freehand.splitter", :var "commit", :tier :advanced, :kind :fn, :owner "004", :status "EP-0036", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.freehand.splitter", :var "component-id", :tier :advanced, :kind :var, :owner "004", :status "EP-0036", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.freehand.splitter", :var "default-bounds", :tier :advanced, :kind :var, :owner "004", :status "EP-0036", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.freehand.splitter", :var "fraction-at", :tier :advanced, :kind :fn, :owner "004", :status "EP-0036", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.freehand.splitter", :var "init", :tier :advanced, :kind :fn, :owner "004", :status "EP-0036", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.freehand.splitter", :var "intent-at", :tier :advanced, :kind :fn, :owner "004", :status "EP-0036", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.freehand.splitter", :var "key-intent", :tier :advanced, :kind :fn, :owner "004", :status "EP-0036", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.freehand.splitter", :var "move", :tier :advanced, :kind :fn, :owner "004", :status "EP-0036", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.freehand.splitter", :var "parts", :tier :advanced, :kind :var, :owner "004", :status "EP-0036", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.freehand.splitter", :var "settle", :tier :advanced, :kind :fn, :owner "004", :status "EP-0036", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.freehand.splitter", :var "splitter", :tier :advanced, :kind :var, :owner "004", :status "EP-0036", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.freehand.splitter", :var "start", :tier :advanced, :kind :fn, :owner "004", :status "EP-0036", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.freehand.test", :var "attrs", :tier :testing, :kind :fn, :owner "008", :status "EP-0036", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.freehand.test", :var "find", :tier :testing, :kind :fn, :owner "008", :status "EP-0036", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.freehand.test", :var "find-all", :tier :testing, :kind :fn, :owner "008", :status "EP-0036", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.freehand.test", :var "render", :tier :testing, :kind :fn, :owner "008", :status "EP-0036", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.freehand.test", :var "text", :tier :testing, :kind :fn, :owner "008", :status "EP-0036", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.freehand.test", :var "with-render", :tier :testing, :kind :macro, :owner "008", :status "EP-0036", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.freehand.tool", :var "explain-render", :tier :tooling, :kind :fn, :owner "004", :status "EP-0036", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.freehand.tool", :var "read-mounted-views", :tier :tooling, :kind :fn, :owner "004", :status "EP-0036", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.freehand.tool", :var "read-view-dependencies", :tier :tooling, :kind :fn, :owner "004", :status "EP-0036", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.freehand.tool", :var "read-view-event-sites", :tier :tooling, :kind :fn, :owner "004", :status "EP-0036", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.freehand.tool", :var "read-view-manifest", :tier :tooling, :kind :fn, :owner "004", :status "EP-0036", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.freehand.tool", :var "view-manifest", :tier :tooling, :kind :fn, :owner "004", :status "EP-0036", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.http", :var "delete", :tier :advanced, :kind :fn, :owner "014", :status "v1 (optional capability)", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.http", :var "get", :tier :advanced, :kind :fn, :owner "014", :status "v1 (optional capability)", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.http", :var "head", :tier :advanced, :kind :fn, :owner "014", :status "v1 (optional capability)", :facade? false, :runtime-verified? true}

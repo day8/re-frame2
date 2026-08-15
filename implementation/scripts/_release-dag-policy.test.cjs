@@ -206,8 +206,9 @@ test('every workflow in .github/workflows/ parses into an object model', () => {
     .readdirSync(WORKFLOW_DIR)
     .filter((n) => n.endsWith('.yml') || n.endsWith('.yaml'))
     .sort();
-  // Guard the false-green trap: an empty listing would vacuously pass.
-  assert.ok(files.length >= 13, `expected >= 13 workflow files, found ${files.length}`);
+  // Guard the false-green trap: an empty listing would vacuously pass. The floor
+  // was 13 until rf2-0yp7w.6 deleted freehand-bench.yml with the tree it benched.
+  assert.ok(files.length >= 12, `expected >= 12 workflow files, found ${files.length}`);
   for (const file of files) {
     const model = parseWorkflowYaml(fs.readFileSync(path.join(WORKFLOW_DIR, file), 'utf8'));
     assert.ok(

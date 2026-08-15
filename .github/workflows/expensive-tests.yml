@@ -124,30 +124,6 @@ jobs:
         if: ${{ !cancelled() }}
         run: npm run test:elision
 
-      # rf2-xwa4n — the nightly superset of the PR-time
-      # `cljs-freehand-evidence-elision` job. That job is surface-gated on the
-      # Freehand producer surfaces (evidence schema / dev-gated seam / release
-      # entry / build-config trio / the checker), which is the right PR-time
-      # cost. This unconditional run is the safety net for everything OUTSIDE
-      # that arm — a core `interop/debug-enabled?` change, an adapter change, a
-      # toolchain bump — that can break the elision without touching Freehand.
-      - name: Gate — Freehand evidence production isolation (test:freehand-evidence-elision)
-        if: ${{ !cancelled() }}
-        run: npm run test:freehand-evidence-elision
-
-      # rf2-zl8ao — the nightly superset of the PR-time
-      # `cljs-freehand-reachability` job, and the backstop that keeps that
-      # job's NARROW arm honest. The PR gate fires on the controller doors,
-      # the facade edge, the two entries, the build-config trio and the
-      # checker; the evidence gate's narrowness is underwritten by a JVM
-      # sole-requirer law, and this one has no such law yet, so a NEW
-      # production edge into `re-frame.freehand.control` from anywhere else in
-      # the tree — or a core/toolchain change that defeats Closure's DCE —
-      # would be caught here rather than not at all.
-      - name: Gate — Freehand unused-module reachability (test:freehand-reachability)
-        if: ${{ !cancelled() }}
-        run: npm run test:freehand-reachability
-
       - name: Gate — tools must not leak into production bundles (test:bundle-isolation)
         if: ${{ !cancelled() }}
         run: npm run test:bundle-isolation
@@ -197,30 +173,6 @@ jobs:
         if: ${{ !cancelled() }}
         run: npm run test:cljs-perf-emit-nightly
 
-      # rf2-a9oic — `check-ui-warm-watch.cjs` was referenced by its npm script
-      # and by nothing else in the repo, so the whole re-frame.ui warm-edit
-      # proof ran nowhere.
-      #
-      # Despite the name this is NOT a watch-mode developer command: it DRIVES
-      # a real Shadow warm watch and one live emitted runtime through eight
-      # scripted passes (cold accept, zero-declaration, declaration-shrink,
-      # same-namespace file move, rename, delete, failed-compile, retry) plus a
-      # daemon restart proving disk-cache reuse, then terminates with a verdict.
-      # It is the only gate that exercises real file delete/rename/move against
-      # the `:build-sources` graph delta and the live runtime ledger; the JVM
-      # fixtures beside it hand-build build state and cannot.
-      #
-      # NIGHTLY rather than per-PR: measured cold at 48s, so cost would allow
-      # either, but it spawns two Shadow watch daemons and a live node child,
-      # edits tracked fixture sources in place, and drives everything through
-      # 50ms polling loops under a 120s internal timeout. That is the
-      # process-orchestration class every other gate in this job belongs to,
-      # and the class most prone to false negatives under per-PR runner load.
-      # Green cold on 2026-08-05: all eight passes + WARM-CACHE REUSE PROVEN.
-      - name: Gate — re-frame.ui warm-watch harvest topology (test:ui-warm-watch)
-        if: ${{ !cancelled() }}
-        run: npm run test:ui-warm-watch
-
       # ==================================================================
       # rf2-mvq7 — THE NARROW-ARMED GATES, given the arm against main they
       # never had. From the rf2-2uy8 B+ ruling: TESTING.md calls this sweep a
@@ -255,18 +207,6 @@ jobs:
         if: ${{ !cancelled() }}
         run: npm run test:schemas-bundle
 
-      - name: Gate — re-frame.ui G-1 direct-render parity (test:ui-g1)
-        if: ${{ !cancelled() }}
-        run: npm run test:ui-g1
-
-      - name: Gate — re-frame.ui G-13 push economics (test:ui-g13)
-        if: ${{ !cancelled() }}
-        run: npm run test:ui-g13
-
-      - name: Gate — re-frame.ui G-18 facade DCE isolation (test:ui-facade-isolation)
-        if: ${{ !cancelled() }}
-        run: npm run test:ui-facade-isolation
-
       - name: Gate — Reagent Slim client-runtime smoke (test:reagent-slim:smoke)
         if: ${{ !cancelled() }}
         run: npm run test:reagent-slim:smoke
@@ -292,7 +232,7 @@ jobs:
       #
       #   test:hicasso-controlled  — three engines. Needs Firefox AND WebKit,
       #   test:hicasso-hmr           which this job does not install; the HMR
-      #   test:ui-g8                 gate additionally needs a live
+      #                              gate additionally needs a live
       #                              `shadow-cljs watch` and its own
       #                              `:dev-http` origin on 8061, and drives 36
       #                              real reloads per engine. Two more engine

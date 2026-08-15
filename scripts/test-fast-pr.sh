@@ -44,9 +44,8 @@ set -euo pipefail
 # The paragraph above DESCRIBES the gap in families; the PASS line also NAMES it,
 # check by check, from `scripts/check_fast_pr_gap.py --brief` (rf2-13zre).  Prose
 # could not carry the whole truth here, and did not: a required check can be a
-# STEP INSIDE A JOB THIS SPINE RUNS — the EP-0036 donor-boundary `git grep` is
-# the last step of `jvm-freehand`, so it reports as "JVM freehand (clojure
-# -M:test)" and is not a test; and thirty-eight of CI's
+# STEP INSIDE A JOB THIS SPINE RUNS, so a red can name a test suite for
+# something that is not a test at all; and thirty-eight of CI's
 # required `python scripts/check_*.py` invocations had no local lane at all until
 # rf2-ejm7m measured them and gave them one — twenty-nine in the always-on block
 # below, nine in the documentation tier.  None of those is a skipped TIER, so
@@ -1014,8 +1013,8 @@ run "JVM roster <-> CI bijection (rf2-as6bg)" "python scripts/check_jvm_lane_ros
 # have no local lane at all — and on 2026-08-04 three workers in a row shipped a
 # green spine into a red required check, each a different one.  The nastiest was
 # not a job this spine skips but a STEP INSIDE a job it runs: the EP-0036
-# donor-boundary `git grep`, which is the last step of `jvm-freehand` and so
-# reports under the display name "JVM freehand (clojure -M:test)" — a test-suite
+# a `git grep` boundary step that runs last in a JVM job and so
+# reports under that job's display name — a test-suite
 # name for something that is not a test.  The skipped-tier enumeration at the
 # bottom of this script cannot see that class by construction: the tier is not
 # skipped and the step is not a suite.
@@ -1493,7 +1492,7 @@ if [ "$run_node" = true ]; then
   # diverge arbitrarily and stay green while this spine advertised the gate as
   # proof that it had not.  Sub-second, pure Python stdlib.  It runs in the
   # `cljs` job in CI for the same reason it sits in this tier: its two input
-  # surfaces — implementation/hicasso/** and the freehand bench tree it was
+  # surface — implementation/hicasso/** — which it was
   # copied from — both arm `cljs_node_test`.
   #
   # FREEZE IS ONE OF THREE (rf2-ibje, hence the name).  The same npm script also

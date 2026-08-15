@@ -48,7 +48,6 @@ const GATE_SCHEDULING = path.join(REPO_ROOT, 'scripts', 'check_gate_scheduling.p
 
 // The two lanes and the builds that own them.
 const CORRECTNESS_BUILD = ':browser-test';
-const BENCH_BUILD = ':browser-test-freehand-bench';
 
 // Trees that carry test sources. `out/`, `node_modules/` and `.shadow-cljs/`
 // hold compiled copies of the same files and would double-count.
@@ -211,10 +210,16 @@ function dispositionKeys() {
 
 // ---- the gate --------------------------------------------------------------
 
-test('the two browser DOM lanes partition every *_dom_cljs_test namespace (rf2-mf4uy)', () => {
+// rf2-0yp7w.6 — the two-lane PARTITION retired with the Freehand bench tree:
+// `:browser-test-freehand-bench` was the only other DOM lane, and with it gone
+// `:browser-test` selects every `*_dom_cljs_test` namespace outright, so a
+// partition has nothing left to be true about. What survives is the claim that
+// mattered independently — the lane that exists must have an executor CI is
+// held to running — and it is asserted over the one remaining lane below.
+
+test('every *_dom_cljs_test namespace is selected by the one browser DOM lane (rf2-mf4uy, rf2-0yp7w.6)', () => {
   const text = fs.readFileSync(SHADOW_CLJS, 'utf8');
   const correctness = selectorFor(text, CORRECTNESS_BUILD);
-  const bench = selectorFor(text, BENCH_BUILD);
   const namespaces = domTestNamespaces();
 
   assert.ok(
@@ -222,53 +227,15 @@ test('the two browser DOM lanes partition every *_dom_cljs_test namespace (rf2-m
     'found no *_dom_cljs_test sources at all — the walk is broken, not the config',
   );
 
-  const orphaned = [];
-  const doubled = [];
-  const inBench = [];
-  for (const { ns, file } of namespaces) {
-    const a = correctness.test(ns);
-    const b = bench.test(ns);
-    if (!a && !b) orphaned.push(`${ns}  (${file})`);
-    if (a && b) doubled.push(`${ns}  (${file})`);
-    if (b) inBench.push(ns);
-  }
+  const orphaned = namespaces
+    .filter(({ ns }) => !correctness.test(ns))
+    .map(({ ns, file }) => `${ns}  (${file})`);
 
   assert.deepEqual(
-    orphaned, [],
-    `these DOM suites are selected by NEITHER ${CORRECTNESS_BUILD} nor ` +
-      `${BENCH_BUILD}, so they no longer run in any browser and no lane's exit ` +
-      `code says so:\n  ${orphaned.join('\n  ')}`,
-  );
-  assert.deepEqual(
-    doubled, [],
-    `these DOM suites are selected by BOTH lanes, so the correctness gate is ` +
-      `paying for benchmark wall clock again (rf2-mf4uy):\n  ${doubled.join('\n  ')}`,
-  );
-
-  // Non-vacuity, both ways: a pattern that selected nothing would empty a lane
-  // and a pattern that selected everything would put the benches back — and a
-  // partition over an empty set, or over one lane's whole set, is trivially
-  // satisfied by both checks above.
-  assert.ok(
-    inBench.length > 0,
-    `${BENCH_BUILD} selects no DOM suite at all — its evidence lane is empty`,
-  );
-  assert.ok(
-    inBench.length < namespaces.length,
-    `${BENCH_BUILD} selects every DOM suite — the correctness gate is empty`,
-  );
-});
-
-test('the bench lane is exactly the Freehand bench DOM suites (rf2-mf4uy)', () => {
-  const text = fs.readFileSync(SHADOW_CLJS, 'utf8');
-  const bench = selectorFor(text, BENCH_BUILD);
-  const stray = domTestNamespaces()
-    .filter(({ ns }) => bench.test(ns) && !ns.startsWith('re-frame.freehand.bench.'))
-    .map(({ ns }) => ns);
-  assert.deepEqual(
-    stray, [],
-    `the evidence lane picked up namespaces outside re-frame.freehand.bench.*, ` +
-      `which means ordinary correctness suites left the PR gate:\n  ${stray.join('\n  ')}`,
+    orphaned,
+    [],
+    'these DOM suites are selected by NO browser lane, so they compile nowhere:\n  ' +
+      orphaned.join('\n  '),
   );
 });
 
@@ -279,7 +246,7 @@ test('every browser DOM lane has an executor CI is held to running (rf2-j8os)', 
   const declared = dispositionKeys();
   const namespaces = domTestNamespaces();
 
-  for (const buildKey of [CORRECTNESS_BUILD, BENCH_BUILD]) {
+  for (const buildKey of [CORRECTNESS_BUILD]) {
     const buildId = buildKey.slice(1);            // `:browser-test` -> `browser-test`
     const selector = selectorFor(text, buildKey);
     const selected = namespaces.filter(({ ns }) => selector.test(ns)).map(({ ns }) => ns);

@@ -588,31 +588,6 @@ test('tenant-switcher-testbed: a captured pageerror fails the spec even when ass
 // made (which `waitUntil`, whose budget, what the failure says), which is not
 // mechanical and does not belong in a sweep.
 
-// ---- run-ui-g8.cjs (rf2-bhjzn) ----
-
-test('run-ui-g8: navigation has its own named ceiling, and does not wait on `load` (rf2-bhjzn)', () => {
-  const src = read('run-ui-g8.cjs');
-  // `load` cannot fire until the un-optimized :ui-g8 bundle has arrived AND
-  // run its synchronous portion — which is where the fixture's warm-up and
-  // sample collection live. Waiting for it is waiting for the fixture, which
-  // is the waitForFunction poll's job against TIMEOUT.
-  assert.match(
-    src,
-    /NAV_WAIT_UNTIL\s*=\s*'commit'/,
-    "the G-8 navigation must commit, not wait on `load` — `load` waits for the fixture",
-  );
-  assert.match(
-    src,
-    /NAV_TIMEOUT\s*=\s*TIMEOUT\b/,
-    'the navigation budget must be the gate\'s own TIMEOUT, so the lane has ONE number',
-  );
-  assert.match(
-    src,
-    /page\.goto\([\s\S]{0,400}?catch[\s\S]{0,600}?NAVIGATION FAILED/,
-    'a failed navigation must name itself as the navigation ceiling, not the fixture-result budget',
-  );
-});
-
 // ---- check-story-static.cjs navigation ceiling (rf2-bhjzn) ----
 
 test('check-story-static: the navigation budget is named, not a bare literal (rf2-bhjzn)', () => {

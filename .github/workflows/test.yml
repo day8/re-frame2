@@ -76,8 +76,6 @@ jobs:
       cljs_prod: ${{ steps.detect.outputs.cljs_prod }}
       bundle_isolation: ${{ steps.detect.outputs.bundle_isolation }}
       reagent_slim_bundle: ${{ steps.detect.outputs.reagent_slim_bundle }}
-      freehand_evidence_elision: ${{ steps.detect.outputs.freehand_evidence_elision }}
-      freehand_reachability: ${{ steps.detect.outputs.freehand_reachability }}
       adapter_testbed_smokes: ${{ steps.detect.outputs.adapter_testbed_smokes }}
       tools_jvm: ${{ steps.detect.outputs.tools_jvm }}
       tools_jvm_machines_viz: ${{ steps.detect.outputs.tools_jvm_machines_viz }}
@@ -2573,177 +2571,6 @@ jobs:
       - name: Run JVM tests (resources artefact)
         run: clojure -M:test
 
-  jvm-freehand:
-    name: JVM freehand (clojure -M:test)
-    # rf2-drpa3.58 — the Freehand view substrate artefact's JVM lane
-    # (EP-0036). F1a (rf2-drpa3.15) shipped it as a standalone workflow,
-    # `.github/workflows/freehand-artefact.yml`, because `.github/workflows/*`
-    # was hot-zone with several EP-0036 slices adding gates concurrently.
-    # GitHub `needs:` cannot span workflow files, so that job was NOT
-    # reachable from `all-required-passed` — the branch ruleset's single
-    # required context — making it VISIBLE BUT ADVISORY: a red freehand
-    # suite did not block a merge. This is that job, folded in, with the
-    # standalone workflow deleted in the same commit so the lane has one
-    # owner and not two.
-    #
-    # Freehand's entry namespace is `.cljc` from the first commit because
-    # the F1 spine needs BOTH emitters — a JVM tree (which also feeds the
-    # ssr artefact) and a React tree — so the JVM side is load-bearing here
-    # from day one rather than bolted on later.
-    #
-    # The CLJS arm needs no job of its own: `freehand/src` + `freehand/test`
-    # are on the `:node-test` classpath in implementation/shadow-cljs.edn and
-    # the `re-frame.freehand.*-cljs-test` namespaces match that build's
-    # `cljs-test$` regexp, so the `cljs` job below compiles and runs them.
-    # That job is gated on `cljs_node_test`, which report-changed-surfaces.sh
-    # now arms for `implementation/freehand/*` (same commit) — the standalone
-    # workflow's header claimed `cljs` was "always-on", which it is not.
-    # `npm run test:freehand` (the focused `:node-test-freehand` build) stays
-    # the cheap NAMED surface for local + worker iteration, not a second gate.
-    #
-    # Job-level gated like every sibling per-feature jvm-* job (needs + if,
-    # NOT a trigger path filter — the pull_request trigger stays unfiltered
-    # so the required aggregator is always present).
-    needs: detect_changed_surfaces
-    if: needs.detect_changed_surfaces.outputs.implementation_jvm == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    defaults:
-      run:
-        working-directory: implementation/freehand
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
-
-      - name: Set up JDK 21
-        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654  # v5.2.0
-        with:
-          distribution: temurin
-          java-version: '21'
-
-      - name: Set up Clojure CLI
-        run: "$GITHUB_WORKSPACE/.github/scripts/install-clojure-cli.sh"
-
-      - name: Cache Maven / gitlibs
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
-        with:
-          path: |
-            ~/.m2/repository
-            ~/.gitlibs
-            ~/.deps.clj
-          key: ${{ runner.os }}-clj-freehand-${{ hashFiles('implementation/freehand/deps.edn', 'implementation/core/deps.edn') }}
-          restore-keys: |
-            ${{ runner.os }}-clj-freehand-
-            ${{ runner.os }}-clj-
-
-      - name: Run JVM tests (freehand artefact)
-        run: clojure -M:test
-
-      # The donor boundary is a LAW, not a convention (EP-0036 §Product
-      # topology: "the new package never depends on the donor"), so it is
-      # gated rather than reviewed. Absorbed code must arrive by MOVE under
-      # Freehand ownership — a `re-frame.ui` reference from this artefact,
-      # in source or in deps.edn, fails here. Carried across verbatim from
-      # the deleted freehand-artefact.yml (rf2-drpa3.58); this step is now
-      # the only home of the law.
-      - name: Assert no dependency on the re-frame.ui donor
-        working-directory: ${{ github.workspace }}
-        run: |
-          set -euo pipefail
-          if git grep -n -e 're-frame\.ui' -e 're_frame/ui' -e 're-frame2-ui' -- implementation/freehand; then
-            echo "::error::implementation/freehand references the re-frame.ui donor (EP-0036: the new package never depends on the donor)"
-            exit 1
-          fi
-          echo "OK: implementation/freehand names no re-frame.ui dependency"
-
-  # rf2-8alkj — the Freehand suite under the REAL production gate.
-  #
-  # WHAT WAS MISSING. `SECURITY.md` documents `-Dre-frame.debug=false` as the
-  # JVM/SSR production setting and `re-frame.interop/debug-enabled?` reads it
-  # ONCE at namespace-load time. rf2-f8x2i closed that hole for
-  # `implementation/core` and rf2-hnrwo for `routing` and `ssr`. Freehand — 133
-  # test namespaces, the whole EP-0036 view substrate — was the one remaining
-  # artefact executed by NO suite under the documented production posture. The
-  # suites that CALL THEMSELVES production-gate tests rebind the Var with
-  # `with-redefs` AFTER the framework has loaded, and a load-time gate is
-  # invisible to that; rf2-9c2jf (`dispatch-sync` running its handler zero
-  # times under the gate) is what that blind spot costs.
-  #
-  # WHY FREEHAND, SPECIFICALLY. Two of this artefact's mechanisms are ABOUT the
-  # production posture rather than merely subject to it. The `{:reactive false}`
-  # opt-out (rf2-oxlpy) is a safety mechanism whose production behaviour is the
-  # thing under test — rf2-3slzz's totality probe was deliberately written
-  # posture-agnostic so a second run genuinely IS the production posture, and
-  # CI only ever ran the dev one. And `re-frame.freehand.evidence` exists in
-  # order to be compiled away in a release build; PR #7177 armed the CLJS half
-  # of that gap (`cljs-freehand-evidence-elision`), and this job is the JVM
-  # half.
-  #
-  # WHY IT IS A SEPARATE JOB AND NOT A FLAG ON `jvm-freehand`. The two lanes
-  # make different claims and neither substitutes for the other: `jvm-freehand`
-  # proves the artefact's behaviour WITH its dev instrumentation, this job
-  # proves the semantics that must survive WITHOUT it. Same artefact, same
-  # classpath (the `:prod-gate` alias is a modifier composed onto `:test`),
-  # same cache key — only the JVM posture differs.
-  #
-  # THE JOB CANNOT PASS VACUOUSLY. `re-frame.freehand.prod-gate-lane-pin-test`
-  # runs inside the lane and asserts unconditionally that `re-frame.debug`
-  # reads `"false"` on THIS JVM and that `interop/debug-enabled?` honoured it.
-  # If the property ever stops arriving, this job goes RED rather than
-  # green-on-the-wrong-posture — which is the failure mode that matters,
-  # because the lane's roster is by construction a subset of what already
-  # passes in dev posture. The pin was proved to have teeth by INVERSION: the
-  # same roster run with `-Dre-frame.debug=true` reds exactly its two deftests
-  # and nothing else, so without the pin a lost flag would be invisible.
-  #
-  # SCOPE. Not the whole suite yet: 8 of 133 test namespaces are red under the
-  # real gate (147 failures / 7 errors), in three shapes — the dev-only tooling
-  # substrate (occurrence index, evidence seam, tool reads, explain-render, all
-  # built only inside `interop/debug-enabled?`), the props-schema closure
-  # (dev-only by explicit design at `descriptor.cljc` ~591, the same class as
-  # Spec 010's `validate-fx!`), and source-coord elision. The roster and the
-  # triage bead (rf2-74a89) live in `scripts/test-freehand-prod-gate.sh`. What
-  # runs here today is 125 namespaces / 1159 tests / 7930 assertions, green.
-  # The roster is an EXCLUSION list, so a new namespace joins this lane by
-  # default and has to be excluded deliberately.
-  jvm-freehand-prod-gate:
-    name: JVM freehand under the production gate (-Dre-frame.debug=false)
-    # Same surface gate as jvm-freehand: it is the same artefact.
-    needs: detect_changed_surfaces
-    if: needs.detect_changed_surfaces.outputs.implementation_jvm == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
-
-      - name: Set up JDK 21
-        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654  # v5.2.0
-        with:
-          distribution: temurin
-          java-version: '21'
-
-      - name: Set up Clojure CLI
-        run: "$GITHUB_WORKSPACE/.github/scripts/install-clojure-cli.sh"
-
-      # Deliberately the SAME cache key as jvm-freehand — identical classpath,
-      # so the two jobs warm one cache instead of competing for two.
-      - name: Cache Maven / gitlibs
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
-        with:
-          path: |
-            ~/.m2/repository
-            ~/.gitlibs
-            ~/.deps.clj
-          key: ${{ runner.os }}-clj-freehand-${{ hashFiles('implementation/freehand/deps.edn', 'implementation/core/deps.edn') }}
-          restore-keys: |
-            ${{ runner.os }}-clj-freehand-
-            ${{ runner.os }}-clj-
-
-      # The script prints the property, the pin, the roster size and the
-      # excluded count before it runs anything, so the job's own log carries
-      # the evidence of which posture it ran in.
-      - name: Run the Freehand suite under -Dre-frame.debug=false
-        run: bash scripts/test-freehand-prod-gate.sh
-
   jvm-spec-resource:
     name: JVM spec-resource (clojure -M:test)
     # The build-time reader for committed spec/ data
@@ -3327,12 +3154,11 @@ jobs:
       # each would need either another workflow step or a declared scheduling
       # hole for the gain of nothing.
       #
-      # Hosted in THIS job because its two input surfaces —
-      # implementation/hicasso/** (rf2-8a6s's new classifier case) and the
-      # freehand bench tree that is the donor — both arm `cljs_node_test` and
-      # nothing else in common; it is the same reasoning that put the
-      # bench-lane compile here. Early, before the ~10-minute compile: it is a
-      # sub-second static read and a divergence should red fast.
+      # Hosted in THIS job because its input surface —
+      # implementation/hicasso/** (rf2-8a6s's classifier case) — arms
+      # `cljs_node_test`, which is what lights this job. Early, before the
+      # ~10-minute compile: it is a sub-second static read and a divergence
+      # should red fast.
       - name: Hicasso invariants gate
         run: npm run test:hicasso-invariants
 
@@ -3380,42 +3206,6 @@ jobs:
       # exactly what breaks a local copy of core's calling convention.
       - name: Hicasso bench-lane compile coverage gate
         run: npm run test:hicasso-compile
-
-      # The bench namespaces NO pull-request gate reached (rf2-cfqk). The
-      # step above closed one directory; rf2-bl0j then measured the rest of
-      # the question by forward reachability from every PR gate's roots over
-      # all 213 bench namespaces, and 23 were reachable from nothing at all.
-      # Four were `:hicasso-bench` riders living outside the lane directory
-      # and were rostered into the step above. These NINETEEN are the rest:
-      # the two `re-frame.bench.*` attribution instruments under core/test/,
-      # and seventeen `re-frame.freehand.bench.*` B-spine arms whose drivers
-      # are hand-run and whose only workflow home (freehand-bench.yml) is
-      # `schedule:`-only and gates nothing. rf2-bl0j proved what that costs by
-      # sabotage: an undeclared var appended to an uncovered namespace reds
-      # nothing on any pull request.
-      #
-      # One dev-mode `shadow-cljs compile` of all nineteen in one module,
-      # riding the B-spine's existing `:freehand-release` id via
-      # `--config-merge` — no new build id, so no hot-zone edit to
-      # shadow-cljs.edn (HD-017). Warnings are failures, through the same
-      # `lane_build.cjs` door the step above uses.
-      #
-      # ONE step and not two, MEASURED rather than assumed. rf2-cfqk expected
-      # a second, node-lane gate for the two attribution rows, on the grounds
-      # that a Node instrument in a browser module would red for irrelevant
-      # reasons. It is the other way round: all nineteen compile clean here,
-      # while riding `:ui-bench` (`:node-script`) raises four `:infer-warning`s
-      # from implementation/core/src/re_frame/substrate/spine.cljs — shipping
-      # source, on the rows' transitive closure, where a DOM-element property
-      # read is inferrable only against Closure's browser externs. The gate's
-      # own header carries the numbers.
-      #
-      # Hosted HERE for the same reason as the step above: both bench trees
-      # (implementation/core/* and implementation/freehand/*) arm
-      # `cljs_node_test` and this is the job it lights, so the gate runs on
-      # exactly the changes that can break its subject.
-      - name: Uncovered bench-namespace compile gate
-        run: npm run test:bspine-compile
 
       # THE HICASSO RELEASE BUILD (rf2-qy1j). rf2-hic-008 added
       # `:hicasso-release` to shadow-cljs.edn — the artefact's first and only
@@ -3656,70 +3446,6 @@ jobs:
       - name: Compile every declared standalone example build (coverage gate)
         run: npm run test:examples-compile
 
-  ui-scaffold-smoke:
-    name: UI scaffold smoke (materialize + install + compile minimal-counter)
-    # rf2-vxgfnd.281 — the CI teeth for examples/ui/minimal-counter, the
-    # minimal RUNNABLE Freehand scaffold (cut over from the donor substrate by
-    # rf2-nutll). Unlike cljs-examples-compile (which sweeps the monorepo
-    # :examples/* shadow builds), this scaffold is a STANDALONE project with its
-    # own deps.edn / package.json / shadow-cljs.edn. The smoke materializes ONLY
-    # the files the README's manifest documents into a temp dir, runs a real
-    # `npm install` + `npx shadow-cljs compile app`, and then an omission matrix
-    # that proves every documented file is genuinely load-bearing.
-    # RF2_UI_SCAFFOLD_COMPILE arms the install+compile tier (the structural tier
-    # runs unconditionally).
-    # Same examples_compile surface as the sibling gate: fires for the scaffold
-    # itself, the framework core/freehand it compiles against, and the build
-    # config. (The job id and the env-var name still read "ui" — renaming them
-    # is a required-check rename plus a `needs:` edge, so they are deliberately
-    # left alone. The lane's HOME has moved: rf2-kbzqn relocated it out of the
-    # donor tree to implementation/freehand/scaffold-smoke, which is the
-    # examples_compile surface it was already gated on.)
-    needs: detect_changed_surfaces
-    if: needs.detect_changed_surfaces.outputs.examples_compile == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 25
-    defaults:
-      run:
-        working-directory: implementation/freehand/scaffold-smoke
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
-
-      - name: Set up JDK 21
-        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654  # v5.2.0
-        with:
-          distribution: temurin
-          java-version: '21'
-
-      - name: Set up Node.js
-        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e  # v6.4.0
-        with:
-          node-version: '24'
-
-      - name: Set up Clojure CLI
-        run: "$GITHUB_WORKSPACE/.github/scripts/install-clojure-cli.sh"
-
-      - name: Cache Maven / gitlibs (framework + shadow-cljs deps)
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
-        with:
-          path: |
-            ~/.m2/repository
-            ~/.gitlibs
-            ~/.deps.clj
-          key: ${{ runner.os }}-ui-scaffold-smoke-${{ hashFiles('examples/ui/minimal-counter/deps.edn', 'implementation/freehand/deps.edn', 'implementation/core/deps.edn') }}
-          restore-keys: |
-            ${{ runner.os }}-ui-scaffold-smoke-
-            ${{ runner.os }}-cljs-
-
-      # The test shells out to `npm install` + `npx shadow-cljs compile app`
-      # in temp dirs, so it needs Node on PATH (above) but no job-level npm
-      # install of its own. RF2_UI_SCAFFOLD_COMPILE=1 turns on the real
-      # install+compile proof and the per-file omission matrix.
-      - name: Materialize + install + compile the minimal scaffold (+ omission matrix)
-        env:
-          RF2_UI_SCAFFOLD_COMPILE: '1'
-        run: clojure -M:test
-
   cljs-browser-schemas-boundary-prod:
     name: CLJS (shadow-cljs :browser-test-schemas-boundary-prod, :advanced + goog.DEBUG=false, rf2-84e9)
     needs: detect_changed_surfaces
@@ -3940,7 +3666,7 @@ jobs:
     # No browser and no Clojure CLI: two shadow-cljs releases plus a string
     # inspection over the emitted bytes, and shadow-cljs.edn resolves through
     # `:dependencies` rather than `:deps`, so the JDK/Node/Maven trio is enough
-    # — same step list as cljs-freehand-evidence-elision below. Measured cold
+    # Measured cold
     # at 75s end to end (30.0s + 13.6s of `:advanced` compile plus dependency
     # resolution), which is why this is per-PR and not nightly.
     #
@@ -4082,173 +3808,6 @@ jobs:
 
       - name: Schemas bundle cost (core-only control + schemas probe, two-sided margin)
         run: npm run test:schemas-bundle
-
-  cljs-freehand-evidence-elision:
-    name: Freehand evidence production isolation (F4g control-build probe, rf2-drpa3.166)
-    # rf2-xwa4n — PR #6880 shipped the probe as `npm run
-    # test:freehand-evidence-elision` and nothing invoked it. A gate that never
-    # runs is no gate: the next change to the evidence schema, the dev-gated
-    # emission seam, the occurrence index behind it, the mounted commit edge
-    # that roots the seam, the release entry, the build config or the checker
-    # could merge without the proof ever executing.
-    #
-    # The gate builds TWO `:advanced` bundles of the SAME entry
-    # (re-frame.freehand.release-app) differing only in `goog.DEBUG`, then greps
-    # both:
-    #   - release (goog.DEBUG=false): the two evidence-door sentinels ABSENT
-    #     (the dev gate folded to false and Closure DCE'd the branch that
-    #     reaches `re-frame.freehand.evidence`), the app survivor PRESENT.
-    #   - control (goog.DEBUG=true):  the SAME two sentinels PRESENT — the
-    #     positive control, so a probe that stopped rooting the seam fails here
-    #     instead of passing vacuously.
-    #
-    # No browser and no Clojure CLI: two shadow-cljs releases plus a string
-    # inspection over the emitted bytes, so the JDK/Node/Maven trio is enough
-    # (same shape as cljs-ui-facade-isolation).
-    #
-    # Surface-gated rather than unconditional: two `:advanced` builds are not
-    # worth spending on every PR, and the classifier arms exactly the surfaces
-    # that can invalidate the proof. The roster is declared in ONE place —
-    # `report-changed-surfaces.sh`'s producer `case`, pinned by
-    # `FREEHAND_EVIDENCE_PRODUCERS` in `implementation/scripts/_changed-surfaces.test.cjs`
-    # — and this comment deliberately does not restate it: the two previous
-    # restatements here both went stale (they omitted `shell.cljs`, then
-    # `occurrences.cljc`) while reading as a complete enumeration.
-    needs: detect_changed_surfaces
-    if: needs.detect_changed_surfaces.outputs.freehand_evidence_elision == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 25
-    defaults:
-      run:
-        working-directory: implementation
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
-
-      - name: Set up JDK 21
-        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654  # v5.2.0
-        with:
-          distribution: temurin
-          java-version: '21'
-
-      - name: Set up Node.js
-        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e  # v6.4.0
-        with:
-          node-version: '24'
-          cache: npm
-          cache-dependency-path: implementation/package-lock.json
-
-      - name: Cache Maven / gitlibs (shadow-cljs deps)
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
-        with:
-          path: |
-            ~/.m2/repository
-            ~/.gitlibs
-          key: ${{ runner.os }}-cljs-${{ hashFiles('implementation/shadow-cljs.edn', 'implementation/package-lock.json') }}
-          restore-keys: |
-            ${{ runner.os }}-cljs-
-
-      - name: npm install
-        run: npm ci
-
-      - name: F4g evidence elision probe (release + goog.DEBUG=true control)
-        run: npm run test:freehand-evidence-elision
-
-  cljs-freehand-reachability:
-    name: Freehand unused-module reachability (B5 control-build probe, rf2-drpa3.52)
-    # rf2-zl8ao — PR #6901 shipped the probe as `npm run
-    # test:freehand-reachability` and nothing invoked it. The positive-control
-    # half exists precisely so the gate REDS when the probe stops probing, and
-    # a gate nobody runs cannot red: the next change to the controller doors,
-    # the facade edge, either entry, the build config or the checker could
-    # merge with the proof never executing.
-    #
-    # The gate builds TWO `:advanced` bundles with the SAME `goog.DEBUG false`
-    # and different ENTRIES, then greps both:
-    #   - production (`release-app/-main`): the two `re-frame.freehand.control`
-    #     refusal-message doors ABSENT (the app declares no controller, so
-    #     Closure removed the module), the app survivor PRESENT.
-    #   - control (the same `-main` CALLED, plus one view calling
-    #     `v/controller-key`): the SAME two doors PRESENT — the oracle
-    #     validation, checked FIRST, so an absence result is never read from an
-    #     unvalidated grep.
-    #
-    # NOT a duplicate of cljs-freehand-evidence-elision above. That pair moves
-    # `goog.DEBUG` and holds the app still, proving a DEV-GATED SEAM elides;
-    # this pair holds the flag still and moves the APP, proving an UNUSED
-    # MODULE elides. The controller strings are absent from the goog.DEBUG=true
-    # control too, so that build cannot prove this claim. At 4cdd518035 the
-    # control measures 734,264 chars against production's 730,332 — 3,932
-    # chars of controller runtime an unusing page does not ship.
-    #
-    # Read the DELTA, not the absolutes, and read it as a FROM-CLEAN reading.
-    # rf2-bl1gp is why it now says so. The figure it replaces (744,100 vs
-    # 752,791, 8,691 chars) read as a plain fact and was not one: a
-    # shadow-cljs build that compiles fresh in a process where a SIBLING
-    # build was served from cache gets different Closure identifier/property
-    # renaming (confirmed in #6915), so running the evidence-elision gate
-    # first in the same tree moved it — there, far enough to invert the sign.
-    # `npm run test:freehand-reachability` now clears both builds' output and
-    # compile caches before compiling (`clean:freehand-reachability`, the
-    # pattern `build:freehand-matched` established), so the reading is the
-    # from-clean one whatever ran before it.
-    #
-    # The absolutes still drift with ordinary code growth, which is why the
-    # revision is named: over the two base revisions this was measured at
-    # they moved together by 293 chars while the delta stayed at exactly
-    # 3,932. The delta is the claim; the absolutes are provenance.
-    #
-    # The GATE never depended on any of this:
-    # check-freehand-reachability.cjs asserts present/absent, never bytes, and
-    # passes 2/2 in every posture measured while wiring the clean step up.
-    #
-    # No browser and no Clojure CLI: two shadow-cljs releases plus a string
-    # inspection over the emitted bytes, so the JDK/Node/Maven trio is enough
-    # (same shape as the sibling job above). The two jobs run on separate
-    # runners, so they share no compile in CI; locally the clean step means
-    # this gate always pays for both `:advanced` builds itself.
-    #
-    # Surface-gated for the same reason the sibling is: the classifier arms
-    # exactly the surfaces that can invalidate the proof — the controller
-    # doors, the facade that owns the single production call edge into them,
-    # both entries, the build-config trio and the checker itself.
-    needs: detect_changed_surfaces
-    if: needs.detect_changed_surfaces.outputs.freehand_reachability == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 25
-    defaults:
-      run:
-        working-directory: implementation
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
-
-      - name: Set up JDK 21
-        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654  # v5.2.0
-        with:
-          distribution: temurin
-          java-version: '21'
-
-      - name: Set up Node.js
-        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e  # v6.4.0
-        with:
-          node-version: '24'
-          cache: npm
-          cache-dependency-path: implementation/package-lock.json
-
-      - name: Cache Maven / gitlibs (shadow-cljs deps)
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
-        with:
-          path: |
-            ~/.m2/repository
-            ~/.gitlibs
-          key: ${{ runner.os }}-cljs-${{ hashFiles('implementation/shadow-cljs.edn', 'implementation/package-lock.json') }}
-          restore-keys: |
-            ${{ runner.os }}-cljs-
-
-      - name: npm install
-        run: npm ci
-
-      - name: B5 reachability probe (release + superset-app control)
-        run: npm run test:freehand-reachability
 
   cljs-bundle-isolation:
     name: CLJS bundle isolation (counter, rf2-51x5)
@@ -6594,19 +6153,6 @@ jobs:
       # waits on.
       - jvm-epoch-prod-gate
       - jvm-resources
-      # rf2-drpa3.58 — folded in from the deleted freehand-artefact.yml.
-      # `needs:` cannot span workflow files, so until this line the freehand
-      # JVM lane was visible but ADVISORY.
-      - jvm-freehand
-      # rf2-8alkj — required for the same reason `jvm-core-prod-gate` is. This
-      # was the last whole artefact that no lane ran under the documented
-      # production posture, and what it covers is not incidental: the
-      # `{:reactive false}` opt-out is a SAFETY mechanism whose production
-      # behaviour is the thing under test, and `re-frame.freehand.evidence`
-      # exists in order to be compiled away in a release build. Advisory would
-      # reproduce the original hole in a new shape — a gate nobody's merge
-      # waits on.
-      - jvm-freehand-prod-gate
       - jvm-spec-resource
       - jvm-reply-conformance
       - jvm-derivation-conformance
@@ -6631,7 +6177,6 @@ jobs:
       - js-harness-self-tests
       - cljs-browser
       - cljs-examples-compile
-      - ui-scaffold-smoke
       - cljs-browser-schemas-boundary-prod
       - cljs-browser-prod-elision
       - cljs-elision
@@ -6646,13 +6191,6 @@ jobs:
       # Advisory would put it back in the same position by a different route — a
       # job absent from this list is advisory whatever its own gate says.
       - cljs-schemas-bundle
-      # rf2-xwa4n — required, so the F4g production-isolation proof cannot be
-      # invalidated by a merge that never ran it.
-      - cljs-freehand-evidence-elision
-      # rf2-zl8ao — required for the same reason, and for a DIFFERENT claim:
-      # the B5 proof that an unused runtime module stays out of the production
-      # bundle cannot be invalidated by a merge that never ran it.
-      - cljs-freehand-reachability
       - cljs-bundle-isolation
       - adapter-testbed-smokes
       - story-xray-browser

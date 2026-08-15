@@ -223,12 +223,8 @@ nav:
     # and Xray use, and titles match each page's H1.
     #
     # `docs/core/freehand/`'s 22 pages were DELETED under rf2-7cuns, together
-    # with the digest roster that pinned them
-    # (implementation/freehand/test/.../guide/samples_coverage_jvm_test.clj) —
-    # same commit, because the roster `file-seq`s the page tree and deleting
-    # either half alone reds the suite. The `api/re-frame.freehand*.md` pages
-    # that linked in survive until they retire with the code tree; their
-    # inbound links were de-linked rather than re-pointed.
+    # with the digest roster that pinned them; the `api/re-frame.freehand*.md`
+    # pages followed when the code tree retired (rf2-0yp7w.6).
     - "Hicasso: the view layer":
       - core/hicasso/index.md
       - "0. Installation": core/hicasso/00-installation.md
@@ -283,17 +279,6 @@ nav:
   - API:
     - api/README.md
     - "re-frame.core": api/re-frame.core.md
-    # The Freehand view substrate has no published Maven coordinate:
-    # day8/re-frame2-freehand resolves with :local/root from a checkout, and
-    # there is no date at which it publishes. Both pages already open with that
-    # admonition (rf2-xlrbz); the nav now says so too, so a reader who never
-    # opens one is not misled. Same reason as the (donor) labels below, whose
-    # marker style this follows (rf2-8jbpe).
-    - "re-frame.freehand (pre-alpha)": api/re-frame.freehand.md
-    - "re-frame.freehand.form (pre-alpha)": api/re-frame.freehand.form.md
-    - "re-frame.freehand.controls (pre-alpha)": api/re-frame.freehand.controls.md
-    - "re-frame.freehand.splitter (pre-alpha)": api/re-frame.freehand.splitter.md
-    - "re-frame.freehand.collection (pre-alpha)": api/re-frame.freehand.collection.md
     - "re-frame.schemas": api/re-frame.schemas.md
     - "re-frame.flows": api/re-frame.flows.md
     - "re-frame.http": api/re-frame.http.md
@@ -308,7 +293,6 @@ nav:
     - "re-frame.adapter.uix": api/re-frame.adapter.uix.md
     - "re-frame.test-support": api/re-frame.test-support.md
     - "re-frame.test-helpers": api/re-frame.test-helpers.md
-    - "re-frame.freehand.test (pre-alpha)": api/re-frame.freehand.test.md
 
   - Machines:
     # Section label IS the landing page (navigation.indexes). Flat list —
