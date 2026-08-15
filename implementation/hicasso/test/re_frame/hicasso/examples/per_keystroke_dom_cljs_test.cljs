@@ -184,10 +184,17 @@
 ;; Instrument 2 — subscription recomputations
 ;; ---------------------------------------------------------------------------
 
-(defn- with-counted-subs
+(defn with-counted-subs
   "Install a counting wrapper on each of `sub-ids`' registered
   `:handler-fn`, call `(f read-counts reset-counts)`, and restore every
   registration in a `finally`.
+
+  PUBLIC because it has a second consumer:
+  `examples.grid.row-total-layer2-dom-cljs-test` (rf2-18u0) measures the
+  layer-1/layer-2 contrast §4 of `per-keystroke.md` names, and it has to
+  read that contrast on the SAME instrument as the census — a copied
+  counter would make the two numbers an arithmetic comparison between two
+  wrappers rather than one reading. Nothing else about it moved.
 
   `read-counts` answers `{sub-id n}` for the wrappers that ran;
   `reset-counts` zeroes them, which is what lets one mount take a
@@ -215,7 +222,11 @@
         (doseq [[id meta] originals]
           (registrar/register! :sub id meta))))))
 
-(defn- total [counts] (reduce + 0 (vals counts)))
+(defn total
+  "The census's one number, summed over the per-sub attribution. Public
+  for the same second consumer as [[with-counted-subs]]."
+  [counts]
+  (reduce + 0 (vals counts)))
 
 ;; ---------------------------------------------------------------------------
 ;; Instrument 3 — the commit, in glass writes and DOM mutations
