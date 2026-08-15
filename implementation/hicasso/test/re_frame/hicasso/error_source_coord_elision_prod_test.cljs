@@ -9,6 +9,16 @@
   Closure compiler removes the call AND the map literal it would have
   been given, absolute file path included.
 
+  **`defview`'s authoring-time alias rides that same gate** (rf2-5qaf4):
+  the declaration also publishes a `:view` registrar entry carrying the
+  coordinate and the minted head, and it is emitted inside the identical
+  `when`. So the same constant-fold that erases the coordinate erases the
+  registration, which is what makes Hicasso's *no registry at runtime*
+  stance a production fact rather than a claim about the dev build. The
+  dev-side shape is
+  `re-frame.hicasso.view-alias-registry-cljs-test`'s; only the ABSENCE is
+  assertable here.
+
   This file compiles under `:browser-test-prod-elision`, the dedicated
   build with `goog.DEBUG=false` + `:advanced`, so what is asserted below
   is a genuine constant-fold rather than a `with-redefs`. Every assertion
@@ -42,7 +52,8 @@
   (:require [cljs.test :refer-macros [deftest is testing]]
             [re-frame.hicasso.coord-sentinel-source :as sentinel]
             [re-frame.hicasso.impl.codec :as codec]
-            [re-frame.hicasso.impl.error :as error]))
+            [re-frame.hicasso.impl.error :as error]
+            [re-frame.registrar :as registrar]))
 
 ;; ---------------------------------------------------------------------------
 ;; The ledger was never written
@@ -57,6 +68,32 @@
 (deftest no-coordinate-is-registered-for-a-host-declared-under-prod
   (testing "`defhost` opens the same extent under the same gate"
     (is (nil? (error/source-of sentinel/host-name)))))
+
+;; ---------------------------------------------------------------------------
+;; Nor was the authoring-time alias (rf2-5qaf4)
+;; ---------------------------------------------------------------------------
+
+(deftest no-view-registrar-entry-is-published-for-a-view-declared-under-prod
+  (testing "`defview`'s registrar alias rides the SAME `(when
+            debug-enabled? …)` gate as the coordinate above, so a production
+            bundle publishes no entry and Hicasso's *no registry at runtime*
+            stance holds where it is claimed. The entry serves tools; there
+            are none here"
+    (is (nil? (registrar/lookup :view sentinel/view-id))))
+
+  (testing "and NO entry anywhere in the `:view` kind carries the alias's
+            slot — a build-wide absence rather than one id's"
+    (is (empty? (filter :hicasso/component
+                        (vals (registrar/registrations :view)))))))
+
+(deftest the-view-kind-is-populated-under-prod-so-the-absence-above-is-real
+  ;; The positive control the row above needs. This build compiles every
+  ;; `-elision-prod-test` namespace in the repository, and the Reagent
+  ;; adapter's three register views at load — so `registrations :view`
+  ;; answering non-empty is what proves the nil above is the DECLARATION's
+  ;; absence and not a registrar that answers nothing for anyone.
+  (testing "other substrates' views are registered here"
+    (is (seq (registrar/registrations :view)))))
 
 ;; ---------------------------------------------------------------------------
 ;; A refusal carries neither ambient field

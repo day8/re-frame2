@@ -2022,6 +2022,89 @@
       (codec/mark-frame-prop! (codec/mark-boundary! component)))))
 
 ;; ---------------------------------------------------------------------------
+;; The authoring-time alias — one registrar entry per declaration, dev only
+;; ---------------------------------------------------------------------------
+
+(defn publish-view-alias!
+  "Publish the name `defview` already computed to core's `:view`
+  registrar, so a keyword an author WROTE resolves forward to the
+  boundary they meant (rf2-5qaf4; ruled on rf2-1gy4e).
+
+  Three arguments, each already in the macro's hand at the declaration:
+
+  - `view-id` is `(keyword \"<ns>\" \"<sym>\")` — byte-identical to the
+    id `rf/reg-view` derives from its own symbol
+    (`core-reg-view-macro/expand-reg-view`), so ONE convention answers
+    for both substrates and a tool needs no per-substrate spelling.
+  - `slot` is the coordinate map the macro captured, plus the author's
+    `:doc` when they wrote one. It is stored the way `reg-view` stores
+    it — `:ns` / `:file` / `:line` / `:column` at the TOP LEVEL of the
+    registration metadata, which is where `(rf/handler-meta :view id)`
+    already reads them, so a consumer needs no second seam. `:doc`
+    rides along for the same reason it does on a `reg-view`: the
+    registrar dev-warns `:rf.warning/missing-doc` for a macro-path
+    registration with no usable `:doc`, and withholding a docstring the
+    author DID write would make that warning fire on a documented view.
+  - `head` is the value the `def` binds — the minted boundary — under
+    `:hicasso/component`.
+
+  ## The entry is an ALIAS, and carries NO `:handler-fn`
+
+  `rf/view` answers *the registered render fn*, and this entry has none:
+  a Hicasso boundary is a React component minted by [[mint-view!]], not
+  a hiccup-returning render fn, and pretending otherwise would make that
+  contract lie. So `(rf/view id)` answers nil here, deliberately, and a
+  substrate handed a Hicasso id keeps whatever diagnostic it already
+  has. The head is reachable at `:hicasso/component` by a consumer that
+  knows what to do with a React component.
+
+  This publishes RESOLVABILITY and not identity. The name is not new —
+  `defview` already stamps it as DevTools `displayName`, keys Spec 009's
+  `rf:render:<name>` measure off it, and attributes refusals with it;
+  the only thing missing was lookup. Mounted boundary identity is still
+  keyed by the read set and still unnamed, which is what
+  `re-frame.hicasso.tool` answers the BACKWARD question with (rf2-jkdy /
+  rf2-l86mm / rf2-2og6s stand untouched — they refuse *which view is
+  this runtime boundary?*; this answers *where is the view the author
+  named in source?*).
+
+  ## Why `registrar/register!` rather than `rf/reg-view*`
+
+  Two reasons, and either alone is decisive. `rf/reg-view*` on CLJS
+  delegates to `re-frame.views/reg-view*`, which ALWAYS builds a
+  frame-aware render wrapper and stores it under `:handler-fn` — so it
+  cannot mint the metadata-only entry above at all. And its first step
+  is `apply-adapter-wrap-view`, which consults the `:adapter/wrap-view`
+  late-bind hook AT REGISTRATION TIME; a `defview` is declared at
+  namespace load, which routinely precedes `rf/init!`, so a registration
+  that went through that path would ask an adapter question before there
+  is an adapter to answer it. Writing the slot here — a plain
+  registration under a kind the registrar already knows — is
+  adapter-NEUTRAL by construction: no hook is consulted, nothing wraps
+  the head, and `:hicasso/component` is `identical?` to the value the
+  `def` binds whether an adapter is installed or not.
+
+  ## Hot reload needs nothing added
+
+  Re-evaluating a `defview` re-registers the SAME id, and the registrar
+  replaces the slot atomically — one entry, never two, with the fresh
+  head. The provenance is unchanged across a save, so the registrar's
+  collision warning stays correctly silent; a genuine cross-source clash
+  on one id still surfaces, because it surfaces for every kind.
+
+  Called ONLY from inside the `defview` expansion's
+  `(when re-frame.interop/debug-enabled? …)` gate — the same gate the
+  declaration extent rides — so under `:advanced` + `goog.DEBUG=false`
+  the call, this fn and the slot map all leave the bundle and a
+  production Hicasso app has no registry at runtime. Witnessed in
+  `re-frame.hicasso.error-source-coord-elision-prod-test`.
+
+  Answers `view-id`, per Conventions §`reg-*` return-value."
+  [view-id slot head]
+  (registrar/register! :view view-id (assoc slot :hicasso/component head))
+  view-id)
+
+;; ---------------------------------------------------------------------------
 ;; Teardown — the one door that empties every module
 ;; ---------------------------------------------------------------------------
 

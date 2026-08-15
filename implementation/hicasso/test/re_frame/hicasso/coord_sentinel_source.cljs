@@ -21,8 +21,11 @@
 
   This file is compiled into the `:browser-test-prod-elision` build by the
   elision suite's `:require`, the same way `checkpoint_support` and
-  `roots_frames_support` reach their suites. It registers nothing, mounts
-  nothing and holds no state."
+  `roots_frames_support` reach their suites. It mounts nothing and holds no
+  state, and **in the build it is compiled into it registers nothing** —
+  `defview`'s authoring-time alias (rf2-5qaf4) rides the same
+  `debug-enabled?` gate as the coordinate, so the registrar entry is one
+  more thing this build is asserted not to have."
   (:require [re-frame.hicasso :as h]))
 
 (h/defview sentinel-row
@@ -49,3 +52,14 @@
 (def host-name
   "The ledger key for [[sentinel-host]]."
   "re-frame.hicasso.coord-sentinel-source/sentinel-host")
+
+(def view-id
+  "The `:view` registrar id [[sentinel-row]] would be published under in a
+  DEV build (rf2-5qaf4) — `(keyword \"<ns>\" \"<sym>\")`, the same
+  derivation `rf/reg-view` uses. Written here beside [[view-name]] rather
+  than rebuilt in the suite, so the two spellings of one declaration's
+  identity cannot drift.
+
+  A keyword, so what reaches the bundle is `\"re-frame.hicasso.coord-sentinel-source\"`
+  — dots, not the `coord_sentinel_source.cljs` PATH the scan looks for."
+  ::sentinel-row)
