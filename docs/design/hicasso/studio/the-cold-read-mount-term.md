@@ -126,14 +126,21 @@ and settled between samples behind a residue equality gate that never fired):
 >
 > **The two absolutes are not restated, and the reason is stronger than the
 > "it came back inside the quantum" result the bead anticipated.** The `commit`
-> arm's spread across three runs of one binary on a certified-quiet box is
-> 0.100 ms — **four grid steps, in one session, with nothing changing between
-> runs.** The effect commissioned for sight is 141 keyword mints, which this
+> arm's spread across three runs of one binary — one source file, one build,
+> one session, no deliberate change between them — is 0.100 ms, **four grid
+> steps.** The effect commissioned for sight is 141 keyword mints, which this
 > window's own micro readings price at 14–32 ns each (the micro table below is
 > the published run's and is not restated): **0.002–0.005 ms/commit, an eighth
-> of one grid step and about a thirtieth of the dispersion just quoted.** The
-> term is not merely under the instrument's resolution — it is far under the
-> instrument's own run-to-run noise, and more runs would not change that.
+> of one grid step and about a thirtieth of the dispersion just quoted.** What
+> produced that dispersion this window does not establish. The instrument's own
+> run-to-run variation is the leading candidate and the box was quiet on 82 of
+> 85 samples — but two of the three non-zero readings cannot be placed outside
+> run 3's measurement phase, and that is enough to keep residual load in the
+> frame. **The refusal does not turn on which it is.** Under either cause the
+> term is not merely below the window's resolution but far below its scatter,
+> and more runs of this shape would only measure the scatter again. Separating
+> the two causes would take a window built to do it, and would not bring this
+> term into view.
 >
 > **A restatement of two cells could no longer be honest in any case, because
 > two further changes have landed under this table, neither of them the mint,
@@ -171,9 +178,15 @@ and settled between samples behind a residue equality gate that never fired):
 >
 > **The fidelity ratio is not restated either, and does not need to be.** It
 > read 0.8864 / 0.9444 / 0.9189 against the published 0.9718 — a spread of
-> 0.058 that loosely brackets it — and it stays common-mode for the reason
-> `rf2-gttif` gave: every term that has left or joined `c-local` left or joined
-> the seam it is divided by.
+> 0.058 lying wholly *below* it, so this window neither reproduces the
+> published ratio nor brackets it, and none of it is offered as confirmation.
+> What holds 0.9718 in place is not clock agreement but the reason `rf2-gttif`
+> gave, in the narrow form that reason actually takes: the keyword mint left
+> the copy and the seam alike, so it cancels out of the ratio. `rf2-lzpfj`'s
+> activation is the one term that did not move on both sides — it joined
+> `c-local` alone, restoring parity with work the seam was already performing,
+> and on this UIx host that work is expected at the noise floor. It was never a
+> term that joined both arms together.
 
 > **THE WHOLE RE-TAKE RAN ON THE WIDENED WINDOW, AND IT DOES NOT PUBLISH**
 > (`rf2-07rnj`, 2026-08-16, commit `a43aa8609f`, instrument blob
