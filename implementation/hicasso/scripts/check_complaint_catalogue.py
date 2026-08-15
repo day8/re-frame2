@@ -29,8 +29,8 @@ two enumerations agree and the coverage is still missing. The register's
 reserved section is the third input that closes that hole, and R3 below
 is what keeps it honest.
 
-THE EIGHT RULES
----------------
+THE TEN RULES
+-------------
   R1  NO GAP.        Every `:rf.error/*` id emitted by the package's
                      shipped source or its test kit has a `live` row.
   R2  NO DEAD ENTRY. Every `live` row is emitted by one of those.
@@ -68,6 +68,15 @@ THE EIGHT RULES
                      each id only recovery keywords that id's Spec 009
                      row actually carries. See R9 IS A ROUND TRIP below
                      for which directions that is, and which it is not.
+  R10 THE RUNTIME IS THE ANCHOR.  Every `:recovery` keyword the package
+                     RAISES for an id Spec 009 rows in its Hicasso
+                     section appears in that row's recovery cell — and
+                     every such id has at least one emit site this gate
+                     can read.  R1–R9 reconcile documents with documents;
+                     this is the only rule that opens the source and
+                     reads what the runtime actually passes.  See R10 IS
+                     THE RUNTIME ANCHOR below, which is careful about
+                     what it does NOT close.
 
 THE DIRECTION R8 DELIBERATELY DOES NOT CHECK is the reverse one: an id
 whose `Taught in` cell is `—` is NOT required to be absent from the
@@ -106,21 +115,85 @@ equality would red on those and teach the next author to weaken the rule.
 WHAT R9 CANNOT SEE — the honest limit, and it is a real one:
 
   * IT NEVER READS THE RUNTIME'S OWN `:recovery` ARGUMENT.  It reconciles
-    two DOCUMENTS.  If an emitter and its Spec 009 row drift together
-    away from the API they name, both agree, the page agrees with both,
-    and R9 is green while all three are wrong.  That is not a theoretical
-    hole: it is rf2-15bqc exactly — four `:recovery` keywords went on
-    spelling the callback form `h-fn` for as long as they did BECAUSE
-    runtime and catalogue agreed with each other, and the register says
-    so itself ("a recovery keyword that disagreed with what the runtime
-    raises would be silent untracked drift rather than a red build").
-    Closing it means parsing the `:recovery` ARGUMENT out of each `fail!`
-    call and each hand-built refusal map, including the sites that
-    compute it conditionally.  That is a different rule with its own
-    blind spots; it is not folded in here to look thorough.  Filed.
+    two DOCUMENTS.  R10 is the rule that opens the source, and the two are
+    not the same claim — read R10 IS THE RUNTIME ANCHOR before assuming
+    the pair of them covers more than it does.
   * It does not check that the index's PROSE is true, only its keywords.
   * It reads ONE page.  A complaint documented somewhere else in the
     guide, or twice, is outside its subject.
+
+R10 IS THE RUNTIME ANCHOR — AND IT DOES NOT CLOSE rf2-15bqc
+------------------------------------------------------------
+This rule was filed (rf2-5zmul) against a sentence that used to stand
+here: that R9's document-to-document limit "is rf2-15bqc exactly".  It is
+not, and the correction matters more than the rule does, because the next
+reader would otherwise believe a hole had been closed that has not been.
+
+WHAT ACTUALLY HAPPENED IN rf2-15bqc.  Four recovery keywords went on
+spelling the callback form `h-fn` after it was renamed to `h/event`.  The
+fix commit is `3f2dba74da`, and its own subject line says how they were
+wrong: "runtime and catalogue TOGETHER".  Before it, `impl/intent` passed
+`:write-an-h-fn-at-a-value-first-position` and Spec 009's row carried
+`:write-an-h-fn-at-a-value-first-position` — the same string.  R10
+compares those two.  **R10 would have been green for the whole life of
+that defect**, and any rule that reconciles the runtime against the
+catalogue would have been.  What was wrong was not the agreement between
+them; it was that both named an API form that no longer existed.  Seeing
+THAT needs a rule about whether a recovery keyword still names something
+the API has — a naming-census question, and not this register's.
+
+WHAT R10 DOES CLOSE, which is narrower and real: a recovery renamed on
+ONE side and not the other.  With R9 already binding Spec 009 to the
+guide, the chain runtime -> Spec 009 -> guide now has no unchecked link,
+so a single-document edit reds somewhere along it.  Only a COORDINATED
+edit of all three stays green — which is what rf2-15bqc's fix was, and
+what its defect was too.
+
+R10 RUNS ONE DIRECTION ONLY: every recovery the runtime RAISES is rowed.
+The reverse — every rowed keyword is raised by something — is NOT checked,
+for the same reason R9's keyword arm is subset-and-not-equality: the
+recovery cell is prose, and it quotes payload and option KEY names beside
+the recovery itself.  Measured on this tree, requiring the reverse reds on
+three rows that name `:callbacks`, `:event` and `:target` — none of them
+recoveries.  Requiring it would teach the next author to weaken the rule,
+which is worse than not requiring it.
+
+R10'S SUBJECT STOPS AT THE SECTION BOUNDARY, AND HOLDS NO EXEMPTIONS.  An
+earlier attempt at this rule (rf2-hic-068) measured a cheaper version at
+75 of 76 and abandoned it, because the one exception looked like it needed
+a hand-maintained exemption list — and a list like that rots silently.  It
+does not need one.  The three ids that fall out are the three Hicasso
+REUSES from the wider framework rather than mints, and Spec 009 already
+says which those are by rowing them in its MAIN catalogue instead of its
+Hicasso section.  `read_spec_hicasso_ids` reads that structure.  Nothing
+is listed here, and a fourth reused spelling needs no edit to this file.
+
+  Not the `hicasso-` id prefix, which is the other thing that looks like
+  it would work: `:rf.error/no-frame-prop` is Hicasso's own, is rowed in
+  the Hicasso section, and carries no prefix (the register records this
+  under *Open, and not settled here*).  A prefix rule would drop it from
+  the subject without saying so — smaller coverage, same green.
+
+WHAT R10 CANNOT SEE:
+
+  * A recovery that is CORRECT against Spec 009 and wrong about the API.
+    That is the paragraph above, and it is the whole of rf2-15bqc.
+  * A recovery computed from something the reader cannot fold to a
+    keyword — a lookup, a function call.  Nothing in the package does
+    this today; a conditional (`impl/codec` writes one) is read as the
+    SET of both arms, which is what the id can answer.
+  * The three corpus-owned spellings, deliberately, per the subject rule
+    above.  `:rf.error/no-frame-context` is rowed `:supply-frame` for
+    `re-frame.frame`'s emitter while Hicasso's boundary passes
+    `:mount-under-a-frame`; both are right where they stand, and no rule
+    here has an opinion.
+
+  The first arm of R10 is what keeps the other two honest.  A gate that
+  reads emit sites can always read FEWER of them than it claims to — a
+  new constructor shape, and the rule quietly covers less while still
+  reporting OK.  So every id in the subject must yield a recovery the
+  reader understood, and an id it cannot account for is a FAILURE rather
+  than a silence.
 
 WHAT COUNTS AS AN EMIT
 ----------------------
@@ -207,12 +280,22 @@ _CELL_SPLIT_RE = re.compile(r"(?<!\\)\|")
 # Reading source
 # ---------------------------------------------------------------------------
 
-def mask(text):
+def mask(text, strings_as_atoms=False):
     """`text` with `;` comments and string literals replaced by spaces.
 
     Character literals (`\\;`, `\\"`) are consumed as two characters so a
     quote or semicolon written as a value cannot open a phantom string or
     comment.  Newlines survive so a caller can still report line numbers.
+
+    `strings_as_atoms` collapses each string literal to the single
+    character `#` instead of a same-width run of spaces.  R10 needs it and
+    the id scan must NOT have it: blanking a string DELETES an argument,
+    because whitespace is what separates one from the next.  A refusal
+    whose reason is a plain string reads as `(fail! id where :recovery {})`
+    once blanked — the recovery has moved one place left, and a positional
+    reader believes it.  Two of this package's `fail!` sites are written
+    that way, so this is the difference between reading the argument and
+    reading the one after it.
     """
     out = []
     i, n = 0, len(text)
@@ -221,10 +304,12 @@ def mask(text):
         c = text[i]
         if in_string:
             if c == "\\" and i + 1 < n:
-                out.append("  ")
+                if not strings_as_atoms:
+                    out.append("  ")
                 i += 2
                 continue
-            out.append("\n" if c == "\n" else " ")
+            if not strings_as_atoms:
+                out.append("\n" if c == "\n" else " ")
             if c == '"':
                 in_string = False
             i += 1
@@ -236,12 +321,13 @@ def mask(text):
             continue
         if c == '"':
             in_string = True
-            out.append(" ")
+            out.append("#" if strings_as_atoms else " ")
             i += 1
             continue
         if c == ";":
             while i < n and text[i] != "\n":
-                out.append(" ")
+                if not strings_as_atoms:
+                    out.append(" ")
                 i += 1
             continue
         out.append(c)
@@ -266,6 +352,232 @@ def read_ids(roots):
         for match in sorted(set(_ERROR_ID_RE.findall(code)) - NOT_A_COMPLAINT):
             rel = os.path.relpath(path, REPO_ROOT).replace(os.sep, "/")
             found.setdefault(match, []).append(rel)
+    return found
+
+
+# ---------------------------------------------------------------------------
+# Reading the RUNTIME's `:recovery` argument (R10)
+# ---------------------------------------------------------------------------
+#
+# Everything below reads code as FORMS rather than as lines, because the
+# subject is an ARGUMENT POSITION and a line-oriented scan cannot find one:
+# the reason argument beside it is routinely a multi-line `(str …)`.
+
+_OPEN, _CLOSE = "([{", ")]}"
+_SYMBOL = r"[A-Za-z0-9*+!_'?<>=.-]+"
+_DEFN_RE = re.compile(r"\(defn-?\s+(" + _SYMBOL + r")(?=[\s\n])")
+_PARAM_VEC_RE = re.compile(r"\[([^]\[]*)\]")
+_KEYWORD_RE = re.compile(r"^:[a-zA-Z][a-zA-Z0-9*+!_'?<>=./-]*$")
+_ANY_KEYWORD_RE = re.compile(r":[a-zA-Z][a-zA-Z0-9*+!_'?<>=./-]*")
+
+
+def _forms(code, head_pattern):
+    """Yield `(match, body)` for each paren-balanced form the head opens.
+
+    `body` is everything between the head and the closing bracket.  An
+    unbalanced tail yields nothing rather than raising: this is a gate, and
+    a file it cannot read must show up as MISSING COVERAGE (R10's first
+    arm) rather than as a traceback that says nothing about the register.
+    """
+    for match in re.finditer(head_pattern, code):
+        depth = 0
+        for position in range(match.start(), len(code)):
+            if code[position] in _OPEN:
+                depth += 1
+            elif code[position] in _CLOSE:
+                depth -= 1
+                if depth == 0:
+                    yield match, code[match.end():position]
+                    break
+
+
+def _call_args(body):
+    """A form body split into its TOP-LEVEL arguments, in order."""
+    found, depth, start = [], 0, None
+    for position, char in enumerate(body):
+        if char in _OPEN:
+            if depth == 0 and start is None:
+                start = position
+            depth += 1
+        elif char in _CLOSE:
+            depth -= 1
+            if depth == 0:
+                found.append(body[start:position + 1])
+                start = None
+        elif depth == 0:
+            if char.isspace():
+                if start is not None:
+                    found.append(body[start:position])
+                    start = None
+            elif start is None:
+                start = position
+    if start is not None:
+        found.append(body[start:])
+    return found
+
+
+def _literal_pairs(body):
+    """`(id, recovery)` for each literal map pairing both, as literals.
+
+    The shape a refusal minted WITHOUT a constructor takes — `impl/error`'s
+    own meta-refusal is the one in the package.
+    """
+    for _match, inner in _forms(body, r"\{"):
+        cells = _call_args(inner)
+        pairs = dict(zip(cells[0::2], cells[1::2]))
+        error_id, recovery = pairs.get(":rf.error/id"), pairs.get(":recovery")
+        if error_id and recovery and _ERROR_ID_RE.match(error_id) \
+                and _KEYWORD_RE.match(recovery):
+            yield error_id, recovery
+
+
+def _map_sources(body, params):
+    """`(id-source, recovery-source)` off a literal ex-data map, or None.
+
+    Each half resolves to a literal keyword or to one of `params` by NAME —
+    which is what makes a constructor's recovery POSITION derived rather
+    than declared. `fail!` writes `{:rf.error/id id … :recovery recovery}`,
+    so the reader learns "argument 3" by asking the constructor instead of
+    carrying a table of arities that goes stale the moment one changes.
+    """
+    for _match, inner in _forms(body, r"\{"):
+        cells = _call_args(inner)
+        pairs = dict(zip(cells[0::2], cells[1::2]))
+        error_id, recovery = pairs.get(":rf.error/id"), pairs.get(":recovery")
+        if not (error_id and recovery):
+            continue
+        id_source = (("fixed", error_id) if _ERROR_ID_RE.match(error_id)
+                     else ("param", params.index(error_id)) if error_id in params
+                     else None)
+        recovery_source = (("fixed", recovery) if _KEYWORD_RE.match(recovery)
+                           else ("param", params.index(recovery)) if recovery in params
+                           else None)
+        if id_source and recovery_source:
+            return (id_source, recovery_source)
+    return None
+
+
+def read_constructors(sources):
+    """`{name: (id-source, recovery-source)}` — the package's refusal minters.
+
+    A source is `("fixed", keyword)` or `("param", index)`, and a
+    constructor is DISCOVERED rather than named here, because a list of
+    names is a list that goes stale the first time somebody adds a fifth
+    helper.  A `defn` qualifies when its body mints a refusal — a literal
+    ex-data map, or a call to a constructor already known — AND at least
+    one of the id and the recovery comes from ITS OWN PARAMETERS.
+
+    That last clause is the whole rule.  A `defn` whose id and recovery are
+    both LITERAL is not a constructor, it is an ordinary emit site, and the
+    call-site scan reads it where it stands.  Admitting one would attribute
+    its refusal to every caller of an ordinary function: dropping the
+    clause resolves 133 "constructors" here instead of 4, and reports a
+    refusal against `:rf.error/hicasso-deferred-read-at-boundary` that no
+    call site raises.
+    """
+    definitions = []
+    for _rel, code in sources:
+        for match, body in _forms(code, _DEFN_RE.pattern):
+            name = _DEFN_RE.match(code[match.start():]).group(1)
+            params = _PARAM_VEC_RE.search(body)
+            definitions.append((name, params.group(1).split() if params else [], body))
+
+    known = {}
+    for _pass in range(len(definitions) + 1):
+        grew = False
+        for name, params, body in definitions:
+            if name in known:
+                continue
+            sources_found = _map_sources(body, params) \
+                or _forwarded(body, params, known)
+            if sources_found and any(kind == "param" for kind, _ in sources_found):
+                known[name] = sources_found
+                grew = True
+        if not grew:
+            break
+    return known
+
+
+def _forwarded(body, params, known):
+    """The id/recovery sources a body inherits from a constructor it calls."""
+    for other, (id_source, recovery_source) in sorted(known.items()):
+        head = r"\((?:%s/)?%s(?=[\s)])" % (_SYMBOL, re.escape(other))
+        for _match, inner in _forms(body, head):
+            arguments = _call_args(inner)
+
+            def lift(source):
+                kind, value = source
+                if kind == "fixed":
+                    return source
+                if value >= len(arguments):
+                    return None
+                argument = arguments[value]
+                if _KEYWORD_RE.match(argument):
+                    return ("fixed", argument)
+                return ("param", params.index(argument)) if argument in params else None
+
+            lifted = (lift(id_source), lift(recovery_source))
+            if all(lifted):
+                return lifted
+    return None
+
+
+def read_runtime_recoveries(roots):
+    """`{id: set(recovery keyword, …)}` as the PACKAGE'S OWN CODE passes them.
+
+    A set rather than one keyword because a site may compute the recovery —
+    `(if (fn? head) :call-it-or-make-it-a-view :supply-a-valid-hiccup-head)`
+    is written in `impl/codec` today — and both arms are then answers the
+    id can give.
+    """
+    sources = []
+    for path in _source_files(roots):
+        with open(path, encoding="utf-8") as fh:
+            sources.append((os.path.relpath(path, REPO_ROOT).replace(os.sep, "/"),
+                            mask(fh.read(), strings_as_atoms=True)))
+    return recoveries_in(sources)
+
+
+def recoveries_in(sources):
+    """[[read_runtime_recoveries]] over already-masked `(path, code)` pairs.
+
+    Split out so the readers can be run over source this checkout does not
+    have — a historical tree, a fixture — without a tree to walk.
+    """
+    constructors = read_constructors(sources)
+    found = {}
+
+    def record(error_id, keywords):
+        found.setdefault(error_id, set()).update(keywords)
+
+    for name, (id_source, recovery_source) in constructors.items():
+        if id_source[0] == "fixed" and recovery_source[0] == "fixed":
+            record(id_source[1], [recovery_source[1]])
+    for _rel, code in sources:
+        for error_id, recovery in _literal_pairs(code):
+            record(error_id, [recovery])
+        for name, (id_source, recovery_source) in constructors.items():
+            head = r"\((?:%s/)?%s(?=[\s)])" % (_SYMBOL, re.escape(name))
+            for _match, inner in _forms(code, head):
+                arguments = _call_args(inner)
+
+                def read(source):
+                    kind, value = source
+                    if kind == "fixed":
+                        return [value]
+                    if value >= len(arguments):
+                        return None
+                    argument = arguments[value]
+                    if _KEYWORD_RE.match(argument):
+                        return [argument]
+                    return _ANY_KEYWORD_RE.findall(argument) or None
+
+                ids, recoveries = read(id_source), read(recovery_source)
+                if not ids or not recoveries:
+                    continue
+                for error_id in ids:
+                    if _ERROR_ID_RE.match(error_id):
+                        record(error_id, recoveries)
     return found
 
 
@@ -335,6 +647,40 @@ def read_spec_recoveries(path):
     return recoveries
 
 
+def read_spec_hicasso_ids(path):
+    """The ids Spec 009 rows UNDER A HICASSO HEADING — R10's subject.
+
+    Read off the heading STACK rather than the nearest heading, so a row
+    keeps its owner through nesting.  The kit's fifteen ids live under an
+    `#####` inside a `####` about adapter and harness categories, and only
+    the stack says they are still Hicasso's.
+
+    This is the structural fact that lets R10 hold no exemption list.  A
+    row in Spec 009's MAIN catalogue is a spelling Hicasso reuses from the
+    wider framework rather than one it mints — `no-frame-context`,
+    `routing-artefact-missing`, `ui-tree-malformed` are rowed there today —
+    and that row's recovery is written for the CORPUS's emitter, which is
+    a different call site with different advice to give.  Hicasso's
+    boundary passes `:mount-under-a-frame` where the row says
+    `:supply-frame`, and both are right where they stand.  Requiring them
+    equal would be requiring the wrong thing, not merely an inconvenient
+    one — so R10's subject stops at the section boundary.
+    """
+    ids, stack = set(), []
+    with open(path, encoding="utf-8") as fh:
+        for line in fh:
+            heading = re.match(r"^(#{1,6})\s+(.*)", line)
+            if heading:
+                level = len(heading.group(1))
+                stack = [(depth, text) for depth, text in stack if depth < level]
+                stack.append((level, heading.group(2)))
+                continue
+            match = _ROW_ID_RE.match(line)
+            if match and any("Hicasso" in text for _depth, text in stack):
+                ids.add(match.group(1))
+    return ids
+
+
 def read_index(path):
     """`(entries, recoveries)` off the troubleshooting complaint index.
 
@@ -390,7 +736,7 @@ def guide_chapter(number):
 
 def check(register, emitted, package_ids, spec_active, spec_retired, chapter_text,
           index_entries=None, index_recoveries=None, index_mismatched=None,
-          spec_recoveries=None):
+          spec_recoveries=None, runtime_recoveries=None, spec_hicasso_ids=None):
     """Every rule, against already-read inputs.
 
     Pure so `--self-test` can drive each red by doctoring one input rather
@@ -407,6 +753,8 @@ def check(register, emitted, package_ids, spec_active, spec_retired, chapter_tex
     index_recoveries = {} if index_recoveries is None else index_recoveries
     index_mismatched = [] if index_mismatched is None else index_mismatched
     spec_recoveries = {} if spec_recoveries is None else spec_recoveries
+    runtime_recoveries = {} if runtime_recoveries is None else runtime_recoveries
+    spec_hicasso_ids = set() if spec_hicasso_ids is None else spec_hicasso_ids
 
     # R1 — no gap.
     for error_id in sorted(emitted):
@@ -535,6 +883,30 @@ def check(register, emitted, package_ids, spec_active, spec_retired, chapter_tex
                 "moves when that api is renamed — move it in one pass across "
                 "the runtime, Spec 009 and this page (rf2-15bqc)"
                 % (error_id, keyword))
+
+    # R10 — the runtime is the anchor.  One direction only; the header says
+    # which, why the reverse is not checked, and what this does NOT close.
+    for error_id in sorted(set(live) & set(spec_hicasso_ids)):
+        passed = runtime_recoveries.get(error_id)
+        if not passed:
+            failures.append(
+                "R10 %s is rowed in Spec 009's Hicasso section and NO emit site "
+                "this gate can read passes a `:recovery` for it. Either the id "
+                "is minted through a shape the reader does not know — in which "
+                "case R10 is silently covering less than it claims, and the "
+                "reader is what needs the edit — or the id is not raised at all "
+                "and R2 is about to say so" % error_id)
+            continue
+        rowed = set(spec_recoveries.get(error_id, []))
+        for keyword in sorted(set(passed) - rowed):
+            failures.append(
+                "R10 %s is RAISED with the recovery %s, which its Spec 009 row "
+                "does not carry (the row has %s). The runtime is the anchor: "
+                "either the emit site is giving advice no catalogue documents, "
+                "or Spec 009 has been left behind by a rename. Move it in one "
+                "pass — runtime, Spec 009, then the guide R9 checks"
+                % (error_id, keyword,
+                   ", ".join(sorted(rowed)) or "no recovery keyword at all"))
     return failures
 
 
@@ -574,7 +946,9 @@ def read_all():
                 chapter_text=chapter_text, index_entries=index_entries,
                 index_recoveries=index_recoveries,
                 index_mismatched=index_mismatched,
-                spec_recoveries=read_spec_recoveries(SPEC_009))
+                spec_recoveries=read_spec_recoveries(SPEC_009),
+                runtime_recoveries=read_runtime_recoveries(EMIT_ROOTS),
+                spec_hicasso_ids=read_spec_hicasso_ids(SPEC_009))
 
 
 # ---------------------------------------------------------------------------
@@ -708,6 +1082,63 @@ def self_test():
         **{":rf.error/hicasso-intent-needs-the-event":
            [":write-an-h-fn-at-a-value-first-position"]}))
 
+    # R10's READERS, on written-down fixtures.  A reader that quietly found
+    # NOTHING would leave every rule arm below vacuous in the one direction
+    # that passes — which is how this gate's own subject went uncovered
+    # until rf2-5zmul.
+    assert mask("(fail! :rf.error/a 'w \"reason\" :fix {})", strings_as_atoms=True) \
+        == "(fail! :rf.error/a 'w # :fix {})", \
+        "a plain-string reason must survive as ONE argument, not vanish"
+    assert mask('(fail! :rf.error/a "r")').count(":rf.error/") == 1, \
+        "and the default masking is unchanged, because R1-R9 read it"
+    assert _call_args(" :rf.error/a 'w (str # #) :fix {}") \
+        == [":rf.error/a", "'w", "(str # #)", ":fix", "{}"], \
+        "arguments split at the TOP level, a multi-line (str …) counting once"
+    assert _ANY_KEYWORD_RE.findall("(if (fn? head) :call-it :supply-a-head)") \
+        == [":call-it", ":supply-a-head"], \
+        "a computed recovery reads as the SET of arms the id can answer"
+
+    def constructors_of(text):
+        return read_constructors([("fixture.cljc", mask(text, strings_as_atoms=True))])
+
+    minter = ("(defn fail! [id where reason recovery extra]"
+              "  (throw (ex-info reason {:rf.error/id id :where where"
+              "                          :reason reason :recovery recovery})))")
+    assert constructors_of(minter) == {"fail!": (("param", 0), ("param", 3))}, \
+        "a constructor's recovery POSITION is derived from its own parameters"
+    assert constructors_of(
+        minter + "(defn walk [x] (fail! :rf.error/hicasso-true-child 'w"
+                 " \"r\" :use-nil-or-false {}))").keys() == {"fail!"}, \
+        "a defn whose id AND recovery are literal is an EMIT SITE, not a " \
+        "constructor — admitting it attributes its refusal to every caller"
+    assert constructors_of(
+        minter + "(defn refuse-opaque! [id reason extra]"
+                 "  (fail! id 'w reason :assert-it-at-l3 extra))"
+    )["refuse-opaque!"] == (("param", 0), ("fixed", ":assert-it-at-l3")), \
+        "a helper that fixes the recovery and takes the id from its caller " \
+        "is itself a constructor, and its call sites are emit sites"
+
+    # R10 — the rule, both arms, plus the subject boundary that is the whole
+    # reason it needs no exemption list.
+    runtime = inputs["runtime_recoveries"]
+    anchored = sorted(set(register["live"]) & set(inputs["spec_hicasso_ids"]))
+    assert anchored, "R10 has a subject at all"
+    an_anchored = anchored[0]
+    red("R10", runtime_recoveries=dict(
+        runtime, **{an_anchored: {":a-recovery-spec-009-never-rowed"}}))
+    unaccounted = dict(runtime)
+    unaccounted.pop(an_anchored, None)
+    red("R10", runtime_recoveries=unaccounted)      # covering less than it claims
+
+    corpus_owned = sorted(set(register["live"]) - set(inputs["spec_hicasso_ids"]))
+    assert corpus_owned, \
+        "the corpus-owned population is what R10's subject rule exists for"
+    quiet = check(**dict(inputs, runtime_recoveries=dict(
+        runtime, **{corpus_owned[0]: {":a-recovery-no-catalogue-rows-anywhere"}})))
+    assert not [failure for failure in quiet if failure.startswith("R10")], \
+        "R10 must hold NO opinion on a spelling Hicasso reuses from the " \
+        "corpus: that row's recovery answers for a different emitter"
+
     print("OK: check_complaint_catalogue self-test passed")
     return 0
 
@@ -735,13 +1166,19 @@ def main(argv=None):
     if failures:
         return report(failures)
     register = inputs["register"]
+    anchored = sorted(set(register["live"]) & set(inputs["spec_hicasso_ids"]))
     print("OK: %d live, %d reserved, %d pending retirement, %d retired; every "
           "live row is emitted and rowed in Spec 009, every reservation is "
           "unbuilt, every anchor resolves, and the troubleshooting index "
-          "carries all %d live ids exactly once with Spec 009's recoveries."
+          "carries all %d live ids exactly once with Spec 009's recoveries.\n"
+          "    R10: %d of those are rowed in Spec 009's Hicasso section, and "
+          "every `:recovery` the package raises for them is in its row. The "
+          "other %d are corpus-owned spellings rowed in the main catalogue, "
+          "whose recovery answers for a different emitter."
           % (len(register["live"]), len(register["reserved"]),
              len(register["pending-retirement"]), len(register["retired"]),
-             len(register["live"])))
+             len(register["live"]), len(anchored),
+             len(register["live"]) - len(anchored)))
     return 0
 
 
