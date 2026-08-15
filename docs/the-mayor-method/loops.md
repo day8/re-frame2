@@ -52,6 +52,16 @@ turned out not to mean that. There is no bypass. An administrative override is f
 the host's own mergeability-recompute lag, which is not a check at all, and only
 once every clause is already met.
 
+**A change still published as a draft is not a merge candidate, and no number of
+clauses makes it one.** The five test the CHANGE — whether what is proposed is
+green — and none of them can see whether its author has finished with it. Workers
+are told to push as they go and publish as soon as commits exist, because pushed
+commits are the only durable worker state, so *green* and *done* are separate facts
+and this criterion only ever measured the first. Marking a change ready for review
+is the worker's last act, and hosts refuse to merge a draft, so the interlock costs
+this loop nothing to remember. See *Publishing the change* in
+[`dispatch-prompt-template.md`](dispatch-prompt-template.md).
+
 Resolve the head first — the branch name **and** the head revision — because
 clauses 4 and 5 are both keyed to it.
 
