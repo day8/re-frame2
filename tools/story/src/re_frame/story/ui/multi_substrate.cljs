@@ -80,20 +80,31 @@
   no props-schema slot — deferred by rf2-1gy4e until someone asks for
   auto-Controls, rather than invented here.
 
-  ### One live limit, and it is not this renderer's (rf2-phabt)
+  ### The limit that WAS here is gone, and it was never the crossing
+  ### (rf2-phabt)
 
-  A Hicasso boundary crossed into from a Reagent parent — which is what
-  the canvas is — **paints once and does not re-render on a write into
-  its own frame.** Measured against a live control while this renderer
-  landed: the same boundary under `h/mount!` repaints, and both outward
-  doors (`h/as-element` and a memoized `h/as-component`) are deaf, so it
-  is the crossing rather than the door, the adapter or the drain.
+  This section used to record a live limit: *a Hicasso boundary crossed
+  into from a Reagent parent — which is what the canvas is — paints once
+  and does not re-render on a write into its own frame.* Read literally
+  that said a hicasso story could render and not respond to its own
+  dispatches, which would have made the substrate a demo rather than a
+  place to author.
 
-  So a hicasso story renders, takes its args, resolves its variant frame
-  and reads it — and does not yet respond to its own dispatches. Nothing
-  here works around it: a workaround would be a second reactivity path
-  for one substrate. It is fixed in Hicasso, and rf2-kttom's worked
-  testbed waits on it.
+  It was an artefact of the measurement, not a defect in the bridge. The
+  original comparison varied the mounting route AND the frame id at once;
+  the actual cause was `re-frame.hicasso.impl.collector/acquire-cell!`
+  REUSING a cell without rebuilding its attachment, so the notification
+  never reached a body that had already painted correctly. Fixed in
+  Hicasso, and both outward doors — `h/as-element` and a memoized
+  `h/as-component` — repaint on a write today. The two rows that measured
+  it are back, green, in
+  `re-frame.story.ui.hicasso-substrate-dom-cljs-test`
+  ([[a-write-repaints-a-crossed-boundary]] and its `as-component` pair).
+
+  So a hicasso story renders, takes its args, resolves its variant frame,
+  reads it AND responds to writes into it. Nothing here works around
+  anything: there is no second reactivity path for one substrate, because
+  none was ever needed.
 
   ## Grid layout
 
