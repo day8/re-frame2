@@ -156,8 +156,6 @@ examples_compile=false
 cljs_prod=false
 bundle_isolation=false
 reagent_slim_bundle=false
-freehand_evidence_elision=false
-freehand_reachability=false
 adapter_testbed_smokes=false
 tools_jvm=false
 # rf2-wq17m — two artefacts with a wired `:test` alias and a slot on
@@ -232,8 +230,6 @@ mark_all() {
   cljs_prod=true
   bundle_isolation=true
   reagent_slim_bundle=true
-  freehand_evidence_elision=true
-  freehand_reachability=true
   adapter_testbed_smokes=true
   tools_jvm=true
   tools_jvm_machines_viz=true
@@ -555,15 +551,6 @@ else
     # machines-viz remain here because example builds load the Xray preload
     # and Story hosts, whose compiled closure includes machines-viz.
     #
-    # rf2-nutll — implementation/freehand/* joined this list when
-    # examples/ui/minimal-counter cut over to Freehand. That scaffold is the
-    # subject of the `ui-scaffold-smoke` job, which is gated on this same
-    # output, and it now resolves day8/re-frame2-freehand by :local/root — so a
-    # Freehand change that breaks the standalone scaffold's compile would
-    # otherwise SKIP the only job that builds it. The widening the
-    # `implementation/freehand/*` case further down anticipated, arrived at from
-    # the consumer side.
-    #
     # rf2-in6c4 — the top-level testbed SOURCES joined this list when
     # check-examples-compile.cjs widened its derivation to `:testbeds/*`. Same
     # shape as the two widenings above, and the same reason: that gate is now
@@ -571,7 +558,7 @@ else
     # below, not this list — `testbeds/*` is deliberately NOT here, because a
     # first-match `case` would then swallow the extension narrowing.
     case "$file" in
-      examples/*|implementation/adapters/*|implementation/epoch/*|implementation/schemas/*|implementation/machines/*|implementation/routing/*|implementation/flows/*|implementation/http/*|implementation/ssr/*|implementation/ssr-ring/*|implementation/resources/*|implementation/security/*|implementation/freehand/*|implementation/deps.edn|implementation/shadow-cljs.edn|implementation/package.json|implementation/package-lock.json|implementation/scripts/check-examples-compile.cjs)
+      examples/*|implementation/adapters/*|implementation/epoch/*|implementation/schemas/*|implementation/machines/*|implementation/routing/*|implementation/flows/*|implementation/http/*|implementation/ssr/*|implementation/ssr-ring/*|implementation/resources/*|implementation/security/*|implementation/deps.edn|implementation/shadow-cljs.edn|implementation/package.json|implementation/package-lock.json|implementation/scripts/check-examples-compile.cjs)
         examples_compile=true
         ;;
       # rf2-in6c4 — top-level testbed CLJS sources. The extensions are the
@@ -1048,258 +1035,6 @@ else
             tools_cljs_machines_viz=true ;;
         esac
         ;;
-      implementation/freehand/src/re_frame/freehand/evidence.cljc|implementation/freehand/src/re_frame/freehand/cell.cljc|implementation/freehand/src/re_frame/freehand/occurrences.cljc|implementation/freehand/src/re_frame/freehand/shell.cljs|implementation/freehand/test/re_frame/freehand/release_app.cljs)
-        # rf2-xwa4n — the F4g evidence-elision gate's Freehand PRODUCER
-        # surfaces. `npm run test:freehand-evidence-elision` (rf2-drpa3.166)
-        # builds `:freehand-release` and its goog.DEBUG=true control twin
-        # `:freehand-release-control` and proves the dev-gated occurrence-record
-        # seam — and the `re-frame.freehand.evidence` schema it reaches — is
-        # ABSENT from the release bundle and PRESENT in the control. It shipped
-        # as a local-only command: `rg test:freehand-evidence-elision .github`
-        # found no workflow invocation, so the next change to the schema, the
-        # seam, or the release entry could merge without running the proof.
-        #
-        # These five files are the proof's bounded PRIMARY INPUTS — not every
-        # file that could affect Closure reachability, but the ones that
-        # directly constitute the probe:
-        #   - evidence.cljc  — the doors carrying the two DEV_ONLY_SENTINELS; a
-        #     rename of either refusal string makes the probe vacuous (it would
-        #     go absent in the CONTROL too, which is what the positive control
-        #     catches — but only if the gate RUNS).
-        #   - cell.cljc      — `emit-commit-evidence!`, the sole dev gate. Move
-        #     it out from behind `interop/debug-enabled?` and the schema ships.
-        #     It also carries the third sentinel (the containment console line)
-        #     and both call sites into the occurrence index.
-        #   - occurrences.cljc — the dev-only CURRENT-OCCURRENCE index
-        #     (rf2-xftdv): a `defonce` atom holding one row per connected
-        #     occurrence. It carries no runtime string literal, so it can root
-        #     no sentinel of its own; its production absence follows from
-        #     cell.cljc's gate, which is exactly why a change to the index is
-        #     worth re-running the proof that the gate really does fold away.
-        #   - shell.cljs     — the SOLE mounted commit edge: `cell/commit!` in
-        #     the useLayoutEffect reconcile (shell.cljs:165). That call is what
-        #     ROOTS `emit-commit-evidence!`, and through it BOTH positive-control
-        #     door strings; remove or redirect it and the control bundle loses
-        #     the very sentinels the probe reads.
-        #   - release_app.cljs — the entry BOTH bundles compile, and the home of
-        #     the PROD_SURVIVING sentinel (the non-vacuity floor).
-        #
-        # Deliberately NOT the whole `implementation/freehand/**` tree: two
-        # `:advanced` builds on every PR of a large programme is cost the ruling
-        # (rf2-xwa4n) declined. Plenty of TRANSITIVE changes — in the compiler,
-        # in core interop, in a Closure bump — could theoretically stop the
-        # release app reaching a mounted commit; the unconditional nightly
-        # (expensive-tests.yml) is the honest superset for those. This list is
-        # the direct inputs only.
-        #
-        # The narrow list stays honest because the ALWAYS-armed jvm-freehand
-        # lane carries
-        # `the-evidence-schema-reaches-the-render-path-only-through-the-dev-gated-seam`
-        # (evidence_boundary_jvm_test.clj), which asserts `cell` is the sole
-        # DOOR-REACHABLE Freehand namespace mentioning the schema — and, beside
-        # it, that the tool-tier read door `re-frame.freehand.tool` (which
-        # mentions the schema and is deliberately NOT reachable from the public
-        # door) stays off the render path (rf2-lvvl2). Those two rows together
-        # are the premise: a new schema-touching PRODUCER cannot appear without
-        # reddening that walk, so it cannot slip past this list unnoticed.
-        # Reachability is decided by whoever REQUIRES the tool tier rather than
-        # by the tier itself, which is why the off-path row — not the tool file —
-        # is what this list leans on. Widen both together if either row is ever
-        # relaxed. What that walk canNOT see is a DELETED CALL edge: it proves
-        # require-reachability, and both namespaces stay require-reachable after
-        # `cell/commit!` is removed from the reconcile. That is precisely why
-        # shell.cljs is armed here directly rather than leaned on the law
-        # (rf2-xwa4n, merged-PR audit of #6888).
-        #
-        # The four arms below are replicated from the artefact-root case:
-        # a POSIX `case` takes the FIRST match, so this case SHADOWS
-        # `implementation/freehand/*` — it must widen, never narrow.
-        # cljs_prod joined that replication under rf2-kll2x, and cell.cljc is
-        # the reason it is not merely bookkeeping: `cell/observe!` carries the
-        # candidate consultation whose PRODUCTION survival
-        # reactive_false_check_elision_prod_test.cljs exists to prove.
-        implementation_jvm=true
-        cljs_node_test=true
-        cljs_browser=true
-        cljs_prod=true
-        freehand_evidence_elision=true
-        # rf2-zl8ao — the release entry is SHARED with the B5 reachability
-        # probe: `:freehand-release` is the production half of both control
-        # pairs, so a change to this app can root `re-frame.freehand.control`
-        # (a controlled input added to a release view) and break reachability
-        # without touching anything the evidence gate watches. A POSIX `case`
-        # takes the FIRST match, so this file can never reach the reachability
-        # case below — arm it here instead. Scoped to the entry: `evidence` and
-        # `cell` are the evidence gate's producers and not this one's.
-        case "$file" in
-          implementation/freehand/test/re_frame/freehand/release_app.cljs)
-            freehand_reachability=true ;;
-        esac
-        ;;
-      implementation/freehand/*.md)
-        # rf2-drpa3.70 — prose under the artefact root. The two host suites
-        # still fire (a README documents contracts those suites assert, and
-        # they are cheap), but Markdown cannot change what React puts on a
-        # page, so it does not pay for a Chromium run. This arm exists only to
-        # keep the browser widening below off documentation-only PRs, and it
-        # MUST stay above the artefact-root arm: a POSIX `case` takes the
-        # first match, and its `*` spans `/`, so this covers prose at any
-        # depth under the artefact.
-        implementation_jvm=true
-        cljs_node_test=true
-        ;;
-      implementation/freehand/src/re_frame/freehand/control.cljc|implementation/freehand/src/re_frame/freehand.cljc|implementation/freehand/test/re_frame/freehand/bench/b5_reachability_control_app.cljs)
-        # rf2-zl8ao — the B5 REACHABILITY gate's Freehand producer surfaces.
-        # `npm run test:freehand-reachability` (rf2-drpa3.52 acceptance 1)
-        # builds `:freehand-release` and its strict-superset twin
-        # `:freehand-release-reachability-control` and proves the semantic
-        # controller runtime (`re-frame.freehand.control`) is ABSENT from the
-        # production bundle and PRESENT in the control — 8,691 chars an
-        # unusing page does not ship. It landed as a local-only command with
-        # no workflow invocation, the same way its sibling did.
-        #
-        # DIFFERENT CLAIM from the evidence-elision gate above, not a
-        # duplicate: that pair moves `goog.DEBUG` and holds the app still
-        # (a DEV-GATED SEAM elides); this pair holds the flag still and moves
-        # the APP (an UNUSED MODULE elides). The controller strings are absent
-        # from the goog.DEBUG=true control too, so that build cannot prove
-        # this one. Hence two arms and two jobs.
-        #
-        # These are what can invalidate it:
-        #   - control.cljc  — the two refusal doors whose exact strings the
-        #     probe greps (`record-key`'s absent-`:control` and nil-`:control`
-        #     messages). Reword either and the grep goes vacuous — which the
-        #     positive-control half catches, but only if the gate RUNS.
-        #   - freehand.cljc — the facade, and the ONLY namespace requiring
-        #     `re-frame.freehand.control` (`controller-key` is `def`'d to
-        #     `control/record-key`). It owns the single production call edge:
-        #     root the door from a paved path here and the module ships.
-        #   - b5_reachability_control_app.cljs — the CONTROL entry. Lose the
-        #     `v/controller-key` call and the oracle stops being validated.
-        # The release entry `release_app.cljs` — the production half both
-        # bundles compile — is armed in the shared case above, which shadows
-        # this one.
-        #
-        # Deliberately NOT the whole `implementation/freehand/**` tree: two
-        # `:advanced` builds on every PR of a large programme is cost the
-        # sibling ruling (rf2-xwa4n) declined, and this gate shares one of
-        # those two builds with it. Unlike the evidence gate there is no
-        # sole-requirer JVM law pinning the narrowness yet (rf2-drpa3.52's
-        # boundary walk covers the evidence schema, not `control`), so the
-        # backstop for a NEW production edge appearing outside these files is
-        # the unconditional nightly run in expensive-tests.yml.
-        #
-        # The four arms below are replicated from the artefact-root
-        # case: a POSIX `case` takes the FIRST match, so this case SHADOWS
-        # `implementation/freehand/*` — it must widen, never narrow.
-        # cljs_prod joined that replication under rf2-kll2x: freehand.cljc is
-        # the public door `reactive_false_check_elision_prod_test.cljs` reads
-        # and declares through (`v/sub`, `v/defview`, `v/manifest`), so a
-        # change here can invalidate the production proof outright.
-        implementation_jvm=true
-        cljs_node_test=true
-        cljs_browser=true
-        cljs_prod=true
-        freehand_reachability=true
-        ;;
-      implementation/freehand/*)
-        # rf2-drpa3.58 — the Freehand view substrate artefact (EP-0036).
-        # Its JVM lane shipped as a standalone workflow with its own
-        # `paths:` trigger, so the classifier never had to know about the
-        # tree. Folding that lane into test.yml as `jvm-freehand` makes the
-        # classifier load-bearing: with no case here every output stays
-        # false on a freehand-only PR, so the newly-required job would
-        # SKIP exactly when it matters — strictly worse than the advisory
-        # standalone workflow it replaces.
-        #
-        # implementation_jvm fires the `jvm-freehand` job (the artefact's
-        # `:test` alias plus the donor-boundary law). cljs_node_test fires
-        # the consolidated `:node-test` build, which carries `freehand/src`
-        # + `freehand/test` (implementation/shadow-cljs.edn) and matches
-        # `re-frame.freehand.*-cljs-test` — the deleted workflow's header
-        # asserted that arm was covered by an "always-on `cljs` job", but
-        # `cljs` is surface-gated on cljs_node_test, so before this case
-        # the CLJS arm skipped on a freehand-only PR too.
-        #
-        # rf2-drpa3.70 — cljs_browser, the widening rf2-drpa3.58 said to make
-        # "the moment it gains a `*-dom-cljs-test` namespace". F1c shipped the
-        # interpreted React emitter and with it two such namespaces
-        # (react_mount_dom_cljs_test.cljs, route_link_native_dom_cljs_test.cljs)
-        # that mount through `react-dom/client` and read assertions back off
-        # `document`. They already RIDE the `:browser-test` build — freehand/src
-        # and freehand/test are on :source-paths and that build's
-        # `-dom-cljs-test$` ns-regexp selects them — but the `cljs-browser` job
-        # is surface-gated on this output, so a Freehand-only PR skipped the
-        # only lane where they can execute.
-        #
-        # A green `cljs` job is not a substitute: the `:node-test` regex
-        # matches the same two files, where they find no DOM and say so rather
-        # than mounting. That is the same false-green shape rf2-drpa3.58/.61
-        # closed for the host suites, one tier up.
-        #
-        # rf2-kll2x — cljs_prod, the widening the note below said to make "the
-        # moment that changes". It changed: rf2-3slzz added
-        # reactive_false_check_elision_prod_test.cljs, the first Freehand
-        # namespace matching the `-elision-prod-test$` regexp and so the first
-        # Freehand code riding `:browser-test-prod-elision` (`:advanced` +
-        # `{goog.DEBUG false}`, runner re-frame.prod-elision-runner). It is on
-        # that build's classpath already — freehand/test is on the global
-        # :source-paths — so the suite compiled and ran from the day it landed,
-        # but only on the unconditional nightly (expensive-tests.yml). At PR
-        # time cljs_prod stayed false and cljs-browser-prod-elision SKIPPED, so
-        # a Freehand change that broke the PRODUCTION posture of the
-        # `{:reactive false}` read check merged green and surfaced the next
-        # morning on a different commit. Same false-green shape rf2-drpa3.58 /
-        # .61 / .70 closed for the host and browser tiers of this same tree.
-        #
-        # The subject is a SAFETY mechanism, which is why the production half
-        # is not optional: a boundary wrongly declared shell-free must refuse
-        # at the first offending render in a shipped bundle, not only in dev.
-        # A `with-redefs` on `interop/debug-enabled?` cannot reach a load-time
-        # gate at all, so `:advanced` is the only place the claim can be made.
-        #
-        # Still NOT bundle_isolation / ui_gates / ui_smoke: bundle_isolation
-        # measures the examples set, and Freehand mounts no testbed those
-        # smokes drive. Widen each the moment that changes — the
-        # `implementation/ui/*` case above is the worked precedent.
-        #
-        # rf2-xwa4n — Freehand DOES now have `:advanced` release builds of its
-        # own (`:freehand-release` and its control twin), so the older reading
-        # of this note as "Freehand ships nothing under :advanced" no longer
-        # holds. Those builds are covered by the dedicated
-        # freehand_evidence_elision output, armed narrowly on the probe's
-        # primary inputs in the case above — not by the three still withheld.
-        # They are a different claim from cljs_prod's: those two builds weigh
-        # a Freehand RELEASE bundle, `:browser-test-prod-elision` runs Freehand
-        # ASSERTIONS under a production compile. Neither substitutes.
-        #
-        # rf2-nutll — examples_compile is armed too, but from the FIRST case
-        # block (where the examples_compile roster lives) rather than here:
-        # examples/ui/minimal-counter is a standalone Freehand project now, so
-        # Freehand is a framework artefact a standalone example build resolves.
-        #
-        # rf2-2rtt6.143 / rf2-r4j91 — migration_hicasso_codemod USED to be set
-        # here, and is not any more, because the `:paths` edge it was the
-        # reverse of has moved. `migration/reagent-to-hicasso/codemod/deps.edn`
-        # put `../../../implementation/freehand/test` on its classpath so that
-        # the codemod and the runtime door shared ONE slot rule (rf2-ani6y),
-        # and `shared_rule_test.clj` pins the two `identical?`. rf2-ani6y ran
-        # while the runtime still lived in the bench tree; rf2-hic-001 moved it
-        # to `implementation/hicasso/`, and rf2-r4j91 followed the codemod's
-        # path over to `implementation/hicasso/src` so the tool outlives
-        # Freehand's retirement. The boolean therefore moved to the
-        # `implementation/hicasso/*` arm below, where the file it guards now
-        # lives.
-        #
-        # Leaving it set here as well would not be belt-and-braces, it would be
-        # a lie about which tree the codemod reads — and once this tree is
-        # deleted an arm nobody can reach cannot be the thing that catches a
-        # broken slot rule.
-        implementation_jvm=true
-        cljs_node_test=true
-        cljs_browser=true
-        cljs_prod=true
-        ;;
       implementation/hicasso/*)
         # rf2-8a6s — the Hicasso view substrate artefact (rf2-hic-001).
         # The package landed with no case here at all, so a hicasso-ONLY
@@ -1674,7 +1409,7 @@ else
       # and 22 `if:` widenings in test.yml for a saving the spec roster above
       # would not even collect (its pins already span jvm-core, jvm-machines,
       # jvm-epoch, jvm-ssr and jvm-routing). The precedent is directly
-      # overhead: rf2-drpa3.70 arms it for `implementation/freehand/*.md`. So the
+      # overhead: prose a suite reads arms the JVM tier. So the
       # narrowing this bead buys is bought on the PATH axis instead: prose a
       # suite reads arms the JVM tier, and prose nothing reads still arms
       # nothing, exactly as today.
@@ -1924,40 +1659,6 @@ else
         reagent_slim_bundle=true
         hicasso_hmr=true
         ;;
-      implementation/scripts/check-freehand-evidence-elision.cjs)
-        # rf2-xwa4n — self-protection, mirroring the launcher/checker cases
-        # above. This script IS the F4g evidence-elision gate: the sentinel sets,
-        # the non-vacuity floor and the two bundle reads all live in it. The
-        # generic `implementation/scripts/*` case below never arms
-        # freehand_evidence_elision, so without this arm a PR could edit the
-        # gate's own teeth — soften a sentinel, drop the positive control —
-        # while avoiding the job that runs it. The remaining static-script
-        # surfaces it shares with the generic case stay armed too; this case
-        # widens coverage, it does not narrow it.
-        cljs_node_test=true
-        cljs_browser=true
-        cljs_prod=true
-        bundle_isolation=true
-        reagent_slim_bundle=true
-        freehand_evidence_elision=true
-        ;;
-      implementation/scripts/check-freehand-reachability.cjs)
-        # rf2-zl8ao — self-protection, exactly as for the sibling checker
-        # above. This script IS the B5 reachability gate: the two controller
-        # door sentinels, the non-vacuity survivor, the empty-bundle refusal
-        # and the oracle-before-result ordering all live in it. The generic
-        # `implementation/scripts/*` case below never arms
-        # freehand_reachability, so without this arm a PR could soften the
-        # gate's own teeth while avoiding the job that runs it. The remaining
-        # static-script surfaces it shares with the generic case stay armed
-        # too; this case widens coverage, it does not narrow it.
-        cljs_node_test=true
-        cljs_browser=true
-        cljs_prod=true
-        bundle_isolation=true
-        reagent_slim_bundle=true
-        freehand_reachability=true
-        ;;
       implementation/scripts/check-story-static.cjs|implementation/scripts/story-build.cjs)
         # rf2-9n2cv — self-protection, the same shape as the two freehand
         # checkers above and for the same reason. `npm run test:story-static`
@@ -2081,37 +1782,6 @@ else
         case "$file" in
           implementation/shadow-cljs.edn)
             machines_viz_viewer_page=true ;;
-        esac
-        # rf2-xwa4n — the F4g evidence-elision gate is DEFINED by this trio:
-        # shadow-cljs.edn declares BOTH halves of the probe pair (`:freehand-
-        # release` and its `:closure-defines {goog.DEBUG true}` control twin
-        # `:freehand-release-control`) — drop the closure-define and the control
-        # silently stops being a control — and package.json carries the
-        # `test:freehand-evidence-elision` script that builds them and invokes
-        # the checker. The lockfile pins the shadow-cljs (hence Closure)
-        # version whose DCE the whole claim rests on. Scoped to the three
-        # build-config files exactly like the hicasso arms above;
-        # implementation/scripts/* stays off (the one script that drives the
-        # gate has its own case above).
-        case "$file" in
-          implementation/shadow-cljs.edn|implementation/package.json|implementation/package-lock.json)
-            freehand_evidence_elision=true ;;
-        esac
-        # rf2-zl8ao — the same trio DEFINES the B5 reachability gate too, and
-        # for its own reasons: shadow-cljs.edn declares the reachability
-        # CONTROL build (`:freehand-release-reachability-control`), whose
-        # `:init-fn` is the superset entry and whose `goog.DEBUG false` /
-        # `:advanced` settings must stay IDENTICAL to `:freehand-release` —
-        # let them drift and the pair stops being a controlled comparison.
-        # package.json carries the `test:freehand-reachability` script that
-        # builds both and invokes the checker, and the lockfile pins the
-        # shadow-cljs (hence Closure) version whose DCE the absence claim
-        # rests on. Scoped to the three build-config files, like the arms
-        # above; `implementation/scripts/*` stays off (the checker has its
-        # own case above).
-        case "$file" in
-          implementation/shadow-cljs.edn|implementation/package.json|implementation/package-lock.json)
-            freehand_reachability=true ;;
         esac
         # rf2-n8vp — package.json ALONE, and the narrowest scoping in this arm.
         # `test:ssr-node` is defined there and nowhere else, so an edit that
@@ -2645,8 +2315,6 @@ emit examples_compile "$examples_compile"
 emit cljs_prod "$cljs_prod"
 emit bundle_isolation "$bundle_isolation"
 emit reagent_slim_bundle "$reagent_slim_bundle"
-emit freehand_evidence_elision "$freehand_evidence_elision"
-emit freehand_reachability "$freehand_reachability"
 emit adapter_testbed_smokes "$adapter_testbed_smokes"
 emit tools_jvm "$tools_jvm"
 emit tools_jvm_machines_viz "$tools_jvm_machines_viz"

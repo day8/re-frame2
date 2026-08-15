@@ -34,21 +34,12 @@ Two top-level groupings:
   `re-frame.late-bind` hook table per
   [Conventions §Independence rule](../spec/Conventions.md#independence-rule).
 
-The `ui/` artefact (the re-frame.ui compiled-view substrate, epic
-rf2-vxgfnd) sits beside `core/` and `adapters/`: it is a **new,
-experimental view substrate offered alongside the existing adapters** —
-not another adapter under `adapters/` and not a late-bind feature
-artefact. Reagent, reagent-slim, and UIx live on as first-class,
-actively-supported adapters; only Helix is removed
-([EP-0030](../docs/EP/EP-0030-the-compiled-view-substrate-program.md)
-Resolved Decisions, 2026-07-17).
-
-The `freehand/` artefact ([EP-0036](../docs/EP/EP-0036-the-freehand-view-substrate-programme.md))
-sits beside it as the ratified successor: one re-frame-native view substrate with
-an interpreted paved path and a compiled hot tier over one semantic model,
-published through `re-frame.freehand`. It is built by **absorption** — useful
-`ui/` code moves into it slice by slice — so `freehand/` declares no dependency
-on `ui/` and never will; `ui/` is a donor, deleted at the F6 conformance gate.
+The `hicasso/` artefact sits beside `core/` and `adapters/` as re-frame2's own
+native view substrate. Reagent, reagent-slim and UIx live on as first-class,
+actively-supported adapters. The two earlier view substrates — the `ui/` donor
+([EP-0030](../docs/EP/EP-0030-the-compiled-view-substrate-program.md)) and
+`freehand/` ([EP-0036](../docs/EP/EP-0036-the-freehand-view-substrate-programme.md))
+— were retired and removed under rf2-0yp7w.
 
 ```
 implementation/
@@ -162,25 +153,6 @@ implementation/
                                    + passive subs, :resource registrar kind, work-ledger.
     test/re_frame/                 CLJS surface/wiring smoke + runtime behaviour tests
                                    (ensure/refetch, work ledger, invalidation/GC, hydration).
-
-  ui/                        day8/re-frame2-ui — the re-frame.ui compiled-view substrate
-                             (epic rf2-vxgfnd; S1a skeleton per rf2-vxgfnd.1 — the
-                             compiler slice lands from S1b).
-    deps.edn                 :local/root dep on ../core; own :test alias (never published,
-                             so no :clein deploy aliases at all).
-    src/re_frame/ui.cljc           Public-surface root stub (defview et al. land S1b+).
-    src/re_frame/ui/compiler.cljc  Compiler entry stub (AST / analyzer / emitters, S1b).
-    src/re_frame/ui/client.cljs    Client-kernel stub (mount surface S1c; reactivity S2).
-    test/re_frame/                 Classpath + build-id probe (npm run test:ui).
-
-  freehand/                  day8/re-frame2-freehand — the Freehand view substrate
-                             (EP-0036; F1a skeleton per rf2-drpa3.15 — the paved-path
-                             spine lands from F1b). Declares no dependency on ui/.
-    deps.edn                 :local/root dep on ../core; own :test alias (pre-publication,
-                             so no :clein deploy aliases).
-    src/re_frame/freehand.cljc     Public-door namespace — empty of surface at F1a
-                                   (defview / sub / mount land with the F1 spine).
-    test/re_frame/                 Classpath + build-wiring probe (npm run test:freehand).
 
   hicasso/                   day8/re-frame2-hicasso — the Hicasso view substrate: a
                              boundary is a real React function component minted by

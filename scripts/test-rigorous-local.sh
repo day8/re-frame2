@@ -39,9 +39,7 @@ done
 
 printf '==> implementation rigorous browser/bundle gates\n'
 # Local mirror of the rigorous browser-bundle-and-story sweep in
-# `.github/workflows/expensive-tests.yml`, PLUS the Freehand mounted-correctness
-# lane — the `:browser-test-freehand-bench` build, whose only scheduled home is
-# `freehand-bench.yml` (rf2-rmtj0).
+# `.github/workflows/expensive-tests.yml`.
 #
 # THIS MIRRORS THE EXPENSIVE SWEEP, NOT THE PR LANE (rf2-0l1nv). A command earns
 # a line below when BOTH hold: (a) it yields a VERDICT, so a non-zero exit means
@@ -57,11 +55,8 @@ printf '==> implementation rigorous browser/bundle gates\n'
 # parity between interpreted and compiled views, cell-elision counts, exact
 # event/write/recompute/render counts, controlled-input value/caret/node identity
 # under contention, cross-substrate parity — which are deterministic browser
-# facts even though they are collected inside a benchmark harness. rf2-mf4uy
-# moved those seven `re-frame.freehand.bench.*` namespaces out of `:browser-test`
-# and this sweep lost them with it. What this sweep does NOT reproduce is the
-# evidence-publication semantics of `.github/workflows/freehand-bench.yml`: that
-# scheduled lane, on its pinned hardware class and with a compiled-in revision,
+# facts even though they are collected inside a benchmark harness. The
+# scheduled bench lanes, on pinned hardware and with a compiled-in revision,
 # remains the sole authority for citable numbers. A local run deliberately
 # labels its records unattributable; this script consumes the verdict and
 # ignores the distributions.
@@ -92,12 +87,9 @@ printf '==> implementation rigorous browser/bundle gates\n'
 # above, in the same spine run that was meant merely to confirm them.
 (cd "$repo_root/implementation" && \
   npm run test:browser && \
-  npm run bench:freehand-browser && \
   npm run test:browser-schemas-boundary-prod && \
   npm run test:browser-prod-elision && \
   npm run test:elision && \
-  npm run test:freehand-evidence-elision && \
-  npm run test:freehand-reachability && \
   npm run test:bundle-isolation && \
   npm run test:reagent-slim:bundle-isolation && \
   npm run test:adapter-smokes && \

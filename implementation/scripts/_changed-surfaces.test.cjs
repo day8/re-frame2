@@ -1957,10 +1957,6 @@ test('example compilation has a dedicated changed-surface output (rf2-gzavkm)', 
     'implementation/package-lock.json',
     'implementation/deps.edn',
     'implementation/adapters/uix/src/re_frame/adapter/uix.cljs',
-    // rf2-nutll — examples/ui/minimal-counter is a standalone FREEHAND project
-    // now, resolved by :local/root, so a Freehand change can break the
-    // ui-scaffold-smoke build that examples_compile gates.
-    'implementation/freehand/src/re_frame/freehand.cljc',
     'implementation/epoch/src/re_frame/epoch.cljc',
     'implementation/schemas/src/re_frame/schemas.cljc',
     'implementation/machines/src/re_frame/machines.cljc',
@@ -4492,70 +4488,6 @@ test('test.yml hands the classifier the accepted base via env: (rf2-34yg)', () =
 // reverts to advisory.
 // ---------------------------------------------------------------------------
 
-test('implementation/freehand/** arms the freehand JVM + node-test surfaces (rf2-drpa3.58)', () => {
-  for (const file of [
-    'implementation/freehand/src/re_frame/freehand.cljc',
-    'implementation/freehand/test/re_frame/freehand/skeleton_cljs_test.cljc',
-    'implementation/freehand/deps.edn',
-  ]) {
-    const result = classify(file);
-    assert.equal(
-      result.implementation_jvm,
-      'true',
-      `${file} must arm implementation_jvm or the required jvm-freehand job SKIPS`,
-    );
-    assert.equal(
-      result.cljs_node_test,
-      'true',
-      `${file} must arm cljs_node_test — freehand/src + freehand/test are on the :node-test classpath`,
-    );
-  }
-});
-
-test('the freehand arm is ARTEFACT-ROOT matching, not an enumeration (rf2-drpa3.61)', () => {
-  // The classifier case is `implementation/freehand/*)`. A POSIX `case` glob's
-  // `*` spans `/`, so the whole artefact root is covered at any depth. That is
-  // the point: an enumeration of today's three files rots on the first nested
-  // namespace, and the rot is SILENT — the new file simply classifies as
-  // nothing and its required gates skip.
-  //
-  // These paths do not exist yet. They are the shapes F1b+ will add (nested
-  // compiler/emitter namespaces, a testbed, a README), pinned so a future
-  // narrowing of the case reds here instead of in production.
-  for (const file of [
-    'implementation/freehand/src/re_frame/freehand/compiler/analyze/deeply/nested.cljc',
-    'implementation/freehand/test/re_frame/freehand/emitters/react/deep_nested_cljs_test.cljs',
-    'implementation/freehand/testbed/core.cljs',
-    'implementation/freehand/README.md',
-  ]) {
-    const result = classify(file);
-    assert.equal(
-      result.implementation_jvm,
-      'true',
-      `future nested path must arm implementation_jvm: ${file}`,
-    );
-    assert.equal(
-      result.cljs_node_test,
-      'true',
-      `future nested path must arm cljs_node_test: ${file}`,
-    );
-  }
-});
-
-test('implementation/freehand/** stays OFF the heavy per-feature gates (rf2-drpa3.58)', () => {
-  // Scope guard, not an aspiration: bundle_isolation measures the examples
-  // set and Freehand mounts no testbed the smokes drive, so those tiers would
-  // be pure cost. Widen the classifier case (and this test) when it gains one
-  // — implementation/ui/* is the precedent. cljs_browser LEFT this list under
-  // rf2-drpa3.70 (the artefact gained mounted-DOM tests) and cljs_prod under
-  // rf2-kll2x (it gained an `-elision-prod-test` suite); in both cases the
-  // gate stopped being cost and became the only place the tests can run.
-  const result = classify('implementation/freehand/src/re_frame/freehand.cljc');
-  for (const key of ['bundle_isolation']) {
-    assert.equal(result[key], 'false', `freehand must not arm ${key} yet`);
-  }
-});
-
 // ---------------------------------------------------------------------------
 // rf2-8a6s — the Hicasso artefact surface.
 //
@@ -4773,30 +4705,6 @@ test('the cljs job runs BOTH hicasso gates the classifier arm schedules (rf2-8a6
   );
 });
 
-test('the cljs job runs the uncovered-bench compile gate (rf2-cfqk)', () => {
-  // Same shape as the assertion above, for the same reason and one directory
-  // wider. rf2-bl0j measured forward reachability from every PR gate's roots
-  // over 213 bench namespaces and found 23 reachable from nothing; four were
-  // rostered into the hicasso lane's gate, and `test:bspine-compile` is the
-  // only thing that compiles the other nineteen.
-  //
-  // WHICH JOB is the claim, not merely THAT it is scheduled —
-  // `scripts/check_gate_scheduling.py` already refuses a gate with no
-  // scheduled home anywhere. Both of the gate's input trees
-  // (implementation/core/* and implementation/freehand/*) arm
-  // `cljs_node_test` and nothing narrower, so moving the step to a job lit by
-  // some other output would leave it green on precisely the diffs that can
-  // break its subject — coverage that reads as coverage and is not, which is
-  // the defect the gate exists to close.
-  const block = jobBlock(fs.readFileSync(WORKFLOW, 'utf8'), 'cljs');
-  assert.match(
-    block,
-    /run: npm run test:bspine-compile$/m,
-    'the cljs job must run the uncovered-bench compile gate; the nineteen '
-      + 'namespaces it compiles are reachable from no other PR gate',
-  );
-});
-
 // ---------------------------------------------------------------------------
 // rf2-hic-021's complaint-catalogue contract, and the reverse edges that made a
 // classifier-gated home wrong for it (audit of PR #7808; repair under rf2-ibje).
@@ -4889,55 +4797,6 @@ test('hicasso-complaint-catalogue is UNCONDITIONAL and runs both modes (rf2-hic-
 // .61 / .70 closed for the host and browser tiers of this same tree.
 // ---------------------------------------------------------------------------
 
-test('the Freehand production-posture surfaces arm cljs_prod (rf2-kll2x)', () => {
-  // The suite itself, plus every Freehand file that can invalidate it and is
-  // matched by a case SHADOWING the artefact root — a POSIX `case` takes the
-  // first match, so those narrower cases must replicate the arm or they
-  // silently narrow it. cell.cljc carries `observe!`'s candidate consultation
-  // (the check under test); freehand.cljc is the door the suite declares and
-  // reads through.
-  for (const file of [
-    'implementation/freehand/test/re_frame/freehand/reactive_false_check_elision_prod_test.cljs',
-    'implementation/freehand/src/re_frame/freehand/cell.cljc',
-    'implementation/freehand/src/re_frame/freehand.cljc',
-    'implementation/freehand/src/re_frame/freehand/control.cljc',
-    'implementation/freehand/src/re_frame/freehand/shell.cljs',
-    'implementation/freehand/test/re_frame/freehand/release_app.cljs',
-  ]) {
-    assert.equal(
-      classify(file).cljs_prod,
-      'true',
-      `${file} can invalidate the production-posture proof — it must schedule cljs-browser-prod-elision`,
-    );
-  }
-});
-
-test('the Freehand prod-elision namespace actually exists (rf2-kll2x)', () => {
-  // The classifier never stats a path, so the row above would stay green if
-  // the suite were renamed or deleted — routing a lane at nothing. Pin its
-  // existence with the routing, and pin the suffix the build's ns-regexp
-  // (`-elision-prod-test$`) selects on: rename it and the file compiles into
-  // no build at all.
-  const file =
-    'implementation/freehand/test/re_frame/freehand/reactive_false_check_elision_prod_test.cljs';
-  assert.ok(
-    fs.existsSync(path.join(REPO_ROOT, file)),
-    `${file} must exist — it is the production proof this routing exists to run`,
-  );
-  assert.match(path.basename(file), /_elision_prod_test\.cljs$/);
-});
-
-test('Freehand PROSE does not pay for an :advanced compile (rf2-kll2x)', () => {
-  // Same reasoning as the browser arm: the widening is about what a
-  // production compile does to Freehand code, and Markdown is not compiled.
-  for (const file of [
-    'implementation/freehand/README.md',
-    'implementation/freehand/doc/design/emitters.md',
-  ]) {
-    assert.equal(classify(file).cljs_prod, 'false', `${file} must not arm cljs_prod`);
-  }
-});
-
 // ---------------------------------------------------------------------------
 // rf2-drpa3.70 — the React surfaces and the browser lane.
 //
@@ -4952,59 +4811,6 @@ test('Freehand PROSE does not pay for an :advanced compile (rf2-kll2x)', () => {
 // The `cljs` job is not a substitute. The `:node-test` regex matches the very
 // same files, where they find no DOM and self-skip. Green, and worth nothing.
 // ---------------------------------------------------------------------------
-
-test('the Freehand React surfaces arm cljs_browser (rf2-drpa3.70)', () => {
-  // Source, mounted-DOM test, the shared view declarations both emitters
-  // render, and a fixture the mounted assertions read — one representative of
-  // each transitive semantic input to mounted output.
-  for (const file of [
-    'implementation/freehand/src/re_frame/freehand/react.cljs',
-    'implementation/freehand/test/re_frame/freehand/react_mount_dom_cljs_test.cljs',
-    'implementation/freehand/test/re_frame/freehand/route_link_native_dom_cljs_test.cljs',
-    'implementation/freehand/test/re_frame/freehand/tree_views.cljc',
-    'implementation/freehand/src/re_frame/freehand/conversion.cljc',
-    'spec/conformance/freehand/fixtures/fh-struct-007.edn',
-    'spec/conformance/freehand/fixtures/fh-routelink-001.edn',
-  ]) {
-    assert.equal(
-      classify(file).cljs_browser,
-      'true',
-      `${file} can change mounted output — it must schedule the cljs-browser job`,
-    );
-  }
-});
-
-test('the Freehand browser-test namespaces actually exist (rf2-drpa3.70)', () => {
-  // The classifier never stats a path, so the row above would stay green if
-  // the mounted tests were renamed or deleted — routing a lane at nothing.
-  // These two ARE the browser proof; pin their existence with the routing.
-  for (const file of [
-    'implementation/freehand/test/re_frame/freehand/react_mount_dom_cljs_test.cljs',
-    'implementation/freehand/test/re_frame/freehand/route_link_native_dom_cljs_test.cljs',
-  ]) {
-    assert.ok(
-      fs.existsSync(path.join(REPO_ROOT, file)),
-      `${file} must exist — it is the mounted proof this routing exists to run`,
-    );
-    // ...and carry the suffix the :browser-test ns-regexp selects on.
-    assert.match(path.basename(file), /_dom_cljs_test\.cljs$/);
-  }
-});
-
-test('Freehand PROSE does not pay for a Chromium run (rf2-drpa3.70)', () => {
-  // The widening is about mounted output. Markdown cannot change it, and the
-  // browser lane is the expensive one — so the prose arm keeps its two host
-  // suites and stops there.
-  for (const file of [
-    'implementation/freehand/README.md',
-    'implementation/freehand/doc/design/emitters.md',
-  ]) {
-    const result = classify(file);
-    assert.equal(result.cljs_browser, 'false', `${file} must not arm cljs_browser`);
-    assert.equal(result.implementation_jvm, 'true', `${file} still arms implementation_jvm`);
-    assert.equal(result.cljs_node_test, 'true', `${file} still arms cljs_node_test`);
-  }
-});
 
 // rf2-drpa3.66 — the fixture corpus is the OTHER half of the Freehand surface.
 //
@@ -5147,11 +4953,11 @@ test('freehand conformance PROSE is not the index — no over-broadening (rf2-dr
   }
 });
 
-test('the index arm reaches all three lanes through REQUIRED jobs (rf2-49upn)', () => {
+test('the index arm reaches its lanes through REQUIRED jobs (rf2-49upn)', () => {
   // Arming an output binds nothing unless the lane it arms is still gated on
   // that output AND still reachable from the single required context. The
-  // sibling pins below cover jvm-freehand and cljs-browser; `cljs` is the node
-  // lane, and this is the third leg of the same tripod.
+  // The sibling pin below covers cljs-browser; `cljs` is the node lane, and
+  // this is the other leg of the same tripod.
   const workflow = fs.readFileSync(WORKFLOW, 'utf8');
   assert.match(
     jobBlock(workflow, 'cljs'),
@@ -5159,37 +4965,13 @@ test('the index arm reaches all three lanes through REQUIRED jobs (rf2-49upn)', 
     'the `cljs` job must stay gated on cljs_node_test, or arming it schedules nothing',
   );
   const aggregator = jobBlock(workflow, 'all-required-passed');
-  for (const job of ['jvm-freehand', 'cljs', 'cljs-browser']) {
+  for (const job of ['cljs', 'cljs-browser']) {
     assert.match(
       aggregator,
       new RegExp(`- ${job}\\r?\\n`),
       `aggregator must list ${job} in needs: — otherwise the census's claim rides an advisory lane`,
     );
   }
-});
-
-test('jvm-freehand is job-level gated and runs the suite + the donor law (rf2-drpa3.58)', () => {
-  const block = jobBlock(fs.readFileSync(WORKFLOW, 'utf8'), 'jvm-freehand');
-  assert.match(block, /needs: detect_changed_surfaces/);
-  assert.match(
-    block,
-    /if: needs\.detect_changed_surfaces\.outputs\.implementation_jvm == 'true'/,
-  );
-  assert.match(block, /working-directory: implementation\/freehand/);
-  assert.match(block, /Run JVM tests \(freehand artefact\)/);
-  // The EP-0036 donor boundary is a LAW, gated not reviewed. It moved here
-  // from the deleted standalone workflow; this job is now its only home.
-  assert.match(block, /git grep -n -e 're-frame\\\.ui'/);
-  assert.match(block, /-- implementation\/freehand/);
-});
-
-test('all-required-passed aggregator needs jvm-freehand (rf2-drpa3.58)', () => {
-  const block = jobBlock(fs.readFileSync(WORKFLOW, 'utf8'), 'all-required-passed');
-  assert.match(
-    block,
-    /- jvm-freehand\r?\n/,
-    'aggregator must list jvm-freehand in needs: — otherwise the lane is advisory',
-  );
 });
 
 test('the standalone freehand-artefact workflow is gone (one owner, not two) (rf2-drpa3.58)', () => {
@@ -5243,395 +5025,6 @@ const FREEHAND_EVIDENCE_PRODUCERS = [
   'implementation/package.json',
   'implementation/package-lock.json',
 ];
-
-test('the F4g evidence probe producer surfaces arm freehand_evidence_elision (rf2-xwa4n)', () => {
-  for (const file of FREEHAND_EVIDENCE_PRODUCERS) {
-    assert.equal(
-      classify(file).freehand_evidence_elision,
-      'true',
-      `${file} can invalidate the F4g control-build proof — it must schedule the gate`,
-    );
-  }
-});
-
-test('the armed producer surfaces all EXIST (rf2-xwa4n)', () => {
-  // The classifier never stats a path, so every row above would stay green if a
-  // producer were renamed — routing a required lane at nothing. These paths ARE
-  // the proof's inputs; pin their existence with the routing.
-  for (const file of FREEHAND_EVIDENCE_PRODUCERS) {
-    assert.ok(
-      fs.existsSync(path.join(REPO_ROOT, file)),
-      `${file} must exist — it is a producer surface this routing exists to watch`,
-    );
-  }
-});
-
-// The producer rows that the specific `case` shadows: every producer INSIDE the
-// Freehand artefact. The checker and the build-config trio are producers too but
-// live elsewhere in the tree, so they are held by their own assertions below —
-// that distinction is the only reason this is a filter rather than the whole
-// roster. DERIVED, not re-listed: this assertion was written as a hand-copied
-// list and went stale twice (it missed `shell.cljs` until the #6888 audit, then
-// `occurrences.cljc` until the #6969 audit), each time leaving a shadowed
-// producer's host arms unpinned while the roster above looked complete.
-const SHADOWED_FREEHAND_PRODUCERS = FREEHAND_EVIDENCE_PRODUCERS.filter((f) =>
-  f.startsWith('implementation/freehand/'),
-);
-
-test('the Freehand host arms survive the shadowing producer case (rf2-xwa4n)', () => {
-  // A POSIX `case` takes the FIRST match, so the producer case shadows
-  // `implementation/freehand/*`. It must WIDEN, never narrow: the three host
-  // arms rf2-drpa3.58/.70 put on the artefact root have to survive.
-  //
-  // A filter that stopped matching would make this test pass over an empty
-  // list — the vacuity the derivation would otherwise buy at the cost of the
-  // hand-written list's one virtue.
-  assert.ok(
-    SHADOWED_FREEHAND_PRODUCERS.length >= 5,
-    'the shadowed-producer filter must still select the Freehand-tree producers',
-  );
-  for (const file of SHADOWED_FREEHAND_PRODUCERS) {
-    const result = classify(file);
-    for (const key of ['implementation_jvm', 'cljs_node_test', 'cljs_browser']) {
-      assert.equal(
-        result[key],
-        'true',
-        `${file} must keep arming ${key} — the producer case shadows implementation/freehand/*`,
-      );
-    }
-  }
-});
-
-test('the checker case keeps the generic implementation/scripts fan-out (rf2-xwa4n)', () => {
-  // Same shadowing argument for the other half: the checker's own case sits
-  // above `implementation/scripts/*` and must not cost it the generic arms.
-  const result = classify('implementation/scripts/check-freehand-evidence-elision.cjs');
-  for (const key of [
-    'cljs_node_test',
-    'cljs_browser',
-    'cljs_prod',
-    'bundle_isolation',
-    'reagent_slim_bundle',
-  ]) {
-    assert.equal(result[key], 'true', `the checker must keep arming ${key}`);
-  }
-});
-
-test('freehand_evidence_elision stays OFF unrelated surfaces (rf2-xwa4n)', () => {
-  // The ruling was explicitly NOT an every-PR job: two `:advanced` builds are
-  // only worth spending on the surfaces that can break the proof. The rest of
-  // the Freehand tree is deliberately excluded — the always-armed jvm-freehand
-  // walk (asserted below) is what keeps that exclusion honest.
-  for (const file of [
-    'implementation/freehand/src/re_frame/freehand/compiler/analyze.cljc',
-    'implementation/freehand/README.md',
-    'implementation/freehand/deps.edn',
-    'spec/conformance/freehand/fixtures/fh-call-001.edn',
-    'implementation/core/src/re_frame/core.cljc',
-    'implementation/scripts/check-elision.cjs',
-    'spec/API.md',
-  ]) {
-    assert.equal(
-      classify(file).freehand_evidence_elision,
-      'false',
-      `${file} must not pay for two :advanced builds`,
-    );
-  }
-});
-
-test('the SOLE-requirer law that keeps the narrow arm honest still exists (rf2-xwa4n)', () => {
-  // The classifier arms four Freehand files, not the tree. That is only safe
-  // while a NEW schema-touching producer cannot appear silently — and what
-  // forbids one is
-  // `the-evidence-schema-reaches-the-render-path-only-through-the-dev-gated-seam`
-  // in the always-armed jvm-freehand lane. Pin the premise with the routing: if
-  // that law is ever relaxed, this reds and the classifier arm must widen.
-  //
-  // The law is now TWO rows, and the narrow arm leans on BOTH (rf2-lvvl2). The
-  // tool-tier read door `re-frame.freehand.tool` mentions the schema without
-  // being a producer, because nothing reachable from the public door requires
-  // it — an inspector loads a tool tier deliberately, into a dev build. So:
-  //
-  //   1. `cell` is the sole DOOR-REACHABLE mentioner (the render-path claim);
-  //   2. `tool` is asserted NOT door-reachable (what makes (1) safe — a
-  //      `tool.cljc` edit cannot put the schema in the release bundle, because
-  //      the release bundle does not contain `tool`).
-  //
-  // Row (2) is the load-bearing one for this classifier: reachability is
-  // decided by whoever REQUIRES the tool tier, not by the tool tier itself, so
-  // without it a door-side require could ship the schema while the elision gate
-  // sat unarmed. Both rows are pinned here.
-  const law = fs.readFileSync(
-    path.join(
-      REPO_ROOT,
-      'implementation/freehand/test/re_frame/freehand/evidence_boundary_jvm_test.clj',
-    ),
-    'utf8',
-  );
-  assert.match(
-    law,
-    /'#\{re-frame\.freehand\.cell\}\s+seams/,
-    'the boundary test must still pin cell as the sole DOOR-REACHABLE namespace reaching the '
-      + 'evidence schema — without it, a new producer file could dodge the narrowly-armed '
-      + 'elision gate',
-  );
-  assert.match(
-    law,
-    /not\s+\(contains\?\s+reachable\s+'re-frame\.freehand\.tool\)/,
-    'the boundary test must still pin the tool-tier read door OFF the render path — that is what '
-      + 'makes the door-reachable form of the sole-producer law safe for the narrow arm. If the '
-      + 'tool tier becomes door-reachable, the schema has a second path into the release bundle '
-      + 'and freehand_evidence_elision must widen to arm on the door and the tool tier too',
-  );
-});
-
-test('cljs-freehand-evidence-elision is gated on its output and runs the probe (rf2-xwa4n)', () => {
-  const workflow = fs.readFileSync(WORKFLOW, 'utf8');
-  const block = jobBlock(workflow, 'cljs-freehand-evidence-elision');
-  assert.match(block, /needs: detect_changed_surfaces/);
-  assert.match(
-    block,
-    /if: needs\.detect_changed_surfaces\.outputs\.freehand_evidence_elision == 'true'/,
-  );
-  assert.match(block, /run: npm run test:freehand-evidence-elision/);
-  assert.match(block, /working-directory: implementation/);
-  // The detect job must publish the output the `if:` reads, or the gate is
-  // permanently false and the job never runs at all.
-  assert.match(
-    jobBlock(workflow, 'detect_changed_surfaces'),
-    /freehand_evidence_elision: \$\{\{ steps\.detect\.outputs\.freehand_evidence_elision \}\}/,
-    'detect_changed_surfaces must expose freehand_evidence_elision as a job output',
-  );
-});
-
-test('all-required-passed aggregator needs cljs-freehand-evidence-elision (rf2-xwa4n)', () => {
-  const block = jobBlock(fs.readFileSync(WORKFLOW, 'utf8'), 'all-required-passed');
-  assert.match(
-    block,
-    /- cljs-freehand-evidence-elision\r?\n/,
-    'aggregator must list cljs-freehand-evidence-elision in needs: — otherwise the lane is advisory',
-  );
-});
-
-// ---------------------------------------------------------------------------
-// rf2-zl8ao — the B5 unused-module reachability gate's CI arm.
-//
-// PR #6901 shipped the second control-build proof (`npm run
-// test:freehand-reachability`: `:freehand-release` vs its strict-superset twin
-// `:freehand-release-reachability-control`, the `re-frame.freehand.control`
-// doors ABSENT in production and PRESENT in the control) and wired it into
-// NOTHING — the same omission rf2-xwa4n fixed for the sibling one file up.
-// The positive-control half exists to red when the probe stops probing; a gate
-// nobody runs cannot red.
-//
-// It is NOT the sibling gate under another name. The evidence pair moves
-// `goog.DEBUG` and holds the app still (a dev-gated SEAM elides); this pair
-// holds the flag still and moves the APP (an unused MODULE elides). The
-// controller strings are absent from the goog.DEBUG=true control too, so that
-// build cannot prove this claim — and the tests below pin both arms so a later
-// tidy-up cannot collapse them into one.
-//
-// Same three-part shape as the two blocks above: the classifier must ARM the
-// producer surfaces, the job must be gated on that output and run the command,
-// and the aggregator must depend on it.
-// ---------------------------------------------------------------------------
-
-const FREEHAND_REACHABILITY_PRODUCERS = [
-  // The two refusal doors the probe greps for.
-  'implementation/freehand/src/re_frame/freehand/control.cljc',
-  // The facade: the sole requirer of `control`, and the single production
-  // call edge (`controller-key` is `def`'d to `control/record-key`).
-  'implementation/freehand/src/re_frame/freehand.cljc',
-  // The CONTROL entry — the one `v/controller-key` call that validates the
-  // oracle.
-  'implementation/freehand/test/re_frame/freehand/bench/b5_reachability_control_app.cljs',
-  // The PRODUCTION entry both bundles compile.
-  'implementation/freehand/test/re_frame/freehand/release_app.cljs',
-  'implementation/scripts/check-freehand-reachability.cjs',
-  'implementation/shadow-cljs.edn',
-  'implementation/package.json',
-  'implementation/package-lock.json',
-];
-
-test('the B5 reachability producer surfaces arm freehand_reachability (rf2-zl8ao)', () => {
-  for (const file of FREEHAND_REACHABILITY_PRODUCERS) {
-    assert.equal(
-      classify(file).freehand_reachability,
-      'true',
-      `${file} can invalidate the B5 control-build proof — it must schedule the gate`,
-    );
-  }
-});
-
-test('the armed reachability producers all EXIST (rf2-zl8ao)', () => {
-  // The classifier never stats a path, so every row above would stay green if
-  // a producer were renamed — routing a required lane at nothing.
-  for (const file of FREEHAND_REACHABILITY_PRODUCERS) {
-    assert.ok(
-      fs.existsSync(path.join(REPO_ROOT, file)),
-      `${file} must exist — it is a producer surface this routing exists to watch`,
-    );
-  }
-});
-
-test('the reachability producer cases keep their generic fan-out (rf2-zl8ao)', () => {
-  // A POSIX `case` takes the FIRST match, so the Freehand producer case
-  // shadows `implementation/freehand/*` and the checker case shadows
-  // `implementation/scripts/*`. Both must WIDEN, never narrow.
-  for (const file of [
-    'implementation/freehand/src/re_frame/freehand/control.cljc',
-    'implementation/freehand/src/re_frame/freehand.cljc',
-    'implementation/freehand/test/re_frame/freehand/bench/b5_reachability_control_app.cljs',
-  ]) {
-    const result = classify(file);
-    for (const key of ['implementation_jvm', 'cljs_node_test', 'cljs_browser']) {
-      assert.equal(
-        result[key],
-        'true',
-        `${file} must keep arming ${key} — the producer case shadows implementation/freehand/*`,
-      );
-    }
-  }
-  const checker = classify('implementation/scripts/check-freehand-reachability.cjs');
-  for (const key of [
-    'cljs_node_test',
-    'cljs_browser',
-    'cljs_prod',
-    'bundle_isolation',
-    'reagent_slim_bundle',
-  ]) {
-    assert.equal(checker[key], 'true', `the checker must keep arming ${key}`);
-  }
-});
-
-test('the SHARED release entry arms BOTH Freehand control-build gates (rf2-zl8ao)', () => {
-  // `:freehand-release` is the production half of both control pairs, and a
-  // POSIX `case` runs ONE arm: the release entry is matched by the evidence
-  // producer case, so the reachability output has to be set from inside it.
-  // Drop that and a change to the shipped app — a controlled input added to a
-  // release view is enough to root the controller — skips the reachability
-  // gate entirely.
-  const result = classify('implementation/freehand/test/re_frame/freehand/release_app.cljs');
-  assert.equal(result.freehand_evidence_elision, 'true');
-  assert.equal(result.freehand_reachability, 'true');
-});
-
-test('freehand_reachability stays OFF unrelated surfaces (rf2-zl8ao)', () => {
-  // Two `:advanced` builds are only worth spending on the surfaces that can
-  // break the proof; the rest of the Freehand tree is deliberately excluded
-  // and the unconditional nightly run is what covers it.
-  for (const file of [
-    'implementation/freehand/src/re_frame/freehand/compiler/analyze.cljc',
-    'implementation/freehand/README.md',
-    'implementation/freehand/deps.edn',
-    'spec/conformance/freehand/fixtures/fh-call-001.edn',
-    'implementation/core/src/re_frame/core.cljc',
-    'implementation/scripts/check-elision.cjs',
-    'spec/API.md',
-  ]) {
-    assert.equal(
-      classify(file).freehand_reachability,
-      'false',
-      `${file} must not pay for two :advanced builds`,
-    );
-  }
-});
-
-test('the two Freehand control-build gates stay SEPARATE arms (rf2-zl8ao)', () => {
-  // They prove different things, so neither output may become an alias of the
-  // other: the evidence doors are not the controller doors, and a merge of the
-  // two arms would silently drop one claim's producer coverage.
-  const evidenceOnly = classify(
-    'implementation/freehand/src/re_frame/freehand/evidence.cljc',
-  );
-  assert.equal(evidenceOnly.freehand_evidence_elision, 'true');
-  assert.equal(
-    evidenceOnly.freehand_reachability,
-    'false',
-    'the evidence schema cannot invalidate the reachability claim — do not alias the outputs',
-  );
-  const reachabilityOnly = classify(
-    'implementation/freehand/src/re_frame/freehand/control.cljc',
-  );
-  assert.equal(reachabilityOnly.freehand_reachability, 'true');
-  assert.equal(
-    reachabilityOnly.freehand_evidence_elision,
-    'false',
-    'the controller doors cannot invalidate the evidence claim — do not alias the outputs',
-  );
-});
-
-test('the reachability CONTROL build is a controlled comparison (rf2-zl8ao)', () => {
-  // The whole proof is "same everything, different entry". If the control ever
-  // stops sharing `:advanced` + `goog.DEBUG false` with `:freehand-release`,
-  // an absence result stops being attributable to reachability — so pin the
-  // pair's declaration, which is the thing the build-config arm above watches.
-  const shadow = fs.readFileSync(
-    path.join(REPO_ROOT, 'implementation/shadow-cljs.edn'),
-    'utf8',
-  );
-  const control = shadow.slice(shadow.indexOf(':freehand-release-reachability-control'));
-  assert.match(control, /:optimizations :advanced/);
-  assert.match(control, /:closure-defines \{goog\.DEBUG false\}/);
-  assert.match(
-    control,
-    /:init-fn re-frame\.freehand\.bench\.b5-reachability-control-app\/-main/,
-    'the control build must keep the SUPERSET entry — the production entry would prove nothing',
-  );
-});
-
-test('the SOLE-requirer law that keeps the reachability arm honest still exists (rf2-qimh0)', () => {
-  // The classifier arms the controller, the facade, the two build entries, the
-  // checker and the build-config trio — not the Freehand tree. That is only
-  // safe while a NEW production requirer of `re-frame.freehand.control` cannot
-  // appear silently, and what forbids one is
-  // `re-frame-freehand-is-the-sole-requirer-of-the-controller` in the
-  // always-armed jvm-freehand lane. Pin the premise with the routing: if that
-  // law is ever relaxed, this reds and the classifier arm must widen. Exactly
-  // the shape of the sibling pin one gate up (rf2-xwa4n).
-  const law = fs.readFileSync(
-    path.join(
-      REPO_ROOT,
-      'implementation/freehand/test/re_frame/freehand/control_boundary_jvm_test.clj',
-    ),
-    'utf8',
-  );
-  assert.match(
-    law,
-    /'#\{re-frame\.freehand\}\s+requirers/,
-    'the boundary test must still pin re-frame.freehand as the SOLE requirer of the controller — '
-      + 'without it, a new production requirer could root the module in the release bundle and '
-      + 'dodge the narrowly-armed reachability gate',
-  );
-});
-
-test('cljs-freehand-reachability is gated on its output and runs the probe (rf2-zl8ao)', () => {
-  const workflow = fs.readFileSync(WORKFLOW, 'utf8');
-  const block = jobBlock(workflow, 'cljs-freehand-reachability');
-  assert.match(block, /needs: detect_changed_surfaces/);
-  assert.match(
-    block,
-    /if: needs\.detect_changed_surfaces\.outputs\.freehand_reachability == 'true'/,
-  );
-  assert.match(block, /run: npm run test:freehand-reachability/);
-  assert.match(block, /working-directory: implementation/);
-  // The detect job must publish the output the `if:` reads, or the gate is
-  // permanently false and the job never runs at all.
-  assert.match(
-    jobBlock(workflow, 'detect_changed_surfaces'),
-    /freehand_reachability: \$\{\{ steps\.detect\.outputs\.freehand_reachability \}\}/,
-    'detect_changed_surfaces must expose freehand_reachability as a job output',
-  );
-});
-
-test('all-required-passed aggregator needs cljs-freehand-reachability (rf2-zl8ao)', () => {
-  const block = jobBlock(fs.readFileSync(WORKFLOW, 'utf8'), 'all-required-passed');
-  assert.match(
-    block,
-    /- cljs-freehand-reachability\r?\n/,
-    'aggregator must list cljs-freehand-reachability in needs: — otherwise the lane is advisory',
-  );
-});
 
 // ---------------------------------------------------------------------------
 // rf2-3mh2f — the .beads PR-boundary guard's CI arm.
@@ -5882,30 +5275,12 @@ test('the spec/* catch-all does not shadow the narrower spec arms (rf2-61ar)', (
     'the freehand ledger keeps its three lanes (rf2-49upn)');
 });
 
-test('rf2-61ar does not overturn the MEASURED freehand-prose exclusion (rf2-49upn)', () => {
-  // The `spec/*` catch-all is a POLICY default for spec prose nobody has
-  // measured. This file HAS been measured — by a bead that read its consumers
-  // — and found unreachable from any lane: README.md defines the addressing
-  // scheme in illustrative ids. A general default does not get to overturn a
-  // specific measurement, so the classifier stops the walk on it ahead of the
-  // catch-all. rf2-lrtwj measured donor-inventory.md the same way and pinned
-  // it here too, until rf2-0yp7w.8 deleted the archive with its checker.
-  for (const file of [
-    'spec/conformance/freehand/README.md',
-  ]) {
-    const result = classify(file);
-    for (const [key, value] of Object.entries(result)) {
-      assert.equal(value, 'false', `${file} must arm nothing, but ${key} fired`);
-    }
-  }
-});
-
 test('the prose arms reach lanes that are still gated on implementation_jvm (rf2-61ar)', () => {
   // Arming an output binds nothing unless the jobs it arms are still gated on
   // it — the same third leg rf2-49upn's index case asserts. These are the
   // jobs the roster's suites actually run in.
   const workflow = fs.readFileSync(WORKFLOW, 'utf8');
-  for (const job of ['jvm-machines', 'jvm-freehand', 'jvm-core']) {
+  for (const job of ['jvm-machines', 'jvm-core']) {
     assert.match(
       jobBlock(workflow, job),
       /if: needs\.detect_changed_surfaces\.outputs\.implementation_jvm == 'true'/,

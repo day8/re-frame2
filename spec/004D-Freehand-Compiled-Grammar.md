@@ -962,8 +962,7 @@ site that partitions props into handlers and attributes consults the declaration
 the same step, so the property arm and the handler arm cannot rank the two grammars
 differently (rf2-sv2oq).
 
-`v/custom-element` is published on the Freehand door and rowed under
-[API.md §Freehand views](API.md#freehand-views--re-framefreehand-spec-004). Its
+`v/custom-element` is published on the Freehand door. Its
 donor-era staging note ("export at S1, assert at S4") is retired with the publication:
 the name entered the `re-frame.ui` blessed public-surface freeze table as the delta
 protocol's first row-level delta — and that table was design provenance for the donor

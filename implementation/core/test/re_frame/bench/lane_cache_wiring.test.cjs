@@ -209,7 +209,7 @@ const FIXTURE_DIR = path.join(__dirname, 'lane_cache_fixtures');
 //
 // Adding a lane: add its id. Deleting a lane: delete its id, and the
 // `really is shared` check below makes forgetting to loud.
-const SHARED_BUILD_IDS = ['freehand-release', 'hicasso-bench'];
+const SHARED_BUILD_IDS = ['hicasso-bench'];
 
 const SKIP_DIRS = new Set(['node_modules', '.shadow-cljs', '.git', 'dist', 'out', 'target', 'public']);
 

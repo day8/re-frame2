@@ -42,58 +42,6 @@
       - `day8.re-frame2-xray.open-in-editor` — the editor-URI chip.
       - `day8.re-frame2-xray.runtime` — the discovery sentinel + safe-egress
         entry points.
-  - `re-frame.freehand` (rf2-drpa3.63) — the Spec-004 Freehand view
-    substrate's ONE public door. It is `.cljc` and
-    JVM-introspected for its manifest rows (the generator owns tier/kind);
-    this probe reconciles its live CLJS surface against those rows so
-    neither host can silently expose an extra public. FULLY-ROWED, both
-    directions — the descriptor type, its constructor and the emitter
-    helpers live in the internal `re-frame.freehand.descriptor`, so a var
-    that reappeared on the door would fail direction-2 completeness here.
-
-  - `re-frame.freehand.test` (rf2-drpa3.79) — the Freehand substrate's
-    STRUCTURAL TEST surface (`t`), enrolled on the same terms as the door:
-    `.cljc`, JVM-introspected for its manifest rows,
-    its live CLJS surface reconciled here. FULLY-ROWED, both directions —
-    `render` / `with-render` / `find` / `find-all` / `attrs` / `text` are the
-    whole surface (everything beneath them is `defn-`), so one more public var
-    added on either host, or one of the six renamed away, goes RED. Dev/test
-    SCOPE is not privacy: this is a published authoring surface and the gate
-    treats it like one.
-
-  - `re-frame.freehand.tool` (rf2-hytu5, extended by rf2-lvvl2 / rf2-xftdv /
-    rf2-cpfbg) — the Freehand substrate's TOOL-TIER reader door, enrolled on
-    the same terms as the door and the test sibling: `.cljc`,
-    JVM-introspected for its manifest rows, its live CLJS surface reconciled
-    here. FULLY-ROWED, both directions — the SIX published reads
-    (`view-manifest` plus `read-view-manifest` / `read-view-dependencies` /
-    `read-view-event-sites` / `read-mounted-views` / `explain-render`) are the
-    whole namespace, because this is a reader and not a tool framework (no
-    accumulator, no interval log, no history store) and everything beneath
-    them is `defn-` / `def ^:private`, so a SEVENTH public var appearing on
-    either host fails direction-2 completeness rather than accumulating
-    quietly.
-
-  - `re-frame.freehand.form` / `re-frame.freehand.controls` (rf2-drpa3.182.4)
-    — the pure form transitions and the first-party control kit, enrolled on
-    the same terms. FULLY-ROWED, both directions.
-
-  - `re-frame.freehand.splitter` / `re-frame.freehand.collection` (rf2-m41gl)
-    — the kit's pointer control and the fixed-size virtual collection,
-    enrolled by rf2-h0b0l / rf2-cfhuv on exactly the terms above and probed
-    here for the same reason. Both are `.cljc` and host-neutral, so JVM
-    `ns-publics` IS the existence check for their rows and nothing was RED
-    without this; what the probe adds is the CROSS-HOST direction — a
-    `#?(:cljs …)` public appearing on one host and not the other would carry
-    no row and nothing would say so. Neither namespace has such a var today
-    (every public in both is unconditional, and only `defn-` helpers sit
-    under reader conditionals), so this closes the door rather than fixing a
-    live hole — which is the same reason the door was worth closing on the
-    five siblings above. FULLY-ROWED, both directions: four names for the
-    collection (`virtual-collection` / `virtual-list` / `window` /
-    `reveal-offset` — its engine-owned row, id scheme and `:layout` behavior
-    are `^:private` per rf2-axlmz and are correctly invisible here) and
-    fourteen for the splitter.
 
   The pair-MCP server (`re-frame2-pair-mcp.server`) is the third
   CLJS-only surface the keystone names. It compiles under the pair-MCP
@@ -132,30 +80,7 @@
             [day8.re-frame2-xray.static.schemas.panel]
             [day8.re-frame2-xray.config]
             [day8.re-frame2-xray.open-in-editor]
-            [day8.re-frame2-xray.runtime]
-            ;; rf2-drpa3.63 — the Freehand view substrate's public door. A
-            ;; `.cljc` namespace already on the consolidated :node-test
-            ;; classpath (freehand/src); JVM-introspected for its manifest
-            ;; rows, its CLJS surface reconciled here. Fully-rowed, BOTH
-            ;; directions.
-            [re-frame.freehand]
-            ;; rf2-drpa3.79 — the Freehand structural TEST surface, enrolled on
-            ;; the same terms as the door above.
-            [re-frame.freehand.test]
-            ;; rf2-hytu5 — the Freehand TOOL-TIER reader door, enrolled on the
-            ;; same terms again. Six names, and the require forces its analysis
-            ;; so `emit-ns-publics` reads the live surface.
-            [re-frame.freehand.tool]
-            [re-frame.freehand.form]
-            [re-frame.freehand.controls]
-            ;; rf2-m41gl — the kit's pointer control and the fixed-size virtual
-            ;; collection, enrolled by rf2-h0b0l / rf2-cfhuv. Same terms again:
-            ;; JVM-introspected rows, live CLJS surface reconciled here,
-            ;; fully-rowed. The requires are load-bearing — `emit-ns-publics`
-            ;; reads the analyzer, so an unanalysed namespace enumerates
-            ;; nothing (which `every-covered-namespace-was-analysed` refuses).
-            [re-frame.freehand.splitter]
-            [re-frame.freehand.collection]))
+            [day8.re-frame2-xray.runtime]))
 
 ;; ---------------------------------------------------------------------------
 ;; The live CLJS public surface, captured at compile time.
@@ -183,145 +108,24 @@
    "day8.re-frame2-xray.static.schemas.panel"        (emit-ns-publics day8.re-frame2-xray.static.schemas.panel)
    "day8.re-frame2-xray.config"                      (emit-ns-publics day8.re-frame2-xray.config)
    "day8.re-frame2-xray.open-in-editor"              (emit-ns-publics day8.re-frame2-xray.open-in-editor)
-   "day8.re-frame2-xray.runtime"                     (emit-ns-publics day8.re-frame2-xray.runtime)
-   ;; rf2-drpa3.63 — the Freehand public door. JVM-introspected for its
-   ;; manifest rows; the probe reconciles the live CLJS surface so a
-   ;; CLJS-only public addition reddens too.
-   "re-frame.freehand"                               (emit-ns-publics re-frame.freehand)
-   ;; rf2-drpa3.79 — the Freehand structural test surface. Same terms: JVM
-   ;; -introspected rows, live CLJS surface reconciled here, fully-rowed.
-   "re-frame.freehand.test"                          (emit-ns-publics re-frame.freehand.test)
-   ;; rf2-hytu5 — the Freehand tool-tier reader door. Same terms: JVM-
-   ;; introspected rows, live CLJS surface reconciled here, fully-rowed.
-   "re-frame.freehand.tool"                          (emit-ns-publics re-frame.freehand.tool)
-   ;; rf2-drpa3.182.4 — the Freehand pure form transitions and the
-   ;; first-party control kit. Same terms: JVM-introspected rows, live CLJS
-   ;; surface reconciled here, fully-rowed.
-   "re-frame.freehand.form"                          (emit-ns-publics re-frame.freehand.form)
-   "re-frame.freehand.controls"                      (emit-ns-publics re-frame.freehand.controls)
-   ;; rf2-m41gl — the pointer control and the fixed-size virtual collection.
-   ;; Same terms: JVM-introspected rows, live CLJS surface reconciled here,
-   ;; fully-rowed.
-   "re-frame.freehand.splitter"                      (emit-ns-publics re-frame.freehand.splitter)
-   "re-frame.freehand.collection"                    (emit-ns-publics re-frame.freehand.collection)})
+   "day8.re-frame2-xray.runtime"                     (emit-ns-publics day8.re-frame2-xray.runtime)})
 
 (def fully-rowed
   "Namespaces whose ENTIRE public surface must be rowed (direction 2).
    The two adapter namespaces — their public surface IS the documented
-   adapter API — plus the Freehand door and its siblings below. The Xray mount
-   surface stays a curated subset (direction 1 only), so it is deliberately
-   absent here."
+   adapter API. The Xray mount surface stays a curated subset (direction 1
+   only), so it is deliberately absent here."
   #{"re-frame.adapter.reagent"
-    "re-frame.adapter.uix"
-    ;; rf2-drpa3.63 — direction-2 completeness for the Freehand door: a NEW
-    ;; public var added on either host without a manifest row → RED. Its rows
-    ;; come from :classification (JVM lane), fed in via `freehand-rows` below.
-    "re-frame.freehand"
-    ;; rf2-drpa3.79 — direction-2 completeness for the Freehand structural
-    ;; test surface: the rowed names ARE the surface, so one more public var
-    ;; added on either host without a manifest row → RED. Its rows likewise
-    ;; come from :classification, fed in via `freehand-test-rows` below.
-    "re-frame.freehand.test"
-    ;; rf2-hytu5 — direction-2 completeness for the Freehand tool-tier reader
-    ;; door. The six published reads are the whole namespace by construction (a
-    ;; reader, not a tool framework), so a SEVENTH public var appearing on
-    ;; either host without a manifest row → RED. Its rows likewise come from
-    ;; :classification, fed in via `freehand-tool-rows` below.
-    "re-frame.freehand.tool"
-    ;; rf2-drpa3.182.4 — direction-2 completeness for the form transitions and
-    ;; the control kit. The published rosters ARE the surfaces (the leafwise
-    ;; walk and the host-event scalar readers beneath them are `defn-`), so one
-    ;; more public var on either host without a manifest row → RED. That is the
-    ;; guard that keeps a form RUNTIME from arriving one convenience verb at a
-    ;; time, which is the way the non-goal would actually be breached.
-    "re-frame.freehand.form"
-    "re-frame.freehand.controls"
-    ;; rf2-m41gl — direction-2 completeness for the pointer control and the
-    ;; virtual collection. Both are deliberately SMALL surfaces whose whole
-    ;; point is what they refuse — the splitter ships no clock and no
-    ;; scheduler, the collection no measurement pass and no columns model —
-    ;; and a surface that grows one convenience var at a time is exactly how
-    ;; such a refusal is breached. Direction 2 makes each addition a
-    ;; deliberate manifest row instead.
-    "re-frame.freehand.splitter"
-    "re-frame.freehand.collection"})
+    "re-frame.adapter.uix"})
 
 (def cljs-only-rows
   "The `:cljs-only` rows from spec/api-manifest-metadata.edn, embedded at
    compile time (no runtime filesystem)."
   (emit-cljs-only-rows))
 
-(def freehand-rows
-  "The `re-frame.freehand` `:classification` rows (rf2-drpa3.63), projected
-   exactly as the `:cljs-only` rows are. The Freehand door is JVM-introspected for
-   its manifest rows, but its CLJS surface must still be reconciled here so
-   neither host can silently expose an extra public — in particular the
-   descriptor constructor, which lives in the internal
-   `re-frame.freehand.descriptor` and must never reappear on the door."
-  (emit-classification-rows "re-frame.freehand"))
-
-(def freehand-test-rows
-  "The `re-frame.freehand.test` `:classification` rows (rf2-drpa3.79),
-   projected exactly as `freehand-rows` is. The Freehand structural test
-   surface is JVM-introspected for its manifest rows, but its CLJS surface
-   must still be reconciled here so neither host can silently expose an extra
-   public — a test-authoring surface is a published surface."
-  (emit-classification-rows "re-frame.freehand.test"))
-
-(def freehand-tool-rows
-  "The `re-frame.freehand.tool` `:classification` rows (rf2-hytu5), projected
-   exactly as `freehand-test-rows` is. The tool-tier reader door is
-   JVM-introspected for its manifest rows, but its CLJS surface must still be
-   reconciled here so neither host can silently expose an extra public — the
-   donor's accumulator / interval-log / history surfaces were ruled out
-   permanently, and direction-2 completeness is what keeps them out."
-  (emit-classification-rows "re-frame.freehand.tool"))
-
-(def freehand-form-rows
-  "The `re-frame.freehand.form` `:classification` rows (rf2-drpa3.182.4),
-   projected exactly as `freehand-tool-rows` is. The form module is `.cljc`
-   and depends on nothing but the substrate's equality, so its two hosts have
-   the least excuse of any surface here to differ — which is precisely why the
-   reconciliation is worth having rather than assumed."
-  (emit-classification-rows "re-frame.freehand.form"))
-
-(def freehand-controls-rows
-  "The `re-frame.freehand.controls` `:classification` rows (rf2-drpa3.182.4),
-   projected exactly as `freehand-form-rows` is. The kit grows through
-   witnesses, so direction-2 completeness is what makes each new control a
-   deliberate manifest row rather than a var that appeared."
-  (emit-classification-rows "re-frame.freehand.controls"))
-
-(def freehand-splitter-rows
-  "The `re-frame.freehand.splitter` `:classification` rows (rf2-h0b0l),
-   projected exactly as `freehand-controls-rows` is. The pointer control is
-   fourteen names over an ordinary value — no clock, no scheduler, no
-   `requestAnimationFrame` — and direction-2 completeness is what keeps a
-   second, host-owning surface from arriving beside it."
-  (emit-classification-rows "re-frame.freehand.splitter"))
-
-(def freehand-collection-rows
-  "The `re-frame.freehand.collection` `:classification` rows (rf2-cfhuv),
-   projected exactly as `freehand-splitter-rows` is. FOUR names: the engine's
-   own row shell, its positional id scheme and its guarded `:layout` write are
-   `^:private` (rf2-axlmz), so the live CLJS surface reconciled here is the
-   whole of what the namespace publishes — which is the point of probing it."
-  (emit-classification-rows "re-frame.freehand.collection"))
-
 (def reconcile-rows
-  "Every row the probe reconciles: the `:cljs-only` surfaces plus the
-   JVM-owned `re-frame.freehand`, `re-frame.freehand.test`,
-   `re-frame.freehand.tool`, `re-frame.freehand.form`,
-   `re-frame.freehand.controls`, `re-frame.freehand.splitter` and
-   `re-frame.freehand.collection` rows."
-  (-> cljs-only-rows
-      (into freehand-rows)
-      (into freehand-test-rows)
-      (into freehand-tool-rows)
-      (into freehand-form-rows)
-      (into freehand-controls-rows)
-      (into freehand-splitter-rows)
-      (into freehand-collection-rows)))
+  "Every row the probe reconciles: the `:cljs-only` surfaces."
+  cljs-only-rows)
 
 ;; ---------------------------------------------------------------------------
 ;; The probe.
@@ -352,104 +156,8 @@
                "— add its :require + emit-ns-publics entry.")))))
 
 ;; ---------------------------------------------------------------------------
-;; re-frame.freehand.splitter / .collection ENROLMENT — the non-vacuity anchor
-;; (rf2-m41gl).
-;;
-;; The reconciliation above is a set comparison, and a set comparison over two
-;; EMPTY sets is green. `every-covered-namespace-was-analysed` refuses an empty
-;; live surface; this refuses the other half — a sidecar carrying no rows for
-;; either namespace — and states both surfaces as exact literals, so what the
-;; probe SEES is written down rather than inferred from the JVM lane.
-;; ---------------------------------------------------------------------------
-
-(def ^:private freehand-collection-names
-  "The FOUR public names, spelled once: the semantic-neutral engine, the
-   listbox over it, and the two pure arithmetics a caller composing its own
-   widget calls directly. The engine's row shell, its positional id scheme and
-   its guarded `:layout` write are `^:private` (rf2-axlmz), so they are
-   correctly absent from both halves below."
-  #{"virtual-collection" "virtual-list" "window" "reveal-offset"})
-
-(deftest freehand-splitter-and-collection-surfaces-are-exactly-their-rows
-  (testing "the live CLJS surface and the sidecar rows name the SAME vars for
-            both newly probed namespaces — so the reconciliation above is two
-            real sets agreeing rather than two empty ones"
-    (is (= freehand-collection-names
-           (set (map first (get live-publics "re-frame.freehand.collection"))))
-        "the collection publishes exactly four names on the CLJS host")
-    (is (= freehand-collection-names (set (map :var freehand-collection-rows)))
-        "and the sidecar :classification rows are exactly the same four")
-    (is (= 14 (count (get live-publics "re-frame.freehand.splitter")))
-        "the splitter publishes fourteen")
-    (is (= (set (map first (get live-publics "re-frame.freehand.splitter")))
-           (set (map :var freehand-splitter-rows)))
-        "and its rows name exactly those fourteen")))
 
 ;; ---------------------------------------------------------------------------
-;; re-frame.freehand.test ENROLMENT — the focused negative control (rf2-drpa3.79).
-;;
-;; The structural test surface shipped as a public authoring surface
-;; and was invisible to every public-API inventory: the generator did not
-;; enumerate it, the probe did not reconcile it, so `gen --check` and this
-;; probe were both green while a rename, a removal or an accidental export in
-;; that namespace moved nothing. Enrolment is only worth having if it BITES,
-;; so the three tests below drive the live rows + live surface through the same
-;; pure reconciler the gate above uses: green as it stands, RED when a public
-;; var is added, RED when one is removed, green again on restore.
-;; ---------------------------------------------------------------------------
-
-(def ^:private freehand-test-ns "re-frame.freehand.test")
-
-(def ^:private freehand-test-names
-  "The six blessed names. Spelled once, here, as the non-vacuity anchor — the
-   five queries `render` / `find` / `find-all` / `attrs` / `text` plus the
-   `with-render` bracket that opens the discardable render a state-reading
-   view needs (Spec 008)."
-  #{"render" "with-render" "find" "find-all" "attrs" "text"})
-
-(deftest freehand-test-surface-is-exactly-the-six-names
-  (testing "non-vacuity: the probe really analysed the namespace, the sidecar
-            really carries its rows, and the two are the same six names — so a
-            green below cannot mean 'nothing was compared'"
-    (is (= freehand-test-names
-           (set (map first (get live-publics freehand-test-ns))))
-        "the live CLJS surface is exactly the six blessed names")
-    (is (= freehand-test-names (set (map :var freehand-test-rows)))
-        "and the sidecar :classification rows are exactly the same six")))
-
-(deftest freehand-test-added-public-var-goes-red
-  (testing "DIRECTION 2: one more public var on the structural test surface with
-            no manifest row fails completeness — the drift an unenrolled
-            namespace made invisible"
-    (let [result (probe/reconcile
-                  (update live-publics freehand-test-ns conj ["click!" :fn])
-                  reconcile-rows
-                  fully-rowed)]
-      (is (not (probe/in-sync? result)))
-      (is (= [{:namespace freehand-test-ns :var "click!" :live-kind :fn}]
-             (:missing result))
-          "the report NAMES the unrowed var")
-      (is (empty? (:stale result))
-          "and flags nothing else — the negative control is focused"))))
-
-(deftest freehand-test-removed-public-var-goes-red
-  (testing "DIRECTION 1: a rowed name the live surface no longer exposes (a
-            rename or a removal) is stale — the other half of the guard"
-    (let [result (probe/reconcile
-                  (update live-publics freehand-test-ns
-                          (fn [pairs] (vec (remove #(= "render" (first %)) pairs))))
-                  reconcile-rows
-                  fully-rowed)]
-      (is (not (probe/in-sync? result)))
-      (is (= [{:namespace freehand-test-ns :var "render"}] (:stale result))
-          "the report NAMES the vanished var")
-      (is (empty? (:missing result))))))
-
-(deftest freehand-test-restored-surface-is-green
-  (testing "POSITIVE CONTROL: the UNMUTATED live surface reconciles clean, so
-            the two reds above are the mutation talking and not a standing
-            failure"
-    (is (probe/in-sync? (probe/reconcile live-publics reconcile-rows fully-rowed)))))
 
 ;; ---------------------------------------------------------------------------
 ;; Synthetic reconciler contracts — the mutation proof for the pure
@@ -618,107 +326,3 @@
                                           synthetic-live-in-sync)))))
 
 ;; ---------------------------------------------------------------------------
-;; re-frame.freehand.test HOST-SIGNATURE guard — CLJS (:cljs) lane (rf2-drpa3.99).
-;;
-;; The Freehand structural-test signature lane, reusing the SAME pure
-;; reconciler `probe/signature-problems`. The manifest + the enrolment probe
-;; carry name + :kind but NO arity, so a freehand.test fn/macro could reshape a
-;; supported arity and stay green (the reproduction: `render` grew a second
-;; `[form opts]` arity while name/kind held and every gate stayed green — so
-;; `(t/render form)` could silently break). This enumerates the live CLJS
-;; analyzer surface of re-frame.freehand.test and reconciles the FUNCTION
-;; arities against the `:cljs` half of the sidecar :freehand-test-signatures
-;; authority; `with-render` is host-invariant (pinned on the JVM lane, its two
-;; halves required equal). All six names are host-identical `.cljc` — no
-;; CLJS-only (`:clj nil`) verb, unlike ui.test's flush verbs.
-;; ---------------------------------------------------------------------------
-
-(def live-freehand-test-surface
-  "`{var-name {:kind kw :arities (#{arity} | nil)}}` for re-frame.freehand.test's
-   live CLJS public surface, enumerated off the analyzer at compile time — the
-   live classification (kind) + host arities the signature contract is
-   reconciled against."
-  (emit-ns-surface re-frame.freehand.test))
-
-(def freehand-test-signature-contract
-  "The sidecar `:freehand-test-signatures` authority, embedded at compile time
-   (no runtime filesystem). `:vars` is the per-var host-aware contract."
-  (emit-signature-contract :freehand-test-signatures))
-
-(deftest freehand-test-cljs-signatures-in-sync
-  (testing "the live CLJS classification + function arities of
-            re-frame.freehand.test match the signature contract (kind
-            reconciled; render/find/find-all/attrs/text arities pinned)"
-    (let [problems (probe/signature-problems (:vars freehand-test-signature-contract)
-                                             live-freehand-test-surface)]
-      (is (empty? problems) (probe/signature-report problems)))))
-
-(deftest freehand-test-signature-contract-is-non-vacuous
-  (testing "the embedded contract carries the SIX blessed freehand.test vars and
-            the analyzer surfaced render's live CLJS :fn 1-arity — guards against
-            a vacuous green from an unread sidecar or un-analysed namespace"
-    (is (= "re-frame.freehand.test" (:namespace freehand-test-signature-contract)))
-    (is (= 6 (count (:vars freehand-test-signature-contract))))
-    (is (= freehand-test-names (set (keys (:vars freehand-test-signature-contract))))
-        "the signature authority names exactly the six blessed vars")
-    (is (= :fn (get-in live-freehand-test-surface ["render" :kind]))
-        "render must be classified :fn by the live analyzer — the kind authority")
-    (is (= #{[1]} (get-in live-freehand-test-surface ["render" :arities]))
-        "render must be observed 1-arity on CLJS — the contract the reproduction broke")
-    (is (= :macro (get-in live-freehand-test-surface ["with-render" :kind]))
-        "with-render must be classified :macro by the live analyzer")))
-
-(deftest freehand-test-cljs-render-arity-reshape-goes-red
-  (testing "THE REPRODUCTION (rf2-drpa3.99): render reshaped from 1-arity to
-            2-arity ([form] → [form opts]) fails against the contract's
-            :cljs #{[1]}, while its name + :kind (a :fn) are unchanged — the
-            exact false-green every prior gate let through"
-    (let [problems (probe/signature-problems
-                    (:vars freehand-test-signature-contract)
-                    (assoc-in live-freehand-test-surface ["render" :arities] #{[1] [2]}))]
-      (is (= [:arity-mismatch] (map :kind problems)))
-      (is (= "render" (:var (first problems))))
-      (is (= #{[1]} (:expected (first problems))))
-      (is (= #{[1] [2]} (:got (first problems)))))))
-
-(deftest freehand-test-cljs-added-arity-goes-red
-  (testing "ADDING a CLJS arity (text gains a 2-arity) fails — a superset is
-            drift, not a pass"
-    (let [problems (probe/signature-problems
-                    (:vars freehand-test-signature-contract)
-                    (assoc-in live-freehand-test-surface ["text" :arities] #{[1] [2]}))]
-      (is (= [:arity-mismatch] (map :kind problems)))
-      (is (= "text" (:var (first problems)))))))
-
-(deftest freehand-test-cljs-with-render-host-variance-goes-red
-  (testing "with-render is one .cljc defmacro, so its :clj and :cljs halves
-            cannot differ — mutating the :cljs half alone is host-variance a
-            single defmacro cannot have, and is RED (the JVM lane pins :clj to
-            the live macro :arglists)"
-    (let [problems (probe/signature-problems
-                    (assoc-in (:vars freehand-test-signature-contract)
-                              ["with-render" :cljs] #{[3 :&]})
-                    live-freehand-test-surface)]
-      (is (= [:macro-host-variance] (map :kind problems)))
-      (is (= "with-render" (:var (first problems))))
-      (is (= #{[0 :&]} (:expected (first problems))) "the :clj half")
-      (is (= #{[3 :&]} (:got (first problems)))      "the mutated :cljs half"))))
-
-(deftest freehand-test-cljs-sidecar-kind-flip-goes-red
-  (testing "a sidecar entry whose :kind was flipped :fn→:macro is REJECTED
-            against the live analyzer kind (:fn) — the declared kind is
-            reconciled, never trusted to select checks"
-    (let [problems (probe/signature-problems
-                    (assoc-in (:vars freehand-test-signature-contract)
-                              ["render" :kind] :macro)
-                    live-freehand-test-surface)]
-      (is (= [:kind-mismatch] (map :kind problems)))
-      (is (= "render" (:var (first problems))))
-      (is (= :macro (:declared (first problems))))
-      (is (= :fn (:live-kind (first problems)))))))
-
-(deftest freehand-test-cljs-restored-surface-is-green
-  (testing "POSITIVE CONTROL: the UNMUTATED live surface reconciles clean, so
-            the reds above are the mutation talking and not a standing failure"
-    (is (empty? (probe/signature-problems (:vars freehand-test-signature-contract)
-                                          live-freehand-test-surface)))))

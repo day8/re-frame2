@@ -247,15 +247,6 @@ const DIRECT_PINS = {
       'the Story play-script browser gate, a sweep command the local mirror had '
       + 'silently dropped (rf2-lm5mu9)',
   },
-  'bench:freehand-browser': {
-    kind: 'parse-blind',
-    why:
-      'the `:browser-test-freehand-bench` build. rf2-mf4uy moved the seven '
-      + '`re-frame.freehand.bench.*` DOM namespaces out of `:browser-test`, and '
-      + 'their only scheduled home is freehand-bench.yml — which this file never '
-      + 'reads. Without this pin the local sweep loses that whole lane of mounted '
-      + 'correctness and nothing goes red (rf2-rmtj0)',
-  },
 };
 
 const PIN_KINDS = new Set(['parse-blind', 'belt-and-braces']);

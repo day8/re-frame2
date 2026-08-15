@@ -120,18 +120,6 @@
                 ;; required, and core never :requires re-frame.resources.
                 "resources/src"
                 "resources/test"
-                ;; rf2-drpa3.15 — the Freehand view substrate (EP-0036),
-                ;; F1a skeleton. src carries the empty-but-loadable
-                ;; `.cljc` entry namespace (no public surface yet); test
-                ;; carries the classpath probe
-                ;; (re-frame.freehand.skeleton-cljs-test), which rides the
-                ;; always-on :node-test gate (`cljs-test$` matches) AND
-                ;; the focused :node-test-freehand build below.
-                ;; Bundle-isolation holds: no production build :requires
-                ;; re-frame.freehand.*. Freehand does NOT depend on the
-                ;; `ui/` donor above.
-                "freehand/src"
-                "freehand/test"
                 ;; rf2-hic-001 — the Hicasso view substrate. src carries
                 ;; the runtime copied out of the benchmark tree
                 ;; (hicasso/test/re_frame/bench/hicasso/{front,arm1}/)
@@ -585,25 +573,6 @@
             8035 {:roots   ["../tools/xray/testbeds/managed_http"
                             "out/examples/managed-http"]
                   :handler re-frame.testbed.open-in-editor-server/handler}
-            ;; Freehand-views testbed (rf2-6pohj) — the ONLY shipped Xray
-            ;; deck whose views are FREEHAND views, so the Views panel's
-            ;; Mounted Views + Declared View Sites sections render
-            ;; POPULATED. A mixed host by necessity: the Reagent adapter
-            ;; supplies observation + the ratom-family `:render` Xray's
-            ;; hiccup shell mounts through (rf2-qgfo4 refuses
-            ;; `:rf.adapter/freehand`), and every view on the page is
-            ;; Freehand. Same source-dir-first cascade as 8031-8035; the
-            ;; source dir resolves the hand-written index.html at `/`,
-            ;; compiled main.js falls through to
-            ;; out/testbeds/freehand-views. Port 8036 is the next free
-            ;; slot in the Xray 803x band (standard-epochs 8031,
-            ;; routes-epochs 8032, machine-epochs 8033, edn-inspector
-            ;; 8034, managed-http 8035); 8037 is NOT free — the
-            ;; xray-feature-gate's own http-server prefers it
-            ;; (XRAY_FEATURE_GATE_PORT).
-            8036 {:roots   ["../tools/xray/testbeds/freehand_views"
-                            "out/testbeds/freehand-views"]
-                  :handler re-frame.testbed.open-in-editor-server/handler}
             ;; --- Story showcases (rf2-xz4zn) -------------------------
             ;; The four Story-enabled builds, on the 804x band (the Xray
             ;; testbeds own 803x + 8765). Each is hash-routed: `/#/` is
@@ -846,32 +815,6 @@
    :compiler-options {:warnings      {:redef false}
                       :infer-externs false}}
 
-  ;; rf2-drpa3.15 — FOCUSED node-test build for the Freehand view
-  ;; substrate artefact (EP-0036).
-  ;;
-  ;; Same shape and same reasoning as :node-test-testbed-support above: the
-  ;; ns-regexp
-  ;; selects only this artefact's own suites (every `re-frame.freehand.*`
-  ;; test namespace — nothing else in the repo lives under that prefix),
-  ;; giving the Freehand programme a named, cheap gate
-  ;; (`npm run test:freehand`) so the long-lived F1+ slice workers don't
-  ;; compile + run the full node suite on every iteration. Those same
-  ;; namespaces also match the always-on `:node-test` build's broader
-  ;; `cljs-test$` regex, so the artefact is covered on every PR whether
-  ;; or not this focused build is invoked — this is the *named* surface,
-  ;; not an additional required gate.
-  :node-test-freehand
-  {:target    :node-test
-   :output-to "out/node-test-freehand.js"
-   :ns-regexp "^re-frame\\.freehand\\..+-cljs-test$"
-   :main      re-frame.test-quiet.shadow-node/main
-   ;; rf2-41igl: this build carries no :redef suppression. The lone redef
-   ;; it once needed it for — the test-local `(defrecord Box …)`, whose
-   ;; generated `->Box` shadowed cljs.core/->Box — is gone: the fixture
-   ;; record is now `RoundTripBox`, so the build reports 0 warnings with
-   ;; the class toggle removed rather than silenced.
-   :compiler-options {:infer-externs false}}
-
   ;; rf2-hic-001 — the Hicasso PACKAGE's compile target. Mirrors
   ;; :node-test-freehand above: the ns-regexp selects
   ;; only `re-frame.hicasso.*` suites, and nothing else in the repo lives
@@ -957,183 +900,6 @@
                       :closure-defines {goog.DEBUG false}}
    :modules {:main {:init-fn re-frame.hicasso.consumer-app/-main}}}
 
-  ;; rf2-8kas5 — the Freehand artefact's RELEASE build: the substrate
-  ;; compiled the way a consumer ships it.
-  ;;
-  ;; The build above is a test build, and until this one existed it was
-  ;; the artefact's only one. So nothing anywhere compiled Freehand under
-  ;; `:advanced` with `goog.DEBUG` false, and any claim about what the
-  ;; substrate COSTS on a page — bundle bytes, parse/eval, what survives
-  ;; DCE — had no artefact to measure. Not a thin measurement: no
-  ;; measurement at all.
-  ;;
-  ;; Shape follows the sibling advanced builds: both settings pinned
-  ;; rather than left to `release`'s
-  ;; defaults, so the build says what it is at the point a reader is
-  ;; looking. `re-frame.freehand.release-app` mounts a small real
-  ;; application — a subscription read, a dispatch, the compiled twin of
-  ;; the same body, and a root that owns its frame — because an entry that
-  ;; only REQUIRED the door would be DCE'd to nearly nothing and would
-  ;; report a cost no consumer pays. The entry sits under `freehand/test/`
-  ;; (on :source-paths above, outside the artefact's published :paths),
-  ;; exactly where the sibling bundle probes live.
-  ;;
-  ;; Built by `npm run build:freehand-release`; the bundle lands at
-  ;; out/freehand-release/main.js. No :dev-http — like every other
-  ;; advanced build here it is compiled and inspected, never served.
-  :freehand-release
-  {:target     :browser
-   :output-dir "out/freehand-release"
-   :asset-path "."
-   :compiler-options {:optimizations :advanced
-                      :infer-externs :auto
-                      :closure-defines {goog.DEBUG false}}
-   :modules {:main {:init-fn re-frame.freehand.release-app/-main}}}
-
-  ;; The MATCHED PAIR: two bundles that differ ONLY in view lowering. Their
-  ;; entries are re-frame.freehand.release-app-lowered-{none,full}, which are
-  ;; one source in two states — identical character for character once the
-  ;; three `{:compiled true}` markers are dropped and the equal-length
-  ;; `lowered-none`/`lowered-full` segment is renamed. Neither carries a
-  ;; namespace docstring, because :advanced does not strip one and the view
-  ;; manifest ships it once per declared view, straight into the artefact
-  ;; under the probe. b5-matched-builds-cljs-test asserts all of that on every
-  ;; run; the entry files themselves carry the reasoning.
-  ;;
-  ;; Same :advanced optimisation and the same goog.DEBUG false as
-  ;; :freehand-release above, so lowering is the only variable between these
-  ;; two — which is what makes the per-promotion BYTE DELTA between them a
-  ;; reading of lowering and nothing else. (:freehand-release is the MIXED
-  ;; shape, one interpreted leaf and its compiled twin under one root. It is
-  ;; the SHIPPED-COST artefact, built from its own entry with its own ids and
-  ;; prose, and is measured alongside the pair for context rather than being
-  ;; byte-matched to it.) The bundles are EVIDENCE artefacts: measured by
-  ;; re-frame.freehand.bench.b5 (bytes + parse/compile, published with no
-  ;; threshold), never served. This is a complement to the control build
-  ;; below, which holds lowering and flips goog.DEBUG to prove the evidence
-  ;; seam DCEs out of production; here lowering is the variable, not the flag.
-  ;;
-  ;; Built with `npm run build:freehand-matched` — NOT with a bare
-  ;; `shadow-cljs release` over the three ids. The npm script clears out/ and
-  ;; .shadow-cljs/builds/ for all three shapes first, and that clearing is
-  ;; part of the measurement's method rather than housekeeping: Closure's
-  ;; identifier and property renaming for a build that compiles fresh differs
-  ;; from that of the same build compiling fresh in a process where a SIBLING
-  ;; build was served from cache. Measured at c8f0ae6ddb the compiled arm came
-  ;; out 742,512 bytes from a cleared cache and 738,437 with its siblings
-  ;; warm — the same 4,312 functions, 4,075 raw bytes apart, 23% of that run's
-  ;; delta. Both reproduce exactly on repeat, so an unpinned posture publishes
-  ;; two different answers at one revision (rf2-hce4p); the script pins the
-  ;; cleared-cache one and b5/matched-build-posture states it in the record.
-  ;;
-  ;; The bundles land at out/freehand-release-interpreted/main.js and
-  ;; out/freehand-release-compiled/main.js. No :dev-http — like every other
-  ;; advanced build here they are compiled and measured, never served.
-  :freehand-release-interpreted
-  {:target     :browser
-   :output-dir "out/freehand-release-interpreted"
-   :asset-path "."
-   :compiler-options {:optimizations :advanced
-                      :infer-externs :auto
-                      :closure-defines {goog.DEBUG false}}
-   :modules {:main {:init-fn re-frame.freehand.release-app-lowered-none/-main}}}
-
-  :freehand-release-compiled
-  {:target     :browser
-   :output-dir "out/freehand-release-compiled"
-   :asset-path "."
-   :compiler-options {:optimizations :advanced
-                      :infer-externs :auto
-                      :closure-defines {goog.DEBUG false}}
-   :modules {:main {:init-fn re-frame.freehand.release-app-lowered-full/-main}}}
-
-  ;; rf2-drpa3.166 — the CONTROL twin of :freehand-release, and the only
-  ;; thing that differs between the two is `goog.DEBUG`. It is one half of
-  ;; the F4g production-isolation ELISION PROBE PAIR: build both, and the
-  ;; dev-gated occurrence-record emission seam (rf2-3naow) DCEs out of the
-  ;; goog.DEBUG=false RELEASE bundle while surviving in this goog.DEBUG=true
-  ;; CONTROL — proving the evidence schema the seam reaches does not ship.
-  ;;
-  ;; A separate build id, not a `--config-merge` invocation, so the gate is
-  ;; a plain `shadow-cljs release freehand-release freehand-release-control`
-  ;; — the same shape the sibling elision pair (:elision-probe /
-  ;; :elision-probe-control) takes. SAME entry (release-app/-main), SAME
-  ;; :advanced optimisation; only the flag moves, so a byte that appears
-  ;; here and not in the release bundle appeared BECAUSE of the flag and
-  ;; nothing else. The control is a MEASUREMENT artefact — compiled and
-  ;; grep'd by scripts/check-freehand-evidence-elision.cjs, never served.
-  :freehand-release-control
-  {:target     :browser
-   :output-dir "out/freehand-release-control"
-   :asset-path "."
-   :compiler-options {:optimizations :advanced
-                      :infer-externs :auto
-                      :closure-defines {goog.DEBUG true}}
-   :modules {:main {:init-fn re-frame.freehand.release-app/-main}}}
-
-  ;; rf2-drpa3.52 acceptance 1 — the REACHABILITY control, and the second
-  ;; control twin of :freehand-release. D021's B5 row asks for a
-  ;; deterministic proof that UNUSED RUNTIME MODULES are absent from the
-  ;; production bundle, and the naive oracles have both been measured wrong
-  ;; here (a debug flag survived 225 times inside prose; Closure inlines a
-  ;; small function's name, so grepping for it can never go red). The
-  ;; technique that works is a control build.
-  ;;
-  ;; The two controls differ in WHICH variable they move, and that is the
-  ;; whole difference between the two claims:
-  ;;
-  ;;   :freehand-release-control               goog.DEBUG moves — proves the
-  ;;                                           dev-gated EVIDENCE SEAM elides
-  ;;   :freehand-release-reachability-control  the APP moves — proves an
-  ;;                                           unused runtime MODULE elides
-  ;;
-  ;; Same :advanced, same goog.DEBUG false, same everything the release build
-  ;; sets. The entry is a strict SUPERSET of the release entry: it CALLS
-  ;; `release-app/-main` and additionally mounts a view that calls
-  ;; `v/controller-key`, the public door onto `re-frame.freehand.control`. So
-  ;; a string present here and absent from the release bundle is present
-  ;; BECAUSE of the controller and nothing else.
-  ;;
-  ;; Built and grep'd by `npm run test:freehand-reachability`
-  ;; (scripts/check-freehand-reachability.cjs), never served.
-  :freehand-release-reachability-control
-  {:target     :browser
-   :output-dir "out/freehand-release-reachability-control"
-   :asset-path "."
-   :compiler-options {:optimizations :advanced
-                      :infer-externs :auto
-                      :closure-defines {goog.DEBUG false}}
-   :modules {:main {:init-fn re-frame.freehand.bench.b5-reachability-control-app/-main}}}
-
-  ;; The ClojureScript/Node lane of the Freehand B-spine (D021).
-  ;;
-  ;; `clojure -M:bench` is a JVM process, so it reaches every `.cljc`
-  ;; workload and none of the ClojureScript-only ones — the React arm
-  ;; measures the interpreted React emitter, which exists only here. This
-  ;; build is the ENTRY that loads them and delegates to the SAME runner:
-  ;; one registry, one provenance record, one gate/evidence split, one
-  ;; report shape, and the same exit-code law where 1 means a
-  ;; deterministic property was violated and nothing else.
-  ;;
-  ;; A development compile, deliberately, and NOT the :freehand-release
-  ;; build above: this one runs workloads, that one is the artefact a
-  ;; consumer ships. The result record names its own `:optimizations`
-  ;; and `:instrumentation?`, so a `:none` run is honestly labelled
-  ;; rather than silently pooled with an `:advanced` one — which is
-  ;; also why B5, when it measures shipped cost, will measure the
-  ;; release bundle rather than this.
-  ;;
-  ;;   npm run --silent bench:freehand-node > out/freehand-bench-node.edn
-  ;;
-  ;; Stdout is the artefact (the human summary rides as `;;` comments),
-  ;; which is why the package script sends the compile chatter to stderr
-  ;; and why the command is run with `--silent`.
-  :freehand-bench-node
-  {:target    :node-script
-   :main      re-frame.freehand.bench.node/-main
-   :output-to "out/freehand-bench-node.js"
-   :compiler-options {:infer-externs false}}
-
   ;; rf2-2rtt6.2 — THE HICASSO MEASUREMENT LANE (EP-0038 / HD-017).
   ;;
   ;; ONE build id for the whole programme, deliberately. HD-017 makes a new
@@ -1197,34 +963,6 @@
   ;; Node. The split eliminates the ~14m of duplicate Chromium compile
   ;; + run on the ~3500-test bulk that needs no browser signal.
   ;;
-  ;; rf2-mf4uy — and the `re-frame.freehand.bench.*` DOM suites are
-  ;; excluded, because a BENCHMARK does not belong in a correctness gate.
-  ;;
-  ;; They are not slow by accident: they burn wall clock on purpose,
-  ;; driving real-time windows of computed duration and publishing the
-  ;; distributions as D021 `:status :evidence` — which by construction
-  ;; cannot gate anything (`re-frame.freehand.bench.measure` refuses to
-  ;; build a duration measurement carrying a threshold at all). Measured
-  ;; on this bundle with the rf2-76lhy capture-time profile: 870 tests
-  ;; across 152 namespaces in 73.0s, of which ONE namespace
-  ;; (`bench.b10-two-clock-dom-cljs-test`) was 34.6s and the seven bench
-  ;; namespaces together were 50.2s — 71% of the lane's wall clock in 5%
-  ;; of its namespaces, against a median namespace of 0.040s. Every
-  ;; conversation about this lane's timeout budget (rf2-15047 raised it
-  ;; 120s -> 360s) was really a conversation about those seven.
-  ;;
-  ;; They keep running, in the build that exists for them:
-  ;; `:browser-test-freehand-bench` below selects exactly this excluded
-  ;; set, and `npm run bench:freehand-browser` runs it. The two selectors
-  ;; PARTITION the repo's `*_dom_cljs_test` namespaces — every one is
-  ;; matched by exactly one of them, which is what stops this exclusion
-  ;; from being a silent deletion. `_browser-dom-lane-partition.test.cjs`
-  ;; derives both patterns from THIS file and proves it on every PR.
-  ;;
-  ;; The negative lookahead is evaluated by `re-find` against the
-  ;; namespace string (shadow-cljs's `find-test-namespaces`), so `^` pins
-  ;; the match to position 0 and the trailing `$` makes the whole pattern
-  ;; a full-string test.
   :browser-test
   {:target    :browser-test
    :ns-regexp "^(?!re-frame\\.freehand\\.bench\\.).*-dom-cljs-test$"
@@ -1322,74 +1060,6 @@
    :compiler-options {:closure-defines {goog.DEBUG false}}
    :devtools  {:http-port 8023
                :http-root "out/browser-test-prod-elision"}}
-
-  ;; rf2-drpa3.147 / rf2-drpa3.52 — the Freehand B-spine's BROWSER evidence
-  ;; lane, and the only build in the repo that names the revision its bundle
-  ;; was compiled from.
-  ;;
-  ;; WHY A BUILD AT ALL. B2's mounted storm, B4's latency row and B5's
-  ;; initial-mount reading publish their result records from inside a real
-  ;; browser, and `re-frame.freehand.bench.provenance` refuses to call any
-  ;; record citable that cannot name the revision it was built from. A
-  ;; browser has no environment and no git, so the revision can only arrive
-  ;; at COMPILE time, through the closure-define the provenance namespace
-  ;; documents. The default `:browser-test` build sets none — deliberately:
-  ;; it is the per-PR correctness gate, its bundle is cached across runs,
-  ;; and baking a per-commit constant into it would bust that cache on every
-  ;; push to buy evidence nobody captures. So the evidence lane gets its own
-  ;; build, and the PR gate is left alone.
-  ;;
-  ;; THE REVISION IS READ, NEVER WRITTEN. `#shadow/env` — the same mechanism
-  ;; the testbed builds use for `checkout-root` — reads `RF2_REVISION` from
-  ;; the environment the compile runs in (the workflow sets it to
-  ;; `github.sha`; a local run exports its own `git rev-parse HEAD`). Its
-  ;; default is the EMPTY STRING, which `detect-revision` reads as "this
-  ;; build cannot name one" and which makes every record it publishes print
-  ;; NOT CITABLE. That is the honest degrade the provenance door exists for:
-  ;; an unset environment produces an unattributable record, never an
-  ;; invented revision.
-  ;;
-  ;; THE HARDWARE CLASS CROSSES THE SAME BOUNDARY, and for the same reason a
-  ;; page cannot read `process.env`. Exporting `RF2_HARDWARE_CLASS` in the
-  ;; runner's environment configures the RUNNER; until this define existed
-  ;; the page itself saw nothing, `detect-hardware-class` fell through to its
-  ;; `:developer-workstation` default, and the pinned release worker
-  ;; published records labelled with a machine class it was not running on.
-  ;; Read from the same variable, through the same `#shadow/env`, with the
-  ;; same empty default that degrades honestly on an unconfigured local run.
-  ;;
-  ;; The ns-regexp selects the bench's own DOM suites and nothing else, so
-  ;; the captured console is the evidence rather than a 757-test transcript
-  ;; to sift.
-  ;;
-  ;; rf2-mf4uy — and since the `:browser-test` gate now EXCLUDES exactly
-  ;; this set, those namespaces run here and nowhere else in a browser.
-  ;; This build is no longer "a revision added to coverage the PR gate
-  ;; already had"; it is the coverage. The two `:ns-regexp`s are
-  ;; complementary halves of one partition over the repo's
-  ;; `*_dom_cljs_test` namespaces, and `_browser-dom-lane-partition.test.cjs`
-  ;; derives both from this file and reds on every PR if a namespace ever
-  ;; falls between them or into both. The 30 rows here are measurement;
-  ;; the 7 of them that carry no `(browser?)` guard also run under
-  ;; `:node-test` on every PR, where their arithmetic still gates.
-  ;;
-  ;; Run by `npm run bench:freehand-browser`; the workflow's browser lane
-  ;; captures its console and uploads it beside the JVM and Node artefacts.
-  :browser-test-freehand-bench
-  {:target    :browser-test
-   :ns-regexp "^re-frame\\.freehand\\.bench\\..+-dom-cljs-test$"
-   :test-dir  "out/browser-test-freehand-bench"
-   :runner-ns shadow.test.browser
-   ;; cljs-test-display.core/printing for the same reason :browser-test sets
-   ;; it — without it the "Ran N tests" summary never reaches the console the
-   ;; Playwright runner watches, and a green suite presents as a hang.
-   :compiler-options
-   {:closure-defines
-    {cljs-test-display.core/printing                        true
-     re-frame.freehand.bench.provenance/build-revision      #shadow/env ["RF2_REVISION" ""]
-     re-frame.freehand.bench.provenance/build-hardware-class #shadow/env ["RF2_HARDWARE_CLASS" ""]}}
-   :devtools  {:http-port 8024
-               :http-root "out/browser-test-freehand-bench"}}
 
   ;; Production-elision probe (Spec 009 §Production builds, bead rf2-11hn).
   ;;
@@ -1836,53 +1506,6 @@
                       {re-frame.testbed.config/checkout-root
                        #shadow/env ["RF2_TESTBED_PROJECT_ROOT" ""]}}
    :modules          {:main {:init-fn managed-http.core/run}}
-   :devtools         {:preloads [re-frame2-pair.runtime
-                                 day8.re-frame2-xray.preload]}}
-
-  ;; Freehand-views testbed (rf2-6pohj) — the ONLY shipped Xray deck whose
-  ;; views are FREEHAND views. Every other deck is Reagent-hosted, and a
-  ;; Reagent host connects no Freehand occurrence, so the browser lane could
-  ;; prove the Views panel's Mounted Views section RENDERS and nothing about
-  ;; what it renders: an empty section and a section emptied by a BROKEN read
-  ;; through `re-frame.freehand.tool` are the same DOM. This deck is what
-  ;; makes the populated arm assertable in a real browser.
-  ;;
-  ;; A MIXED host, deliberately and of necessity. `rf/init!` installs the
-  ;; REAGENT adapter — Xray's shell is hiccup, and `day8.re-frame2-xray.mount`
-  ;; refuses the React-element-shaped adapters including
-  ;; `:rf.adapter/freehand` (rf2-qgfo4), so on a host that installed
-  ;; `v/adapter` there is no Views panel to populate at all. The adapter
-  ;; supplies the OBSERVATION half a ViewCell's reads need — which takes
-  ;; more than a watchable derived value, since a `reagent.ratom/Reaction`
-  ;; captures its sources only through `deref-capture` and a ViewCell is not
-  ;; a component; Reagent closes that by publishing
-  ;; `:adapter/activate-derived-value!`, so a cell here genuinely REPAINTS
-  ;; (rf2-8cnxg / rf2-jt8vz) — plus the `:render` slot the shell mounts
-  ;; through; Freehand renders itself through react-dom/client either way.
-  ;; That
-  ;; arrangement is blessed by the substrate contract itself
-  ;; (`re-frame.freehand.substrate`: bring-your-own adapter stays legitimate
-  ;; for a mixed application). Nothing on the page is Reagent-rendered.
-  ;;
-  ;; Three declared views over one `:rf/default` frame — a compiled reader, a
-  ;; compiled dispatcher, and an interpreted root — so the roster carries a
-  ;; lowering contrast and Declared View Sites carries BOTH the
-  ;; `:basis :static-proof` and the `:basis :opaque` arm. A TEST surface — no
-  ;; deliberate bugs, no teaching layers (feedback_testbeds_are_test_surfaces).
-  ;;
-  ;; Sources live under tools/xray/testbeds/freehand_views/; the Xray preload
-  ;; auto-mounts inline. Served at http://localhost:8036 via the top-level
-  ;; `:dev-http` map (the next free slot in the Xray 803x band).
-  :testbeds/freehand-views
-  {:target           :browser
-   :output-dir       "out/testbeds/freehand-views"
-   :asset-path       "."
-   ;; rf2-5dphw — build-env project-root for open-in-editor (see
-   ;; :examples/two-frame-isolation above for the mechanism).
-   :compiler-options {:closure-defines
-                      {re-frame.testbed.config/checkout-root
-                       #shadow/env ["RF2_TESTBED_PROJECT_ROOT" ""]}}
-   :modules          {:main {:init-fn freehand-views.core/run}}
    :devtools         {:preloads [re-frame2-pair.runtime
                                  day8.re-frame2-xray.preload]}}
 
