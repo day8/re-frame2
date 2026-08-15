@@ -52,8 +52,8 @@ invariants already use for exactly that reason (`check_freeze.py`,
 `check_lint_export.py`, `check_complaint_catalogue.py`, `check_budget_ledger.py`,
 `check_example_fence_coverage.py`).
 
-WHAT IS CHECKED — THREE RULES
------------------------------
+WHAT IS CHECKED — SIX RULES
+---------------------------
 R1  PINNED.  Every fenced block in the guide carries a roster row, in document
     order, and the row's digest still matches the block's text.  Adding a
     block, editing one, deleting one, adding a page or deleting a page each
@@ -75,7 +75,11 @@ R2  RESOLVED.  Every `alias/verb` a Clojure block names — where `alias` is one
     The alias set is DERIVED from the guide's `:require` forms, never listed,
     so `js/`, `rf/`, `react/`, `str/` and a page's own `old/` / `new/` compare
     aliases are out of scope by construction rather than by a filter someone
-    has to maintain.
+    has to maintain.  It is the `re-frame.hicasso*` FILTER over the one
+    derivation R5 also reads (see [[bound_aliases]]), rather than a second
+    reader that could drift from it — and it is measured: narrowing that
+    derivation from raw page text to actual `ns` bindings left this rule's
+    104 use-sites and 10 aliases identical.
 
     R2 POOLS THOSE ALIASES ACROSS THE WHOLE GUIDE, and that is correct FOR R2:
     its question is "does this verb exist in that namespace", and answering it
@@ -129,9 +133,40 @@ R5  SELF-CONTAINED.  The `(ns …)` form governing a Clojure block's section
     exist to avoid.  This is a deliberate ceiling, not an oversight: a var
     use of an alias no page anywhere requires goes unseen here.
 
-    DISCOVERY READS MASKED TEXT.  A `:require` vector inside a comment or a
-    string binds nothing, and reading the raw body let a commented-out
-    require satisfy the very block it was missing from.
+    DISCOVERY READS BINDINGS, NOT TEXT THAT LOOKS LIKE ONE.  That sentence
+    cost two repairs, because `[re-frame.core :as rf]` can appear in a block
+    four ways and only one of them requires anything.
+
+    The first repair MASKS the inert spellings: a `;; [re-frame.core :as rf]`
+    the author commented out is precisely the require the sample is MISSING,
+    and a `#_[re-frame.core :as rf]` inside a live `:require` is text the
+    reader throws away.  The second stops reading the masked BODY at all and
+    reads the `ns` form's own `:require` clauses instead, because live text
+    is not thereby a binding either — `(def documented-shape '[re-frame.core
+    :as rf])` is a datum and `(comment [re-frame.core :as rf])` is a no-op,
+    and each was taken for the missing require.
+
+    THE SAME RULE GOVERNS THE VOCABULARY, which is the same defect seen from
+    the other end and fails the other way.  When the alias set was scraped
+    from raw page text, a commented-out require in PROSE made its alias look
+    guide-bound, and a `sbus/row-count` symbol the var arm is meant to ignore
+    became an error instead.  One derivation now feeds scope, vocabulary and
+    R2's namespace map alike, so a green run means bindings throughout.
+
+R6  READABLE.  Every Clojure block is inside the subset of Clojure this gate
+    reads, and the gate REFUSES the rest rather than guessing.
+
+    `#_` elides the next FORM and forms nest, so bounding one in general is a
+    reader's job rather than a matcher's.  Three shapes are bounded exactly —
+    a delimited form, a string, a plain token — and that is where the line is
+    drawn, because a guess is wrong in BOTH directions at once: read too
+    short, inert text goes on binding aliases and R5 certifies a sample that
+    cannot compile; read too long, live code is swallowed and R5 reds on one
+    that can.
+
+    This is the file's one FAIL-CLOSED arm, and it is what keeps the repair
+    above from needing a compiler lane or a Clojure reader.  A shape the gate
+    cannot bound is a shape it declines to certify.
 
 R3  THE LEDGER IS LIVE.  This is the rule the Freehand mechanism did not have,
     and the reason the promotion's coverage loss is worth more than a digest.
@@ -364,59 +399,201 @@ def corpus(guide_dir: str = GUIDE_DIR) -> dict[str, list[dict]]:
 
 
 # ---------------------------------------------------------------------------
-# Masking: strings and `;` comments, in ONE pass
+# Masking: inert text, in ONE pass
 # ---------------------------------------------------------------------------
 #
-# One pass rather than strings-then-comments, because the two orders each get
+# ONE pass rather than strings-then-comments, because the two orders each get
 # a case wrong: comments-first eats a `;` inside a string literal, and
 # strings-first lets a lone `"` inside a `;;` comment open a phantom string
 # that swallows the rest of the file.  A single state machine has neither.
+#
+# FOUR KINDS OF INERT TEXT, not two.  Strings and `;` comments were the
+# original pair; character literals and `#_` reader discards joined them in
+# rf2-vz6dg's second pass, and each is here for a measured reason rather than
+# for completeness:
+#
+#   `\(`, `\;` and `\"` are VALUES.  Reading one as a delimiter, a comment or
+#   a quote is how the delimiter matcher below loses its place — and the
+#   matcher is what tells an `ns` form's `:require` clause from a lookalike
+#   vector somewhere else in the block.
+#
+#   `#_form` is text the READER throws away, so a discarded `:require` vector
+#   binds nothing and a discarded `::alias/name` uses nothing.  Leaving it
+#   visible was wrong in BOTH directions at once: the first made R5 green on a
+#   sample that does not compile, the second made it red on one that does.
+#
+# The one pass runs over the JOINED text rather than line by line, because a
+# `#_` form does not stop at the end of a line.  Blanking never touches a
+# newline, so the line count and every line's length survive it.
+
+_CLOSE_OF = {"(": ")", "[": "]", "{": "}"}
+
+# Where a plain token ends.  A `#_` eliding one runs to the first of these.
+_TOKEN_STOP = frozenset(' \t\r\n,;"\'`~@()[]{}')
+
+
+def _string_end(text: str, i: int) -> int:
+    """Index just past the `"` closing the string opening at `i` (or the end)."""
+    n = len(text)
+    k = i + 1
+    while k < n:
+        if text[k] == "\\":
+            k += 2
+            continue
+        if text[k] == '"':
+            return k + 1
+        k += 1
+    return n
+
+
+def _char_literal_end(text: str, i: int) -> int:
+    """Index just past the character literal opening at the `\\` at `i`.
+
+    `\\a`, `\\newline` and `\\u00a0` are one token; `\\(` and `\\"` are one
+    character.  Outside a string a backslash can begin nothing else.
+    """
+    n = len(text)
+    k = i + 1
+    if k < n and text[k].isalnum():
+        while k < n and text[k].isalnum():
+            k += 1
+        return k
+    return min(k + 1, n)
+
+
+def _balanced_end(text: str, i: int) -> int | None:
+    """Index just past the delimited form opening at `i`, or None if it never
+    closes.
+
+    Strings, `;` comments and character literals are skipped WHOLE, so a `)`
+    inside one closes nothing.  This is a delimiter matcher and deliberately
+    nothing more — it never reads a symbol, resolves a name or evaluates a
+    form.
+    """
+    n = len(text)
+    stack: list[str] = []
+    k = i
+    while k < n:
+        c = text[k]
+        if c == '"':
+            k = _string_end(text, k)
+            continue
+        if c == ";":
+            e = text.find("\n", k)
+            k = n if e < 0 else e
+            continue
+        if c == "\\":
+            k = _char_literal_end(text, k)
+            continue
+        if c in _CLOSE_OF:
+            stack.append(_CLOSE_OF[c])
+            k += 1
+            continue
+        if c in ")]}":
+            if not stack or stack[-1] != c:
+                return None
+            stack.pop()
+            k += 1
+            if not stack:
+                return k
+            continue
+        k += 1
+    return None
+
+
+def _discard_end(text: str, i: int) -> tuple[int, str | None]:
+    """Where the `#_` at `i` stops eliding — and a REFUSAL when that is unknown.
+
+    `#_` elides the next FORM, and forms nest, so bounding one in general is a
+    reader's job rather than a matcher's.  Three shapes CAN be bounded exactly:
+    a delimited form, a string, and a plain token.  Everything else — `#_#_`,
+    `#_^:meta`, `#_#(…)`, `#_'x` — is refused rather than guessed at, because
+    a guess is wrong in both directions (see [[r6_unreadable_discard]]).
+    """
+    n = len(text)
+    j = i + 2
+    while j < n and (text[j].isspace() or text[j] == ","):
+        j += 1
+    if j >= n:
+        return i + 2, "`#_` with no form after it"
+    c = text[j]
+    if c in _CLOSE_OF:
+        end = _balanced_end(text, j)
+        if end is None:
+            return i + 2, f"`#_{c}…` whose `{_CLOSE_OF[c]}` never arrives"
+        return end, None
+    if c == '"':
+        return _string_end(text, j), None
+    if c not in _TOKEN_STOP and c not in "#^\\":
+        k = j
+        while k < n and text[k] not in _TOKEN_STOP:
+            k += 1
+        return k, None
+    return i + 2, f"`#_` followed by `{c}`"
+
+
+def _mask_scan(lines: list[str]) -> tuple[list[str], list[str]]:
+    """Masked lines, and the reader discards this gate will not guess at."""
+    if not lines:
+        return [], []
+    text = "\n".join(lines)
+    out = list(text)
+    refusals: list[str] = []
+    n = len(text)
+
+    def blank(a: int, b: int) -> None:
+        for k in range(max(a, 0), min(b, n)):
+            if out[k] != "\n":
+                out[k] = " "
+
+    i = 0
+    while i < n:
+        c = text[i]
+        if c == '"':
+            end = _string_end(text, i)
+            blank(i + 1, end - 1 if text[end - 1:end] == '"' else end)
+            i = end
+            continue
+        if c == ";":
+            e = text.find("\n", i)
+            e = n if e < 0 else e
+            blank(i, e)
+            i = e
+            continue
+        if c == "\\":
+            end = _char_literal_end(text, i)
+            blank(i, end)
+            i = end
+            continue
+        if c == "#" and text[i + 1:i + 2] == "_":
+            end, refusal = _discard_end(text, i)
+            if refusal is not None:
+                refusals.append(refusal)
+            blank(i, end)
+            i = max(end, i + 2)
+            continue
+        i += 1
+    return "".join(out).split("\n"), refusals
 
 
 def mask(lines: list[str]) -> list[str]:
-    """Blank `"..."` contents and `;`-to-EOL comments, length-preserving."""
-    out: list[str] = []
-    in_string = False
-    for raw in lines:
-        buf: list[str] = []
-        i, n = 0, len(raw)
-        while i < n:
-            c = raw[i]
-            if in_string:
-                if c == "\\" and i + 1 < n:
-                    buf.append("  ")
-                    i += 2
-                    continue
-                if c == '"':
-                    in_string = False
-                    buf.append('"')
-                    i += 1
-                    continue
-                buf.append(" ")
-                i += 1
-                continue
-            if c == '"':
-                in_string = True
-                buf.append('"')
-                i += 1
-                continue
-            if c == ";":
-                buf.append(" " * (n - i))
-                i = n
-                continue
-            buf.append(c)
-            i += 1
-        out.append("".join(buf))
-    return out
+    """Blank every kind of inert text, length-preserving and line-preserving."""
+    return _mask_scan(lines)[0]
+
+
+def discard_refusals(lines: list[str]) -> list[str]:
+    """The `#_` discards in `lines` whose extent this gate refuses to guess."""
+    return _mask_scan(lines)[1]
 
 
 # ---------------------------------------------------------------------------
 # Reading the guide's own aliases, and the door's own names
 # ---------------------------------------------------------------------------
 
-# `[re-frame.hicasso.forms :as forms]` inside any `:require`.  Read from the
-# guide rather than listed here, so the alias set cannot drift from the pages.
-_REQUIRE_RE = re.compile(r"\[(re-frame\.hicasso[a-z.-]*)\s+:as\s+([a-zA-Z][\w.-]*)\]")
+# Which namespaces R2 is about.  The alias itself is read from the guide's own
+# `ns` forms rather than listed here, so the alias set cannot drift from the
+# pages.
+_HICASSO_NS_RE = re.compile(r"re-frame\.hicasso[a-z.-]*")
 
 # A namespace-qualified symbol in code position.  The lookbehind is what keeps
 # `::h/value` out: the marker keywords are auto-resolved keywords, not vars,
@@ -454,8 +631,108 @@ def defined_names(path: str) -> set[str]:
     return {name for _head, name in _DEF_RE.findall(text)}
 
 
-def guide_aliases(pages: dict[str, str]) -> dict[str, str]:
-    """`{alias: namespace}` read off the guide's own `:require` forms.
+# Every `[some.namespace :as alias]`, hicasso or not.  R5 needs the WHOLE
+# require vocabulary — the cookbook's two defects were `re-frame.core` and
+# `my.app.subs`, and R2's own `re-frame.hicasso*` set is a filter over this
+# one rather than a second reader.
+_ANY_REQUIRE_RE = re.compile(r"\[([a-zA-Z][\w.-]*)\s+:as\s+([a-zA-Z][\w.-]*)\]")
+
+# The head of an `(ns …)` form, and the `:require` clauses inside one.  These
+# are only ever matched at a position [[_top_level_ns]] and [[ns_bindings]]
+# have already established, never searched for loose in a body.
+_NS_FORM_RE = re.compile(r"\(ns\s+[a-zA-Z]")
+_REQUIRE_CLAUSE_RE = re.compile(r"\(:require(?:-macros)?(?![\w-])")
+
+
+def _top_level_ns(code: str) -> int | None:
+    """Index of the `(` opening the first TOP-LEVEL `(ns …)` form, or None.
+
+    `code` must already be [[mask]]ed.  Depth is the whole point: an `ns` form
+    nested inside anything — `(comment (ns …))`, a quoted datum — is not the
+    block's `ns` form, and a block that opens none declares no compilation
+    unit for R5 to hold it to.
+    """
+    n = len(code)
+    depth = 0
+    i = 0
+    while i < n:
+        c = code[i]
+        if c == '"':
+            i = _string_end(code, i)
+            continue
+        if c == "\\":
+            i = _char_literal_end(code, i)
+            continue
+        if c in _CLOSE_OF:
+            if depth == 0 and c == "(" and _NS_FORM_RE.match(code, i):
+                return i
+            depth += 1
+            i += 1
+            continue
+        if c in ")]}":
+            depth = max(0, depth - 1)
+            i += 1
+            continue
+        i += 1
+    return None
+
+
+def ns_bindings(code: str) -> dict[str, str] | None:
+    """`{alias: namespace}` the block's own `ns` form BINDS, or None.
+
+    `code` must already be [[mask]]ed.  `None` means the block opens no
+    top-level `ns` form; an EMPTY dict does not — `(ns my.app.views)` is a
+    compilation unit that binds nothing, so every alias it uses is unbound.
+
+    ONLY the `(:require …)` and `(:require-macros …)` clauses inside the form
+    are read, because that is the only place `[ns :as alias]` is a BINDING.
+    Elsewhere those characters are a datum, and the difference is not
+    cosmetic: `(def documented-shape '[re-frame.core :as rf])` and
+    `(comment [re-frame.core :as rf])` each bind nothing at all, yet scanning
+    the whole body for the vector took both for the very require the sample
+    was missing — the second false green rf2-vz6dg recorded, after the first
+    was repaired by masking alone.  Masking answers "is this text inert"; this
+    answers the question masking cannot, "is this live text a BINDING".
+    """
+    start = _top_level_ns(code)
+    if start is None:
+        return None
+    end = _balanced_end(code, start)
+    form = code[start:len(code) if end is None else end]
+    out: dict[str, str] = {}
+    for m in _REQUIRE_CLAUSE_RE.finditer(form):
+        stop = _balanced_end(form, m.start())
+        clause = form[m.start():len(form) if stop is None else stop]
+        for ns, alias in _ANY_REQUIRE_RE.findall(clause):
+            out[alias] = ns
+    return out
+
+
+def bound_aliases(corp: dict[str, list[dict]]) -> dict[str, str]:
+    """Every alias an `ns` form ANYWHERE in the guide actually binds.
+
+    Derived, never listed, and now derived from BINDINGS rather than from
+    text that merely looks like one.  A token the guide never requires —
+    `js/`, `goog/` — stays out of scope by construction rather than by a
+    filter someone has to maintain, which is the property R2 and R5 are both
+    built on; what changed in rf2-vz6dg's second pass is that a `;; [my.fake.ns
+    :as sbus]` in prose no longer counts as requiring anything.  That one
+    mattered in the OTHER direction: it made `sbus` look guide-bound, and a
+    deliberately-ignored ambiguous `sbus/row-count` symbol became an R5 error.
+    """
+    out: dict[str, str] = {}
+    for _page, blks in sorted(corp.items()):
+        for block in blks:
+            if block["lang"] not in CLOJURE_LANGS:
+                continue
+            binds = ns_bindings("\n".join(mask(block["body"])))
+            if binds:
+                out.update(binds)
+    return out
+
+
+def guide_aliases(corp: dict[str, list[dict]]) -> dict[str, str]:
+    """`{alias: namespace}` for the `re-frame.hicasso*` half — R2's map.
 
     POOLED ACROSS THE GUIDE ON PURPOSE — see R2.  This map answers "which
     namespace does this alias mean", which no page boundary changes.  It is
@@ -463,20 +740,8 @@ def guide_aliases(pages: dict[str, str]) -> dict[str, str]:
     reading it as one is the hole rf2-vz6dg recorded; [[section_scopes]] is
     what knows where an alias is actually bound.
     """
-    out: dict[str, str] = {}
-    for text in pages.values():
-        for ns, alias in _REQUIRE_RE.findall(text):
-            out[alias] = ns
-    return out
-
-
-# Every `[some.namespace :as alias]`, hicasso or not.  R5 needs the WHOLE
-# require vocabulary — the cookbook's two defects were `re-frame.core` and
-# `my.app.subs`, neither of which `_REQUIRE_RE` matches.
-_ANY_REQUIRE_RE = re.compile(r"\[([a-zA-Z][\w.-]*)\s+:as\s+([a-zA-Z][\w.-]*)\]")
-
-# An `(ns …)` form opening a block.
-_NS_FORM_RE = re.compile(r"\(ns\s+[a-zA-Z]")
+    return {alias: ns for alias, ns in bound_aliases(corp).items()
+            if _HICASSO_NS_RE.fullmatch(ns)}
 
 # `::alias/name`.  The lookbehind rejects `:::`; a SINGLE-colon `:alias/name`
 # is a plain qualified keyword that needs no alias and is deliberately not
@@ -488,20 +753,6 @@ _AUTO_KEYWORD_RE = re.compile(
 )
 
 _HEADING_RE = re.compile(r"^#{1,6}\s")
-
-
-def all_guide_aliases(pages: dict[str, str]) -> dict[str, str]:
-    """Every alias the guide binds ANYWHERE, hicasso or not.
-
-    R5's vocabulary of "things that are aliases at all".  Derived, never
-    listed, for R2's reason: a token the guide never requires — `js/`,
-    `goog/` — is out of scope by construction rather than by a filter.
-    """
-    out: dict[str, str] = {}
-    for text in pages.values():
-        for ns, alias in _ANY_REQUIRE_RE.findall(text):
-            out[alias] = ns
-    return out
 
 
 def section_scopes(text: str) -> list[dict[str, str] | None]:
@@ -517,12 +768,22 @@ def section_scopes(text: str) -> list[dict[str, str] | None]:
     finishes with one namespace and begins illustrating another under the
     next heading without a fresh `ns` form.
 
-    BOTH the `ns` form and its requires are read from [[mask]]ed text, never
-    the raw body.  Inert text binds nothing: a `;; [re-frame.core :as rf]`
-    the author commented out is precisely the require the sample is MISSING,
-    and reading it as a binding let the rule certify a block that does not
-    compile — a false green this rule shipped with (rf2-vz6dg).  The same
-    masking is why a commented-out `(ns …)` opens no scope at all.
+    THE SCOPE IS WHAT THE `ns` FORM BINDS, and both halves of that sentence
+    took a repair to become true (rf2-vz6dg, in two passes).
+
+    First, the form and its requires are read from [[mask]]ed text, never the
+    raw body: a `;; [re-frame.core :as rf]` the author commented out is
+    precisely the require the sample is MISSING, and reading it as a binding
+    let the rule certify a block that does not compile.  The same masking is
+    why a commented-out `(ns …)` opens no scope at all, and why a
+    `#_[re-frame.core :as rf]` inside a live `:require` binds nothing.
+
+    Second — and masking cannot reach this one — the requires are read from
+    the `ns` form's own `:require` clauses via [[ns_bindings]], not from
+    wherever in the block the vector happens to sit.  Live text is not
+    thereby a binding: `(def documented-shape '[re-frame.core :as rf])` is a
+    datum and `(comment [re-frame.core :as rf])` is a no-op, and scanning the
+    masked BODY still took each for the missing require.
     """
     lines = text.replace("\r\n", "\n").split("\n")
     out: list[dict[str, str] | None] = []
@@ -542,10 +803,9 @@ def section_scopes(text: str) -> list[dict[str, str] | None]:
             j += 1
         body = lines[i + 1:j]
         if lang in CLOJURE_LANGS:
-            code = "\n".join(mask(body))
-            if _NS_FORM_RE.search(code):
-                scope = {alias: ns
-                         for ns, alias in _ANY_REQUIRE_RE.findall(code)}
+            binds = ns_bindings("\n".join(mask(body)))
+            if binds is not None:
+                scope = binds
         out.append(scope)
         i = j + 1
     return out
@@ -863,6 +1123,49 @@ def r5_unbound_alias(
     return problems
 
 
+def r6_unreadable_discard(corp: dict[str, list[dict]]) -> list[str]:
+    """R6 — every Clojure block is in the subset of Clojure this gate reads.
+
+    The one place the gate FAILS CLOSED, and the reason it can stay a gate
+    rather than becoming a compiler lane.
+
+    `#_` elides the next FORM and forms nest, so bounding one in the general
+    case is a reader's job.  [[_discard_end]] bounds the three shapes it can
+    bound exactly — a delimited form, a string, a plain token — and this rule
+    refuses the rest, because a guess is wrong in BOTH directions at once: a
+    discard read too short leaves inert text binding aliases, and R5 goes
+    green on a sample that cannot compile; one read too long swallows live
+    code, and R5 goes red on a sample that can.  Neither error is visible
+    from the outside, which is precisely the failure this file exists to end.
+
+    Refusing costs the guide nothing it wanted.  `#_#_`, `#_^:meta` and
+    `#_#(…)` teach a reader nothing the plainer spelling does not, and a page
+    that needs one can say so in prose — where R1 pins it and no rule here
+    reads it as code.
+
+    THE CEILING, stated rather than left to be discovered: this reads the
+    GUIDE's blocks.  The door's own sources go through the same masker inside
+    [[defined_names]], and an unsupported discard there degrades that reader
+    silently instead of refusing — it is a `#_`-discarded `def` that would go
+    on being counted as exported.  Guide text is what this file governs;
+    source text is what a compiler already governs.
+    """
+    problems: list[str] = []
+    for page, blks in sorted(corp.items()):
+        for block in blks:
+            if block["lang"] not in CLOJURE_LANGS:
+                continue
+            for refusal in discard_refusals(block["body"]):
+                problems.append(
+                    f"{page} block {block['n']} carries {refusal} — this gate "
+                    f"reads a reader discard only where it elides a delimited "
+                    f"form, a string or a plain token, and REFUSES the rest "
+                    f"rather than guess its extent. Respell the sample, or "
+                    f"delete the text instead of discarding it"
+                )
+    return problems
+
+
 # ---------------------------------------------------------------------------
 # The roster
 # ---------------------------------------------------------------------------
@@ -1038,7 +1341,7 @@ def run_check(verbose: bool = False) -> int:
             with open(os.path.join(GUIDE_DIR, entry), encoding="utf-8") as fh:
                 pages[entry] = fh.read()
     corp = corpus()
-    aliases = guide_aliases(pages)
+    aliases = guide_aliases(corp)
     uses = qualified_uses(corp, aliases)
 
     exports: dict[str, set[str] | None] = {}
@@ -1046,7 +1349,7 @@ def run_check(verbose: bool = False) -> int:
         src = namespace_source(ns)
         exports[ns] = defined_names(src) if src else None
 
-    vocabulary = all_guide_aliases(pages)
+    vocabulary = bound_aliases(corp)
 
     failures: list[tuple[str, list[str]]] = [
         ("R1 PINNED", r1_pin_drift(corp, ROSTER)),
@@ -1054,6 +1357,7 @@ def run_check(verbose: bool = False) -> int:
         ("R3 LEDGER IS LIVE", r3_stale_ledger(exports)),
         ("R4 THE PAGE MATCHES THE LEDGER", r4_status_block_declares(pages, aliases)),
         ("R5 SELF-CONTAINED", r5_unbound_alias(pages, corp, vocabulary)),
+        ("R6 READABLE", r6_unreadable_discard(corp)),
     ]
 
     total_blocks = sum(len(b) for b in corp.values())
@@ -1083,13 +1387,21 @@ def run_check(verbose: bool = False) -> int:
         )
         return 1
 
+    # WHAT THIS LINE MAY CLAIM is exactly what the rules above enforce, and
+    # the gap between the two is what rf2-vz6dg's audit measured twice.  So it
+    # names the SOURCE of every scope — the block's own `ns` form, not the
+    # guide at large and not text that merely looks like a require — and it
+    # states R5's var-arm ceiling as a count rather than implying there is
+    # none.  A headline that promises bindings while the code accepts text
+    # binding nothing is the same defect as the code's, printed.
     print(
         f"Hicasso guide samples: {total_blocks} fenced blocks pinned across "
         f"{len(corp)} pages ({code_blocks} Clojure), "
         f"{len(uses)} hicasso verb use-sites resolved, "
-        f"{scoped_blocks} block(s) checked self-contained "
-        f"(every `::alias/name`; var uses against {len(vocabulary)} "
-        f"guide alias(es)), "
+        f"{scoped_blocks} block(s) checked self-contained against the aliases "
+        f"their own `ns` form's `:require` binds "
+        f"(every `::alias/name`; var uses against the {len(vocabulary)} "
+        f"alias(es) an `ns` form in the guide binds), "
         f"{len(DIVERGENCES)} declared divergence(s) + "
         f"{len(ABSENT_NAMESPACES)} absent namespace(s) still live."
     )
@@ -1372,6 +1684,137 @@ def self_test() -> int:
           r5("## S\n\n```clojure\n(ns a (:require [re-frame.hicasso :as h]))\n"
              "(sbus/row-count 1)\n```\n") == [])
 
+    # The FOUR shapes the merged-PR audit of #8331 found still standing after
+    # the repair above.  Masking had made INERT text stop binding; these are
+    # the ones where the text is perfectly live and still binds nothing, which
+    # no amount of masking can reach.  Each is reproduced in the exact shape
+    # the audit used, and each was measured wrong before this pass: all three
+    # scope shapes returned zero R5 problems on a sample that cannot compile.
+    only_h = {"h": "re-frame.hicasso"}
+
+    # 1. A `:require`-shaped VECTOR that is a datum.  Live code, quoted, and a
+    # binding of nothing whatever.
+    data_vector = (
+        "## A recipe\n\n"
+        "```clojure\n(ns my.app.views\n"
+        "  (:require [re-frame.hicasso :as h]))\n\n"
+        "(def documented-shape '[re-frame.core :as rf])\n\n"
+        "(rf/reg-event :x)\n```\n"
+    )
+    check("R5 does not accept a QUOTED require-shaped vector as a binding",
+          any("`rf/reg-event`" in p for p in r5(data_vector)))
+    check("a require-shaped datum binds nothing in the scope itself",
+          section_scopes(data_vector) == [only_h])
+
+    # 2. `(comment …)`, which evaluates its body to nil and requires nothing.
+    comment_macro = (
+        "## A recipe\n\n"
+        "```clojure\n(ns my.app.views\n"
+        "  (:require [re-frame.hicasso :as h]))\n\n"
+        "(comment [re-frame.core :as rf])\n\n"
+        "(rf/reg-event :x)\n```\n"
+    )
+    check("R5 does not accept a (comment …) vector as a binding",
+          any("`rf/reg-event`" in p for p in r5(comment_macro)))
+    check("a commented-out require binds nothing even inside live code",
+          section_scopes(comment_macro) == [only_h])
+
+    # 3. A reader discard INSIDE the live `:require` — the one shape here that
+    # masking rather than scoping has to catch, since it sits exactly where a
+    # binding would be.
+    discarded_require = (
+        "## A recipe\n\n"
+        "```clojure\n(ns my.app.views\n"
+        "  (:require [re-frame.hicasso :as h]\n"
+        "            #_[re-frame.core :as rf]))\n\n"
+        "(rf/reg-event :x)\n```\n"
+    )
+    check("R5 does not accept a #_ DISCARDED require as a binding",
+          any("`rf/reg-event`" in p for p in r5(discarded_require)))
+    check("a discarded require binds nothing in the scope itself",
+          section_scopes(discarded_require) == [only_h])
+
+    # The same masking read from the other end: a discarded USE is not a use,
+    # in either kind.  Without this the repair would trade a false green for a
+    # false red — a sample that compiles, failed for text the reader deletes.
+    check("R5 reads no VAR use and no KEYWORD use out of a #_ discarded form",
+          r5("## S\n\n```clojure\n(ns my.app.views\n"
+             "  (:require [re-frame.hicasso :as h]))\n\n"
+             "#_(rf/reg-event :x)\n#_::subs/row-count\n```\n") == [])
+
+    # 4. The vocabulary's mirror of the same defect, and it fails the OTHER
+    # way.  Scraped from raw page text, a require commented out in PROSE made
+    # its alias look guide-bound, which promoted a `sbus/row-count` symbol the
+    # var arm deliberately ignores into an error.
+    def r5_derived(page_text: str):
+        corp_ = {"p.md": blocks(page_text)}
+        return r5_unbound_alias({"p.md": page_text}, corp_, bound_aliases(corp_))
+
+    prose_require = (
+        "# Page\n\nOutside any fence, in prose:\n\n"
+        ";; [my.fake.ns :as sbus]\n\n"
+        "## A recipe\n\n"
+        "```clojure\n(ns my.app.views\n"
+        "  (:require [re-frame.hicasso :as h]))\n\n"
+        "(sbus/row-count 1)\n```\n"
+    )
+    check("a require in PROSE binds no alias into the vocabulary",
+          "sbus" not in bound_aliases({"p.md": blocks(prose_require)}))
+    check("R5 does not promote an ignored symbol on a prose-only require",
+          r5_derived(prose_require) == [])
+    check("the vocabulary is every alias an ns form DOES bind",
+          bound_aliases({"p.md": blocks(prose_require)}) == only_h)
+    check("R2's map is the hicasso filter over that same derivation",
+          guide_aliases({"p.md": blocks(
+              "```clojure\n(ns a (:require [re-frame.hicasso.forms :as forms]\n"
+              "                [re-frame.core :as rf]))\n```\n")})
+          == {"forms": "re-frame.hicasso.forms"})
+
+    # ---- what an `ns` form binds -------------------------------------
+    nsb = lambda code: ns_bindings("\n".join(mask(code.split("\n"))))
+    check("a block with no ns form binds nothing and is not checked",
+          nsb("(rf/reg-event :x)") is None)
+    check("an ns form with no :require is a scope that binds NOTHING",
+          nsb("(ns my.app.views)\n(rf/reg-event :x)") == {})
+    check("an ns form nested in (comment …) is not the block's ns form",
+          nsb("(comment (ns my.app (:require [re-frame.core :as rf])))") is None)
+    check("a #_ discarded ns form opens no scope",
+          nsb("#_(ns my.app (:require [re-frame.core :as rf]))") is None)
+    check("requires are read across lines",
+          nsb("(ns a\n  (:require [re-frame.core :as rf]\n"
+              "            [clojure.string :as str]))")
+          == {"rf": "re-frame.core", "str": "clojure.string"})
+    check(":require-macros binds an alias too",
+          nsb("(ns a (:require-macros [my.macros :as m]))") == {"m": "my.macros"})
+    check("an ns form's OTHER clauses are not require clauses",
+          nsb('(ns a "doc" (:import [java.util Date]) '
+              '(:require [re-frame.core :as rf]))') == {"rf": "re-frame.core"})
+
+    # ---- R6, the one place this gate fails CLOSED ---------------------
+    #
+    # `#_` elides the next FORM and forms nest.  Guessing is wrong in both
+    # directions at once, so the unbounded shapes are refused instead.
+    check("a #_ eliding a delimited form is bounded", discard_refusals(
+        ["(list #_[a :as b] c)"]) == [])
+    check("a #_ eliding a plain token is bounded",
+          discard_refusals(["#_:clj-kondo/ignore", "(def x 1)"]) == [])
+    check("a #_ eliding a string is bounded", discard_refusals(['#_"text" x']) == [])
+    check("a #_ form is elided across LINES",
+          "rf/reg-event" not in "".join(mask(["#_(rf/reg-event", "   :x)", "(h/sub)"])))
+    check("R6 refuses a NESTED discard", discard_refusals(["#_#_ a b"]) != [])
+    check("R6 refuses a discard carrying metadata",
+          discard_refusals(["#_^:private (def x 1)"]) != [])
+    check("R6 refuses a discarded dispatch form", discard_refusals(["#_#(inc %)"]) != [])
+    check("R6 refuses a discarded quoted form", discard_refusals(["#_'sym"]) != [])
+    check("R6 refuses a discard whose form never closes",
+          discard_refusals(["#_(a b"]) != [])
+    check("R6 names the page and block of a refusal",
+          any("p.md block 1" in p and "REFUSES" in p for p in r6_unreadable_discard(
+              {"p.md": [{"n": 1, "lang": "clojure", "body": ["#_#_ a b"]}]})))
+    check("R6 reads no discard from a non-Clojure fence",
+          r6_unreadable_discard(
+              {"p.md": [{"n": 1, "lang": "text", "body": ["#_#_ a b"]}]}) == [])
+
     # `section_scopes` stays aligned with `blocks`, which is what lets R1's
     # ordinals and R5's scopes describe the same block.
     aligned = ok_page + "\n## Next\n\n```css\n.a{}\n```\n"
@@ -1385,6 +1828,17 @@ def self_test() -> int:
     check("mask survives a lone quote inside a comment",
           "h/sub" in mask([';; a " quote', "(h/sub [:x])"])[1])
     check("mask keeps line length", len(mask(["(h/sub) ; x"])[0]) == len("(h/sub) ; x"))
+    check("mask keeps the line count", len(mask(["#_(a", " b)", "(h/sub)"])) == 3)
+    # A character literal is a VALUE.  Reading `\\;` as a comment, `\\"` as a
+    # quote or `\\)` as a delimiter is how the matcher that finds an `ns`
+    # form's `:require` clause loses its place.
+    check("a `\\;` character literal starts no comment",
+          "h/sub" in mask([r"(str \; (h/sub))"])[0])
+    check("a `\\\"` character literal opens no string",
+          "h/sub" in mask([r'(str \" x)', "(h/sub [:x])"])[1])
+    check("a `\\)` character literal closes no form",
+          nsb(r"(ns a (:require [re-frame.core :as rf])) (str \))")
+          == {"rf": "re-frame.core"})
 
     # ---- the qualified-symbol reader ----------------------------------
     aliases = {"h": "re-frame.hicasso"}
