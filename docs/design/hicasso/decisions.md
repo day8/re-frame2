@@ -1585,10 +1585,10 @@ Three runs, each five rounds of three warm-up plus six samples, taken back to
 back on a quiet box. **Each run's figure is the ARITHMETIC MEAN of that run's
 five per-round ratios**, each of which is a ratio of the two arms' *within-round
 median* mount times — a mean over medians, and not a median of anything at the
-run level. That is what `lane/ratio-between` computes and hands the table; an
-earlier draft of this paragraph called the three values "run-medians" and their
-spans "effect medians", which named an estimator the instrument never used
-(`rf2-pqyxz`).
+run level. That is what `lane/ratio-between` computes and hands the table. As
+first published this paragraph called the three values "run-medians" and their
+spans "effect medians" and "null medians", naming an estimator the instrument
+never computed; the numbers were always these ones (`rf2-pqyxz`).
 
 | run | `:merged`/`:expanded` | per-round range | NULL `:expanded-b`/`:expanded` | per `:&` site |
 |---|---|---|---|---|
