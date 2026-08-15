@@ -35,10 +35,12 @@
 
   ## Shape
 
-  Four frames, one body run each through the same [[rt/render-body]] door
-  phase B's setup uses, and the same [[rt/commit-boundary!]] seam its
-  `commit` arm rides. Nothing here is timed and no number is published —
-  the claim is about reachability, not cost.
+  Four frames — see [[commit-frames]] for why four is right here and why
+  it is NOT phase B's count — one body run each through the same
+  [[rt/render-body]] door phase B's setup uses, and the same
+  [[rt/commit-boundary!]] seam its `commit` arm rides. Nothing here is
+  timed and no number is published — the claim is about reachability,
+  not cost.
 
   Which is exactly why row 2 arms its macrotask at the FIRST mint rather
   than after the harvest: a reap horizon is a duration from one entry's
@@ -62,7 +64,14 @@
      :init-fn (fn [] (rt/reset-runtime!))}))
 
 (def ^:private commit-frames
-  "Phase B's four identically-seeded frames, in miniature."
+  "Phase B's identically-seeded commit frames, in miniature — FOUR here
+  against the instrument's 32 (rf2-3l6hf raised that count, and this
+  docstring went on attributing four to phase B itself).
+
+  Four is right for THIS file and the shortfall costs it nothing: the
+  claim below is that an unclaimed entry is still reachable at the
+  baseline, which is a property of one entry's own reap horizon. It does
+  not sharpen with more of them."
   [::b1 ::b2 ::b3 ::b4])
 
 (defn- seeded! []
