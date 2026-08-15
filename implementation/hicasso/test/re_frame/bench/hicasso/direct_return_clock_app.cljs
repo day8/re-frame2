@@ -68,6 +68,30 @@
   and one builds two pages, both on purpose, and folding either into the
   equality would make the fairness gate a permanent failure.
 
+  ## The control is adjudicated STRICTLY, and per round (rf2-gsn62)
+
+  `lane/control-verdict-strict` decides it: every round's `:ctl-2x` /
+  `:hiccup` ratio must sit inside ±25% of 2.00x, and one bad round
+  refuses the run however good the others were. This instrument is
+  entitled to that rule and the coarse-leg rows are not — the 2026-07-31
+  ruling keeps the weaker OVERLAP rule for legs sitting on Chrome's
+  100 µs clamp and names a batched window clear of the quantum as its own
+  revisit trigger. This one reads ~2.25 ms judged and ~4.3 ms control (the
+  figures S8 publishes), twenty to forty-three quanta clear, so a round
+  outside the band here is not the clock. The floor's own leg is coarse
+  and does not enter: the control divides one floor-normalised ratio by
+  another taken in the SAME round, so the floor cancels exactly.
+
+  The adjudication is also PER ROUND rather than aggregate. The two runs
+  taken for S8 compared `2.0 x` the ACROSS-ROUND median of `:hiccup`
+  against the ACROSS-ROUND range of `:ctl-2x`, which never puts a round
+  beside its own denominator — a round whose judged leg ran fast was
+  measured against everybody else's. That shape also recorded only the
+  aggregate, so neither run's strict verdict is recoverable and none is
+  claimed; this file now records `:per-round` for the control as well as
+  for the escape, so the next run can be re-adjudicated under either rule
+  WITHOUT re-running the window.
+
   ## The published figure
 
   `lane/ratio-between :direct :hiccup` over the per-round floor-normalised
@@ -289,7 +313,12 @@
        "BEFORE the clock starts; the :ctl-2x arm's sample is the SAME operation "
        "performed TWICE inside one window, so its per-sample constants double "
        "with its work and its prediction is 2.00x by construction rather than by "
-       "model. Arms interleaved at the SAMPLE level under the lane's rotating AND "
+       "model — adjudicated by lane/control-verdict-strict, which requires EVERY "
+       "round's ctl-2x/hiccup ratio to sit inside ±"
+       (.toFixed (* 100.0 control-slack) 0)
+       "% of it rather than merely the range, and records the per-round values so "
+       "the run can be re-adjudicated without being re-run. Arms interleaved at "
+       "the SAMPLE level under the lane's rotating AND "
        "REFLECTING schedule, so no arm always follows the same neighbour; "
        rounds " rounds of " (:warmup sampling) " warm-up + " (:samples sampling)
        " samples per arm per round; every measured mount read back out of the DOM "
@@ -352,11 +381,14 @@
                                arms)
                 escape   (lane/ratio-between ratios :direct :hiccup)
                 gv       (lane/guard! samples "direct-return clock arms (in-page ms)")
-                ctl      (lane/control-verdict
-                           (* 2.0 (:p50 (get abs :hiccup)))
-                           (let [s (get abs :ctl-2x)]
-                             {:min (:min s) :max (:max s) :mean (:p50 s)})
-                           control-slack)
+                ;; THE POSITIVE CONTROL, per round and strictly (rf2-gsn62).
+                ;; `:ctl-2x` is `:hiccup`'s own operation performed twice in
+                ;; one window, so 2.00x is arithmetic rather than a model,
+                ;; and dividing each round by ITS OWN `:hiccup` leaves the
+                ;; floor and the round's drift out of it.
+                ctl-ratio (lane/ratio-between ratios :ctl-2x :hiccup)
+                ctl      (lane/control-verdict-strict
+                           2.0 (:per-round ctl-ratio) control-slack)
                 tv       (lane/tally-value tally)]
             (lane/assert-teardown-clean! "the measured rounds")
             (lane/record! :direct-return-clock
@@ -392,7 +424,9 @@
                      "  <- STRADDLES 1.0: INDISTINGUISHABLE"
                      "  <- range excludes 1.0")))
             (js/console.log (str ";;   per-round: " (pr-str (:per-round escape))))
-            (js/console.log (str ";;   control: " (:why ctl)))
+            (js/console.log (str ";;   control (" (name (:rule ctl)) ", ctl-2x/hiccup): "
+                                 (:why ctl)))
+            (js/console.log (str ";;   control per-round: " (pr-str (:per-round ctl))))
             (js/console.log (str ";;   writes: " (:unverified tv) " unverified of "
                                  (:writes tv)))
             (when (pos? (:unverified tv))

@@ -388,7 +388,7 @@ and the allocation row has no publishable claim to re-pin.
 | S5 | Teardown, retained **bytes** | indistinguishable from zero — all ten candidate rungs' bands straddle 0 | as S1 | **package figure** |
 | S6 | Cold mount vs direct UIx-on-subs | `1.1718x` [1.1263–1.2190] n=8; `1.1976x` [1.1504–1.2468] n=6 | final K1 estimator | **bench-tree figure** — registered `1.10x` gate missed; `1.25x` is the *accepted price* for that miss (ratified 2026-08-13), never a line this row is judged on |
 | S7 | Warm allocation | no publishable claim | allocation instrument | **bench-tree** — no fitted series clears the quality floor |
-| S8 | Direct-return escape (Rung 3): mount time against the same page written as hiccup | `0.7418x`, per-round escapes [0.6458–0.8409] over run 1's five rounds — **25.8% of mount time recovered** [15.9–35.4%]. Run 2 is excluded: its positive control refuses under the strict rule | P0 lane direct-return clock arm | **package figure** — an observed range, not a confidence interval; it excludes 1.0 and it CROSSES C8's 20% line |
+| S8 | Direct-return escape (Rung 3): mount time against the same page written as hiccup | `0.7418x`, per-round escapes [0.6458–0.8409] over run 1's five rounds — **25.8% of mount time recovered** [15.9–35.4%]. Run 2 is excluded: its positive control missed an every-round reading of its band | P0 lane direct-return clock arm | **package figure** — an observed range, not a confidence interval; it excludes 1.0 and it CROSSES C8's 20% line |
 
 The run's evidence, its controls and its full provenance are
 [on the ladder's studio page](../studio/reads-per-boundary-heap-ladder.md#the-package-itself-priced-on-this-rung-at-last-rf2-fe0l);
@@ -476,6 +476,31 @@ refuses cannot contribute to a published figure. On run 1 the arm-order guard
 returned `reportable`, the positive control predicted `4.500` and measured
 `4.300` `[3.950–4.950]` — every round inside `[3.375–5.625]` — and all 225 of
 its measured mounts were read back out of the document at their own far end.
+
+**Both those control adjudications were taken against an ACROSS-ROUND
+denominator, and that is not the rule the instrument now applies
+(`rf2-gsn62`).** The prediction each run was judged on is `2.0 ×` the
+across-round median of the `:hiccup` arm — `4.500` and `4.000` above — rather
+than each round's own `:hiccup`, so a round whose judged leg ran fast was
+measured against every other round's. That is the one comparison a positive
+control exists to make, and a cross-round prediction does not have it to make:
+a control range can sit wholly inside its band while a round misses by half
+again on its own denominator. The instrument now calls
+`lane/control-verdict-strict` on the per-round `:ctl-2x`/`:hiccup` ratio
+instead — these legs read ~2.25 ms judged against ~4.3 ms control, twenty to
+forty-three of Chrome's 100 µs quanta clear, so the coarse-leg exemption the
+2026-07-31 ruling grants does not reach them.
+
+**Neither run can be re-adjudicated under that rule, and no strict verdict is
+claimed here for either.** Only `n`/`min`/`max`/`p50` across rounds was
+retained per arm, so the per-round `:ctl-2x`/`:hiccup` ratios are gone; the
+containment statement above stands only as stated, against the aggregate
+denominator, and run 2's exclusion rests on the same aggregate — it is the
+conservative direction, and the published figure is run 1 alone either way.
+The instrument now records `:per-round` for the control alongside the escape,
+so the **next** run's verdict is readable from what it keeps. Taking that run
+is its own window and its own bead (`rf2-zcgps`); nothing here re-adjudicates
+`0.7418x`, which is an escape figure and not a control one.
 
 ### The §6 user-visible budgets
 
