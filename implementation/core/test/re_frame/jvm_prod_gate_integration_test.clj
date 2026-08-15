@@ -43,7 +43,40 @@
 
   The unit-level vocabulary semantics live in
   `re-frame.interop-debug-gate-test`; this suite is the end-to-end
-  integration story."
+  integration story.
+
+  ## Why every negative assertion below is paired with a WITNESS (rf2-s0y22)
+
+  Two of the claims here are ABSENCES — an empty ring buffer, a silent trace
+  listener. An absence is satisfied by two different worlds: the gate elided
+  the trace (the claim), or the dispatch never happened at all (a defect).
+  rf2-9c2jf was the second world — `dispatch-sync` running its handler ZERO
+  times under the documented gate — and a bare `(is (empty? …))` cannot tell
+  them apart. It reports green for both, which is what let rf2-9c2jf live.
+  `trace-buffer-inert-when-debug-disabled`'s failure message even ASSERTED the
+  distinction (\"no event landed despite dispatch firing\") while the assertion
+  under it could not establish it.
+
+  Measured, not argued: with the two `dispatch-sync` calls below removed, the
+  pre-rf2-s0y22 file passed this artefact's required production-gate lane at
+  exit 0, counts unchanged.
+
+  So each of those deftests now asserts, beside the absence, that the dispatch
+  it is reasoning about actually landed: the handler's app-db write is read
+  back through `app-db-of`. That converts \"nothing was recorded\" from an
+  unfalsifiable statement into a conditional one — the run did the work AND the
+  gate kept none of it. Do not delete a witness to \"simplify\" a test; the
+  witness is the half that makes the other half mean something. This is the
+  same discipline rf2-t7qh8 applied to the epoch sibling
+  (`re-frame.epoch-jvm-prod-gate-test`), spelled the same way on purpose.
+
+  `dispatched-at-retired-cofx-stamped-regardless-of-gate`'s two `(not
+  (contains? … :dispatched-at))` assertions are also absences, and they are
+  deliberately left alone: they read a value returned SYNCHRONOUSLY by
+  `build-envelope` rather than a side effect of a dispatch, and the
+  `:rf/time-ms` assertions in the same deftest already fail if that envelope
+  ever comes back empty or nil, under both gate states. The vacuous world is
+  closed there; adding a witness would be ceremony."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.interop :as interop]
@@ -58,6 +91,11 @@
   stamping (rf2-s9ss0t) is asserted directly against `build-envelope`'s output."
   #'router/build-envelope)
 
+;; rf2-s0y22 — the witness read. See the docstring section above: it is what
+;; separates "the gate elided the trace" from "nothing happened".
+(defn- app-db-of [frame-id]
+  (:rf.db/app (rf/frame-state-value frame-id)))
+
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture
     {:adapter plain-atom/adapter}))
@@ -71,6 +109,9 @@
       (rf/reg-event :prod-gate/inc
                        (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
       (rf/dispatch-sync [:prod-gate/inc])
+      (is (= 1 (:n (app-db-of :rf/default)))
+          "WITNESS: the dispatch ran its handler and committed — so the
+           empty buffer below is elision, not a dead dispatch")
       (is (empty? (trace/trace-buffer :rf/default))
           "trace buffer is empty under disabled gate — no event
            landed despite dispatch firing"))))
@@ -89,6 +130,9 @@
                          (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
         (rf/dispatch-sync [:prod-gate/silent])
         (rf/unregister-listener! :trace :prod-gate/recorder)
+        (is (= 1 (:n (app-db-of :rf/default)))
+            "WITNESS: the dispatch ran — the silent listener below had a real
+             cascade to miss")
         (is (empty? @seen)
             "trace listener saw zero events under disabled gate")))))
 
