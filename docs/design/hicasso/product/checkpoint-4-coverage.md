@@ -4,9 +4,9 @@
 
 [Specification §12](specification.md#phase-4--close-the-application-coverage-matrix) states that exit as a conjunction —
 *"every row in section 7 points to running evidence, an installable optional module, a tested recipe, or an explicit
-non-goal with a React escape, **and** the canonical SSR/hydration and bulk/economic suites are green"*. Eighteen of the
+non-goal with a React escape, **and** the canonical SSR/hydration and bulk/economic suites are green"*. Nineteen of the
 twenty coverage rows point at running evidence in the tree today, which is the most this programme has ever been able to
-say. Two do not, one of the two remaining conjuncts is red and the other is unaddressed, and a conjunction with a
+say. One does not, one of the two remaining conjuncts is red and the other is unaddressed, and a conjunction with a
 failed conjunct is failed however good the rest of it is.
 
 **[Amended 2026-08-14, `rf2-c0agr`.]** This page first scored Accessibility **NOT MET** and read sixteen and four. The
@@ -22,6 +22,18 @@ this tree was never the place they would show. `rf2-gqp5s` is withdrawn in
 [`correction-ledger.md`](correction-ledger.md), the row is met, and the counts move by one again. Nothing was
 re-measured, no migration work was rerun and no other row changed; §2's Migration cell shows the working. The **verdict
 is untouched** for the same reason as before: conjunct B fails this exit on its own.
+
+**[Amended 2026-08-15, `rf2-hic-048`, reopened by the merged-PR audit of #8277.]** This is the first amendment where a
+**fix landed** rather than a premise being disproved, and it is the largest. PR #8275 closed three of this page's five
+filed misses — `rf2-y5x6j`, `rf2-2l8pw` and `rf2-cfriw` — on independent re-runs by closure bead `rf2-dybf9`, which
+wrote none of the fixes. Their evidence is in [`correction-ledger.md`](correction-ledger.md). The consequence for this
+page is that **Code splitting is met and the counts move to nineteen and one**, and that §3 no longer rests on the
+findings it was written on. **The verdict is again untouched, and this time the reason is worth stating rather than
+repeating**: conjunct B still fails, on gaps that were *always* recorded separately from the three closed findings and
+that no part of #8275 touched — HS-33 satisfying neither policy, HS-17 and HS-18 unwitnessed on the server, HS-21's
+attribution unreachable by construction, and two live remainders `rf2-dybf9` carried forward deliberately rather than
+closing over. §3 takes them one at a time. **Closing a finding is not the same as closing the conjunct it was filed
+under**, and a re-run that flipped this verdict on the arithmetic alone would have proved only that it had not read §3.
 
 This page is the audit `rf2-hic-048` owes. It is a review: it certifies against evidence that already exists and it took
 no new measurement. Every miss below is filed as a `bd` issue and carries a row in
@@ -54,12 +66,15 @@ counter. That substitution has been refused four times on this programme and it 
 ## 1. The exit, conjunct by conjunct
 
 **Conjunct A — every §7 row points to running evidence, an installable module, a tested recipe, or an explicit non-goal
-with a React escape. NOT MET, on two rows.** Eighteen are witnessed; the two are §7's own SSR row and Code splitting.
-§2 takes them row by row.
+with a React escape. NOT MET, on one row.** Nineteen are witnessed; the one is §7's own SSR row. §2 takes them row by
+row. **Conjunct A now fails on exactly what conjunct B fails on**, which is a narrowing rather than a coincidence: Code
+splitting was the last row failing for a reason of its own, and its HMR witness landed.
 
-**Conjunct B — the canonical SSR/hydration suite is green. NOT MET.** Four inventory ids await a first witness with no
-live owner; one is measured to satisfy *neither* policy; two are unwitnessed on the server. And the inventory the
-conjunct is stated over is itself short by three public surfaces. §3.
+**Conjunct B — the canonical SSR/hydration suite is green. NOT MET.** One inventory id is measured to satisfy *neither*
+policy; two are unwitnessed on the server; one has an attribution clause unreachable by construction; one carries a
+policy the measurement **disproves** rather than merely leaves unproved, and its disposition is an open operator
+decision; and one names a module that does not exist. The denominator this conjunct is stated over **was** short by
+three public surfaces and no longer is — that half is closed, and machine-checked. §3.
 
 **Conjunct C — the bulk suite is green. UNADDRESSED, and that is neither red nor green.** The tournament published its
 deterministic work census and its clock table is recorded NOT INSTRUMENTED; it concluded, in its own words, *"no verdict
@@ -94,17 +109,17 @@ Three values, and *unaddressed* never reads as *works*.
 | Imperative SDKs | **met** | StrictMode double-invoke, unmount, keyed remount, thrown render and its retry, with the leak itself as the instrument |
 | Overlays and focus | **met** | nesting, dismissal, focus restore and zero idle listeners, with both predicate failures reproduced against the old predicate before the fix |
 | Motion and high-rate input | **met** | interruption, rapid-toggle cancellation, mid-transition teardown. The frame budget is a work COUNT, and the witness says so rather than implying a stopwatch |
-| Code splitting | **NOT MET** | load, fallback, error and retry are witnessed. **HMR**, named in the same §7 cell, is not: the lazy suite states the hot-reload fact in prose with no row, and the two HMR suites carry zero occurrences of *lazy* between them. `rf2-y5x6j` |
+| Code splitting | **met** | §7's Required-proof cell for this row reads *load, fallback, error, retry, HMR*. The first four are `lazy_boundary_dom_cljs_test.cljs`'s (`rf2-hic-041`). **HMR is the fifth and it landed** — `testbed/hmr_spec.cjs`'s `native-lazy-island-across-a-save` drives one lazy island through a real `shadow-cljs watch` recompile on Chromium, Firefox and WebKit, with `pinned-lazy-head-sabotage` beside it as the arm that reds when the bridge caches its head across a save. **This row read NOT MET until 2026-08-15**, on the measurement that `hmr_registry_cljs_test.cljs` and `hmr_remount_cljs_test.cljs` carried zero occurrences of *lazy* between them. **That measurement is still exact and is no longer the deciding one**: both suites still return zero (re-measured 2026-08-15), and the witness landed in the browser HMR runner instead — a real recompile rather than an in-process re-mint, which is the stronger instrument of the two and the one §7's cell was always describing. `rf2-y5x6j` **closed** on a re-run by `rf2-dybf9`, which drove the runner rather than quoting it |
 | Multiple frames and roots | **met** | two roots with isolated ownership, root-scoped hydration adoption, same-public-id reincarnation and delayed-callback routing |
 | Suspense and Activity | **met** | hide/reveal releasing and reacquiring reads, and genuine abandonment, retry and rollback driven rather than simulated. Open correction `rf2-9ywe` |
-| SSR and hydration | **NOT MET** | §3 of this page. `rf2-2l8pw`, `rf2-cfriw` |
+| SSR and hydration | **NOT MET** | §3 of this page. **The two beads this cell used to name are both closed** and neither closure moved the row: `rf2-2l8pw` repaired the claim's *denominator*, and `rf2-cfriw` replaced *four ids with no witness* by four ids that have been server-rendered and read — of which, in [§1.1](dispositions.md#11-classification-table)'s own words, *"not one of them went green"*. What the row now turns on is inside the inventory rather than outside it: `rf2-fdg4w` (**open, and an operator decision**), `rf2-s52w` (open), HS-33's decided-and-unbuilt repair, HS-34's unbuilt module, and HS-17/HS-18 |
 | Accessibility | **met** | §7's Required-proof cell for this row reads *names, roles, keyboard, virtualized/overlay focus*, and every limb of it is witnessed — `test_kit_a11y_cljs_test.cljs` over three L2 kit projections, `examples/slice/a11y_cljs_test.cljs`, `.../a11y_focus_dom_cljs_test.cljs` and `combobox_keyboard_dom_cljs_test.cljs` (`rf2-hic-043`); `examples/ledger/keyboard_dom_cljs_test.cljs`, `.../virtualized_dom_cljs_test.cljs` and `overlay_focus_dom_cljs_test.cljs` (`rf2-hic-049`). **This row read NOT MET until 2026-08-14** on one further deficit: an **axe** sweep, which is in no acceptance column here and which `rf2-5q8o` ruled a **DECLINE** — a non-goal, not an unlanded witness. With that the row's only remaining deficit is gone. `rf2-5q8o` |
 | i18n and theming | **met** | the page is mounted once and never re-mounted, and `<main>`'s identity is asserted across every switch — so a mechanism that tore the tree down would show a different node |
 | Testing | **met** | L0–L2 pure kit with its runtime-parity claim held, L3 mounted facade sabotaged across four leak kinds, production-sentinel erasure chained into the release build |
 | Diagnostics | **met** | versioned projection with its schema held, four views, the cause-aware advisor. Open correction `rf2-t2d3` |
 | Migration | **met** | reporter, refusal classes and shadow comparison all landed — `migration/reagent-to-hicasso/codemod/` and `.../test_kit/test/re_frame/hicasso/shadow_dom_cljs_test.cljs` — and so did the **population**. §7's Required-proof cell for this row reads *three representative repositories*, and `rf2-hic-055` ran three, each pinned by commit: the in-repo examples (81 files); `athensresearch/athens` @ `b463a97a0d28cbc0a29bec55feebcbe54c20de54`, canonically at [that repository's commit page](https://github.com/athensresearch/athens/commit/b463a97a0d28cbc0a29bec55feebcbe54c20de54), 131 files and 109 census sites; and `district0x/memefactory` @ `71bf92b4b4b935bda089783fd6c07041f84d34f8`, [likewise](https://github.com/district0x/memefactory/commit/71bf92b4b4b935bda089783fd6c07041f84d34f8), 102 files and 85 sites. Both SHAs are commits of those repositories rather than of this one — which is the reason each is typed with its permalink, and a second way of saying that this tree is not where they live. `day8/re-frame-10x` was the vendored-Reagent control and `implementation/hicasso/src` the clean 0/0/0 one, with determinism shown by two byte-identical athens runs. **This row read NOT MET until 2026-08-15**, on the premise that the population is the in-repo corpus alone. **Read this before re-asserting that premise, which has now been disproved twice: Migration's population spans three repositories, and the two external ones were checked out read-only and measured rather than vendored — so their absence from this tree is the method working, not the run missing.** [§1.2](dispositions.md#12-rows-without-a-complete-planned-witness) records all three runs and scores this row Witnessed. `rf2-gqp5s` **withdrawn** |
 
-**Eighteen met, two not met, none unaddressed at the row level.** The unaddressed category does real work one level down —
+**Nineteen met, one not met, none unaddressed at the row level.** The unaddressed category does real work one level down —
 inside Large collections, where the clock half is unaddressed while the work census is met — and it is recorded there
 rather than allowed to colour the row either way.
 
@@ -124,6 +139,16 @@ Migration, whose population had already run over three repositories. `rf2-2ius2`
 [§1.2](dispositions.md#12-rows-without-a-complete-planned-witness) carries their working; the sixteen-and-four in the
 sentence above is what this checkpoint wrote on 2026-08-14, not what §1.1 reads today.
 
+**[2026-08-15.] A third Gap should now move and has not, and it is not this page's cell to move.** §1.1's Code splitting
+row still reads `Gap` on the ground that *"HMR … is not [witnessed], and no bead owns it"*. Both halves stopped holding
+when `rf2-y5x6j` closed: the witness is `hmr_spec.cjs`'s `native-lazy-island-across-a-save`, driven on three engines,
+and this page scores the row **met** on it above. The SSR cell beside it is current and was re-read rather than assumed —
+it already records `rf2-cfriw`'s corrected diagnosis and `rf2-2l8pw`'s three minted ids in its own words. §1.1 is
+[`dispositions.md`](dispositions.md)'s and a Planned-witness correction after this checkpoint's own §1.1 pass is an
+ordinary amendment under [§3](dispositions.md#3-append-protocol-and-ownership) rather than a coverage finding, so it is
+**filed rather than reached for**: `rf2-oc6rn`. Recorded here so a reader who checks §1.1 against this page's count
+finds the discrepancy explained rather than fresh.
+
 **One thing found in the doing, and fixed in the same edit rather than filed.** §1.1's SSR row named `rf2-hic-056` as
 its planned witness. That bead is the bounded Node service; the per-surface matrix is `rf2-hic-046`'s and `rf2-hic-005`'s.
 The cell named a bead that owns a different obligation, which is a worse defect than naming a closed one — a closed bead
@@ -136,11 +161,41 @@ finding I hold the fence for is a finding I fix.
 §7 states this row's proof as a claim over the inventory: *every inventory id is green in the canonical matrix*. §13
 repeats it as a definition-of-done clause. Two things are wrong with that claim today and they are different in kind.
 
-**Four ids are not green, and nothing is scheduled to make them.** HS-31 (forms), HS-32 (overlay) and HS-34 (routing
-integration) have no live owner at all; HS-23 (Activity-hosted subtree) has `rf2-9ywe`, whose acceptance is the *client*
-Activity lifecycle and does not reach this row's refusal. Two of the four ship as modules a consumer can require today.
-§2.1's own note 3 is the standard they fail: *"A Client-only row still owes a witness. The refusal must be shown to
-fire, at source, with its recovery — an unproved refusal is not a disposition."* Filed as `rf2-cfriw`.
+**[Re-run 2026-08-15 against landed #8275.]** This section was written on two findings and both have closed. What
+follows states what each closure actually bought, because they did not buy the same thing and neither bought the
+conjunct.
+
+**Four ids had no witness at all. They have one now, and not one of them went green.** As filed, HS-31 (forms), HS-32
+(overlay) and HS-34 (routing integration) had no live owner, and HS-23 (Activity-hosted subtree) had only `rf2-9ywe`,
+whose acceptance is the *client* Activity lifecycle. §2.1's own note 3 was the standard they failed: *"A Client-only row
+still owes a witness. The refusal must be shown to fire, at source, with its recovery — an unproved refusal is not a
+disposition."* `rf2-cfriw` landed `client_only_arms_ssr_cljs_test.cljs` — nine `deftest` rows driving all four through
+the real `react-dom/server` — and closed on a re-run by `rf2-dybf9`. **The finding is discharged and the diagnosis
+changed rather than the verdict**, which [§1.1](dispositions.md#11-classification-table) records independently of this
+page: *"only ONE of the four owes an ordinary refusal at all, and not one of them went green"*. Measuring them is what
+established that:
+
+- **HS-31 and HS-32 are now honest, and they are the two that are finished with this checkpoint.** Forms emits its live
+  `<input>` into the response and refuses nothing — the module is an *arrangement* over doors that are already Render —
+  so what is retired is the claim that a refusal was owed. Overlay's `:open?` false is the application's flag answering
+  and not a policy, and its one remaining ident was taken out of the bytes by `rf2-9zz0y`. Neither is upgraded, because
+  [§2.4](dispositions.md#24-the-default-rule-and-how-a-row-is-upgraded) asks five clauses and `rf2-cfriw`'s scope was
+  the refusal arm alone. Honest is not green, and this conjunct asks for green.
+- **HS-23 is the one the measurement made WORSE, and it is now an open operator decision.** Through `n/$` — the route
+  [`lanes/react-compatibility-notes.md`](lanes/react-compatibility-notes.md) recommends first — a visible Activity's
+  subtree and its `h/sub` read reach the response. The Target policy reads Client-only. So the refusal here is not
+  *unproved* in note 3's sense but **disproven**, which is the stronger failure. And the defect is wider than one route:
+  the raw `[:>]` escape renders nothing (HS-19) while `n/$` renders the subtree, so one foreign component reached by two
+  undeclared spellings gives opposite server bytes and no page states it. **`rf2-fdg4w` owns this and is OPEN.** Its
+  three candidate dispositions — accept the render by design and amend the lane note, gate the native form at
+  [React 4](lanes/design-laws.md#react-and-ownership), or rule the route HS-25's — differ in cost and in law. **This
+  checkpoint does not choose among them and does not score the row as though one had been chosen.** A witness is *not*
+  owed here; a disposition is.
+- **HS-34 owes nothing until a module exists.** There is no `re-frame.hicasso.routing` namespace anywhere under
+  `implementation/`; `check_optional_module_reachability.py`'s `MODULES` roster names five and routing is not among
+  them. No refusal can fire at a declaration source that does not exist, so the row is a finding rather than a gap and
+  its witness is owed by whichever bead lands the namespace, inside that bead. `h/route-link` — which is what a reader
+  expects to find here — lives on the **core** facade as HS-40 and is **Render**; that is not this row's cover.
 
 **HS-35 is deliberately not in that list, and it looks like it should be.** Its cell was conditional on a graduating
 verdict, and `rf2-hic-050` returned one: **STOP**. There is no surface to disposition, so the row owes no witness at all
@@ -163,9 +218,28 @@ have no row anywhere in §2.1 or §2.2:
   render"* and proves five distinct server properties for it, none of which has been asked of this door.
 - **`h/reg-state`** — non-rendering, so §2.2 is its home, and it is absent from that section too.
 
-Filed as `rf2-2l8pw`. `h/as-component` and `h/hframe` return no literal match either but **are** inventoried, by
-description rather than by spelling (HS-21 and HS-14); they are named here so a re-runner does not re-find them as
-escapes.
+Filed as `rf2-2l8pw`.
+
+**[Re-run 2026-08-15.] The denominator is repaired, it is now derived by a gate rather than by a grep, and one sentence
+this section wrote about it was wrong.** All three names carry rows — `h/route-link` → **HS-40** (§2.1, Render),
+`h/use-subs` → **HS-41** (§2.1, Render), `h/reg-state` → **HS-42** (§2.2) — and `rf2-2l8pw` closed on a re-run by
+`rf2-dybf9`. The mechanism that produced the escapes closed with it: `implementation/hicasso/scripts/check_facade_inventory.py`
+(`rf2-gz4bq`) walks every `def` head on `re-frame.hicasso` as **code**, with strings, comments and reader-discarded
+forms blanked, and diffs the result against §2.1 and §2.2. **Re-run for this checkpoint: 16 names on the door, 43
+inventory rows read, ZERO escapes — 13 attributed by name, 3 by declaration — captured exit 0.** The claim is no longer
+one a re-reader has to take on trust, which is a better outcome than the finding asked for.
+
+**And the correction this section owes on its own account.** It closed by naming `h/as-component` and `h/hframe` as
+inventoried *by description rather than by spelling*, at HS-21 and HS-14, so that a re-runner would not re-find them as
+escapes. **Half of that was wrong, and in the direction that hides a defect.** `h/as-component` → HS-21 is right and the
+gate attributes it by declaration. `h/hframe` → **HS-14 was not right**: `h/hframe` carried no row in §2.1 or §2.2 and
+no declared entry, which `rf2-lvelh` established by measurement against `origin/main` and which the fix for `rf2-2l8pw`
+had itself denied when it reported *no fourth escape*. It was a **fourth** escape, minted since as **HS-43** in §2.2.
+The lesson is the one this page already learned on Migration, read the other way round: an inventory attributed *by
+description* is an assertion about a document, and it wants the same check as any other — which is exactly the check
+that now exists. Two things follow, and neither reopens this row. The denominator is complete over the larger count of
+sixteen rather than the fifteen the fix claimed; and this page's own reasoning, not just the fix's, was resting on a
+naked eye where a gate belonged.
 
 **Three more rows are held rather than green, for stated reasons, and none of them is a defect.** HS-33 is measured to
 satisfy *neither* policy — the third state the two-policy matrix exists to exclude — with its Render repair recorded as
@@ -173,6 +247,14 @@ DECIDED and unbuilt. HS-17 and HS-18 are unwitnessed on the server and say so pr
 position is witnessed neither way, and `h/as-element` has no server-render row anywhere. HS-21's third clause is
 unreachable by construction (`rf2-s52w`). Each is honest about itself, which is why none of them needed a bead from
 this audit — but none of them is green, and the conjunct asks for green.
+
+**[Re-run 2026-08-15.] All four cells were re-read against `main` and not one has moved**, which is the load-bearing
+fact of this whole re-run. Nothing in PR #8275 touched them: `rf2-2l8pw` worked on the inventory's membership,
+`rf2-cfriw` on four *other* ids, `rf2-y5x6j` on a different §7 row entirely. **So the conjunct that decides this exit is
+failed today by the same rows that failed it before the three findings closed, plus HS-23's disproven policy and
+HS-34's absent module.** `rf2-s52w` remains `open` in both the tracker and
+[`correction-ledger.md`](correction-ledger.md), re-checked on the day of writing. That is why the arithmetic moved and
+the verdict did not, and it is the difference between reading §2 and reading §3.
 
 ## 4. The bulk and economic conjunct
 
@@ -229,11 +311,17 @@ precedent: Checkpoint 3 filed that omission against itself rather than let it pa
 the same by recording it here.
 
 **The omission is one-directional.** A clean-checkout re-run and a sabotage sweep can only turn a *met* row into a *not
-met* one — they cannot discover evidence that is absent from the tree, and absence is what both failing rows turn
-on. Each was decided by reading the tree, not by running it: two HMR suites with zero occurrences of
-*lazy*, four §2.1 cells with no witness cited, and three facade names
-with no inventory row. None of those readings would move under a green suite. So the verdict is safe against the gap,
-and only the eighteen *met* rows are held on evidence this checkpoint did not itself re-execute.
+met* one — they cannot discover evidence that is absent from the tree, and absence is what the failing row turns
+on. It was decided by reading the tree, not by running it: §2.1 cells with no witness cited, and facade names
+with no inventory row. Neither reading would move under a green suite. So the verdict is safe against the gap,
+and only the nineteen *met* rows are held on evidence this checkpoint did not itself re-execute.
+
+**[Re-run 2026-08-15.] Three of those readings have since been re-taken by somebody else, and that is worth recording
+rather than absorbing.** `rf2-dybf9` closed `rf2-2l8pw`, `rf2-y5x6j` and `rf2-cfriw` by **executing** what this page
+read: the node lane over `client_only_arms_ssr_cljs_test.cljs`, the facade gate over the door, and the real
+`shadow-cljs watch` HMR runner on three engines. Every one confirmed the reading it re-took. **The omission above is
+narrower than it was and it is not closed**, since the Phase 4 clean-checkout sweep and the per-family sabotage remain
+untaken by this page; what has changed is that the three readings most exposed to it are no longer this page's alone.
 
 **Where reading the tree is not one-directional, and this checkpoint learned it the hard way.** The argument above holds
 only for a proof that would *be* in this tree if it existed. Migration's population is the case where it does not: the
@@ -243,17 +331,38 @@ leaves no trace here, the record of the run is the evidence — check the bead b
 
 ## 7. The misses
 
-Five were filed, all `coverage`, all rowed in [`correction-ledger.md`](correction-ledger.md). **Three block; two have
-since been withdrawn** and are kept below rather than deleted, on the ledger's own rule that a finding which proves
-mistaken is closed with its reason so the audit can see it was considered.
+Five were filed, all `coverage`, all rowed in [`correction-ledger.md`](correction-ledger.md). **[2026-08-15: none of the
+five blocks any longer — three closed on independent re-runs and two were withdrawn.]** All five are kept below rather
+than deleted, on the ledger's own rule that a finding which proves mistaken is closed with its reason so the audit can
+see it was considered. **A ledger with no live row of this checkpoint's is not a met exit**, and the section below the
+table is where that distinction is drawn.
 
-| Finding | bd id | Why it blocks |
+| Finding | bd id | What became of it |
 |---|---|---|
-| Three facade surfaces with no inventory id | `rf2-2l8pw` | §7's SSR proof is a claim over a denominator that is short by three |
-| HMR through the `React.lazy` bridge, unwitnessed and unowned | `rf2-y5x6j` | §7 names it in the same cell as the four states that landed |
-| HS-31, HS-32, HS-34, HS-23 owe an unproved refusal, no live owner | `rf2-cfriw` | §2.1 note 3: an unproved refusal is not a disposition |
+| Three facade surfaces with no inventory id | `rf2-2l8pw` | **Closed 2026-08-15** on a §1 re-run by closure bead `rf2-dybf9`, which wrote none of the fix. HS-40, HS-41 and HS-42 minted; the roster re-derived from the door as code by `check_facade_inventory.py`, zero escapes. The fix's own *no fourth escape* claim was false when written — `h/hframe` was one, minted since as HS-43 (`rf2-lvelh`) — so the row closed over a **larger** denominator than the fix claimed |
+| HMR through the `React.lazy` bridge, unwitnessed and unowned | `rf2-y5x6j` | **Closed 2026-08-15**, same closure bead. `npm run test:hicasso-hmr` driven rather than quoted: 45 real shadow reloads, 153 checks per engine on Chromium, Firefox and WebKit, with a section-name coverage floor so a skipped section cannot hide in the total. §7's Code splitting row is **met** above on it |
+| HS-31, HS-32, HS-34, HS-23 owe an unproved refusal, no live owner | `rf2-cfriw` | **Closed 2026-08-15**, same closure bead, and it is the one whose closure left work standing rather than finishing it. The witness landed and was executed; the diagnosis changed and no id went green. **Two remainders were carried forward deliberately** — HS-23's disposition, now `rf2-fdg4w` and **open**, and HS-34's absent module. §3 |
 | ~~The axe checks never landed and the routing chain terminates in nothing~~ | `rf2-5q8o` | **Withdrawn, and blocks nothing.** `rf2-7znnl` was closed as a duplicate of `rf2-5q8o`, whose ruling is **DECLINE**: no acceptance column asks for an axe sweep, so it is a non-goal rather than an unlanded witness. The Accessibility row it was filed against is met on §7's own Required proof |
 | ~~Migration's population is the in-repo corpus alone~~ | `rf2-gqp5s` | **Withdrawn, and blocks nothing.** The premise is false: `rf2-hic-055` ran three repositories and pinned each by commit, and the two external ones are checked out read-only and measured rather than vendored, so this tree was never where they would appear. Withdrawn in [`correction-ledger.md`](correction-ledger.md); the bead is closed and owes no work |
+
+### What is still live, which is not the same list
+
+The table above is this checkpoint's **filed** misses and it is now empty of blockers. The exit is still not met, so a
+reader who stops at the table draws the wrong conclusion — precisely the reading
+[`correction-ledger.md`](correction-ledger.md) warns of when it says rows are not the verdict. Four things stand between
+this page and a met conjunct B, and **not one of them is a row this checkpoint filed**:
+
+| What stands | Owner | Kind |
+|---|---|---|
+| HS-23's `n/$` route renders where its Client-only policy says it refuses, and `defhost`, `[:>]` and `n/$` disagree in opposite directions | **`rf2-fdg4w`, open** | **An operator decision.** Three candidate dispositions differing in cost and in law; a witness is not owed |
+| HS-21's outward-bridge mismatch attribution is unreachable by construction — no Spec 011 reporter on a hand-rolled `hydrateRoot` | `rf2-s52w`, open | A missing door; the ledger row is open too, and the door is the operator's call |
+| HS-33 satisfies neither policy; its Render repair is recorded DECIDED and unbuilt | unowned — recorded in `impl.roots/open-adoption-window!` | Work, and the only one of the four that is plainly that |
+| HS-34's module does not exist, and HS-17/HS-18 are unwitnessed on the server | owed inside whichever bead lands `re-frame.hicasso.routing`; HS-17/HS-18 unowned | Work that is not yet scheduled |
+
+**`rf2-fdg4w` is not scored here in either direction and this checkpoint did not choose among its three dispositions.**
+Two of the three would make HS-23 green and one would move the question to HS-25; scoring the row on a guess at which
+would be this page asserting a decision the operator has not made. It is named as a live owner, counted against
+conjunct B, and left there.
 
 **Why this one was got wrong, since the same mistake has now been made twice.** The finding was reached by reading the
 tree for the population and not finding it — sound for every other row on this page, and unsound for this one.
@@ -286,20 +395,36 @@ arise, and `rf2-hic-064` has no ownerless §7 row to gate on here.
 
 ## 9. What would change this verdict
 
-Conjunct A needs `rf2-y5x6j` landed, and that is now the whole of it — it no longer needs `rf2-gqp5s`, which is
-withdrawn, nor the operator ruling that finding once contemplated, because §7's Migration row is met on the proof it
-already asks for.
-Conjunct B needs `rf2-cfriw` and `rf2-2l8pw`, and then HS-33's decided repair. Conjunct C's economic half needs no work
-at all: it is red by ratified decision and stays red until a shell arm lands under `1,024 B`. Its bulk half needs a
-clock, which is `rf2-w01c`'s and is deferred to the measurement lane.
+**[Rewritten 2026-08-15 against landed #8275, because every bead the previous version named has closed.]**
+
+**Conjunct A needs conjunct B and nothing else.** `rf2-y5x6j` landed, so Code splitting is met and the SSR row is the
+only one left — and the SSR row is conjunct B stated as a coverage row. The two conjuncts have converged, which is the
+clearest the exit has been about what it wants.
+
+**Conjunct B needs four things and one of them is not work.** In the order a reader can act on them: `rf2-fdg4w`'s
+**decision** on HS-23, which is the operator's and which nothing else can proceed past; HS-33's Render repair, decided
+and unbuilt; witnesses for HS-17's named slot positions and HS-18's `h/as-element` on the server; and a
+`re-frame.hicasso.routing` namespace, inside which HS-34's refusal is witnessed. `rf2-s52w`'s door sits behind the same
+operator call as `rf2-fdg4w` and is the fifth if it is taken.
+
+**Conjunct C is unchanged.** Its economic half needs no work at all: it is red by ratified decision and stays red until
+a shell arm lands under `1,024 B`. Its bulk half needs a clock, which is `rf2-w01c`'s and is deferred to the
+measurement lane.
 
 **The exit does not need all of that to become adjudicable, and it does need all of it to become met.** Nothing here is
-large. All three live misses are a witness apiece; the fourth, which this page carried as a decision rather than work,
-turned out to be neither. What none of the three is, is already done.
+large — the three code items are a witness apiece, which is what they were when this page first said so. **What is
+different after #8275 is that the front of the queue is a decision rather than a build**, and a decision does not
+land by anyone working harder at it.
 
 ## 10. What this record is not
 
 It is not a re-run of the Phase 4 suites; §6 says so and files it against itself. It is not a measurement, and it
 converts no counter into a time. It is not the §13 definition-of-done audit — that is `rf2-hic-064`'s and it reads this
-page plus the ledger. And it is not a claim that eighteen met rows are a Phase 4 exit. They are eighteen met rows,
+page plus the ledger. And it is not a claim that nineteen met rows are a Phase 4 exit. They are nineteen met rows,
 which is worth saying plainly and is not the same sentence.
+
+**Nor is it a claim that an empty blocker table is a met exit**, which is the reading this page became most exposed to
+on 2026-08-15, the day its last filed miss closed. Every finding this checkpoint filed is discharged and the exit is
+still NOT MET, because the conjunct that decides it was never failed by those findings alone. A checkpoint's rows and a
+checkpoint's verdict are different claims — [`correction-ledger.md`](correction-ledger.md) opens by saying so in four
+directions — and this page is now the fifth.
