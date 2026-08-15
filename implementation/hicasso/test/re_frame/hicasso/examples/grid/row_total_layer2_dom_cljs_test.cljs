@@ -251,7 +251,16 @@
         (is (= ["345" "652"] [(:total-before l1-100) (:total-after l1-100)])
             "and the layer-1 arm answers the same, either side")
         (is (= "341" (:cell-value l2-100))
-            "and the accepted digit is on the glass in the layer-2 arm too"))
+            "and the accepted digit is on the glass in the layer-2 arm too")
+        (is (= 2 (:bodies l1-100) (:bodies l2-100) (:bodies l1-25) (:bodies l2-25))
+            "AND THE BOUNDARY COUNT DID NOT MOVE — two bodies, both arms,
+             both sizes: the cell that was typed into and its row's total.
+             The contrast is about which SUBSCRIPTION BODIES re-run, and
+             this row is what says the layer-2 spelling bought that
+             without changing what the page re-renders. A restatement
+             that had broadened notification would read higher here and a
+             dead one would read lower, and either would make the
+             recomputation saving below meaningless."))
 
       (testing "the layer-1 arm — the census's own figures, re-read here"
         (is (= {::subs/cell 100 ::subs/row-total 10 ::subs/dimensions 1}
