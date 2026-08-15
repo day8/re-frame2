@@ -191,6 +191,12 @@
     with no exit, since a delay written at a prop site is already at its
     own site (rf2-dr0ad). At a NATIVE attribute the runtime refuses
     nothing, so the generic id stays: see [[opaque-prop]].
+  - **The generic arm's own recovery splits on the same reasoning**
+    (rf2-6xhxu). `:hoist-it-to-its-own-site` is kept for the one value
+    that has a site of its own to be hoisted TO — a **function**, which
+    the opaque marker is for. Every other non-data value is refused at a
+    prop of its own exactly as it was where it stood, so the advice is
+    the pair that actually works: `:hand-a-data-value-or-assert-it-at-l3`.
 
   ### Subs
 
@@ -762,6 +768,23 @@
     (object? x)                      "a host object"
     :else                            (str "a " (pr-str (type x)))))
 
+(defn- offender-site
+  "How a refusal LOCATES the offending value inside the prop `k`'s value.
+
+  Three phrasings because there are three positions, and the walk knows
+  which by asking two questions rather than one. `path` is empty BOTH
+  when the prop's own value is the offender and when the offender sits
+  inside a set or a seq, which [[non-data]] deliberately does not index —
+  so `path` alone cannot tell a top-level value from a nested one, and a
+  message that read it that way would tell an author looking at a set
+  that the set is a function."
+  [k path bad v]
+  (cond
+    (seq path)         (str "the value at " (pr-str (into [k] path))
+                            ", inside the value at " (pr-str k) ",")
+    (identical? bad v) (str "the value at " (pr-str k))
+    :else              (str "a value inside the value at " (pr-str k))))
+
 (defn- opaque-prop
   "004B §The opaque marker at a prop or handler site: a function IS the
   marker; anything outside the EDN value grammar, at any depth inside a
@@ -770,6 +793,25 @@
   Rejected rather than marked because below the key the grammar names no
   site, and a marker written there would claim one that does not exist
   and silently replace a value the author will go looking for.
+
+  **The generic refusal's RECOVERY turns on whether the offending value
+  has a site of its own anywhere in the tree, and exactly one kind of
+  value does: a FUNCTION** (rf2-6xhxu). Hoisting a nested function to a
+  prop of its own is a real exit, because the marker is waiting for it
+  there. Hoisting a host object, a record, a `Delay`, a queue or `##NaN`
+  is not: the tree refuses it at the new site for the same reason it
+  refused it at the old one, so `:hoist-it-to-its-own-site` would send
+  an author round a loop back to the form they just wrote. Those values
+  are told the two things that DO work — give the site a value an EDN
+  reader takes back, or assert the real one at L3, where a mounted DOM
+  carries it and no value grammar applies.
+
+  The question is `(fn? bad)` and NOT `(seq path)`, although the two
+  agree on the rows a reader thinks of first. `path` is empty for a
+  top-level value AND for one inside a set or a seq, so a function in a
+  set — hoistable — reads as top level; and a host object nested three
+  maps deep — not hoistable — reads as nested. Asking which value it IS
+  answers both, and is the question the recovery is actually about.
 
   `site` is `:crossing` for a BOUNDARY's props map and `:attr` for a
   native element's attributes and handlers, and the two differ over
@@ -811,15 +853,32 @@
                           "in the body that wrote it.")
                      :hand-a-function-or-deref-it-in-this-body
                      {:key k :path (into [k] path) :value bad})
-            (refuse! :rf.error/ui-tree-malformed
-                     (str "the value at " (pr-str k)
-                          (when (seq path) (str ", at " (pr-str path) " within it,"))
-                          " is " (offender-name bad) ", which this tree cannot "
-                          "record: 004B pins it as plain data an EDN reader takes "
-                          "back, and the opaque marker occupies a SITE rather than "
-                          "a value inside one.")
-                     :hoist-it-to-its-own-site
-                     {:key k :path (into [k] path) :value bad})))
+            ;; `at` and not a second `site`: the parameter of that name is
+            ;; the CROSSING/ATTR discrimination above, and shadowing it here
+            ;; would make the two rules read as one.
+            (let [extra {:key k :path (into [k] path) :value bad}
+                  at    (offender-site k path bad v)]
+              (if (fn? bad)
+                (refuse! :rf.error/ui-tree-malformed
+                         (str at " is a function, which this tree cannot record "
+                              "THERE: 004B's opaque marker occupies a SITE rather "
+                              "than a value inside one, so a function written at a "
+                              "prop of its own records as {:rf.ui/opaque :fn} and "
+                              "one buried inside a recorded value is rejected. "
+                              "Give it a prop of its own.")
+                         :hoist-it-to-its-own-site
+                         extra)
+                (refuse! :rf.error/ui-tree-malformed
+                         (str at " is " (offender-name bad) ", which this tree "
+                              "cannot record ANYWHERE: 004B pins it as plain data "
+                              "an EDN reader takes back, and the opaque marker is "
+                              "for a function — so this value has no site in the "
+                              "tree, and a prop of its own would be refused the "
+                              "same way. Give the site a value an EDN reader takes "
+                              "back, or assert the real one where it survives. "
+                              (tier-pointer :l3))
+                         :hand-a-data-value-or-assert-it-at-l3
+                         extra)))))
         v)))
 
 (defn- refuse-opaque!

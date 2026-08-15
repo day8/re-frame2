@@ -345,7 +345,9 @@
    {:case    "a REALIZED `delay` in a boundary's props CROSSES — the row above's control"
     :form    [a-boundary {:x (doto (delay 1) deref)}]
     :runtime [:opaque]
-    :refuses {:rf.error/id :rf.error/ui-tree-malformed}
+    :refuses {:rf.error/id :rf.error/ui-tree-malformed
+              :where       're-frame.hicasso.test
+              :recovery    :hand-a-data-value-or-assert-it-at-l3}
     :why     (str "`realize-deep` refuses only an UNFORCED delay: one the "
                   "author already deref'd in their own body carries a computed "
                   "value, derefs to it without calling anything, and is "
@@ -356,9 +358,11 @@
                   "every delay in props' would read identically. The kit still "
                   "refuses — a `Delay` is outside 004B's value grammar however "
                   "forced — but with its OWN id, which is the honest one: "
-                  "nothing is waiting for this author at the crossing. The id "
-                  "ALONE is asserted; the generic arm's recovery wording is "
-                  "not this table's to endorse.")}
+                  "nothing is waiting for this author at the crossing. Its "
+                  "RECOVERY is pinned too (rf2-6xhxu): this delay is at a prop "
+                  "of its own already, so `:hoist-it-to-its-own-site` pointed "
+                  "back at the form just written — a second advice-with-no-exit "
+                  "one row below the one the row above fixed.")}
 
    {:case    "an SVG subtree carries `:ns`, and `:foreignObject` reverts"
     :form    [:svg {:view-box "0 0 1 1"}
@@ -381,21 +385,64 @@
               :children [{:tag :span :children ["x"]}]}
     :why     "004B §Element fields — `:ns` MUST be absent for HTML."}
 
-   {:case    "a function in a map KEY may not be recorded"
+   {:case    "a function in a map KEY may not be recorded, and CAN be hoisted"
     :form    [:div {:data-x {(fn [] 1) :v}}]
     :runtime [:element "div"]
-    :refuses {:rf.error/id :rf.error/ui-tree-malformed}
+    :refuses {:rf.error/id :rf.error/ui-tree-malformed
+              :where       're-frame.hicasso.test
+              :recovery    :hoist-it-to-its-own-site}
     :why     (str "004B §The opaque marker — the marker occupies a SITE, never "
                   "a value inside one; a non-data value nested inside a "
-                  "recorded value is rejected. A key is inside the value.")}
+                  "recorded value is rejected. A key is inside the value. The "
+                  "RECOVERY is the point of the row (rf2-6xhxu): a function is "
+                  "the ONE value with a site of its own to be hoisted to, "
+                  "because the marker is waiting for it at a prop, so hoisting "
+                  "is a real exit here and stays the advice.")}
 
-   {:case    "a JS host object may not be recorded"
+   {:case    "a function inside a SET is hoistable too, though its path is EMPTY"
+    :form    [:div {:data-x #{(fn [] 1)}}]
+    :runtime [:element "div"]
+    :refuses {:rf.error/id :rf.error/ui-tree-malformed
+              :where       're-frame.hicasso.test
+              :recovery    :hoist-it-to-its-own-site}
+    :why     (str "The row that makes the recovery's question `(fn? offender)` "
+                  "rather than `(seq path)` (rf2-6xhxu). A set member has no "
+                  "position worth naming, so the kit's walk stops the path "
+                  "there — this offender is nested and its `:path` is "
+                  "`[:data-x]`, exactly like a top-level one. Reading NESTEDNESS "
+                  "off the path would deny hoisting to a function that can in "
+                  "fact be hoisted; reading the VALUE answers correctly at both "
+                  "positions.")}
+
+   {:case    "a JS host object at a prop of its own may NOT be told to hoist"
     :form    [:div {:data-x #js {"a" 1}}]
     :runtime [:element "div"]
-    :refuses {:rf.error/id :rf.error/ui-tree-malformed}
+    :refuses {:rf.error/id :rf.error/ui-tree-malformed
+              :where       're-frame.hicasso.test
+              :recovery    :hand-a-data-value-or-assert-it-at-l3}
     :why     (str "004B §The node schema — the tree is plain, serialisable "
                   "Clojure data that EDN print/read round-trips; §Attr value "
-                  "normalization — a host object is rejected.")}
+                  "normalization — a host object is rejected. THE ROW rf2-6xhxu "
+                  "EXISTS FOR: this object is already the whole value of "
+                  "`:data-x`, so `:hoist-it-to-its-own-site` named the site it "
+                  "was written at and an author following it could only write "
+                  "the same form again. The `:runtime` column is what makes the "
+                  "L3 half of the new advice honest — React builds this element, "
+                  "so a mounted DOM carries the attribute the tree cannot.")}
+
+   {:case    "and NESTING a host object does not make it hoistable either"
+    :form    [:div {:data-x {:k #js {"a" 1}}}]
+    :runtime [:element "div"]
+    :refuses {:rf.error/id :rf.error/ui-tree-malformed
+              :where       're-frame.hicasso.test
+              :recovery    :hand-a-data-value-or-assert-it-at-l3}
+    :why     (str "The other half of the same predicate (rf2-6xhxu). A non-empty "
+                  "path says the value is nested, not that it has somewhere to "
+                  "go: hoisted to `:data-y` this object meets the identical "
+                  "refusal, because 004B's marker is for a FUNCTION and for "
+                  "nothing else. Two rows above, a nested FUNCTION keeps "
+                  "`:hoist-it-to-its-own-site` on the same form — so the two "
+                  "differ by the offending value alone.")}
 
    {:case    "ordinary nested EDN is untouched — the two rows above's control"
     :form    [:div {:data-x {:a [1 #{:b}] "k" 'sym}}]
