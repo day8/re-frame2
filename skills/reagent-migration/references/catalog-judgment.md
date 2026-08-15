@@ -309,6 +309,84 @@ nastiest one in the migration, because nothing refuses at render:
 
 Grep these out rather than discovering them by clicking.
 
+## MIG-23 — SSR-then-hydrate
+
+```clojure
+;; before — Reagent
+(ns app.render (:require [reagent.dom.server :as s]))
+(defn render-page [] (s/render-to-string [app]))
+;; the client then calls reagent.dom.client/hydrate-root
+```
+
+**The pipeline ships, so this is a decision rather than a hold.**
+`re-frame.hicasso.server` is Hicasso's optional server module and `render` is
+its product door; both halves of the client boot exist too —
+`re-frame.ssr/hydrate!` for state and `h/hydrate!` for the DOM. Read them at
+`implementation/hicasso/src/re_frame/hicasso/server.cljs` and
+`implementation/ssr/src/re_frame/ssr.cljc`.
+
+**The decision is infrastructure, not spelling.** React renders the server
+output and there is **no parallel JVM string emitter**, so the renderer runs on
+Node. An app whose SSR is a JVM ring handler today is deciding whether to stand
+up a Node rendering service — a deployment change no view rewrite can make for
+it. Raise that with the author before converting a hydrating root; if the answer
+is no, those roots stay on Reagent, which is still fully supported. The hold, if
+there is one, is **per-root**: client-only roots in the same app convert
+normally.
+
+**The server half is one call.**
+
+```clojure
+(ns app.server (:require [re-frame.hicasso.server :as server]))
+
+(:document (server/render {:hiccup            [views/page {}]
+                           :payload           payload-policy
+                           :snapshot          {:catalog/items items}
+                           :client-frame-id   :app/main
+                           :identifier-prefix "main"}))
+```
+
+`:hiccup` and `:payload` are REQUIRED. `:payload` is the framework's fail-closed
+hydration-payload policy — allowlist every top-level app-db key the page reads,
+or the client hydrates against a hole. `render` mints and destroys its own
+per-request frame, and answers `:html`, `:payload-script` and `:document` among
+others.
+
+**The client half is THREE ordered calls, and the order is the contract.**
+
+```clojure
+(defn ^:export run []
+  (rf/make-frame {:id :app/main :platform :client})    ;; 1. the frame
+  (ssr/hydrate! {:frame :app/main})                    ;; 2. state
+  (h/hydrate! (js/document.getElementById "app")       ;; 3. DOM
+              {:frame :app/main :identifier-prefix "main"}
+              [views/page {}]))
+```
+
+- **`rf/make-frame` first.** Unlike `h/mount!`, `h/hydrate!` does **not** ensure
+  the frame — an adopting root takes its state from the payload. Skip it and the
+  `:rf/hydrate` dispatch is a silent no-op: nothing throws and the page renders
+  empty.
+- **`ssr/hydrate!` before `h/hydrate!`.** It reads the `__rf_payload` script,
+  replaces that frame's state and verifies, so the first client render sees the
+  state the server rendered from.
+- **`h/hydrate!` is `(node config view)`**, returns the handle `h/render!` and
+  `h/unmount!` take, and returns *before* adoption finishes.
+
+**Hand `:identifier-prefix` the same string on both sides.** React numbers
+`useId` per root and prefixes it with this option, so a root hydrated under a
+different prefix — or none, where the server had one — resolves every generated
+id differently from the bytes it is adopting. A page with one root names none;
+a page with several gives each a distinct prefix.
+
+**Still out of scope:** streaming, React Server Components, islands and
+no-JavaScript progressive enhancement. And a body that reads a clock, a random
+value or a browser global mismatches on either substrate — that is determinism,
+not a Hicasso limit; `:rf.ssr/hydration-mismatch` names the offending root.
+
+(`h/portal` takes a `:fallback` for its tree position on a server render — a
+portal's own policy, not a hydration path.)
+
 ## The other judgment calls (decide, then hold-or-convert whole)
 
 | MIG | Construct | The decision |

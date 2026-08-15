@@ -173,6 +173,6 @@ at runtime; React is the enforcement.
   or genuinely the DOM's (→ a ref or a native component)? The code can't tell
   you; the domain can.
 - **R-tier** is where a shift meets a surface Hicasso **does not have** — a
-  frame-pinned reactive read, the prev-props update protocol, Reagent's own
-  component introspection, and the server-render door SSR-then-hydrate needs.
-  Those views stay on Reagent, and saying so is the honest answer.
+  frame-pinned reactive read, the prev-props update protocol, and Reagent's own
+  component introspection. Those views stay on Reagent, and saying so is the
+  honest answer.
