@@ -322,9 +322,10 @@ were ready, because a homegrown filter kept answering empty.
 **Read the newest note first, and find it by DATE rather than by position.** The description
 is the *oldest* text on an item and corrections accrete below it, so a top-down read gets
 superseded instructions — but the bottom is not reliably the newest either, because audit
-notes append into the description block while dated comments render after it. Locate the
-latest date and read around it. And when an item has children, re-enumerate them: a ruling
-is sometimes recorded as a new child rather than as a note.
+notes append into the description block while dated comments render after it. `bd show | tail`
+is not a read-the-newest method: grep the bead for dates and read around the latest one. And
+when a bead has children, re-enumerate them — a ruling is sometimes recorded as a new child
+bead rather than as a note.
 
 Filter out before shaping anything:
 
