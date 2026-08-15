@@ -2084,13 +2084,27 @@
   the head, and `:hicasso/component` is `identical?` to the value the
   `def` binds whether an adapter is installed or not.
 
-  ## Hot reload needs nothing added
+  ## Hot reload — the slot needed nothing added, the NOTIFICATION did
 
   Re-evaluating a `defview` re-registers the SAME id, and the registrar
   replaces the slot atomically — one entry, never two, with the fresh
   head. The provenance is unchanged across a save, so the registrar's
   collision warning stays correctly silent; a genuine cross-source clash
   on one id still surfaces, because it surfaces for every kind.
+
+  What the entry DID have to say out loud is where its executable
+  identity lives, and `:executable-key` says it. `register!` tags every
+  `:rf.registry/handler-replaced` — and every replacement-hook call —
+  with `:different-fn?`, derived by default from `:handler-fn`. This
+  entry has none by design, so the default derivation compares nil with
+  nil and reports `:different-fn? false` for a genuine swap of one
+  component for another: a hot-reload consumer branching on that tag
+  would read every Hicasso view edit as an idempotent reload and decline
+  to refresh. Naming `:hicasso/component` as the executable slot makes
+  the tag truthful without a second HMR surface, without a hicasso-side
+  replacement hook, and without putting anything in `:handler-fn`
+  (rf2-5qaf4, merged-PR audit #8332). The registrar reads the key this
+  registration named; it learns nothing about Hicasso.
 
   Called ONLY from inside the `defview` expansion's
   `(when re-frame.interop/debug-enabled? …)` gate — the same gate the
@@ -2101,7 +2115,9 @@
 
   Answers `view-id`, per Conventions §`reg-*` return-value."
   [view-id slot head]
-  (registrar/register! :view view-id (assoc slot :hicasso/component head))
+  (registrar/register! :view view-id (assoc slot
+                                       :hicasso/component head
+                                       :executable-key    :hicasso/component))
   view-id)
 
 ;; ---------------------------------------------------------------------------

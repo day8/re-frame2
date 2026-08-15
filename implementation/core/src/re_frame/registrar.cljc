@@ -535,6 +535,36 @@
     ;; Dev: retain documentation for tooling / agent inspection.
     metadata))
 
+(defn- executable-identity
+  "The value that IS this registration's executable identity — the thing
+  `:different-fn?` compares, and the thing a devtool has to refresh its
+  view of when it rotates.
+
+  For every kind the framework registers through its own `reg-*` macros
+  that value is the `:handler-fn`. A registration whose executable
+  identity lives SOMEWHERE ELSE says where, by naming the key under
+  `:executable-key`.
+
+  One registration needs that today and it is the reason this indirection
+  exists. Hicasso's authoring-time `:view` alias
+  (`re-frame.hicasso.impl.collector/publish-view-alias!`, rf2-5qaf4)
+  carries its minted head at `:hicasso/component` and deliberately has NO
+  `:handler-fn` — a boundary is a React component, not a hiccup-returning
+  render fn, so `rf/view` must keep answering nil for it. Comparing
+  `:handler-fn` on that shape compares nil with nil, which reports
+  `:different-fn? false` for a real component swap and tells every
+  hot-reload consumer the reload was idempotent when it was not.
+
+  It POINTS at the slot rather than duplicating the head into a second
+  one: one home for the value, and a registrar that stays ignorant of
+  which substrate wrote the entry — it reads a key the registration
+  itself named. Absent `:executable-key` — every framework `reg-*` in
+  the tree — this is exactly `(:handler-fn metadata)`, so no existing
+  kind changes behaviour. A non-map `metadata` answers nil, as the bare
+  `:handler-fn` lookup it replaces did."
+  [metadata]
+  (get metadata (get metadata :executable-key :handler-fn)))
+
 (defn register!
   "Register an id under kind with the given metadata. Re-registering the
   same id replaces the slot atomically (per Spec 001 §Hot-reload semantics
@@ -546,8 +576,10 @@
   re-registration (per Spec 001 §Hot-reload trace surface + Spec 009 —
   devtools refresh their view from this event). The trace's `:tags`
   carry `:different-fn?` so tooling can branch idempotent reloads from
-  real fn-identity changes without re-emitting through a separate
-  surface."
+  real changes of the registration's executable identity, without
+  re-emitting through a separate surface. That identity is the
+  `:handler-fn` unless the registration named another slot under
+  `:executable-key` — see `executable-identity`."
   [kind id metadata]
   (when-not (valid-kind? kind)
     (error/throw-error!
@@ -599,7 +631,8 @@
     (cond
       ;; Re-registration path — fire hooks and emit handler-replaced.
       previous
-      (let [different? (not= (:handler-fn previous) (:handler-fn metadata))]
+      (let [different? (not= (executable-identity previous)
+                             (executable-identity metadata))]
         ;; Hot-reload notifications. Hooks run isolated — listener failures
         ;; don't propagate. Hooks fire on EVERY re-registration so dependent
         ;; namespaces can clean up their caches even on idempotent reloads
