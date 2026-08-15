@@ -26,7 +26,7 @@
 >
 > *Voice: tight, declarative, recipe-shaped; full sentences over dash-chained fragments. Tables for rule lookups; code blocks for before→after shapes. Cite `MIG-NN` in every catalogue.*
 >
-> *Don't: ship or invoke a VIEW codemod; overstate the need (the Reagent adapter is first-class and Hicasso is pre-publication — say both); emit `re-frame.hicasso.server/render`, `h/hydrate!`, a config-map `h/mount!`, `h/fn`, or any other verb the draft guide teaches and the door does not export; carry a **Freehand or `re-frame.ui`** spelling across by analogy (`v/html`, `v/spread-safe`, `v/defbehavior`, `{:compiled true}`, `ui/local` — all belong to retired substrates); write `*.md` outside `skills/reagent-migration/` (except the index registration in `skills/README.md` + the docs mirror/nav); commit anything under `ai/`; use this repo's testbeds or paths as examples (stay generic); claim AI authorship in commits/PR.*
+> *Don't: ship or invoke a VIEW codemod; overstate the need (the Reagent adapter is first-class and Hicasso is pre-publication — say both); emit `h/fn`, a plain `merge` for caller attrs, or any other verb the draft guide teaches and the door does not export; carry a **Freehand or `re-frame.ui`** spelling across by analogy (`v/html`, `v/spread-safe`, `v/defbehavior`, `{:compiled true}`, `ui/local` — all belong to retired substrates); write `*.md` outside `skills/reagent-migration/` (except the index registration in `skills/README.md` + the docs mirror/nav); commit anything under `ai/`; use this repo's testbeds or paths as examples (stay generic); claim AI authorship in commits/PR.*
 >
 > *Open the PR titled `feat(skills): reagent-migration — Reagent→Hicasso view migration`. Body: the sibling shape matched, the M/D/R catalogue distilled (which rules), the two-tier framing and its exact wording, the reporter-first procedure, the per-tier evals, and which gates cover `skills/` and which do not. Surface OQ1/OQ2/OQ3 from `design.md` for Mike.*
 
@@ -41,9 +41,9 @@
 
 ## When to re-author
 
-- **A major Hicasso surface lands** — a server-render door (which would move
-  MIG-23 out of R-tier), a data `:ref` spelling, a view-local state tier. It
-  moves cases between catalogues. Reach for a full reauthor only when the *shape*
+- **A major Hicasso surface lands** — a data `:ref` spelling, a view-local
+  state tier. It moves cases between catalogues; the server-render door did
+  exactly that, moving MIG-23 out of R-tier. Reach for a full reauthor only when the *shape*
   of the skill changes, not for a surface that slots into the existing tiers.
 - **The positioning changes** — Hicasso publishes a Maven coordinate, or the
   adapter story changes → design L2 changes; update this `spec/` folder first,

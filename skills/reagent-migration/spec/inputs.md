@@ -75,7 +75,7 @@ teaches forms that do not exist. Measured examples, each verified absent from
 
 | Taught | Reality |
 |---|---|
-| `re-frame.hicasso.server/render`, `ssr/hydrate!`, `h/hydrate!` | no server namespace; `hydrate-root!` deliberately off the facade |
+| an `h/fn` spelling | shipped is `h/event` |
 | a Maven coordinate on the installation page | does not resolve |
 | key maps "valid only at `:on-key-down`/`:on-key-up`" | accepted at any event position |
 | a plain `merge` for caller attrs | shipped is the reserved `:&` key + owned-literal law |
@@ -113,9 +113,9 @@ for *what*.
 
 1. **A Hicasso surface LANDS** → move its cases out of `catalog-reject.md` into
    the mechanical or judgment catalogue with the now-real target, and re-check
-   `procedure.md`'s gate list. The two most likely candidates are a
-   server-render door (which would move MIG-23 out of R) and a data `:ref`
-   spelling (currently reserved and refused).
+   `procedure.md`'s gate list. This has already fired once: the server-render
+   door landed and MIG-23 moved from R to D. The remaining candidate is a data
+   `:ref` spelling (currently reserved and refused).
 2. **A rule's tier changes** (M↔D↔R) → move its treatment between the
    catalogues, and re-check `procedure.md`'s gate list.
 3. **A new construct needs a rule** → add a before→after (M), a decision (D) or a
