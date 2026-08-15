@@ -50,7 +50,7 @@ the door does not carry. Naming-ledger row 1 was **ruled `h/event`** (operator, 
 
 | Record | What it asserted falsely | What it now says |
 |---|---|---|
-| [`specification.md`](specification.md) §4, §4.1 | the facade table row read `h/handler`; §4.1 read *"`h/handler` has one meaning everywhere"* | `h/event`, and the position selects the contract — HD-024 tabulates three, so position-invariance was false independently of the name. `rf2-0fd3b` owns making that table travel with the name. |
+| [`specification.md`](specification.md) §4, §4.1 | the facade table row read `h/handler`; §4.1 read *"`h/handler` has one meaning everywhere"* | `h/event`, and the position selects the contract — HD-024 tabulates three, so position-invariance was false independently of the name. §4.1 now names all three (event, as-declared, render); *this cell read* "`rf2-0fd3b` owns making that table travel with the name" *until 2026-08-16 (`rf2-0fd3b`)*, which discharged it. |
 | [`lanes/ergonomics-api.md`](lanes/ergonomics-api.md) | the same two faults, plus law 5 and the surface-exclusions row | `h/event` throughout; the position-invariance clause corrected and attributed. |
 | [`architecture-census.md`](architecture-census.md) | the **M2 macro census** listed `hfn` as one of the six macros the package defines — a row pinned to a re-runnable command | `event`. The pinned command was re-run: **anchored 6, unanchored 6, still agreeing**. Only the name moved; no count was recomputed. |
 | [`facade-freeze.md`](facade-freeze.md) §5 | `hfn` as a live door name; `h/handler` as an open spelling question; row 18 as a *recommendation* | annotated where §1's `root!`/`mount!` row was annotated. **The `hframe` row is deliberately left open** and now says the ruling is unexecuted. |

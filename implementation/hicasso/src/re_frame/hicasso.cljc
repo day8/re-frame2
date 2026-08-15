@@ -310,10 +310,19 @@
   established vocabulary, and this form's contract is `event`.
 
   **The name states ONE of the three contracts this form can carry**, and
-  which one is selected by POSITION rather than by the name — see
-  [[re-frame.hicasso.impl.intent]], which tabulates all three. Carrying
-  that table to wherever this name is taught is rf2-0fd3b's, not this
-  docstring's.
+  which one is selected by POSITION rather than by the name, so the three
+  travel with the name here rather than a page away (rf2-0fd3b):
+
+  | Position | Contract |
+  |---|---|
+  | a native `:on-*` prop | **event** — a returned VECTOR is dispatched; any other return is ignored |
+  | a `defhost` `:callbacks` entry | **as declared** — `:event`, `:handler` or `:render`, never inferred from an `on*` spelling |
+  | any other walked prop | **render** — pure; the return is the render output and is NOT dispatched, and dispatching from inside the call raises `:rf.error/hicasso-dispatch-in-render-position`, named at the position |
+
+  [[re-frame.hicasso.impl.intent]] carries the full table, including the
+  two rows that are not contracts at all — `:ref`, which is React's own
+  and is excluded from lowering, and everywhere Hicasso does not walk,
+  where this is a plain function whose return is ignored.
 
   Expands to nothing but a marked `fn`:
 
