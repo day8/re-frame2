@@ -18,7 +18,7 @@ These laws define the product and constrain every implementation choice.
 4. `sub` is legal during direct synchronous execution of the active Hicasso body, including ordinary helpers, branches and loops. Deferred crossings refuse.
 5. Dynamic reads are reconciled from the selected render without a general per-boundary dependency ledger.
 6. The two-hook boundary shell is a ceiling. Optional capabilities add no universal hook or ownership graph.
-7. Demand-driven resources may reuse committed read membership; they cannot acquire during abandoned render or create a second read ledger.
+7. Reads never acquire or release resources. A subscription is a passive read that never fetches; an explicit event, route or machine cause owns the fetch, and resource ownership is written rather than inferred from read liveness. (*This law read* "Demand-driven resources may reuse committed read membership; they cannot acquire during abandoned render or create a second read ledger" *until 2026-08-16, `rf2-h3tke`.* `rf2-hic-050` applied the frozen criteria to the typeahead witness and returned **STOP**, so committed-read demand is not adopted and nothing implements it — [`rf2-hic-054`'s async-resource recipes](../async-routing-recipes.md) are the standing answer. The [criteria](../resource-demand-criteria.md), the [witness](../resource-demand-witness.md) and the [verdict](../resource-demand-verdict.md) each cite *"design law State 7"* as the governing law and mean the prior reading, which is why it is quoted here rather than deleted.)
 
 ## Language and interop
 
