@@ -181,6 +181,16 @@
     it carries the runtime's id and the runtime's own recovery,
     `:hand-a-function-or-deref-it-in-this-body`, rather than a pointer
     to a tier where the identical refusal is waiting (rf2-llps1).
+  - The same id at the position it is NAMED for: **an unforced `delay`
+    reachable from a BOUNDARY's props**, which is the one form
+    `codec/realize-deep` genuinely refuses rather than repairs and the
+    trigger Spec 009's row states in those words. This walk answered its
+    own generic `:rf.error/ui-tree-malformed` with
+    `:hoist-it-to-its-own-site` there for a release — vaguer than the
+    runtime at exactly the crossing the refusal exists for, and advice
+    with no exit, since a delay written at a prop site is already at its
+    own site (rf2-dr0ad). At a NATIVE attribute the runtime refuses
+    nothing, so the generic id stays: see [[opaque-prop]].
 
   ### Subs
 
@@ -759,20 +769,57 @@
 
   Rejected rather than marked because below the key the grammar names no
   site, and a marker written there would claim one that does not exist
-  and silently replace a value the author will go looking for."
-  [k v]
+  and silently replace a value the author will go looking for.
+
+  `site` is `:crossing` for a BOUNDARY's props map and `:attr` for a
+  native element's attributes and handlers, and the two differ over
+  exactly one non-data value. A boundary's props are the one position
+  `codec/realize-deep` walks, and it **refuses** an unforced `delay`
+  reachable from them (`:rf.error/hicasso-deferred-read-at-boundary`,
+  Spec 009) rather than forcing an author's explicit deferral. A native
+  attribute is not walked and the runtime refuses nothing there. So the
+  crossing borrows the runtime's id and the runtime's recovery, and the
+  attribute keeps this namespace's own — the rule §Children already
+  states for a child, applied at the position the id is NAMED for
+  (rf2-dr0ad).
+
+  Only an **unforced** delay, because that is the runtime's own
+  narrowing: one the author already deref'd carries a computed value and
+  crosses freely, so nothing is waiting for that author at the crossing
+  and the generic refusal is the honest one. Without `realized?` here the
+  kit would refuse in the runtime's name a form the runtime accepts —
+  which is the fault this parity costs a branch to avoid, inverted."
+  [site k v]
   (if (fn? v)
     {:rf.ui/opaque :fn}
     (do (when-some [[path bad] (non-data v)]
-          (refuse! :rf.error/ui-tree-malformed
-                   (str "the value at " (pr-str k)
-                        (when (seq path) (str ", at " (pr-str path) " within it,"))
-                        " is " (offender-name bad) ", which this tree cannot "
-                        "record: 004B pins it as plain data an EDN reader takes "
-                        "back, and the opaque marker occupies a SITE rather than "
-                        "a value inside one.")
-                   :hoist-it-to-its-own-site
-                   {:key k :path (into [k] path) :value bad}))
+          (if (and (= :crossing site) (delay? bad) (not (realized? bad)))
+            (refuse! :rf.error/hicasso-deferred-read-at-boundary
+                     (str "an unforced `delay` is at the boundary prop "
+                          (pr-str k)
+                          (when (seq path)
+                            (str ", at " (pr-str path) " within it"))
+                          ". Hicasso refuses it at the crossing rather than "
+                          "forcing it, because forcing an author's explicit "
+                          "deferral would change what their program means: it "
+                          "would be forced inside the CHILD's render, so any "
+                          "subscription it reads becomes the child's edge, is "
+                          "cached by the delay, and is dropped the next time "
+                          "the child renders. Hand a FUNCTION instead — the "
+                          "child calls it on every render, so its reads are "
+                          "the child's edges and are kept — or deref the delay "
+                          "in the body that wrote it.")
+                     :hand-a-function-or-deref-it-in-this-body
+                     {:key k :path (into [k] path) :value bad})
+            (refuse! :rf.error/ui-tree-malformed
+                     (str "the value at " (pr-str k)
+                          (when (seq path) (str ", at " (pr-str path) " within it,"))
+                          " is " (offender-name bad) ", which this tree cannot "
+                          "record: 004B pins it as plain data an EDN reader takes "
+                          "back, and the opaque marker occupies a SITE rather than "
+                          "a value inside one.")
+                     :hoist-it-to-its-own-site
+                     {:key k :path (into [k] path) :value bad})))
         v)))
 
 (defn- refuse-opaque!
@@ -788,7 +835,7 @@
     (reduce-kv (fn [m k v]
                  (if (or (= :key k) (= :children k))
                    m
-                   (assoc! m k (opaque-prop k v))))
+                   (assoc! m k (opaque-prop :crossing k v))))
                (transient {})
                props)))
 
@@ -884,7 +931,7 @@
         events  (persistent!
                   (reduce-kv (fn [m k v]
                                (if (intent/event-prop? k)
-                                 (assoc! m k (opaque-prop k v))
+                                 (assoc! m k (opaque-prop :attr k v))
                                  m))
                              (transient {})
                              props))
@@ -896,7 +943,7 @@
                                  (= :class k)           m
                                  (= :id k)              m
                                  (nil? v)               m
-                                 :else (assoc! m k (opaque-prop k v))))
+                                 :else (assoc! m k (opaque-prop :attr k v))))
                              (transient {})
                              props))
         attrs   (cond-> attrs
