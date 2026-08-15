@@ -54,7 +54,7 @@ rather than an ergonomics gap. Two honest routes before you hold:
   `re-frame.core` verb taking a frame option, not a view one. Check the core
   facade for what the project's version exports rather than assuming a spelling.
 - The subtree genuinely belongs to another frame → it is another **root**. Make
-  that frame and mount it with `h/root!` in its own container.
+  that frame and mount it with `h/mount!` in its own container.
 
 If neither fits — a cell inside one tree that must reactively read a sibling
 frame — hold the view.

@@ -243,8 +243,7 @@ an author-written one. Pass children positionally.
 
 (defn ^:export init! []
   (rf/init! reagent-adapter/adapter)                              ; still needed — see below
-  (rf/make-frame {:id ::frame :initial-events [[:app/init]]})
-  (reset! !root (h/root! el ::frame [app {}])))
+  (reset! !root (h/mount! el {:frame ::frame :initial-events [[:app/init]]} [app {}])))
 
 (defn ^:dev/after-load reload! []
   (h/render! @!root [app {}]))
@@ -252,22 +251,23 @@ an author-written one. Pass children positionally.
 
 Four things matter, and the first two are the ones a migration gets wrong:
 
-- **`h/root!` is positional and creates no frame.** Its arity is
-  `(container frame-keyword hiccup)`, with an optional fourth opts map carrying
-  exactly one key, `:identifier-prefix` (React's own, for a page with two
-  roots). It has **no `:initial-events`**: the frame is made first, by the
-  ordinary `re-frame.core` verb, and the seed rides on `make-frame`. So the
-  Reagent pair `(rdom/render …)` + `(rf/dispatch-sync [:boot])` maps onto
-  `make-frame` *then* `root!`, in that order.
+- **`h/mount!` takes a config map and ensures its frame.** Its arity is
+  `(container config hiccup)`, and the config carries `:frame` (the frame
+  keyword), optional `:initial-events` (ordinary events, run in order before the
+  first paint when this mount CREATES the frame — never when it joins one), and
+  optional `:identifier-prefix` (React's own, for a page with two roots). So the
+  Reagent pair `(rdom/render …)` + `(rf/dispatch-sync [:boot])` collapses into
+  one `h/mount!`. An explicit `rf/make-frame` beforehand still works, and is what
+  a shared frame — or one needing `:images` / `:fx-overrides` — wants.
 - **Hicasso ships no adapter of its own**, so `(rf/init! …)` stays — `make-frame`
   raises `:rf.error/no-adapter-installed` until a reactive adapter is installed.
   Keep the app's existing adapter install; it is not Reagent-specific
   scaffolding to be deleted.
 - **`h/render!` is the hot-reload door.** It re-renders the root React already
-  has, so the reloaded view code meets its own DOM. Calling `h/root!` again
+  has, so the reloaded view code meets its own DOM. Calling `h/mount!` again
   would `createRoot` a second time and replace the tree, discarding every node
   and scrap of component state.
-- **`h/unmount!` is `root!`'s inverse** and is idempotent. It leaves sibling
+- **`h/unmount!` is `mount!`'s inverse** and is idempotent. It leaves sibling
   roots, their frames and the container alone.
 
 `reagent.dom.server` / `hydrate-root` are the SSR family → MIG-23 (R): there is

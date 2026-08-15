@@ -44,6 +44,7 @@
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as uix-adapter]
             [re-frame.core :as rf]
+            [re-frame.frame :as frame]
             [re-frame.hicasso :as h]
             [re-frame.hicasso.impl.collector :as collector]
             [re-frame.hicasso.impl.inventory :as inventory]
@@ -52,6 +53,12 @@
 
 (def ^:private frame-a ::frame-a)
 (def ^:private frame-b ::frame-b)
+
+;; A frame NOTHING creates but the mount under test. It must not be one the
+;; fixture ensures — `:rf/default` is ensured at step 6 whenever an `:adapter`
+;; is supplied, and this suite supplies one — or the ENSURE claim below would
+;; be green against a frame that was already there.
+(def ^:private frame-ensured ::frame-ensured)
 
 (def ^:private label-q [::label])
 
@@ -112,6 +119,22 @@
   (collector/reset-body-runs!)
   nil)
 
+(defn- bare!
+  "[[fresh!]] with the two `make-frame` calls withheld — an empty runtime and
+  NO frame at all.
+
+  The ENSURE rows need a frame that does not exist, and `fresh!` cannot give
+  them one: it makes both of its frames before the first mount, which is the
+  arrangement every other row here wants and the one arrangement that would
+  make an ENSURE claim vacuous."
+  []
+  (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) false)
+  (collector/reset-runtime!)
+  (collector/reset-body-runs!)
+  nil)
+
+(defn- live-frame? [frame-kw] (some? (frame/frame-incarnation-token frame-kw)))
+
 (defn- cell-keys [] (set (keys @collector/!cells)))
 
 (defn- readers-of [sub-key] (count (inventory/cell-readers sub-key)))
@@ -149,8 +172,8 @@
   (if-not (mount/browser?)
     (skip! ":node-test has no DOM")
     (let [_ (fresh!)
-          a (h/root! (mount/fresh-container!) frame-a [panel {:tag "a"}])
-          b (h/root! (mount/fresh-container!) frame-b [panel {:tag "b"}])]
+          a (h/mount! (mount/fresh-container!) {:frame frame-a} [panel {:tag "a"}])
+          b (h/mount! (mount/fresh-container!) {:frame frame-b} [panel {:tag "b"}])]
       (try
         (testing "premise: two roots, two frames, one cell each, both painted"
           (is (= #{[frame-a label-q] [frame-b label-q]} (cell-keys))
@@ -214,7 +237,7 @@
   (if-not (mount/browser?)
     (skip! ":node-test has no DOM")
     (let [_ (fresh!)
-          a (h/root! (mount/fresh-container!) frame-a [panel {:tag "first"}])
+          a (h/mount! (mount/fresh-container!) {:frame frame-a} [panel {:tag "first"}])
           node (node-at a ".panel")]
       (try
         (testing "premise: the root is mounted and painted"
@@ -310,8 +333,8 @@
     (do
       ;; DISARMED — the shipped root-scoped door.
       (let [_ (fresh!)
-            a (h/root! (mount/fresh-container!) frame-a [panel {:tag "a"}])
-            b (h/root! (mount/fresh-container!) frame-b [panel {:tag "b"}])]
+            a (h/mount! (mount/fresh-container!) {:frame frame-a} [panel {:tag "a"}])
+            b (h/mount! (mount/fresh-container!) {:frame frame-b} [panel {:tag "b"}])]
         (try
           (is (= #{[frame-a label-q] [frame-b label-q]} (cell-keys))
               (str "premise: two roots, two frames, one cell each; got "
@@ -336,8 +359,8 @@
 
       ;; ARMED — the same construction, torn down through the page-wide door.
       (let [_ (fresh!)
-            a (h/root! (mount/fresh-container!) frame-a [panel {:tag "a"}])
-            b (h/root! (mount/fresh-container!) frame-b [panel {:tag "b"}])]
+            a (h/mount! (mount/fresh-container!) {:frame frame-a} [panel {:tag "a"}])
+            b (h/mount! (mount/fresh-container!) {:frame frame-b} [panel {:tag "b"}])]
         (try
           (is (= #{[frame-a label-q] [frame-b label-q]} (cell-keys))
               (str "premise: the same two roots as the disarmed half; got "
@@ -373,3 +396,134 @@
                 "this witness left one of its own containers in the shared
                  browser-test document")
             (collector/reset-runtime!)))))))
+
+;; ---------------------------------------------------------------------------
+;; W4 (rf2-7mtcf) — the door ENSURES its frame and seeds it BEFORE first paint
+;; ---------------------------------------------------------------------------
+;;
+;; Naming-ledger row 13 renames this door `root!` -> `mount!` and row 20 keeps
+;; the guide's `(node config view)` contract, `:frame` + `:initial-events`.
+;; Only the second of those is behaviour, and it is the half a rename would
+;; have shipped as a green compile over six taught call sites the door could
+;; not serve: `:initial-events` was implemented nowhere in `impl.mount`, and
+;; the client root could scope a frame but never make one.
+;;
+;; So the reading that matters is taken with NOTHING dispatched between the
+;; mount and the assertion. `mount!` returns, and the label is already on the
+;; page. That is what "before first paint" means, and it is the one claim
+;; `rf/dispatch` after mounting cannot satisfy however cleanly it is written —
+;; it necessarily paints once with an unseeded frame first, which is the
+;; guide's own *"the first paint is empty and then fills in"* symptom.
+;;
+;; It is also the row that fails without the change, and fails twice over: with
+;; no ENSURE the frame this mount names never exists at all, and with no
+;; `:initial-events` nothing would seed it if it did.
+
+(deftest mounting-ensures-its-frame-and-seeds-it-before-the-first-paint
+  (if-not (mount/browser?)
+    (skip! ":node-test has no DOM")
+    (let [_ (bare!)
+          _ (is (false? (live-frame? frame-ensured))
+                "premise: the frame this mount names must not exist yet, or the
+                 ENSURE claim below is green against somebody else's frame")
+          a (h/mount! (mount/fresh-container!)
+                      {:frame          frame-ensured
+                       ;; TWO steps, because order is part of the contract:
+                       ;; `::seed` installs a whole db and `::relabel` edits it,
+                       ;; so running them the other way round leaves "first"
+                       ;; rather than "second" and the reading discriminates.
+                       :initial-events [[::seed "first"] [::relabel "second"]]}
+                      [panel {:tag "ensured"}])]
+      (try
+        (testing "the mount CREATED the frame it named — nothing else did"
+          (is (true? (live-frame? frame-ensured))
+              "`h/mount!` named a frame that did not exist and did not make it"))
+
+        (testing "and the seed is in the FIRST paint. Nothing is dispatched
+                  between the mount and this read, so the markup asserted here
+                  is the render `mount!` itself performed"
+          (is (= "second" (text-at a ".label"))
+              (str "the first paint did not carry the `:initial-events` seed; "
+                   "got " (pr-str (text-at a ".label")))))
+
+        (testing "the steps ran IN ORDER — `::relabel` last. Reversed, the db
+                  `::seed` installs would have landed on top and the label would
+                  read \"first\""
+          (is (not= "first" (text-at a ".label"))
+              ":initial-events ran out of order"))
+
+        (testing "the root is ordinarily wired afterwards — the ensured frame is
+                  a real frame, not a one-shot seeding trick"
+          (mount/dispatch! a [::relabel "third"])
+          (is (= "third" (text-at a ".label"))))
+
+        (finally
+          (h/unmount! a)
+          (detach! a)
+          (is (false? (connected? a))
+              "this witness left its own container in the shared
+               browser-test document")
+          (collector/reset-runtime!))))))
+
+;; ---------------------------------------------------------------------------
+;; W5 (rf2-7mtcf) — a JOINING root does not replay `:initial-events`
+;; ---------------------------------------------------------------------------
+;;
+;; The other half of the ENSURE contract, and the half that would make the door
+;; dangerous if it were missing: two roots on one frame is a shape the guide
+;; teaches outright (*"the first root creates and seeds the frame; a later root
+;; that names the same frame joins its current state"*), and a second mount that
+;; re-seeded would silently reset a live application's app-db.
+;;
+;; It is core's rule rather than this arm's — `:initial-events` fire once per
+;; committed frame-id lifetime, which is what `rf/frame-root` already promises
+;; through the same vocabulary — so what is witnessed here is that the door
+;; ASKS the question, not that core answers it correctly. The joining mount
+;; carries a seed of its own precisely so that replaying would be visible.
+
+(deftest a-second-root-joining-one-frame-does-not-replay-initial-events
+  (if-not (mount/browser?)
+    (skip! ":node-test has no DOM")
+    (let [_ (bare!)
+          a (h/mount! (mount/fresh-container!)
+                      {:frame          frame-ensured
+                       :initial-events [[::seed "creator"]]}
+                      [panel {:tag "a"}])
+          ;; The joining root names its own `:initial-events`, and they must be
+          ;; IGNORED. A door that replayed would leave "joiner" on both screens
+          ;; and this row would be the only thing on the page to notice.
+          b (h/mount! (mount/fresh-container!)
+                      {:frame          frame-ensured
+                       :initial-events [[::seed "joiner"]]}
+                      [panel {:tag "b"}])]
+      (try
+        (testing "the joining root did NOT re-seed the frame — the creator's
+                  state stands, on both screens"
+          (is (= "creator" (text-at a ".label"))
+              (str "the joining mount replayed its `:initial-events` over a live "
+                   "frame; root A now reads " (pr-str (text-at a ".label"))))
+          (is (= "creator" (text-at b ".label"))
+              (str "the joining root painted something other than the frame's "
+                   "current state; got " (pr-str (text-at b ".label")))))
+
+        (testing "and it really is ONE frame, not two that happen to agree: a
+                  single dispatch moves both roots' paint"
+          (mount/dispatch! a [::relabel "shared"])
+          (is (= ["shared" "shared"] [(text-at a ".label") (text-at b ".label")])
+              "the two roots did not join one frame"))
+
+        (testing "one cell, keyed by that one frame, read by both boundaries"
+          (is (= #{[frame-ensured label-q]} (cell-keys))
+              (str "got " (pr-str (cell-keys))))
+          (is (= 2 (readers-of [frame-ensured label-q]))
+              "both roots' boundaries must be reading the one cell"))
+
+        (finally
+          (h/unmount! a)
+          (h/unmount! b)
+          (detach! a)
+          (detach! b)
+          (is (= [false false] [(connected? a) (connected? b)])
+              "this witness left one of its own containers in the shared
+               browser-test document")
+          (collector/reset-runtime!))))))

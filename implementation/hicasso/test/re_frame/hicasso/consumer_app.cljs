@@ -61,7 +61,7 @@
   [[re-frame.hicasso/render!]] is that door now, so the hook below is
   three ordinary lines and every one of them is public. It re-renders the
   root React already has, which is what lets the reloaded view code meet
-  its own DOM; a second `h/root!` would `createRoot` again and replace
+  its own DOM; a second `h/mount!` would `createRoot` again and replace
   the tree, discarding every node and every scrap of component state.
 
   The handle is held in a `defonce` for the reason any hot-reloadable app
@@ -155,11 +155,11 @@
   notify nothing at all.
 
   Then the frame, seeded; then the root, which is where a container, a
-  frame id and a hiccup tree meet. `h/root!` returns a handle, and the
+  frame id and a hiccup tree meet. `h/mount!` returns a handle, and the
   handle is what [[reload!]] re-renders — the one reason a mount-once
   application keeps hold of it."
   []
   (rf/init! uix-adapter/adapter)
   (rf/make-frame {:id frame-id :initial-events [[::seed]]})
-  (reset! !root (h/root! (js/document.getElementById "app") frame-id [app {}]))
+  (reset! !root (h/mount! (js/document.getElementById "app") {:frame frame-id} [app {}]))
   nil)

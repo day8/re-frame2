@@ -624,36 +624,84 @@
      ;; the ledger header says a recommendation does before the sitting
      ;; and the route rows 21 and 23 already took (rf2-mo4o, rf2-0ckh).
      ;; The CONTRACT SHAPE is row 20's `(node config view)` with
-     ;; `:frame` + `:identifier-prefix`, kept as taught. Row 13's other
-     ;; half — `root!`→`mount!` — is NOT taken here: it is a rename of a
-     ;; door that already has an inventory row (HS-10, `h/root!`), so it
-     ;; travels with that row rather than with this addition.
+     ;; `:frame` + `:identifier-prefix`, kept as taught.
+     ;;
+     ;; **Row 13's other half — `root!`→`mount!` — is taken now, and it
+     ;; was never a rename** (rf2-7mtcf). The packet's instruction reads
+     ;; *"rename two constructors"*, and for this one that is false: the
+     ;; guide teaches `h/mount!` over row 20's config map carrying
+     ;; `:frame` AND `:initial-events`, and shipped `root!` took the
+     ;; frame POSITIONALLY and implemented `:initial-events` nowhere. So
+     ;; the var rename alone would have published this name against every
+     ;; taught call site and failed at runtime under a green compile —
+     ;; new behaviour wearing a spelling's clothes. Row 20 is the half
+     ;; that settles it, and it is already ruled *keep as taught*, on the
+     ;; ground that `:initial-events` is **borrowed from core's
+     ;; `frame-root` vocabulary rather than minted here**. So the door
+     ;; below takes the contract, `impl.mount/ensure-frame!` supplies the
+     ;; behaviour by calling `rf/make-frame` exactly as a consumer's own
+     ;; boot line did, and inventory row HS-10 moves with the name.
 
-     (def ^{:doc "Associate a DOM container, a frame keyword and a hiccup
-  tree; returns the handle [[render!]] and [[unmount!]] take. HD-021(b)'s
-  whole execution contract.
+     (def ^{:doc "`h/mount!` — **the root door**: ensure a frame,
+  associate it with a DOM container and one root view, and answer the
+  handle [[render!]] and [[unmount!]] take. HD-021(b)'s whole execution
+  contract.
 
-  A fourth argument is optional and carries ONE key,
-  `:identifier-prefix` — React's own `identifierPrefix`, handed to
-  `createRoot` untouched (rf2-hic-046):
+      (h/mount! (js/document.getElementById \"app\")
+                {:frame          :rf/default
+                 :initial-events [[:counter/initialise]]}
+                [counter])
 
-      (h/root! node ::frame [app {}] {:identifier-prefix \"a-\"})
+  `(node config view)`, row 20's shape, and the `config` carries three
+  keys — one required and two optional.
 
-  It exists because `useId` numbers every root from the same start, so a
-  page mounting two roots gives them distinct prefixes or watches their
-  generated ids collide. A page with one root names none. There is no
-  default, no coercion and no validation: React owns the option and this
-  is a pass-through to it. The hydrating twin takes the same key — but it
-  is `impl.mount/hydrate-root!` and is NOT on this facade, for the reasons
-  the section comment above sets out — and a hydrating root must be handed
-  the SAME string its server render used, `react-dom/server`'s own
-  `identifierPrefix`, which is where the other half of the pair is
-  spelled.
-  [[re-frame.hicasso.impl.mount/root!]]."}
-       root! impl-mount/root!)
+  **`:frame`** is the frame keyword this root scopes, and mounting
+  ENSURES it: the frame is created if it does not exist, or JOINED as it
+  stands if another root already uses it. Nothing else in this arm makes
+  a frame, so before rf2-7mtcf a consumer's boot line spelled the id
+  twice — once to `rf/make-frame` and again to the root door.
+
+  **`:initial-events`** is an ordered vector of ordinary event vectors,
+  dispatched synchronously into the frame **when this mount CREATES it**,
+  and never when it joins one. They drain in order before this returns,
+  so the first paint is the seeded one rather than an empty frame filled
+  in a moment later. It is core's own `:initial-events` (EP-0027) reaching
+  `rf/make-frame` untouched — the vocabulary `rf/frame-root` and
+  `re-frame.adapter.uix/frame-root` already ENSURE with — so its shape and
+  its errors are core's, not a second spelling minted here. Seed from the
+  mount that creates the frame; a joining root omits it. Initial state
+  arrives through events, and there is no separate `:db` seed option.
+
+  **`:identifier-prefix`** is React's own `identifierPrefix`, handed to
+  `createRoot` untouched (rf2-hic-046). It exists because `useId` numbers
+  every root from the same start, so a page mounting two roots gives them
+  distinct prefixes or watches their generated ids collide. A page with
+  one root names none. No default, no coercion, no validation: React owns
+  the option and this is a pass-through to it. [[hydrate!]] takes the same
+  key, and a hydrating root must be handed the SAME string its server
+  render used.
+
+  ## Why this is a `defn` where its siblings are aliases
+
+  [[hydrate!]]'s reason exactly, and the two doors are the same case seen
+  twice: `impl.mount/root!` is `(container frame-kw hiccup opts)` — the
+  prototype's positional shape — and row 20 keeps the guide's config map,
+  because a config map is what lets `:initial-events` and
+  `:identifier-prefix` join without an arity each. So the adaptation is
+  three lines here and impl keeps one caller shape for its own witnesses
+  to drive. `impl.mount/root!` keeps its own name for the same reason
+  [[hydrate!]]'s impl keeps `hydrate-root!`.
+  [[re-frame.hicasso.impl.mount/root!]],
+  [[re-frame.hicasso.impl.mount/ensure-frame!]]."}
+       mount!
+       ;; `config` reaches `root!` as the opts map WHOLE, the arrangement
+       ;; `hydrate!` below already has: impl reads the keys it owns and a
+       ;; config key added later needs no edit here.
+       (fn mount! [container config hiccup]
+         (impl-mount/root! container (:frame config) hiccup config)))
 
      (def ^{:doc "`h/hydrate!` — **adopt a container's existing
-  server-rendered DOM** rather than replacing it; [[root!]]'s hydrating
+  server-rendered DOM** rather than replacing it; [[mount!]]'s hydrating
   twin, and the client half of every SSR route (rf2-b6jkj):
 
       (h/hydrate! (js/document.getElementById \"app\")
@@ -712,15 +760,15 @@
         (h/render! @!root [app {}]))
 
   React reconciles the new tree against the one on the page, so the
-  reloaded view code meets its own DOM. Calling [[root!]] again would
+  reloaded view code meets its own DOM. Calling [[mount!]] again would
   `createRoot` a second time and replace the tree instead, discarding
   every node, subscription and scrap of component state.
   [[re-frame.hicasso.impl.mount/render!]]."}
        render! impl-mount/render!)
 
-     (def ^{:doc "Take THIS root down — [[root!]]'s inverse, and
+     (def ^{:doc "Take THIS root down — [[mount!]]'s inverse, and
   idempotent. Unmounts the root and leaves everything else exactly where
   it was: the sibling roots' subscriptions and frames, and the container
-  you handed [[root!]], which React empties but does not remove.
+  you handed [[mount!]], which React empties but does not remove.
   [[re-frame.hicasso.impl.mount/unmount!]]."}
        unmount! impl-mount/unmount!)))

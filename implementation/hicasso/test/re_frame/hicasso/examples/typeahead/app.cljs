@@ -63,5 +63,5 @@
   []
   (rf/init! uix-adapter/adapter)
   (make-frame!)
-  (reset! !root (h/root! (js/document.getElementById "app") frame-id [views/screen {}]))
+  (reset! !root (h/mount! (js/document.getElementById "app") {:frame frame-id} [views/screen {}]))
   nil)

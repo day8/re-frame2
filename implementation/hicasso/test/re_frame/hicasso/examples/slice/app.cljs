@@ -37,7 +37,7 @@
   is re-evaluated by the reload, and the handle would be replaced by the
   event it exists to survive. [[reload!]] re-renders the root React
   already has, so the reloaded view code meets its own DOM; a second
-  `h/root!` would `createRoot` again and discard every node, subscription
+  `h/mount!` would `createRoot` again and discard every node, subscription
   and scrap of component state."
   (:require [re-frame.adapter.uix :as uix-adapter]
             [re-frame.core :as rf]
@@ -81,5 +81,5 @@
   []
   (rf/init! uix-adapter/adapter)
   (make-frame!)
-  (reset! !root (h/root! (js/document.getElementById "app") frame-id [views/app {}]))
+  (reset! !root (h/mount! (js/document.getElementById "app") {:frame frame-id} [views/app {}]))
   nil)

@@ -108,7 +108,7 @@ R4  THE PAGE MATCHES THE LEDGER.  Every `DIVERGENCES` row is declared as a
     them reads prose, and this rule is the narrowest thing that does.
 
     It checks NAME CORRESPONDENCE, not sentence truth: a bullet can still be
-    wrong about what `h/root!` takes and stay green.  That is the intended
+    wrong about what `h/mount!` takes and stay green.  That is the intended
     ceiling.  The cheap mechanical half of the invariant is worth having, and
     the expensive half — is this paragraph's prose accurate? — is what review
     is for.
@@ -202,17 +202,26 @@ CLOJURE_LANGS = frozenset({"clojure", "clj", "cljs", "cljc", "edn"})
 # question: `h/fn` was ruled OUT, so the row described a spelling nothing was
 # waiting to take.  Its Status-block bullet on `index.md` left in the same
 # pass -- R4 enforces that correspondence in both directions.
+#
+# `("re-frame.hicasso", "mount!") -> "root!"` LEFT THIS TABLE in rf2-7mtcf,
+# and it is the row R3 was BUILT for: it recorded a gap the guide could not
+# close by respelling anything, because the divergence was never only a name.
+# The row's own reason said so -- *"`root!` takes the frame keyword
+# positionally and carries no `:initial-events` option"* -- so naming-ledger
+# row 13's `root!` -> `mount!` could not be taken as the mechanical rename its
+# packet called it, and rf2-hic-066's sweep correctly STOPPED here rather than
+# publishing the taught name against a door that could not serve it.  What
+# closed the gap was the CONTRACT: row 20's `(node config view)` shape, already
+# ruled *keep as taught*, plus `impl.mount/ensure-frame!` supplying the
+# `:initial-events` the row named as missing.  Its Status-block bullet on
+# `index.md` left in the same pass -- R4 enforces that correspondence in both
+# directions.
 DIVERGENCES = {
     ("re-frame.hicasso", "frame"): (
         "hframe",
         "a bare `frame` would shadow on a `:refer`; naming-ledger row 18 "
         "retires the verb rather than respelling it, and that retirement "
         "waits on a seam rather than on a name (rf2-hic-066)",
-    ),
-    ("re-frame.hicasso", "mount!"): (
-        "root!",
-        "`root!` takes the frame keyword positionally and carries no "
-        "`:initial-events` option; the guide teaches the intended door",
     ),
 }
 

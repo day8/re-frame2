@@ -70,7 +70,7 @@
   "Re-render the mounted root after a hot reload. React reconciles the
   new tree against the one on the page, so the DOM, the subscriptions and
   every scrap of component state survive it and only the changed view
-  code is different. A second `h/root!` would `createRoot` again and
+  code is different. A second `h/mount!` would `createRoot` again and
   discard all three."
   []
   (when-some [root @!root]
@@ -81,5 +81,5 @@
   []
   (rf/init! uix-adapter/adapter)
   (make-frame!)
-  (reset! !root (h/root! (js/document.getElementById "app") frame-id [views/app {}]))
+  (reset! !root (h/mount! (js/document.getElementById "app") {:frame frame-id} [views/app {}]))
   nil)

@@ -158,19 +158,25 @@ and `:ref` on a **`defview` head** is not a ref at all — the boundary path lif
 only `:key`, so it stays in the props map as ordinary data with nothing to
 report it.
 
-## `h/root!` creates no frame, and takes no `:initial-events`
+## `h/mount!` ensures its frame and takes `:initial-events`
 
-`(h/root! container frame-keyword hiccup)` is positional and **associates** a
-frame keyword; it does not make the frame and it does not seed it. The Reagent
-pair `(rdom/render [app] el)` + `(rf/dispatch-sync [:boot])` maps onto
-`(rf/make-frame {:id ::frame :initial-events [[:boot]]})` **then** `h/root!`, in
-that order — and `rf/init!` before both, because `make-frame` raises
+`(h/mount! container config hiccup)` takes a config map, and mounting **ensures**
+the named frame: `{:frame ::frame :initial-events [[:boot]]}` creates the frame
+if it is absent and seeds it before the first paint, or joins an already-live
+frame without replaying the seed. So the Reagent pair `(rdom/render [app] el)` +
+`(rf/dispatch-sync [:boot])` maps onto a single `h/mount!` — with `rf/init!`
+before it, because frame construction raises
 `:rf.error/no-adapter-installed` until a reactive adapter is installed.
+
+An explicit `rf/make-frame` before the mount is still legal, and is what you
+want when several roots share one frame, or when the frame needs options the
+mount config does not carry (`:images`, `:fx-overrides`). The mount then finds
+the frame live and joins it without re-seeding.
 
 Hicasso ships no adapter of its own, so the app's existing `rf/init!` stays.
 Do not delete it as Reagent scaffolding.
 
-For hot reload use `h/render!`, never a second `h/root!` — the latter
+For hot reload use `h/render!`, never a second `h/mount!` — the latter
 `createRoot`s again and replaces the whole tree.
 
 ## Silent drops in a key map
@@ -187,7 +193,6 @@ writing them produces a view that will not load:
 | Taught in the guide | Reality |
 |---|---|
 | `re-frame.hicasso.server/render`, `ssr/hydrate!`, `h/hydrate!` | none exists — there is no server-render door (MIG-23) |
-| `h/mount!` taking a config map with `:frame` / `:initial-events` | shipped is positional `h/root!`, which ensures nothing (MIG-15) |
 | "key maps are valid only at `:on-key-down` / `:on-key-up`" | shipped accepts a map at any event position |
 | the reserved vocabulary as four keywords | incomplete — it omits `::h/navigate`, `::h/mounting`, `::h/unmounting`, `::h/clear` |
 | a plain `merge` for forwarding caller attrs | shipped is the reserved `:&` key with the owned-literal law (MIG-28) |

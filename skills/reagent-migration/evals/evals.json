@@ -131,14 +131,14 @@
        "Does NOT reach for a callback ref as a substitute — a ref fires on commit and on identity change, which is a different phase and frequency."
      ]},
 
-    {"id": 25, "kind": "behavioural", "tier": "M", "name": "m-root-mount-frame-first",
+    {"id": 25, "kind": "behavioural", "tier": "M", "name": "m-root-mount-ensures-frame",
      "prompt": "Migrate the boot for this app to Hicasso:\n(ns app.core (:require [reagent.dom :as rdom] [re-frame.core :as rf] [re-frame.adapter.reagent :as ra]))\n(defn init! []\n  (rf/init! ra/adapter)\n  (rf/dispatch-sync [:app/init])\n  (rdom/render [app] (js/document.getElementById \"root\")))",
      "expectations": [
-       "Gets the ORDER right: rf/init! first, then (rf/make-frame {:id ::frame :initial-events [[:app/init]]}), then (h/root! el ::frame [app {}]) — the frame is made and seeded before the root, because h/root! creates no frame.",
-       "States h/root! is POSITIONAL — (container frame-keyword hiccup) — with an optional fourth opts map carrying only :identifier-prefix, and that it has no :initial-events.",
-       "KEEPS (rf/init! ra/adapter): Hicasso ships no adapter of its own and rf/make-frame raises :rf.error/no-adapter-installed until a reactive adapter is installed. Does not delete it as Reagent scaffolding.",
-       "Adds the defonce root atom and a ^:dev/after-load hook calling (h/render! @!root [app {}]), and explains that calling h/root! again would createRoot a second time and replace the tree, discarding every node and scrap of component state.",
-       "Does NOT emit the draft guide's h/mount! taking a config map with :frame / :initial-events — that form is not shipped."
+       "Collapses the boot into ONE mount: (h/mount! el {:frame ::frame :initial-events [[:app/init]]} [app {}]) — the dispatch-sync seed becomes :initial-events, because mounting ENSURES the frame and seeds it before the first paint.",
+       "States h/mount! takes a CONFIG MAP — (container config hiccup) — carrying :frame, optional :initial-events, and optional :identifier-prefix.",
+       "KEEPS (rf/init! ra/adapter): Hicasso ships no adapter of its own and frame construction raises :rf.error/no-adapter-installed until a reactive adapter is installed. Does not delete it as Reagent scaffolding.",
+       "Adds the defonce root atom and a ^:dev/after-load hook calling (h/render! @!root [app {}]), and explains that calling h/mount! again would createRoot a second time and replace the tree, discarding every node and scrap of component state.",
+       "An explicit (rf/make-frame {:id ::frame :initial-events [[:app/init]]}) BEFORE the mount is also acceptable — the mount then joins the live frame without re-seeding — but it must not be presented as REQUIRED, and the mount must not be shown as positional."
      ]},
 
     {"id": 26, "kind": "behavioural", "tier": "M", "name": "m-keystroke-handler-becomes-key-map",
