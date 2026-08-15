@@ -11,10 +11,12 @@
   `:rf.error/id` AND its ex-data — not merely that an exception was thrown —
   because the whole point is WHICH id.
 
-  The conversion-table copies the serialiser carries (`re-frame.ssr`'s
-  Independence rule forbids requiring `re-frame.ui` in production) are
-  pinned byte-for-byte against their `re-frame.ui.rules` source. The UI
-  compiler is a TEST-ONLY dependency here.
+  The conversion tables the serialiser carries were once pinned
+  byte-for-byte against a `re-frame.ui.rules` source. That substrate has
+  been retired (rf2-0yp7w), so the tables are ORIGINALS now and the pin is
+  gone: what holds them honest is the react-dom parity corpus and the
+  row-level assertions below, which test the rows against react-dom's
+  documented behaviour rather than against a second copy of themselves.
 
   Runs on BOTH hosts (`.cljc`, `-cljs-test` ns): `clojure -M:test` from
   `implementation/ssr` (JVM) and `npm run test:cljs` (node). A CLJS class
@@ -22,8 +24,7 @@
   canonical builder — the ids and ex-data are identical on both hosts."
   (:require [clojure.test :refer [deftest is testing]]
             [re-frame.ssr.ui-tree :as ui-tree]
-            [re-frame.ssr :as ssr]
-            [re-frame.ui.rules :as rules]))
+            [re-frame.ssr :as ssr]))
 
 ;; ---------------------------------------------------------------------------
 ;; Helpers
@@ -583,20 +584,3 @@
   (testing "re-frame.ssr/emit-ui-tree is the serialiser"
     (is (= "<div>hi</div>"
            (ssr/emit-ui-tree (v1 {:tag :div :children ["hi"]}))))))
-
-;; ---------------------------------------------------------------------------
-;; Anti-drift: the carried conversion-table copies == their ui.rules source
-;; ---------------------------------------------------------------------------
-
-(deftest carried-conversion-table-matches-the-ui-rules-source
-  (testing "the seam's copies are byte-for-byte the re-frame.ui.rules source"
-    (is (= rules/standard-names           ui-tree/standard-names))
-    (is (= rules/dom-attr-aliases         ui-tree/dom-attr-aliases))
-    (is (= rules/void-tags                ui-tree/void-tags))
-    (is (= rules/boolean-attrs            ui-tree/boolean-attrs))
-    (is (= rules/booleanish-attrs         ui-tree/booleanish-attrs))
-    (is (= rules/overloaded-boolean-attrs ui-tree/overloaded-boolean-attrs))
-    (is (= rules/property-only-attrs      ui-tree/property-only-attrs)))
-  (testing "escaping matches (React's escapeTextForBrowser, `'` -> &#x27;)"
-    (is (= (rules/escape-html "<a>&\"'x")
-           (ui-tree/escape-html "<a>&\"'x")))))

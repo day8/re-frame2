@@ -620,94 +620,21 @@ const DEV_ONLY_SENTINELS = [
     sentinel: 'likely a dispatch loop. Cycle (last settled ids)' },
   // re-frame.subs.override-schema/validate-sub-override! — the Story
   // `:sub-overrides` schema-failure reason string (rf2-vxgfnd.21). The ONE
-  // shared override validator is reached ONLY from the two override consults,
-  // and BOTH gate the whole consult on `interop/debug-enabled?`: the
-  // Reagent-family `re-frame.subs/resolve-sub-override` (inside subscribe's
-  // gate) and the compiled-view `re-frame.ui.reactive/resolve-override` (its
-  // whole body is `(when interop/debug-enabled? ...)`). Under :advanced +
-  // goog.DEBUG=false BOTH call sites DCE, dropping the validator's last
-  // referent so its reason-string literal must NOT survive. The elision-probe's
-  // `touch-ui-sub-overrides!` roots the COMPILED-VIEW consult (sub-read →
-  // resolve-override → validate-sub-override!) so a UI-side un-gating
-  // regression surfaces this string in production; the control build
-  // (DEBUG=true) contains it via that consult. The fragment is the distinctive
-  // middle of the reason string, unambiguous under a global grep.
-  { source: 're-frame.subs.override-schema/validate-sub-override! (:sub-override schema-failure reason)',
-    sentinel: ' :sub-override value failed schema ' },
-  // re-frame.ui Fast Refresh stable shell (rf2-8hf77d). The elision probe
-  // contains a real compiled defview, so DEBUG=true roots the stable shell's
-  // one slot. DEBUG=false must choose direct React.memo and make the whole slot
-  // graph unreachable: revision/remount store, listeners, dynamic descriptor
-  // lookup, and the keyed inner Fiber disappear together.
-  { source: 're-frame.ui Fast Refresh slot (body revision/listener store)',
-    sentinel: 'hmr-body-revision' },
-  { source: 're-frame.ui Fast Refresh slot (hook-incompatibility remount key)',
-    sentinel: 'hmr-remount-generation' },
-  { source: 're-frame.ui Fast Refresh slot (dynamic descriptor lookup)',
-    sentinel: 'hmr-descriptor' },
-  { source: 're-frame.ui Fast Refresh slot (stable inner extra Fiber)',
-    sentinel: 'hmr-inner' },
-  // re-frame.ui.runtime — the DEV bare-view-alias diagnostic (rf2-vxgfnd.95.15,
-  // EP-0035 / rf2-ho1iba). A bare `(def alias other/view)` var copy used as a
-  // component head resolves at runtime to the registered view shell;
-  // `warn-bare-view-alias!` consults the DEV shell marker and warns once. The
-  // emitter wraps EVERY foreign head in
-  // `(if goog.DEBUG (re-frame.ui.runtime/warn-bare-view-alias! head) head)`, so
-  // under :advanced + goog.DEBUG=false the wrapper folds to the bare head,
-  // `warn-bare-view-alias!` is unreferenced, and its message string, the
-  // `view-shell-mark` marker, and the dedup set all DCE. The elision-probe's
-  // `touch-bare-view-alias!` roots a real bare-alias foreign head so the control
-  // build (DEBUG=true) contains this message fragment and the production build
-  // (DEBUG=false) must not. (Compile-tier `:rf.ui.compile/*` diagnostic — no
-  // Spec 009 catalogue row, delivered by console.warn not error/throw-error!.)
-  { source: 're-frame.ui.runtime/warn-bare-view-alias! (bare-view-alias diagnostic)',
-    sentinel: 'bare var alias of a registered view' },
-  // re-frame.ui.frames — :rf.warning/cross-frame-carried-op DEV-ONLY honesty
-  // warning (rf2-vxgfnd.231 shipped the warning in #5960; rf2-fagk6 pins its
-  // production elision). A CARRIED `(frame)` operation bundle's `:subscribe`
-  // ran beneath a DIFFERENT ambient frame than the one it was captured under;
-  // frames are ISOLATED contexts, so the runtime emits this advisory and
-  // CONTINUES the read against the captured (origin) frame. The whole check —
-  // the ambient read, the `(not= ambient origin-frame)` comparison, the
-  // `:origin-frame` / `:ambient-frame` / `:rf.sub/query-v` EVIDENCE map, the
-  // `:reason` prose, the `:recovery :warned-and-continued` slot, and the
-  // `trace/emit! :warning` call — is wrapped WHOLE in the outermost
-  // `(when interop/debug-enabled? ...)` gate in
-  // `re-frame.ui.frames/maybe-warn-cross-frame-carried-subscribe!`, so under
-  // :advanced + goog.DEBUG=false the ENTIRE body DCEs. The elision-probe's
-  // `touch-carried-op-cross-frame!` roots the gated emit through a real cross-
-  // frame carry (bundle captured under origin frame A, `:subscribe` invoked
-  // under a FOREIGN ambient frame B), so the control build (DEBUG=true) contains
-  // these sentinels and the production build (DEBUG=false) must DCE them.
+  // shared override validator is reached from the Reagent-family consult
+  // `re-frame.subs/resolve-sub-override`, inside subscribe's
+  // `interop/debug-enabled?` gate. Under :advanced + goog.DEBUG=false that
+  // call site DCEs, dropping the validator's last referent so its
+  // reason-string literal must NOT survive; the control build (DEBUG=true)
+  // contains it via the same consult. The fragment is the distinctive middle
+  // of the reason string, unambiguous under a global grep.
   //
-  // Three sentinels give the acceptance contract explicit teeth:
-  //   1. the CATEGORY keyword — proves the whole `trace/emit!` call (and the op
-  //      keyword's string) erases. Warning category keywords elide cleanly (they
-  //      are NOT referenced by the always-reachable marks chokepoint
-  //      `re-frame.classification/project-trace-event`, exactly like the sibling
-  //      `rf.warning/missing-doc` / `rf.warning/teardown-hook-exception` above).
-  { source: 're-frame.ui.frames/maybe-warn-cross-frame-carried-subscribe! (rf.warning/cross-frame-carried-op category)',
-    sentinel: 'rf.warning/cross-frame-carried-op' },
-  //   2. the distinctive `:reason` prose fragment — proves the reason-string
-  //      build (which interpolates the origin/query/ambient EVIDENCE via
-  //      `pr-str`) erases. It is one intact string literal between two `pr-str`
-  //      calls in the `(str …)` reason, unique to `ui/frames.cljc` under a global
-  //      grep.
-  { source: 're-frame.ui.frames/maybe-warn-cross-frame-carried-subscribe! (:reason prose)',
-    sentinel: 'beneath a DIFFERENT ambient frame' },
-  //   3. the `:origin-frame` EVIDENCE slot keyword — proves the evidence map's
-  //      key literal erases. `origin-frame` is unique to `ui/frames.cljc` in
-  //      production source (the sibling `:ambient-frame` slot is NOT a usable
-  //      sentinel — its string legitimately survives via other production
-  //      namespaces, e.g. core call-site macros / observation / viewcell — so a
-  //      keyword sentinel there would be a false production-leak positive). The
-  //      `:recovery :warned-and-continued` slot rides the SAME gated emit map as
-  //      these three, so its erasure is transitively proven by them (a keyword
-  //      sentinel for `warned-and-continued` is deliberately NOT added: the
-  //      literal is shared with the sibling dev-only `re-frame.ui.events`
-  //      warnings, so it would couple this gate to a foreign surface's elision).
-  { source: 're-frame.ui.frames/maybe-warn-cross-frame-carried-subscribe! (:origin-frame evidence slot)',
-    sentinel: 'origin-frame' }
+  // rf2-0yp7w: a SECOND consult used to reach this validator from the retired
+  // compiled-view substrate, rooted by the elision probe's
+  // `touch-ui-sub-overrides!`. Both are gone; the surviving Reagent-family
+  // consult is what this row now pins, and it is sufficient — the validator
+  // is the shared primitive, not a per-substrate copy.
+  { source: 're-frame.subs.override-schema/validate-sub-override! (:sub-override schema-failure reason)',
+    sentinel: ' :sub-override value failed schema ' }
   // Note (rf2-7yqn39): the :rf.warning/plain-fn-under-non-default-frame-
   // once warning + its emit helper were RETIRED (EP-0002; superseded by
   // the always-on :rf.error/no-frame-context). There is no longer any

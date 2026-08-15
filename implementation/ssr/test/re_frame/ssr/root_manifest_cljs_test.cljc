@@ -2,33 +2,29 @@
   "Root Manifest v1 (S5-A) — the SUBSET PROPERTY and the wire/discovery
   contract (Spec 011 §Root Manifest v1; schema family Spec 004C §2).
 
-  The load-bearing test in this namespace is
-  `unmodified-s1-descriptor-is-a-valid-manifest`. It does NOT assert
-  against a hand-transcribed fixture — it drives the SHIPPED S1 emitter
-  (`re-frame.ui.compiler.root/root-descriptor`, reached through the same
-  `analyze-root` the mount macros use) and feeds the result, byte for
-  byte, to the manifest validator. If Root Manifest v1 ever stops being
-  a strict superset of Root Descriptor v1, that test goes red against
-  the real compiler rather than against my copy of its output.
+  What this namespace covers is the manifest surface itself: validation
+  (`problems`), assembly (`manifest`), locators, the render-time prop
+  screen, the wire form (`script-html` / `read-manifest`) and CLJS
+  discovery. Every assertion drives `re-frame.ssr.manifest` directly over
+  hand-built manifests.
 
-  `making-an-extension-key-mandatory-breaks-the-subset-property` is the
-  RED-BEFORE, made permanent: it runs a deliberately strict validator
-  (one that requires an extension key) over the same real descriptors
-  and proves it REJECTS them. That is the failure the shipped validator
-  must never reproduce — so the guard cannot rot into a tautology.
+  WHAT USED TO BE HERE AND IS NOT, so the gap is legible rather than
+  mysterious: a SUBSET-PROPERTY suite that drove the shipped S1 descriptor
+  emitter (`re-frame.ui.compiler.root/root-descriptor`) and fed its output
+  byte-for-byte to the validator, proving Root Manifest v1 a strict
+  superset of Root Descriptor v1 against the real compiler rather than
+  against a transcribed fixture. `re-frame.ui` has been retired
+  (rf2-0yp7w) and no other substrate emits a Root Descriptor, so that
+  property has no producer left to check it — it was deleted rather than
+  re-expressed over a hand-written descriptor, because a hand-written one
+  would assert the transcription and not the compiler, which is precisely
+  what the original suite existed to avoid.
 
   Runs on BOTH hosts (`.cljc`, `-cljs-test` ns): `clojure -M:test` from
-  `implementation/ssr` and the node runner via `npm run test:cljs`. The
-  UI compiler is a TEST-ONLY dependency here — production `re-frame.ssr`
-  does not require `re-frame.ui`."
+  `implementation/ssr` and the node runner via `npm run test:cljs`."
   (:require [clojure.test :refer [deftest is testing]]
             [re-frame.ssr.constants :as constants]
             [re-frame.ssr.manifest :as manifest]
-            [re-frame.ui.compiler.env :as env]
-            [re-frame.ui.compiler.root :as root]
-            ;; CLJS-only: the rf2-y3swx registry-collision proof drives the
-            ;; client Layer-3 root-claim registry (headless — no DOM needed).
-            #?(:cljs [re-frame.ui.client :as ui-client])
             #?(:clj  [clojure.edn]
                :cljs [cljs.reader])))
 
@@ -37,108 +33,6 @@
 ;; the safe reader cannot construct, and a locally-defined record is the
 ;; smallest honest instance of that class on both hosts.
 (defrecord WireProbeRecord [x])
-
-;; ---------------------------------------------------------------------------
-;; Driving the REAL S1 descriptor emitter
-;; ---------------------------------------------------------------------------
-
-(def resolver
-  "Injected resolution stub — the S1b pattern the UI compiler's own
-  suites use, so the analyzer runs host-neutrally here."
-  (fn [sym]
-    (case sym
-      frame-root {:fqn 're-frame.ui/frame-root :meta {}}
-      app-view   {:fqn 'app.views/app-view
-                  :meta {:rf.ui/view true :rf.ui/view-id :app.views/app-view}}
-      panel-view {:fqn 'app.views/panel-view
-                  :meta {:rf.ui/view true :rf.ui/view-id :app.views/panel-view}}
-      nil)))
-
-(defn descriptor*
-  "-> a genuine Root Descriptor v1, produced by the shipped compiler."
-  ([form] (descriptor* form {}))
-  ([form opts]
-   (let [e (env/make-env {:host :clj :ns-sym 'app.test :resolver resolver})
-         {:keys [ast views plans]} (root/analyze-root e 'ui/mount form)
-         {:keys [root-id provenance]} (root/resolve-root-identity
-                                       'ui/mount opts views)]
-     (root/root-descriptor {:root-id root-id :provenance provenance
-                            :views views :plans plans :ast ast}))))
-
-(def real-descriptors
-  "One descriptor per shape the S1 emitter can produce — authored and
-  derived identity, literal and dynamic props, with and without frame
-  plans, and the `render!` descriptor-base that carries NO identity keys
-  at all (root-id is nil, so the identity keys are omitted). The subset
-  property must hold for every one of them, not just the tidy case."
-  (delay
-    {:authored-literal-props
-     (descriptor* '[app-view {:promo :spring :sizes [1 2]}]
-                  {:root-id :page/shop})
-
-     :derived-identity
-     (descriptor* '[app-view {}] {})
-
-     :derived-with-disambiguator
-     (descriptor* '[app-view {}] {:disambiguator :left})
-
-     :dynamic-props
-     (descriptor* '[app-view {:promo current-promo}] {:root-id :page/shop})
-
-     :with-frame-plans
-     (descriptor* '[frame-root {:id :shop :initial-events [[:boot]]}
-                    [app-view {}]]
-                  {:root-id :page/shop})
-
-     :no-mounted-view
-     (descriptor* '[:div {} [:span {} "static"]] {:root-id :page/static})
-
-     :render-base-no-identity
-     (root/root-descriptor
-      (let [e (env/make-env {:host :clj :ns-sym 'app.test :resolver resolver})
-            {:keys [ast views plans]} (root/analyze-root
-                                       e 'ui/render! '[app-view {}])]
-        {:views views :plans plans :ast ast}))}))
-
-;; ---------------------------------------------------------------------------
-;; THE SUBSET PROPERTY — the acceptance evidence
-;; ---------------------------------------------------------------------------
-
-(deftest unmodified-s1-descriptor-is-a-valid-manifest
-  (testing "every shape the shipped S1 emitter produces validates AS a
-            Root Manifest v1, with no edit, no upgrade step, no migration"
-    (doseq [[shape d] @real-descriptors]
-      (is (nil? (manifest/problems d))
-          (str "S1 descriptor shape " shape " must be a valid manifest "
-               "unchanged; problems: " (pr-str (manifest/problems d))))
-      (is (manifest/valid? d) (str shape))
-      (is (= d (manifest/validate! 'test d))
-          (str shape " — validate! returns the descriptor UNCHANGED; a "
-               "manifest is not a rewritten descriptor"))))
-
-  (testing "one version integer governs both shapes — no negotiation"
-    (doseq [[shape d] @real-descriptors]
-      (is (= manifest/schema-version (:rf.root/schema-version d))
-          (str shape " declares the same :rf.root/schema-version as the "
-               "manifest that extends it (additive keys never bump it)")))))
-
-(deftest making-an-extension-key-mandatory-breaks-the-subset-property
-  (testing "THE RED-BEFORE, kept executable: a validator that requires an
-            extension key rejects the very descriptors the shipped
-            validator accepts — so the property above is load-bearing,
-            not vacuous"
-    (letfn [(strict-problems [required m]
-              (or (manifest/problems m)
-                  (when-not (contains? m required)
-                    {:missing required})))]
-      (doseq [required [:element-locator :phase :props :identifier-prefix
-                        :render-fingerprint :frame-payload-ids]
-              [shape d] @real-descriptors]
-        (is (= {:missing required} (strict-problems required d))
-            (str "if " required " were mandatory, S1 descriptor shape "
-                 shape " would FAIL — that is the regression this guards"))
-        (is (nil? (manifest/problems d))
-            (str "…and the SHIPPED validator still accepts it (" shape ")"))))))
 
 (deftest schema-version-is-the-only-required-key
   (is (nil? (manifest/problems {:rf.root/schema-version 1}))
@@ -164,39 +58,8 @@
 ;; Assembly — the manifest EXTENDS, it does not replace
 ;; ---------------------------------------------------------------------------
 
-(deftest manifest-preserves-every-descriptor-key-verbatim
-  (let [d (:authored-literal-props @real-descriptors)
-        m (manifest/manifest d {:element-locator    {:id "shop-root"}
-                                :props              {:promo :spring}
-                                :frame-payload-ids  [:shop :frame/session]
-                                :render-fingerprint "rf1-abc"
-                                :identifier-prefix  "rf2-page_Sshop-"})]
-    (testing "no descriptor key is renamed, retyped, or re-semanticised"
-      (doseq [[k v] (dissoc d :root-id-provenance)]
-        (is (= v (get m k))
-            (str "descriptor key " k " rides the manifest verbatim"))))
-    (testing "only the dev-only key is dropped"
-      (is (not (contains? m :root-id-provenance)))
-      (is (contains? d :root-id-provenance)
-          "…and it really was there to drop"))
-    (testing "the extension keys land"
-      (is (= {:id "shop-root"} (:element-locator m)))
-      (is (= {:promo :spring} (:props m)))
-      (is (= [:shop :frame/session] (:frame-payload-ids m)))
-      (is (= "rf1-abc" (:render-fingerprint m)))
-      (is (= "rf2-page_Sshop-" (:identifier-prefix m)))
-      (is (= :server (:phase m)) ":phase is always stamped — the only v1 value"))
-    (is (nil? (manifest/problems m)))))
-
-(deftest manifest-with-no-render-facts-is-the-descriptor-plus-phase
-  (let [d (:derived-identity @real-descriptors)
-        m (manifest/manifest d)]
-    (is (= (assoc (dissoc d :root-id-provenance) :phase :server) m)
-        "absent extension facts are OMITTED, never stubbed with nil")
-    (is (nil? (manifest/problems m)))))
-
 (deftest assembly-validates-its-extension-facts
-  (let [d (:derived-identity @real-descriptors)]
+  (let [d {:rf.root/schema-version 1 :root-id :page/shop}]
     (doseq [bad [{:element-locator {:id ""}}
                  {:element-locator {:id 42}}
                  {:element-locator {:selector "#shop"}}
@@ -234,7 +97,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest unserialisable-prop-fails-the-render-for-that-root
-  (let [d    (:authored-literal-props @real-descriptors)
+  (let [d    {:rf.root/schema-version 1 :root-id :page/shop}
         data (try (manifest/manifest 'test d {:props {:promo :spring
                                                       :chart-fn (fn [_] 1)}})
                   nil
@@ -254,7 +117,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest wire-form-round-trips
-  (let [d (:with-frame-plans @real-descriptors)
+  (let [d {:rf.root/schema-version 1 :root-id :page/shop}
         m (manifest/manifest d {:element-locator   {:id "shop-root"}
                                 :identifier-prefix "rf2-page_Sshop-"})
         html (manifest/script-html m)]
@@ -362,23 +225,18 @@
    :nested         {:a {:b [1 #{:c} {"d" :e}]}}})
 
 (deftest every-emitted-manifest-round-trips-exactly
-  (testing "rf2-v4foc — the SHIPPED emitter over the SHIPPED S1 descriptor
-            shapes: every manifest that reaches the wire reads back EQUAL,
-            not merely readable"
-    (doseq [[shape d] @real-descriptors]
-      (let [m (manifest/manifest d {:element-locator    {:id "shop-root"}
-                                    :props              {:promo :spring}
-                                    :frame-payload-ids  [:shop :frame/session]
-                                    :render-fingerprint "rf1-abc"
-                                    :identifier-prefix  "rf2-page_Sshop-"})]
-        (is (round-trips? m)
-            (str "descriptor shape " shape " must survive the wire exactly")))))
-
-  (testing "…and with NO extension facts at all, so `nil` vs ABSENT is
-            covered in both directions"
-    (doseq [[shape d] @real-descriptors]
+  (testing "rf2-v4foc — every manifest that reaches the wire reads back
+            EQUAL, not merely readable, with and without extension facts"
+    (let [d {:rf.root/schema-version 1 :root-id :page/shop}]
+      (is (round-trips? (manifest/manifest d {:element-locator    {:id "shop-root"}
+                                              :props              {:promo :spring}
+                                              :frame-payload-ids  [:shop :frame/session]
+                                              :render-fingerprint "rf1-abc"
+                                              :identifier-prefix  "rf2-page_Sshop-"}))
+          "a fully-extended manifest survives the wire exactly")
       (is (round-trips? (manifest/manifest d))
-          (str "bare manifest for shape " shape))))
+          "…and so does the bare one, so `nil` vs ABSENT is covered in both
+           directions")))
 
   (testing "every value class the wire promises to carry, as a prop value
             and again as a prop KEY where the class can be a key"
@@ -878,12 +736,13 @@
             (str "descriptor key " k " must be gated too"))
         (is (= k (:unserialisable-manifest-key data))))))
 
-  (testing "the gate does NOT narrow what a valid manifest may hold — every
-            real descriptor shape still emits"
-    (doseq [[shape d] @real-descriptors]
-      (is (string? (manifest/script-html (manifest/manifest d)))
-          (str shape " still emits — the gate rejects unwireable values, "
-               "not ordinary data")))))
+  (testing "the gate does NOT narrow what a valid manifest may hold —
+            ordinary data still emits"
+    (is (string? (manifest/script-html
+                  (manifest/manifest {:rf.root/schema-version 1
+                                      :root-id                :page/shop
+                                      :static-props           {:limit 10}})))
+        "the gate rejects unwireable values, not ordinary data")))
 
 (deftest body-must-hold-exactly-one-edn-form
   (testing "rf2-v4foc — `read-string` returns the FIRST form and discards
@@ -1040,54 +899,3 @@
          (is (= "" (:identifier-prefix found)))
          (is (= (assoc bare :identifier-prefix "") found)
              "identity is the manifest plus the resolved effective prefix")))))
-
-#?(:cljs
-   (deftest omitted-prefix-roots-collide-on-react-empty-effective-prefix
-     ;; The end-to-end property, driven headlessly through the client Layer-3
-     ;; registry (`re-frame.ui.client`) with infos derived exactly as
-     ;; `hydrate-root*` derives them from a discovered manifest.
-     (try
-       (ui-client/reset-live-roots!)
-       (let [pfx-a (:identifier-prefix (manifest/canonicalize-effective-prefix
-                                        {:rf.root/schema-version 1 :root-id :y3swx/a}))
-             pfx-b (:identifier-prefix (manifest/canonicalize-effective-prefix
-                                        {:rf.root/schema-version 1 :root-id :y3swx/b}))
-             info-a {:root-id :y3swx/a :provenance :manifest :identifier-prefix pfx-a}
-             info-b {:root-id :y3swx/b :provenance :manifest :identifier-prefix pfx-b}
-             c-a    #js {} c-b #js {}]
-         (testing "both omitted-prefix manifests resolve to React's empty prefix"
-           (is (= "" pfx-a))
-           (is (= "" pfx-b)))
-         ;; first bare-manifest root claims + registers
-         (ui-client/check-root-claim! 're-frame.ssr.test info-a c-a)
-         (ui-client/register-live-root! info-a c-a (ui-client/->Root nil c-a :y3swx/a))
-         (testing "the live-root registry records the actual effective prefix \"\""
-           (is (= "" (:identifier-prefix (ui-client/live-root-entry :y3swx/a)))))
-         (testing "a SECOND omitted-prefix root is rejected before any React work"
-           (let [{:keys [id data]}
-                 (try (ui-client/check-root-claim! 're-frame.ssr.test info-b c-b) nil
-                      (catch :default e {:id (:rf.error/id (ex-data e)) :data (ex-data e)}))]
-             (is (= :rf.error/duplicate-identifier-prefix id)
-                 "two omitted-prefix roots share React's effective \"\" prefix")
-             (is (= "" (:identifier-prefix data))
-                 "the collision reports the effective empty prefix")
-             (is (= :y3swx/a (:owner-root-id data))
-                 "and names the owning root"))))
-       (finally (ui-client/reset-live-roots!)))))
-
-#?(:cljs
-   (deftest red-before-nil-prefix-roots-do-not-collide
-     ;; The exact pre-fix gap: a NIL prefix (what un-canonicalized discovery
-     ;; yielded) is a no-op in the prefix-uniqueness arm, so two bare roots were
-     ;; both admitted. This is the failure the canonicalization closes.
-     (try
-       (ui-client/reset-live-roots!)
-       (let [info-a {:root-id :y3swx/c :provenance :manifest :identifier-prefix nil}
-             info-b {:root-id :y3swx/d :provenance :manifest :identifier-prefix nil}
-             c-a    #js {} c-b #js {}]
-         (ui-client/check-root-claim! 're-frame.ssr.test info-a c-a)
-         (ui-client/register-live-root! info-a c-a (ui-client/->Root nil c-a :y3swx/c))
-         (is (nil? (try (ui-client/check-root-claim! 're-frame.ssr.test info-b c-b) nil
-                        (catch :default e (:rf.error/id (ex-data e)))))
-             "with a nil effective prefix the second root is (wrongly) admitted — the gap"))
-       (finally (ui-client/reset-live-roots!)))))
