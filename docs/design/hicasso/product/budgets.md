@@ -519,10 +519,11 @@ verdict line is that no figure from the run may be published as measured.
 verdict.** Those are two findings and not one. The rule `rf2-zcgps` was given
 is that the published escape falls if the STRICT CONTROL refuses, and it did
 not: computed on this run's samples it read `:ok? true`, all five rounds inside
-`[1.500–2.500]`. But `:hiccup` is the denominator of the control *and* of the
-escape, so the guard's refusal reaches both legs of the run that produced that
-verdict — it is recorded below as data, never quoted as a verdict, and **the
-absence this section records stands unchanged.** The published figure is still
+`[1.500–2.500]`. But the arm the guard refused is `:hiccup`, and `:hiccup` is
+the denominator the control and the escape are each divided by — so the
+refusal lands under the verdict rather than beside it. That verdict is
+recorded below as data, never quoted as a verdict, and **the absence this
+section records stands unchanged.** The published figure is still
 run 1's, on run 1's own basis, and no window has yet re-adjudicated it.
 
 **The refused run's per-round values, so it can be re-adjudicated without being
@@ -530,8 +531,9 @@ re-run.** This is the durability the two published runs lack, and it is kept
 here whether or not the run was reportable:
 
 - Control, per-round `:ctl-2x`/`:hiccup`: `[1.7143, 2.0714, 1.9535, 1.9167,
-  2.0263]` against the band `[1.500–2.500]`, `:outside` empty — worst round
-  `14.3%` under the `2.00x` prediction, best `3.6%` over.
+  2.0263]` against the band `[1.500–2.500]`, `:outside` empty — the round
+  furthest below the `2.00x` prediction reads `1.7143` (`14.3%` under) and the
+  round furthest above reads `2.0714` (`3.6%` over).
 - Escape, per-round `:direct`/`:hiccup`: `[0.6250, 0.8095, 0.7907, 0.7778,
   0.7895]`, whose `0.7585x` is an **arithmetic mean of those five per-round
   ratios, each itself a ratio of within-round medians** — not a median at run
