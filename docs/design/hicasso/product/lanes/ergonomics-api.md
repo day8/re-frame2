@@ -8,7 +8,7 @@ Converge on a deliberately small language. Freeze laws first and names only afte
 
 - `h/defview`: defines a React/re-frame boundary. It is used as a Hiccup head and refuses a direct Clojure call with a source-located recovery.
 - `h/sub`: reads at the point of use during the direct synchronous execution of the active boundary. Branches, loops, and ordinary `defn` helpers are legal; deferred reads refuse.
-- `h/handler`: captures the current frame, runs later, dispatches a returned event vector, and ignores `nil`. Its meaning does not vary by prop position.
+- `h/event`: captures the current frame, runs later, dispatches a returned event vector, and ignores `nil` — at an **event** position. Its contract *does* vary by prop position: HD-024 tabulates event, as-declared and render, and `rf2-0fd3b` owns carrying that table alongside the name. (This line read `h/handler`, and read that the meaning does not vary, until `rf2-hic-090`.)
 - Literal event vectors: the default event representation.
 - `h/defhost`: names and documents a foreign React ABI, ReactNode positions, and server policy once.
 - `h/as-element`: explicitly converts Hiccup returned through a foreign render-prop or slot callback.
@@ -85,7 +85,7 @@ Here the macro emits the canonical `className`, `data-row-id`, `onClick`, `rowId
 2. A body is pure and may run, retry, or be abandoned. Render owns nothing.
 3. `sub` is ambient only during the active synchronous body. A helper may donate reads to that boundary; a callback, promise, timer, or lazy escape may not.
 4. React owns keys, refs, hooks, effects, errors, concurrency, hydration, and component identity.
-5. Event vectors are data. `h/handler` is the one explicit event-producing function form. Ordinary `fn` values retain ordinary JavaScript callback semantics.
+5. Event vectors are data. `h/event` is the one explicit event-producing function form. Ordinary `fn` values retain ordinary JavaScript callback semantics.
 6. Controlled fields use app-db, the synchronous controlled-input door, and an explicit revision for identity-preserving reset.
 7. Owned control attributes beat forwarded attributes by presence, not truthiness.
 8. Host props use an honest ABI: normalize documented HTML-like slots, pass other values by identity, and require explicit `clj->js` for JavaScript option objects.
@@ -96,7 +96,7 @@ State ownership is explicit: durable and application-visible ephemera live at ad
 ## Surface boundaries and exclusions
 
 - Prevention is explicit at every position except `:on-submit`, whose data spelling auto-prevents as the census-weighted default; no second auto-preventing position may be added, and a callback always owns its own event.
-- Callback contracts use literal intents, `h/handler`, and ordinary functions rather than a positional taxonomy.
+- Callback contracts use literal intents, `h/event`, and ordinary functions rather than a positional taxonomy.
 - Attribute forwarding uses an owned-wins pure merge recipe; a public helper exists only if repeated code warrants it.
 - Keep key maps restricted to keyboard event props.
 - Validate React refs instead of reserving an unproven vector-ref syntax.

@@ -115,7 +115,7 @@ These names are a provisional facade. Phase 0 freezes the laws and classificatio
 |---|---|
 | `h/defview` | Define a React/re-frame boundary; use it as a Hiccup head; direct Clojure invocation refuses |
 | `h/sub` | Return a subscription value during the direct synchronous body; legal in branches, loops, and ordinary helpers |
-| `h/handler` | Capture the current frame; run later; dispatch a returned event vector; ignore `nil` |
+| `h/event` | Capture the current frame; run later; dispatch a returned event vector; ignore `nil` — **at an event position**; the position selects the contract (`rf2-0fd3b`) |
 | `h/defhost` | Declare a foreign React ABI, ReactNode-valued positions, and server policy once |
 | `h/as-element` | Explicitly lower Hiccup returned through a render prop or foreign callback |
 | attribute merge | Pure owned-wins helper or recipe for forwarded attributes; public only if a witness needs it |
@@ -155,7 +155,7 @@ Ordinary `defn` helpers inline into their caller and donate any synchronous read
 
 ### 4.1 Events
 
-Literal vectors are the common path. Prevention is explicit everywhere except `:on-submit`, whose data spelling auto-prevents by deliberate law: a prevented submit forecloses no browser affordance the way a prevented click forecloses a modifier-click, and the rare real submission opts out through the function escape, which owns its event. `h/handler` has one meaning everywhere; ordinary `fn` is reserved for real callbacks, render props, and imperative APIs. Generated intent callbacks may be fresh per render. A narrow stable-event primitive is admitted only if a realistic retaining host demonstrates a material problem and the solution is safe across abandonment, frame reincarnation, and teardown.
+Literal vectors are the common path. Prevention is explicit everywhere except `:on-submit`, whose data spelling auto-prevents by deliberate law: a prevented submit forecloses no browser affordance the way a prevented click forecloses a modifier-click, and the rare real submission opts out through the function escape, which owns its event. `h/event` is the one callback form, and the **position** selects the contract it carries — HD-024 tabulates three, so "one meaning everywhere" is not what shipped, and `rf2-0fd3b` owns making that table travel with the name. Ordinary `fn` is reserved for real callbacks, render props, and imperative APIs. Generated intent callbacks may be fresh per render. A narrow stable-event primitive is admitted only if a realistic retaining host demonstrates a material problem and the solution is safe across abandonment, frame reincarnation, and teardown.
 
 Keyboard maps apply only to keyboard props and must make IME composition behavior explicit. The framework should not hide the DOM event when a host API genuinely requires it; that is the function escape.
 

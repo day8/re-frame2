@@ -80,7 +80,7 @@ rg -n --sort path "^\s*\(defmacro\b" implementation/hicasso/src
 | Macro | Namespace | What it expands to | Why it is not a compiler |
 |---|---|---|---|
 | `defview` | `re-frame.hicasso` | a `defn` plus one `mint-view!` call | the body is an ordinary function; nothing reads its forms |
-| `hfn` | `re-frame.hicasso` | an anonymous view, same shape | as above |
+| `event` | `re-frame.hicasso` | an anonymous view, same shape | as above |
 | `defhost` | `re-frame.hicasso` | a `def` of a `mint-host!` declaration | takes a data map, not body forms |
 | `props` | `re-frame.hicasso.native` | a `#js` object literal | a literal, at one visible escape |
 | `$` | `re-frame.hicasso.native` | one `react/createElement` | the visibly distinct second language the kill rule names, never a second mode of `[…]` |
