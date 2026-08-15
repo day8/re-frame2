@@ -777,6 +777,17 @@ Check the merge before treating a dependency as discharged.
 an internal row identifier, a re-import regenerates them and the diff reports phantom losses; and
 searching the whole record matches the word "open" inside a title.
 
+**A command's echoed output is not confirmation that it did anything.** The rule against reading a gate's
+verdict off a filter is the same failure in a different suit, and it reaches every command the mayor runs, not
+just gates. Two instances in one session, both from trimming output to keep a log short. Four closes were sent
+with long reasons and their output trimmed to the last line — which, when the reason is long, *is* the reason
+text, so a refused close and an accepted one looked identical; all four evaporated and were found cycles later
+reading open with no reason recorded. Nine worktree removals were then called with the wrong argument shape and
+their output counted for a string that the script prints on the way out whether it acts or refuses; every one
+had exited non-zero saying "nothing was touched", and all nine were still there. **So confirm a mutation by its
+exit status, or by re-reading the thing it was supposed to change — never by what it printed.** A maintenance
+script that refuses safely is doing its job; the failure is the caller who does not look.
+
 **A tracker write can silently revert.** Items verified closed can read open again cycles later — a
 rollback to an earlier snapshot, a re-import over the top — and nothing in the loop surfaces it, so the
 session's "closed" count quietly overstates. Verifying at the moment you close is not enough. Each cycle,
