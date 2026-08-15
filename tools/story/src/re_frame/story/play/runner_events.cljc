@@ -1597,6 +1597,16 @@
   #{assertions/id-dom-text
     assertions/id-dom-visible})
 
+(defn- atom-required-selector
+  "The DOM selector an assertion ATOM must be able to resolve before it can
+  be evaluated, or nil when absence is acceptable — or, for
+  `:rf.assert/dom-hidden`, is the whole point. Pure data → data; tolerant
+  of a malformed / non-vector atom."
+  [atom-v]
+  (when (and (vector? atom-v)
+             (contains? presence-required-selector-atoms (first atom-v)))
+    (nth atom-v 1 nil)))
+
 (defn- step-required-selector
   "The DOM selector `step` must be able to resolve before it can run, or
   nil when the step needs no node present.
@@ -1605,16 +1615,33 @@
   is not there, and the presence-asserting half of the DOM assertion
   family — reading the selector out of the FOLDED atom
   (`[:rf.assert/dom-* selector & args]`, `exec-assert-dom-atom!`'s own
-  shape) as well as off a raw shipping step that bypassed folding."
+  shape) as well as off a raw shipping step that bypassed folding.
+
+  ONE STEP, ONE MEANING, whichever entry path supplied it. The runtime
+  normally consumes a folded plan, but `run!` documents and accepts a
+  hand-built `spec` and does NOT fold it, so a raw
+  `[:assert-dom selector :hidden]` can reach the run-loop verbatim. Read
+  as a bare selector that step demands a node be PRESENT — inverting the
+  one assertion whose pass condition is absence, and burning the entire
+  `settle-poll-timeout-ms` budget waiting for a node the author declared
+  should not be there, where the identical assertion in folded form passes
+  immediately (rf2-n0sz4, audit #8319). So the raw step is folded here
+  through the SAME `fold-assert-step` `exec-step!` will apply to it, and
+  the presence requirement is read off the canonical atom — rather than a
+  second, mode-blind notion of 'this one needs a node'.
+
+  Tolerant: a malformed `:assert-dom` (missing or unknown mode) folds by
+  throwing, which must not become this fn's problem — it reads as 'no
+  node required' so the step reaches the executor that reports it
+  properly, instead of timing out on a precondition first."
   [step]
   (case (runner/step-type step)
     (:click :type :focus) (runner/step-selector step)
-    :assert               (let [atom-v (runner/step-assertion step)]
-                            (when (and (vector? atom-v)
-                                       (contains? presence-required-selector-atoms
-                                                  (first atom-v)))
-                              (nth atom-v 1 nil)))
-    :assert-dom           (runner/step-selector step)
+    :assert               (atom-required-selector (runner/step-assertion step))
+    :assert-dom           (atom-required-selector
+                            (try (runner/step-assertion
+                                   (assertions/fold-assert-step step))
+                                 (catch #?(:clj Throwable :cljs :default) _ nil)))
     nil))
 
 (defn- step-precondition-unmet
@@ -1676,7 +1703,10 @@
   advancing the cursor; `settle-deadline` carries the wall-clock bound
   across those re-entries and is nil whenever the loop is not mid-poll.
   Exhausting the bound FAILS the step readably (rf2-n0sz4) — it is never
-  a silent proceed, and never a silent pass."
+  a silent proceed, and never a silent pass. A poll whose own COMMIT
+  fails reports that failure verbatim and advances, rather than
+  re-running a broken flush until the budget expires and then reporting
+  the timeout in its place."
   ([frame-id play-key token done-cb] (run-loop! frame-id play-key token done-cb nil))
   ([frame-id play-key token done-cb settle-deadline]
   (let [state (current-state-for-play frame-id play-key)]
@@ -1731,17 +1761,40 @@
                     (or (nil? settle-deadline)
                         (< (interop/now-ms) settle-deadline)))
                (let [deadline (or settle-deadline
-                                  (+ (interop/now-ms) settle-poll-timeout-ms))]
-                 ;; Commit anything the substrate has already scheduled. This
-                 ;; is rf2-ek9qb's own rung, reused: on a rAF-scheduled
-                 ;; substrate in a throttled tab the pending render would
-                 ;; otherwise never land no matter how long we yielded. Its
-                 ;; refusal result is deliberately discarded — `exec-step!`
-                 ;; establishes the same boundary and reports a refusal
-                 ;; properly when the step actually runs.
-                 (settle-substrate-for-step! frame-id idx step)
-                 (js/setTimeout
-                   #(run-loop! frame-id play-key token done-cb deadline) 0))
+                                  (+ (interop/now-ms) settle-poll-timeout-ms))
+                     ;; Commit anything the substrate has already scheduled.
+                     ;; This is rf2-ek9qb's own rung, reused: on a
+                     ;; rAF-scheduled substrate in a throttled tab the
+                     ;; pending render would otherwise never land no matter
+                     ;; how long we yielded.
+                     refused  (settle-substrate-for-step! frame-id idx step)]
+                 (if refused
+                   ;; THE COMMIT ITSELF FAILED — a flush threw, or blew its
+                   ;; boundary budget. Record that exact result and advance.
+                   ;;
+                   ;; This used to be discarded, on the reasoning that
+                   ;; `exec-step!` establishes the same boundary and would
+                   ;; report the refusal properly when the step ran. It is
+                   ;; the precondition that makes that false: a step parks
+                   ;; here precisely because it is NOT running yet, and a
+                   ;; selector that stays absent never reaches `exec-step!`
+                   ;; at all. So the loop re-ran the same broken flush every
+                   ;; tick for the whole budget and then replaced a named,
+                   ;; actionable settle error with the generic "preconditions
+                   ;; never settled" timeout — the true cause discarded and
+                   ;; the symptom reported in its place (rf2-n0sz4, audit
+                   ;; #8319).
+                   ;;
+                   ;; Advancing is right, not merely convenient: polling
+                   ;; exists to wait out work that is IN FLIGHT, and a commit
+                   ;; that threw is not in flight. Waiting out the budget
+                   ;; could only re-throw.
+                   (do
+                     (record-result! frame-id play-key nm idx step refused)
+                     (js/setTimeout
+                       #(run-loop! frame-id play-key token done-cb nil) 0))
+                   (js/setTimeout
+                     #(run-loop! frame-id play-key token done-cb deadline) 0)))
 
                ;; Budget exhausted. FAIL LOUDLY, naming what never settled —
                ;; never a silent proceed onto a stale read (which is what a
