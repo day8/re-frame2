@@ -531,6 +531,18 @@ outside, and both readings went wrong in a single day here, in opposite directio
 3. **Only when there is no live task and no movement in the tip:** push any existing commits on the
    branch — pure durability — then set the item back to open with a note saying what was found
    and what was salvaged, and redispatch.
+   **Read WHY the worker stopped before you act on that last word.** When the stop reason names an
+   exhausted allowance — a spend cap, a rate limit, a usage quota with a stated reset — redispatch
+   is not a remedy, because *a remedy that draws on the resource whose exhaustion caused the
+   failure is not a remedy*: every attempt fails identically until the reset, and every attempt
+   spends. The salvage half still applies in full. Leave the item open with the reason and the
+   reset time recorded, and stop dispatching rather than retrying. **Merging is unaffected**, and
+   that is the half that still pays — integrating a finished change draws on none of that
+   allowance, and a change whose author has already stopped can still be the one unblocking
+   everything queued behind it. So the order is salvage, then merge whatever is green, then stop.
+   A reason naming a limit and a reset is categorically different from a crash, a timeout, or
+   step 2's detached-gate strand: **the reason text, not the symptom, chooses the remedy**, and
+   all three symptoms look identical from outside.
 
 **Never build a commit from someone else's uncommitted work.** Only that worker knows whether
 it forms a coherent change.

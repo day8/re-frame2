@@ -309,6 +309,24 @@ SPINE_LANES = (
         "spine node tier: 'hicasso invariants gate' chains this checker "
         "(`npm run test:hicasso-invariants`), both modes",
     ),
+    # rf2-st1x5 — the naming-census gate's own unconditional job, the fifth
+    # instance of the shape above.  Its ledger half (`naming-ledger.md`) arms no
+    # classifier output, so before that job a ledger-only PR ran the census
+    # nowhere -- and before rf2-st1x5 nothing ran it at all, in CI or locally.
+    # UNLIKE the four above, the spine covers it DIRECTLY rather than through
+    # `npm run test:hicasso-invariants`: the live run takes an absolute repo
+    # root as an argument (it refuses to derive one), and npm's script shell is
+    # `sh` on Linux/macOS and `cmd.exe` on Windows, so no single spelling of
+    # that argument expands on both.  The spine is one POSIX shell everywhere
+    # and passes `$spine_root`.  Without this lane the job's two steps would be
+    # reported as a local gap, which is the same lie in the opposite direction.
+    Lane(
+        "hicasso-naming-census",
+        r"^python implementation/hicasso/scripts/check_naming_census\.py"
+        r"(?: --self-test| \"\$PWD\")$",
+        "spine always-on: 'hicasso naming census self-test' + "
+        "'hicasso naming census (rf2-st1x5)', both modes",
+    ),
     Lane(
         "mkdocs-strict",
         r"^mkdocs build --strict$",

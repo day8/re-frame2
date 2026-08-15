@@ -123,7 +123,7 @@ run on every invocation of `--self-test`, so the control proves itself
 rather than waiting for a worker to remember it.
 
 
-## Where it should run -- and it is NOT wired yet
+## Where it runs (rf2-st1x5)
 
 Two input families that do not arm the same lane, exactly as
 `check_facade_inventory.py` documents for exactly this reason:
@@ -137,9 +137,21 @@ measures false at every classifier output), so the doc-side direction --
 a ledger row deleted out from under a name -- needs an unconditional lane
 or it next reddens on somebody else's source PR.
 
-`.github/workflows/*` is hot zone and arming this gate is filed separately
-rather than done here. Until that lands this gate is runnable and proven
-but not standing, and `naming-packet.md` section 7 says so.
+    hicasso-naming-census      .github/workflows/test.yml, UNCONDITIONAL and
+                               named in `all-required-passed`'s `needs:` --
+                               a job absent from that list is advisory
+                               whatever its own gate says
+    scripts/test-fast-pr.sh    the local lane, in the always-on block
+
+NOT the `test:hicasso-invariants` npm chain its seven siblings ride, and
+the reason is the argument above rather than an oversight: npm runs package
+scripts through `sh` on Linux/macOS and `cmd.exe` on Windows. `$PWD`
+expands in the first and stays LITERAL in the second, `%CD%` is the mirror
+image, and no single spelling of an absolute root resolves on both -- so
+the chain would exit 2 here on exactly one platform. The spine is one POSIX
+shell on all three. `scripts/check_fast_pr_gap.py` carries the matching
+`SPINE_LANES` entry so the CI job's two steps are not reported as a local
+gap.
 """
 
 import os

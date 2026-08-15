@@ -351,10 +351,14 @@ rather than by inspection. A non-zero count from here is a public name minted si
 publication with no ledger row — precisely what section 3 of
 [`dispositions.md`](dispositions.md) forbids.
 
-**Not yet wired into CI.** `.github/workflows/*` is hot zone and arming the gate is filed
-separately (`rf2-st1x5`), and it has three parts rather than one: the
-`test:hicasso-invariants` chain, an unconditional job for the ledger side — which arms no
-classifier output, so a deleted row would otherwise next redden on somebody else's source
-PR — and the `all-required-passed` `needs:` entry that pins the second, without which the
-lane exists and gates nothing. Until that lands, the census is runnable and proven but not
-standing, and nothing re-runs it on your behalf.
+**Standing since `rf2-st1x5`,** in two homes rather than the three that bead anticipated.
+The `hicasso-naming-census` job in `.github/workflows/test.yml` runs it unconditionally —
+the ledger arms no classifier output, so a deleted row would otherwise next redden on
+somebody else's source PR — and that job is named in `all-required-passed`'s `needs:`,
+without which it would exist and gate nothing. The local lane is `scripts/test-fast-pr.sh`
+rather than the `test:hicasso-invariants` chain its seven siblings ride, because the live
+run takes an **absolute** repo root and npm runs package scripts through `sh` on
+Linux/macOS and `cmd.exe` on Windows: `$PWD` expands in one and stays literal in the other,
+`%CD%` is the mirror image, and no single spelling resolves on both. The spine is one POSIX
+shell on all three platforms. `scripts/check_fast_pr_gap.py` carries the matching
+`SPINE_LANES` entry, so the job's two steps are not over-reported as a local gap.
