@@ -105,7 +105,7 @@ rf2-d03av).
   placeholder (~97% of corpus handler sites become pure data). Ordinary functions
   remain legal at event positions.
 - Census-weighted policy defaults: `:on-submit` intents auto-prevent (the rare
-  opt-out is the `h/fn` escape — a callback holds the event, so it owns it); a
+  opt-out is the `h/event` escape — a callback holds the event, so it owns it); a
   data key-map `{:on-keydown {"Enter" [...] "Escape" [...]}}` with the
   composition law centralised — a composing Enter (IME, including the
   keyCode-229 legacy signal) commits nothing.
@@ -136,11 +136,11 @@ rf2-d03av).
 
 ### When a vector is not enough: one form, and the position decides (HD-024)
 
-There is **one** callback form, `h/fn`, and it is an **ordinary function**:
+There is **one** callback form, `h/event`, and it is an **ordinary function**:
 
 ```clojure
 [:input {:type "file"
-         :on-change (h/fn [e] [:upload/picked (js/Array.from (.. e -target -files))])}]
+         :on-change (h/event [e] [:upload/picked (js/Array.from (.. e -target -files))])}]
 ```
 
 | Position | Contract |
@@ -159,7 +159,7 @@ form: the codec already hands functions to React by identity so `React.memo` and
 handler-identity bail-outs keep working.
 
 **The declared contract governs every carrier at that position**, not just the
-`h/fn`. An intent vector and a key-map are each a dispatch and nothing else, so
+`h/event`. An intent vector and a key-map are each a dispatch and nothing else, so
 they are accepted at `:event` and refused at `:handler` and `:render` with
 `:rf.error/hicasso-intent-at-a-non-event-contract` — otherwise the value would be
 selecting the contract, which is the thing the row above forbids.
@@ -169,7 +169,7 @@ and a key-map's key lookup read the DOM event from **argument one** — what a
 native position hands them and what `onDraft(event)` hands them. A value-first
 foreign invoker (`onPick(value, event)`) raises
 `:rf.error/hicasso-intent-needs-the-event` naming the position, rather than the
-engine's `value.preventDefault is not a function`; `h/fn` is the spelling there,
+engine's `value.preventDefault is not a function`; `h/event` is the spelling there,
 since it receives every argument in order. An intent carrying neither a marker nor
 a decorator never reads its argument, so it is correct under any invoker contract.
 
