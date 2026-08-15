@@ -281,14 +281,14 @@ it('the slim smoke driver is NOT named spec.cjs/*.spec.cjs (shared walker ignore
   );
 });
 
-it('the shared adapter-smoke manifest carries NO slim entry (Reagent/UIx + the re-frame.ui smoke only)', () => {
+it('the shared adapter-smoke manifest carries NO slim entry (Reagent/UIx only)', () => {
   // The slim smoke is the slim adapter's OWN gate; it must NOT be folded
   // into the shared adapter-smoke manifest. This pins both directions of
   // the drift: the shared set does not silently grow a slim entry, and the
   // slim gate does not silently vanish into it. (The manifest's set — the
-  // two adapter smokes plus the re-frame.ui substrate smoke, rf2-nojiwy;
-  // the Helix arm left at S7/W13, rf2-d6epb — is pinned by
-  // _adapter-smoke-filter.test.cjs; here we pin
+  // two adapter smokes; the Helix arm left at S7/W13, rf2-d6epb, and the
+  // re-frame.ui substrate smoke retired with the substrate, rf2-0yp7w.4 —
+  // is pinned by _adapter-smoke-filter.test.cjs; here we pin
   // the exact set too so a slim entry cannot hide behind growth.)
   const { ADAPTER_SMOKES } = require(ADAPTER_SMOKE_FILTER);
   const builds = ADAPTER_SMOKES.map((e) => e.build).sort();
@@ -297,10 +297,9 @@ it('the shared adapter-smoke manifest carries NO slim entry (Reagent/UIx + the r
     [
       'adapters/reagent-testbed',
       'adapters/uix-testbed',
-      'ui/testbed',
     ],
     'the shared adapter-smoke manifest drifted from the ' +
-      'Reagent/UIx + re-frame.ui set; the slim client-runtime smoke is a ' +
+      'Reagent/UIx set; the slim client-runtime smoke is a ' +
       'dedicated adapter-owned gate (test:reagent-slim:smoke), not a ' +
       'shared-manifest entry',
   );

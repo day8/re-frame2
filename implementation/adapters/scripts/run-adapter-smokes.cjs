@@ -21,9 +21,6 @@
  *
  *   - 2 adapter smokes   (implementation/adapters/<name>/testbed/spec.cjs)
  *     Reagent / UIx mount + dispatch + render.
- *   - 1 substrate smoke  (implementation/ui/testbed/spec.cjs)
- *     re-frame.ui mount + dispatch + render (the four-suites rule,
- *     rf2-nojiwy).
  *
  * Real-regression coverage for everything else lives in: substrate
  * contract tests under `npm run test:cljs`, the Xray feature-matrix
@@ -121,9 +118,7 @@ const VERBOSE_TESTS = isVerboseTests();
 // runner and the fast-tier _adapter-smoke-filter.test.cjs exercise the SAME
 // real code instead of two copies that could drift (rf2-qf45gu). Specs live
 // alongside the testbed they exercise: each adapter (Reagent / UIx)
-// ships `implementation/adapters/<name>/testbed/spec.cjs`, and the
-// re-frame.ui substrate ships `implementation/ui/testbed/spec.cjs`
-// (rf2-nojiwy).
+// ships `implementation/adapters/<name>/testbed/spec.cjs`.
 
 function withTimeout(promise, ms, label) {
   let timer;

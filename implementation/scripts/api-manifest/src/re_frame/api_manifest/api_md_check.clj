@@ -402,231 +402,6 @@
   (projection/vacuity-floor-problem "spec/API.md" extracted min-var-rows))
 
 ;; ---------------------------------------------------------------------------
-;; Root-verb KIND guard (rf2-e9q33).
-;;
-;; PR #5968 corrected the source (create-root is a MACRO, not a Fn) but left
-;; the documented-kind acceptance criterion unproved: the `M/Fn` cell was
-;; used only to classify a row as a var-row, then discarded — `reconcile`
-;; compares identity and tier only. So the create-root row could silently
-;; flip M -> Fn (or unmount! Fn -> M) and stay GREEN. This guard restores the
-;; comparison for the Spec-004C root verbs: each documented kind must equal
-;; the manifest `:kind` for the `re-frame.ui` row of that name.
-;;
-;; Made EXACT-ROW + POLARITY-SAFE (rf2-asxo3). The first cut compared BARE var
-;; names over whatever rows survived in `api-rows`, which left two holes: a
-;; foreign same-name qualified row (`other.ui/render!`) matched a root verb by
-;; bare name and could falsely prove OR contradict it; and a DELETED row — or a
-;; row whose `M/Fn` marker drifted to an unknown spelling and was therefore
-;; dropped by the parser — vanished from `api-rows`, so the one-way
-;; keep-over-present-rows stayed green. The guard now (1) resolves the qualifier
-;; exactly (`root-ui-row?`), and (2) reconciles the REQUIRED SET of four verbs,
-;; requiring EXACTLY ONE `re-frame.ui` row each — so deletion, duplication, an
-;; unknown kind marker, or a foreign qualifier can no longer false-green or
-;; false-red the check.
-;; ---------------------------------------------------------------------------
-
-(def root-verb-namespace
-  "The manifest namespace that owns the Spec-004C root-lifecycle verbs whose
-   documented public-Var KIND the gate pins against the manifest (rf2-e9q33)."
-  "re-frame.ui")
-
-(def root-verb-kinds
-  "The Spec-004C root-lifecycle verbs (`re-frame.ui`) whose DOCUMENTED
-   public-Var kind the gate pins against the manifest (rf2-e9q33) — named in
-   the bead's acceptance criteria: create-root / render! / hydrate-root are
-   macros; unmount! is a function. A new root verb whose kind should be
-   pinned is an intentional one-line addition here."
-  #{"create-root" "render!" "hydrate-root" "unmount!"})
-
-(defn- root-ui-row?
-  "True when an API.md var-row denotes a `re-frame.ui` root-lifecycle verb
-   (rf2-asxo3; attribution keyed on the row's NAMESPACE, not its bare name —
-   rf2-etj5i): its bare var is one of `root-verb-kinds` AND its ACTUAL namespace
-   is `re-frame.ui`. A QUALIFIED row's namespace is its qualifier mapped through
-   `aliases` (else verbatim); a BARE row's namespace is the SECTION it sits under
-   (`:section-ns`), defaulting to `re-frame.ui` only for a row parsed with no
-   section context. So a foreign same-name qualified row (`other.ui/render!`)
-   resolves to `other.ui`, and a BARE row in the Freehand section (`:section-ns`
-   `re-frame.freehand`) resolves to `re-frame.freehand` — neither is a root-verb
-   row, and neither can falsely PROVE nor falsely CONTRADICT the real
-   `re-frame.ui` row. That closes both exactness holes the bare-name comparison
-   had: a foreign qualifier, AND a bare row mis-attributed to `re-frame.ui` by
-   its name when it in fact belongs to another door's section."
-  [aliases {:keys [var qualifier section-ns]}]
-  (and (boolean (root-verb-kinds var))
-       (= root-verb-namespace
-          (if qualifier
-            (get aliases qualifier qualifier)
-            (or section-ns root-verb-namespace)))))
-
-(defn root-verb-kind-problems
-  "Two-sided documented-kind reconciler for the Spec-004C root verbs
-   (rf2-e9q33; made EXACT-ROW + POLARITY-SAFE — rf2-asxo3). For EACH of the
-   four `root-verb-kinds` verbs there must be EXACTLY ONE `re-frame.ui` API.md
-   var-row whose DOCUMENTED kind (its `M/Fn` marker mapped to `:macro` / `:fn`
-   / `:var`) equals the manifest `:kind` of the `re-frame.ui` row of that name.
-   Returns the seq of problem maps; empty when all four verbs reconcile.
-
-   `rows`     — manifest rows (each `{:namespace :var :kind ...}`).
-   `api-rows` — parsed API.md var-rows `{:var :qualifier :doc-kind :section-ns
-                :line :raw}`.
-   `aliases`  — `{alias -> namespace}` adapter `:as` aliases (defaults to
-                `adapter-aliases`) for EXACT qualifier resolution.
-
-   EXACT-ROW: `root-ui-row?` attributes each row by its NAMESPACE — a qualified
-   row by its qualifier, a bare row by its section (rf2-etj5i) — so a foreign
-   same-name qualified row (`other.ui/render!`) OR a bare row in another door's
-   section (a bare Freehand `hydrate-root`) is not counted as the root verb, and
-   can neither prove nor contradict the real row (the bare-name comparison could
-   on both counts).
-
-   POLARITY-SAFE: the reconcile is driven by the REQUIRED SET, not by whatever
-   rows survive in `api-rows`. So a DELETED row, a row the parser DROPPED for an
-   unknown `M/Fn` marker, or a DUPLICATED row is CAUGHT (`:kind-row-missing` /
-   `:kind-row-duplicated`) instead of silently disappearing. A verb absent from
-   the manifest — no `re-frame.ui` row to resolve against — is
-   `:kind-manifest-absent`. Present-on-both-sides disagreements stay
-   `:kind-mismatch` / `:kind-unmarked`."
-  [{:keys [rows api-rows aliases] :or {aliases adapter-aliases}}]
-  (let [manifest-kind (into {}
-                            (for [{:keys [namespace var kind]} rows
-                                  :when (and (= namespace root-verb-namespace)
-                                             (root-verb-kinds var))]
-                              [var kind]))
-        rows-by-var   (group-by :var (filter #(root-ui-row? aliases %) api-rows))]
-    (mapcat
-     (fn [v]
-       (let [mkind (get manifest-kind v)
-             vrows (get rows-by-var v)]
-         (cond
-           (nil? mkind)
-           [{:kind :kind-manifest-absent :var v}]
-
-           (empty? vrows)
-           [{:kind :kind-row-missing :var v :manifest-kind mkind}]
-
-           (next vrows)
-           [{:kind :kind-row-duplicated :var v :manifest-kind mkind
-             :lines (mapv :line vrows)}]
-
-           :else
-           (let [{:keys [doc-kind line raw]} (first vrows)]
-             (cond
-               (nil? doc-kind)
-               [{:kind :kind-unmarked :var v :raw raw :line line
-                 :manifest-kind mkind}]
-               (not= doc-kind mkind)
-               [{:kind :kind-mismatch :var v :raw raw :line line
-                 :doc-kind doc-kind :manifest-kind mkind}])))))
-     (sort root-verb-kinds))))
-
-;; ---------------------------------------------------------------------------
-;; create-root LITERAL-OPTION guard (rf2-e9q33).
-;;
-;; Spec 004C fixes create-root's public contract: authored `:root-id` is
-;; REQUIRED (no root form to derive an id from) and `:disambiguator` is
-;; INVALID. The tier/kind reconcile cannot see this — it pins name,
-;; qualifier, tier, and kind, never the option grammar. This narrow guard
-;; requires the create-root API.md row to state BOTH facts literally; a row
-;; that drops the `:root-id`-required assertion or no longer marks
-;; `:disambiguator` invalid (silently admitting it) goes red. It is a
-;; targeted literal-invariant on ONE named row — deliberately NOT a general
-;; Markdown signature parser (bead guidance).
-;; ---------------------------------------------------------------------------
-
-(def ^:private create-root-row-re
-  "Anchored match for the create-root VAR-ROW (its first table cell is
-   exactly `` `create-root` ``), used to locate the row whose literal
-   option-grammar the gate pins (rf2-e9q33)."
-  #"^\s*\|\s*`create-root`\s*\|")
-
-(def ^:private option-bridge
-  "The connective allowed between an option token and its polarity word: up to
-   40 chars that stay in the SAME table cell (`(?!\\|)`) and carry NO negation
-   (`not` / `n't` / `no` / `never`) (rf2-asxo3). A tempered dot — each step
-   asserts the forbidden forms do not START here, then consumes one char — so a
-   negated or far-prose clause cannot bridge the token to the polarity word."
-  "(?:(?!\\|)(?!\\bnot\\b)(?!n't)(?!\\bno\\b)(?!\\bnever\\b).){0,40}")
-
-(def ^:private root-id-required-re
-  "The create-root row must assert authored `` `:root-id` `` is REQUIRED,
-   EXACTLY (rf2-e9q33; tightened rf2-asxo3, made exact rf2-xdda3): the token
-   is pinned by its Markdown CODE-SPAN delimiters — a backtick on BOTH edges —
-   bridged by `option-bridge` (same cell, no negation) to `required`. The
-   asxo3 right-edge lookahead `(?![-\\w])` was not a token boundary: it still
-   admitted `:root-id?`, `:root-id!`, `:root-id*`, `:root-id.v2`,
-   `:root-id/foo` (adjacent keyword chars outside `[-\\w]`) and, having no
-   left edge at all, `::root-id` and `:opts:root-id`. Each is a DIFFERENT
-   option. The backtick delimiters close both edges at once, so only the exact
-   token satisfies the pin."
-  (re-pattern (str "`:root-id`" option-bridge "\\brequired\\b")))
-
-(def ^:private disambiguator-invalid-re
-  "The create-root row must assert `` `:disambiguator` `` is INVALID, EXACTLY
-   (rf2-e9q33; tightened rf2-asxo3, made exact rf2-xdda3): the same
-   both-edge code-span delimiting as `root-id-required-re`, bridged by
-   `option-bridge` to `invalid`. A row that drops it, renames the token
-   (`:disambiguator-old`, `:disambiguator?`, `:disambiguator/old`,
-   `::disambiguator`), or reverses the polarity (`:disambiguator is not
-   invalid`, silently admitting the option) goes red."
-  (re-pattern (str "`:disambiguator`" option-bridge "\\binvalid\\b")))
-
-(defn read-api-md-lines
-  "Read spec/API.md as `[[line-no line-text] ...]` (1-based). Shared by
-   `check!` and the prose-scanning guards (the keyword-drift guards and the
-   create-root option guard) so they all see the same line index."
-  []
-  (with-open [r (io/reader @api-md-file)]
-    (vec (map-indexed (fn [i line] [(inc i) line]) (line-seq r)))))
-
-(defn create-root-option-problems
-  "Pure literal-option-grammar guard for the create-root row (rf2-e9q33).
-   Returns the seq of problem maps; empty when the create-root row pins both
-   authored-`:root-id`-required and `:disambiguator`-invalid.
-
-   `api-md-lines` — `[[line-no line-text] ...]` for spec/API.md."
-  [api-md-lines]
-  (if-let [[line row-text]
-           (some (fn [[n text]]
-                   (when (re-find create-root-row-re text) [n text]))
-                 api-md-lines)]
-    (cond-> []
-      (not (re-find root-id-required-re row-text))
-      (conj {:kind :root-id-not-required :line line})
-      (not (re-find disambiguator-invalid-re row-text))
-      (conj {:kind :disambiguator-admitted :line line}))
-    [{:kind :create-root-row-missing :line nil}]))
-
-;; ---------------------------------------------------------------------------
-;; re-frame.ui.test HOST-SIGNATURE guard (rf2-5bcdi; kind-aware + exact rf2-d7sso).
-;;
-;; The generated manifest reduces every public var to [namespace var tier
-;; kind]; it carries NO arity facts (gen/kind-of collapses a var to
-;; :macro/:fn/:var). So a re-frame.ui.test fn/macro can keep its public NAME
-;; and its :kind while losing, adding, or reshaping a supported arity, and the
-;; ordinary manifest / projection / `gen --check` gates all stay green — the
-;; exact false-green this guard closes. It matters because the ui.test contract
-;; is HOST-SPECIFIC: `flush!` is 0-arity on the JVM but 0/1-arity on CLJS;
-;; `render` / `with-root` are macros with blessed call grammars.
-;;
-;; This is the JVM (:clj) half. It reads the live Var :kind + :arglists of the
-;; nine blessed vars via `ns-publics` (re-frame.ui.test's Tier-1 surface loads
-;; headless on the JVM, so it is on this generator classpath) and reconciles
-;; them against the machine-readable signature authority in the sidecar
-;; (`:ui-test-signatures`). The sidecar DUPLICATES each var's `:kind`; rather
-;; than trust it (the JVM lane once IGNORED it while the CLJS lane TRUSTED it —
-;; the rf2-d7sso seam), the declared kind is RECONCILED against the live Var
-;; kind and a disagreement is REJECTED. The CLJS (:cljs) half is enforced by the
-;; api-manifest CLJS probe (probe/, run by `npm run test:cljs`), which
-;; reconciles the same sidecar kind against the live ANALYZER kind — so a
-;; stale/flipped sidecar kind reddens BOTH hosts, never one silently.
-;; ---------------------------------------------------------------------------
-
-(def ui-test-namespace
-  "The blessed testing namespace whose public-var ARITIES this guard pins
-   against the sidecar signature authority (rf2-5bcdi)."
-  "re-frame.ui.test")
-
 (defn- strip-implicit-macro-params
   "Drop a MACRO's compiler-supplied `&form` / `&env` positional params from an
    arglist so only PROGRAMMER-VISIBLE params are counted (bead AC: compiler-
@@ -673,31 +448,6 @@
       (:macro m)                  :macro
       (or (:arglists m) (fn? @v)) :fn
       :else                       :var)))
-
-(defn live-ui-test-surface
-  "Live JVM `{var-name-string {:kind kw :arities #{arity-vector ...}}}` for the
-   public, non-^:no-doc vars of `re-frame.ui.test` (mirrors gen/public-vars-of's
-   `^:no-doc` carve-out, so the nine blessed vars are exactly the set). `:kind`
-   is the live-Var classification — the authority the sidecar's declared kind is
-   reconciled against; `:arities` is derived KIND-AWARELY from each Var's
-   `:arglists` (a function's `&form`/`&env` params are counted; a macro's are
-   stripped — rf2-d7sso)."
-  []
-  (let [ns-sym (symbol ui-test-namespace)]
-    (require ns-sym)
-    (into {}
-          (for [[sym v] (ns-publics ns-sym)
-                :when (not (:no-doc (meta v)))
-                :let  [kind (live-kind-of v)]]
-            [(name sym) {:kind    kind
-                         :arities (arglists->arities kind (:arglists (meta v)))}]))))
-
-(defn read-ui-test-signatures
-  "The sidecar's `:ui-test-signatures` authority `{:namespace :vars {...}}`
-   (rf2-5bcdi) — the ONE machine-readable host-aware signature source for the
-   blessed ui.test surface."
-  []
-  (:ui-test-signatures (gen/read-sidecar)))
 
 (defn ui-test-arity-problems
   "Pure host-signature reconciler for the JVM (:clj) lane (rf2-5bcdi; made
@@ -769,6 +519,14 @@
               {:kind :uncontracted-var :var var :got live-arities}))
           surface))))
 
+(defn read-api-md-lines
+  "Read spec/API.md as `[[line-no line-text] ...]` (1-based). Shared by
+   `check!` and the prose-scanning keyword-drift guards so they all see the
+   same line index."
+  []
+  (with-open [r (io/reader @api-md-file)]
+    (vec (map-indexed (fn [i line] [(inc i) line]) (line-seq r)))))
+
 (defn check!
   "Validate spec/API.md var-rows against the manifest. Returns true when
    every API.md var-row resolves to a manifest row with a MATCHING tier;
@@ -801,24 +559,7 @@
         kw-probs   (concat
                      (projection/ep0017-keyword-drift-problems "spec/API.md" api-md-lines)
                      (projection/ep0011-reply-vocab-drift-problems "spec/API.md" api-md-lines)
-                     (projection/ep0015-privacy-vocab-drift-problems "spec/API.md" api-md-lines))
-        ;; Documented-kind guard for the Spec-004C root verbs (rf2-e9q33;
-        ;; exact-row + polarity-safe rf2-asxo3): EXACTLY ONE `re-frame.ui` row
-        ;; per verb, its M/Fn marker matching the manifest :kind — deletion,
-        ;; duplication, an unknown kind marker, or a foreign same-name row are
-        ;; all caught, not silently dropped.
-        kind-probs (root-verb-kind-problems {:rows rows :api-rows api-rows
-                                             :aliases adapter-aliases})
-        ;; Literal-option guard for the create-root row (rf2-e9q33): authored
-        ;; :root-id REQUIRED and :disambiguator INVALID must both stay pinned.
-        opt-probs  (create-root-option-problems api-md-lines)
-        ;; Host-arity guard for the blessed re-frame.ui.test surface (rf2-5bcdi):
-        ;; the manifest carries name + :kind but NO arity, so a fn/macro can
-        ;; reshape a supported arity and stay green. Pin each var's live JVM
-        ;; (:clj) arities against the sidecar signature authority.
-        arity-probs (ui-test-arity-problems
-                     (:vars (read-ui-test-signatures))
-                     (live-ui-test-surface))]
+                     (projection/ep0015-privacy-vocab-drift-problems "spec/API.md" api-md-lines))]
     (cond
       ;; Vacuity-floor violation: extraction collapsed — refuse a green.
       floor
@@ -837,83 +578,6 @@
             (println "an explicit retirement/rename reference. Problems:")
             (doseq [{:keys [file line raw detail]} kw-probs]
               (println (format "  %s:%d  `%s`  %s" file line raw detail))))
-          false)
-
-      (seq kind-probs)
-      (do (binding [*out* *err*]
-            (println "DRIFT: spec/API.md root-verb KIND guard failed (exact-row + polarity-safe).")
-            (println "create-root / render! / hydrate-root are MACROS; unmount! is a FUNCTION.")
-            (println "EXACTLY ONE re-frame.ui var-row per verb, its M/Fn marker matching the")
-            (println "manifest :kind. Problems:")
-            (doseq [{:keys [kind var raw line doc-kind manifest-kind lines]} kind-probs]
-              (case kind
-                :kind-mismatch
-                (println (format "  L%-4d KIND:       `%s` API.md marks %s; manifest :kind is %s"
-                                 line raw doc-kind manifest-kind))
-                :kind-unmarked
-                (println (format "  L%-4d KIND:       `%s` carries no var-kind marker; manifest :kind is %s"
-                                 line raw manifest-kind))
-                :kind-row-missing
-                (println (format "  %-13s MISSING:    no re-frame.ui var-row (deleted, or an unknown M/Fn marker dropped it); manifest :kind is %s"
-                                 var manifest-kind))
-                :kind-row-duplicated
-                (println (format "  %-13s DUPLICATED: %d re-frame.ui var-rows at lines %s; exactly one required"
-                                 var (count lines) (pr-str lines)))
-                :kind-manifest-absent
-                (println (format "  %-13s NO-MANIFEST: the manifest carries no re-frame.ui :kind for this verb"
-                                 var)))))
-          false)
-
-      (seq opt-probs)
-      (do (binding [*out* *err*]
-            (println "DRIFT: spec/API.md create-root row lost its literal option grammar.")
-            (println "The create-root row must pin authored :root-id REQUIRED and :disambiguator")
-            (println "INVALID (Spec 004C). Problems:")
-            (doseq [{:keys [kind line]} opt-probs]
-              (case kind
-                :root-id-not-required
-                (println (format "  L%-4s create-root no longer states authored :root-id is required"
-                                 (str line)))
-                :disambiguator-admitted
-                (println (format "  L%-4s create-root no longer marks :disambiguator invalid (admitted)"
-                                 (str line)))
-                :create-root-row-missing
-                (println "  create-root var-row not found in spec/API.md"))))
-          false)
-
-      (seq arity-probs)
-      (do (binding [*out* *err*]
-            (println "DRIFT: a re-frame.ui.test public var's JVM signature disagrees with the contract.")
-            (println "The nine blessed ui.test vars carry a HOST-AWARE signature contract in")
-            (println "spec/api-manifest-metadata.edn (:ui-test-signatures); the manifest carries")
-            (println "name + :kind but no arity, so a fn/macro can reshape a supported arity — and")
-            (println "the sidecar's declared :kind is reconciled against the LIVE Var kind, so a")
-            (println "stale/flipped kind is rejected here (rf2-d7sso). Reconcile the source or the")
-            (println "contract. Problems:")
-            (doseq [{:keys [kind var expected got declared live-kind]} arity-probs]
-              (case kind
-                :kind-mismatch
-                (println (format "  %-12s KIND:   sidecar declares %s; live JVM Var is %s"
-                                 var (pr-str declared) (pr-str live-kind)))
-                :arity-mismatch
-                (println (format "  %-12s ARITY:  live JVM %s; contract :clj %s"
-                                 var (pr-str got) (pr-str expected)))
-                :macro-host-variance
-                (do (println (format "  %-12s HOST-VARIANCE: macro contract :clj %s but :cljs %s"
-                                     var (pr-str expected) (pr-str got)))
-                    (println (format "  %-12s               a ui.test macro is ONE .cljc defmacro expanded on both"
-                                     ""))
-                    (println (format "  %-12s               hosts — its call grammar cannot differ by host. Set :cljs"
-                                     ""))
-                    (println (format "  %-12s               equal to :clj (%s), or, if the grammar really changed,"
-                                     "" (pr-str expected)))
-                    (println (format "  %-12s               change BOTH to the new shape." "")))
-                :var-absent
-                (println (format "  %-12s ABSENT: contract expects :clj %s but the var did not resolve"
-                                 var (pr-str expected)))
-                :uncontracted-var
-                (println (format "  %-12s UNCONTRACTED: live JVM %s but no :ui-test-signatures entry"
-                                 var (pr-str got))))))
           false)
 
       (empty? problems)

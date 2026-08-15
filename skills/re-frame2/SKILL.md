@@ -62,7 +62,7 @@ Authors re-frame2 ClojureScript application code. Router skill: this file carrie
 
 ## When NOT to use
 
-Full skill-disambiguation matrix lives at [`skills/README.md` §Skill routing — single source](../README.md#skill-routing--single-source). In brief: not for live-runtime inspection, greenfield bootstrap, v1→v2 migration, porting existing Reagent views onto **Freehand** (use [`reagent-migration`](../reagent-migration/SKILL.md)), view code on the `re-frame.ui` donor substrate (`defview` and friends — use [`re-frame2-ui`](../re-frame2-ui/SKILL.md)), porting re-frame2 itself, or spec / API / EP rationale reading.
+Full skill-disambiguation matrix lives at [`skills/README.md` §Skill routing — single source](../README.md#skill-routing--single-source). In brief: not for live-runtime inspection, greenfield bootstrap, v1→v2 migration, porting existing Reagent views onto **Freehand** (use [`reagent-migration`](../reagent-migration/SKILL.md)), porting re-frame2 itself, or spec / API / EP rationale reading.
 
 This skill's view surface is the **adapters** — Reagent, reagent-slim, UIx, Helix. Freehand is re-frame2's re-frame-native peer view layer; [`references/fundamentals/views.md` §Freehand](references/fundamentals/views.md#freehand--the-re-frame-native-peer) carries what it changes and where its contract lives. Everything upstream of the view is the same either way, so the rest of this skill applies unchanged.
 

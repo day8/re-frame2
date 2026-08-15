@@ -269,92 +269,10 @@ test('Core change runs jvm-core + cljs (implementation_jvm + cljs_node_test true
   assert.equal(result.cljs_node_test, 'true');
 });
 
-// rf2-vxgfnd.209 — G-13 (cljs-ui-g13, gated on ui_gates) is the end-to-end
-// MOUNTED falsifier for re-frame.ui push economics; it traverses core
-// dispatch/drain, the router, frame scheduling, and the observation port. Any
-// core runtime change must schedule it, or a V-wide fan-out / split-batching
-// regression reachable only through core merges with the one gate that catches
-// it skipped. Docs/spec/tool-only changes keep their existing skip.
-test('Core observation-port change schedules G-13 (ui_gates true) (rf2-vxgfnd.209)', () => {
-  const result = classify('implementation/core/src/re_frame/substrate/observation.cljc');
-  assert.equal(result.ui_gates, 'true');
-});
-
-test('Core router/drain change schedules G-13 (ui_gates true) (rf2-vxgfnd.209)', () => {
-  const result = classify('implementation/core/src/re_frame/router.cljc');
-  assert.equal(result.ui_gates, 'true');
-});
-
-test('Core frame/scheduler change schedules G-13 (ui_gates true) (rf2-vxgfnd.209)', () => {
-  const result = classify('implementation/core/src/re_frame/frame.cljc');
-  assert.equal(result.ui_gates, 'true');
-});
-
-test('Core facade change schedules G-13 (ui_gates true) (rf2-vxgfnd.209)', () => {
-  const result = classify('implementation/core/src/re_frame/core.cljc');
-  assert.equal(result.ui_gates, 'true');
-});
-
-test('Docs-only change does NOT schedule G-13 (ui_gates false) (rf2-vxgfnd.209)', () => {
-  const result = classify('docs/core/intro.md');
-  assert.equal(result.ui_gates, 'false');
-});
-
-test('Spec-only .md change does NOT schedule G-13 (ui_gates false) (rf2-vxgfnd.209)', () => {
-  const result = classify('spec/006-ReactiveSubstrate.md');
-  assert.equal(result.ui_gates, 'false');
-});
-
 test('Conformance fixture change runs cljs (CLJS corpus runner is in node-test) (rf2-f79t8)', () => {
   const result = classify('spec/conformance/fixtures/dispatch.edn');
   assert.equal(result.implementation_jvm, 'true');
   assert.equal(result.cljs_node_test, 'true');
-});
-
-// rf2-vxgfnd.97.3 — the S3/S4/S5 view-conformance PROFILE docs are bound row by
-// row by the executable drift guards (s{3,4,5}_conformance_profile_jvm_test.clj,
-// run by the jvm-ui job, which gates on implementation_jvm). A profile-DOC-only
-// edit previously matched no classifier case — every output false — so the guard
-// the profile claims to be held by did NOT run and a row could be deleted,
-// hollowed, or swapped with the drift guard skipped. Each profile doc must fire
-// implementation_jvm so jvm-ui re-runs its guard.
-test('S5 view-conformance profile-doc edit runs jvm-ui (implementation_jvm true) (rf2-vxgfnd.97.3)', () => {
-  const result = classify('spec/conformance/S5-view-conformance-profile.md');
-  assert.equal(result.implementation_jvm, 'true');
-});
-
-test('S4 view-conformance profile-doc edit runs jvm-ui (implementation_jvm true) (rf2-vxgfnd.97.3)', () => {
-  const result = classify('spec/conformance/S4-view-conformance-profile.md');
-  assert.equal(result.implementation_jvm, 'true');
-});
-
-test('S3 view-conformance profile-doc edit runs jvm-ui (implementation_jvm true) (rf2-vxgfnd.97.3)', () => {
-  const result = classify('spec/conformance/S3-view-conformance-profile.md');
-  assert.equal(result.implementation_jvm, 'true');
-});
-
-// rf2-61ar — the over-broadening this case guarded has been REPLACED, not
-// abandoned. rf2-vxgfnd.97.3's worry was that arming implementation_jvm for
-// three profile docs might leak onto the rest of spec/. rf2-61ar then measured
-// eleven MORE pinned spec documents across six artefacts and made the leak
-// deliberate, so "a non-profile spec .md stays false" is no longer a law the
-// classifier holds. The law that replaces it is about OUTPUTS rather than
-// paths, and it is the sharper of the two: the profile docs are Markdown, so
-// they must reach the JVM tier and stop there. A future widening that dragged
-// a CLJS or Chromium lane onto a profile-doc edit is what this now catches.
-test('a profile-doc edit reaches the JVM tier and NO CLJS tier — no over-broadening (rf2-vxgfnd.97.3, rf2-61ar)', () => {
-  for (const file of [
-    'spec/conformance/S3-view-conformance-profile.md',
-    'spec/conformance/S4-view-conformance-profile.md',
-    'spec/conformance/S5-view-conformance-profile.md',
-  ]) {
-    const result = classify(file);
-    assert.equal(result.implementation_jvm, 'true', `${file} must arm implementation_jvm`);
-    assert.equal(result.cljs_node_test, 'false', `${file} must not arm cljs_node_test`);
-    assert.equal(result.cljs_browser, 'false', `${file} must not arm cljs_browser`);
-    assert.equal(result.cljs_prod, 'false', `${file} must not arm cljs_prod`);
-    assert.equal(result.ui_gates, 'false', `${file} must not arm ui_gates`);
-  }
 });
 
 test('shadow-cljs.edn change runs cljs (it defines the node-test build) (rf2-f79t8)', () => {
@@ -2039,7 +1957,6 @@ test('example compilation has a dedicated changed-surface output (rf2-gzavkm)', 
     'implementation/package-lock.json',
     'implementation/deps.edn',
     'implementation/adapters/uix/src/re_frame/adapter/uix.cljs',
-    'implementation/ui/src/re_frame/ui/rules.cljc',
     // rf2-nutll — examples/ui/minimal-counter is a standalone FREEHAND project
     // now, resolved by :local/root, so a Freehand change can break the
     // ui-scaffold-smoke build that examples_compile gates.
@@ -2274,16 +2191,15 @@ test('DISCOVERY: rename INTO the preload subtree arms the gates for the added en
   }
 });
 
-// rf2-3kewru — G-12 Arm 2 shells out to `clojure -Stree`. The CLJS job
-// that owns `test:ui-isolation` must therefore provision the Clojure CLI;
-// Arm 1 alone cannot detect a declared-but-currently-unused adapter dep.
-test('cljs job provisions Clojure CLI before the G-12 isolation gate (rf2-3kewru)', () => {
+// The CLJS job provisions the Clojure CLI for the steps that shell out to it.
+// (Its original subject, G-12 Arm 2's `clojure -Stree` behind
+// `test:ui-isolation`, retired with re-frame.ui — rf2-0yp7w.4. The provision
+// itself stays asserted, because the shared-installer discipline below is what
+// keeps it reproducible.)
+test('cljs job provisions the Clojure CLI through the shared installer (rf2-3kewru, rf2-e7ja9)', () => {
   const block = jobBlock(fs.readFileSync(WORKFLOW, 'utf8'), 'cljs');
   const setup = block.indexOf('name: Set up Clojure CLI');
-  const gate = block.indexOf('npm run test:ui-isolation');
-  assert.notEqual(setup, -1, 'cljs job must install Clojure CLI for G-12 Arm 2');
-  assert.notEqual(gate, -1, 'cljs job must run the UI isolation gate');
-  assert.ok(setup < gate, 'Clojure CLI setup must precede the G-12 isolation gate');
+  assert.notEqual(setup, -1, 'cljs job must install the Clojure CLI');
   // rf2-9sgj8 — the install runs the official linux-install.sh with retry
   // (resilient against the transient curl-35 / socket-hang-up that reds setup)
   // instead of DeLaGuardo/setup-clojure. rf2-e7ja9 — that body now lives in the
@@ -2294,7 +2210,7 @@ test('cljs job provisions Clojure CLI before the G-12 isolation gate (rf2-3kewru
   assert.match(
     block,
     /\.github\/scripts\/install-clojure-cli\.sh/,
-    'cljs job must install the Clojure CLI for Arm 2 `clojure -Stree` (rf2-e7ja9 shared installer)',
+    'cljs job must install the Clojure CLI through the shared installer (rf2-e7ja9)',
   );
 });
 
@@ -3184,7 +3100,6 @@ test('examples/scripts/port-resolver.cjs (shared resolver) fires BOTH browser ga
 test('examples/scripts/spec-helpers.cjs (shared matchers) fires every gate that loads it (rf2-6ng7 class)', () => {
   const result = classify('examples/scripts/spec-helpers.cjs');
   assert.equal(result.adapter_testbed_smokes, 'true');
-  assert.equal(result.ui_smoke, 'true');
   assert.equal(
     result.story_xray_browser,
     'true',
@@ -3200,7 +3115,6 @@ test('examples/scripts/spec-helpers.cjs (shared matchers) fires every gate that 
 test('examples/scripts/examples-port.cjs stays adapter-smoke-scoped after the spec-helpers split (rf2-6ng7 class)', () => {
   const result = classify('examples/scripts/examples-port.cjs');
   assert.equal(result.adapter_testbed_smokes, 'true');
-  assert.equal(result.ui_smoke, 'true');
   assert.equal(
     result.story_xray_browser,
     'false',
@@ -3305,96 +3219,11 @@ test('adapter-testbed-smokes workflow remains scoped to ADAPTER_SMOKE_FILTER=ada
 
 // rf2-nojiwy — the four-suites rule's new-UI smoke. The re-frame.ui
 // substrate testbed (implementation/ui/testbed/) rides the shared
-// adapter-smoke orchestrator under its own classifier output (ui_smoke) and
+// adapter-smoke orchestrator under its own classifier output and
 // its own CI job (ui-smoke, ADAPTER_SMOKE_FILTER=ui/testbed). The trigger
 // discipline mirrors adapter_testbed_smokes: direct substrate-source +
 // smoke-harness changes fire it; core / adapter-source / generic
 // build-config changes do not (nightly runs the unfiltered sweep).
-
-test('implementation/ui source change fires ui_smoke (rf2-nojiwy)', () => {
-  const result = classify('implementation/ui/src/re_frame/ui/runtime.cljs');
-  assert.equal(result.ui_smoke, 'true');
-});
-
-test('implementation/ui testbed change fires ui_smoke (rf2-nojiwy)', () => {
-  for (const file of [
-    'implementation/ui/testbed/ui_testbed/core.cljs',
-    'implementation/ui/testbed/spec.cjs',
-    'implementation/ui/testbed/index.html',
-  ]) {
-    const result = classify(file);
-    assert.equal(result.ui_smoke, 'true', `${file} must fire ui_smoke`);
-  }
-});
-
-test('adapter-smoke harness files fire ui_smoke too — the ui smoke rides the same orchestrator (rf2-nojiwy)', () => {
-  for (const file of ADAPTER_HARNESS_FILES) {
-    const result = classify(file);
-    assert.equal(result.ui_smoke, 'true', `${file} must fire ui_smoke`);
-  }
-});
-
-test('shared examples/scripts helpers fire ui_smoke alongside adapter_testbed_smokes (rf2-nojiwy)', () => {
-  for (const file of [
-    'examples/scripts/spec-helpers.cjs',
-    'examples/scripts/examples-port.cjs',
-    'examples/scripts/port-resolver.cjs',
-    'examples/scripts/examples-staging.cjs',
-    'examples/scripts/examples-asset-manifest.cjs',
-  ]) {
-    const result = classify(file);
-    assert.equal(result.ui_smoke, 'true', `${file} must fire ui_smoke`);
-  }
-});
-
-test('core / adapter-source / build-config changes do NOT fire ui_smoke (rf2-nojiwy)', () => {
-  for (const file of [
-    'implementation/core/src/re_frame/core.cljc',
-    'implementation/adapters/reagent/src/re_frame/adapter/reagent.cljs',
-    'implementation/adapters/reagent/testbed/adapter_testbed_reagent/core.cljs',
-    'implementation/shadow-cljs.edn',
-    'implementation/scripts/run-ui-bench.cjs',
-  ]) {
-    const result = classify(file);
-    assert.equal(result.ui_smoke, 'false', `${file} must NOT fire ui_smoke`);
-  }
-});
-
-test('adapter source change still fires adapter_testbed_smokes without ui_smoke; ui source is the mirror image (rf2-nojiwy)', () => {
-  const adapter = classify('implementation/adapters/uix/testbed/adapter_testbed_uix/core.cljs');
-  assert.equal(adapter.adapter_testbed_smokes, 'true');
-  assert.equal(adapter.ui_smoke, 'false');
-  const ui = classify('implementation/ui/testbed/spec.cjs');
-  assert.equal(ui.ui_smoke, 'true');
-  assert.equal(ui.adapter_testbed_smokes, 'false');
-});
-
-test('ui-smoke job is gated on ui_smoke and scoped to ADAPTER_SMOKE_FILTER=ui/testbed (rf2-nojiwy)', () => {
-  const workflow = fs.readFileSync(WORKFLOW, 'utf8');
-  const block = jobBlock(workflow, 'ui-smoke');
-  assert.match(block, /needs: detect_changed_surfaces/);
-  assert.match(
-    block,
-    /if: needs\.detect_changed_surfaces\.outputs\.ui_smoke == 'true'/,
-  );
-  assert.match(block, /ADAPTER_SMOKE_FILTER:\s*"ui\/testbed"/);
-  assert.match(block, /npm run test:adapter-smokes/);
-});
-
-test('all-required-passed aggregator needs ui-smoke (rf2-nojiwy)', () => {
-  const workflow = fs.readFileSync(WORKFLOW, 'utf8');
-  const block = jobBlock(workflow, 'all-required-passed');
-  assert.match(block, /- ui-smoke\r?\n/);
-});
-
-test('detect_changed_surfaces publishes the ui_smoke output (rf2-nojiwy)', () => {
-  const workflow = fs.readFileSync(WORKFLOW, 'utf8');
-  const block = jobBlock(workflow, 'detect_changed_surfaces');
-  assert.match(
-    block,
-    /ui_smoke: \$\{\{ steps\.detect\.outputs\.ui_smoke \}\}/,
-  );
-});
 
 // rf2-dxndhc — resources + cross-conformance tier routing false-green
 // fix (review wave rf2-ks67un). The resources artefact and the three
@@ -3694,130 +3523,6 @@ test('all-required-passed aggregator needs tenant-switcher-testbed-smoke (rf2-h5
 // artefact's suites + the S1f parity corpus + the G-1/G-14 gates all
 // skipped — a false-green hole).
 
-test('implementation/ui source change arms jvm + node-test + ui_gates (rf2-vxgfnd.6)', () => {
-  const result = classify('implementation/ui/src/re_frame/ui/rules.cljc');
-  assert.equal(result.implementation_jvm, 'true');
-  assert.equal(result.cljs_node_test, 'true');
-  assert.equal(result.ui_gates, 'true');
-  assert.notEqual(result.story_xray_browser, 'true');
-  assert.notEqual(result.adapter_testbed_smokes, 'true');
-});
-
-test('implementation/ui bench/test changes arm the same trio (rf2-vxgfnd.6)', () => {
-  const result = classify('implementation/ui/bench/re_frame/ui/bench/main.cljs');
-  assert.equal(result.ui_gates, 'true');
-  const result2 = classify('implementation/ui/test/re_frame/ui/parity_fixtures.cljc');
-  assert.equal(result2.implementation_jvm, 'true');
-  assert.equal(result2.cljs_node_test, 'true');
-});
-
-test('build-config trio arms ui_gates; generic scripts do not (rf2-vxgfnd.6)', () => {
-  assert.equal(classify('implementation/shadow-cljs.edn').ui_gates, 'true');
-  assert.equal(classify('implementation/package.json').ui_gates, 'true');
-  assert.equal(classify('implementation/package-lock.json').ui_gates, 'true');
-  assert.notEqual(classify('implementation/scripts/check-elision.cjs').ui_gates, 'true');
-});
-
-test('the G-1 launcher script fires the gate it drives (rf2-vxgfnd.6)', () => {
-  const result = classify('implementation/scripts/run-ui-bench.cjs');
-  assert.equal(result.ui_gates, 'true');
-  // widens, never narrows: the generic scripts surfaces stay armed
-  assert.equal(result.cljs_node_test, 'true');
-  assert.equal(result.bundle_isolation, 'true');
-});
-
-test('the G-13 launcher script fires the gate it drives (rf2-vxgfnd.12.3)', () => {
-  const result = classify('implementation/scripts/run-ui-g13.cjs');
-  assert.equal(result.ui_gates, 'true');
-  assert.equal(result.cljs_node_test, 'true');
-  assert.equal(result.cljs_browser, 'true');
-  assert.equal(result.bundle_isolation, 'true');
-});
-
-test('the UI isolation checker fires the focused gate it implements', () => {
-  const result = classify('implementation/scripts/check-ui-adapter-isolation.cjs');
-  assert.equal(
-    result.cljs_node_test,
-    'true',
-    'the checker-only PR must start the cljs job that owns the focused step',
-  );
-  assert.equal(
-    result.ui_gates,
-    'true',
-    'the checker-only PR must satisfy the focused step condition',
-  );
-
-  const block = jobBlock(fs.readFileSync(WORKFLOW, 'utf8'), 'cljs');
-  assert.match(block, /name: re-frame\.ui focused adapter-artifact isolation/);
-  assert.match(
-    block,
-    /if: needs\.detect_changed_surfaces\.outputs\.ui_gates == 'true'/,
-  );
-  assert.match(block, /npm run test:ui-isolation/);
-});
-
-test('spec-only changes do not arm ui_gates (rf2-vxgfnd.6)', () => {
-  assert.notEqual(classify('spec/Conventions.md').ui_gates, 'true');
-});
-
-test('jvm-ui is job-level gated on implementation_jvm (rf2-vxgfnd.6)', () => {
-  const block = jobBlock(fs.readFileSync(WORKFLOW, 'utf8'), 'jvm-ui');
-  assert.match(block, /needs: detect_changed_surfaces/);
-  assert.match(
-    block,
-    /if: needs\.detect_changed_surfaces\.outputs\.implementation_jvm == 'true'/,
-  );
-  assert.match(block, /working-directory: implementation\/ui/);
-});
-
-test('cljs-ui-g1 is job-level gated on ui_gates and runs the gate script (rf2-vxgfnd.6)', () => {
-  const block = jobBlock(fs.readFileSync(WORKFLOW, 'utf8'), 'cljs-ui-g1');
-  assert.match(block, /needs: detect_changed_surfaces/);
-  assert.match(
-    block,
-    /if: needs\.detect_changed_surfaces\.outputs\.ui_gates == 'true'/,
-  );
-  assert.match(block, /npm run test:ui-g1/);
-});
-
-test('cljs-ui-g13 is job-level gated and runs the exact-count browser gate', () => {
-  const block = jobBlock(fs.readFileSync(WORKFLOW, 'utf8'), 'cljs-ui-g13');
-  assert.match(block, /needs: detect_changed_surfaces/);
-  assert.match(
-    block,
-    /if: needs\.detect_changed_surfaces\.outputs\.ui_gates == 'true'/,
-  );
-  assert.match(block, /npm run test:ui-g13/);
-  assert.match(block, /playwright install --with-deps chromium/);
-  assert.match(block, /if: \$\{\{ always\(\) \}\}/);
-  assert.match(block, /implementation\/out\/ui-g13\.json/);
-});
-
-test('all-required-passed aggregator needs jvm-ui + cljs-ui-g1 (rf2-vxgfnd.6)', () => {
-  const block = jobBlock(fs.readFileSync(WORKFLOW, 'utf8'), 'all-required-passed');
-  assert.match(block, /- jvm-ui\r?\n/, 'aggregator must list jvm-ui in needs:');
-  assert.match(block, /- cljs-ui-g1\r?\n/, 'aggregator must list cljs-ui-g1 in needs:');
-  assert.match(block, /- cljs-ui-g13\r?\n/, 'aggregator must list cljs-ui-g13 in needs:');
-});
-
-test('cljs-ui-g8 is job-level gated and runs the dual-engine controlled-input gate (rf2-vxgfnd.95.10)', () => {
-  const block = jobBlock(fs.readFileSync(WORKFLOW, 'utf8'), 'cljs-ui-g8');
-  assert.match(block, /needs: detect_changed_surfaces/);
-  assert.match(
-    block,
-    /if: needs\.detect_changed_surfaces\.outputs\.ui_gates == 'true'/,
-  );
-  assert.match(block, /npm run test:ui-g8/);
-  // G-8 is the only gate that MUST install BOTH real engines.
-  assert.match(block, /playwright install --with-deps chromium webkit/);
-  assert.match(block, /implementation\/out\/ui-g8\.json/);
-});
-
-test('all-required-passed aggregator needs cljs-ui-g8 (rf2-vxgfnd.95.10)', () => {
-  const block = jobBlock(fs.readFileSync(WORKFLOW, 'utf8'), 'all-required-passed');
-  assert.match(block, /- cljs-ui-g8\r?\n/, 'aggregator must list cljs-ui-g8 in needs:');
-});
-
 // rf2-ga8m — the Hicasso three-engine controlled-input gate (rf2-hic-016),
 // scheduled at last. It landed green and ran NOWHERE: the PR that built it was
 // fenced out of .github/workflows/** while rf2-8a6s held that surface, so it
@@ -3960,7 +3665,7 @@ test('a hicasso package change does NOT fire the JVM or prod tiers (rf2-ga8m)', 
   const result = classify(HICASSO_CONTROLLED.spec);
   assert.equal(result.cljs_node_test, 'true');
   assert.equal(result[HICASSO_CONTROLLED.output], 'true');
-  for (const output of ['implementation_jvm', 'cljs_prod', 'ui_gates', 'bundle_isolation']) {
+  for (const output of ['implementation_jvm', 'cljs_prod', 'bundle_isolation']) {
     assert.equal(result[output], 'false', `a hicasso-only diff must not arm ${output}`);
   }
 });
@@ -4258,65 +3963,12 @@ test('the hicasso DOM suites really are in the browser lane (rf2-8a6s)', () => {
   }
 });
 
-test('run-ui-g8.cjs launcher change arms ui_gates (rf2-vxgfnd.95.10)', () => {
-  assert.equal(classify('implementation/scripts/run-ui-g8.cjs').ui_gates, 'true');
-});
-
 // rf2-kxork — G-18 library facade isolation promoted into the required matrix.
 // The checker was donated RED (#6182) and parked outside CI; #6195 repaired the
 // DCE mechanism and it now passes, so it becomes a standing regression net.
 // These three tests are the wiring's own proof: the classifier must arm the
 // gate, the job must be surface-gated and actually run it, and the required
 // aggregator must depend on it. Remove any one of those and a test reds.
-
-test('the G-18 facade-isolation checker fires the gate it implements (rf2-kxork)', () => {
-  const result = classify('implementation/scripts/check-ui-facade-isolation.cjs');
-  assert.equal(
-    result.ui_gates,
-    'true',
-    'a checker-only PR must satisfy the cljs-ui-facade-isolation job condition',
-  );
-  // widens, never narrows: the generic scripts surface stays armed
-  assert.equal(result.cljs_node_test, 'true');
-});
-
-test('implementation/ui proof-pack + DCE surface arms G-18 (rf2-kxork)', () => {
-  // The library the gate imports from, and the compiler/runtime surface whose
-  // DCE behaviour it measures, both live under implementation/ui/**.
-  assert.equal(
-    classify('implementation/ui/proof-pack/re_frame/ui/proof_pack/library.cljs').ui_gates,
-    'true',
-  );
-  assert.equal(
-    classify('implementation/ui/src/re_frame/ui/compiler/emit_cljs.cljc').ui_gates,
-    'true',
-  );
-  assert.equal(
-    classify('implementation/ui/src/re_frame/ui/runtime.cljs').ui_gates,
-    'true',
-  );
-  // the two proof-pack builds are declared in the build-config trio
-  assert.equal(classify('implementation/shadow-cljs.edn').ui_gates, 'true');
-});
-
-test('cljs-ui-facade-isolation is surface-gated and runs the G-18 gate (rf2-kxork)', () => {
-  const block = jobBlock(fs.readFileSync(WORKFLOW, 'utf8'), 'cljs-ui-facade-isolation');
-  assert.match(block, /needs: detect_changed_surfaces/);
-  assert.match(
-    block,
-    /if: needs\.detect_changed_surfaces\.outputs\.ui_gates == 'true'/,
-  );
-  assert.match(block, /npm run test:ui-facade-isolation/);
-});
-
-test('all-required-passed aggregator needs cljs-ui-facade-isolation (rf2-kxork)', () => {
-  const block = jobBlock(fs.readFileSync(WORKFLOW, 'utf8'), 'all-required-passed');
-  assert.match(
-    block,
-    /- cljs-ui-facade-isolation\r?\n/,
-    'aggregator must list cljs-ui-facade-isolation in needs:',
-  );
-});
 
 // rf2-vxgfnd.90 — re-frame.ui now ships REAL DOM tests
 // (`*-dom-cljs-test.{cljs,cljc}`) in the `:browser-test` build (the S1c/S2
@@ -4332,76 +3984,6 @@ test('all-required-passed aggregator needs cljs-ui-facade-isolation (rf2-kxork)'
 // rf2-vxgfnd.12.2 adds a mounted generated-view :advanced production control
 // for the override/provider carriage, so cljs_prod and bundle_isolation are now
 // part of every UI change's proof surface too.
-
-test('implementation/ui SOURCE change fires cljs_browser (transitive DOM-test coverage) (rf2-vxgfnd.90)', () => {
-  const result = classify('implementation/ui/src/re_frame/ui/reactive.cljc');
-  assert.equal(
-    result.cljs_browser,
-    'true',
-    'a UI runtime source change affects the *-dom-cljs-test namespaces transitively; it must run the browser gate',
-  );
-  // Regression: the rf2-vxgfnd.6 trio stays armed alongside the new browser gate.
-  assert.equal(result.implementation_jvm, 'true');
-  assert.equal(result.cljs_node_test, 'true');
-  assert.equal(result.ui_gates, 'true');
-});
-
-test('the frame-scope keystone DOM test fires cljs_browser (the #5767 false-green path) (rf2-vxgfnd.90)', () => {
-  const result = classify(
-    'implementation/ui/test/re_frame/ui/frame_scope_resolve_dom_cljs_test.cljs',
-  );
-  assert.equal(
-    result.cljs_browser,
-    'true',
-    'a *-dom-cljs-test change must run the :browser-test gate instead of reporting SKIPPED (the exact #5767 regression)',
-  );
-});
-
-test('representative other *-dom-cljs-test paths fire cljs_browser (rf2-vxgfnd.90)', () => {
-  for (const file of [
-    'implementation/ui/test/re_frame/ui/root_mount_dom_cljs_test.cljs',
-    'implementation/ui/test/re_frame/ui/root_teardown_dom_cljs_test.cljs',
-    'implementation/ui/test/re_frame/ui/reactive_tear_browser_dom_cljs_test.cljs',
-    'implementation/ui/test/re_frame/ui/preflight_frame_wiring_dom_cljs_test.cljs',
-  ]) {
-    const result = classify(file);
-    assert.equal(
-      result.cljs_browser,
-      'true',
-      `${file} is a browser-only DOM test; it must fire cljs_browser`,
-    );
-  }
-});
-
-test('an ordinary UI cljs test (non-DOM) also fires cljs_browser + node-test (rf2-vxgfnd.90)', () => {
-  // The whole implementation/ui/** tree fires the browser gate — an
-  // ordinary *_cljs_test.cljc under ui/test is not exempted (conservative
-  // routing: UI test changes can move a shared fixture a DOM test :requires).
-  //
-  // This arm is about a DONOR test that stayed, so the path must still name
-  // one: the previous fixture pointed at eq_cljs_test.cljc, which the F3a
-  // compiler transplant moved to implementation/freehand/test/. The classifier
-  // never stats a path, so that rot was silent and permanently green. Unlike
-  // the deliberately-not-yet-existing future paths pinned elsewhere in this
-  // file, this row's whole claim is "an existing ordinary UI test", so assert
-  // it exists.
-  const donorTest = 'implementation/ui/test/re_frame/ui/error_roster_cljs_test.cljc';
-  assert.ok(
-    fs.existsSync(path.join(REPO_ROOT, donorTest)),
-    `${donorTest} must exist — this row pins the routing of a REAL donor UI test`,
-  );
-  const result = classify(donorTest);
-  assert.equal(result.cljs_browser, 'true');
-  assert.equal(result.cljs_node_test, 'true');
-});
-
-test('implementation/ui/* arms mounted advanced-prod + bundle isolation (rf2-vxgfnd.12.2)', () => {
-  // The generated ViewCell/provider production control lives in the advanced
-  // prod build; a UI-only PR must never skip the only gate that runs it.
-  const result = classify('implementation/ui/src/re_frame/ui/reactive.cljc');
-  assert.equal(result.cljs_prod, 'true');
-  assert.equal(result.bundle_isolation, 'true');
-});
 
 test('a docs/spec-only change does NOT arm cljs_browser (negative — scope discipline) (rf2-vxgfnd.90)', () => {
   assert.equal(classify('spec/006-ReactiveSubstrate.md').cljs_browser, 'false');
@@ -4603,47 +4185,20 @@ function renameViaGitDiscovery(fromPath, toPath) {
   });
 }
 
-const UI_SOURCE = 'implementation/ui/src/re_frame/ui/reactive.cljc';
-const UI_GATE_KEYS = ['implementation_jvm', 'cljs_node_test', 'ui_gates', 'cljs_browser'];
-
-test('DISCOVERY: pure rename OUT of implementation/ui/** arms the full UI gate set (rf2-vxgfnd.137)', () => {
-  // The demonstrated false-green: renaming production UI code to an
-  // unclassified path. WITHOUT --no-renames git reports only the docs
-  // destination and every UI gate stays false; the deleted UI endpoint must
-  // still arm implementation_jvm / cljs_node_test / ui_gates / cljs_browser.
-  const result = renameViaGitDiscovery(UI_SOURCE, 'docs/moved-out-of-ui.cljc');
-  for (const key of UI_GATE_KEYS) {
-    assert.equal(
-      result[key],
-      'true',
-      `renaming ${UI_SOURCE} -> docs/** must arm ${key} (deleted UI endpoint); ` +
-        'restoring rename detection makes this fail',
-    );
-  }
-});
-
-test('DISCOVERY: reverse rename INTO implementation/ui/** arms the full UI gate set (rf2-vxgfnd.137)', () => {
-  const result = renameViaGitDiscovery('docs/incoming.cljc', UI_SOURCE);
-  for (const key of UI_GATE_KEYS) {
-    assert.equal(result[key], 'true', `renaming docs/** -> ${UI_SOURCE} must arm ${key}`);
-  }
-});
-
-test('DISCOVERY: within-UI rename arms the full UI gate set (rf2-vxgfnd.137)', () => {
-  const result = renameViaGitDiscovery(
-    UI_SOURCE,
-    'implementation/ui/src/re_frame/ui/reactive_renamed.cljc',
-  );
-  for (const key of UI_GATE_KEYS) {
-    assert.equal(result[key], 'true', `a within-UI rename must arm ${key}`);
-  }
-});
+// A CLASSIFIED first-party source, used purely as the subject of the
+// git-DISCOVERY tests below (rename splitting, push-base resolution). What
+// matters is only that the path is classified and its gate keys fire — the
+// artefact behind it is incidental, so it was repointed from the retired
+// re-frame.ui tree to the Reagent adapter (rf2-0yp7w.4) without changing what
+// either test proves.
+const CLASSIFIED_SOURCE = 'implementation/adapters/reagent/src/re_frame/adapter/reagent.cljs';
+const DISCOVERY_GATE_KEYS = ['implementation_jvm', 'cljs_node_test', 'cljs_browser', 'cljs_prod'];
 
 test('DISCOVERY: docs->docs rename does NOT arm UI gates (no spurious firing) (rf2-vxgfnd.137)', () => {
   // Both endpoints are unclassified — --no-renames must not manufacture a UI
   // classification (guards against over-firing / mis-splitting a rename).
   const result = renameViaGitDiscovery('docs/a.md', 'docs/b.md');
-  for (const key of UI_GATE_KEYS) {
+  for (const key of DISCOVERY_GATE_KEYS) {
     assert.equal(result[key], 'false', `a docs->docs rename must NOT arm ${key}`);
   }
 });
@@ -4651,84 +4206,13 @@ test('DISCOVERY: docs->docs rename does NOT arm UI gates (no spurious firing) (r
 // Ordinary add / modify / delete via the SAME Git-derived discovery mode stay
 // classified exactly as before — --no-renames only changes how renames surface.
 
-test('DISCOVERY: ordinary add of a UI file arms the UI gates (unchanged) (rf2-vxgfnd.137)', () => {
-  const result = classifyViaGitDiscovery(({ write, commit }) => {
-    write('README.md', '# scratch\n');
-    commit('seed');
-    write(UI_SOURCE, '(ns re-frame.ui.reactive)\n');
-    commit('add ui file');
-  });
-  for (const key of UI_GATE_KEYS) {
-    assert.equal(result[key], 'true', `an ordinary UI add must arm ${key}`);
-  }
-});
-
-test('DISCOVERY: ordinary modify of a UI file arms the UI gates (unchanged) (rf2-vxgfnd.137)', () => {
-  const result = classifyViaGitDiscovery(({ write, commit }) => {
-    write(UI_SOURCE, '(ns re-frame.ui.reactive)\n;; v1\n');
-    write('README.md', '# scratch\n');
-    commit('seed');
-    write(UI_SOURCE, '(ns re-frame.ui.reactive)\n;; v2 — edited\n');
-    commit('modify ui file');
-  });
-  for (const key of UI_GATE_KEYS) {
-    assert.equal(result[key], 'true', `an ordinary UI modify must arm ${key}`);
-  }
-});
-
-test('DISCOVERY: ordinary delete of a UI file arms the UI gates (unchanged) (rf2-vxgfnd.137)', () => {
-  const result = classifyViaGitDiscovery(({ write, git, commit }) => {
-    write(UI_SOURCE, '(ns re-frame.ui.reactive)\n');
-    write('README.md', '# scratch\n');
-    commit('seed');
-    git('rm', '-q', UI_SOURCE);
-    commit('delete ui file');
-  });
-  for (const key of UI_GATE_KEYS) {
-    assert.equal(result[key], 'true', `an ordinary UI delete must arm ${key}`);
-  }
-});
-
-test('DISCOVERY: ordinary docs-only modify does NOT arm UI gates (scope, unchanged) (rf2-vxgfnd.137)', () => {
-  const result = classifyViaGitDiscovery(({ write, commit }) => {
-    write('docs/core/intro.md', '# intro v1\n');
-    commit('seed');
-    write('docs/core/intro.md', '# intro v2\n');
-    commit('modify docs');
-  });
-  for (const key of UI_GATE_KEYS) {
-    assert.equal(result[key], 'false', `a docs-only modify must NOT arm ${key}`);
-  }
-});
-
-// ─── rf2-34yg — A MULTI-COMMIT PUSH IS CLASSIFIED OVER THE WHOLE PUSH ────────
-//
-// One push event produces ONE workflow run, at the tip. Before this, the
-// classifier's non-PR branch diffed `HEAD^ HEAD`, so a PR rebase-merged with N
-// commits had its trunk run classified on commit N ALONE — commits 1..N-1 were
-// invisible and never got a run of their own. This is the rf2-7hq4l defect,
-// already fixed twice in this repo (portability.yml + the ai/ ratchet;
-// post-merge-workflow-sanity.yml), and the classifier was the last holdout.
-//
-// MEASURED on two real merges before the fix:
-//   * PR #8159's 4-commit push (efb1cc781f..858f22fe76) — the tip was a docs
-//     file, so the push armed NOTHING; the whole push arms 6. Run 31742435731
-//     reported "All required checks passed" over 78 jobs with every
-//     surface-gated one skipped.
-//   * ebd92e12d2 touched expensive-tests.yml AND TESTING.md, both `mark_all`
-//     triggers, behind a tip touching only scripts/test-rigorous-local.sh.
-//     Tip-only armed 0; the whole push arms 32.
-//
-// These tests build a REAL multi-commit history and drive the same
-// git-discovery path, so they fail if the base resolution regresses to HEAD^.
-
 // A three-commit "push": a classified file lands in commit 1 and is untouched
 // by commits 2 and 3, so it is present on both sides of a HEAD^ diff and
 // escapes — exactly the shape the two measured merges had.
 function pushHistory({ write, commit }) {
   write('README.md', '# scratch\n');
   commit('base — the tip main pointed at BEFORE the push');
-  write(UI_SOURCE, '(ns re-frame.ui.reactive)\n');
+  write(CLASSIFIED_SOURCE, '(ns re-frame.adapter.reagent)\n');
   commit('push commit 1 — the classified change');
   write('docs/a.md', '# a\n');
   commit('push commit 2 — docs only');
@@ -4743,7 +4227,7 @@ test('PUSH: a multi-commit push classifies over the WHOLE push, not the tip (rf2
     // `github.event.before`. Three commits back from the tip.
     CHANGED_SURFACES_BASE_REF: git('rev-parse', 'HEAD~3').toString().trim(),
   }));
-  for (const key of UI_GATE_KEYS) {
+  for (const key of DISCOVERY_GATE_KEYS) {
     assert.equal(
       result[key],
       'true',
@@ -4758,7 +4242,7 @@ test('PUSH: the CONTROL — HEAD^ alone misses that same change (rf2-34yg)', () 
   // takes its HEAD^ default and sees only the docs tip. If this ever starts
   // arming the UI gates the test above has stopped proving anything.
   const result = classifyViaGitDiscovery(pushHistory);
-  for (const key of UI_GATE_KEYS) {
+  for (const key of DISCOVERY_GATE_KEYS) {
     assert.equal(
       result[key],
       'false',
@@ -4777,7 +4261,7 @@ test('PUSH: the all-zeros sentinel folds back to HEAD^ (first push to a ref) (rf
     GITHUB_EVENT_NAME: 'push',
     CHANGED_SURFACES_BASE_REF: '0'.repeat(40),
   }));
-  for (const key of UI_GATE_KEYS) {
+  for (const key of DISCOVERY_GATE_KEYS) {
     assert.equal(result[key], 'false', `all-zeros must fold to HEAD^, not fail (${key})`);
   }
 });
@@ -4791,7 +4275,7 @@ test('PUSH: an UNRESOLVABLE base arms everything rather than skipping (rf2-34yg)
     GITHUB_EVENT_NAME: 'push',
     CHANGED_SURFACES_BASE_REF: 'dead0000'.repeat(5),
   }));
-  for (const key of UI_GATE_KEYS) {
+  for (const key of DISCOVERY_GATE_KEYS) {
     assert.equal(
       result[key],
       'true',
@@ -4812,7 +4296,7 @@ test('PUSH: a pull_request is unaffected — base...HEAD still wins (rf2-34yg)',
   const result = classifyViaGitDiscovery(pushHistory, () => ({
     GITHUB_EVENT_NAME: 'pull_request',
   }));
-  for (const key of UI_GATE_KEYS) {
+  for (const key of DISCOVERY_GATE_KEYS) {
     assert.equal(result[key], 'false', `a pull_request must not take the push branch (${key})`);
   }
 });
@@ -5067,7 +4551,7 @@ test('implementation/freehand/** stays OFF the heavy per-feature gates (rf2-drpa
   // rf2-kll2x (it gained an `-elision-prod-test` suite); in both cases the
   // gate stopped being cost and became the only place the tests can run.
   const result = classify('implementation/freehand/src/re_frame/freehand.cljc');
-  for (const key of ['bundle_isolation', 'ui_gates', 'ui_smoke']) {
+  for (const key of ['bundle_isolation']) {
     assert.equal(result[key], 'false', `freehand must not arm ${key} yet`);
   }
 });
@@ -5147,7 +4631,7 @@ test('implementation/hicasso/** stays OFF the gates no hicasso suite reaches (rf
   //     RETIRED rather than pending; the pin that replaces it is the
   //     `jvm-hicasso is UNCONDITIONAL` test below.
   //   cljs_prod — no `-elision-prod-test$` namespace.
-  //   bundle_isolation / ui_gates / ui_smoke — no example resolves the
+  //   bundle_isolation — no example resolves the
   //     artefact and it mounts no testbed those smokes drive.
   //
   // `cljs_browser` USED TO BE ON THIS LIST, and its removal is the point of
@@ -5162,8 +4646,6 @@ test('implementation/hicasso/** stays OFF the gates no hicasso suite reaches (rf
     'implementation_jvm',
     'cljs_prod',
     'bundle_isolation',
-    'ui_gates',
-    'ui_smoke',
   ]) {
     assert.equal(result[key], 'false', `hicasso must not arm ${key}`);
   }
@@ -5591,7 +5073,7 @@ test('freehand fixtures stay OFF the heavy gates, like the artefact (rf2-drpa3.6
   // left this list under rf2-drpa3.70, on both cases at once: FH-STRUCT-007
   // and FH-ROUTELINK-001..003 are read by the mounted-DOM tests.
   const result = classify('spec/conformance/freehand/fixtures/fh-call-001.edn');
-  for (const key of ['cljs_prod', 'bundle_isolation', 'ui_gates', 'ui_smoke']) {
+  for (const key of ['cljs_prod', 'bundle_isolation']) {
     assert.equal(result[key], 'false', `freehand fixtures must not arm ${key}`);
   }
 });
@@ -6333,7 +5815,7 @@ test('prose arms the JVM tier and NO browser/prod/Playwright tier (rf2-61ar)', (
   // `spec/Spec-Schemas.md` is the ONE exception and only for cljs_node_test: a
   // JVM macro extracts its schema forms into the `:node-test` build at
   // COMPILE time, so its own case below states that separately.
-  const forbidden = ['cljs_browser', 'cljs_prod', 'ui_gates', 'bundle_isolation',
+  const forbidden = ['cljs_browser', 'cljs_prod', 'bundle_isolation',
     'adapter_testbed_smokes', 'story_xray_browser', 'hicasso_controlled', 'playground'];
   for (const [file] of PROSE_PINS_ARMING_JVM) {
     const result = classify(file);
@@ -6420,10 +5902,10 @@ test('rf2-61ar does not overturn the MEASURED freehand-prose exclusion (rf2-49up
 
 test('the prose arms reach lanes that are still gated on implementation_jvm (rf2-61ar)', () => {
   // Arming an output binds nothing unless the jobs it arms are still gated on
-  // it — the same third leg rf2-49upn's index case asserts. These four are the
+  // it — the same third leg rf2-49upn's index case asserts. These are the
   // jobs the roster's suites actually run in.
   const workflow = fs.readFileSync(WORKFLOW, 'utf8');
-  for (const job of ['jvm-machines', 'jvm-freehand', 'jvm-core', 'jvm-ui']) {
+  for (const job of ['jvm-machines', 'jvm-freehand', 'jvm-core']) {
     assert.match(
       jobBlock(workflow, job),
       /if: needs\.detect_changed_surfaces\.outputs\.implementation_jvm == 'true'/,
@@ -6581,68 +6063,6 @@ function defVectorStrings(source, defName, label) {
 
   return [...source.slice(i, end).matchAll(/"([^"\\]*)"/g)].map((m) => m[1]);
 }
-
-// --- the re-frame.ui shadow-configuration contract -------------------------
-//
-// `shadow_config_contract_jvm_test.clj` spells no expected value: the expected
-// value is the repository's four real holders, read at run time and compared as
-// data. It runs in `jvm-ui`, which `implementation_jvm` gates, and before this
-// bead not one holder armed that output.
-
-const SHADOW_CONTRACT_REL =
-  'implementation/ui/test/re_frame/ui/shadow_config_contract_jvm_test.clj';
-
-/**
- * The suite's compared holders: every `(def ^:private <name>-rel "<path>")`
- * except the repo-root LOCATOR.
- *
- * `root-marker-rel` is excluded by name and deliberately. It is the durable
- * root file the suite walks up to find (`AGENTS.md`) — "deliberately not a
- * compared holder", as its own comment says. Arming the whole JVM tier on
- * every AGENTS.md edit would be over-arming for a file the suite only ever
- * uses as a coordinate; the negative control below pins that it stays cheap.
- */
-function shadowContractHolders(source) {
-  const rows = [...source.matchAll(/\(def\s+\^:private\s+([a-z0-9-]*-rel)\s+"([^"]+)"\)/g)]
-    .map((m) => ({ name: m[1], rel: m[2] }));
-  assert.ok(
-    rows.length >= 5,
-    `${SHADOW_CONTRACT_REL}: expected at least 5 \`-rel\` path defs, parsed ${rows.length}`,
-  );
-  const marker = rows.find((r) => r.name === 'root-marker-rel');
-  assert.ok(marker, `${SHADOW_CONTRACT_REL} must still define root-marker-rel`);
-
-  const holders = rows.filter((r) => r.name !== 'root-marker-rel');
-  // Cannot pass vacuously: a parse that found only the marker would assert
-  // every holder in an empty list and report green.
-  assert.ok(
-    holders.length >= 4,
-    `${SHADOW_CONTRACT_REL}: expected at least 4 compared holders, parsed ${holders.length}`,
-  );
-  return holders;
-}
-
-test('every shadow-config contract holder arms implementation_jvm (rf2-6ng7)', () => {
-  const source = fs.readFileSync(path.join(REPO_ROOT, SHADOW_CONTRACT_REL), 'utf8');
-  for (const { name, rel } of shadowContractHolders(source)) {
-    assert.equal(
-      classify(rel).implementation_jvm,
-      'true',
-      `${rel} (${name}) must arm implementation_jvm: shadow-config-contract-jvm-test compares it as a holder, and jvm-ui is the only job that runs it`,
-    );
-  }
-});
-
-test('the shadow-config contract locator stays cheap (rf2-6ng7 negative control)', () => {
-  const source = fs.readFileSync(path.join(REPO_ROOT, SHADOW_CONTRACT_REL), 'utf8');
-  const marker = [...source.matchAll(/\(def\s+\^:private\s+root-marker-rel\s+"([^"]+)"\)/g)][0];
-  assert.ok(marker, `${SHADOW_CONTRACT_REL} must still define root-marker-rel`);
-  assert.equal(
-    classify(marker[1]).implementation_jvm,
-    'false',
-    `${marker[1]} is the suite's repo-root LOCATOR, not a compared holder — it must not queue the JVM tier`,
-  );
-});
 
 // --- the Xray spec markdown two suites read --------------------------------
 //
@@ -6945,7 +6365,6 @@ const DECLARED_NO_SURFACE_OUTPUT = {
   'skills/re-frame2-implementor': SKILLS_ALWAYS_ON,
   'skills/re-frame2-improver': SKILLS_ALWAYS_ON,
   'skills/re-frame2-pair-retro': SKILLS_ALWAYS_ON,
-  'skills/re-frame2-ui': SKILLS_ALWAYS_ON,
   'skills/re-frame2-xray': SKILLS_ALWAYS_ON,
   'skills/reagent-migration': SKILLS_ALWAYS_ON,
   tools: {

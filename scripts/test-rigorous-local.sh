@@ -107,13 +107,9 @@ printf '==> implementation rigorous browser/bundle gates\n'
   npm run test:xray-feature-gate && \
   npm run test:story-static && \
   npm run test:cljs-perf-emit-nightly && \
-  npm run test:ui-warm-watch && \
   npm run test:ssr-node && \
   npm run test:perf-bundle && \
   npm run test:schemas-bundle && \
-  npm run test:ui-g1 && \
-  npm run test:ui-g13 && \
-  npm run test:ui-facade-isolation && \
   npm run test:reagent-slim:smoke && \
   npm run test:testbed-tenant-switcher && \
   npm run test:tools-machines-viz && \

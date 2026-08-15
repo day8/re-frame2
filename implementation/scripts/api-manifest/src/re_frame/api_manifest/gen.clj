@@ -94,13 +94,6 @@
     re-frame.core
     re-frame.test-support
     re-frame.test-helpers
-    ;; The compiled-view substrate's testing surface (rf2-vxgfnd.200). Its
-    ;; sibling `re-frame.ui` is a curated :cljs-only surface (React runtime),
-    ;; but `re-frame.ui.test`'s Tier-1 render/find/find-all/text/attrs/dispatch!
-    ;; run HEADLESS on the JVM, so it is introspected here like re-frame.core —
-    ;; day8/re-frame2-ui rides the generator's BUILD-ONLY classpath (deps.edn).
-    ;; The reader-conditional CLJS surface is reconciled by the 2mtte probe.
-    re-frame.ui.test
     ;; The Freehand view substrate's ONE public door (EP-0036, rf2-drpa3.63).
     ;; `.cljc` and host-neutral, so `ns-publics` is authoritative here; the
     ;; descriptor type, its constructor and the emitter helpers live in the
@@ -109,8 +102,8 @@
     ;; carve-out.
     re-frame.freehand
     ;; The Freehand substrate's STRUCTURAL TEST surface (EP-0036 F1e;
-    ;; contract in Spec 008). A public authoring surface like its
-    ;; `re-frame.ui.test` sibling — dev/test SCOPE is not privacy — and
+    ;; contract in Spec 008). A public authoring surface — dev/test SCOPE is
+    ;; not privacy — and
     ;; `.cljc` and headless, so `ns-publics` is authoritative for its six
     ;; names (render / with-render / find / find-all / attrs / text). The
     ;; projections and the node discrimination beneath them are `defn-`, so

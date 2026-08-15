@@ -59,33 +59,6 @@
                        day8/re-frame2-flows      {:local/root "../flows"}
                        day8/re-frame2-routing    {:local/root "../routing"}
                        day8/re-frame2-machines   {:local/root "../machines"}
-                       ;; TEST-ONLY. Production `re-frame.ssr` never `:require`s
-                       ;; `re-frame.ui` — ui depends on core exactly as ssr does
-                       ;; (no cycle).
-                       ;;
-                       ;; rf2-0yp7w R2a NARROWED WHAT THIS IS FOR, and left it in
-                       ;; place. The Root Manifest subset-property pin and the
-                       ;; ui_tree provenance pin are gone, so those no longer need
-                       ;; it. What still does is `render_static_jvm_test.clj`,
-                       ;; which drives `re-frame.ui/render-static` directly.
-                       ;;
-                       ;; That file cannot be removed by R2a: it is a NAMED S5
-                       ;; PROOF HOME, and three things outside this artefact
-                       ;; assert it exists — `frozen-s5-surface` in
-                       ;; `implementation/ui/test/.../s5_conformance_profile_jvm_test.clj`
-                       ;; (whose `profile-names-real-proof-homes` deftest reds when
-                       ;; the file is absent) and
-                       ;; `spec/conformance/S5-view-conformance-profile.md`. It dies
-                       ;; with the ui artefact in R2b (rf2-0yp7w.4), alongside the
-                       ;; profile that names it — not before.
-                       ;;
-                       ;; A third used to be listed here — the donor-inventory
-                       ;; archive via `scripts/check_donor_inventory.py` — and it
-                       ;; was already wrong: rf2-lrtwj reduced that checker to a
-                       ;; snapshot-integrity read of the archive alone, so it had
-                       ;; stopped asserting anything about the working tree. Both
-                       ;; are gone as of rf2-0yp7w.8.
-                       day8/re-frame2-ui         {:local/root "../ui"}
                        ;; Silent-on-success reporter.
                        day8/re-frame2-test-quiet {:local/root "../test-quiet"}}
          ;; The default PR/local gate excludes the heavy
@@ -161,14 +134,6 @@
                  day8/re-frame2-flows      {:local/root "../flows"}
                  day8/re-frame2-routing    {:local/root "../routing"}
                  day8/re-frame2-machines   {:local/root "../machines"}
-                 ;; TEST-ONLY, same reason as the `:test` alias above:
-                 ;; `render_static_jvm_test.clj` `:require`s `re-frame.ui`, and
-                 ;; cognitect test-runner LOADS every test namespace at discovery
-                 ;; time before filtering by var metadata, so ui must be on the
-                 ;; classpath in this lane too. Without it the nightly
-                 ;; `:slow-test` run dies at load. Retired with the artefact in
-                 ;; R2b (rf2-0yp7w.4).
-                 day8/re-frame2-ui         {:local/root "../ui"}
                  day8/re-frame2-test-quiet {:local/root "../test-quiet"}}
    :main-opts   ["-m" "re-frame.test-quiet.runner" "-i" ":slow" "-i" ":stress"]}
 

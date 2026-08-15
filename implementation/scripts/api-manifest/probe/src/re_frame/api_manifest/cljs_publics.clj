@@ -69,11 +69,10 @@
 ;; Host-arity enumeration (rf2-5bcdi — the CLJS companion to the JVM
 ;; api-md-check host-arity guard).
 ;;
-;; The manifest carries name + :kind but NO arity, so a re-frame.ui.test
-;; function can reshape a supported arity and stay green — and the ui.test
-;; contract is host-specific (`flush!` is 0-arity on the JVM, 0/1-arity on
-;; CLJS). This side reads each covered var's live ANALYZER arities so the
-;; probe can reconcile them against the `:cljs` signature contract.
+;; The manifest carries name + :kind but NO arity, so a covered function can
+;; reshape a supported arity and stay green — and a `.cljc` contract can be
+;; host-specific. This side reads each covered var's live ANALYZER arities so
+;; the probe can reconcile them against the `:cljs` signature contract.
 ;; ---------------------------------------------------------------------------
 
 (defn- strip-implicit-macro-params
@@ -208,7 +207,7 @@
 
    The `:cljs-only` rows the probe normally reconciles are the surfaces the
    JVM generator CANNOT introspect. A `.cljc` namespace the generator DOES
-   own on the JVM (`re-frame.ui.test` — rf2-vxgfnd.200: its Tier-1 surface
+   own on the JVM (`re-frame.freehand.test`, say — its structural surface
    runs headless on the JVM, so it lives in the generator's `jvm-namespaces`
    and its rows are curated under `:classification`, not `:cljs-only`) still
    needs its reader-conditional CLJS surface reconciled, so neither host can
@@ -276,24 +275,12 @@
               ns-sym)]
     (ns-public-surface env/*compiler* sym)))
 
-(defmacro emit-ui-test-signature-contract
-  "Expand to the sidecar's `:ui-test-signatures` authority map
-   (`{:namespace :vars {var {:kind :clj #{..} :cljs #{..}}}}`), read from
-   `spec/api-manifest-metadata.edn` at macro-expansion time (rf2-5bcdi). The
-   single machine-readable host-aware signature source, embedded so the probe
-   checks the same committed contract the JVM lane joins against with no
-   runtime filesystem dependency — and, in ClojureScript, a build dependency,
-   so an edit to the sidecar recompiles this call site."
-  []
-  (-> (read-sidecar &env) :ui-test-signatures))
-
 (defmacro emit-signature-contract
   "Expand to the sidecar's signature authority map under `sidecar-key`
-   (a keyword literal) — the generalisation of `emit-ui-test-signature-contract`
-   to any host-aware signature block (rf2-drpa3.99 added
-   `:freehand-test-signatures` alongside `:ui-test-signatures`; both are the
-   same `{:namespace :vars {var {:kind :clj #{..} :cljs #{..}}}}` shape and are
-   reconciled by the same `cljs-probe/signature-problems`). Read from
+   (a keyword literal) — any host-aware signature block, e.g.
+   `:freehand-test-signatures`, all of the
+   same `{:namespace :vars {var {:kind :clj #{..} :cljs #{..}}}}` shape and
+   reconciled by the same `cljs-probe/signature-problems`. Read from
    `spec/api-manifest-metadata.edn` at macro-expansion time, so — like the
    sibling emitters — the value is pinned to the same committed sidecar the JVM
    lane joins against with no runtime filesystem dependency, and in

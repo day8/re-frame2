@@ -70,7 +70,6 @@ jobs:
     outputs:
       implementation_jvm: ${{ steps.detect.outputs.implementation_jvm }}
       cljs_node_test: ${{ steps.detect.outputs.cljs_node_test }}
-      ui_gates: ${{ steps.detect.outputs.ui_gates }}
       adapter_diagnostic: ${{ steps.detect.outputs.adapter_diagnostic }}
       cljs_browser: ${{ steps.detect.outputs.cljs_browser }}
       examples_compile: ${{ steps.detect.outputs.examples_compile }}
@@ -80,7 +79,6 @@ jobs:
       freehand_evidence_elision: ${{ steps.detect.outputs.freehand_evidence_elision }}
       freehand_reachability: ${{ steps.detect.outputs.freehand_reachability }}
       adapter_testbed_smokes: ${{ steps.detect.outputs.adapter_testbed_smokes }}
-      ui_smoke: ${{ steps.detect.outputs.ui_smoke }}
       tools_jvm: ${{ steps.detect.outputs.tools_jvm }}
       tools_jvm_machines_viz: ${{ steps.detect.outputs.tools_jvm_machines_viz }}
       tools_jvm_testbed_support: ${{ steps.detect.outputs.tools_jvm_testbed_support }}
@@ -1515,247 +1513,6 @@ jobs:
       - name: Run the core suite under -Dre-frame.debug=false
         run: bash scripts/test-core-prod-gate.sh
 
-  jvm-ui:
-    name: JVM ui (clojure -M:test)
-    # rf2-vxgfnd.6 — the re-frame.ui compiled-view substrate's JVM
-    # suite: the compiler slice's .cljc arms genuinely run on the JVM
-    # (analyzer/emitters/tree/ui.test), the S1f parity corpus's
-    # canonical-form + normalization-N invariants, and the G-14
-    # compile-budget gate (defview expansion p95, the watch-loop rebuild
-    # delta over the dashboard fixture — rf2-gv8gr — and the 02 §8 REPL
-    # re-registration story). Job-level gated like jvm-core: the
-    # classifier fires implementation_jvm for implementation/ui/**.
-    needs: detect_changed_surfaces
-    if: needs.detect_changed_surfaces.outputs.implementation_jvm == 'true'
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: implementation/ui
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
-
-      - name: Set up JDK 21
-        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654  # v5.2.0
-        with:
-          distribution: temurin
-          java-version: '21'
-
-      - name: Set up Clojure CLI
-        run: "$GITHUB_WORKSPACE/.github/scripts/install-clojure-cli.sh"
-
-      - name: Cache Maven / gitlibs
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
-        with:
-          path: |
-            ~/.m2/repository
-            ~/.gitlibs
-            ~/.deps.clj
-          key: ${{ runner.os }}-clj-ui-${{ hashFiles('implementation/ui/deps.edn', 'implementation/core/deps.edn') }}
-          restore-keys: |
-            ${{ runner.os }}-clj-ui-
-            ${{ runner.os }}-clj-
-
-      - name: Run JVM tests (ui artefact)
-        run: clojure -M:test
-
-  cljs-ui-g1:
-    name: CLJS ui G-1 direct-render parity gate (:advanced bench)
-    # rf2-vxgfnd.6 — the 07 §5 G-1 gate: compiled views vs hand-written
-    # jsx-runtime baselines under the revised noise-robust estimator
-    # (alternating interleaved rounds, median-of-rounds; p50+p95 within
-    # 10% per component), the byte-equality precheck, and the
-    # emitted-JS golden (direct jsx calls present, the IFn-dispatch
-    # landmine absent) over the :ui-bench :advanced bundle. The ratio
-    # is RELATIVE and the rounds are interleaved in one process, so
-    # the gate is robust to absolute runner speed. Fired by the
-    # ui_gates surface (implementation/ui/**, the build-config trio,
-    # or the launcher script).
-    needs: detect_changed_surfaces
-    if: needs.detect_changed_surfaces.outputs.ui_gates == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    defaults:
-      run:
-        working-directory: implementation
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
-
-      - name: Set up JDK 21
-        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654  # v5.2.0
-        with:
-          distribution: temurin
-          java-version: '21'
-
-      - name: Set up Node.js
-        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e  # v6.4.0
-        with:
-          node-version: '24'
-          cache: npm
-          cache-dependency-path: implementation/package-lock.json
-
-      - name: Cache Maven / gitlibs (shadow-cljs deps)
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
-        with:
-          path: |
-            ~/.m2/repository
-            ~/.gitlibs
-          key: ${{ runner.os }}-cljs-${{ hashFiles('implementation/shadow-cljs.edn', 'implementation/package-lock.json') }}
-          restore-keys: |
-            ${{ runner.os }}-cljs-
-
-      - name: npm install
-        run: npm ci
-
-      - name: G-1 direct-render parity gate (+ emitted-JS golden)
-        run: npm run test:ui-g1
-
-      - name: Upload bench data
-        if: ${{ always() }}
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
-        with:
-          name: ui-bench-json
-          path: implementation/out/ui-bench.json
-          if-no-files-found: ignore
-
-  cljs-ui-g13:
-    name: CLJS ui G-13 exact push economics (browser + advanced elision)
-    # rf2-vxgfnd.12.3 — Q=8 queued write epochs affect C=8 ViewCells,
-    # then settle through one read/render root commit at V=100 and V=500.
-    # Exact counts are gating; cold/warm p50+p95 are evidence only. The
-    # companion :advanced build proves all gate-local instrumentation elides.
-    needs: detect_changed_surfaces
-    if: needs.detect_changed_surfaces.outputs.ui_gates == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 25
-    defaults:
-      run:
-        working-directory: implementation
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
-
-      - name: Set up JDK 21
-        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654  # v5.2.0
-        with:
-          distribution: temurin
-          java-version: '21'
-
-      - name: Set up Node.js
-        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e  # v6.4.0
-        with:
-          node-version: '24'
-          cache: npm
-          cache-dependency-path: implementation/package-lock.json
-
-      - name: Cache Maven / gitlibs (shadow-cljs deps)
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
-        with:
-          path: |
-            ~/.m2/repository
-            ~/.gitlibs
-          key: ${{ runner.os }}-cljs-${{ hashFiles('implementation/shadow-cljs.edn', 'implementation/package-lock.json') }}
-          restore-keys: |
-            ${{ runner.os }}-cljs-
-
-      - name: npm install
-        run: npm ci
-
-      # rf2-169n — cache the Playwright browser binary (see `cljs-browser` for
-      # the scheme). On a hit the install below still runs `--with-deps`; only
-      # the browser download is skipped.
-      - name: Cache Playwright browser binary
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
-        with:
-          path: ~/.cache/ms-playwright
-          key: ${{ runner.os }}-playwright-${{ hashFiles('implementation/package-lock.json') }}
-          restore-keys: |
-            ${{ runner.os }}-playwright-
-
-      - name: Install pinned Chromium
-        run: npx playwright install --with-deps chromium || "$GITHUB_WORKSPACE/.github/scripts/playwright-install-failed.sh"
-
-      - name: G-13 exact push-economics and advanced-elision gate
-        run: npm run test:ui-g13
-
-      - name: Upload G-13 evidence
-        if: ${{ always() }}
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
-        with:
-          name: ui-g13-json
-          path: implementation/out/ui-g13.json
-          if-no-files-found: error
-
-  cljs-ui-g8:
-    name: CLJS ui G-8 controlled-input correctness (real Chromium + WebKit)
-    # rf2-vxgfnd.95.10 — the real-browser controlled-input correctness matrix
-    # (07 §5; EP-0035 widened G-8). S-5's evidence was jsdom-only; this gate
-    # drives ONE reusable-event-prefix fixture in real Chromium AND real WebKit
-    # (both mandatory — the IME/caret/paint behaviours under test differ by
-    # engine and jsdom fakes none of them) and asserts the sync door passes the
-    # matrix while the deliberate async-door regression FAILS the pre-paint +
-    # revision arms (the tooth, run-verified: flipping the async control to the
-    # sync door turns the gate red). The runner also carries mutation teeth so a
-    # vacuous assertion cannot pass. Fired by the ui_gates surface.
-    needs: detect_changed_surfaces
-    if: needs.detect_changed_surfaces.outputs.ui_gates == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 25
-    defaults:
-      run:
-        working-directory: implementation
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
-
-      - name: Set up JDK 21
-        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654  # v5.2.0
-        with:
-          distribution: temurin
-          java-version: '21'
-
-      - name: Set up Node.js
-        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e  # v6.4.0
-        with:
-          node-version: '24'
-          cache: npm
-          cache-dependency-path: implementation/package-lock.json
-
-      - name: Cache Maven / gitlibs (shadow-cljs deps)
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
-        with:
-          path: |
-            ~/.m2/repository
-            ~/.gitlibs
-          key: ${{ runner.os }}-cljs-${{ hashFiles('implementation/shadow-cljs.edn', 'implementation/package-lock.json') }}
-          restore-keys: |
-            ${{ runner.os }}-cljs-
-
-      - name: npm install
-        run: npm ci
-
-      # rf2-f79t8 — cache the Playwright browser binaries across runs/jobs.
-      # G-8 needs BOTH engines, so the cache holds Chromium and WebKit.
-      - name: Cache Playwright browser binaries
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
-        with:
-          path: ~/.cache/ms-playwright
-          key: ${{ runner.os }}-playwright-cw-${{ hashFiles('implementation/package-lock.json') }}
-          restore-keys: |
-            ${{ runner.os }}-playwright-cw-
-            ${{ runner.os }}-playwright-
-
-      - name: Install pinned Chromium + WebKit
-        run: npx playwright install --with-deps chromium webkit || "$GITHUB_WORKSPACE/.github/scripts/playwright-install-failed.sh"
-
-      - name: G-8 controlled-input correctness gate (Chromium + WebKit)
-        run: npm run test:ui-g8
-
-      - name: Upload G-8 evidence
-        if: ${{ always() }}
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
-        with:
-          name: ui-g8-json
-          path: implementation/out/ui-g8.json
-          if-no-files-found: error
-
   cljs-hicasso-controlled:
     name: CLJS hicasso controlled-input correctness (real Chromium + Firefox + WebKit)
     # rf2-ga8m — invariant I15 in three real engines. The gate itself landed
@@ -1959,65 +1716,6 @@ jobs:
 
       - name: HMR contract gate — 36 real shadow reloads in three engines
         run: npm run test:hicasso-hmr
-
-  cljs-ui-facade-isolation:
-    name: CLJS ui G-18 library facade isolation (:advanced single-view DCE)
-    # rf2-kxork — G-18 (07 §5, EP-0035 readiness §4) promoted into the required
-    # matrix. #6182 donated this fixture-first checker RED (unreferenced view
-    # defs bound to React.memo(...) survived :advanced); #6195 repaired the DCE
-    # mechanism and it now passes, so the acceptance test for that repair
-    # becomes a standing regression net rather than a parked fixture.
-    #
-    # The gate builds the two proof-pack :advanced bundles and greps them:
-    #   - positive control (proof-pack-all): all six sentinels PRESENT, so an
-    #     absence in the single-view build is genuine elision, not a renamed
-    #     or missing literal (non-vacuity).
-    #   - isolation (proof-pack-single): the ONE imported view's sentinel
-    #     PRESENT and the five unimported siblings' sentinels ABSENT.
-    #
-    # No browser: it is a shadow-cljs release plus a bundle string inspection,
-    # so it needs the JDK/Node/Maven trio only — no Playwright install.
-    # Fired by the ui_gates surface (implementation/ui/** — which contains the
-    # proof-pack library and the compiler/runtime DCE surface it exercises —
-    # the build-config trio, or the checker script itself).
-    needs: detect_changed_surfaces
-    if: needs.detect_changed_surfaces.outputs.ui_gates == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    defaults:
-      run:
-        working-directory: implementation
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
-
-      - name: Set up JDK 21
-        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654  # v5.2.0
-        with:
-          distribution: temurin
-          java-version: '21'
-
-      - name: Set up Node.js
-        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e  # v6.4.0
-        with:
-          node-version: '24'
-          cache: npm
-          cache-dependency-path: implementation/package-lock.json
-
-      - name: Cache Maven / gitlibs (shadow-cljs deps)
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
-        with:
-          path: |
-            ~/.m2/repository
-            ~/.gitlibs
-          key: ${{ runner.os }}-cljs-${{ hashFiles('implementation/shadow-cljs.edn', 'implementation/package-lock.json') }}
-          restore-keys: |
-            ${{ runner.os }}-cljs-
-
-      - name: npm install
-        run: npm ci
-
-      - name: G-18 library facade isolation gate
-        run: npm run test:ui-facade-isolation
 
   jvm-reagent:
     name: Diagnostic skip-ok JVM reagent-adapter classpath probe
@@ -3643,15 +3341,6 @@ jobs:
           npx shadow-cljs compile node-test
           node out/node-test.js
 
-      # The consolidated build above intentionally loads every adapter's own
-      # tests, so it cannot prove the first-party UI artefact is isolated from
-      # the adapter artefacts (all first-class; re-frame.ui ships alongside
-      # them per EP-0030). Compile only the focused re-frame.ui closure
-      # and inspect Shadow's exact import manifest instead.
-      - name: re-frame.ui focused adapter-artifact isolation
-        if: needs.detect_changed_surfaces.outputs.ui_gates == 'true'
-        run: npm run test:ui-isolation
-
       # Per-namespace test-isolation gate (rf2-32siq3.44). The consolidated
       # node-test bundle shares ONE runtime, so a test ns whose fixture forgets
       # to install its own substrate adapter is masked: it passes whenever a
@@ -4690,77 +4379,6 @@ jobs:
       - name: Compile adapter smokes, serve, and run Playwright specs
         env:
           ADAPTER_SMOKE_FILTER: "adapters/"
-        run: npm run test:adapter-smokes
-
-  # rf2-nojiwy — the four-suites rule's new-UI smoke. The re-frame.ui
-  # substrate testbed (implementation/ui/testbed/ — homed with the
-  # substrate; re-frame.ui is experimental and ships ALONGSIDE the
-  # first-class adapters, so its smoke is a sibling of the two adapter
-  # smokes, not one of them). Same mount + dispatch + assert shape, same
-  # shared orchestrator (`npm run test:adapter-smokes` over the
-  # ADAPTER_SMOKES manifest in
-  # implementation/adapters/scripts/adapter-smoke-filter.cjs), narrowed to
-  # the one substrate entry via ADAPTER_SMOKE_FILTER=ui/testbed (the
-  # adapter-testbed-smokes job's `adapters/` filter excludes it). Fires on
-  # implementation/ui/** and smoke-harness changes via the ui_smoke
-  # classifier output. The nightly sweep and test-rigorous-local.sh run
-  # `test:adapter-smokes` UNFILTERED, so both pick this smoke up with zero
-  # list edits.
-  ui-smoke:
-    name: re-frame.ui testbed smoke (browser, headless Chromium)
-    needs: detect_changed_surfaces
-    if: needs.detect_changed_surfaces.outputs.ui_smoke == 'true'
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: implementation
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
-
-      - name: Set up JDK 21
-        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654  # v5.2.0
-        with:
-          distribution: temurin
-          java-version: '21'
-
-      - name: Set up Node.js
-        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e  # v6.4.0
-        with:
-          node-version: '24'
-          cache: npm
-          cache-dependency-path: implementation/package-lock.json
-
-      - name: Set up Clojure CLI
-        run: "$GITHUB_WORKSPACE/.github/scripts/install-clojure-cli.sh"
-
-      - name: Cache Maven / gitlibs (shadow-cljs deps)
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
-        with:
-          path: |
-            ~/.m2/repository
-            ~/.gitlibs
-          key: ${{ runner.os }}-cljs-examples-${{ hashFiles('implementation/shadow-cljs.edn', 'implementation/package-lock.json') }}
-          restore-keys: |
-            ${{ runner.os }}-cljs-examples-
-            ${{ runner.os }}-cljs-
-
-      - name: npm install
-        run: npm ci
-
-      - name: Cache Playwright browser binary
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
-        with:
-          path: ~/.cache/ms-playwright
-          key: ${{ runner.os }}-playwright-${{ hashFiles('implementation/package-lock.json') }}
-          restore-keys: |
-            ${{ runner.os }}-playwright-
-
-      - name: Install Playwright (Chromium + system deps)
-        run: npx playwright install --with-deps chromium || "$GITHUB_WORKSPACE/.github/scripts/playwright-install-failed.sh"
-
-      - name: Compile the re-frame.ui smoke, serve, and run its Playwright spec
-        env:
-          ADAPTER_SMOKE_FILTER: "ui/testbed"
         run: npm run test:adapter-smokes
 
   story-xray-browser:
@@ -6919,10 +6537,6 @@ jobs:
       # a merge that never ran it. Advisory would reproduce the original hole
       # in a new shape: a gate nobody's merge waits on.
       - jvm-core-prod-gate
-      - jvm-ui
-      - cljs-ui-g1
-      - cljs-ui-g13
-      - cljs-ui-g8
       # rf2-ga8m — required, not advisory. This is the only lane that
       # witnesses I15's caret and composition clauses, and the caret is the
       # only observable in a real browser that separates this runtime from
@@ -6940,7 +6554,6 @@ jobs:
       # old-generation cleanup on a type replacement. Advisory would leave the
       # HMR contract one `if:` away from the nowhere it ran until now.
       - cljs-hicasso-hmr
-      - cljs-ui-facade-isolation
       - jvm-reagent
       - jvm-reagent-slim
       - jvm-uix
@@ -7042,7 +6655,6 @@ jobs:
       - cljs-freehand-reachability
       - cljs-bundle-isolation
       - adapter-testbed-smokes
-      - ui-smoke
       - story-xray-browser
       - cljs-reagent-slim-bundle-isolation
       - tenant-switcher-testbed-smoke
