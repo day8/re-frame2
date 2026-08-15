@@ -101,7 +101,9 @@ The native tier must satisfy the shared-substrate and zero-rent clauses of the [
 
 ### 3.5 Data by default, functions when the contract is executable
 
-Markup and ordinary event intent are data. An explicit handler form covers value-first or calculated events. Ordinary functions cross host boundaries unchanged when a JavaScript API genuinely expects executable behavior. Position must not silently change the meaning of the same function form.
+Markup and ordinary event intent are data. An explicit handler form covers value-first or calculated events. Ordinary functions cross host boundaries unchanged when a JavaScript API genuinely expects executable behavior. What does **not** vary by position is ownership and prevention: a callback owns its own event everywhere and is never auto-prevented. What **does** vary is the contract the `h/event` carrier is read under — HD-024 tabulates event, as-declared and render — and it never varies *silently*: an intent dispatched at a render position refuses with `:rf.error/hicasso-intent-at-a-non-event-contract`, named at the position.
+
+*This section closed* "Position must not silently change the meaning of the same function form" *until 2026-08-16 (`rf2-0fd3b`).* That sentence collapsed the two questions into one and contradicted [§4.1](#41-events), which already says the position selects the contract; [`invariants.md`](invariants.md) I10 transcribes this section and had carried the correction since 2026-08-15, so the row was right and its owner was the defect.
 
 ### 3.6 Loud, stable failure
 
