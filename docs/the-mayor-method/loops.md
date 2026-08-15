@@ -328,7 +328,9 @@ text is content rather than a mutation time, so an undated correction is invisib
 edited description can be the newest field on the item. `bd history <id>` lists real mutation
 times newest-first; `bd comments <id> --json` carries comment `created_at`. That listing tells you
 a newer mutation exists but names no changed field — for the change itself, `bd history <id> --json`
-carries a full snapshot per commit, so compare the newest against its predecessor. And when a bead has
+carries a full snapshot per commit — walk adjacent pairs newest-first until the first change to a
+text-bearing field, because the history holds duplicate checkpoint snapshots and status-only
+mutations and the newest pair alone can truthfully say nothing changed. And when a bead has
 children, re-enumerate them — a ruling is sometimes recorded as a new child bead rather than as
 a note.
 
