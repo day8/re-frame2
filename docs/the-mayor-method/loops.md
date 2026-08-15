@@ -84,6 +84,12 @@ a new job landed is computed against the superseded matrix and legitimately read
 band-minus-one — which the count alone cannot distinguish from a change genuinely
 one job short. Update the branch and re-check before judging this clause.
 
+**And one reading above the band is correct.** A change that adds a required
+job sees that job in its own rollup, so it legitimately reads band-plus-one
+before the standing band has moved — the arming proving itself rather than a
+miscount, and the one case where a total above the band is not a reason to
+look further.
+
 ### Clause 2 — cancelled is not passed
 
 A cancelled check is *completed*. A tally keyed on completion therefore counts it
