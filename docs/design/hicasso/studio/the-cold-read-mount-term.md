@@ -76,7 +76,7 @@ and settled between samples behind a residue equality gate that never fired):
 
 | term | delta ms/commit | share of `c-local` |
 |---|---|---|
-| whole commit (`commit`, shipping seam) | 0.8875 [0.8000–1.0750] | — (6.29 µs/key; copy fidelity c-local/commit = 0.9718) |
+| whole commit (`commit`, shipping seam) | 0.8875 [0.8000–1.0750] | — (6.29 µs/key; copy fidelity c-local/commit = 0.9718, a **HISTORICAL reading** authored at `cb41ee537b`, landed on main as `12e50c5b36` — see the ratio note below) |
 | — **reaction build + cache insert** (`c-local − c-nosub`) | **0.4125** | **47.8%** |
 | — index write (`c-local − c-noindex`) — **arm and structure both retired since; see the window note below** | 0.0750 | 8.7% |
 | — cell-map insert (`c-local − c-nomap`) | 0.0375 | 4.3% |
@@ -98,10 +98,27 @@ and settled between samples behind a residue equality gate that never fired):
 > only change to have landed under these rows. **The four deltas do not
 > move at all**: the mint was bound above `commit-local!`'s `C-NOWATCH` guard
 > and present in every mode, so it stood on both sides of each and cancelled
-> exactly. **Nor does the fidelity ratio** — both arms carried the mint and
-> both have since lost it, so it is common-mode there too; and the copy is
-> once again *structurally* identical to the seam it prices, which warrants
-> the `c-*` ablations better than a clock agreement on its own ever did.
+> exactly — a delta is a *difference*, and an equal term standing on both
+> sides of a difference cancels out of it identically. **The fidelity ratio is
+> the other case, and the same premise does not carry across to it.** An equal
+> cost `m` removed from both arms of a RATIO leaves it where it was only when
+> `m` is zero or the arms are equal: `(A − m)/(B − m) = A/B` iff `m = 0` or
+> `A = B`. Here `A` = 0.8625 and `B` = 0.8875 are not equal, so removing the
+> 0.002–0.005 ms/commit the window note below extrapolates for the mint —
+> 141 × a 14–32 ns micro reading, never a differenced arm, because no arm
+> here ever priced a minting commit against a non-minting one — moves
+> 0.971831 to 0.971767–0.971671. Those digits are past what four-digit inputs
+> support and are quoted only for direction and scale; the point is not the
+> size of the shift but that **the cancellation argument is unsound for a
+> ratio rather than merely imprecise**, and it was the only thing this page
+> offered for carrying 0.9718 forward. (§1's render half is the `A = B` case —
+> `local/ship` = 1.0000, which an equal two-sided removal genuinely does leave
+> alone.) What the mint's removal does warrant is the ablation **design**: the
+> copy is once again *structurally* identical to the seam it prices, which
+> warrants the `c-*` arms better than a clock agreement on its own ever did.
+> It does not warrant carrying a measured ratio forward, and the ratio is now
+> published as the historical reading it is. (Merged-PR audit of #8335;
+> `rf2-gttif` reopened on it.)
 
 > **THE QUIET-BOX RE-TAKE HAS NOW RUN, AND THE FIGURES ABOVE STAND UNRESTATED**
 > (`rf2-d360z`, 2026-08-15, `2c95c22386`, instrument blob `7f2a7edccf`,
@@ -176,17 +193,33 @@ and settled between samples behind a residue equality gate that never fired):
 > at all. Phase B needs a longer window before it can decompose anything again;
 > that is filed too, and deliberately not attempted mid-window.
 >
-> **The fidelity ratio is not restated either, and does not need to be.** It
-> read 0.8864 / 0.9444 / 0.9189 against the published 0.9718 — a spread of
-> 0.058 lying wholly *below* it, so this window neither reproduces the
-> published ratio nor brackets it, and none of it is offered as confirmation.
-> What holds 0.9718 in place is not clock agreement but the reason `rf2-gttif`
-> gave, in the narrow form that reason actually takes: the keyword mint left
-> the copy and the seam alike, so it cancels out of the ratio. `rf2-lzpfj`'s
-> activation is the one term that did not move on both sides — it joined
-> `c-local` alone, restoring parity with work the seam was already performing,
-> and on this UIx host that work is expected at the noise floor. It was never a
-> term that joined both arms together.
+> **The fidelity ratio is not restated either — it is RELABELLED rather than
+> carried.** It read 0.8864 / 0.9444 / 0.9189 against the published 0.9718 —
+> a spread of 0.058 lying wholly *below* it, so this window neither reproduces
+> the published ratio nor brackets it, and none of it is offered as
+> confirmation. **And nothing else holds 0.9718 in place either.** The reason
+> `rf2-gttif` first gave — the keyword mint left the copy and the seam alike,
+> so it cancels out of the ratio — is a sound argument about a *difference*
+> and an unsound one about a ratio: `(A − m)/(B − m)` equals `A/B` only when
+> `m = 0` or `A = B`, and the two arms behind 0.9718 are 0.8625 and 0.8875.
+> The note directly under §1's commit-half table carries that arithmetic.
+> `rf2-lzpfj`'s activation
+> is then not a perturbation of the argument but its refutation: it joined
+> `c-local` ALONE — restoring parity with work the seam was already performing
+> — and a one-sided term cancels from neither a difference nor a ratio,
+> whatever its size. (The widened-window re-take below measures that term at
+> 0.0422–0.0562 ms/commit, roughly 8–28× the mint's extrapolated cost; it was taken at
+> a window shape these 2026-08-02 absolutes were not, so no transferred figure
+> is offered and none is needed — the one-sidedness is structural, not a
+> matter of magnitude. That same re-take is also why the "expected at the noise
+> floor" reading this paragraph previously gave the activation is withdrawn:
+> the term resolves with one sign on every run.) **0.9718 therefore stands as
+> a HISTORICAL reading** — what the arms of `cb41ee537b`, landed on main as
+> `12e50c5b36`, returned before the mint left, the index write was retired and
+> the activation arrived — and not as a figure this tree would return. The
+> structural parity `rf2-6wh9o` restored still warrants the `c-*` ablation
+> DESIGN, which is the job it can do; it cannot preserve a measured ratio
+> numerically. (Merged-PR audit of #8335; `rf2-gttif` reopened on it.)
 
 > **THE WHOLE RE-TAKE RAN ON THE WIDENED WINDOW, AND IT DOES NOT PUBLISH**
 > (`rf2-07rnj`, 2026-08-16, commit `a43aa8609f`, instrument blob
