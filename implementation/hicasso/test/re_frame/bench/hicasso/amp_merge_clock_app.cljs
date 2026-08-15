@@ -116,18 +116,31 @@
       HD-023(c″)'s shorthand fold appears in this ladder at all: the fold
       is not isolated here either, and rung (1) is an UPPER BOUND on the
       author's wrapper rather than a reading of it.
-    - RUNG (3) ALSO CARRIES THREE `:class nil` KEYS. One helper cannot
-      omit a key for three fields out of four without an `assoc`, so
-      `:helper` writes `:class` unconditionally and `:no-dissoc`'s call
-      sites carry `:class nil` on the three fields that have no class —
-      which is what keeps those two arms key-for-key identical. `:merged`
-      is frozen and its call sites carry no such key, so `:no-dissoc`
-      does slightly MORE work than `:merged` on those three fields and
-      rung (3) is biased UP by that much.
+    - RUNGS (1) AND (3) SHARE A PASSENGER, WITH OPPOSITE SIGNS: three
+      `:class nil` keys. One helper cannot omit a key for three fields
+      out of four without an `assoc`, so `field-explicit` writes `:class`
+      unconditionally and BOTH new arms' call sites carry `:class nil` on
+      the three fields that have no class — which is exactly what keeps
+      them key-for-key identical and rung (2) clean. `:expanded` and
+      `:merged` are frozen and carry no such key. So the passenger is
+      ADDED to rung (1) (`:helper` has it, `:expanded` does not) and
+      SUBTRACTED from rung (3) (`:no-dissoc` has it, `:merged` does not),
+      in equal measure. Neither rung is separately interpretable; their
+      SUM is, and it is passenger-free.
 
-  The two passengers were put where they do least harm on purpose. Rung
-  (2) is the term this programme owns, and it is the one both are kept
-  out of.
+      **The passenger is not small, and the reason is a cliff rather
+      than a key.** With the nil class the merged attribute map holds
+      NINE entries on all four fields; without it, eight on three of
+      them — and `cljs.core/PersistentArrayMap` promotes to a
+      `PersistentHashMap` at exactly the ninth. So on 300 of the page's
+      400 fields the two arms are not one map entry apart but one map
+      REPRESENTATION apart, and no reading of rung (1) or rung (3) alone
+      should be quoted as the wrapper's or the round trip's price.
+
+  So the ladder answers TWO questions and not three: rung (2) is the
+  CODEC'S share and is clean, and rungs (1) + (3) summed are the
+  AUTHOR'S share and are clean. Splitting the author's share into its
+  wrapper and its round trip needs an arm this ladder does not have.
 
   ## The control is adjudicated STRICTLY, and per round (rf2-egdaq)
 
