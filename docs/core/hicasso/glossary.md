@@ -627,22 +627,25 @@ a route subscription comparison.
 
 Related: [Routing and navigation](07-routing-and-navigation.md).
 
-<a id="demand-driven-committed-read"></a>
-### Demand-driven committed read
+<a id="view-scoped-read"></a>
+### View-scoped read
 
-A resource subscription with `:demand true`:
+A resource whose lifetime is a local view rather than the current route. It has
+no dedicated mechanism: the event that decides the data is wanted ensures it
+under an owner, and the event that dismisses the view releases that owner.
 
 ```clojure
-(h/sub
- [:rf/resource
-  {:resource :app/suggestions
-   :params   {:q q}
-   :demand   true}])
+(rf/reg-event :suggestions/wanted
+  (fn [_ [_ q]]
+    {:fx [[:dispatch [:rf.resource/ensure
+                      {:resource :app/suggestions
+                       :params   {:q q}
+                       :owner    [:suggestions]
+                       :cause    [:suggestions/wanted q]}]]]}))
 ```
 
-Commit acquires demand. Unmount, parameter change, or a committed render that
-stops taking the read releases demand. Speculative and abandoned renders
-acquire nothing. Without `:demand`, the resource subscription is passive.
+Resource subscriptions are passive in every case — they project the cache and
+never fetch. An owner pins its entry against GC until it is released.
 
 Related: [Async resources](08-async-resources.md),
 [Resources glossary](../../resources/glossary.md).

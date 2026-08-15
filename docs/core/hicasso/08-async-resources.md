@@ -4,7 +4,7 @@ The core resources model owns registered reads, cache identity, causes,
 mutation status, invalidation, and managed transport. Hicasso views consume
 those facts with `h/sub`. This page covers the view-facing race patterns:
 merging a late reply into a newer draft, per-instance mutation state,
-optimistic updates, cancellation, and demand tied to committed reads.
+optimistic updates, cancellation, and causing a view-scoped read from an event.
 
 ## Merge a settled reply into the current draft
 
@@ -162,45 +162,59 @@ is settled.
 | An older write reply loses to a newer attempt under the same instance | Runtime | Older reply is suppressed; its continuation never runs |
 | An older resource fetch loses to a newer generation of the same identity | Runtime | Stale reply cannot update the cache |
 | A user dismisses an error or abandons a write | Application | Dispatch mutation clear; status clears and in-flight work is aborted best-effort |
-| A view no longer needs a resource | Application state plus committed-read demand | Remove the read; ownership releases and transport aborts best-effort |
+| A view no longer needs a resource | Application | Release the owner that caused the read; a request no remaining owner needs aborts best-effort |
 | Which attempts compete | Application identity design | Instance id and resource params define the race |
 
 No screen unmount automatically cancels every write. A mutation may remain
 meaningful after navigation. Express cancellation through the domain state or
 explicit clear event that owns it.
 
-## Tie resource demand to a committed read
+## Cause a view-scoped read from an event
 
 Route `:resources` should own data required by page identity. Some reads instead
-exist only while a local view is committed: typeahead suggestions, picker
-options, or a hover preview. Add `:demand true` to that resource subscription:
+exist only while a local view is on screen: typeahead suggestions, picker
+options, or a hover preview. Those still have a cause, and it is an event.
+
+**A subscription never fetches.** `[:rf/resource …]` is a passive projection of
+the cache — route entry, events and machines cause the work. A view that only
+subscribes reads `:idle` forever, and that `:idle` is honest rather than a
+missing lifecycle hook. So the event that decides the view is wanted is the
+event that ensures the read, and the event that dismisses the view releases it:
 
 ```clojure
-(h/sub
- [:rf/resource
-  {:resource :app/suggestions
-   :params   {:q q}
-   :demand   true}])
+(rf/reg-event :suggestions/wanted
+  (fn [_ [_ q]]
+    {:fx [[:dispatch [:rf.resource/release-owner {:owner [:suggestions]}]]
+          [:dispatch [:rf.resource/ensure
+                      {:resource       :app/suggestions
+                       :params         {:q q}
+                       :owner          [:suggestions]
+                       :cause          [:suggestions/wanted q]
+                       :keep-previous? true}]]]}))
+
+(rf/reg-event :suggestions/dismissed
+  (fn [_ _]
+    {:fx [[:dispatch [:rf.resource/release-owner {:owner [:suggestions]}]]]}))
 ```
 
-Demand follows these rules:
+The pattern follows these rules:
 
-- **Only commit acquires.** A render that is abandoned, retried, or probed by
-  StrictMode acquires nothing. The ensure begins after the render commits.
-- **Committed liveness releases.** Unmount, parameter change, or a committed
-  branch that stops taking the read releases the old identity.
-- **Release is not immediate cache deletion.** The ownership hold ends, then
-  the entry follows its normal `:gc-after-ms` policy. A later view may rejoin a
+- **An owner pins liveness, so something has to release it.** `:owner` is any
+  value you choose; releasing it drops that owner from every entry it holds. The
+  release above runs before the ensure, so the previous query stops being owned
+  as the new one starts.
+- **Release is not immediate cache deletion.** The ownership hold ends, then the
+  entry follows its normal `:gc-after-ms` policy. A later ensure may rejoin a
   warm entry.
-- **Demand does not choose every policy.** Debounce, staleness, refresh with
+- **Ensure joins and skips.** Concurrent ensures of the same identity share one
+  request, and an ensure of an entry that is still fresh under `:stale-after-ms`
+  serves the cached value without fetching.
+- **The ensure does not choose every policy.** Debounce, staleness, refresh with
   previous data, supersession, and transport cancellation remain explicit in
-  their own layers.
-- **Passive reads remain passive.** Without `:demand true`, the subscription
-  projects the cache and does not cause work. If no route, prefetch, ensure, or
-  demand exists, `:idle` is honest and permanent.
+  their own layers. `:keep-previous?` rides the ensure, not the subscription.
 
-The runtime already tracks committed read membership, so views without resource
-demand pay none of this work.
+An owner that is never released keeps its entry out of GC, which is the one
+bookkeeping cost of a view-scoped read and the reason the dismiss event exists.
 
 ## Typeahead example
 
@@ -245,9 +259,15 @@ committing:
 (rf/reg-event :search/settle
   (fn [{:keys [db]} [_ gen]]
     (if (= gen (get-in db [:search :gen]))
-      {:db (assoc-in db
-                     [:search :committed-q]
-                     (get-in db [:search :text]))}
+      (let [q (get-in db [:search :text])]
+        {:db (assoc-in db [:search :committed-q] q)
+         :fx [[:dispatch [:rf.resource/release-owner {:owner [:search]}]]
+              [:dispatch [:rf.resource/ensure
+                          {:resource       :app/suggestions
+                           :params         {:q q}
+                           :owner          [:search]
+                           :cause          [:search/settle q]
+                           :keep-previous? true}]]]})
       {})))
 
 (rf/reg-event :search/clear
@@ -255,21 +275,20 @@ committing:
     {:db (update db :search assoc
                  :text ""
                  :committed-q ""
-                 :gen (inc (get-in db [:search :gen] 0)))}))
+                 :gen (inc (get-in db [:search :gen] 0)))
+     :fx [[:dispatch [:rf.resource/release-owner {:owner [:search]}]]]}))
 ```
 
-The result view declares demand and retains previous data during a parameter
-change:
+The result view reads the cache passively. The previous data it shows during a
+parameter change was arranged by the `:keep-previous?` on the ensure above:
 
 ```clojure
 (h/defview suggestion-list [{:keys [q]}]
   (let [{:keys [data loading? fetching?]}
         (h/sub
          [:rf/resource
-          {:resource       :app/suggestions
-           :params         {:q q}
-           :demand         true
-           :keep-previous? true}])]
+          {:resource :app/suggestions
+           :params   {:q q}}])]
     [:ul.suggestions
      {:aria-busy (boolean (or loading? fetching?))}
      (if (and loading? (not data))
@@ -295,30 +314,29 @@ The lifecycle is observable:
 
 1. Keystrokes update `:search/text` immediately. Each one increments the
    generation; no fetch starts yet.
-2. After 250 ms of quiet, only the current generation commits `q`. The list
-   mounts, its render commits, and demand starts the fetch. A discarded render
-   would have acquired nothing.
-3. A new committed query releases the old identity and acquires the new one.
-   The old transport aborts best-effort, and any late reply is suppressed by
-   generation checks. `:keep-previous? true` keeps previous results visible
-   while `:fetching?` reports the refresh.
-4. Escape or navigation removes the read. Demand releases without a lifecycle
-   hook written by the view.
+2. After 250 ms of quiet, only the current generation commits `q`. The same
+   handler ensures the resource under the `[:search]` owner, and that ensure —
+   not the list mounting — is what starts the fetch.
+3. A new committed query releases the old identity and ensures the new one.
+   The old transport aborts best-effort once no owner needs it, and any late
+   reply is suppressed by generation checks. The ensure's `:keep-previous? true`
+   keeps previous results visible while `:fetching?` reports the refresh.
+4. Escape releases the owner explicitly. Nothing infers that from the view
+   disappearing, which is why `:search/clear` says so.
 5. Repeating a query before its `:gc-after-ms` expiry rejoins the cached entry.
-   If it is still fresh under `:stale-after-ms`, no request is made.
+   If it is still fresh under `:stale-after-ms`, the ensure makes no request.
 
-Xray can show which committed read holds demand and which cause started a
-fetch. On the server, a Client-only view performs no commit and therefore
-acquires no demand; hydration acquires on the client without treating the
-server render as a cause.
+Xray can show which owners hold an entry and which cause started a fetch. On the
+server a passive read causes nothing, so no ensure runs there; the client's own
+events cause the first fetch after hydration.
 
 ## Troubleshooting
 
 | Symptom | Cause | Fix |
 | --- | --- | --- |
-| A resource remains permanently `:idle` | No route resource, prefetch, explicit ensure, or demanded committed read owns it | Add `:demand true` where the view owns the lifetime, or choose the appropriate external cause |
+| A resource remains permanently `:idle` | Nothing caused it — a subscription is a passive read and never fetches | Give it a cause: route `:resources`, a prefetch, or an `[:rf.resource/ensure …]` from the event that decides the data is wanted |
 | Boot raises `:rf.error/resources-artefact-missing` | The resources model was not loaded | Require `re-frame.resources`, normally with `re-frame.http.managed` |
-| Typeahead flashes empty on every new query | Each params value is a different cache identity and previous data is hidden | Set `:keep-previous? true` and use `:fetching?` for the quiet refresh state |
+| Typeahead flashes empty on every new query | Each params value is a different cache identity and previous data is hidden | Set `:keep-previous? true` on the `[:rf.resource/ensure …]`, not on the subscription, and use `:fetching?` for the quiet refresh state |
 | Old query results replace new ones | Fetching was implemented outside the resource identity/generation model | Register the resource and let the runtime suppress stale replies |
 | A resource read throws after render | `h/sub` escaped into a callback, promise, timer, or deferred sequence | Read during the synchronous body and retain the resulting status/data value |
 | Every row button becomes pending together | All writes use one instance id | Include row identity, such as `[:favorite slug]` |
@@ -326,7 +344,7 @@ server render as a cause.
 | Optimistic rollback overwrites a concurrent update | Conflict policy forces the old snapshot | Use the default `:on-conflict :invalidate` unless forced rollback is an explicit business rule |
 | A cleared/unmounted view still receives a meaningful mutation reply | Mutations are not implicitly cancelled by view lifetime | Choose an instance and explicit cancellation/clear policy; do not treat unmount as ownership unless the domain says so |
 
-## When not to use demanded reads
+## When an event is the wrong owner
 
 | Job | Better owner |
 | --- | --- |
@@ -337,12 +355,15 @@ server render as a cause.
 | Drafts, field validation, and submit gating | Forms module |
 | Multi-stage workflow | A state machine that owns resource causes and transitions |
 
-Demand expresses a lifetime only when a committed view read is the owner. It
-cannot represent data that no view currently reads.
+Reach for a view-scoped ensure only when no other cause already owns the data.
+A read the URL determines belongs to the route, where SSR and transition
+blocking can see it.
 
 ??? info "For readers coming from TanStack Query"
-    The closest analogy is a query acquired by a mounted reader. Hicasso
-    acquires at commit rather than speculative render. Debounce remains event
-    policy, staleness and GC stay on the registration, and supersession follows
-    explicit identities. Mutations invalidate declared causal tags rather than
-    depending on a later call-site `invalidateQueries`.
+    The closest analogy is a query, but the acquisition is not the same: a
+    TanStack query fetches because a component rendered `useQuery`, whereas
+    a Hicasso subscription only projects the cache and an event causes the
+    fetch. Debounce remains event policy, staleness and GC stay on the
+    registration, and supersession follows explicit identities. Mutations
+    invalidate declared causal tags rather than depending on a later call-site
+    `invalidateQueries`.
