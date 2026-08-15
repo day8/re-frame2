@@ -46,42 +46,38 @@
     type and the boundary re-renders instead of remounting. A memoized
     `as-component` would re-implement that machinery one layer up.
 
-  ## KNOWN GAP — a crossed boundary is DEAF to writes (rf2-phabt)
+  ## THE GAP THAT WAS HERE IS CLOSED, and it was not the crossing
+  ## (rf2-phabt)
 
-  The spike settled what it was asked to settle and found one more thing
-  on the way, which is filed rather than fixed here (`implementation/**`
-  is outside this bead's fence):
+  This section used to record a KNOWN GAP: *a boundary crossed into from
+  a Reagent parent paints once, correctly, and then never re-renders on a
+  write into its own frame.* Two rows measuring it were run red and
+  removed rather than shipped, and rf2-phabt carried them.
 
-  **a boundary crossed into from a Reagent parent paints once, correctly,
-  and then never re-renders on a write into its own frame.** Body-run
-  counts say it plainly — the body is not re-invoked, so this is a
-  missing NOTIFICATION rather than a stale read.
+  **They are back, green** — [[a-write-repaints-a-crossed-boundary]] and
+  [[a-write-repaints-a-boundary-crossed-in-by-as-component]] below — and
+  the crossing was never the variable. The measurement that produced the
+  gap varied the mounting route AND the frame id at once, and it was the
+  second that carried the defect: `:story.hicasso/card`'s cell is still
+  in Hicasso's table when the row below it runs (this file's fixture
+  clears the registrar and re-registers `::counter`, which is a FIRST
+  registration and invalidates that cell), while the `h/mount!` control
+  named a frame no other row uses and so mounted against a clean table.
+  `impl.collector/acquire-cell!` reused the invalidated cell without
+  rebuilding its attachment, so the boundary got the right value from the
+  cold probe and no watch to be notified through.
 
-  It was measured with a live control, which is what makes the zero
-  readable: same boundary, same subscription, same Reagent adapter, same
-  drain, only the mounting route varying. Under `h/mount!` it repaints —
-  that row is [[a-write-repaints-a-boundary-under-hicassos-own-root]],
-  green, below. Crossed in with `h/as-element` it is deaf; crossed in
-  with a memoized `h/as-component` it is deaf in exactly the same way, so
-  the outward-bridge DOOR is not the variable and rf2-2dbpd's
-  pre-authorized fallback B is not the remedy. Ruled out with it: the
-  adapter, the drain, the provider object (both routes provide over the
-  same `re-frame.adapter.context/frame-context`), frame resolution across
-  the crossing (both crossed routes read the VARIANT frame's value on
-  their first paint), and React reconciliation
-  ([[a-reagent-parent-rerender-does-not-remount-the-boundary]] is green).
+  The repair is in the acquire, and the witness that pins it — with the
+  crossing held OUT of the row, under `h/mount!`, where the same
+  deafness reproduces — is
+  `re-frame.hicasso.foreign-root-bridge-dom-cljs-test`. That file also
+  drives five mounting routes, a UIx `defui` parent among them, and every
+  one repaints.
 
-  The two red routes were run and then REMOVED rather than shipped red or
-  pinned as a change-detector; rf2-phabt carries them verbatim. What
-  stays here is the live half, because a control with nothing to control
-  is still the row that says the harness can see a repaint at all.
-
-  **What this gap does and does not cost.** Everything this file proves
-  green is unaffected: registry dispatch, late resolution, degradation,
-  the stable element type, and a crossed boundary observing its variant
-  frame at render. What is blocked is INTERACTIVITY — a hicasso story
-  whose subject re-renders on its own writes — which is rf2-kttom's
-  concern, not this bead's.
+  **This file's fixture still does not reset the Hicasso runtime**, and
+  that is deliberate rather than an oversight: the two returned rows earn
+  their keep precisely because they mount against a cell an earlier row
+  left behind.
 
   ## Two lanes, one file
 
@@ -139,6 +135,14 @@
 
 (def ^:private card-id  ::hicasso-card)
 (def ^:private panel-id ::hicasso-panel)
+
+(def ^:private bridged-card
+  "THE OTHER BRIDGE DOOR, minted once at top level — the law, because
+  `h/as-component` allocates a component and minting one inside a render
+  would hand React a fresh element type every pass. Memoized on the head
+  the way rf2-phabt's route 3 spells it, so the two returned rows differ
+  by the DOOR and by nothing else."
+  (react/memo (h/as-component hicasso-card)))
 
 (def ^:private alias-entries
   "The registrar entries `h/defview` published at NAMESPACE LOAD, captured
@@ -375,6 +379,91 @@
                   "and the readout moved"))
             (finally
               (try (h/unmount! handle) (catch :default _ nil)))))))))
+
+(defn- write-and-settle!
+  "Write `n` into `frame-kw` and drain, the way a story's own interaction
+  would — [[settle!]] is this file's ratom-host pair."
+  [frame-kw n]
+  (rf/dispatch-sync [:hicsub/bump n] {:frame frame-kw})
+  (settle!)
+  nil)
+
+(deftest a-write-repaints-a-crossed-boundary
+  (testing "rf2-phabt's ROUTE 2, restored. It ran red once and was removed
+            rather than shipped red: a boundary spliced into a Reagent
+            tree by `h/as-element` painted `alpha/1` and then did not move
+            on a write into its own frame, with the body run count saying
+            so — 1 to 1, a missing notification rather than a stale read.
+
+            It is green because `impl.collector/acquire-cell!` now rebuilds
+            the attachment of a cell it REUSES. This row mounts on
+            `:story.hicasso/card`, whose cell an earlier row in this file
+            leaves in Hicasso's table and this file's fixture then
+            invalidates by re-registering `::counter` from cold — which is
+            the state the original red was taken in, and the reason the
+            frame id is this one rather than a fresh one.
+
+            BODY RUNS ARE THE ASSERTION and the DOM text corroborates: the
+            defect's first paint was always right, so a row that stopped
+            at the mount passes on the broken runtime as happily as on the
+            fixed one."
+    (if-not (browser?)
+      (is true ":node-test — no DOM; :browser-test runs this row")
+      (let [variant-id :story.hicasso/card
+            mount-node (make-mount-node!)
+            root       (rdc/create-root mount-node)
+            card-text  #(some-> (.querySelector mount-node "[data-test=\"hicasso-card\"]")
+                                .-textContent)]
+        (rf/make-frame {:id variant-id})
+        (write-and-settle! variant-id 1)
+        (try
+          (react-dom/flushSync
+            (fn []
+              (rdc/render root
+                [rf/frame-provider {:frame variant-id}
+                 [:div.reagent-parent
+                  (h/as-element [hicasso-card {:label "alpha"}])]])))
+          (is (= "alpha/1" (card-text)) "it painted, reading the variant's frame")
+          (let [runs-at-mount @!card-runs]
+            (write-and-settle! variant-id 42)
+            (is (> @!card-runs runs-at-mount)
+                "THE WRITE RE-RAN THE BODY — the notification crossed")
+            (is (= "alpha/42" (card-text)) "and the readout moved"))
+          (finally
+            (try (.unmount root) (catch :default _ nil))))))))
+
+(deftest a-write-repaints-a-boundary-crossed-in-by-as-component
+  (testing "rf2-phabt's ROUTE 3, restored — the same claim through the
+            OTHER bridge door, memoized on the head. It is here because
+            the original measurement used the two doors to eliminate the
+            door as the variable, and the pair is worth keeping now that
+            both are green: a repair that reached `as-element` and not
+            `as-component` would leave one of the two documented parents
+            deaf, and this row is what would say so."
+    (if-not (browser?)
+      (is true ":node-test — no DOM; :browser-test runs this row")
+      (let [variant-id :story.hicasso/card
+            mount-node (make-mount-node!)
+            root       (rdc/create-root mount-node)
+            card-text  #(some-> (.querySelector mount-node "[data-test=\"hicasso-card\"]")
+                                .-textContent)]
+        (rf/make-frame {:id variant-id})
+        (write-and-settle! variant-id 1)
+        (try
+          (react-dom/flushSync
+            (fn []
+              (rdc/render root
+                [rf/frame-provider {:frame variant-id}
+                 [:div.reagent-parent
+                  (react/createElement bridged-card #js {"label" "brg"})]])))
+          (is (= "brg/1" (card-text)) "it painted through the bridge")
+          (let [runs-at-mount @!card-runs]
+            (write-and-settle! variant-id 42)
+            (is (> @!card-runs runs-at-mount)
+                "and the write re-ran the body here too")
+            (is (= "brg/42" (card-text)) "and the readout moved"))
+          (finally
+            (try (.unmount root) (catch :default _ nil))))))))
 
 (deftest a-reagent-parent-rerender-does-not-remount-the-boundary
   (testing "the identity decision, measured on a fiber. The render fn mints
