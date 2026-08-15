@@ -285,28 +285,26 @@
 
 (defn- $ [sel] (.querySelector js/document sel))
 
-(defn- watch-uncaught!
-  "The error OBJECTS React reports out of a commit — the only channel a
-  refusal raised in a ref callback can be read from.
-
-  React 19 routes an uncaught commit-phase throw to the root's
-  `onUncaughtError`, whose default calls `reportError` and RETURNS; it
-  does not rethrow. So nothing lands on the stack `cljs.test` is
-  watching, and `(is (thrown? …))` here would be red over a working
-  refusal — the same trap
-  [[re-frame.hicasso.portal-dom-cljs-test]]'s `watch-errors!` records.
-  Read off `react-dom` 19.2's `defaultOnUncaughtError` rather than
-  assumed.
-
-  The objects and not their messages: the claim is about the ex-data a
-  catch site receives — the id, the site, the recovery and the payload —
-  and a message substring would pass on a refusal carrying the wrong id."
-  []
-  (let [seen     (atom [])
-        on-error (fn [e] (swap! seen conj (.-error e)))]
-    (.addEventListener js/window "error" on-error)
-    {:seen    seen
-     :restore (fn [] (.removeEventListener js/window "error" on-error))}))
+;; What the watching boundary caught from the dangling-anchor overlay.
+;;
+;; A REF-CALLBACK refusal cannot be read the way a render-phase one is.
+;; React 19 routes an uncaught commit-phase throw to the root's
+;; `onUncaughtError`, whose default calls `reportError` and RETURNS rather
+;; than rethrowing — read off `react-dom` 19.2's `defaultOnUncaughtError`
+;; rather than assumed — so nothing lands on the stack `cljs.test` watches
+;; and `(is (thrown? …))` would be RED over a working refusal. It is the
+;; trap [[re-frame.hicasso.portal-dom-cljs-test]]'s `watch-errors!`
+;; records.
+;;
+;; An `h/error-boundary` is the right reader for two reasons rather than
+;; one. It is what a real app has above an overlay, so the row measures
+;; the path a consumer is actually on. And it CONTAINS the throw: an
+;; uncaught `pageerror` fails the whole browser run by policy
+;; (rf2-mwx08), green `cljs.test` summary or not — measured, on the first
+;; run of this row, which reported `0 failures, 0 errors` and still
+;; exited 1. A deliberate refusal has to be caught by something, or the
+;; suite pays for it.
+(def ^:private !anchor-refusal (atom nil))
 
 ;; --- the clipping fixture --------------------------------------------------
 
@@ -1006,12 +1004,16 @@
                      :placement :top-start
                      :id        "pop-t"}
     [:p "tip"]]
-   [overlay/popover {:open?      (h/sub [::open? :px])
-                     :on-dismiss [::dismissed :px]
-                     :anchor     "no-such-element"
-                     :placement  :bottom-start
-                     :id         "pop-x"}
-    [:p "unanchored"]]
+   ;; The dangling `:anchor`, under a boundary that is BOTH how the refusal
+   ;; is read and what keeps a deliberate one from reding the suite.
+   [h/error-boundary {:fallback [:p.anchor-refused "the overlay refused"]
+                      :on-error (fn [e] (reset! !anchor-refusal e))}
+    [overlay/popover {:open?      (h/sub [::open? :px])
+                      :on-dismiss [::dismissed :px]
+                      :anchor     "no-such-element"
+                      :placement  :bottom-start
+                      :id         "pop-x"}
+     [:p "unanchored"]]]
    ;; Room BELOW the trigger, so `scrollIntoView` can put it at the centre
    ;; of the viewport rather than at the bottom edge. A `[popover]` is
    ;; `position: fixed`, so its containing block is the viewport and a
@@ -1109,42 +1111,41 @@
                     a no-op for as long as the reservation stood: the panel
                     opened in the top layer, visibly unanchored, and said
                     nothing"
-            (let [{:keys [seen restore]} (watch-uncaught!)]
-              (try
-                ;; THE CONTROL, and the reason the row below is a reading
-                ;; rather than a constant. A claim that RESOLVES runs inside
-                ;; the same watch window and reports nothing — so the capture
-                ;; is not simply firing on every overlay commit.
-                (go! [::opened :pa])
-                (go! [::closed :pa])
-                (is (empty? @seen)
-                    (str "premise: an anchor that resolves is silent, so the "
-                         "channel is quiet before the refusal. saw "
-                         (pr-str (mapv ex-data @seen))))
+            (reset! !anchor-refusal nil)
 
-                (go! [::opened :px])
-                (is (= 1 (count @seen))
-                    "the refusal reached the channel React reports commits on")
-                (let [data (some-> (first @seen) ex-data)]
-                  (is (= :rf.error/hicasso-overlay-anchor-missing
-                         (:rf.error/id data))
-                      (str "and it is THIS complaint, by id rather than by "
-                           "message. saw " (pr-str data)))
-                  (is (= 're-frame.hicasso.impl.overlay/claim-anchor!
-                         (:where data))
-                      "tagged with the site that refused")
-                  (is (= :give-the-trigger-the-dom-id-the-anchor-names
-                         (:recovery data))
-                      "carrying the recovery Spec 009's row states")
-                  (is (= "no-such-element" (:anchor data))
-                      "and the payload names the id that resolved to nothing"))
+            ;; THE CONTROL, and the reason the row below is a reading rather
+            ;; than a constant. An anchor that RESOLVES commits through the
+            ;; same machinery and refuses nothing — so neither the boundary
+            ;; nor the atom is simply firing on every overlay commit.
+            (go! [::opened :pa])
+            (go! [::closed :pa])
+            (is (nil? @!anchor-refusal)
+                "premise: an `:anchor` that resolves refuses nothing")
+            (is (nil? ($ "p.anchor-refused"))
+                "premise: and the watching boundary is rendering its child")
 
-                ;; The refusal runs BEFORE `show!`, so the panel does not
-                ;; reach the top layer at all — an overlay cannot be both
-                ;; refused and open.
-                (is (not (some-> ($ "#pop-x") (.matches ":popover-open")))
-                    "and the panel never opened")
-                (finally (restore)))))
+            (go! [::opened :px])
+            (let [data (some-> @!anchor-refusal ex-data)]
+              (is (= :rf.error/hicasso-overlay-anchor-missing
+                     (:rf.error/id data))
+                  (str "THIS complaint, by id rather than by message. saw "
+                       (pr-str data)))
+              (is (= 're-frame.hicasso.impl.overlay/claim-anchor!
+                     (:where data))
+                  "tagged with the site that refused")
+              (is (= :give-the-trigger-the-dom-id-the-anchor-names
+                     (:recovery data))
+                  "carrying the recovery Spec 009's row states")
+              (is (= "no-such-element" (:anchor data))
+                  "and the payload names the id that resolved to nothing"))
+
+            (is (some? ($ "p.anchor-refused"))
+                "the boundary took it and stood its fallback in the place
+                 the overlay would have had")
+            ;; The refusal runs BEFORE `show!`, so the panel never reaches
+            ;; the top layer — an overlay cannot be both refused and open.
+            (is (not (some-> ($ "#pop-x") (.matches ":popover-open")))
+                "and the panel never opened"))
           (finally (mount/release! handle)))))))
 
 ;; --- the budget ------------------------------------------------------------
