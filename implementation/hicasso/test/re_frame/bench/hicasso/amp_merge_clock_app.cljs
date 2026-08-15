@@ -511,7 +511,57 @@
 
 (defn- arm-named [id] (first (filter #(= id (:id %)) arms)))
 
-(def ^:private sampling {:warmup 3 :samples 6})
+(def ^:private sampling
+  "THE LANE'S PAGE-MOUNT SAMPLING, which this arm now runs (rf2-6ta5r).
+
+  It ran `{:warmup 3 :samples 6}`, and on that sampling the NULL arm
+  degraded: `:expanded-b`/`:expanded` read `[0.9467 1.4737 1.0294 1
+  0.9853]` on a quantity that is 1.0 BY CONSTRUCTION — the same body under
+  a second boundary head. Four rounds sit within 5.3% of 1.0 and round two
+  reads +47%, which on the per-field arithmetic is +4,500 ns on a
+  difference of zero. An impossible reading bounds nothing, so that window
+  claimed no term inside instrument resolution, its own included.
+
+  ROUND TWO IS A WARM-UP ROUND, and that is the connection to `rf2-h904p`
+  on `direct_return_clock_app`. Replaying [[lane/rounds!]] against
+  `order-guard/slot-order` puts every arm's FIRST-THIRD phase stratum at
+  rounds one and two — 3 to 15 prior executions of the arm — and its
+  LAST-THIRD at rounds four and five, 32 to 44. The null degraded inside
+  exactly the span the other harness's guard refused on. `p50` over six
+  samples cannot be moved 1.47x by one outlier: at least three of the six
+  were elevated, so the round-two event was sustained across half that
+  arm's round rather than a single pause, which is the shape of a ramp and
+  not of a transient.
+
+  THE ARM COUNT IS NOT THE LEVER, and this settles it for `rf2-v5oto`.
+  `run.cjs` names `fewer arms per round` as one of the three moves, and
+  `rf2-z143r` taking the schedule from five arms to seven is the lead the
+  bead was filed on. The schedule arithmetic answers it: at n = 5, 7 and 8
+  every arm still banks 30 samples per run, every arm's phase strata are
+  still rounds 1-2 against rounds 4-5 at the same prior-execution counts,
+  and the null's true predecessor distribution keeps its kind
+  (`:expanded` 20, `:merged` 10). The null's POSITION did not move when
+  the ladder landed. Arm count buys wall-clock per round and a different
+  set of neighbours; it does not touch the axis the null failed on. So the
+  ladder stays whole and `rf2-v5oto`'s eighth arm is not blocked by this.
+
+  WHAT IS LEFT IS WARM-UP, and three is below the step the lane itself
+  records: `lane.cljs`'s live reproduction read one control `10.32 10.26
+  10.26 10.26 10.33 10.28` and then `8.12` for ever, a +27% step falling
+  after the SIXTH execution of the site. `{:warmup 8 :samples 12}` puts
+  that step inside the warm-up, doubles each phase stratum to n = 20, and
+  is what `coldmount_app`, `p0_converge_app` and `p0_reagent_app` — every
+  other full-page-mount harness on this instrument — already run.
+
+  WHAT THIS DOES NOT CLAIM. That warm-up PRODUCED the 1.4737. One round of
+  five, no second window, and a box bracketed quiet at its two ends but
+  never sampled inside a measured window cannot separate a ramp from
+  anything else that decayed over the same run. What is established is
+  that the seven-arm schedule is not implicated and that the reading
+  landed inside the run's least-warmed span; the rest is the next window's
+  to confirm, and it should read the null before it reads anything else."
+  {:warmup 8 :samples 12})
+
 (def ^:private rounds 5)
 (def ^:private control-slack 0.25)
 

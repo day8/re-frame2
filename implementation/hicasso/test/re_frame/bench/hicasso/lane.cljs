@@ -517,9 +517,38 @@
   []
   (atom {:pos 0 :prev nil :samples []}))
 
+(defn observe!
+  "Record that arm `id` RAN, without banking a sample.
+
+  A WARM-UP SAMPLE IS STILL A PREDECESSOR. [[collect!]] carries `:prev`
+  forward from the last sample it BANKED, so across a round's warm-up gap
+  it named the previous round's last measured arm — and the arm that
+  actually ran immediately before was a warm-up sample nobody told it
+  about. Replaying this schedule shows the cost precisely: on every arm
+  count tried (4, 5, 7, 8) exactly one arm — the one holding the first
+  slot at `s = warmup` — carried 5 of its 30 samples under a predecessor
+  that never preceded it. On the seven-arm `amp_merge_clock` schedule that
+  arm is `:expanded-b`, the NULL, and 4 of its samples were filed under
+  `floor`, which never runs before it; on the five-arm schedule the same 4
+  were filed under `expanded-b` ITSELF, which is not a predecessor any
+  schedule can produce.
+
+  That is a fabricated stratum in the guard's `:predecessor` factor, and a
+  guard adjudicating a contrast that did not happen is the fail-open
+  shape this lane exists to refuse. The repair is to tell the collector
+  about every execution and to bank only the measured ones — the position
+  counter is untouched, because a discarded sample has no position."
+  [coll id]
+  (swap! coll assoc :prev id)
+  nil)
+
 (defn collect!
   "Bank one sample for arm `id` at `value`, tagged with what ran
-  immediately before it and where in the run it sits."
+  immediately before it and where in the run it sits.
+
+  `:prev` is maintained by this function AND by [[observe!]]; a caller
+  that runs unbanked samples must call the latter for them or the
+  predecessor recorded here is fiction."
   [coll id value]
   (swap! coll (fn [{:keys [pos prev samples]}]
                 {:pos      (inc pos)
@@ -560,9 +589,15 @@
                       (doseq [j (slot-order k s)]
                         (let [arm (nth arms j)
                               ms  (measure-one! arm)]
-                          (when (>= s warmup)
-                            (collect! coll (label arm) ms)
-                            (swap! acc update (:id arm) conj ms)))))
+                          (if (>= s warmup)
+                            (do (collect! coll (label arm) ms)
+                                (swap! acc update (:id arm) conj ms))
+                            ;; DISCARDED, BUT NOT UNSEEN. A warm-up sample
+                            ;; is what the next measured sample actually
+                            ;; followed; [[observe!]] carries that across
+                            ;; the gap so the guard's `:predecessor` factor
+                            ;; strata what ran rather than what was banked.
+                            (observe! coll (label arm))))))
                     @acc))
                 (range rounds))]
      {:readings out :samples (:samples @coll)})))

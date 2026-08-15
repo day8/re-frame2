@@ -228,7 +228,46 @@
    {:id :ctl-2x :k 2 :elements page-elements :parity-exempt? true
     :mount (mount-page hiccup-arm) :unmount unmount-page}])
 
-(def ^:private sampling {:warmup 3 :samples 6})
+(def ^:private sampling
+  "THE LANE'S PAGE-MOUNT SAMPLING, which this arm now runs (rf2-h904p).
+
+  It ran `{:warmup 3 :samples 6}`, and the arm-order guard refused the S8
+  window at exit 2 on a PHASE contrast: `:hiccup`'s first third read
+  `2.3000 ms [2.1000-4.9000]` against a last third of
+  `1.9000 ms [1.7000-2.0000]`, `1.2105x` apart with disjoint ranges, while
+  the other two page-mounting arms drifted `1.2338x` (`:ctl-2x`) and
+  `1.2000x` (`:direct`) and passed only because their ranges overlapped.
+  Every by-predecessor contrast passed on every arm. A decay common to all
+  three mounting arms and absent from the by-predecessor axis is a
+  POSITION effect, and three warm-up mounts is what this file was giving
+  it.
+
+  THREE SITS BELOW THE STEP THE LANE ITSELF RECORDS. `lane.cljs`'s live
+  reproduction read one control `10.32 10.26 10.26 10.26 10.33 10.28` and
+  then `8.12` for ever — a +27% step falling after the SIXTH execution of
+  the site, with nothing varying but how many times it had run. At
+  `:warmup 3` a step of that shape lands INSIDE the measured samples and
+  splits round one, which is the contrast the guard reported; at
+  `:warmup 8` it lands inside the warm-up and no measured sample straddles
+  it. `{:warmup 8 :samples 12}` is also what every other full-page-mount
+  harness on this instrument already runs — `coldmount_app`,
+  `p0_converge_app` and `p0_reagent_app` between them — so this arm stops
+  being the lane's outlier rather than acquiring a figure of its own.
+
+  WHAT WAS DELIBERATELY NOT MOVED. Not the guard's tolerance, which is not
+  the arm's to move. Not [[boundaries]]: lengthening the flushSync window
+  is the third move `run.cjs` names, but it would change the SUBJECT
+  budgets.md S8 already publishes — `on a 200-boundary mount` — and make
+  the next window incomparable to run 1 for a reason that has nothing to
+  do with the refusal. And not the arm count, which the same repair on
+  `amp_merge_clock_app` settles with the schedule arithmetic.
+
+  This re-tunes the conditions under which S8 is measured, so run 1's
+  published figure is NOT comparable to what this file will read next.
+  That was already the position: the refusal left S8 waiting on a fresh
+  window, and this is the rig change it was waiting for."
+  {:warmup 8 :samples 12})
+
 (def ^:private rounds 5)
 (def ^:private control-slack 0.25)
 
