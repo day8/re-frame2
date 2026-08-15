@@ -319,13 +319,16 @@ notifications, and do not trust a filter that returned empty — an empty filter
 dry backlog. One mayor under-saturated at one to three workers while a hundred items
 were ready, because a homegrown filter kept answering empty.
 
-**Read the newest note first, and find it by DATE rather than by position.** The description
-is the *oldest* text on an item and corrections accrete below it, so a top-down read gets
-superseded instructions — but the bottom is not reliably the newest either, because audit
+**Read the newest note first, and order the item by the tracker's own timestamps.** The
+description is *usually* the oldest text and corrections accrete below it, so a top-down read
+gets superseded instructions — but the bottom is not reliably the newest either, because audit
 notes append into the description block while dated comments render after it. `bd show | tail`
-is not a read-the-newest method: grep the bead for dates and read around the latest one. And
-when a bead has children, re-enumerate them — a ruling is sometimes recorded as a new child
-bead rather than as a note.
+is not a read-the-newest method, and neither is grepping the prose for dates: a date in the
+text is content rather than a mutation time, so an undated correction is invisible to it and an
+edited description can be the newest field on the item. `bd history <id>` lists real mutation
+times newest-first; `bd comments <id> --json` carries comment `created_at`. And when a bead has
+children, re-enumerate them — a ruling is sometimes recorded as a new child bead rather than as
+a note.
 
 Filter out before shaping anything:
 
