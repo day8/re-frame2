@@ -21,7 +21,9 @@ Prompt engineering and context management are still the keys.
 
 - One long-lived AI session is the **mayor**.
 - Many short-lived AI sessions are **workers**.
-- [Beads](https://github.com/gastownhall/beads) tracks the work.
+- An issue tracker holds the work. Any will do, provided an agent can read and
+  write it from the command line — this account is written against
+  [Beads](https://github.com/gastownhall/beads).
 - Prompts are treated very seriously.
 - Git worktrees isolate workers.
 - Chat and the tracker hold the calls waiting on me.
@@ -132,9 +134,10 @@ A good item says:
 
 Workers do not get vibes. They get items. Vague items produce vague PRs.
 
-Beads also has memories: `bd remember` stores project-shaped insights that outlive
-the current mayor, and `bd memories <topic>` retrieves them. Use them for the
-operations knowledge a fresh mayor would otherwise rediscover at 2 a.m.
+Give the tracker somewhere to keep durable insight, separate from the items
+themselves — Beads calls these memories, written with `bd remember` and retrieved
+with `bd memories <topic>`. Use it for the operations knowledge a fresh mayor
+would otherwise rediscover at 2 a.m.
 
 ## Briefs are where the errors are
 
