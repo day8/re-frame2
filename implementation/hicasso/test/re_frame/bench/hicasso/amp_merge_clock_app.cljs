@@ -58,6 +58,76 @@
                  per-sample additive constants double with it and the
                  prediction is a clean 2.00x rather than a modelled one.
                  rf2-5yn9 records the same construction and its reason.
+    :helper      LADDER RUNG 1 (rf2-z143r). The same page written with a
+                 helper that takes EXPLICIT ARGUMENTS and writes no `:&`:
+                 each call site builds a remainder map, the helper is
+                 called with it, and the helper spells the five forwarded
+                 attributes out as ordinary keys. Call-site map plus
+                 helper call, no merge.
+    :no-dissoc   LADDER RUNG 2 (rf2-z143r). `:helper`'s call sites
+                 CHARACTER FOR CHARACTER, and `:helper`'s helper with its
+                 five spelled-out keys replaced by one `:&`. Nothing else
+                 differs between the two, which is what makes the pair a
+                 price for `merge-caller` and for nothing else.
+
+  ## The decomposition ladder (rf2-z143r)
+
+  The five arms above price the authoring change WHOLE and apportion
+  nothing, and the three things inside it do not have the same standing:
+  the caller map and the `dissoc` are the AUTHOR'S code and an author can
+  change them, while `merge-caller` is the CODEC'S and only this
+  programme can. `:helper` and `:no-dissoc` are two rungs placed BETWEEN
+  `:expanded` and `:merged` so that each step changes exactly one thing.
+
+      :expanded --(1)--> :helper --(2)--> :no-dissoc --(3)--> :merged
+
+  (1) THE AUTHOR'S WRAPPER. A remainder map built at each call site, a
+      function call, and the five forwarded attributes arriving as
+      arguments rather than as literals in the element's own map.
+  (2) THE CODEC'S MERGE. The same five attributes routed through `:&`
+      instead of written as keys, so this rung is exactly what
+      `merge-caller` does on a present remainder: the `dissoc` of the
+      owned map, the `denied-slots` fold over it, the filter of the
+      caller and the union. **The only term here that this programme
+      owns.**
+  (3) THE AUTHOR'S `:k`/`:busy?` ROUND TRIP. `:merged`'s call sites put
+      the field key and the busy flag INTO the caller map and its helper
+      `dissoc`s them back out; `:no-dissoc`'s pass them as arguments
+      instead. An author owns both spellings, and the second is the
+      repair for the first.
+
+  **The three sum to the whole by construction, not by luck.** The rungs
+  are a chain rather than three independent contrasts, so
+  (1) + (2) + (3) is `:merged` − `:expanded` term by term and round by
+  round. There is therefore no residual, and the absence of one is
+  arithmetic rather than evidence: it corroborates nothing.
+
+  **What a rung is NOT.** A rung is the difference between ITS TWO ARMS —
+  a bundle, not a platonic component — and two of these bundles are known
+  to carry a passenger. Both are named here rather than corrected,
+  because correcting either would mean touching a frozen arm:
+
+    - RUNG (1) ALSO CARRIES THE TITLE FIELD'S CLASS. `:expanded` writes
+      it in the TAG (`.form-control.form-control-lg`, which
+      `fold-shorthand!` takes by identity); every other arm DECLARES it,
+      so `class-names` composes instead. That is 100 of the 400 fields,
+      it is paid identically by both arms of rungs (2) and (3), and it
+      therefore lands entirely in (1). It is also the only place
+      HD-023(c″)'s shorthand fold appears in this ladder at all: the fold
+      is not isolated here either, and rung (1) is an UPPER BOUND on the
+      author's wrapper rather than a reading of it.
+    - RUNG (3) ALSO CARRIES THREE `:class nil` KEYS. One helper cannot
+      omit a key for three fields out of four without an `assoc`, so
+      `:helper` writes `:class` unconditionally and `:no-dissoc`'s call
+      sites carry `:class nil` on the three fields that have no class —
+      which is what keeps those two arms key-for-key identical. `:merged`
+      is frozen and its call sites carry no such key, so `:no-dissoc`
+      does slightly MORE work than `:merged` on those three fields and
+      rung (3) is biased UP by that much.
+
+  The two passengers were put where they do least harm on purpose. Rung
+  (2) is the term this programme owns, and it is the one both are kept
+  out of.
 
   ## The control is adjudicated STRICTLY, and per round (rf2-egdaq)
 
@@ -124,7 +194,14 @@
 
 (def ^:private amp-sites
   "How many elements on the measured page carry a `:&` in the merged arm —
-  the divisor of every per-element figure this file prints."
+  the divisor of every per-element figure this file prints.
+
+  It is also the FIELD count, which is what makes it the right divisor for
+  the ladder's rungs too (rf2-z143r): `:helper` writes no `:&` at all, but
+  every rung's cost is per field, and a field is a `:&` site in the arms
+  that have one. A ladder row therefore reads `ns/field`, and the two
+  published rows keep reading `ns/:& site` — the same number, named for
+  what it divides in each case."
   (* fields-per-boundary boundaries))
 
 ;; ---------------------------------------------------------------------------
@@ -247,6 +324,116 @@
              :type "text" :name "tags" :placeholder "Enter tags (comma-separated)"
              :data-testid "editor-tags"})]))
 
+;; ---------------------------------------------------------------------------
+;; THE TWO LADDER RUNGS — the same page a third and a fourth way (rf2-z143r)
+;; ---------------------------------------------------------------------------
+;;
+;; These two exist to be DIFFERENCED, against `:expanded` below them and
+;; `:merged` above, so what matters about them is what they share. They
+;; share their call sites exactly — the same four remainder maps, written
+;; out twice rather than passed through a common function, because a
+;; higher-order call is itself a cost and it would land on the ladder
+;; instead of the thing being priced. And they share every owned attribute
+;; the helper writes. The ONE difference between them is whether the five
+;; forwarded attributes are spelled as keys or handed to `:&`, which is
+;; what makes rung (2) a price for `merge-caller`.
+;;
+;; `:class nil` on three of the four call sites is deliberate and is the
+;; ladder's stated asymmetry: `field-explicit` writes `:class`
+;; unconditionally because one helper cannot omit a key for three fields
+;; out of four without an `assoc`, so the remainder maps carry the key
+;; too. It costs one map entry and one `class-names` call that `:merged`
+;; does not pay, and the docstring's rung (3) says which way that leans.
+
+(defn- field-explicit
+  "RUNG 1's helper. Explicit arguments, no `:&`, no `dissoc` — the five
+  forwarded attributes are read off the remainder map and written as
+  ordinary keys, so the codec meets a plain attribute map and
+  `merge-caller` returns it by identity.
+
+  The three rebindings (`cls`, `typ`, `nm`) are there because `type` and
+  `name` are `cljs.core` fns and a bench arm may not be the place a reader
+  has to work out which one is in scope."
+  [draft errors id k busy? {cls :class typ :type nm :name
+                            :keys [placeholder data-testid]}]
+  [:fieldset.form-group
+   [:input.form-control {:class       cls
+                         :type        typ
+                         :name        nm
+                         :placeholder placeholder
+                         :data-testid data-testid
+                         :value       (get draft k)
+                         :disabled    busy?
+                         :on-blur     [:amp/blur id k]
+                         :on-input    [:amp/edit id k ::h/value]}]
+   (when-some [e (get errors k)] [:div.error-messages e])])
+
+(defn- field-no-dissoc
+  "RUNG 2's helper. `field-explicit` with its five spelled-out keys
+  replaced by one `:&`, and nothing else changed. No `dissoc`: the field
+  key and the busy flag arrive as arguments, so the remainder map is
+  already the map the merge wants."
+  [draft errors id k busy? attrs]
+  [:fieldset.form-group
+   [:input.form-control {:&        attrs
+                         :value    (get draft k)
+                         :disabled busy?
+                         :on-blur  [:amp/blur id k]
+                         :on-input [:amp/edit id k ::h/value]}]
+   (when-some [e (get errors k)] [:div.error-messages e])])
+
+(defn explicit-body
+  [{:keys [id]}]
+  (let [draft  (h/sub [:amp/draft id])
+        errors (h/sub [:amp/errors id])
+        busy?  (:busy? draft)]
+    [:fieldset
+     (field-explicit draft errors id :title busy?
+                     {:class "form-control-lg"
+                      :type "text" :name "title" :placeholder "Article Title"
+                      :data-testid "editor-title"})
+     (field-explicit draft errors id :description busy?
+                     {:class nil
+                      :type "text" :name "description"
+                      :placeholder "What's this article about?"
+                      :data-testid "editor-description"})
+     (field-explicit draft errors id :body busy?
+                     {:class nil
+                      :type "text" :name "body"
+                      :placeholder "Write your article (in markdown)"
+                      :data-testid "editor-body"})
+     (field-explicit draft errors id :tagList busy?
+                     {:class nil
+                      :type "text" :name "tags"
+                      :placeholder "Enter tags (comma-separated)"
+                      :data-testid "editor-tags"})]))
+
+(defn no-dissoc-body
+  [{:keys [id]}]
+  (let [draft  (h/sub [:amp/draft id])
+        errors (h/sub [:amp/errors id])
+        busy?  (:busy? draft)]
+    [:fieldset
+     (field-no-dissoc draft errors id :title busy?
+                      {:class "form-control-lg"
+                       :type "text" :name "title" :placeholder "Article Title"
+                       :data-testid "editor-title"})
+     (field-no-dissoc draft errors id :description busy?
+                      {:class nil
+                       :type "text" :name "description"
+                       :placeholder "What's this article about?"
+                       :data-testid "editor-description"})
+     (field-no-dissoc draft errors id :body busy?
+                      {:class nil
+                       :type "text" :name "body"
+                       :placeholder "Write your article (in markdown)"
+                       :data-testid "editor-body"})
+     (field-no-dissoc draft errors id :tagList busy?
+                      {:class nil
+                       :type "text" :name "tags"
+                       :placeholder "Enter tags (comma-separated)"
+                       :data-testid "editor-tags"})]))
+
 (defn floor-body
   "The crossing carrying nothing. A boundary is reached through a hiccup
   vector whatever its body answers, so the floor is the crossing and not
@@ -257,6 +444,8 @@
 (h/defview expanded-arm   [props] (expanded-body props))
 (h/defview expanded-arm-b [props] (expanded-body props))
 (h/defview merged-arm     [props] (merged-body props))
+(h/defview explicit-arm   [props] (explicit-body props))
+(h/defview no-dissoc-arm  [props] (no-dissoc-body props))
 (h/defview floor-arm      [props] (floor-body props))
 
 ;; ---------------------------------------------------------------------------
@@ -297,7 +486,15 @@
    {:id :merged :k 1 :elements page-elements
     :mount (mount-page merged-arm) :unmount unmount-page}
    {:id :ctl-2x :k 2 :elements page-elements :parity-exempt? true
-    :mount (mount-page expanded-arm) :unmount unmount-page}])
+    :mount (mount-page expanded-arm) :unmount unmount-page}
+   ;; THE TWO LADDER RUNGS, appended so the five above keep their entries
+   ;; exactly (rf2-z143r). Neither is `:parity-exempt?`: both build the
+   ;; judged page and both belong in the equality, so the fairness gate
+   ;; holds five arms to one 1,001-element page rather than three.
+   {:id :helper :k 1 :elements page-elements
+    :mount (mount-page explicit-arm) :unmount unmount-page}
+   {:id :no-dissoc :k 1 :elements page-elements
+    :mount (mount-page no-dissoc-arm) :unmount unmount-page}])
 
 (defn- arm-named [id] (first (filter #(= id (:id %)) arms)))
 
@@ -389,6 +586,31 @@
   (lane/summarise
     (mapv (fn [r] (/ (* 1e6 (- (get r a) (get r b))) amp-sites)) p50s)))
 
+(defn- ns-terms
+  "The same arithmetic as [[per-element-ns]], with the PER-ROUND vector
+  kept beside the summary.
+
+  It is kept because a ladder that prints only its summaries cannot be
+  re-adjudicated without being re-run, and this instrument has already
+  had one window re-taken for exactly that. `per-element-ns` is left
+  alone so the two published rows keep the shape they were published in."
+  [p50s a b]
+  (let [vs (mapv (fn [r] (lane/round4 (/ (* 1e6 (- (get r a) (get r b))) amp-sites)))
+                 p50s)]
+    (assoc (lane/summarise vs) :per-round vs)))
+
+(defn- ladder-rung
+  "One rung: the ratio of two arms over the floor-normalised per-round
+  ratios, and the same pair's raw per-round difference in nanoseconds per
+  field. `:standing` records WHOSE code the rung prices, which is the
+  whole question rf2-z143r was opened to answer."
+  [ratios p50s a b standing]
+  {:from      b
+   :to        a
+   :standing  standing
+   :ratio     (lane/ratio-between ratios a b)
+   :ns-per-site (ns-terms p50s a b)})
+
 (defn- measurement-method []
   (str "a SAMPLE is " boundaries " boundaries mounted into a fresh container "
        "inside ONE react-dom/flushSync window, containers created and attached "
@@ -402,7 +624,11 @@
        "the run can be re-adjudicated without being re-run. :expanded-b is the "
        "NULL arm — a second boundary head over the same "
        "body, carrying no effect by construction, so its reading against "
-       ":expanded is this instrument's resolution rather than a result. Arms "
+       ":expanded is this instrument's resolution rather than a result. :helper "
+       "and :no-dissoc are the DECOMPOSITION LADDER's two rungs (rf2-z143r), "
+       "placed between :expanded and :merged so each step changes exactly one "
+       "thing; they are judged by the fairness gate with the other three and are "
+       "differenced, never published as a figure of their own. Arms "
        "interleaved at the SAMPLE level under the lane's rotating AND REFLECTING "
        "schedule, so no arm always follows the same neighbour; " rounds
        " rounds of " (:warmup sampling) " warm-up + " (:samples sampling)
@@ -478,6 +704,23 @@
                 ctl-ratio (lane/ratio-between ratios :ctl-2x :expanded)
                 ctl      (lane/control-verdict-strict
                            2.0 (:per-round ctl-ratio) control-slack)
+                ;; THE APPORTIONMENT (rf2-z143r). A chain, so the three
+                ;; rungs sum to `:whole` term by term and there is no
+                ;; residual to report; `:standing` is what the reader
+                ;; came for.
+                ladder   {:whole      (ladder-rung ratios p50s :merged :expanded
+                                                   :author-and-codec)
+                          :wrapper    (ladder-rung ratios p50s :helper :expanded
+                                                   :authors-code)
+                          :merge      (ladder-rung ratios p50s :no-dissoc :helper
+                                                   :codecs-code)
+                          :round-trip (ladder-rung ratios p50s :merged :no-dissoc
+                                                   :authors-code)}
+                sum-check (mapv (fn [w r m t] (lane/round4 (- w (+ r m t))))
+                                (:per-round (:ns-per-site (:whole ladder)))
+                                (:per-round (:ns-per-site (:wrapper ladder)))
+                                (:per-round (:ns-per-site (:merge ladder)))
+                                (:per-round (:ns-per-site (:round-trip ladder))))
                 tv       (lane/tally-value tally)]
             (lane/assert-teardown-clean! "the measured rounds")
             (lane/record! :amp-merge-clock
@@ -497,6 +740,8 @@
                            :null        null
                            :per-element-ns {:effect eff-ns :null null-ns}
                            :control     ctl
+                           :ladder      ladder
+                           :ladder-sum-residual sum-check
                            :writes      tv})
             (js/console.log ";; ==== AMP-MERGE CLOCK (rf2-pqyxz) ====")
             (js/console.log (str ";;   " boundaries " boundaries/page, " page-elements
@@ -533,6 +778,25 @@
             (js/console.log (str ";;   control (" (name (:rule ctl)) ", ctl-2x/expanded): "
                                  (:why ctl)))
             (js/console.log (str ";;   control per-round: " (pr-str (:per-round ctl))))
+            ;; THE LADDER (rf2-z143r). Printed with every per-round value,
+            ;; so the apportionment is re-adjudicable without a re-run.
+            (js/console.log ";; ---- APPORTIONMENT (rf2-z143r) ----")
+            (doseq [[k label] [[:whole      "WHOLE      merged/expanded    (author + codec)"]
+                               [:wrapper    "(1) wrapper   helper/expanded    AUTHOR'S code"]
+                               [:merge      "(2) merge     no-dissoc/helper   CODEC'S code"]
+                               [:round-trip "(3) roundtrip merged/no-dissoc   AUTHOR'S code"]]]
+              (let [{:keys [ratio ns-per-site]} (get ladder k)]
+                (js/console.log
+                  (str ";;   " label ": " (fmt (:p50 ns-per-site) 1) " ns/field ["
+                       (fmt (:min ns-per-site) 1) " - " (fmt (:max ns-per-site) 1)
+                       "]  ratio " (fmt (:mean ratio) 4)
+                       " [" (fmt (:min ratio) 4) " - " (fmt (:max ratio) 4) "]"
+                       (when (:straddles-1? ratio) "  <- ratio STRADDLES 1.0")))
+                (js/console.log (str ";;     ns per-round:    " (pr-str (:per-round ns-per-site))))
+                (js/console.log (str ";;     ratio per-round: " (pr-str (:per-round ratio))))))
+            (js/console.log
+              (str ";;   ladder sum residual (ns/field, ZERO BY CONSTRUCTION — the rungs "
+                   "are a chain): " (pr-str sum-check)))
             (js/console.log (str ";;   writes: " (:unverified tv) " unverified of "
                                  (:writes tv)))
             (when (pos? (:unverified tv))
