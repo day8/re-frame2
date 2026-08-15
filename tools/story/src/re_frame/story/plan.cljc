@@ -242,6 +242,14 @@
   off `ctx`. Listing them here only buys a redundant deep-merge per compile
   and misleads a reader into thinking `ctx` is the arg source.
 
+  `:substrates` and `:component` are inherited through `:extends` like the
+  rest, AND fall back to the parent STORY body when the whole chain
+  declares neither (rf2-sc5g0) — `001-Authoring.md` §Registration macros
+  makes both story-level slots the default for the story's variants, and
+  the fallback happens in `compile-body` rather than here because `ctx`
+  is the variant-chain merge and the story is ambient, exactly like
+  `:decorators` and `:tags`.
+
   `:sensitive` / `:large` (rf2-cmjly3 finding 12) carry the EP-0025 durable
   app-db classification (`{:app-db [[path]…]}`) — a plain map, so they
   merge exactly like every other context key (a child re-declaring the axis
@@ -1514,13 +1522,58 @@
         ;; order — composed fragments sit BETWEEN the ambient story
         ;; decorators and the variant-chain's own decorators (below).
         frag-decorators (vec (mapcat #(:decorators %) frag-layers))
+        ;; ---- the parent story, resolved ONCE (rf2-sc5g0) ----
+        ;; The parent story id (nil for an inline plan-map target with no
+        ;; `:variant/id`, or any id outside the variant-id grammar). Bound
+        ;; ONCE here — the story-decorator lookup, the tag fallback, the
+        ;; two ambient world keys below AND the `:story/id` stamp on the
+        ;; returned plan (rf2-xk8oz4) all read this SAME resolution, so
+        ;; they can never disagree about the parent.
+        sid          (args/parent-story-id id)
+        story-body   (when sid (story-lookup sid))
+        ;; ---- ambient (story-level) world keys ----
+        ;; `:substrates` and `:component` are declared on the VARIANT or on
+        ;; its parent STORY, and every renderer resolves them
+        ;; variant-first-then-story: `multi-substrate/resolve-substrate-set`
+        ;; and `canvas/variant-component` / `multi-substrate-grid` /
+        ;; `workspace`. The plan folded only the variant chain, so the two
+        ;; slots meant something NARROWER on the plan than they meant
+        ;; anywhere else — and both have a plan-side reader:
+        ;; `canonical/render-host-scope` takes the substrate off
+        ;; `[:world :substrates]` (rf2-3afns) and `render/prepare-render`
+        ;; takes the subject off `[:world :component]`. So a story that
+        ;; declared either ONCE, with variants inheriting it, painted
+        ;; correctly on the live canvas while `render-variant` fell back to
+        ;; the `:reagent` host default and to a nil view. Folding them here
+        ;; makes the compiled plan mean what the canvas means, which is
+        ;; what rf2-3afns established the plan is for.
+        ;;
+        ;; The precedence mirrors `resolve-substrate-set` EXACTLY —
+        ;; non-empty variant chain wins, else non-empty story, else the slot
+        ;; is absent and the render-time host default applies. `seq` rather
+        ;; than `contains?`: a variant declaring `:substrates #{}` declares
+        ;; nothing, which is already how both `resolve-substrate-set` and
+        ;; `single-render-substrate` read it.
+        ;;
+        ;; These are the only two of the `context-keys` with a
+        ;; `[:world …]` reader at all (`:modes` / `:viewport` /
+        ;; `:background` / `:xray` / `:platforms` / `:dispatch-console?` are
+        ;; folded for `:plan-hash` + explain and read off the bodies by the
+        ;; UI), so the plan carries variant scope everywhere else and this
+        ;; is a fix rather than a new inheritance rule.
+        eff-substrates (or (when (seq (:substrates ctx))        (:substrates ctx))
+                           (when (seq (:substrates story-body)) (:substrates story-body)))
         ;; ---- view arg schema + effective-args validation ----
         ;; `:effective-args` at plan time IS the resolved arg-map; the
         ;; render path layers control-panel overrides on top later. We
         ;; copy the view's explicit-input schema into the plan, validate
         ;; the effective args against it, and FAIL plan construction on a
         ;; missing-required or malformed view input (§View arg schemas).
-        component-id (:component ctx)
+        ;; The subject is the EFFECTIVE one, so a story-level `:component`
+        ;; gets its view-args schema enforced exactly like a variant-level
+        ;; one — the alternative is a contract that applies or not depending
+        ;; on which body happens to name the view.
+        component-id (or (:component ctx) (:component story-body))
         view-meta    (when component-id (view-lookup component-id))
         schema       (view-args-schema view-meta)
         eff-args     arg-map
@@ -1604,12 +1657,8 @@
         ;; plan the single source of truth, so the canvas + render-variant
         ;; resolve the identical stack. Each layer falls through to `[]`
         ;; when absent — the empty-collection concat is render-transparent.
-        ;; The parent story id (nil for an inline plan-map target with no
-        ;; `:variant/id`, or any id outside the variant-id grammar). Bound
-        ;; ONCE here — both the story-decorator lookup below AND the
-        ;; `:story/id` stamp on the returned plan (rf2-xk8oz4) read this
-        ;; SAME resolution, so they can never disagree about the parent.
-        sid          (args/parent-story-id id)
+        ;; `sid` is bound once, further up (rf2-sc5g0 moved it there so the
+        ;; ambient world keys read the same parent this does).
         story-decos  (vec (when sid (story-deco-lk sid)))
         full-decos   (vec (concat global-decos
                                   story-decos
@@ -1627,7 +1676,7 @@
         eff-tags     (tags/resolve-markers
                        (if (seq chain-tags)
                          chain-tags
-                         (set (:tags (when sid (story-lookup sid))))))
+                         (set (:tags story-body))))
         world        (cond-> {:setup          setup
                               :args           arg-map
                               :argtypes       argtypes
@@ -1681,11 +1730,15 @@
                        ;; (render-transparent).
                        (seq full-decos)             (assoc :decorators full-decos)
                        (contains? ctx :modes)       (assoc :modes (:modes ctx))
-                       (contains? ctx :substrates)  (assoc :substrates (:substrates ctx))
+                       ;; The two AMBIENT keys (rf2-sc5g0): resolved above,
+                       ;; variant chain then parent story, so
+                       ;; `render-host-scope` and `prepare-render` read what
+                       ;; the canvas reads. Absent when neither declares.
+                       (seq eff-substrates)         (assoc :substrates eff-substrates)
                        (contains? ctx :viewport)    (assoc :viewport (:viewport ctx))
                        (contains? ctx :background)  (assoc :background (:background ctx))
                        (contains? ctx :xray)        (assoc :xray (:xray ctx))
-                       (contains? ctx :component)   (assoc :component (:component ctx))
+                       (some? component-id)         (assoc :component component-id)
                        ;; rf2-cmjly3 finding 12: the EP-0025 durable app-db
                        ;; classification, carried through `:extends` like
                        ;; every other context key. Read by

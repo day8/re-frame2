@@ -112,9 +112,9 @@
 
   (testing "and the STORY body takes it too — `StoryBody` is closed
             independently of `VariantBody`, so a whole story can declare
-            the authoring layer once. (Where that story-level declaration
-            is READ is the canvas's `resolve-substrate-set`, not the
-            compiled plan; see the plan row below.)"
+            the authoring layer once. (Since rf2-sc5g0 that story-level
+            declaration reaches the compiled plan too, so the canvas and
+            `render-variant` read the same set; see the plan row below.)"
     (story/reg-story* :story.hic-all
       {:doc        "story-level declaration"
        :component  :my.app.views/article-card
@@ -138,18 +138,20 @@
 ;; 3 · plan compilation — `[:world :substrates]` is where the host reads it
 ;; ===========================================================================
 ;;
-;; MEASURED WHILE WRITING THESE ROWS, and left alone deliberately: the plan
-;; folds `:substrates` from the VARIANT and its `:extends` chain, and NOT
-;; from the parent story. `variant-plan` resolves the parent story for
-;; decorators and tags only (`plan.cljc` `sid` / `story-deco-lk`). So a
-;; substrate declared ONLY at story level reaches the canvas — which reads
-;; it through `multi-substrate/resolve-substrate-set`, story-body included
-;; — and does NOT reach `canonical/render-host-scope`, which reads
-;; `[:world :substrates]` and falls back to the `:reagent` host default.
-;; That is a narrower residue of the same disagreement rf2-3afns closed,
-;; it is not about hicasso, and both files are outside this bead's fence;
-;; it is FILED rather than fixed here, as rf2-sc5g0. The rows below pin
-;; what the plan DOES carry.
+;; MEASURED WHILE WRITING THESE ROWS and filed rather than fixed here (both
+;; files were outside rf2-2dbpd's fence): the plan folded `:substrates` from
+;; the VARIANT and its `:extends` chain and NOT from the parent story, so a
+;; substrate declared ONLY at story level reached the canvas — which reads it
+;; through `multi-substrate/resolve-substrate-set`, story-body included — and
+;; did NOT reach `canonical/render-host-scope`, which reads
+;; `[:world :substrates]` and fell back to the `:reagent` host default.
+;;
+;; FIXED under rf2-sc5g0: `plan/variant-plan` now folds the parent story's
+;; `:substrates` (and `:component`, which had the same asymmetry and no
+;; renderer-side fallback at all) with the canvas's own variant-then-story
+;; precedence. The witness is
+;; `re-frame.story.story-scope-world-keys-cljs-test`; the rows below stay
+;; scoped to what a HICASSO declaration carries.
 
 (deftest the-plan-carries-the-hicasso-declaration
   (testing "rf2-3afns routed `canonical/render-host-scope` at the COMPILED
