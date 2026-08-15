@@ -39,12 +39,22 @@
 ;; `.overlay` and `.motion` have and which
 ;; `scripts/check_optional_module_reachability.py` checks at the door.
 ;;
-;; NO :clein / :clein/build, deliberately. This artefact is pre-publication:
-;; it carries no Maven coordinate and is absent from the lockstep array and
-;; the release deploy matrix, exactly as `ui` and `freehand` are. Release
-;; wiring is rf2-hic-008's, not this bead's, and the lockstep gate
-;; inventories publishable artefacts by the presence of `:aliases/:clein/build`
-;; — so adding one here would enlist an artefact that has nothing to ship.
+;; PUBLISHED, as of rf2-gra70. The `:clein/build` alias below carries the
+;; Maven coordinate `day8/re-frame2-hicasso`, and the artefact is enrolled in
+;; `.github/scripts/verify-version-lockstep.sh`'s inventory and in
+;; `.github/workflows/release.yml`'s deploy DAG. It is NOT a `deploy-leaf`
+;; matrix value: the `:deps` above name a SECOND in-repo artefact besides core
+;; (`day8/re-frame2-ssr`), which is the exact property that put `ssr-ring` in
+;; a post-matrix stage of its own — under the matrix's `fail-fast: false` such
+;; a leaf can publish a pom naming a coordinate whose own deploy is red, and
+;; Clojars has no yank. So Hicasso ships from `deploy-hicasso`, gated on the
+;; whole matrix succeeding, and `implementation/scripts/_release-dag-policy.test.cjs`
+;; asserts that ordering from the workflow's real job graph rather than by
+;; convention.
+;;
+;; `:src-dirs` carries `resources` as well as `src`, for the reason `:paths`
+;; does: the clj-kondo export reaches a consumer over the CLASSPATH, so a jar
+;; without it silently ships no lint layer at all.
 ;;
 ;; `resources` is on :paths for ONE reason: the clj-kondo export
 ;; (rf2-hic-022) reaches a consumer over the CLASSPATH. `clj-kondo --lint
@@ -120,4 +130,21 @@
   ;; assert about the build the project actually gates on.
   :clj-kondo
   {:extra-deps {clj-kondo/clj-kondo {:mvn/version "2026.04.15"}}
-   :main-opts  ["-m" "clj-kondo.main"]}}}
+   :main-opts  ["-m" "clj-kondo.main"]}
+
+  ;; Clojars deploy (rf2-gra70). The release workflow swaps both
+  ;; :local/root coordinates above for :mvn/version before invoking clein,
+  ;; on the throwaway runner checkout.
+  :clein {:extra-deps {io.github.noahtheduke/clein
+                       {:git/url "https://github.com/day8/clein.git"
+                        :git/sha "2b83503246e8291fc023d688574640a9b23d8c50"}}
+          :main-opts  ["-m" "noahtheduke.clein"]}
+
+  :clein/build
+  {:lib      day8/re-frame2-hicasso
+   :main     re-frame.hicasso
+   :url      "https://github.com/day8/re-frame2"
+   :version  "../../VERSION"
+   :license  {:name "MIT"
+              :url  "https://opensource.org/licenses/MIT"}
+   :src-dirs ["src" "resources"]}}}

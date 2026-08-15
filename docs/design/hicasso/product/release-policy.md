@@ -34,24 +34,25 @@ The coordinate is spelled **`day8/re-frame2-hicasso`**, and it is spelled in two
 [`.github/scripts/verify-version-lockstep.sh`](../../../../.github/scripts/verify-version-lockstep.sh),
 where Xray declares its dependency on it.
 
-**It is not published, and that is deliberate rather than pending.** Three independent measurements say so,
-and each is a different mechanism:
+**It IS published, as of `rf2-gra70`** — this section read *"it is not published, and that is deliberate
+rather than pending"* until that bead landed, and each of the three measurements it cited has been inverted
+by the same change:
 
-1. `implementation/hicasso/deps.edn` carries **no `:clein/build` alias**. Its header says why in its own
-   words — *"This artefact is pre-publication: it carries no Maven coordinate and is absent from the
-   lockstep array and the release deploy matrix, exactly as `ui` and `freehand` are."*
-2. It is **absent from the lockstep inventory**. `verify-version-lockstep.sh`'s `ARTEFACTS` array names
-   thirteen artefacts — core, three adapters, and nine per-feature leaves — and Hicasso is not one of them.
-   The array is not decorative: the same script fails the build when a directory declares a `:clein/build`
-   without a matching inventory entry, so the absence is enforced in both directions.
-3. It is **absent from the release workflow**. `.github/workflows/release.yml`'s `deploy-leaf` matrix and
-   its `deploy-ssr-ring` companion stage between them enumerate every coordinate a tag publishes, and
-   Hicasso appears in neither.
+1. `implementation/hicasso/deps.edn` carries a **`:clein/build` alias** naming `day8/re-frame2-hicasso`,
+   with `:version "../../VERSION"` and `:src-dirs ["src" "resources"]` — the second entry because the
+   clj-kondo export reaches a consumer over the classpath.
+2. It is **in the lockstep inventory**. `verify-version-lockstep.sh`'s `ARTEFACTS` array now names fourteen
+   artefacts and Hicasso is one of them. The array is not decorative: the same script fails the build when a
+   directory declares a `:clein/build` without a matching inventory entry, so the presence is enforced in
+   both directions.
+3. It is **in the release workflow**, in a stage of its own — `deploy-hicasso`, gated on `deploy-core` and
+   the whole `deploy-leaf` matrix, for the reason §2 gives.
 
-So the only supported way to consume Hicasso today is `:local/root` from this repository. Xray does exactly
-that, and the lockstep script records it as **the one coordinate `release-xray.yml` deliberately leaves at
-`:local/root`** while rewriting the other nine — with `preflight-xray-package.sh` standing as the place that
-comes due, by refusing the deploy.
+So Hicasso is consumable from a released coordinate, and `:local/root` from this repository is now the
+in-tree development path rather than the only one. The knock-on for Xray went with it: Hicasso was **the one
+coordinate `release-xray.yml` deliberately left at `:local/root`** while rewriting the other nine, and
+`preflight-xray-package.sh` refused an `xray-v*` deploy over it. All ten are rewritten now, and what remains
+is tag ORDER — `v*` before `xray-v*`, at the same VERSION.
 
 **No version has been cut, of anything.** The repo-root `VERSION` file reads `0.0.1.alpha`, and
 `git ls-remote --tags origin` returns nothing at all — this repository has never carried a release tag. That
@@ -59,9 +60,9 @@ is why §2 describes a scheme and names no current version: a number written on 
 stale before the page was read.
 
 **The consequence for `rf2-hic-061`'s own acceptance criterion, stated plainly.** That criterion reads *"a
-tagged release installable by the tiny consumer app from the artefact (not the repo)"*. It is **not met**,
-and no edit to this page could meet it — meeting it needs release automation, which needs
-`.github/workflows/release.yml`. §6 records what that costs and where it is filed.
+tagged release installable by the tiny consumer app from the artefact (not the repo)"*. It is **executable
+now and still unexecuted**: `rf2-gra70` built the automation the criterion needs, but cutting a tag is the
+operator's act, not a worker's, and this repository has still never carried one. §6 records what is left.
 
 ## 2. The versioning scheme
 
@@ -73,18 +74,22 @@ committed tree and rewritten to `:mvn/version` on a throwaway checkout at deploy
 is normative and [`docs/release-process.md`](../../../release-process.md) is the operational doc; neither is
 restated here.
 
-**Joining that train is four edits, and three of them are hot-zone.** A `:clein/build` alias in
-`implementation/hicasso/deps.edn`; entries in `verify-version-lockstep.sh`'s three arrays; a `deploy-leaf`
-matrix value in `release.yml`; and the release-notes row. The lockstep verifier already refuses the first
-without the rest, which is the right failure direction and is why none of this can be done piecemeal.
+**Joining that train took four edits, three of them hot-zone**, and they are all in the tree now
+(`rf2-gra70`): a `:clein/build` alias in `implementation/hicasso/deps.edn`; entries in
+`verify-version-lockstep.sh`'s arrays; a deploy stage in `release.yml`; and the release-notes row. The
+lockstep verifier refuses the first without the rest, which is the right failure direction and is why none
+of it could be done piecemeal.
 
-**And Hicasso does not fit the leaf matrix as it stands**, which is the part that makes this a design
-question rather than a checklist. Its published `:deps` would name a **second in-repo artefact besides
-core** — `day8/re-frame2-ssr`, for the `re-frame.hicasso.server` module — and that is precisely the property
-that put `ssr-ring` in a stage of its own after the matrix instead of inside it. Under the matrix's
-`fail-fast: false`, a leaf with such a dependency can publish a pom that does not resolve while the leaf it
-names is red. So Hicasso publishes in a post-matrix stage beside `ssr-ring`, or the shape changes. That
-choice belongs to the bead in §6.
+**Hicasso does not fit the leaf matrix, and the resolution was to not put it there.** Its published `:deps`
+name a **second in-repo artefact besides core** — `day8/re-frame2-ssr`, for the `re-frame.hicasso.server`
+module — and that is precisely the property that put `ssr-ring` in a stage of its own after the matrix
+instead of inside it. Under the matrix's `fail-fast: false`, a leaf with such a dependency can publish a pom
+that does not resolve while the leaf it names is red. So Hicasso ships from `deploy-hicasso`, a post-matrix
+stage **beside** `deploy-ssr-ring` rather than inside it — a separate job, not a second value of ssr-ring's
+matrix, because two values of one matrix cannot be ordered against each other and a stage that cannot be
+ordered is the shape this whole split exists to avoid. The two are siblings: neither names the other in its
+published pom, so they run in parallel. `implementation/scripts/_release-dag-policy.test.cjs` asserts the
+ordering from the workflow's real job graph, with its own acceptance and teeth cases for this stage.
 
 ## 3. The compatibility surface — the enumeration, and where it lives
 
@@ -131,7 +136,7 @@ Every row carries either the CI job that backs it or an explicit **untested-but-
 | Chromium 147.0.7727.15, Firefox 148.0.2 and WebKit 26.4, on Playwright 1.59.1 | `implementation/package.json`; the runner prints the triple it launched | `cljs-hicasso-controlled` — three real engines, per PR, comparing recorded rows across engines rather than running one spec three times; `cljs-hicasso-hmr` — three engines, real shadow reloads | **TESTED** |
 | Any other engine or engine version | — | nothing | **UNTESTED-BUT-EXPECTED** — the substrate targets React's DOM contract, not a browser's |
 | `day8/re-frame2` and `day8/re-frame2-ssr` **at the same commit** | `implementation/hicasso/deps.edn`, both at `:local/root` | `jvm-hicasso`; the CLJS node lane in `cljs` | **TESTED**, and the only supported combination there is — see the row below |
-| Hicasso against any *released* core version | — | nothing, and nothing can | **NOT APPLICABLE** — no published coordinate exists on either side of that pair (§1). It becomes a real row the day §6's wiring lands, and not before |
+| Hicasso against any *released* core version | — | nothing yet | **NOT APPLICABLE, PENDING A TAG** — `rf2-gra70` landed the wiring, so both sides of the pair are now publishable coordinates on one lockstep train (§1). What is still missing is a released version to name: this repository has never carried a release tag. The row goes green on the first `v*` tag and its install witness, not on the wiring |
 | ClojureScript 1.12.145 and shadow-cljs 3.4.10 | `implementation/core/deps.edn`; `implementation/package.json` | every CLJS job | **TESTED** |
 | Production build, `:advanced` with `goog.DEBUG` false | the `hicasso-release` build id in `implementation/shadow-cljs.edn` | the `build:hicasso-release` step in job `cljs`, which chains production-erasure and bundle-isolation checks | **TESTED** |
 | The optional Node service, `re-frame.hicasso.server` | `implementation/hicasso/deps.edn`'s one `day8/re-frame2-ssr` entry | `server_render_ssr_dom_cljs_test.cljs` on the CLJS lane | **TESTED as a render witness.** The per-surface SSR/hydration policy it serves is the next row |
@@ -219,19 +224,22 @@ reason those gates were written before there was anything to release.
 
 ## 6. What is owed, and where it is filed
 
-**The release wiring is owed and is not in this change. It is filed as `rf2-gra70`.** Standing it up touches
-`.github/workflows/release.yml` and `.github/scripts/verify-version-lockstep.sh`, both hot-zone and
-sequential, and `.github/workflows/test.yml` is held by an open PR as this page lands. It is filed rather
-than attempted here, and it carries the design question §2 names: Hicasso's second in-repo dependency means
-it does not fit the `deploy-leaf` matrix as that matrix is shaped.
+**The release wiring landed under `rf2-gra70`.** It touched `.github/workflows/release.yml`,
+`.github/workflows/release-xray.yml`, `.github/scripts/verify-version-lockstep.sh`,
+`implementation/shadow-cljs.edn` and `spec/Conventions.md` — hot-zone and sequential — and it answered the
+design question §2 names: Hicasso's second in-repo dependency keeps it out of the `deploy-leaf` matrix, so
+it ships from a post-matrix stage of its own beside `ssr-ring`.
 
-Until that lands, three things follow and this page states them rather than working around them:
+Three consequences, and this page states them rather than working around them:
 
-- `rf2-hic-061`'s acceptance criterion — a tagged release installable from the artefact — is **not met**.
-- §4's *any released core version* row stays **NOT APPLICABLE**, because neither side of the pair is
-  published.
-- Hicasso stays the one coordinate `release-xray.yml` leaves at `:local/root`, and Xray's own publishability
-  stays blocked behind it, exactly as `preflight-xray-package.sh` already refuses.
+- `rf2-hic-061`'s acceptance criterion — a tagged release installable from the artefact — is now
+  **executable and unexecuted**. Cutting a `v*` tag is the operator's act; no worker does it, and nothing on
+  this page should be read as a claim that a release has happened.
+- §4's *any released core version* row stays **NOT APPLICABLE** until that tag exists, for want of a version
+  rather than for want of wiring.
+- Xray's publishability is no longer blocked. Hicasso was the one coordinate `release-xray.yml` left at
+  `:local/root`; all ten are rewritten now, and `preflight-xray-package.sh` refuses nothing — what is left
+  is tag ORDER, `v*` before `xray-v*` at the same VERSION.
 
 The other open item is not this bead's to close either: §4's last row rests on a Phase 4 exit that
 [`checkpoint-4-coverage.md`](checkpoint-4-coverage.md) returned **NOT MET**. A compatibility matrix cannot

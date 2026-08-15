@@ -1649,6 +1649,14 @@
     ;; day8/re-frame2-ui is in-tree donor code that never publishes.
     :ui                {:init-fn re-frame.bundle-isolation-positive-control.ui/run
                         :depends-on #{:trace-tooling}}
+    ;; rf2-gra70 — day8/re-frame2-hicasso is a PUBLISHED browser-optional view
+    ;; substrate, so the release lockstep and the bundle-isolation gate now
+    ;; enrol it from the same `:aliases/:clein/build` fact. Its two sentinels
+    ;; are chosen to survive `:advanced` with `goog.DEBUG` false — most Hicasso
+    ;; strings deliberately do not — so this module proves presence where the
+    ;; counter bundle proves absence.
+    :hicasso           {:init-fn re-frame.bundle-isolation-positive-control.hicasso/run
+                        :depends-on #{:trace-tooling}}
     :subs-tooling      {:init-fn re-frame.bundle-isolation-positive-control.subs-tooling/run
                         :depends-on #{:trace-tooling}}
     :flows-tooling     {:init-fn re-frame.bundle-isolation-positive-control.flows-tooling/run

@@ -111,6 +111,7 @@ declare -A ARTEFACT_PATHS=(
   [ssr-ring]="ssr-ring"
   [resources]="resources"
   [epoch]="epoch"
+  [hicasso]="hicasso"
 )
 
 # rf2-qmhysc — resources + ssr-ring both declare publishable
@@ -128,11 +129,18 @@ declare -A ARTEFACT_PATHS=(
 # code being absorbed into Freehand (EP-0036) and the standalone artefact is
 # deleted at the F6e gate (rf2-drpa3.57). It carries no :clein/build, so the
 # conditional inventory guard below correctly leaves it alone.
-ARTEFACTS=(core schemas reagent reagent-slim uix machines routing flows http ssr ssr-ring resources epoch)
+#
+# rf2-gra70 — hicasso (day8/re-frame2-hicasso) is the SECOND artefact whose
+# published :deps name an in-repo artefact besides core (day8/re-frame2-ssr,
+# for the re-frame.hicasso.server module). Like ssr-ring it therefore ships
+# from a post-matrix stage in release.yml rather than from the fail-fast:false
+# deploy-leaf matrix; the second-coordinate assertion for it sits beside
+# ssr-ring's below.
+ARTEFACTS=(core schemas reagent reagent-slim uix machines routing flows http ssr ssr-ring resources epoch hicasso)
 
 # core is the lockstep root: it does not depend on any other re-frame2
 # artefact, so the :local/root core-reference check below skips it.
-NON_CORE=(schemas reagent reagent-slim uix machines routing flows http ssr ssr-ring resources epoch)
+NON_CORE=(schemas reagent reagent-slim uix machines routing flows http ssr ssr-ring resources epoch hicasso)
 
 # Adapters (substrate adapters) are one directory deeper than per-feature
 # artefacts.
@@ -691,23 +699,41 @@ for artefact in "${NON_CORE[@]}"; do
   IMPL_EXPECTED_LOCAL_ROOTS["${artefact}"]+="${expected_local_root}"$'\n'
 done
 
-# rf2-qmhysc — ssr-ring is the one implementation artefact whose
-# PUBLISHED :deps reference a SECOND in-repo framework artefact besides
-# core: it depends on both day8/re-frame2 {:local/root "../core"} (checked
-# in the NON_CORE loop above) AND day8/re-frame2-ssr {:local/root "../ssr"}
-# (the Ring/Pedestal host adapter sits on top of the ssr renderer). The
-# release workflow must rewrite BOTH :local/root coordinates to
+# rf2-qmhysc / rf2-gra70 — TWO implementation artefacts have PUBLISHED
+# :deps referencing a SECOND in-repo framework artefact besides core, and
+# both name the same one, day8/re-frame2-ssr {:local/root "../ssr"}:
+#
+#   ssr-ring — the Ring/Pedestal host adapter sits on top of the ssr renderer;
+#   hicasso  — re-frame.hicasso.server hands its payload to the ssr
+#              artefact's own fail-closed validator and egress projection
+#              rather than re-spelling them (rf2-gra70).
+#
+# The core reference is checked in the NON_CORE loop above. The release
+# workflow must rewrite BOTH of each artefact's :local/root coordinates to
 # :mvn/version at deploy time, so the in-repo source must declare both —
-# assert the ssr reference here.
-SSR_RING_DEPS="${REPO_ROOT}/implementation/ssr-ring/deps.edn"
-if [[ -f "${SSR_RING_DEPS}" ]]; then
-  normalised_ssr_ring="$(tr -s '[:space:]' ' ' < "${SSR_RING_DEPS}")"
-  if ! grep -qF 'day8/re-frame2-ssr {:local/root "../ssr"}' <<< "${normalised_ssr_ring}"; then
-    echo "::error file=implementation/ssr-ring/deps.edn::expected 'day8/re-frame2-ssr {:local/root \"../ssr\"}' (lockstep contract; ssr-ring depends on ssr and the release workflow rewrites this to :mvn/version at deploy time)"
+# assert the ssr reference here, and register it in the expected set the
+# completeness pass below consumes.
+#
+# This is also the property that keeps both artefacts OUT of release.yml's
+# fail-fast:false deploy-leaf matrix; see the post-matrix stages there.
+SECOND_IN_REPO_COORD=$(cat <<'EOF'
+ssr-ring|day8/re-frame2-ssr {:local/root "../ssr"}
+hicasso|day8/re-frame2-ssr {:local/root "../ssr"}
+EOF
+)
+
+while IFS='|' read -r artefact expected_coord; do
+  [[ -z "${artefact}" ]] && continue
+  deps_file="${REPO_ROOT}/implementation/${ARTEFACT_PATHS[$artefact]}/deps.edn"
+  rel_label="implementation/${ARTEFACT_PATHS[$artefact]}/deps.edn"
+  [[ -f "${deps_file}" ]] || continue
+  normalised_second="$(tr -s '[:space:]' ' ' < "${deps_file}")"
+  if ! grep -qF "${expected_coord}" <<< "${normalised_second}"; then
+    echo "::error file=${rel_label}::expected '${expected_coord}' (lockstep contract; ${artefact} depends on a second in-repo artefact and the release workflow rewrites this to :mvn/version at deploy time)"
     errors=$((errors + 1))
   fi
-  IMPL_EXPECTED_LOCAL_ROOTS[ssr-ring]+='day8/re-frame2-ssr {:local/root "../ssr"}'$'\n'
-fi
+  IMPL_EXPECTED_LOCAL_ROOTS["${artefact}"]+="${expected_coord}"$'\n'
+done <<< "${SECOND_IN_REPO_COORD}"
 
 # rf2-7fxf8 — and the converse, for every implementation artefact including
 # core (whose expected set is empty: core is the lockstep root and must
@@ -817,17 +843,17 @@ declare -A TOOLS_PATHS=(
 # completeness pass at the end of the tools loop now derives the true set
 # from each deps.edn, so this list cannot silently fall behind again.
 #
-# Xray's `day8/re-frame2-hicasso` line asserts ONLY what the loop below
-# asserts of every entry: that the coordinate is declared at `:local/root` in
-# the committed deps.edn, which is true today and green. It does NOT assert
-# the artefact is PUBLISHABLE — implementation/hicasso/deps.edn deliberately
-# carries no `:clein/build` (its release wiring is rf2-hic-008's), so the
-# coordinate cannot be rewritten to any `:mvn/version`. It is the ONE
-# coordinate release-xray.yml deliberately leaves at `:local/root`; the other
-# nine are rewritten there. Whether Xray is publishable before Hicasso ships
-# is an OPEN OPERATOR DECISION (rf2-hic-023) that this gate neither makes nor
-# routes around; preflight-xray-package.sh is where it comes due, by refusing
-# the deploy — and its unpublishable-coordinate pin is the ledger.
+# Xray's `day8/re-frame2-hicasso` line used to carry a caveat: the artefact
+# was NOT publishable, so release-xray.yml deliberately left that one
+# coordinate at `:local/root` while rewriting the other nine, and
+# preflight-xray-package.sh refused the deploy rather than mint a GAV Clojars
+# would not have. rf2-gra70 removed the premise — implementation/hicasso/
+# deps.edn now carries a `:clein/build` and release.yml publishes
+# day8/re-frame2-hicasso — so all TEN of Xray's in-repo coordinates are
+# rewritable and release-xray.yml rewrites all ten. Xray's publishability
+# therefore now depends on the ordinary release ORDER (a framework `v*` tag
+# before an `xray-v*` tag), which docs/release-process.md §The tools tier
+# already states, rather than on an open ruling.
 #
 # rf2-l86mm — `day8/re-frame2-freehand` was the second such line until the
 # Views panel's Mounted Views + Declared View Sites sections retired with the
