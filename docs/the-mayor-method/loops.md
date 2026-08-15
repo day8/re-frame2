@@ -319,8 +319,12 @@ notifications, and do not trust a filter that returned empty — an empty filter
 dry backlog. One mayor under-saturated at one to three workers while a hundred items
 were ready, because a homegrown filter kept answering empty.
 
-**Read the newest note first.** On most trackers the description is the *oldest* text on
-an item; corrections, scope changes and audit findings accrete below it. Read bottom-up.
+**Read the newest note first, and find it by DATE rather than by position.** The description
+is the *oldest* text on an item and corrections accrete below it, so a top-down read gets
+superseded instructions — but the bottom is not reliably the newest either, because audit
+notes append into the description block while dated comments render after it. Locate the
+latest date and read around it. And when an item has children, re-enumerate them: a ruling
+is sometimes recorded as a new child rather than as a note.
 
 Filter out before shaping anything:
 
@@ -410,8 +414,8 @@ it does not land.
 deliberately bounded fence has that fence widened mid-flight by a second finding, which is
 how a bounded repair becomes an unbounded one. Then leave that owner queued or sequenced
 instead, and note the overlap on the in-flight item — saying explicitly that the item is
-owned elsewhere and is **not** part of the in-flight repair, so nobody reading that item
-bottom-up adopts it.
+owned elsewhere and is **not** part of the in-flight repair, so nobody reading that item's
+newest notes adopts it.
 
 Route-and-note, or queue-and-note. An owner plus one note is common to both and is the whole
 safeguard. It does not want to grow past that: no routing registry, no tracking field, no
@@ -434,8 +438,8 @@ is looking straight at it, while a held item that should have been released is c
 nobody, because nothing in the short loop reads it again.
 
 So on a medium cadence, read **all** open items from the raw list — not a saved filter, not
-the ready view, not what you remember filing. Read each one bottom-up, newest note first;
-*Dispatch* above explains why.
+the ready view, not what you remember filing. On each one find the newest note by date
+rather than by position, and re-enumerate any children; *Dispatch* above explains why.
 
 Four things surface here and nowhere else.
 

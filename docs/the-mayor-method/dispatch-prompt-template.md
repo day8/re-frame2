@@ -32,10 +32,15 @@ a capable agent. Placeholders:
 
 The order is what makes it accurate. Each step is a check the next depends on.
 
-1. **Read the tracker item bottom-up.** On most trackers the description is the
-   *oldest* text on the item; corrections, scope changes and audit findings accrete
-   below it. On a reopened item the description is usually already done and the live
-   charge is at the bottom.
+1. **Read the tracker item, and find its newest text by DATE — not by position.** The
+   description is the *oldest* text; corrections accrete below it, so a top-down read
+   gets superseded instructions. But the bottom is not reliably the newest either:
+   audit notes append into the description block while dated comments render after it,
+   so the last lines on screen can be days staler than material higher up. Tailing the
+   output is not a read-the-newest method. Grep for the dates and read around the
+   latest one. **And if the item has children, re-enumerate them before concluding a
+   decision is absent** — a ruling is sometimes recorded as a *new child item*, where
+   no amount of reading the parent will find it.
 2. **Check every factual claim you are about to write.** Does the symbol resolve?
    Does the file say what you think? Is the count still true? Is the ruling you cite
    *ruled*, or only recommended? A recommendation and a decision read identically in
@@ -60,18 +65,23 @@ same case, and gets the sentence too.
 > complete and good deliverable — report it with the evidence rather than going
 > looking for work to do.
 
-> **Read the item before this brief, and read it bottom-up.** Where they disagree,
-> the item governs — follow it, and say in your report what differed.
+> **Read the item before this brief, and find its newest note by DATE, not by
+> position.** Where they disagree, the item governs — follow it, and say in your
+> report what differed.
 
 > **The control is the deliverable.** Show it red when the property is removed,
 > restore, and verify the restore by hashing the bytes.
 
-The first is the highest-yield sentence in the preamble. The bottom-up rule caught
+The first is the highest-yield sentence in the preamble. Read-the-item-first caught
 five stale briefs in a single day: one whose fix had landed two days earlier under a
 sibling item; one that named the wrong audit finding; one told to execute a resolution
 that had already merged; one that a scope correction had redefined from an allocation
 leak to a baseline-contamination leak; and one carrying three wrong path, flag and
 script details. **Every one of those briefs was accurate when it was written.**
+
+The yield is in *the item governs the brief*, not in the direction of reading. This
+sentence used to credit "the bottom-up rule" for those catches; the catches were real
+and the attribution was wrong.
 
 **The third is scoped by the nominated gate's capabilities — not by prose versus
 code.** Ask whether the gate covering the edited surface affords a safe, bounded,
@@ -476,11 +486,21 @@ You are implementing <ITEM_ID> in <project + one-line description>.
 Do NOT summarise it. The lenses say what good looks like; the clauses after them
 say when to STOP, and a paraphrase keeps the first half and drops the second.>
 
-READ THE ITEM BEFORE THE BRIEF, AND READ IT BOTTOM-UP — MANDATORY. The tracker
-prints the DESCRIPTION first, and the description is the OLDEST text on the item:
-corrections, scope changes and sibling landings accrete BELOW it as notes. So read
-the notes from the bottom up, the description last. Where the item and this brief
-disagree, the ITEM governs — follow it, and say in your report what differed.
+READ THE ITEM BEFORE THE BRIEF — MANDATORY. The tracker prints the DESCRIPTION
+first, and the description is the OLDEST text on the item: corrections, scope changes
+and sibling landings accrete BELOW it as notes, so a straight top-down read gets
+superseded instructions.
+
+BUT FIND THE NEWEST BY DATE, NOT BY POSITION. The bottom of the output is NOT
+reliably the newest text — audit notes often append into the DESCRIPTION block while
+dated comments render after it, so the last lines on screen can be older than material
+higher up. Locate the latest date first:
+`bd show <id> | grep -n "AUDIT\|202[0-9]-[0-9][0-9]-[0-9][0-9]"`, then read around it.
+If the item has children, re-enumerate them too: a ruling is sometimes recorded as a
+NEW CHILD ITEM rather than as a note.
+
+Where the item and this brief disagree, the ITEM governs — follow it, and say in your
+report what differed.
 
 THIS BRIEF'S PREMISES ARE CLAIMS, NOT FINDINGS. Check each at source before you act
 on it: that a ruling it names is ruled and not merely recommended, that a gate it
@@ -650,6 +670,17 @@ worker quoted the number it had captured. **At least twenty-three of the forty-f
 and inverted the conclusion. Recount that census when you cite it; do not carry it forward by adding the
 instances you have just seen, which is how it came to be understated by two thirds.
 
+**An ABSENT exit-code file is NO VERDICT — not a pass.** The rules above are about a number that is present and
+wrong; this is about one that was never written, and it reads as success because the log ends with the gate's own
+output and nothing contradicts it. Any death between the last line and the exit does it: a runtime cap killing the
+shell in the final step, an OOM kill, a dropped connection. **A gate you cannot quote a captured number for has not
+run.** Re-run it, and say whether you re-ran the whole gate or one step.
+
+**A search that returns ZERO is not a check that passed.** A wrong *pattern* answers "no matches" in the same voice
+as "nothing is wrong" — the recurring instance is a backslash-bearing literal, quoted so the shell strips them,
+matching none of the files that plainly contained it. Match fixed strings as fixed strings (`grep -F`). When a search
+underwrites a claim, run it once against something it should find.
+
 **Put every gate artefact where version control ignores it, and name each one for your worktree AND for the
 attempt** — the log and the exit-code file both. Neither half is tidiness; a name missing either fails the gate
 **open**.
@@ -766,7 +797,7 @@ that noise.
 - Clusters split that should be one change, or the reverse → the cluster reviewer pre-validates shape.
 - Stalled workers losing analysis → findings first, and one-item-at-a-time tracker creates.
 - Re-discovering known issues → name recent landings and prior findings.
-- A brief that was accurate when written but stale when read → the item governs the brief, notes read bottom-up.
+- A brief that was accurate when written but stale when read → the item governs the brief, newest note found by date.
 - Generic prompts → require `file:line` citations and concrete fix sketches.
 - A measurement worker iterating until the number looked right → Shape 6: the controls arbitrate, a refusal is a
   deliverable, and the rig does not change mid-window.
