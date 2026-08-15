@@ -447,8 +447,8 @@ namespace docstring (see `tools/xray/src/day8/re_frame2_xray/registry.cljs`).
 
 Xray renders pure hiccup, so it can mount only through a host adapter
 whose `:render` slot accepts hiccup render-trees — the **ratom family**
-(stock Reagent, Reagent-slim). The React-hook substrates (UIx and
-the first-party Freehand) share an **element-shaped** `render`
+(stock Reagent, Reagent-slim). The React-hook substrates (UIx, and the
+first-party Freehand and re-frame.ui) share an **element-shaped** `render`
 that hands the tree to React untouched; a hiccup shell mounted there
 reaches React children as raw CLJS data (fn-as-child console.error
 plus an uncaught MapEntry pageerror — rf2-qgfo4). On those hosts the
@@ -459,6 +459,17 @@ preload auto-open) MUST refuse cleanly: publish the
 nothing. Rendering Xray on the React-element substrates is future
 work (tracked from rf2-qgfo4); until then the supported render hosts
 are the ratom family.
+
+**Hicasso is not a fourth kind in this test — it rides UIx (rf2-wtznc).**
+Hicasso ships no adapter and mints no `:kind`; `:rf.adapter/hicasso` does
+not exist. A Hicasso application installs the UIx adapter and then mounts
+its boundaries through it, so
+`re-frame.substrate.adapter/current-adapter` answers `:rf.adapter/uix` on
+a Hicasso page and the refusal above already covers it — on the correct
+structural ground, since the element-shaped `:render` in play is UIx's.
+Any roster of the refused kinds should therefore read the absence of a
+hicasso member as load-bearing rather than as a gap to fill; naming one
+would invent a keyword the runtime never produces.
 
 Where Xray needs an
 imperative escape hatch (canvas refs, mount-lifecycle hooks for large

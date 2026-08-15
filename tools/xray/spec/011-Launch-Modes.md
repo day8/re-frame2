@@ -467,12 +467,16 @@ load. It MAY schedule a bounded adapter-ready retry. Once the adapter
 is ready, it MUST find the configured layout host and mount the shell
 there. If the host is missing, it MUST emit the diagnostic described in
 §Layout host contract and leave the app running. If the installed
-adapter is a React-element substrate (UIx / Helix / Freehand —
-hosts whose `:render` cannot take the hiccup shell, per
+adapter is a React-element substrate (UIx / Helix / Freehand /
+re-frame.ui — hosts whose `:render` cannot take the hiccup shell, per
 [`008-Embedding-Contract.md`](./008-Embedding-Contract.md) §Adapter
 resolution), it MUST refuse the mount with the
 `:unsupported-substrate` diagnostic (status API + one `console.warn`)
-and leave the app running (rf2-qgfo4).
+and leave the app running (rf2-qgfo4). **A Hicasso host is one of these
+and needs no entry of its own**: Hicasso mints no adapter kind — there
+is no `:rf.adapter/hicasso` — so a Hicasso app installs the UIx adapter
+and mounts its boundaries through it, and the refusal fires on
+`:rf.adapter/uix` (rf2-wtznc).
 
 **The foundation side-effects fire on the preload path only (rf2-5w06uu).**
 The two-phase boot above runs at the load of
