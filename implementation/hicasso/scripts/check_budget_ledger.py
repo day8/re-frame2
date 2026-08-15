@@ -106,13 +106,11 @@ THE RULES
                      `:browser-test` (run by test.yml's `cljs-browser`
                      job), every other against `:node-test` (run by its
                      `cljs` job) — both jobs sit in `all-required-passed`'s
-                     `needs:` list. A row whose DOM witness lands only in
-                     `:browser-test-freehand-bench` — the lane
-                     freehand-bench.yml drives on cron and
-                     workflow_dispatch, which gates nothing — is a row
-                     asserting a lane it does not run in, and reds; so is
-                     a row naming a file no build compiles at all, which
-                     is what `rf2-9vbl1` found D9 and U6 doing and the
+                     `needs:` list. A row whose DOM witness `:browser-test`
+                     does not select is a row asserting a lane it does not
+                     run in, and reds; so is a row naming a file no build
+                     compiles at all, which is what `rf2-9vbl1` found D9 and
+                     U6 doing and the
                      DOM-only rule could not see. Reading a lane claim and
                      never testing it is the same fail-open shape as L7's,
                      one level up.
@@ -329,13 +327,21 @@ _RE_INVALID_SLUG_CHAR = re.compile(r"[^\w\- ]", re.UNICODE)
 # rather than to change it.
 SHADOW_CLJS = os.path.join(REPO_ROOT, "implementation", "shadow-cljs.edn")
 
-# L6.  The two browser DOM lanes, by build id.  The first blocks a pull
-# request (`cljs-browser` in test.yml's `all-required-passed` needs list);
-# the second is the scheduled bench lane freehand-bench.yml drives on cron
-# and workflow_dispatch, and it gates nothing.  A `PR gate` row whose witness
-# lands only in the second is a row asserting a lane it does not run in.
+# L6.  The browser DOM lane, by build id.  It blocks a pull request
+# (`cljs-browser` in test.yml's `all-required-passed` needs list), and a
+# `PR gate` DOM row whose witness this build does not select is a row
+# asserting a lane it does not run in.
+#
+# THERE USED TO BE TWO (`rf2-0yp7w.6`).  `:browser-test-freehand-bench` was the
+# scheduled bench lane `freehand-bench.yml` drove on cron and
+# workflow_dispatch, gating nothing, and the rule's sharpest failure was a
+# witness that landed only there.  Both retired with the Freehand tree, so the
+# PARTITION is gone -- but the rule is not, and it is not vacuous either: it
+# still reads the SHIPPING selector out of the config, so narrowing
+# `:browser-test` reds here rather than silently unhooking a row's counter.
+# The self-test's red control for it is driven off a doctored selector map
+# instead of off whichever prefix the shipping config happens to exclude.
 PR_BLOCKING_DOM_BUILD = ":browser-test"
-SCHEDULED_DOM_BUILD = ":browser-test-freehand-bench"
 
 # L6.  The PR-blocking lane for every OTHER witness (`rf2-xcaph`).  `:node-test`
 # is run by test.yml's `cljs` job — *CLJS (shadow-cljs :node-test)*, which does
@@ -490,8 +496,7 @@ def lane_selectors(text, path=SHADOW_CLJS):
     selector of whichever build happens to follow it (`rf2-mwr2`).
     """
     selectors = {}
-    for build in (PR_BLOCKING_DOM_BUILD, SCHEDULED_DOM_BUILD,
-                  PR_BLOCKING_NODE_BUILD):
+    for build in (PR_BLOCKING_DOM_BUILD, PR_BLOCKING_NODE_BUILD):
         own_map = _isolate_build_map(text, build)
         if own_map is None:
             raise ValueError(
@@ -678,9 +683,9 @@ def check(rows, registered, sections, existing_files, selectors=None):
     `sections` maps a `file.md#anchor` target to the section body it names,
     or to None when it names nothing.  `existing_files` is the set of
     repo-relative paths, among those the ledger cites, that exist.
-    `selectors` maps the two browser DOM build ids and the node build id to
-    their compiled `:ns-regexp`, read from `implementation/shadow-cljs.edn`
-    when not given.
+    `selectors` maps the browser DOM build id and the node build id to their
+    compiled `:ns-regexp`, read from `implementation/shadow-cljs.edn` when not
+    given.
     """
     failures = []
     by_id = {}
@@ -850,19 +855,13 @@ def check(rows, registered, sections, existing_files, selectors=None):
                         "verified" % (rid, witness))
                 elif _DOM_WITNESS_RE.search(witness):
                     if not selectors[PR_BLOCKING_DOM_BUILD].search(namespace):
-                        scheduled = selectors[SCHEDULED_DOM_BUILD].search(namespace)
                         failures.append(
                             "L6 %s claims the `PR gate` lane, but %s selects "
-                            "nothing for its witness %s (namespace %s). %s A "
+                            "nothing for its witness %s (namespace %s), and it "
+                            "is the only browser DOM lane there is. A "
                             "deterministic row must run in a lane that blocks a "
-                            "merge, and this one runs in %s"
-                            % (rid, PR_BLOCKING_DOM_BUILD, witness, namespace,
-                               "It is selected by %s, which freehand-bench.yml "
-                               "drives on schedule and workflow_dispatch only."
-                               % SCHEDULED_DOM_BUILD if scheduled
-                               else "No browser DOM lane selects it at all.",
-                               "the scheduled bench lane" if scheduled
-                               else "no browser lane"))
+                            "merge, and this one runs in none"
+                            % (rid, PR_BLOCKING_DOM_BUILD, witness, namespace))
                 elif not selectors[PR_BLOCKING_NODE_BUILD].search(namespace):
                     failures.append(
                         "L6 %s claims the `PR gate` lane, but %s selects "
@@ -1123,25 +1122,29 @@ def self_test():
     # believed rather than checked.  A witness that exists, in a row spelled
     # legally, whose namespace the PR-blocking browser build does not select:
     # green under every earlier reading of this rule, and gating nothing.
-    bench_witness = ("implementation/freehand/test/re_frame/freehand/bench/"
-                     "b1_dom_cljs_test.cljs")
-    assert os.path.isfile(os.path.join(REPO_ROOT, bench_witness)), \
-        "the L6 lane control needs a real scheduled-lane witness"
-    red("L6",
-        rows=patched("D26", instrument="`%s` (PR gate)" % bench_witness),
-        existing_files=existing | {bench_witness})
+    #
+    # DRIVEN OFF A DOCTORED SELECTOR (`rf2-0yp7w.6`), not off a real witness.
+    # The old control planted D26's row against a `re-frame.freehand.bench.*`
+    # witness, which the shipping `:browser-test` selector excluded by negative
+    # lookahead — so the control's teeth were on loan from an exclusion that
+    # retired with the Freehand tree.  Narrowing the selector itself is the
+    # defect this rule exists to catch, and planting it directly is both
+    # closer to that defect and independent of what the config happens to
+    # exclude today.  D26's real witness stays the subject.
+    _narrowed = dict(read_lane_selectors())
+    _narrowed[PR_BLOCKING_DOM_BUILD] = re.compile(
+        r"^(?!re-frame\.bench\.).*-dom-cljs-test$")
+    red("L6", selectors=_narrowed)
     # ...a witness whose namespace cannot be derived at all, which is the
     # way this check would otherwise pass by being unable to run...
     kit_witness = "implementation/hicasso/test_kit/src/mounted_dom_cljs_test.cljs"
     red("L6",
         rows=patched("D1", instrument="`%s` (PR gate)" % kit_witness),
         existing_files=existing | {kit_witness})
-    # ...and the eager direction: D26's real witness lives in the bench TREE
-    # but its namespace is `re-frame.bench.*`, not `re-frame.freehand.bench.*`,
-    # so the PR-blocking build does select it.  That distinction is the whole
-    # of the audit's refutation, and a later worker tightening the exclusion
-    # to the whole bench tree would red HERE rather than silently unhook U5's
-    # second counter.
+    # ...and the eager direction: with the SHIPPING selector, D26's real
+    # witness is selected and the ledger is green.  Without this half the red
+    # above could be caused by something other than the narrowing, and would
+    # prove nothing about the rule.
     green()
 
     # L6 — the same claim for a NON-DOM witness (`rf2-xcaph`).  The controls
@@ -1198,12 +1201,12 @@ def self_test():
         raise AssertionError(
             "read_lane_selectors accepted a file declaring no test build, "
             "so an unreadable lane assignment would pass")
-    # ...and it reads ALL THREE ids, so a later worker dropping one from the
-    # loop cannot pass by the other two still being found.  The refusal above
-    # is driven from a file declaring no builds at all and so cannot tell the
-    # difference; this is the half of that control that can.
+    # ...and it reads BOTH ids, so a later worker dropping one from the loop
+    # cannot pass by the other still being found.  The refusal above is driven
+    # from a file declaring no builds at all and so cannot tell the difference;
+    # this is the half of that control that can.
     assert set(read_lane_selectors()) == {
-        PR_BLOCKING_DOM_BUILD, SCHEDULED_DOM_BUILD, PR_BLOCKING_NODE_BUILD}, \
+        PR_BLOCKING_DOM_BUILD, PR_BLOCKING_NODE_BUILD}, \
         "read_lane_selectors stopped reading a lane L6 adjudicates on"
 
     # L6 — and each selector is read out of THAT BUILD'S OWN MAP (`rf2-mwr2`).
@@ -1221,6 +1224,12 @@ def self_test():
     # Driven through `lane_selectors` on config source held in memory: writing
     # a doctored copy to disk would make this control depend on a temp file,
     # and the defect is in the reading, not in the file handling.
+    # The borrowable neighbour is a SYNTHETIC build id (`rf2-0yp7w.6`): the
+    # real one was `:browser-test-freehand-bench`, which retired with the
+    # Freehand tree, and this control needs only *a* following build holding
+    # a DIFFERENT selector -- not a build this gate reads.
+    BORROWABLE_NEIGHBOUR = ":browser-test-neighbour"
+
     def three_lanes(browser_selector):
         return (" :builds\n"
                 " {%s\n"
@@ -1235,7 +1244,7 @@ def self_test():
                 "  {:target    :browser-test\n"
                 "   :ns-regexp \"^bench\\\\..+-dom-cljs-test$\"}}\n"
                 % (PR_BLOCKING_NODE_BUILD, PR_BLOCKING_DOM_BUILD,
-                   browser_selector, SCHEDULED_DOM_BUILD))
+                   browser_selector, BORROWABLE_NEIGHBOUR))
 
     try:
         lane_selectors(three_lanes(""), "<no selector of its own>")
@@ -1258,11 +1267,19 @@ def self_test():
             "the missing-selector control refuses for the wrong reason: with "
             "the selector restored, %s reads %r"
             % (PR_BLOCKING_DOM_BUILD, intact[PR_BLOCKING_DOM_BUILD].pattern))
-    if intact[SCHEDULED_DOM_BUILD].pattern == "-dom-cljs-test$":
+    # ...and the plant can still DEMONSTRATE a borrow, which is what makes the
+    # refusal above meaningful: the neighbour that follows the silent build
+    # must declare a selector the borrower would visibly adopt.  Read off the
+    # plant text, because the neighbour is synthetic and this gate does not
+    # read it.
+    _neighbour_selector = r"^bench\\..+-dom-cljs-test$"
+    _plant = three_lanes(':ns-regexp "-dom-cljs-test$"\n   ')
+    if _neighbour_selector not in _plant:
         raise AssertionError(
-            "the plant cannot demonstrate a borrow: both browser builds "
-            "declare the same selector, so adopting one for the other would "
-            "be invisible")
+            "the plant cannot demonstrate a borrow: the %s neighbour no longer "
+            "declares a selector DIFFERENT from %s's, so adopting one for the "
+            "other would be invisible"
+            % (BORROWABLE_NEIGHBOUR, PR_BLOCKING_DOM_BUILD))
     # ...and the bound holds on the config as it SHIPS, not only on the plant.
     # `:node-test` is the `:builds` map's first entry, the longest of the three
     # maps, and the one carrying prose that names `:ns-regexp` — so exactly one

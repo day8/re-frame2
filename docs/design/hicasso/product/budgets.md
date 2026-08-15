@@ -1040,25 +1040,32 @@ ever runs and stay green. A second audit of `rf2-mwr2` reasoned from exactly
 that gap, and concluded `D26`'s counter gated nothing. **The conclusion was
 wrong on the facts and the reasoning was right about the gate**, so the gap is
 what got closed. For a `*_dom_cljs_test` witness the browser lane is decided by
-a single selector, so the gate now reads the two selectors out of
+a single selector, so the gate now reads that selector out of
 `implementation/shadow-cljs.edn` and requires the PR-blocking `:browser-test`
-build to select the witness's namespace. A witness reachable only through
-`:browser-test-freehand-bench` — the lane `freehand-bench.yml` drives on
-`schedule` and `workflow_dispatch`, which blocks no merge — now reds. Nineteen
-rows carry a verified lane as a result, `U5` and `D26` among them.
+build to select the witness's namespace. Nineteen rows carry a verified lane as
+a result, `U5` and `D26` among them.
+
+**[Amended 2026-08-15, `rf2-0yp7w.6`.] There is one browser DOM lane now, and
+the rule survives the loss of the second.** The amendment above was written
+against a PARTITION: `:browser-test` blocking a merge, and
+`:browser-test-freehand-bench` running on `schedule` / `workflow_dispatch`
+under `freehand-bench.yml` and blocking nothing, so its sharpest failure was a
+witness that landed only in the second. Both retired with the Freehand tree.
+What the rule asserts is unchanged and still read off the SHIPPING config: a
+`PR gate` DOM row's witness namespace must be selected by `:browser-test`, so
+narrowing that selector reds here rather than silently unhooking `U5`'s second
+counter. Only the checker's red CONTROL moved — it plants a narrowed selector
+directly instead of borrowing the teeth of whichever prefix the config happened
+to exclude.
 
 Why the audit's conclusion did not hold, recorded here so it is not re-derived:
-`:browser-test` excludes `re-frame.freehand.bench.*`, and `D26`'s witness lives
-in the bench *tree* but declares the namespace
-`re-frame.bench.hicasso.topo.census-dom-cljs-test`. The exclusion does not
-reach it; the PR-blocking selector matches it; `implementation/freehand/test`
-is on the global `:source-paths`; and the job that runs that build,
-`cljs-browser`, is in `test.yml`'s required `all-required-passed` needs list
-and is armed for this surface by the changed-surface classifier. The witness's
-assertions do gate on a real DOM, which is a *stated skip under `:node-test`*
-and not a skip in the lane that gates. Should a later worker tighten the
-exclusion to the whole bench tree, the gate reds here instead of silently
-unhooking `U5`'s second counter.
+`D26`'s witness declares the namespace
+`re-frame.bench.hicasso.topo.census-dom-cljs-test`, which the PR-blocking
+selector matches; and the job that runs that build, `cljs-browser`, is in
+`test.yml`'s required `all-required-passed` needs list and is armed for this
+surface by the changed-surface classifier. The witness's assertions do gate on
+a real DOM, which is a *stated skip under `:node-test`* and not a skip in the
+lane that gates.
 
 **[Amended 2026-08-14, `rf2-xcaph`.] The verification now covers every `PR gate`
 witness, not only the DOM ones.** The amendment above checked seven of the
