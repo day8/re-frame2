@@ -663,6 +663,25 @@ no tray at all.
 Recovery: `:put-the-override-on-a-presence-child` — move it onto the tray's own
 child; below a view head, branch on the `:rf/phase` prop instead.
 
+### Overlays and focus
+
+An overlay positions itself against a trigger you name by DOM id, so the one
+thing it cannot do is resolve a name to nothing and say nothing.
+
+Taught in [Overlays and focus](13-overlays-and-focus.md).
+
+<a id="hicasso-overlay-anchor-missing"></a>
+#### `:rf.error/hicasso-overlay-anchor-missing`
+
+You gave an overlay an `:anchor` naming a DOM id no element in the document
+carries. Omitting `:anchor` is legal and silent — a modal takes none, and a
+popover without one is asking for the default position; this catches the name
+that resolves to nothing.
+
+Recovery: `:give-the-trigger-the-dom-id-the-anchor-names` — generate a unique,
+stable trigger id from the instance id, and render the trigger in the same tree
+as the overlay so the two arrive in one commit.
+
 ### Ephemeral state
 
 A concern is registered once and keyed by something the domain owns. Both halves
