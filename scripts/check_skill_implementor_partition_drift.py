@@ -82,30 +82,20 @@ user-facing implementor docs and asserts:
      / frame-provider heading link goes missing OR no longer resolves to a real
      Spec-002 heading, if either frame boundary drops out of the OWNING core
      artifact inventory row in `spec/Conventions.md`, or if the synthesis §8
-     reverts preflight to future work. It also holds a CAUSAL, source-backed
-     assertion over the compiled client's THREE production render paths —
-     existing-root refresh, fresh mount, and the split `render!*` — that EACH host
-     render (`(.render …)`) is preceded by its OWN frame preflight
-     (`(run-preflight! …)` → `execute-frame-plans!`), and that the one-shot fresh
-     mount additionally preflights before it creates the React root
-     (`(run-preflight! …)` → `(rdc/createRoot …)` → `(.render …)`). The two honest
-     host paths are stated, not universalized: one-shot `mount*` preflights before
-     `createRoot` AND the first render, while the intentional split API's
-     `create-root*` allocates/registers the React root FIRST by design (no plans
-     yet) and `render!*` later preflights before every render — so the split path
-     is never falsely claimed to preflight before `create-root*`. The check is a
-     bounded, PER-FUNCTION token-order scan (rf2-8cncz): the client is partitioned
-     into its top-level `(defn ...)` bodies and preflight credit is scoped to the
-     SAME body as the render it covers, so one function's preflight can never
-     credit another's render (a preflight migrated into `create-root*` cannot
-     silence `render!*`'s uncredited render), and reader-discarded (`#_`) /
-     dead-conditional (`(when false ...)`) preflights are neutralized before the
-     scan and never count. It stays a bounded lexical bracket-matcher; no general
-     Markdown or full Clojure parser is added. (Adapter *status* — which
-     adapters live on and which are removed — is not scanned here: it is owned
-     by `scripts/check_adapter_disposition.py`, per rf2-vxgfnd.290. The
+     reverts preflight to future work. (Adapter *status* — which adapters live on
+     and which are removed — is not scanned here: it is owned by
+     `scripts/check_adapter_disposition.py`, per rf2-vxgfnd.290. The
      `[REACT-ADAPTERS]` token below is a lifecycle-PARTITION marker, not a
      status label.)
+
+     THE TWO L5 SOURCE-BACKED ARMS ARE RETIRED (rf2-0yp7w.4). They read
+     `implementation/ui/`'s own source — the compiled client's per-function
+     preflight-before-render causality, and the compiled executor's
+     `execute-frame-plans!` / `finalize-preflight-attempt!` / `:mount-incomplete`
+     surface — and that tree was deleted with the artefact. The contracts are
+     dissolved rather than unguarded: nothing inherited the compiled
+     ENSURE-at-host-preflight lifecycle, so re-pointing had no target. See the
+     retirement record above `LIFECYCLE_ARM_SOURCES`.
 
      Rule 7's arms are individually skippable — each reads a source file, and a
      missing file used to leave its arm silently unevaluated behind a SETUP
@@ -406,12 +396,6 @@ def find_beadid_drift(files: list[Path]) -> tuple[list[str], int]:
 # ---------------------------------------------------------------------------
 
 PHASE2_FILE = SKILL_DIR / "references" / "phase-2-impl-order.md"
-UI_CLIENT_FILE = (
-    REPO_ROOT / "implementation" / "ui" / "src" / "re_frame" / "ui" / "client.cljs"
-)
-UI_FRAMES_FILE = (
-    REPO_ROOT / "implementation" / "ui" / "src" / "re_frame" / "ui" / "frames.cljc"
-)
 CONVENTIONS_FILE = REPO_ROOT / "spec" / "Conventions.md"
 SPEC_002_FILE = REPO_ROOT / "spec" / "002-Frames.md"
 
@@ -437,10 +421,25 @@ LIFECYCLE_ARM_SOURCES: dict[str, tuple[str, ...]] = {
     "L2-react-adapters": ("phase2",),
     "L4-spec002-links-present": ("phase2",),
     "L4-spec002-links-resolve": ("phase2", "spec002"),
-    "L5-client-preflight-causality": ("client",),
-    "L5-frames-executor": ("frames",),
     "L6-inventory-row": ("conventions",),
 }
+
+# RETIRED DELIBERATELY, rf2-0yp7w.4 — the two L5 arms and the contracts they held.
+#
+#   L5-client-preflight-causality  implementation/ui/src/re_frame/ui/client.cljs
+#   L5-frames-executor             implementation/ui/src/re_frame/ui/frames.cljc
+#
+# Both read the COMPILED substrate's own source, and that substrate is gone:
+# `implementation/ui/` was deleted with the artefact. The contracts they held
+# — that every host render in the compiled client is preceded by its own live
+# frame preflight, that the one-shot fresh mount preflights before `createRoot`,
+# and that the compiled executor keeps `execute-frame-plans!` /
+# `finalize-preflight-attempt!` / `:mount-incomplete` — are not unguarded, they
+# are DISSOLVED: there is no compiled client left to render, and no other
+# artefact inherited the ENSURE-at-host-preflight lifecycle. Re-pointing was the
+# other honest fix and it has no target. The remaining arms are unaffected: they
+# read the SKILL's prose, `spec/Conventions.md` and `spec/002-Frames.md`, whose
+# re-pointing is rf2-0yp7w.9's (R6) prose sweep and not this delete's.
 
 
 def lifecycle_arms_run(texts: dict[str, str | None]) -> set[str]:
@@ -451,295 +450,6 @@ def lifecycle_arms_run(texts: dict[str, str | None]) -> set[str]:
         for arm, sources in LIFECYCLE_ARM_SOURCES.items()
         if all(texts.get(src) is not None for src in sources)
     }
-
-
-# The compiled client's frame-lifecycle CALL forms. Keyed on the leading paren so
-# docstring / backtick mentions (`(run-preflight! …)`, `` `.render` ``,
-# `` `createRoot` ``) never register as calls.
-PREFLIGHT_CALL = "(run-preflight!"
-CREATE_ROOT_CALL = "(rdc/createRoot"
-HOST_RENDER_CALL = "(.render "
-
-
-def _client_call_order(client_text: str) -> list[str]:
-    """The ordered kinds of a text chunk's frame-lifecycle CALL forms: `'pre'`
-    (`(run-preflight!`), `'create'` (`(rdc/createRoot`), `'render'` (`(.render `)
-    — sorted by source position. A bounded, lexical token stream (no Clojure
-    parser). Called PER top-level function body (see `_top_level_form_regions`), so
-    the returned order is that ONE function's calls — never a file-wide pool.
-
-    Over the whole compiled client the three production render paths and the two
-    root allocations show up, in document order, as:
-
-        pre, render,  pre, create, render,  create,  pre, render
-        └ same-root ┘ └──── fresh mount ───┘ └split┘ └─ render!* ─┘
-
-    but `_preflight_causal_problems` scopes credit to each owning function, so
-    `create-root*`'s lone `create` can never donate to `render!*`'s `render`."""
-    events: list[tuple[int, str]] = []
-    for kind, needle in (
-        ("pre", PREFLIGHT_CALL),
-        ("create", CREATE_ROOT_CALL),
-        ("render", HOST_RENDER_CALL),
-    ):
-        start = 0
-        while True:
-            i = client_text.find(needle, start)
-            if i == -1:
-                break
-            events.append((i, kind))
-            start = i + len(needle)
-    events.sort()
-    return [kind for _, kind in events]
-
-
-# --- Per-function partition + dead-form neutralization (rf2-8cncz) -----------
-# The causal preflight assertion is scoped to each top-level function body and
-# ignores statically-dead preflights (reader-discarded `#_…` / dead-conditional
-# `(when false …)`). Both are bounded lexical passes — a bracket-matcher that
-# honours strings / char literals / `;` comments — NOT a general Clojure parser.
-
-_TOP_FORM_OPEN_RE = re.compile(r"^\(", re.MULTILINE)
-_WHEN_FALSE_RE = re.compile(r"\(when\s+false(?![\w!?*+./<>=-])")
-
-
-def _skip_form(text: str, i: int) -> int:
-    """Index just past the balanced bracketed form OPENING at text[i] (`([{`).
-    Honours `"..."` strings (with `\\"` escapes), `\\x` char literals, and `;` line
-    comments — enough to balance the small dead regions this guard neutralizes.
-    Returns len(text) on an unbalanced tail. Not a Clojure parser."""
-    close = {"(": ")", "[": "]", "{": "}"}
-    stack = [close[text[i]]]
-    j, n = i + 1, len(text)
-    while j < n and stack:
-        c = text[j]
-        if c == "\\":                       # char literal \x — skip the escaped char
-            j += 2
-            continue
-        if c == '"':                        # string — skip to its close
-            j += 1
-            while j < n:
-                if text[j] == "\\":
-                    j += 2
-                    continue
-                if text[j] == '"':
-                    j += 1
-                    break
-                j += 1
-            continue
-        if c == ";":                        # line comment — skip to EOL
-            k = text.find("\n", j)
-            j = n if k == -1 else k
-            continue
-        if c in close:
-            stack.append(close[c])
-        elif c == stack[-1]:
-            stack.pop()
-        j += 1
-    return j
-
-
-def _skip_datum(text: str, j: int) -> int:
-    """Index just past ONE datum starting at/after text[j] (leading whitespace
-    skipped): a bracket form, a string, a char literal, or a bare atom/symbol/
-    keyword. Used to bound the form a `#_` reader-discard drops."""
-    n = len(text)
-    while j < n and text[j].isspace():
-        j += 1
-    if j >= n:
-        return j
-    c = text[j]
-    if c in "([{":
-        return _skip_form(text, j)
-    if c == '"':
-        k = j + 1
-        while k < n:
-            if text[k] == "\\":
-                k += 2
-                continue
-            if text[k] == '"':
-                return k + 1
-            k += 1
-        return n
-    if c == "\\":                           # char literal \x
-        return min(j + 2, n)
-    while j < n and not text[j].isspace() and text[j] not in '()[]{};"':
-        j += 1
-    return j
-
-
-def _neutralize_dead_forms(text: str) -> str:
-    """Blank out statically-dead preflight forms so they cannot earn credit:
-    reader-discarded `#_<form>` and dead-conditional `(when false …)` blocks. A
-    two-pass bounded lexical rewrite that copies strings / char literals / `;`
-    comments verbatim (so a literal `#_` or `(when false` inside a docstring is
-    never mistaken for code). Live forms are returned unchanged."""
-
-    def _copy_or(src: str, drop) -> str:
-        out: list[str] = []
-        i, n = 0, len(src)
-        while i < n:
-            c = src[i]
-            if c == '"':                    # copy a string datum verbatim
-                end = _skip_datum(src, i)
-                out.append(src[i:end])
-                i = end
-                continue
-            if c == ";":                    # copy a line comment verbatim
-                k = src.find("\n", i)
-                k = n if k == -1 else k
-                out.append(src[i:k])
-                i = k
-                continue
-            if c == "\\":                   # copy a char literal verbatim
-                out.append(src[i:i + 2])
-                i += 2
-                continue
-            handled, i2 = drop(src, i)
-            if handled:
-                i = i2
-                continue
-            out.append(c)
-            i += 1
-        return "".join(out)
-
-    def _drop_discard(src: str, i: int):
-        if src[i] == "#" and i + 1 < len(src) and src[i + 1] == "_":
-            return True, _skip_datum(src, i + 2)   # drop `#_` + the discarded datum
-        return False, i
-
-    def _drop_when_false(src: str, i: int):
-        if src[i] == "(" and _WHEN_FALSE_RE.match(src, i):
-            return True, _skip_form(src, i)        # drop the whole dead block
-        return False, i
-
-    return _copy_or(_copy_or(text, _drop_discard), _drop_when_false)
-
-
-def _form_label(region_text: str) -> str:
-    """Best-effort name of a top-level form for diagnostics — the symbol after
-    `defn` / `defn-` / `def…`, skipping `^meta`. Falls back to a short prefix."""
-    m = re.match(r"\((?:defn-?|def\w*)\s+(?:\^\S+\s+)*([^\s()\[\]{}]+)", region_text)
-    return m.group(1) if m else region_text.split("\n", 1)[0][:40].strip()
-
-
-def _top_level_form_regions(text: str) -> list[tuple[str, str]]:
-    """Partition the client into its top-level forms — one `(name, body)` per
-    column-0 `(` opener (well-formatted Clojure indents every nested form, so a
-    line-initial `(` reliably marks a NEW top-level form). Each needle-bearing
-    body is thus scoped to its owning function; credit never crosses the boundary.
-    A bounded lexical split, not a reader."""
-    opens = [m.start() for m in _TOP_FORM_OPEN_RE.finditer(text)]
-    regions: list[tuple[str, str]] = []
-    for idx, s in enumerate(opens):
-        e = opens[idx + 1] if idx + 1 < len(opens) else len(text)
-        body = text[s:e]
-        regions.append((_form_label(body), body))
-    return regions
-
-
-def preflight_scan(client_text: str) -> dict[str, object]:
-    """The per-function credit walk over the compiled client, returned as a
-    POPULATION rather than a verdict: `forms` top-level forms partitioned,
-    `renders` host renders found, `caused` of them preceded by their own live
-    preflight, the `uncredited` function names, and whether the one-shot
-    `pre → create → render` triple is present. Reported by `--verbose` so a
-    scan that covered nothing is visible rather than merely exit-0."""
-    total_renders = 0
-    total_caused = 0
-    one_shot = False
-    uncredited: list[str] = []
-    regions = _top_level_form_regions(client_text)
-
-    for name, body in regions:
-        seq = _client_call_order(_neutralize_dead_forms(body))
-        armed = 0
-        caused = 0
-        renders = 0
-        for kind in seq:
-            if kind == "pre":
-                armed += 1
-            elif kind == "render":
-                renders += 1
-                if armed > 0:
-                    caused += 1
-                    armed = 0  # a render consumes its function's pending preflight(s)
-        total_renders += renders
-        total_caused += caused
-        if caused != renders:
-            uncredited.append(name)
-        if any(
-            seq[i] == "pre" and seq[i + 1] == "create" and seq[i + 2] == "render"
-            for i in range(len(seq) - 2)
-        ):
-            one_shot = True
-
-    return {
-        "forms": len(regions),
-        "renders": total_renders,
-        "caused": total_caused,
-        "uncredited": uncredited,
-        "one_shot": one_shot,
-    }
-
-
-def _preflight_causal_problems(client_text: str) -> list[str]:
-    """CAUSAL source assertions over the compiled client's render paths, scoped
-    PER top-level function body (rf2-8cncz — the old whole-file substring pool let
-    a preflight in one function credit another's render, and a reader-discarded /
-    dead-conditional preflight still counted as live).
-
-    A — render causality (per function): within EACH function body, every host
-        render is preceded by its OWN LIVE frame preflight. Dead forms (`#_…`,
-        `(when false …)`) are neutralized first, then a per-function credit walk
-        arms one credit per preflight; each render spends a credit (and consumes
-        any surplus). Fires if any function has a render its own body does not
-        preflight — a removed / reordered / reader-discarded / dead-conditional
-        preflight on the existing-root, fresh-mount, or `render!*` path, OR a
-        preflight migrated into `create-root*` (which cannot credit `render!*`).
-    B — one-shot allocation ordering: the fresh one-shot mount preflights BEFORE
-        it creates the React root — a contiguous `pre → create → render` triple
-        WITHIN one function body (`mount*`). The split `create-root*` allocation is
-        a render-less lone `create`, so it never forms this triple and is never
-        falsely claimed to preflight before `create-root*`. Fires if the fresh
-        mount's preflight moves after its `createRoot` (or disappears)."""
-    problems: list[str] = []
-    scan = preflight_scan(client_text)
-    total_renders = scan["renders"]
-    total_caused = scan["caused"]
-    uncredited = scan["uncredited"]
-    one_shot = scan["one_shot"]
-
-    if total_renders == 0:
-        problems.append(
-            "LIFECYCLE-SOURCE-ORDER: implementation/ui/src/re_frame/ui/client.cljs "
-            "has no host render call (`(.render …)`) at all — the compiled "
-            "preflight-before-render source assertion cannot be proved."
-        )
-    elif total_caused != total_renders:
-        problems.append(
-            "LIFECYCLE-SOURCE-ORDER: implementation/ui/src/re_frame/ui/"
-            "client.cljs has a host render (`(.render …)`) NOT preceded by its "
-            "own LIVE frame preflight (`(run-preflight! …)` → `execute-frame-plans!`) "
-            "in the SAME function body — each production path (existing-root "
-            "refresh, fresh mount, split `render!*`) must preflight before ITS "
-            "render, and a reader-discarded / dead-conditional / cross-function "
-            "preflight does not count (the compiled ENSURE-at-preflight contract, "
-            f"#5711). Uncredited function(s): {', '.join(uncredited)}. "
-            f"{total_caused} of {total_renders} renders are preflight-caused."
-        )
-
-    if not one_shot:
-        problems.append(
-            "LIFECYCLE-ONE-SHOT-ALLOC: implementation/ui/src/re_frame/ui/client.cljs "
-            "no longer shows the one-shot fresh mount preflighting BEFORE it "
-            "creates the React root (`(run-preflight! …)` → `(rdc/createRoot …)` → "
-            "`(.render …)`, contiguous within one function body). `mount*` must "
-            "preflight before `createRoot`; the split `create-root*` allocates "
-            "first by design and is exempt."
-        )
-
-    return problems
 
 
 def _spec_heading_slug(heading_text: str) -> str:
@@ -784,8 +494,6 @@ def _core_artifact_inventory_row(conventions_text: str) -> str | None:
 def lifecycle_realization_problems(
     *,
     phase2: str | None = None,
-    client: str | None = None,
-    frames: str | None = None,
     conventions: str | None = None,
     spec002: str | None = None,
 ) -> list[str]:
@@ -854,23 +562,6 @@ def lifecycle_realization_problems(
                     "heading, not merely appear as a literal fragment."
                 )
 
-    # L5 — CAUSAL source assertion: each production render path preflights before
-    # its host render, and the one-shot fresh mount preflights before createRoot.
-    if client is not None:
-        problems.extend(_preflight_causal_problems(client))
-    if frames is not None:
-        for token in (
-            "execute-frame-plans!",
-            "finalize-preflight-attempt!",
-            ":mount-incomplete",
-        ):
-            if token not in frames:
-                problems.append(
-                    "LIFECYCLE-SOURCE-FRAMES: implementation/ui/src/re_frame/ui/"
-                    f"frames.cljc is missing `{token}` — the compiled preflight "
-                    "executor + its commit-bound evidence surface must stay present."
-                )
-
     # L6 — the OWNING core artifact inventory row keeps BOTH frame boundaries.
     # Scoped to the `day8/re-frame2` row so deleting a boundary from the row it
     # inventories is caught even while unrelated mentions survive elsewhere.
@@ -904,8 +595,6 @@ def lifecycle_realization_problems(
         - lifecycle_arms_run(
             {
                 "phase2": phase2,
-                "client": client,
-                "frames": frames,
                 "conventions": conventions,
                 "spec002": spec002,
             }
@@ -940,8 +629,6 @@ def find_lifecycle_drift() -> tuple[list[str], str]:
     texts: dict[str, str | None] = {}
     required = {
         "phase2": PHASE2_FILE,
-        "client": UI_CLIENT_FILE,
-        "frames": UI_FRAMES_FILE,
         "conventions": CONVENTIONS_FILE,
         "spec002": SPEC_002_FILE,
     }
@@ -968,16 +655,6 @@ def find_lifecycle_drift() -> tuple[list[str], str]:
 
     arms_run = lifecycle_arms_run(texts)
     summary = f"{len(arms_run)} of {len(LIFECYCLE_ARM_SOURCES)} assertion arms evaluated"
-    client_text = texts.get("client")
-    if client_text is None:
-        summary += "; L5 causal scan DID NOT RUN (0 renders checked)"
-    else:
-        scan = preflight_scan(client_text)
-        summary += (
-            f"; L5 causal scan: {scan['forms']} top-level forms, "
-            f"{scan['renders']} host renders, {scan['caused']} preflight-caused, "
-            f"one-shot pre→create→render triple {'present' if scan['one_shot'] else 'ABSENT'}"
-        )
     return problems, summary
 
 
@@ -1206,50 +883,6 @@ def _self_test() -> int:
         "[§frame-provider](https://day8.github.io/re-frame2/spec/002-Frames/"
         "#frame-provider--the-scope-only-component-cljs-reference)."
     )
-    # good_client models all THREE production render paths + the split allocation
-    # as REAL top-level `defn` bodies (rf2-8cncz) so the PER-FUNCTION scoping is
-    # genuinely exercised: `mount*` carries both render paths (pre, render, pre,
-    # create, render), `create-root*` is an allocation-only lone `createRoot`, and
-    # `render!*` preflights before its render. Built from labeled fragments so a
-    # mutation can target ONE path — or migrate a preflight ACROSS a function
-    # boundary — in isolation. (The old whole-file substring scan pooled credit
-    # across these bodies and counted reader-discarded / dead-conditional tokens;
-    # the J* / K* cases below were GREEN under it and must now be RED.)
-    same_root_ok = (
-        "  (let [receipt (run-preflight! root-id plans)]  ;; same-root refresh\n"
-        "    (.render (.-react-root root) (element-thunk)))\n"
-    )
-    fresh_ok = (
-        "  (let [receipt (run-preflight! root-id plans)]  ;; fresh mount\n"
-        "    (rdc/createRoot container opts)\n"
-        "    (.render react-root (element-thunk)))\n"
-    )
-    create_root_ok = (
-        "  (rdc/createRoot container opts)  ;; create-root* — no preflight, by design\n"
-    )
-    render_bang_ok = (
-        "  (let [receipt (run-preflight! rid plans)]\n"
-        "    (.render (.-react-root root) (element-thunk)))\n"
-    )
-
-    def client_of(*, same=same_root_ok, fresh=fresh_ok,
-                  create_body=create_root_ok, render_bang=render_bang_ok):
-        """Assemble a client from per-function fragments, each a real column-0
-        `defn` body so the partition scopes credit per function."""
-        return (
-            "(defn mount* [info container element-thunk react-opts plans-thunk]\n"
-            + same + fresh
-            + "  root)\n\n"
-            + "(defn create-root* [info container react-opts]\n"
-            + create_body
-            + "  root)\n\n"
-            + "(defn render!* [root element-thunk plans-thunk descriptor-base]\n"
-            + render_bang
-            + "  root)\n"
-        )
-
-    good_client = client_of()
-    good_frames = "(defn execute-frame-plans! [root-id plans]\n  ;; finalize-preflight-attempt! ... :mount-incomplete\n  nil)"
     # A markdown Adapter-shipping table: the owning `day8/re-frame2` core row names
     # BOTH boundaries; an unrelated `-uix` row also mentions them (so an
     # inventory-row mutation must survive those unrelated mentions).
@@ -1270,8 +903,6 @@ def _self_test() -> int:
 
     base = dict(
         phase2=good_phase2,
-        client=good_client,
-        frames=good_frames,
         conventions=good_conv,
         spec002=good_spec002,
     )
@@ -1316,102 +947,6 @@ def _self_test() -> int:
             "### frame-root moved elsewhere")},
         dirty=True, label="G5b Spec-002 frame-root anchor no longer resolves",
     )
-    expect_lifecycle(
-        {"frames": "(defn something-else [] nil)"},
-        dirty=True, label="G7 compiled executor/evidence surface gone",
-    )
-    # --- Rule 7 causal source assertions (client) — remove/reorder EACH
-    # production preflight independently, and violate the one-shot allocation
-    # ordering; every mutation must fail.
-    same_no_pre = (
-        "  (let []  ;; same-root refresh (preflight removed)\n"
-        "    (.render (.-react-root root) (element-thunk)))\n"
-    )
-    fresh_no_pre = (
-        "  (let []  ;; fresh mount (preflight removed)\n"
-        "    (rdc/createRoot container opts)\n"
-        "    (.render react-root (element-thunk)))\n"
-    )
-    render_bang_no_pre = (
-        "  (.render (.-react-root root) (element-thunk))  ;; render!* (preflight removed)\n"
-    )
-    same_reordered = (
-        "  (.render (.-react-root root) (element-thunk))  ;; render BEFORE preflight\n"
-        "  (run-preflight! root-id plans)\n"
-    )
-    fresh_alloc_before_pre = (
-        "  (rdc/createRoot container opts)  ;; createRoot BEFORE preflight\n"
-        "  (let [receipt (run-preflight! root-id plans)]\n"
-        "    (.render react-root (element-thunk)))\n"
-    )
-    expect_lifecycle(
-        {"client": client_of(same=same_no_pre)},
-        dirty=True, label="H1 same-root refresh preflight removed",
-    )
-    expect_lifecycle(
-        {"client": client_of(fresh=fresh_no_pre)},
-        dirty=True, label="H2 fresh-mount preflight removed",
-    )
-    expect_lifecycle(
-        {"client": client_of(render_bang=render_bang_no_pre)},
-        dirty=True, label="H3 render!* preflight removed",
-    )
-    expect_lifecycle(
-        {"client": client_of(same=same_reordered)},
-        dirty=True, label="H4 same-root render reordered before preflight",
-    )
-    expect_lifecycle(
-        {"client": client_of(fresh=fresh_alloc_before_pre)},
-        dirty=True, label="H5 one-shot allocation ordering violated (createRoot before preflight)",
-    )
-
-    # --- Rule 7 dead-call bypass (rf2-8cncz, class 1) — a preflight that is
-    # reader-discarded (`#_`) or wrapped in `(when false ...)` is textually
-    # present (the old whole-file substring scan counted it, staying GREEN) but is
-    # STATICALLY DEAD, so `render!*`'s render is really uncredited. Neutralization
-    # must drop it and trip the guard.
-    render_bang_discarded = (
-        "  (let [receipt #_(run-preflight! rid plans) nil]\n"
-        "    (.render (.-react-root root) (element-thunk)))\n"
-    )
-    render_bang_when_false = (
-        "  (let [receipt (when false (run-preflight! rid plans))]\n"
-        "    (.render (.-react-root root) (element-thunk)))\n"
-    )
-    render_bang_live_plus_discard = (
-        "  #_(run-preflight! rid stale-plans)  ;; a discarded UNRELATED datum\n"
-        "  (let [receipt (run-preflight! rid plans)]\n"
-        "    (.render (.-react-root root) (element-thunk)))\n"
-    )
-    expect_lifecycle(
-        {"client": client_of(render_bang=render_bang_discarded)},
-        dirty=True, label="J1 render!* preflight reader-discarded (#_) — now trips",
-    )
-    expect_lifecycle(
-        {"client": client_of(render_bang=render_bang_when_false)},
-        dirty=True, label="J2 render!* preflight wrapped in (when false ...) — now trips",
-    )
-    expect_lifecycle(
-        {"client": client_of(render_bang=render_bang_live_plus_discard)},
-        dirty=False, label="J3 a discarded UNRELATED datum leaves the LIVE preflight (surgical)",
-    )
-
-    # --- Rule 7 cross-function credit migration (rf2-8cncz, class 2) — moving
-    # `render!*`'s preflight into allocation-only `create-root*` preserved the
-    # whole-file token sequence (old scan GREEN) while `render!*`'s render reached
-    # `.render` with no preflight. Per-function scoping means `create-root*` cannot
-    # donate its credit to `render!*`.
-    create_root_with_migrated_pre = (
-        "  (run-preflight! root-id (constantly nil))  ;; MIGRATED from render!*\n"
-        "  (rdc/createRoot container opts)\n"
-    )
-    expect_lifecycle(
-        {"client": client_of(create_body=create_root_with_migrated_pre,
-                             render_bang=render_bang_no_pre)},
-        dirty=True,
-        label="K1 preflight migrated into create-root*; render!* render uncredited — now trips",
-    )
-
     # --- Rule 7 inventory-row scoping (conventions) — remove EACH boundary from
     # the OWNING `day8/re-frame2` core row while leaving the unrelated `-uix`
     # mention intact; every mutation must fail.
@@ -1451,14 +986,6 @@ def _self_test() -> int:
             print(f"SELF-TEST FAIL ({label}): floor does not name `{arm}`: {floor[0]!r}")
             failures += 1
 
-    expect_arm_not_run(
-        {"client": None}, arm="L5-client-preflight-causality",
-        label="L1 client source gone — the causal preflight assertion stops running",
-    )
-    expect_arm_not_run(
-        {"frames": None}, arm="L5-frames-executor",
-        label="L2 frames source gone — the executor presence assertion stops running",
-    )
     expect_arm_not_run(
         {"conventions": None}, arm="L6-inventory-row",
         label="L3 conventions gone — the inventory-row assertion stops running",
