@@ -856,7 +856,7 @@ encoding, and the manifest field that carries it are Spec 011's (§Normalization
 ## [S1-CONFIRM] roster (collected)
 
 1. SVG camelCase attribute alias table (mirror React's `possibleStandardNames`) —
-   **DISCHARGED (FH-STRUCT-009 browser probe).** Implemented from react-dom 19.2.0's
+   **DISCHARGED (browser probe).** Implemented from react-dom 19.2.0's
    vocabulary and mounted in Chromium, directly under `<svg>` and beneath a declared
    view; the non-canonical spelling was observed to warn and be *omitted*, so this row
    was a behaviour gap rather than a warning-noise question.
@@ -874,8 +874,8 @@ encoding, and the manifest field that carries it are Spec 011's (§Normalization
 8. Form-control special forms (`textarea` value→child; `select` value→`selected`;
    `default-value`/`default-checked`→`value`/`checked`).
 9. Style unitless-set copy + custom-property (`--*`) rows.
-10. Integral-double text/attr values (JS `ToString`, no `.0`) — **DISCHARGED
-    (FH-STRUCT-008).** Widened while discharging: the rule is the full
+10. Integral-double text/attr values (JS `ToString`, no `.0`) — **DISCHARGED.**
+    Widened while discharging: the rule is the full
     `Number::toString(10)` for *every* finite double, and the draft's separate
     integral branch was itself the defect above 2^53.
 11. Duplicate-key detection under React string coercion.
@@ -884,7 +884,7 @@ encoding, and the manifest field that carries it are Spec 011's (§Normalization
     13); `menuitem` rejects children but is not self-closing, so it is children-rejected
     only.
 13. Adjacent-text hydration separators (011-owned fixture).
-14. `:for` → `for`/`htmlFor` alias — **DISCHARGED (FH-STRUCT-009 browser probe):**
+14. `:for` → `for`/`htmlFor` alias — **DISCHARGED (browser probe):**
     `htmlFor` mounts as the `for` attribute.
 15. Custom-element event-type registration (kebab tail verbatim) vs React 19.
 
@@ -921,7 +921,3 @@ encoding, and the manifest field that carries it are Spec 011's (§Normalization
   [008 §The `ui.test` contract](008-Testing.md#the-uitest-contract--headless-testing-for-compiled-views)
   point at this contract; the 009 catalogue gains rows for
   `:rf.error/ui-tree-malformed` and `:rf.error/ssr-ui-tree-version-unsupported`.
-- The executable rows for this contract are the `FH-STRUCT` area of
-  [the Freehand conformance index](conformance/freehand/conformance-index.md). Each
-  addresses one paragraph here, and each fixture runs on both hosts — which is how
-  §Cross-host equality stops being a sentence and starts being a gate.

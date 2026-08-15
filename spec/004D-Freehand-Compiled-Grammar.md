@@ -753,9 +753,6 @@ every unrecognised key genuinely forwards to its `<a>`.
 An application's private views are outside the mandate, and that asymmetry is
 the design rather than an unfinished edge of it.
 
-**Conformance:** [FH-PROPS-004](conformance/freehand/conformance-index.md#fh-props--props),
-FH-PROPS-005.
-
 ## Template grammar
 
 Reagent-familiar hiccup with the ambiguities removed. Control forms — `let` / `letfn` /
@@ -876,8 +873,8 @@ of the native-attachment lane carry the roster between them: on the blocking sid
 `{:event […] :prevent-default true :stop-propagation true :capture true :once true}`, and
 on the passive side
 `{:event […] :passive true :stop-propagation true :capture true :once true}`. The DOM
-listener vocabulary is explicit, not implied (`FH-EVENT-002` governs both the closed
-roster and the exclusion).
+listener vocabulary is explicit, not implied — the closed roster and the exclusion
+are both governed here.
 
 **Prop conversion is compile-time, contextual, and total:** DOM attribute casing,
 `:style` maps (keyword values stringify), `:class` string/vector/map-of-flags; component
@@ -1177,8 +1174,8 @@ this Spec owns only the call-site surface. `sub` never fetches (I-11).
 > **Donor contract, not a Freehand promise** (rf2-h1ae3). Read this section as the
 > **donor** `re-frame.ui/frame` — a live, published, runtime-verified var. The
 > Freehand compiled tier does **not** carry it: `v/frame` is interned on neither
-> host, so the analyzer arm that recognised it, its `:frame-ops` site bucket and
-> `FH-STRUCT-010` manifest roster row, its `:frame` capability bit,
+> host, so the analyzer arm that recognised it, its `:frame-ops` site bucket, its
+> manifest roster row, its `:frame` capability bit,
 > `:rf.ui.compile/frame-in-loop`, and the emitter arms naming the phantom
 > `re-frame.freehand.frames` namespace are all gone. Nor is it pending a slice: a
 > general in-view frame bundle is not restored merely because the donor had it
@@ -2333,8 +2330,6 @@ no id of its own, so it adds nothing to catalogue either way. What 009 owns
 here is the *tool* contract — the report is a stable surface tools consume, and
 [009 §The compile checker report](009-Instrumentation.md#the-compile-checker-report)
 records where its ids come from.
-
-Conformance: `FH-DIAG-001`.
 
 ## The JVM structural subset
 

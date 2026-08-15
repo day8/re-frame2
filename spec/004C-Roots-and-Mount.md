@@ -805,8 +805,6 @@ that revision and publishes nothing: no dependencies, no event sites, no
 evidence (see [006 §The Freehand atomic shell](006-ReactiveSubstrate.md)). The
 host simply renders again at the new body.
 
-**Conformance:** [FH-ROOT-002](conformance/freehand/conformance-index.md#fh-root--roots-and-ssr).
-
 ### Several roots on one page
 
 A page is N roots, and the whole reason to build it that way is that the
@@ -840,8 +838,6 @@ why two mounts collided.
 Distinct ids give distinct `identifierPrefix` values for free, because the
 slug is injective (§1) — so the prefix check is never tripped by the
 framework's own derivation, only by an authored prefix that aliases.
-
-**Conformance:** [FH-ROOT-003](conformance/freehand/conformance-index.md#fh-root--roots-and-ssr).
 
 ### Preflight runs before React
 
@@ -881,8 +877,6 @@ DIFFERENT fingerprint recorded by a DIFFERENT root fails **that root** with
 installed frame and the roots already using it are untouched — a bad plan
 affects exactly the roots carrying it.
 
-**Conformance:** [FH-ROOT-004](conformance/freehand/conformance-index.md#fh-root--roots-and-ssr).
-
 ### Total teardown
 
 `(v/unmount! root)` is total, and "total" is a claim about what is left
@@ -912,8 +906,6 @@ nobody can attribute.
 superseded by a newer root that claimed its id, is a no-op rather than a
 throw. Tearing down on a stale handle's behalf would tear down the
 successor, which is a worse answer than doing nothing.
-
-**Conformance:** [FH-ROOT-005](conformance/freehand/conformance-index.md#fh-root--roots-and-ssr).
 
 ## 10. Stage placement
 
