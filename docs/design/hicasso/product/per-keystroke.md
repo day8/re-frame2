@@ -19,6 +19,7 @@ which are a different tree measuring different questions.
 
 [apps]: ../../../../implementation/hicasso/test/re_frame/hicasso/examples/
 [census]: ../../../../implementation/hicasso/test/re_frame/hicasso/examples/per_keystroke_dom_cljs_test.cljs
+[contrast]: ../../../../implementation/hicasso/test/re_frame/hicasso/examples/grid/row_total_layer2_dom_cljs_test.cljs
 [kit]: ../../../../implementation/hicasso/test_kit/src/re_frame/hicasso/test/mounted.cljs
 
 **Two findings up front, because they are the ones a reader should leave with.**
@@ -215,8 +216,143 @@ count the addresses their event writes.
 The remedy, where one is wanted, is the ordinary one and is not a new mechanism:
 a derived read stated as a layer-2 subscription over its own inputs is memoised
 on *those inputs* rather than on app-db, so it does not re-run when they have not
-moved. Nothing in this corpus has measured that contrast yet, and this page does
-not claim it — it is named as the next question rather than as an answer.
+moved. **That contrast has since been measured**, and §4.1 reports it. It is a
+measurement and not a recommendation: the applications are unchanged, and
+adopting the spelling in `examples/grid` would be a separate decision.
+
+### 4.1 The layer-2 contrast, measured
+
+[`rf2-18u0`][contrast] restates the grid's `::row-total` as a layer-2
+subscription over its own row's cells and re-runs the census with that one
+substitution made. The arm lives in the suite and **the witness applications are
+untouched** — `examples/grid/subs.cljs` and `examples/grid/views.cljs` are
+unchanged by this measurement, and its layer-1 arm re-reads §3's figures on the
+same tree to say so — for the reason
+`grid.scaling-dom-cljs-test`'s coarse shapes live there too: an application is
+evidence about the public door, and a spelling nobody has adopted does not belong
+in one. Both arms are measured in the same file on the census's own counter, made
+public rather than copied, so the contrast below is a subtraction between two
+readings taken together rather than between two instruments run in two places.
+
+| Subscription recomputations, one keystroke into `[3 4]` | 5×5 | 10×10 |
+|---|---:|---:|
+| `::row-total` as a **layer-1** reader — the application, and §3's row | **31** | **111** |
+| `::row-total` restated as a **layer-2** read over its row's cells | **27** | **102** |
+| difference | −4 | −9 |
+
+And the attribution, which is where the whole reading is:
+
+| Arm | `::cell` | the row total | `::dimensions` |
+|---|---:|---:|---:|
+| 5×5, layer-1 | 25 | 5 | 1 |
+| 5×5, layer-2 | 25 | **1** | 1 |
+| 10×10, layer-1 | 100 | 10 | 1 |
+| 10×10, layer-2 | 100 | **1** | 1 |
+
+**The row-total term goes from `rows` to one, and stops following the mount.**
+That is the thing §4 predicted and the thing it declined to claim: a layer-1
+reader is memoised on the whole of app-db, which a keystroke always moves, so
+every mounted row's fold re-runs; a layer-2 read is memoised on the `cols` cell
+values it names, and nine of the ten rows at 10×10 have not moved one of them.
+
+**And the linear term survives, which is the half of this result a reader is
+likeliest to misread.** `::cell` is a layer-1 reader in *both* arms and there are
+a hundred of them mounted, so a hundred bodies run either way. The saving is
+`rows − 1` recomputations — **9 of 111** at 10×10 and **4 of 31** at 5×5, which
+is roughly 8% and 13% — and the count that remains still follows the mounted cell
+count rather than the change: 102 for a hundred cells and 27 for twenty-five. So
+this does not overturn §4's headline sentence. What it does is remove exactly the
+term §4 named as *the one that would bite first on a page with an expensive
+derived read per row*, and leave standing the term §4 called cheap. **On a page
+whose derived read is expensive, the shape of the saving matters more than this
+page's fraction of it does**, and the shape is what the two rows of ones above
+report.
+
+**Boundary runs did not move: two, both arms, both sizes.** The contrast is about
+which *subscription* bodies re-run, and that row is what says the layer-2
+spelling bought it without changing what the page re-renders — a restatement that
+had broadened notification would read higher and a dead one would read lower.
+The arm's liveness has its own positive control beside it: row 3's rendered total
+goes `345` → `652` across the keystroke (the seeded row sums 30…39 = 345, and
+cell `[3 4]` becomes `341`), so the single body run counted is a real recompute
+of a real new value.
+
+**What the spelling costs the author, stated because it is not nothing.** A
+`:parametric` sub's `input-fn` is pure in the *query vector* and cannot read
+app-db, so the row's width has to arrive in the query itself —
+`[::row-total-l2 row cols]` where the layer-1 spelling was `[::row-total row]`.
+Here the width is to hand, because the row's own body already read the dimensions
+to lay its cells out. **A derived read whose input set is not knowable from its
+query vector cannot take this spelling at all**, and that, rather than any
+per-keystroke figure, is the first question a reader should ask of their own
+page. In exchange, `input-fn` runs once per cache entry at materialisation, so
+the entry's topology is fixed for its lifetime and a resize mints a new entry
+rather than leaving one folding a stale width.
+
+**What §4.1 does not conclude.** No clock: the figures are body-run counters, and
+nine fewer executions of a ten-cell `parseInt` fold is not a latency claim — this
+page owns no instrument that could turn it into one, for [§6](#6-the-visible-echo-and-the-budget-that-is-refused)'s
+reason. No general claim about layer-2 subscriptions: one derived read, on one
+page, at two sizes. And no adoption — see the head of this subsection.
+
+**Provenance.** `P-DEV-1`, browser lane, `npm run test:browser`, on a branch
+based on `c68844184c9912479b0220778b2ec6161e33f5b7` (on `main`). The captured
+exit below is the runner's; the lane's `shadow-cljs compile browser-test` step
+ran ahead of runs 1–4 and returned `0` each time, and runs 5 and 6 re-ran the
+runner against run 4's compiled bundle because the tree had not moved.
+
+| Run | What | Captured exit | Result |
+|---|---|---:|---|
+| 1 | the contrast arm, before its boundary-count row | `0` | 1,554 tests, 9,867 assertions, 0 failures |
+| 2 | **sabotage** — the layer-2 arm's 10×10 total and 5×5 attribution inverted | `1` | captured red naming both lines, below |
+| 3 | restored, unchanged from run 1 | `0` | 1,554 / 9,867, 0 failures — **no figure moved** |
+| 4 | the boundary-count row added | `1` | two reds, both in the async-nav back-button suites; this file clean |
+| 5 | re-run, no tree change | `1` | one red, the browser-heap `requestGC` handshake; this file clean |
+| 6 | re-run, no tree change | `0` | 1,554 / **9,868**, 0 failures |
+
+**Runs 4 and 5 are flakes, and run 6 is what says so.** Runs 4, 5 and 6 were
+taken on the identical tree *and the identical compiled bundle*, so the green one
+settles it: nothing in that bundle can be responsible for a red the same bundle
+also produces green. The reds
+were different tests each time — two `poll-until` timeouts on the real Back
+button in run 4, an absent `requestGC` handshake in run 5, all three in browser
+suites this change does not touch — and the contrast arm's own namespace printed
+no failure in either run.
+
+**Run 1 to run 6 is `+0` tests and `+1` assertion**, which is exactly the
+boundary-count row: it lives inside a `deftest` that already existed, so the test
+count cannot move and the assertion count moves by the one row added. That
+arithmetic is a consistency check and not the proof the rows ran — run 2 is.
+
+**Run 2 is the sabotage control, and it is what makes runs 1, 3 and 6 mean
+something.** Inverting the layer-2 arm's 10×10 total and its 5×5 attribution
+produced a captured failure naming both lines and printing the readings from the
+failure path, so the numbers
+above are witnessed by something other than the passing assertion that reports
+them:
+
+```
+FAIL in (the-layer-2-row-total-recomputes-once-where-the-layer-1-one-recomputes-per-row)
+  (re_frame/hicasso/examples/grid/row_total_layer2_dom_cljs_test.cljs:277:13)
+expected: (= 999 (:sub-runs l2-100))
+  actual: (not (= 999 102))
+
+FAIL in (the-layer-2-row-total-recomputes-once-where-the-layer-1-one-recomputes-per-row)
+  (re_frame/hicasso/examples/grid/row_total_layer2_dom_cljs_test.cljs:278:13)
+expected: (= {…grid.subs/cell 999, …/row-total-l2 999, …grid.subs/dimensions 999}
+             (:by-sub l2-25))
+  actual: (not (= {…999, …999, …999}
+                  {…grid.subs/cell 25, …grid.subs/dimensions 1, …/row-total-l2 1}))
+```
+
+A red naming the file proves the rows **execute** — a skipped row cannot fail —
+and the printed right-hand sides are the 10×10 total (`102`) and the 5×5
+attribution (`{25, 1, 1}`, summing to 27) read out of the failure path rather
+than out of the passing assertion that reports them. The namespace prefixes are
+elided for width; nothing else in the two reports is. The line numbers pin the
+**sabotage tree**, in which the boundary-count row above them had not yet been
+written; the same two assertions are at 286 and 287 in the file as it ships. The
+file was restored and run 3 re-took every figure unchanged.
 
 ---
 
@@ -366,7 +502,11 @@ above.
 
 Every figure above was taken on `P-DEV-1`
 ([budgets §1](budgets.md#1-the-named-reference-profiles)) by the browser lane,
-`npm run test:browser`, from [the census suite][census]. Runs 1–7 were taken on
+`npm run test:browser`, from [the census suite][census] — **except §4.1's, which
+come from a different suite on the same lane and the same profile and carry
+[their own run table](#41-the-layer-2-contrast-measured)**. The runs numbered
+below are this section's; §4.1's are numbered separately and independently.
+Runs 1–7 were taken on
 a branch based on `52275d7b19b3de2bdc48708e46e4102104c3199d`; the branch was then
 rebased onto `b44c5e854cae93a2a6ec520f1667f1da56c19e8b` and **run 8 re-took every
 figure on that base without one of them moving**. Both are on `main`.
@@ -498,8 +638,11 @@ everything, and this one published a good deal.
   `rf2-hic-089`'s surface and not this bead's. `U1`'s entry in §9.2 has been
   updated to point here; the rows are filed as follow-up work.
 - **No remedy for §4's amplification, and no claim that it needs one.** The
-  layer-2 contrast named at the end of §4 is a measurement nobody has taken.
-  Naming it is not proposing it.
+  layer-2 contrast named at the end of §4 has now been measured — §4.1 — and
+  measuring it is still not adopting it. The applications are unchanged, the
+  saving it reports is `rows − 1` recomputations against a count that stays
+  linear in the mounted grid, and whether `examples/grid` should be rewritten
+  that way is a decision this page does not take.
 - **No attribution of §5's `name` churn beyond React's own documented reason.**
   The trace shows what happens and the refusal experiment shows which pass owns
   it; why React 19 spells the atomicity guarantee that way is React's business
