@@ -106,7 +106,7 @@ Every path here is under `/hicasso-todo`, and `routes.cljs`'s docstring states w
 
 ### N1. The key map is the reason this application contains no callback, and the door never mentions it
 
-`{"Enter" […] "Escape" […]}` at an `:on-*` prop is a first-class lowered shape — built once per render into a plain string→handler map, one `.key` lookup per event, and composition-gated centrally so an IME's Enter commits nothing. It is exactly the Todo class's shape, and it is why this application's `views.cljs` contains no `h/fn`, no `.-key` test and no `.preventDefault`.
+`{"Enter" […] "Escape" […]}` at an `:on-*` prop is a first-class lowered shape — built once per render into a plain string→handler map, one `.key` lookup per event, and composition-gated centrally so an IME's Enter commits nothing. It is exactly the Todo class's shape, and it is why this application's `views.cljs` contains no `h/event`, no `.-key` test and no `.preventDefault`.
 
 It is also **absent from the public door.** `re-frame.hicasso`'s own docstrings enumerate the markers, `defview`, `defhost`'s `:slots` and `:callbacks`, `portal`, `as-element`, `as-component` and the root lifecycle — and never state that a map at an event position means anything at all. The four event-value shapes are written out in exactly one place a reader can reach them, `re-frame.hicasso.impl.intent`'s namespace docstring, in the namespace the door's first paragraph tells authors they never need to open. (The draft guide's `03-events-as-data.md` and `docs/design/hicasso/authoring.md` both teach it well; neither is the door, and neither is what an editor shows on `h/`.)
 

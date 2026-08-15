@@ -48,7 +48,7 @@ So the shape the convention asks for cannot carry a marker:
 
 Nothing catches it. The six checks in the artefact's clj-kondo export are `deferred-read`, `parked-read`, `unkeyed-mapped-child`, `nameless-interactive-element`, `function-in-head-position` and `direct-view-call`; a nested marker is none of them.
 
-The escape hatch exists — `(h/fn [e] [::events/edit {… :value (.. e -target -value)}])` restores the map payload — and it costs a closure per field per render plus the property route-links are sold on, that two renders of one intent are `=`. It also reintroduces the hand-written `.. e -target -value` that `::h/value` exists to delete.
+The escape hatch exists — `(h/event [e] [::events/edit {… :value (.. e -target -value)}])` restores the map payload — and it costs a closure per field per render plus the property route-links are sold on, that two renders of one intent are `=`. It also reintroduces the hand-written `.. e -target -value` that `::h/value` exists to delete.
 
 There is a consequence beyond taste, and Conventions names it in its own list: a **positional argument is not path-addressable**, so trace/error redaction cannot classify it. Under the fail-open EP-0025 model a controlled field carrying a secret ships its value raw into every trace sink, and the marker is precisely what forces that field's event into the positional shape.
 
