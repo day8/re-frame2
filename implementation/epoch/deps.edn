@@ -37,7 +37,61 @@
                        ;; test-only http dep; production epoch stays http-free.
                        day8/re-frame2-http       {:local/root "../http"}
                        day8/re-frame2-test-quiet {:local/root "../test-quiet"}}
-         :main-opts   ["-m" "re-frame.test-quiet.runner"]}
+         ;; rf2-bo8lq — `-e :prod-gate` excludes the ONE namespace that is a
+         ;; statement about the JVM it runs in rather than about epoch:
+         ;; `re-frame.epoch-prod-gate-lane-pin-test` asserts unconditionally
+         ;; that `-Dre-frame.debug=false` is on this JVM's command line. It
+         ;; belongs to the `:prod-gate` lane below and is red anywhere else BY
+         ;; DESIGN — a pin softened to "check the property if it is set" would
+         ;; pass vacuously in exactly the case it exists to catch. Every other
+         ;; test in this artefact still runs here exactly once.
+         :main-opts   ["-m" "re-frame.test-quiet.runner" "-e" ":prod-gate"]}
+
+  ;; rf2-bo8lq — the PRODUCTION-GATE lane, as a MODIFIER composed onto `:test`:
+  ;; `clojure -M:test:prod-gate`. `:extra-paths` / `:extra-deps` merge in from
+  ;; `:test` (so the classpath cannot drift between the two lanes), while
+  ;; `:jvm-opts` and `:main-opts` come from here — `:main-opts` is last-wins in
+  ;; tools.deps, which is what lets this alias drop `-e :prod-gate` and pick the
+  ;; pin up.
+  ;;
+  ;; WHY THE FLAG LIVES IN `:jvm-opts` AND NOT ON A CALLER'S COMMAND LINE.
+  ;; `spec/Security.md` documents `-Dre-frame.debug=false` as the JVM/SSR
+  ;; production setting, and `re-frame.interop/debug-enabled?` reads it ONCE at
+  ;; namespace-load time. Nothing had ever set it for this artefact, so epoch's
+  ;; production posture was executed by no suite anywhere. Putting the property
+  ;; in the alias makes it part of the LANE's definition rather than something a
+  ;; job has to remember, and `re-frame.epoch-prod-gate-lane-pin-test` fails the
+  ;; run if it ever stops arriving.
+  ;;
+  ;; WHAT `with-redefs` COULD AND COULD NOT REACH — the precise gap, because the
+  ;; imprecise version of this sentence is itself a hazard. Epoch reads the gate
+  ;; only as `(when interop/debug-enabled? …)` INSIDE fn bodies, and that is a
+  ;; runtime Var deref, so `epoch_jvm_prod_gate_test.clj`'s twelve `with-redefs`
+  ;; deftests do genuinely exercise epoch's own gated branches. What a rebind
+  ;; cannot reach is everything decided while the framework LOADED — top-level
+  ;; registrations, `defonce` initialisation, and any interceptor composed once
+  ;; at load — because by the time a `with-redefs` body runs, those decisions are
+  ;; already made under the dev default. rf2-9c2jf is what that costs: a total
+  ;; `dispatch-sync` failure under the documented gate, green for as long as it
+  ;; existed. This lane closes that half.
+  ;;
+  ;; `-e :requires-debug` is core's existing DEV-ONLY DECLARATION (rf2-d2841),
+  ;; reused here rather than a new tag invented beside it. Two deftests in
+  ;; `epoch_jvm_prod_gate_test.clj` assert epoch's DEV parity — that the ring
+  ;; still fills, that `projected-record` still fires the `:redact-fn` — and
+  ;; under a real load-time gate the ring is empty, so both must fail. Tagging is
+  ;; right rather than a `(when interop/debug-enabled? …)` posture arm: an arm
+  ;; would leave a deftest with no assertion at all, reporting GREEN for a run
+  ;; that executed nothing, which is the false green this lane exists to close.
+  ;; The tag is VAR-level, so a new deftest added to that namespace is UNTAGGED
+  ;; and joins this lane by default.
+  ;;
+  ;; NOT THE WHOLE SUITE. The runnable roster lives in
+  ;; `scripts/test-epoch-prod-gate.sh` as an EXCLUSION list. Do not invoke this
+  ;; alias bare; run the script.
+  :prod-gate
+  {:jvm-opts  ["-Dre-frame.debug=false"]
+   :main-opts ["-m" "re-frame.test-quiet.runner" "-e" ":requires-debug"]}
 
   ;; The release workflow replaces the core `:local/root` with its Maven
   ;; coordinate before Clein builds the published POM and jar.

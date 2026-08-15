@@ -2737,6 +2737,97 @@ jobs:
       - name: Run JVM tests (epoch artefact)
         run: clojure -M:test
 
+  # rf2-bo8lq — the epoch artefact under the REAL production gate.
+  #
+  # WHY IT EXISTS. `re-frame.interop/debug-enabled?` is a JVM `def` read ONCE at
+  # namespace-load time from `-Dre-frame.debug` / `RE_FRAME_DEBUG`. Four
+  # artefacts had a lane that genuinely set it — core, routing, ssr, freehand —
+  # and epoch did not, so `implementation/epoch/test/re_frame/
+  # epoch_jvm_prod_gate_test.clj`, the suite whose SUBJECT is the production
+  # posture, was executed by no lane under it.
+  #
+  # WHY IT MATTERS MORE FOR EPOCH THAN FOR THE OTHER FOUR. The gate's whole
+  # security rationale (rf2-vnjfg / rf2-0la4f) is that the epoch ring must NOT
+  # retain `:db-before` / `:db-after` / raw `:trace-events` in a production
+  # server's heap. The suite asserting that retention is elided was the one
+  # suite that never ran under the posture it is about.
+  #
+  # WHAT `with-redefs` ALREADY COVERED, stated precisely so this job is not
+  # oversold. Epoch reads the gate only as `(when interop/debug-enabled? …)`
+  # inside fn bodies — a runtime Var deref — so the twelve `with-redefs`
+  # deftests do reach epoch's own gated branches. What they cannot reach is what
+  # the framework decided while it LOADED under the dev default: top-level
+  # registrations, `defonce` initialisation, interceptor chains composed once at
+  # load. rf2-9c2jf lived in exactly that half — a total `dispatch-sync` failure
+  # under the documented gate, green for as long as it existed. This job
+  # executes that half.
+  #
+  # WHY IT IS A SEPARATE JOB AND NOT A FLAG ON `jvm-epoch`. The two lanes make
+  # different claims and neither substitutes for the other: `jvm-epoch` proves
+  # epoch's behaviour WITH its instrumentation live, this job proves what must
+  # hold WITHOUT it. Same artefact, same classpath (the `:prod-gate` alias is a
+  # modifier composed onto `:test`), same cache key — only the JVM posture
+  # differs.
+  #
+  # THE JOB CANNOT PASS VACUOUSLY, and here that guard is load-bearing in a way
+  # it is not for the other four. `re-frame.epoch-prod-gate-lane-pin-test` runs
+  # inside the lane and asserts unconditionally that `re-frame.debug` reads
+  # `"false"` on THIS JVM and that `interop/debug-enabled?` honoured it. Epoch's
+  # runtime is gated throughout, so nearly every assertion this lane makes is an
+  # assertion of ABSENCE — no record in the ring, no callback, `restore-epoch!`
+  # returning `false`. A lane running in the WRONG posture would fail to observe
+  # those things too, for the opposite reason, so a lost flag would not weaken
+  # this job's greens, it would INVERT what they mean.
+  #
+  # SCOPE — and this roster is lopsided for a structural reason, not as debt.
+  # Probed 2026-08-15, 22 of epoch's 26 test namespaces are red under the real
+  # gate and one does not terminate. That is because epoch's production posture
+  # is that the artefact is OFF: a suite exercising epoch's recording, restore,
+  # projection or silencing behaviour has no behaviour to exercise here. Unlike
+  # core / routing / ssr / freehand, whose exclusion lists shrink as
+  # dev-instrumentation assertions get split out, this one is not expected to
+  # empty. The roster and the reasoning live in
+  # `scripts/test-epoch-prod-gate.sh`; the triage bead is rf2-t7qh8. The roster
+  # is an EXCLUSION list, so a new namespace joins this lane by default and has
+  # to be excluded deliberately.
+  jvm-epoch-prod-gate:
+    name: JVM epoch under the production gate (-Dre-frame.debug=false)
+    # Same surface gate as jvm-epoch: it is the same artefact.
+    needs: detect_changed_surfaces
+    if: needs.detect_changed_surfaces.outputs.implementation_jvm == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654  # v5.2.0
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Clojure CLI
+        run: "$GITHUB_WORKSPACE/.github/scripts/install-clojure-cli.sh"
+
+      # Deliberately the SAME cache key as jvm-epoch — identical classpath, so
+      # the two jobs warm one cache instead of competing for two.
+      - name: Cache Maven / gitlibs
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
+        with:
+          path: |
+            ~/.m2/repository
+            ~/.gitlibs
+            ~/.deps.clj
+          key: ${{ runner.os }}-clj-epoch-${{ hashFiles('implementation/epoch/deps.edn', 'implementation/core/deps.edn', 'implementation/schemas/deps.edn', 'implementation/flows/deps.edn', 'implementation/routing/deps.edn', 'implementation/machines/deps.edn') }}
+          restore-keys: |
+            ${{ runner.os }}-clj-epoch-
+            ${{ runner.os }}-clj-
+
+      # The script prints the property, the pin, the roster size and the
+      # excluded count before it runs anything, so the job's own log carries the
+      # evidence of which posture it ran in.
+      - name: Run the epoch suite under -Dre-frame.debug=false
+        run: bash scripts/test-epoch-prod-gate.sh
+
   jvm-resources:
     name: JVM resources (clojure -M:test)
     # rf2-dxndhc — closes the gap surfaced by the rf2-ks67un review. The
@@ -6879,6 +6970,15 @@ jobs:
       - jvm-security
       - jvm-ssr-ring
       - jvm-epoch
+      # rf2-bo8lq — required for the same reason `jvm-core-prod-gate` is, and
+      # with a sharper motive than any of its four siblings. Epoch's ring is the
+      # structure the production gate exists to empty (rf2-vnjfg / rf2-0la4f):
+      # `:db-before` / `:db-after` / raw `:trace-events` must not sit in a
+      # production server's heap. Until this job the suite asserting that
+      # elision was executed by no lane under the posture it is about. Advisory
+      # would reproduce the original hole in a new shape — a gate nobody's merge
+      # waits on.
+      - jvm-epoch-prod-gate
       - jvm-resources
       # rf2-drpa3.58 — folded in from the deleted freehand-artefact.yml.
       # `needs:` cannot span workflow files, so until this line the freehand
