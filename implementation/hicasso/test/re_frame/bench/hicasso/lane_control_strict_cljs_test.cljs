@@ -13,9 +13,22 @@
   the two into one, in either direction. So the assertion that carries the
   design is [[one-dataset-two-rules-opposite-verdicts]]: the SAME readings
   are driven through both rules and the two must disagree. A `simplify`
-  pass that routes `amp_merge_clock_app` back to the overlap rule goes red
-  here, in the always-on `cljs-test$` gate, rather than in a bench run
-  months later that quietly stopped having teeth.
+  pass that routes `amp_merge_clock_app` or `direct_return_clock_app` back
+  to the overlap rule goes red here, in the always-on `cljs-test$` gate,
+  rather than in a bench run months later that quietly stopped having
+  teeth. Both instruments read milliseconds against a 0.1 ms quantum —
+  ~4 ms judged and ~8 ms control on one, ~2.25 ms and ~4.3 ms on the other
+  — so both are the case the 2026-07-31 ruling named as its own revisit
+  trigger, and neither is entitled to the coarse-leg exemption.
+
+  [[the-aggregate-rule-cannot-even-ask-the-question]] pins the OTHER half
+  of what both callers were doing, which the overlap-versus-containment
+  contrast above does not reach: a prediction built from an ACROSS-ROUND
+  median of the judged arm, compared against the ACROSS-ROUND range of the
+  control. That shape passes a dataset the per-round rule refuses even
+  when the control's whole range sits INSIDE the band, because the round
+  that misses misses on ITS OWN denominator and the aggregate never looks
+  at one.
 
   The rest pin the modes a browser run cannot reach. A control adjudicated
   on an AGGREGATE cannot be re-adjudicated afterwards — that is the
@@ -74,6 +87,73 @@
       (is (= :every-round (:rule s))
           "and each answer says which rule decided it, so a published record
            cannot be read under the other one"))))
+
+;; ---------------------------------------------------------------------------
+;; The shape BOTH callers handed the rule before rf2-egdaq and rf2-gsn62
+;; ---------------------------------------------------------------------------
+;;
+;; Five rounds of raw millisecond `p50`s. Round 4's judged leg ran fast
+;; while its control leg did not, so that round's control is 3.00x its OWN
+;; denominator — and no other round is disturbed. It is the one excursion
+;; a positive control exists to catch.
+
+(def ^:private rounds-ms
+  [{:hiccup 2.25 :ctl 4.50}
+   {:hiccup 2.20 :ctl 4.40}
+   {:hiccup 2.30 :ctl 4.60}
+   {:hiccup 1.50 :ctl 4.50}      ;; <- 3.00x, half again past the band's roof
+   {:hiccup 2.25 :ctl 4.50}])
+
+(def ^:private floor-ms
+  "The floor arm's own leg. It divides out of both terms in the SAME round,
+  which is why a coarse floor cannot reach the control's verdict."
+  0.05)
+
+(defn- floor-normalised
+  "The per-round `{id ratio-to-floor}` maps `lane/normalise` produces, which
+  is what an instrument hands `lane/ratio-between`."
+  []
+  (mapv (fn [{:keys [hiccup ctl]}]
+          {:floor 1.0 :hiccup (/ hiccup floor-ms) :ctl-2x (/ ctl floor-ms)})
+        rounds-ms))
+
+(deftest the-aggregate-rule-cannot-even-ask-the-question
+  (testing "the OLD caller arithmetic — 2.0x the across-round median of the
+            judged arm, against the across-round range of the control —
+            passes a dataset the per-round rule refuses, and passes it with
+            the control's ENTIRE range inside the band, so overlap versus
+            containment is not what saved it. The aggregate is simply
+            blind: round 4's miss is a miss against round 4's own
+            denominator, and a cross-round prediction never has one"
+    (let [hiccups   (mapv :hiccup rounds-ms)
+          ctls      (mapv :ctl rounds-ms)
+          predicted (* 2.0 (:p50 (lane/summarise hiccups)))
+          s-ctl     (lane/summarise ctls)
+          aggregate (lane/control-verdict predicted
+                                          {:min  (:min s-ctl)
+                                           :max  (:max s-ctl)
+                                           :mean (:p50 s-ctl)}
+                                          slack)
+          per-round (:per-round (lane/ratio-between (floor-normalised)
+                                                    :ctl-2x :hiccup))
+          strict'   (strict per-round)]
+      (is (= 4.5 predicted)
+          "the across-round median judged leg is 2.25 ms, so the band is
+           [3.375 – 5.625] in milliseconds")
+      (is (= {:n 5 :min 4.4 :max 4.6 :p50 4.5} s-ctl)
+          "and the control's whole measured range is 4.40 – 4.60 ms")
+      (is (true? (:ok? aggregate))
+          "the aggregate rule PASSES — not by overlap but by containment,
+           which is the stronger of the two readings it could have taken")
+      (is (= [2.0 2.0 2.0 3.0 2.0] per-round)
+          "while round 4 read 3.00x its own denominator")
+      (is (false? (:ok? strict'))
+          "and the per-round rule REFUSES it. This is the disagreement
+           rf2-gsn62 turns on: an aggregate adjudication is not a weaker
+           answer to the same question, it is an answer to a different one")
+      (is (= [{:round 4 :measured 3.0 :off-by 0.25}] (:outside strict'))
+          "named, with its distance past the roof as a fraction of the
+           prediction, so an operator knows which round to go looking at"))))
 
 ;; ---------------------------------------------------------------------------
 ;; The rule itself
