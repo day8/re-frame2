@@ -58,23 +58,28 @@
 # is the maintenance shape this script is avoiding, and Xray's third-party
 # pins are already guarded in deps.edn by the lockstep script.
 #
-# # This gate is EXPECTED TO FAIL TODAY, on ONE coordinate, and that is the
-# # point
+# # This gate USED TO FAIL BY DESIGN, on one coordinate (rf2-gra70)
 #
-# Nine of Xray's ten coordinates are rewritten by release-xray.yml, and the
-# generated pom carries all nine at the lockstep VERSION. The tenth is not,
-# so an `xray-v*` tag push is REFUSED here — with that one coordinate named
-# — instead of publishing a broken pom quietly.
+# For as long as one of Xray's ten in-repo coordinates named an artefact
+# that carried no `:clein/build`, release-xray.yml deliberately left that
+# coordinate at `:local/root`, `clein pom` skipped it, and this script
+# REFUSED the tag push with the coordinate named — rather than publishing a
+# pom with a hole in it, or minting a GAV that could not exist. The
+# coordinate was `day8/re-frame2-freehand` under rf2-5dut1, then
+# `day8/re-frame2-hicasso` after rf2-l86mm deleted the Freehand edge.
 #
-# It is an OPEN OPERATOR DECISION and this script does not make it:
-# `day8/re-frame2-freehand` CANNOT be rewritten to a `:mvn/version` at all.
-# implementation/freehand/deps.edn carries no `:clein/build` — deliberately
-# ("NO :clein deploy aliases — deliberate, not an omission. Publication is
-# F6 territory"). So Xray declares a runtime dependency on an artefact that
-# is not publishable until the EP-0036 F6 gate. Either Xray is not
-# publishable until Freehand ships, or the Freehand edge moves to
-# late-bind. Until that is ruled on, refusing the release is the correct
-# outcome, not an obstacle to route around.
+# rf2-gra70 removed the last one by publishing the artefact: Hicasso now
+# carries a `:clein/build` and release.yml ships `day8/re-frame2-hicasso`.
+# All ten coordinates are rewritten, so this gate is expected to PASS on a
+# correctly-ordered release — a framework `v*` tag at the same lockstep
+# VERSION first, then `xray-v*`.
+#
+# NOTHING HERE IS SPECIAL-CASED TO A COORDINATE, and that is deliberate.
+# The required set is DERIVED from the committed deps.edn every run, so the
+# refusal above was never a hard-coded exception and its removal is not a
+# weakening: if a future in-repo coordinate is again unpublishable, this
+# gate reports it missing on its own terms, because `clein pom` will skip it
+# and the derived set will not.
 #
 # # Runner / portability
 #
@@ -155,8 +160,6 @@ with open(os.environ["REQUIRED_FILE"]) as handle:
         group, _, artifact = line.partition("/")
         REQUIRED.add((group, artifact))
 
-HICASSO = ("day8", "re-frame2-hicasso")
-
 MISSING_HINT = (
     " NB: `clein pom` SKIPS :local/root coordinates outright, so this is"
     " exactly the pom produced when release-xray.yml's :local/root ->"
@@ -167,33 +170,17 @@ MISSING_HINT = (
     " .github/scripts/verify-version-lockstep.sh, in the same PR."
 )
 
-HICASSO_HINT = (
-    " THIS ONE IS NOT A MECHANICAL FIX AND MUST NOT BE TREATED AS ONE"
-    " (rf2-hic-008). day8/re-frame2-hicasso cannot be rewritten to any"
-    " :mvn/version, because implementation/hicasso/deps.edn carries no"
-    " :clein/build — deliberately; rf2-hic-008 owns its release wiring."
-    " Xray therefore declares a RUNTIME dependency on an artefact that is"
-    " not publishable yet. Either Xray is not publishable until Hicasso"
-    " ships, or the Hicasso edge moves to late-bind — Xray's ONLY"
-    " production require on Hicasso is"
-    " day8.re-frame2-xray.panels.hicasso-reads, which reads"
-    " re-frame.hicasso.tool. That is an operator decision; until it is"
-    " made, this refusal is the correct outcome. And do NOT make it go"
-    " green by rewriting the coordinate anyway: a pom naming"
-    " day8/re-frame2-hicasso at a version Clojars does not have moves the"
-    " failure from our release job to the consumer's build, where there is"
-    " no yank to undo it."
-)
-
-# This hint used to name day8/re-frame2-freehand under rf2-5dut1, which asked
-# the same question of the same shape: publish, or move the edge to late-bind.
-# rf2-l86mm answered it a third way — the edge was DELETED, along with the
-# Views panel's Mounted Views + Declared View Sites sections and the
-# day8.re-frame2-xray.mounted-views consumer that was Xray's only production
-# require on Freehand. Hicasso is now the sole unpublishable coordinate, so
-# the guidance follows it; without that the one refusal left would ship the
-# generic hint, which tells the operator to add the coordinate to the rewrite
-# step — exactly what this script and its suite both refuse.
+# There was a SECOND, coordinate-specific hint here until rf2-gra70, held open
+# for whichever in-repo coordinate named an artefact that carried no
+# `:clein/build` — day8/re-frame2-freehand under rf2-5dut1, then
+# day8/re-frame2-hicasso after rf2-l86mm deleted the Freehand edge. It told the
+# operator NOT to follow MISSING_HINT above, because adding an unpublishable
+# coordinate to the rewrite step mints a GAV that cannot exist. Both premises
+# are gone: the Freehand edge was deleted and Hicasso is published (rf2-gra70),
+# so every in-repo coordinate Xray declares has a publishable target and
+# MISSING_HINT is the correct and only advice. Re-introduce a hint like it only
+# with a coordinate that genuinely has no publishable target — and re-introduce
+# the workflow-side omission with it, since the two are one mechanism.
 
 
 def localname(tag):
@@ -248,9 +235,8 @@ missing = sorted(REQUIRED - declared_set)
 for coord in missing:
     errors.append(
         "pom is MISSING the in-repo dependency %s/%s, which"
-        " tools/xray/deps.edn declares at :local/root.%s%s"
-        % (coord[0], coord[1], MISSING_HINT,
-           HICASSO_HINT if coord == HICASSO else "")
+        " tools/xray/deps.edn declares at :local/root.%s"
+        % (coord[0], coord[1], MISSING_HINT)
     )
 
 # Lockstep: every in-repo coordinate that DID land, at the exact VERSION.

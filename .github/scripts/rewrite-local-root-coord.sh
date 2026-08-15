@@ -25,7 +25,7 @@
 # file text. That count is a substring count, so it cannot tell a live
 # dependency coordinate from the same characters typed inside a `;;`
 # comment — and these deps.edn files document their coordinates in prose
-# comments as a matter of house style (eight of the thirteen leaves do it).
+# comments as a matter of house style (eight of the thirteen leaf declarations do it).
 # reagent-slim's header comment quotes the :local/root form, which pushed
 # its count to 2 and ABORTED that leaf's deploy outright: day8/reagent-slim
 # could not be released at all.

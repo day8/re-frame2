@@ -25,43 +25,47 @@
 # `xray-v`) matches the repo-root VERSION — a mismatched tag is
 # refused before any deploy step runs.
 #
-# # :local/root → :mvn/version rewrite, and the one coordinate left in it
+# # :local/root → :mvn/version rewrite
 #
 # tools/xray/deps.edn declares TEN in-repo runtime coordinates via
 # `:local/root` for in-tree development — core, epoch, routing,
-# flows, schemas, resources, machines, freehand, machines-viz and
+# flows, schemas, resources, machines, hicasso, machines-viz and
 # reagent-slim — and `clein pom` SILENTLY SKIPS every `:local/root`
 # coordinate it is handed. Whatever this step does not rewrite is
 # simply ABSENT from the published pom, and Clojars has no yank.
 #
-# The rewrite step below covers NINE of the ten: every coordinate
-# whose target artefact is publishable. It used to cover two (core and
+# The rewrite step below covers ALL TEN. It used to cover two (core and
 # reagent-slim) while the deps.edn grew to ten, which is the defect
 # rf2-5dut1 was filed for — run against the in-tree deps.edn on that
 # revision, `clein pom` printed ten `Skipping coordinate` lines and
 # wrote a pom carrying four third-party artefacts and nothing else.
 #
-# The tenth, `day8/re-frame2-freehand`, is an OPEN OPERATOR DECISION
-# and is deliberately NOT rewritten: implementation/freehand/deps.edn
-# carries no `:clein/build`, on purpose — publication is EP-0036 F6
-# territory — so there is no `:mvn/version` to pin it to. Rewriting it
-# anyway would be WORSE than omitting it: the pom would name
-# `day8/re-frame2-freehand:<VERSION>`, a coordinate that does not and
-# cannot exist, and the package preflight below — which asserts
-# presence, not resolvability — would pass it straight through to
-# Clojars. Omitting it is what keeps the failure ours instead of the
-# consumer's. Either Xray is not publishable until Freehand ships, or
-# the Freehand edge moves to late-bind (Xray's only production require
-# on it is `day8.re-frame2-xray.mounted-views`). Do not route around it
-# by dropping the coordinate from the preflight, and do not swap this
-# roster for .github/scripts/rewrite-in-repo-coords.sh, which rewrites
-# EVERY declared coordinate and would mint exactly that unresolvable
-# GAV.
+# It covered NINE until rf2-gra70. The tenth, `day8/re-frame2-hicasso`,
+# was an OPEN OPERATOR DECISION and was deliberately NOT rewritten:
+# implementation/hicasso/deps.edn carried no `:clein/build`, so there
+# was no `:mvn/version` to pin it to, and rewriting it anyway would have
+# been WORSE than omitting it — the pom would have named a coordinate
+# that did not and could not exist, and the package preflight below
+# (which asserts presence, not resolvability) would have passed it
+# straight through to Clojars. rf2-gra70 removed the premise rather than
+# routing around it: Hicasso now carries a `:clein/build` and
+# release.yml publishes `day8/re-frame2-hicasso` from its own
+# post-matrix `deploy-hicasso` stage.
 #
-# So an `xray-v*` tag pushed today still fails, at the preflight, with
-# `day8/re-frame2-freehand` named and the ruling restated — one
-# coordinate rather than eight. That refusal is deliberate. See
-# .github/scripts/preflight-xray-package.sh.
+# WHAT REPLACES THE REFUSAL IS AN ORDERING OBLIGATION, NOT NOTHING. The
+# rewritten pom names `day8/re-frame2-hicasso:<VERSION>` — and every one
+# of the other nine — so an `xray-v*` tag is only shippable once a
+# framework `v*` tag at the SAME lockstep VERSION has published them.
+# That is the ordinary tools-tier ordering docs/release-process.md
+# §The tools tier states, and `clojure -P` resolving the rewritten graph
+# from Clojars is what enforces it: a coordinate that has not published
+# yet fails the job at classpath resolution, before `clein deploy` can
+# touch Clojars.
+#
+# Do not swap this roster for .github/scripts/rewrite-in-repo-coords.sh,
+# which rewrites EVERY declared coordinate without asking whether the
+# target is publishable. That the roster and the reality now agree is a
+# fact about the tree, not a property of that driver.
 #
 # The rewrite is never committed.
 #
@@ -222,11 +226,12 @@ jobs:
       # deps.edn documents every coordinate in prose, so that shape was
       # a live hazard here, not a hypothetical one.
       #
-      # NINE of Xray's TEN in-repo coordinates, in deps.edn declaration
-      # order. `day8/re-frame2-freehand` is absent ON PURPOSE and is the
-      # one thing in this file not to "fix" — see the header. The
-      # preflight step below re-derives the required set from the
-      # committed deps.edn and refuses the deploy over it.
+      # ALL TEN of Xray's in-repo coordinates, in deps.edn declaration
+      # order (rf2-gra70 added `../../implementation/hicasso`, the last
+      # one that had no publishable target). The preflight step below
+      # re-derives the required set from the COMMITTED deps.edn and
+      # refuses the deploy on any coordinate this list misses, so the
+      # roster cannot silently fall behind the artefact.
       # ─────────────────────────────────────────────────────────────
       - name: Rewrite Xray :local/root → :mvn/version
         working-directory: tools/xray
@@ -242,6 +247,7 @@ jobs:
             "../../implementation/schemas" \
             "../../implementation/resources" \
             "../../implementation/machines" \
+            "../../implementation/hicasso" \
             "../machines-viz" \
             "../../implementation/adapters/reagent-slim"
           do

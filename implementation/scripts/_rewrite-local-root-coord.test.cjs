@@ -292,11 +292,18 @@ test('every deploy-leaf rewrites its real deps.edn to exactly one published coor
   // 14 -> 13 when the helix deploy leaf left the train (S7/W13, rf2-d6epb),
   // then 13 -> 12 when the ui leaf left it again (rf2-a32r7 — re-frame.ui is
   // donor-only and is never published). It stayed 12 when rf2-p4a93 moved
-  // ssr-ring out of the matrix into its own job: 11 + 1.
+  // ssr-ring out of the matrix into its own job: 11 + 1. Then 12 -> 13 when
+  // rf2-gra70 wired day8/re-frame2-hicasso into the release train, as a
+  // second post-matrix stage for the same reason ssr-ring is one: 11 + 2.
+  //
+  // The count is over LEAF DECLARATIONS, not matrix values — a post-matrix
+  // stage keeps its single-value `matrix:` precisely so its deps.edn is
+  // rewritten against the real script here rather than dropping out of this
+  // fleet gate.
   assert.equal(
     leaves.length,
-    12,
-    `expected 12 leaf declarations parsed from release.yml, got ${leaves.length}`,
+    13,
+    `expected 13 leaf declarations parsed from release.yml, got ${leaves.length}`,
   );
 
   for (const { leaf, directory, localRoot, extraLocalRoot } of leaves) {

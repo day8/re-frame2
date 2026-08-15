@@ -67,14 +67,17 @@ const { readEdn, isMap, mapGetKeyword } = require('./lib/edn.cjs');
 
 const VERSION = '0.0.1.alpha';
 
-// The one coordinate that is deliberately NOT rewritten, because the artefact
+// The coordinates deliberately NOT rewritten, because their target artefact
 // carries no `:clein/build` and so has no Maven coordinate to rewrite TO.
-// day8/re-frame2-hicasso arrived with the Hicasso evidence tab (rf2-hic-023)
-// and its release wiring is rf2-hic-008's. It was two until rf2-l86mm removed
-// day8/re-frame2-freehand from tools/xray/deps.edn along with the Views
-// panel's Freehand tool-door sections.
+//
+// EMPTY as of rf2-gra70, and the emptiness is asserted rather than assumed —
+// see the ledger test below. It was two under rf2-5dut1
+// (day8/re-frame2-freehand, day8/re-frame2-hicasso), then one when rf2-l86mm
+// removed the Freehand coordinate from tools/xray/deps.edn along with the
+// Views panel's Freehand tool-door sections, then none when rf2-gra70
+// published day8/re-frame2-hicasso.
 const HICASSO = 'day8/re-frame2-hicasso';
-const UNPUBLISHABLE = [HICASSO];
+const UNPUBLISHABLE = [];
 
 const tests = [];
 function test(name, fn) {
@@ -178,11 +181,13 @@ test('release-xray.yml rewrites NO unpublishable coordinate', () => {
   );
 });
 
-test('exactly one coordinate is unpublishable, and a bead holds it open', () => {
-  // Pinned in BOTH directions on purpose. If it becomes publishable this reds
-  // and the rewrite roster gains an entry; if a SECOND unpublishable
-  // coordinate appears it reds too, rather than quietly joining a known-bad
-  // set. The pin is a ledger of open operator decisions, not a tolerance for
+test('NO coordinate is unpublishable — the ledger is empty (rf2-gra70)', () => {
+  // Pinned in BOTH directions on purpose, and the empty set is the stronger
+  // half of the pin rather than the weaker one: a NEW unpublishable
+  // coordinate reds here rather than quietly joining a known-bad set, and the
+  // day the last one became publishable this test reds too — which is exactly
+  // how rf2-gra70 was told to add the tenth entry to the rewrite roster. The
+  // pin is a ledger of open operator decisions, not a tolerance for
   // accumulating them.
   //
   // Two -> one (rf2-l86mm): `day8/re-frame2-freehand` is gone from
@@ -192,13 +197,24 @@ test('exactly one coordinate is unpublishable, and a bead holds it open', () => 
   // sections. rf2-5dut1 asked whether Xray should wait for Freehand's
   // EP-0036 F6 publication or move the edge to late-bind; the edge was
   // deleted instead, which answers it.
+  //
+  // One -> none (rf2-gra70): `${HICASSO}` is published. rf2-5dut1 posed the
+  // same question of it that it posed of Freehand, and this time the answer
+  // was the first branch — the artefact ships, from release.yml's
+  // post-matrix `deploy-hicasso` stage, so the coordinate is rewritable and
+  // release-xray.yml rewrites it. What Xray's publishability now depends on
+  // is release ORDER (a framework `v*` tag before an `xray-v*` one), which
+  // `clojure -P` enforces at classpath resolution, not a ruling.
   const { unrewritable } = partitionedCoords();
   assert.deepEqual(
     unrewritable.map((c) => c.lib), UNPUBLISHABLE,
-    'The set of unpublishable in-repo coordinates Xray declares has changed. One is open. '
-      + `${HICASSO} (rf2-hic-023): the Hicasso tab reads the `
-      + 'tool door at day8.re-frame2-xray.panels.hicasso-reads; the artefact carries no '
-      + ':clein/build and rf2-hic-008 owns its release wiring. Update this pin with the ruling.',
+    'The set of unpublishable in-repo coordinates Xray declares has changed, and it is '
+      + 'supposed to be empty (rf2-gra70). A coordinate here targets an artefact with no '
+      + ':aliases -> :clein/build, so nothing can pin it: publish that artefact, vendor it, '
+      + 'or move the edge to late-bind — and until one of those, release-xray.yml must NOT '
+      + 'rewrite it and this preflight must refuse the deploy. Do not make it green by '
+      + 'rewriting the coordinate anyway: a pom naming a GAV Clojars does not have moves the '
+      + 'failure from our release job to the consumer\'s build, where there is no yank.',
   );
 });
 
@@ -265,17 +281,17 @@ function inRepoDeps(libs, version = VERSION) {
   });
 }
 
-const REWRITTEN = DERIVED_ALL.filter((lib) => !UNPUBLISHABLE.includes(lib));
-
-// What the rewrite step produces today: nine in-repo coordinates at the
-// lockstep version, Hicasso still skipped by `clein pom`.
-// Verified by running the real rewrite roster + `clojure -M:clein pom`
-// locally.
-const REWRITTEN_POM = pomWith([...THIRD_PARTY, ...inRepoDeps(REWRITTEN)]);
-
-// What rulings on BOTH unpublishable coordinates would have to produce for a
-// release to go out.
+// What the rewrite step produces today (rf2-gra70): ALL TEN in-repo
+// coordinates at the lockstep version. Nothing is skipped by `clein pom`
+// any more, because every coordinate's target artefact is publishable.
 const COMPLETE_POM = pomWith([...THIRD_PARTY, ...inRepoDeps(DERIVED_ALL)]);
+
+// The shape the gate produced while ONE coordinate had no publishable target
+// — nine rewritten, Hicasso skipped. Kept as a negative-control fixture: it
+// is now a plain incomplete pom and must be refused like any other, with the
+// generic hint, since the reason to tolerate it is gone.
+const NINE = DERIVED_ALL.filter((lib) => lib !== HICASSO);
+const NINE_POM = pomWith([...THIRD_PARTY, ...inRepoDeps(NINE)]);
 
 // ── Fixture construction ────────────────────────────────────────────────
 
@@ -317,7 +333,7 @@ function clojureStub(required) {
   ].join('\n');
 }
 
-function makeFixture({ pom = REWRITTEN_POM, required = DERIVED_ALL } = {}) {
+function makeFixture({ pom = COMPLETE_POM, required = DERIVED_ALL } = {}) {
   const dir = makeScratchDir(REPO_ROOT, 'rf2-xray-preflight');
 
   if (pom !== null) {
@@ -408,27 +424,35 @@ test('the two-coordinate rewrite fails — the shipping state rf2-5dut1 found', 
   assert.match(out, /day8\/re-frame2-epoch/, `expected epoch among the eight\n${out}`);
 });
 
-// ── Today's state: nine rewritten, one refusal ──────────────────────────
+// ── The shape that used to be tolerated, and no longer is ───────────────
 
-test('the nine-coordinate rewrite fails on the one unpublishable coordinate', () => {
+test('the nine-coordinate rewrite fails — Hicasso is a coordinate like any other', () => {
+  // Until rf2-gra70 this was the SHIPPING state and the refusal carried a
+  // coordinate-specific hint saying "not a mechanical fix". Hicasso is
+  // published now, so a pom missing it is an ordinary hole and gets the
+  // ordinary advice: add it to the rewrite step. The assertion runs the other
+  // way too — the operator-decision hint must be GONE, because following it
+  // would now be wrong.
   const out = expectFail(
-    makeFixture(),
+    makeFixture({ pom: NINE_POM }),
     'nine-of-ten pom',
     /1 of 10 in-repo coordinate\(s\) are absent from the pom: day8\/re-frame2-hicasso/,
   );
   assert.match(
-    out, /NOT A MECHANICAL FIX/,
-    `the Hicasso refusal must carry its operator-decision hint, not the generic one\n${out}`,
+    out, new RegExp(`MISSING the in-repo dependency ${HICASSO.replace('/', '\\/')},`),
+    `a skipped coordinate must be reported missing\n${out}`,
   );
-  for (const lib of UNPUBLISHABLE) {
-    assert.match(
-      out, new RegExp(`MISSING the in-repo dependency ${lib.replace('/', '\\/')},`),
-      `${lib} carries no :clein/build, so the preflight must report it missing\n${out}`,
-    );
-  }
+  assert.match(
+    out, /add the coordinate to the rewrite step in/,
+    `a skipped PUBLISHABLE coordinate must carry the generic remediation hint\n${out}`,
+  );
+  assert.doesNotMatch(
+    out, /NOT A MECHANICAL FIX/,
+    `the retired operator-decision hint must not come back — Hicasso publishes (rf2-gra70)\n${out}`,
+  );
   assert.doesNotMatch(
     out, /MISSING the in-repo dependency day8\/re-frame2-epoch/,
-    `no publishable coordinate may be reported missing\n${out}`,
+    `no other coordinate may be reported missing\n${out}`,
   );
 });
 
