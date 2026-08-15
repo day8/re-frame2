@@ -63,7 +63,11 @@ and [`prototype-suite-triage.md`](prototype-suite-triage.md) were **kept**: they
 applications typed, what a checkpoint found, and what the frozen prototype suite tests, and a record
 that aged is not a record that was wrong. [`callback-identity-verdict.md`](callback-identity-verdict.md)'s
 `:hfn-inline` / `:hfn-hoisted` rows were kept because they quote **arm keywords that are live in the
-test source today**; correcting the page would make it disagree with the code it reports.
+test source today**; correcting the page would make it disagree with the code it reports. **Both
+halves have since moved together** (`rf2-0ftho`, 2026-08-15): the arm keywords in
+`retaining_host_callbacks_dom_cljs_test.cljs` are `:event-inline` / `:event-hoisted`, the var they
+bind is `hoisted-event`, and the verdict page's rows follow them — so the page still quotes the
+source verbatim, at the new spelling.
 
 ## 4. The re-run roster, and what it was possible to re-run
 

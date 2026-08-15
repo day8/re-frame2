@@ -32,17 +32,19 @@ Nine carriers, one memoized vendor, one parent that re-renders five times on a p
 |---|---|---|
 | `:absent` — no callback (control) | 1 | — |
 | `:plain-fn` — hoisted unmarked fn | 1 | no |
-| `:handler` — hoisted `h/fn` at a `:handler` declaration | 1 | no |
+| `:handler` — hoisted `h/event` at a `:handler` declaration | 1 | no |
 | `:native-stable` — `n/use-frame` + `react/useCallback` | **1** | **yes** |
 | `:intent-vector` | 6 | yes |
-| `:hfn-inline` | 6 | yes |
-| `:hfn-hoisted` | 6 | yes |
+| `:event-inline` | 6 | yes |
+| `:event-hoisted` | 6 | yes |
 | `:key-map` | 6 | yes |
 | `:native-churn` — the same island without `useCallback` | 6 | yes |
 
 The ordinary path pays nothing for the safety: one tick runs **1** boundary body, with or without a retaining host on the page. The incarnation pin lives in a memo row acquired once per incarnation, not in work done per render.
 
-**`:hfn-hoisted` reading 6 is the load-bearing row.** Hoisting the author's own function out of the render does not hoist what the vendor sees, because the `:event` wrapper — the thing that closes over the frame-locked dispatch — is re-minted every render regardless. So there is no author-side workaround by hoisting, and the question cannot be dismissed as an authoring mistake.
+*The two `:event-*` arms were measured under the names `:hfn-inline` and `:hfn-hoisted`, and were renamed with their witness on 2026-08-15 (`rf2-0ftho`) once `hfn` became `h/event`. Only the labels moved; no reading was recomputed, and the arm keywords here still quote the test source verbatim.*
+
+**`:event-hoisted` reading 6 is the load-bearing row.** Hoisting the author's own function out of the render does not hoist what the vendor sees, because the `:event` wrapper — the thing that closes over the frame-locked dispatch — is re-minted every render regardless. So there is no author-side workaround by hoisting, and the question cannot be dismissed as an authoring mistake.
 
 **`:native-stable` reading 1 while still dispatching is the row that decides the verdict.**
 
