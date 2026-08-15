@@ -73,7 +73,13 @@
      [[control-verdict]] takes a stated prediction and the measured range
      and answers whether the instrument had the signal its own arithmetic
      says it must. An instrument that cannot see a change it PREDICTS
-     cannot be trusted to see one it does not.
+     cannot be trusted to see one it does not. TWO RULES LIVE HERE and a
+     caller picks by what its legs measure: [[control-verdict]] adjudicates
+     on OVERLAP and stands for legs sitting on Chrome's 100 µs clamp;
+     [[control-verdict-strict]] requires EVERY ROUND inside the band and is
+     for batched windows that clear the quantum. Each answer carries the
+     `:rule` that decided it, so a published record cannot be read under
+     the other one.
   5. **The guard refuses, and the refusal is exit code 2.** [[guard!]]
      runs the shared self-test before anything is measured and the
      verdict after; `run.cjs` turns `:refuse? true` into `exit 2`. Four
@@ -593,7 +599,16 @@
 (defn ratio-between
   "The ratio of arm `a` to arm `b`, per round, as a range. The bar is
   stated against a DENOMINATOR ARM, not against the floor, so this is the
-  arithmetic a bar row quotes."
+  arithmetic a bar row quotes.
+
+  `:mean` IS AN ARITHMETIC MEAN — the average of the per-round ratios in
+  `:per-round`, and not a median of anything. The distinction is worth a
+  line because a median IS in the pipeline one level down (each round's
+  ratio is built from `summarise`'s within-round `:p50`s), which is how
+  PR #8326's publication came to call these values \"run-medians\" and
+  their spans \"effect medians\" — corrected under rf2-pqyxz. A row
+  quoting this key names it a MEAN OF PER-ROUND RATIOS, each of which is
+  a ratio of within-round medians."
   [round-ratios a b]
   (let [vs (mapv (fn [r] (round4 (/ (get r a) (get r b)))) round-ratios)]
     {:numerator a :denominator b
@@ -874,9 +889,9 @@
   `slack` of the prediction means the instrument cannot see a change it
   predicts, and nothing else it measured is worth reading.
 
-  Answers `{:predicted :measured :ok? :why}` — published on every run,
-  passing or not, because a control quoted only when it passes is not a
-  control.
+  Answers `{:rule :predicted :measured :slack :ok? :why}` — published on
+  every run, passing or not, because a control quoted only when it passes
+  is not a control.
 
   ## KNOWN DEFECT: this rule is WEAKER than HD-008's, and the two
   ## disagree on a row that is already published (rf2-egdaq)
@@ -887,31 +902,47 @@
   is wrong has caught something, and letting a good round vouch for a bad
   one is how an instrument stops being one. THE STRICTER RULE IS THE
   RIGHT ONE. This one is the lane's known defect, and a caller must not
-  read `:ok?` as though it were the strict answer.
+  read `:ok?` as though it were the strict answer — which is why the map
+  carries `:rule :overlap`, so a published record says which rule
+  adjudicated it rather than leaving a reader to assume the other.
+  [[control-verdict-strict]] is that other rule, spelled and callable.
 
-  It is not repaired here, and the reason is arithmetic rather than
-  caution. Re-adjudicating the ELEVEN controls this function has already
-  published under the overlap rule flips exactly one:
+  ## Why the defective rule STANDS here anyway (ruling, 2026-07-31)
+
+  Tightening THIS function was adjudicated and refused. rf2-6i0i2's
+  balanced ensemble re-adjudicated 80 controls: 80 of 80 pass under
+  overlap, 64 of 80 under the strict reading — and every miss falls on a
+  row whose control leg is a handful of Chrome's 100 µs
+  `performance.now()` quanta, every miss is LOW, and four of them miss by
+  0.0014 on a two-quantum floor. A rule that refuses a fifth of its
+  controls by landing on the clock quantum is measuring RESOLUTION, not
+  correctness. So the overlap rule stands for clamp-limited legs, no
+  published row was re-adjudicated, and a pass here is a pass UNDER
+  OVERLAP rather than a claim that every round sat inside the band.
+
+  The row this defect was filed over stands on its page under that
+  ruling:
 
       docs/design/hicasso/studio/p0-converged-witness-set.md
       M2 mount, UIx segment — predicted 1.9412, slack 0.25, so the band
       is [1.4559 – 2.4265]. The published range is [1.333 – 2.000]: its
-      worst round sits 8.4% BELOW the band's floor. It carries a ✅, and
-      it holds that ✅ only because a good round vouched for a bad one —
-      which is precisely the failure the stricter rule exists to catch.
+      worst round sits 8.4% BELOW the band's floor and it carries a ✅
+      only because a good round vouched for a bad one. Its legs are
+      coarse — a handful of quanta — which is the whole reason the ruling
+      let it stand rather than re-adjudicating it.
 
-  The other ten pass under either reading. So tightening `:ok?` turns a
-  published pass into a published failure, and that is a finding about a
-  published number rather than a refactor: it needs an operator ruling on
-  rf2-2rtt6.1 (re-adjudicate the row, or apply the strict rule only from
-  the next run), and if the row is re-adjudicated the converged arm needs
-  a re-run to replace it. Whoever takes that must not simply flip the
-  `and` and leave the studio page reading as current."
+  ## And the condition under which this rule does NOT apply
+
+  That ruling named its own revisit trigger: a BATCHED window lifting the
+  legs clear of the quantum. [[control-verdict-strict]] is that rule, and
+  a caller reading milliseconds against a 0.1 ms quantum wants it — there
+  a round outside the band is not the clock."
   [predicted {:keys [min max mean] :as measured} slack]
   (let [lo (* predicted (- 1.0 slack))
         hi (* predicted (+ 1.0 slack))
         ok? (and (<= min hi) (>= max lo))]
-    {:predicted predicted
+    {:rule      :overlap
+     :predicted predicted
      :measured  measured
      :slack     slack
      :ok?       ok?
@@ -926,6 +957,104 @@
                        "% of the prediction; the instrument did not see a change "
                        "its own arithmetic says it must, so no figure in this run "
                        "is reportable"))}))
+
+(defn control-verdict-strict
+  "Adjudicate a positive control the way HD-008 does: EVERY ROUND inside
+  the ±`slack` band around `predicted`, round by round.
+
+  `per-round` is ONE MEASURED VALUE PER ROUND. Where the prediction is a
+  RATIO — `:ctl-2x` performs the judged arm's own operation twice inside
+  one window, so it predicts 2.00x by construction rather than by model —
+  that is `(:per-round (ratio-between ratios :ctl-2x <judged>))`, which
+  pairs each round with its OWN denominator. An aggregate adjudication
+  cannot answer the question this rule asks: a cross-round prediction
+  against a cross-round range never puts a round beside its own
+  denominator, so it cannot tell a control that held every round from one
+  that held on average.
+
+  Answers `{:rule :every-round :predicted :slack :band :per-round
+  :measured :stated? :outside :ok? :why}`. `:outside` NAMES each round
+  that missed and by how much, because an operator told only `FAILED`
+  goes looking at the arms; `:per-round` is carried into the record so a
+  later reader can re-adjudicate the run under either rule WITHOUT
+  re-running the window — which is the durability hole rf2-egdaq's audit
+  of PR #8326 found, and the reason the three runs it audited cannot now
+  be re-adjudicated at all.
+
+  `:stated?` is the other half of a control that can go red. A band built
+  on a prediction of zero or less is cleared by any reading whatever, and
+  the walk profile shipped exactly that failure (`rf2-1huc`, merged-PR
+  audit #8149): a control whose own prediction has gone vacuous reports
+  that it saw what it never predicted. A control with no rounds is the
+  same thing said with no data, so both refuse here.
+
+  ## Which of the two rules a caller wants
+
+  [[control-verdict]] adjudicates on OVERLAP — the measured range need
+  only meet the band — and STANDS for controls whose legs sit within a
+  few of Chrome's 100 µs `performance.now()` quanta. The 2026-07-31
+  ruling on rf2-egdaq keeps it there on evidence: of 80 controls in
+  rf2-6i0i2's balanced ensemble, 80 pass under overlap and 64 under this
+  rule, and every miss is a LOW excursion on a coarse-leg row. On those
+  legs this rule reports the clock clamp as an instrument defect.
+
+  THIS rule is for the case that same ruling named as its own revisit
+  trigger — a batched window whose legs clear the quantum. `amp_merge_
+  clock_app` reads ~4 ms on the judged arm and ~8 ms on the control
+  against a 0.1 ms quantum, forty to eighty quanta clear of it, so a
+  round outside a ±25% band there is not the clock. And a good round must
+  not be allowed to vouch for a bad one."
+  [predicted per-round slack]
+  (let [vs      (vec per-round)
+        lo      (* predicted (- 1.0 slack))
+        hi      (* predicted (+ 1.0 slack))
+        stated? (boolean (and (pos? predicted) (seq vs)))
+        outside (if-not stated?
+                  []
+                  (vec (keep-indexed
+                         (fn [i v]
+                           (when-not (and (>= v lo) (<= v hi))
+                             {:round    (inc i)
+                              :measured (round4 v)
+                              :off-by   (round4 (/ (- v (if (< v lo) lo hi))
+                                                   predicted))}))
+                         vs)))
+        ok?     (and stated? (empty? outside))
+        band    (str "predicted " (.toFixed predicted 3) "x ±"
+                     (.toFixed (* 100.0 slack) 0) "% — band ["
+                     (.toFixed lo 3) "–" (.toFixed hi 3) "]")]
+    {:rule      :every-round
+     :predicted predicted
+     :slack     slack
+     :band      [(round4 lo) (round4 hi)]
+     :per-round vs
+     :measured  (summarise vs)
+     :stated?   stated?
+     :outside   outside
+     :ok?       ok?
+     :why       (cond
+                  (not (pos? predicted))
+                  (str "REFUSED — the control states no prediction ("
+                       (.toFixed (double predicted) 3) "). A band built on it is "
+                       "cleared by any reading whatever, so nothing here is a "
+                       "control and no figure in this run is reportable")
+
+                  (empty? vs)
+                  (str band " — REFUSED: no rounds were adjudicated. A control "
+                       "with no data is not a control that passed")
+
+                  ok?
+                  (str band ", and all " (count vs) " rounds sit inside it — "
+                       "EVERY round, not merely the range")
+
+                  :else
+                  (str band ", and " (count outside) " of " (count vs)
+                       " rounds sit OUTSIDE it ("
+                       (str/join ", " (map (fn [{:keys [round measured]}]
+                                             (str "round " round " " (.toFixed measured 3)))
+                                           outside))
+                       ") — a control whose worst round is wrong has caught "
+                       "something, and no figure in this run is reportable"))}))
 
 ;; ---------------------------------------------------------------------------
 ;; The guard

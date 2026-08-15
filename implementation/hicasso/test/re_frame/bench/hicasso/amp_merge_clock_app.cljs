@@ -59,6 +59,26 @@
                  prediction is a clean 2.00x rather than a modelled one.
                  rf2-5yn9 records the same construction and its reason.
 
+  ## The control is adjudicated STRICTLY, and per round (rf2-egdaq)
+
+  `lane/control-verdict-strict` decides it: every round's `:ctl-2x` /
+  `:expanded` ratio must sit inside ±25% of 2.00x, and one bad round
+  refuses the run however good the others were. This instrument is
+  entitled to that rule and the coarse-leg rows are not — the 2026-07-31
+  ruling keeps the weaker OVERLAP rule for legs sitting on Chrome's
+  100 µs clamp and names a batched window clear of the quantum as its own
+  revisit trigger. This one reads ~4 ms judged and ~8 ms control, forty to
+  eighty quanta clear, so a round outside the band here is not the clock.
+
+  The adjudication is also PER ROUND rather than aggregate. The three runs
+  published on 2026-08-15 compared a cross-round prediction against a
+  cross-round range, which never puts a round beside its own denominator,
+  and recorded only that aggregate — so their strict verdict is not
+  recoverable and this file now records `:per-round` for the control as
+  well as for the effect and the null. A run that cannot be
+  re-adjudicated without re-running the window is a run that has to be
+  re-run to answer a question it already had the data for.
+
   `:floor` and `:ctl-2x` are `:parity-exempt?`: one builds an empty page
   and one builds two pages, both on purpose, and folding either into the
   equality would make the fairness gate a permanent failure.
@@ -375,7 +395,12 @@
        "BEFORE the clock starts; the :ctl-2x arm's sample is the SAME operation "
        "performed TWICE inside one window, so its per-sample constants double "
        "with its work and its prediction is 2.00x by construction rather than by "
-       "model. :expanded-b is the NULL arm — a second boundary head over the same "
+       "model — adjudicated by lane/control-verdict-strict, which requires EVERY "
+       "round's ctl-2x/expanded ratio to sit inside ±"
+       (.toFixed (* 100.0 control-slack) 0)
+       "% of it rather than merely the range, and records the per-round values so "
+       "the run can be re-adjudicated without being re-run. :expanded-b is the "
+       "NULL arm — a second boundary head over the same "
        "body, carrying no effect by construction, so its reading against "
        ":expanded is this instrument's resolution rather than a result. Arms "
        "interleaved at the SAMPLE level under the lane's rotating AND REFLECTING "
@@ -445,11 +470,14 @@
                 eff-ns   (per-element-ns p50s :merged :expanded)
                 null-ns  (per-element-ns p50s :expanded-b :expanded)
                 gv       (lane/guard! samples "amp-merge clock arms (in-page ms)")
-                ctl      (lane/control-verdict
-                           (* 2.0 (:p50 (get abs :expanded)))
-                           (let [s (get abs :ctl-2x)]
-                             {:min (:min s) :max (:max s) :mean (:p50 s)})
-                           control-slack)
+                ;; THE POSITIVE CONTROL, per round and strictly (rf2-egdaq).
+                ;; `:ctl-2x` is `:expanded`'s own operation performed twice
+                ;; in one window, so 2.00x is arithmetic rather than a
+                ;; model, and dividing each round by ITS OWN `:expanded`
+                ;; leaves the floor and the round's drift out of it.
+                ctl-ratio (lane/ratio-between ratios :ctl-2x :expanded)
+                ctl      (lane/control-verdict-strict
+                           2.0 (:per-round ctl-ratio) control-slack)
                 tv       (lane/tally-value tally)]
             (lane/assert-teardown-clean! "the measured rounds")
             (lane/record! :amp-merge-clock
@@ -502,7 +530,9 @@
             (js/console.log
               (str ";;   PER-ELEMENT null:   " (fmt (:p50 null-ns) 1) " ns/site ["
                    (fmt (:min null-ns) 1) " - " (fmt (:max null-ns) 1) "]"))
-            (js/console.log (str ";;   control: " (:why ctl)))
+            (js/console.log (str ";;   control (" (name (:rule ctl)) ", ctl-2x/expanded): "
+                                 (:why ctl)))
+            (js/console.log (str ";;   control per-round: " (pr-str (:per-round ctl))))
             (js/console.log (str ";;   writes: " (:unverified tv) " unverified of "
                                  (:writes tv)))
             (when (pos? (:unverified tv))
