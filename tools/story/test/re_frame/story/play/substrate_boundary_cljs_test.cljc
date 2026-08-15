@@ -27,11 +27,14 @@
   why the JVM can witness it."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.frame :as frame]
+            [re-frame.story :as story]
             [re-frame.story.assertions :as assertions]
             [re-frame.story.late-bind :as late-bind]
             [re-frame.story.play.runner-events :as runner-events]
             [re-frame.story.play.settled-boundary :as boundary]
             [re-frame.story.play.substrate-boundary :as substrate-boundary]
+            [re-frame.story.requirements :as requirements]
             [re-frame.substrate.plain-atom :as plain-atom]))
 
 ;; ---- harness -------------------------------------------------------------
@@ -224,3 +227,159 @@
           res   (boundary/settle-to! :f hooks :dom)]
       (is (= :cannot-run (:status res)))
       (is (= :flush-timeout (:reason res))))))
+
+;; ===========================================================================
+;; THE TERMINAL PATH — where the settle used to be asked and then ignored
+;; ===========================================================================
+;;
+;; Merged-PR audit #8313 reopened this bead on one missed path.
+;; `exec-step!` short-circuits correctly — `(or (settle-substrate-for-step!
+;; …) (case stype …))`, so an in-script DOM checkpoint cannot run against a
+;; substrate that failed to commit. `run-terminal-assertions!` called the
+;; SAME settle, DISCARDED its result, and then called `exec-assert!`
+;; unconditionally. The audit's control redefined the settle to error and
+;; the executor to record its invocation, and got `[:settle-error
+;; :assert-ran]` back: both ran.
+;;
+;; Two consequences, and the second is the one that bites. The assertion
+;; READ a substrate whose commit had just thrown or timed out — so it could
+;; record a PASS it had not earned. And the settle failure itself
+;; disappeared: terminal assertions are not a runner step stream, so the
+;; discarded step-result had nowhere to land, and the ONE accumulator the
+;; terminal verdict is folded from (`:rf.story/assertions`) never heard
+;; about it. A DOM-family atom records NOTHING under a headless runner (the
+;; executor's own `{:skipped? true}` branch declines to mint a vacuous
+;; record), which is precisely why the witnesses below can count: before
+;; the repair the accumulator held ZERO records for a failed settle, after
+;; it holds exactly one carrying the refusal.
+
+(def ^:private terminal-frame
+  "A real registered frame — `assertions/record!` lands its record by
+  dispatching into the frame's app-db, and swallows the dispatch when the
+  frame is gone. `:f` (which every test above uses) is never registered:
+  fine for the settle-count witnesses, useless for a record witness."
+  :story.substrate-boundary/terminal)
+
+(defn- terminal-frame!
+  "Seat the adapter, (re-)register `terminal-frame`, and install the
+  canonical assertion vocabulary so `::append` has a handler. Called per
+  test rather than from the fixture: the fixture is shared with the
+  settle-count witnesses above, which deliberately run with no frame."
+  []
+  (rf/init! (committing-adapter))
+  (story/install-canonical-vocabulary!)
+  (frame/ensure-default-frame!)
+  (swap! frame/frames dissoc terminal-frame)
+  (rf/make-frame {:id terminal-frame :doc "terminal-assertion settle witness"}))
+
+(defn- install-hooks!
+  "Register `hooks` as the active flush-hooks for every frame."
+  [hooks]
+  (late-bind/set-fn! :settled-boundary-hooks (fn [_frame-id] hooks)))
+
+(defn- terminal-records []
+  (vec (:rf.story/assertions (rf/app-db-value terminal-frame))))
+
+(def ^:private terminal-dom-atom
+  "The terminal counterpart of `dom-assert-step` — a bare DOM-family atom,
+  the shape `[:expect :assertions]` carries."
+  [assertions/id-dom-text "[data-test=x]" "42"])
+
+(deftest terminal-assertion-refuses-when-the-commit-throws
+  (testing "WITNESS (rf2-ek9qb, audit #8313): a terminal DOM assertion whose
+            pre-read settle THREW must not be evaluated, and the failure
+            must reach the unified verdict. Before the repair the throw was
+            discarded and the accumulator held nothing at all — the run
+            reported on a substrate that had blown up mid-commit as though
+            nothing had happened"
+    (terminal-frame!)
+    (install-hooks! {:provides :dom
+                     :flush!   {:dom (fn [_] (throw (ex-info "commit blew up" {})))}})
+    (runner-events/run-terminal-assertions! terminal-frame [terminal-dom-atom])
+    (let [recs (terminal-records)]
+      (is (= 1 (count recs))
+          "the settle failure reached the ONE terminal accumulator")
+      (is (= assertions/id-dom-text (:assertion (first recs)))
+          "recorded against the atom it refused, not a synthetic id")
+      (is (= :error (:status (first recs))))
+      (is (false? (:passed? (first recs))))
+      (is (= :error (requirements/aggregate-status recs nil))
+          "and folds to :error through the ONE aggregation rule — a
+           substrate that threw mid-commit is a fault, not a refusal"))))
+
+(deftest terminal-assertion-refuses-when-the-commit-times-out
+  (testing "WITNESS (rf2-ek9qb, audit #8313): the same for the other way a
+            settle declines — an over-budget flush phase. `settle-to!`
+            returns the fail-closed :flush-timeout refusal, so the terminal
+            verdict must read :cannot-run: the runner could not establish
+            the boundary the assertion needed, and therefore proved nothing"
+    (terminal-frame!)
+    (install-hooks! {:provides   :dom
+                     :timeout-ms -1
+                     :flush!     {:dom (fn [_] nil)}})
+    (runner-events/run-terminal-assertions! terminal-frame [terminal-dom-atom])
+    (let [recs (terminal-records)]
+      (is (= 1 (count recs)))
+      (is (= :cannot-run (:status (first recs))))
+      (is (true? (:cannot-run? (first recs))))
+      (is (= :cannot-run (requirements/aggregate-status recs nil))
+          "the distinct THIRD status — never a silent pass"))))
+
+(deftest a-settled-terminal-assertion-still-evaluates
+  (testing "the repair must not over-fire. With a commit that SUCCEEDS the
+            terminal path is exactly what it was: the substrate is asked to
+            commit, and the executor — not a refusal record — owns the
+            verdict. Under a headless runner that DOM executor declines to
+            mint a record at all, so an empty accumulator here is the proof
+            that nothing was refused"
+    (terminal-frame!)
+    (install-hooks! {:provides :dom :flush! {:dom (fn [_] nil)}})
+    (reset! commits 0)
+    (runner-events/run-terminal-assertions! terminal-frame [terminal-dom-atom])
+    (is (empty? (terminal-records))
+        "no refusal record was minted for a settle that succeeded")))
+
+(deftest a-headless-terminal-assertion-is-untouched
+  (testing "the JVM / node-runtime path is unchanged: below :cljs-reactive
+            `settle-substrate-for-step!` returns nil without consulting a
+            hook, so a handler-backed terminal atom takes the same
+            `exec-assert!` arm it always did — even under hooks whose :dom
+            flush would throw if it were ever reached"
+    (terminal-frame!)
+    (install-hooks! {:provides :dom
+                     :flush!   {:dom (fn [_] (throw (ex-info "must not run" {})))}})
+    (rf/reg-event ::seed (fn [{:keys [db]} [_ m]] {:db (merge db m)}))
+    (rf/dispatch-sync [::seed {:status :loaded}] {:frame terminal-frame})
+    (runner-events/run-terminal-assertions!
+      terminal-frame [[:rf.assert/path-equals [:status] :loaded]])
+    (let [recs (filterv #(= :rf.assert/path-equals (:assertion %)) (terminal-records))]
+      (is (= 1 (count recs)) "the handler-backed atom recorded exactly once")
+      (is (true? (:passed? (first recs)))
+          "and it PASSED — the :dom flush was never consulted"))))
+
+#?(:clj
+   (deftest jvm-only-a-refused-terminal-settle-never-reaches-the-executor
+     ;; JVM-ONLY, and the name says so. The audit's control is the only
+     ;; direct read of "did `exec-assert!` run?": a DOM-family atom records
+     ;; nothing under a headless runner either way, so the count witnesses
+     ;; above prove the failure ARRIVES without proving the evaluation was
+     ;; PREVENTED. Var redefinition answers that — and only on the JVM.
+     ;; `with-redefs` in CLJS mutates a var whose call sites the compiler
+     ;; may already have inlined (`:static-fns`), so a spy that never fires
+     ;; would read as a PASS there: a false green, which is worse than no
+     ;; witness at all.
+     (testing "WITNESS (rf2-ek9qb, audit #8313): the refusal REPLACES the
+               evaluation. The audit's control got [:settle-error
+               :assert-ran] from the landed fn — both ran"
+       (terminal-frame!)
+       (install-hooks! {:provides :dom
+                        :flush!   {:dom (fn [_] (throw (ex-info "commit blew up" {})))}})
+       (let [ran (atom [])]
+         (with-redefs-fn {#'runner-events/exec-assert!
+                          (fn [_frame-id _idx _step] (swap! ran conj :assert-ran) nil)}
+           (fn []
+             (runner-events/run-terminal-assertions! terminal-frame [terminal-dom-atom])))
+         (is (= [] @ran)
+             "the assertion executor was NOT invoked behind a failed settle")
+         (is (= [:error] (mapv :status (terminal-records)))
+             "and the refusal is what the terminal verdict folds")))))
