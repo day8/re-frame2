@@ -214,6 +214,16 @@ Do this **before** merging. It is easy to merge and then reason that the drift w
 harmless. It usually is, and "usually" is what the other four clauses exist to
 refuse.
 
+**And the set can move the other way, from the branch rather than the trunk.** Everything
+above is about keys ARRIVING underneath a change. A change that retires a surface REMOVES
+them, so its rollup legitimately reads below the band — and any programme that deletes a
+subsystem produces a run of such changes, so this stops being an edge case for the whole
+length of that work. **The count cannot tell a legitimate narrowing from a silent disarm.
+Read which key left, and check it against what the change itself deleted.** A check whose
+entire subject went in the same change is retirement; a check that leaves while its subject
+still stands is the fail-open shape the programme exists to hunt, and it arrives wearing
+the same number. The two readings differ by one question, and the answer is in the diff.
+
 ### Merging
 
 Check also that the diff matches its tracker item, that scope did not sprawl, that
