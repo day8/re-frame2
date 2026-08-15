@@ -217,24 +217,81 @@
   its own name ambient for whatever runs next. A declaration refusal is
   routinely caught — by a module loader, or by an HMR runtime whose
   mounted page carries on rendering — and the slot then named a `def`
-  that never completed."
+  that never completed.
+
+  ## The name is also REGISTERED — an AUTHORING-TIME ALIAS FOR FORWARD
+  RESOLUTION ONLY (rf2-5qaf4)
+
+  The declaration publishes one entry in re-frame's `:view` registrar,
+  under `(keyword \"<ns>\" \"<sym>\")` — the id `rf/reg-view` derives
+  from its own symbol, one convention for both substrates — carrying the
+  coordinate above and the minted head at `:hicasso/component`. It
+  carries NO `:handler-fn`: a boundary is a React component rather than
+  a hiccup-returning render fn, so `rf/view` answers nil for this entry
+  and its *returns the registered render fn* contract stays honest.
+
+  **Forward resolution is the whole of it.** The entry exists so that a
+  tool holding a keyword the author WROTE — a story naming its subject,
+  an editor jumping to source — reaches the view they meant. It mints no
+  runtime identity: a MOUNTED boundary is still keyed by its read set
+  and still unnamed, and the tool tier
+  ([[re-frame.hicasso.tool]]) is unchanged. The refusals that say so —
+  rf2-jkdy, rf2-l86mm, rf2-2og6s — are NOT overturned by this, because
+  they answer the BACKWARD question *which view is this runtime
+  boundary?* and this answers the forward one, where the author already
+  knows and is naming it in source.
+
+  The name itself is not new. It is the `displayName` React DevTools
+  shows, the `rf:render:<name>` User-Timing id Spec 009 keys off, and
+  the string a refusal is attributed with; only lookup was missing.
+  Registration adds RESOLVABILITY, not identity.
+
+  It rides the SAME `debug-enabled?` gate as the coordinate, so under
+  `:advanced` + `goog.DEBUG=false` nothing registers and a production
+  Hicasso app still holds no registry at runtime — the entry serves
+  tools. Re-evaluating a declaration replaces the entry behind the same
+  id, which is the registrar's own behaviour and needed nothing added.
+  [[re-frame.hicasso.impl.collector/publish-view-alias!]] carries the
+  slot's shape and why it is written there rather than through
+  `rf/reg-view*`."
      [sym & more]
      (let [doc       (when (string? (first more)) (first more))
            [argv & body] (if doc (rest more) more)
            view-name (str (ns-name *ns*) "/" sym)
-           coord     (source-coords/coords-form (meta &form) *file* (ns-name *ns*))]
+           ;; rf2-5qaf4 — the registrar id, derived by `reg-view`'s own
+           ;; rule (`core-reg-view-macro/expand-reg-view`) so the two
+           ;; substrates spell one convention. No `^{:rf/id …}` override
+           ;; here: a `defview` has exactly one name and this is it.
+           view-id   (keyword (str (ns-name *ns*)) (str sym))
+           coord     (source-coords/coords-form (meta &form) *file* (ns-name *ns*))
+           ;; The registration slot IS the coordinate map — `reg-view`
+           ;; merges its coords into the slot's top level and tools read
+           ;; them back from there — plus the author's `:doc`, without
+           ;; which the registrar would dev-warn `:rf.warning/missing-doc`
+           ;; against a view that IS documented.
+           slot      (cond-> coord doc (assoc :doc doc))]
        `(def ~(if doc (vary-meta sym assoc :doc doc) sym)
           (do
             (when re-frame.interop/debug-enabled?
               (re-frame.hicasso.impl.error/declaring! ~view-name ~coord))
             (try
-              (re-frame.hicasso.impl.collector/mint-view!
-                ~view-name
-                ;; ANONYMOUS — see the docstring's rf2-jan2 section. A
-                ;; named `fn` binds its own name for its own body, so any
-                ;; name derived from `sym` shadows the author's helper of
-                ;; that name.
-                (fn ~argv ~@body))
+              (let [head# (re-frame.hicasso.impl.collector/mint-view!
+                            ~view-name
+                            ;; ANONYMOUS — see the docstring's rf2-jan2
+                            ;; section. A named `fn` binds its own name
+                            ;; for its own body, so any name derived from
+                            ;; `sym` shadows the author's helper of that
+                            ;; name.
+                            (fn ~argv ~@body))]
+                ;; rf2-5qaf4 — inside the extent, so a refusal the
+                ;; registration raised would name this declaration; after
+                ;; the mint, because the head is what the entry carries.
+                ;; The head is still what the `def` binds: registration is
+                ;; a side effect and returns nothing to it.
+                (when re-frame.interop/debug-enabled?
+                  (re-frame.hicasso.impl.collector/publish-view-alias!
+                    ~view-id ~slot head#))
+                head#)
               (finally
                 (when re-frame.interop/debug-enabled?
                   (re-frame.hicasso.impl.error/declared!)))))))))
