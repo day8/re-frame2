@@ -330,6 +330,118 @@ and settled between samples behind a residue equality gate that never fired):
 > HICASSO_OUT_DIR=out/hicasso-readprof node
 > implementation/hicasso/test/re_frame/bench/hicasso/run.cjs`.
 
+> **THE INSTRUMENT NOW HAS A MEASURED NULL, AND READER MEMBERSHIP STILL DOES
+> NOT RESOLVE** (`rf2-3l6hf`, 2026-08-16, authored head `926dd471d3` on
+> `worker/w-3l6hf`, one commit on top of the landed `29c68f6767`; instrument
+> blob `ef7a0d3787`, `:advanced`, Playwright HeadlessChrome). The authored
+> head is **this window's own edit half and so cannot yet be on main**; the
+> landed SHA beside it is the base it sits on, and the blob hash is what
+> actually identifies the instrument — it is content-addressed, so a reader
+> can verify the file the runs used without resolving either commit. Three
+> runs, `exit 0` on each, both arm-order guards reportable on each, the
+> phase-A positive control passing on each, the phase-B residue gate never
+> firing. The working tree was clean at both ends of the window, so that blob
+> is the instrument every run used.
+>
+> **What changed, and it changed BEFORE the window opened.** The predecessor
+> windows had no negative control, so a term was credited on sign stability
+> across runs and nothing measured how far a delta wanders when the thing
+> under it is nothing. `c-null` is `c-local` again — the same `C-FULL` mode
+> through the same constructor, under a second id — so `c-local − c-null` has
+> a true cost of **exactly zero by construction**. Everything it reads is the
+> estimator's own error. The window shape is otherwise `rf2-07rnj`'s
+> unchanged: 32 frames, 8 × (2 + 8) = 64 kept samples per arm, grid 0.0015625
+> ms/commit. Nine arms rather than eight, so this is a new series and its
+> absolutes are not arm-by-arm comparable with the eight-arm runs above.
+>
+> **The estimator, named as computed.** Every figure below is a **pooled
+> median over an arm's 64 kept samples**, each divided by the 32-frame window;
+> 64 being even, that median is the mean of the 32nd and 33rd order
+> statistics. It is *not* a mean of per-round medians, and the two differ —
+> run 1's null reads 0.0234 pooled and 0.0174 as a mean of its own per-round
+> deltas. Each delta is the difference of two such pooled medians.
+>
+> | term (`c-local −` the arm) | run 1 | run 2 | run 3 |
+> |---|---|---|---|
+> | **NULL CONTROL (`c-null`), true cost exactly 0** | **+0.0234** | **+0.0219** | **+0.0234** |
+> | reaction build + cache insert (`c-nosub`) | 0.4453 | 0.4531 | 0.4875 |
+> | watch wiring (`c-nowatch`) | 0.0656 | 0.0672 | 0.0844 |
+> | cell-map insert (`c-nomap`) | 0.0547 | 0.0625 | 0.0531 |
+> | activation capture (`c-noactivate`) | 0.0453 | 0.0437 | 0.0344 |
+> | **reader membership (`c-noreaders`)** | **+0.0422** | **+0.0219** | **+0.0359** |
+>
+> **READER MEMBERSHIP IS UNRESOLVED, and the null is what says so.** In run 2
+> it read `+0.0219` — the null control's run-2 reading, to the last digit. An
+> instrument that returns the same number for reader membership as it returns
+> for nothing at all has not measured reader membership. Its margins over the
+> null are `+0.0188 / 0.0000 / +0.0125`; the other four terms clear the null
+> on every run, by `+0.4219/+0.4312/+0.4641` (reaction build),
+> `+0.0422/+0.0453/+0.0610` (watch wiring), `+0.0313/+0.0406/+0.0297`
+> (cell-map insert) and `+0.0219/+0.0218/+0.0110` (activation capture).
+>
+> **No bound on the term is published and none can be read off these
+> numbers.** A null spread states what the instrument cannot see; it says
+> nothing about how large the invisible thing is. Reading it as an upper
+> bound would be the withdrawn `< 0.006 ms/commit` error moved one layer back,
+> and the withdrawal stands.
+>
+> **THE NULL IS NOT CENTRED ON ZERO, which is a finding about every delta on
+> this page.** Its three run-level readings — `+0.0234 / +0.0219 / +0.0234` —
+> sit within one grid step of each other on a quantity whose true value is
+> exactly zero. So the pooled-median delta at this shape carries a positive
+> offset of roughly +0.022 ms/commit, and the small terms above are only a
+> few multiples of it: taking each run's term against that run's own null,
+> the activation capture is 1.5–2.0 nulls, the cell-map insert 2.3–2.9, the
+> watch wiring 2.8–3.6, and reader membership 1.0–1.8. Only the reaction
+> build, at 19–21 nulls, is clear of it by any margin. **The cause of the
+> offset is not established here and this data does not discriminate between
+> the candidates** — a residual arm-position effect (`c-local` sits at slot 1
+> and every arm it is differenced against at a higher slot), within-sweep
+> thermal or cache drift, and the pooled median's own behaviour on a
+> right-tailed distribution are all live. The arm-order guard reporting
+> *reportable* on every run does not exclude the first: its tolerance is 10%
+> and this offset is 3.2–3.6% of `c-local`.
+>
+> **At round granularity neither term is separable from the null.** Across the
+> 24 rounds of the window the null's per-round deltas span `−0.1047` to
+> `+0.1578` and are positive in 17; reader membership spans `−0.1797` to
+> `+0.1672` and is positive in 18. The per-round values are recorded in the
+> transcripts under `:read-profile-commit-per-round` and
+> `-per-round-deltas`, so this window is re-adjudicable without being
+> re-taken.
+>
+> **What the null does NOT settle, and the reason it is one window and not
+> two.** `c-null` differences slot 1 against slot 2, while reader membership
+> differences slot 1 against slot 6. If the offset above is positional, a
+> single null does not calibrate the reader delta exactly — nulls at several
+> positions would. That was deliberately not attempted: a rung added between
+> runs makes the series two instruments, which is the rule that filed this
+> bead in the first place.
+>
+> **The box.** Processor Queue Length (`\System\Processor Queue Length`) was
+> sampled on its own, five samples at 1 s, immediately before the window and
+> between every pair of runs: `0,0,0,0,0` at 05:49:00, `0,0,1,0,0` at
+> 05:50:17, `0,0,0,0,0` at 05:51:36, `0,0,0,0,0` at 05:52:53 (all +10:00). The
+> single `1` was taken **between** runs 1 and 2 and not inside any measured
+> window. **Nothing was sampled inside a run**, deliberately — sampling a
+> counter inside a measured window makes the sampler part of the measurement —
+> so the quietness claim here is a bracketing claim and nothing stronger. Each
+> run's own `run.cjs` rebuilds the `:advanced` bundle before measuring, and
+> that compile saturates this box; the bracket readings sit outside those
+> compiles.
+>
+> Raw driver output for all three runs is committed beside the instrument at
+> `implementation/hicasso/test/re_frame/bench/hicasso/data/readprofile-3l6hf/`
+> (`run1.txt`, `run2.txt`, `run3.txt`), verbatim except for the one
+> `shadow-cljs - config:` banner line per file, whose absolute path is
+> replaced by `<worktree>` and marked inline as redacted — the portability
+> gate refuses a tracked personal home path. No figure, guard verdict or exit
+> line was touched. That directory's `README.md` states the redaction.
+>
+> **`rf2-07rnj` stays blocked.** This bead owned resolving the decomposition;
+> one of its original terms still does not resolve, and a decomposition with
+> an unresolved term is not one.
+
 Micro table, over the page's own roster (ns/op): `subscribe-once` 5,284;
 `compute-sub` 1,170; the raw handler invoke 227; `registrar/lookup` 67;
 `frame-state-value` 266; the `call-with-frame-resolution` wrap 206; the
