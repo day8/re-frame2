@@ -161,6 +161,13 @@ distinguish a change holding four named files from one holding a whole tree, so 
 written from names is still a guess about files, which is the guess deriving it was meant
 to replace. Ask your change-listing tool for the paths, not just the names.
 
+**And a listing built from committed history is blind to work already done but not yet
+committed** — which is the state a freshly dispatched worker stays in until its first
+commit, so an empty answer from it is not evidence of an empty fence. Ask the worker's own
+working copy too, and read a change that is clean by both as *not started yet* rather than
+as owning nothing: what it will touch is recorded on the item it was dispatched under, not
+in version control.
+
 **A fence is derived, never remembered — and the worker derives it again at start-up.**
 Step 3 above settles how you establish it; this is what the brief then asks of the worker,
 because a list assembled from memory of who you dispatched is stale inside the dispatch's
