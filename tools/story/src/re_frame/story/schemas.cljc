@@ -279,13 +279,45 @@
   [:map-of :keyword :any])
 
 (def SubstrateSet
-  "Subset of the recognised substrate ids. The framework supplies the
-  closed set; Story validates membership. `:reagent-slim` is reserved
-  for addition at reagent-slim GA / first published artefact — the
-  same trigger that gates Story's own UI-shell migration (see
-  spec/Principles.md §Reagent for the v1 UI shell). Not yet on the
-  canonical substrate enum. See spec/000-Vision."
-  [:set [:enum :reagent :uix]])
+  "The AUTHORING LAYERS a variant may be rendered under — Story's own
+  render-strategy axis, closed here and validated at registration.
+
+  ## It is not a mirror of the framework's adapter enum (rf2-1gy4e)
+
+  This docstring used to say *the framework supplies the closed set*,
+  and that was false in a way worth stating rather than deleting: there
+  is no framework-supplied set for it to mirror. A member here names
+  WHICH REGISTERED RENDER FN embeds the subject in the canvas
+  (`re-frame.story.ui.multi-substrate/substrate->render-fn`) — a
+  different question from which renderer `rf/init!` installed, which is
+  the adapter enum's (spec/006-ReactiveSubstrate.md §CLJS reference
+  scope). The two axes coincided while the members were `:reagent` and
+  `:uix`, and the coincidence read as identity.
+
+  `:hicasso` is the member that separates them, and it is why the claim
+  had to go. Hicasso ships NO adapter — there is no `:rf.adapter/hicasso`
+  anywhere in the repository, deliberately — and a Hicasso application
+  boots on the UIx adapter. It is nonetheless a distinct authoring layer
+  with a distinct render strategy: its views are boundaries minted by
+  `h/defview`, reached through `:hicasso/component` on the view
+  registrar and crossed into with `h/as-element`. So it belongs on THIS
+  axis and is correctly absent from that one.
+
+  ## Who registers what
+
+  Story installs `:reagent` itself (`install-reagent-substrate!`). `:uix`
+  and `:hicasso` are host-registered at boot through the public
+  `register-substrate!` — the `:hicasso` recipe is written out in
+  `re-frame.story.ui.multi-substrate`'s ns docstring. Membership here is
+  an AUTHORING vocabulary check; it says nothing about whether the host
+  actually registered a renderer, and a variant naming a substrate no
+  one registered degrades loudly at render time rather than silently
+  painting Reagent (rf2-3afns).
+
+  `:reagent-slim` is reserved for addition at reagent-slim GA / first
+  published artefact — the same trigger that gates Story's own UI-shell
+  migration (see spec/Principles.md §Reagent for the v1 UI shell)."
+  [:set [:enum :reagent :uix :hicasso]])
 
 (def PlatformSet
   "Subset of `#{:server :client}` per /spec/007-Stories.md `:platforms`."
