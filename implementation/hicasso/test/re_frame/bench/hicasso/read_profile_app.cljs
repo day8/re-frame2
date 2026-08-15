@@ -93,6 +93,7 @@
   |-------------|---------------------------------------------------|----------------|
   | `commit`    | [[frames-per-window]] frames x `rt/commit-boundary!` on the harvested entry | the shipping commit half |
   | `c-local`   | faithful copy: cell mint + subscribe + activation + baseline deref + watch + dispose hook + map insert + reader membership | the ablation baseline, validated against `commit` |
+  | `c-null`    | `c-local` with NOTHING ablated — the same `C-FULL` mode, under a second id | THE NEGATIVE CONTROL: `c-local - c-null` has a true cost of exactly zero, so what it reads is the instrument's own error and nothing else (rf2-3l6hf) |
   | `c-noactivate` | `c-local` minus `interop/activate-derived-value!` | ON THIS HOST the uncached hook resolution, a real term (rf2-tcffa); the substrate's capture run under a ratom host (rf2-lzpfj) |
   | `c-nowatch` | `c-local` minus add-watch + the disposal hook     | the watch wiring |
   | `c-nosub`   | `c-local` with `compute-sub` in place of subscribe + deref | the reaction build + cache insert (the compute is kept, priced by the swap) |
@@ -136,14 +137,26 @@
   beside them as the price of one unpublishable hook resolution per key. What
   it cannot do is arbitrate whether the window is wide enough, which is the
   job [[frames-per-window]] gave it and which that docstring now withdraws.
-  **No measured null exists on this instrument.** The arithmetic-impossibility
-  residual is not one either: `c-noreaders` has an unknown positive true cost,
-  so a negative reading of it establishes neither a symmetric error band nor
-  any bound on the term, and the `< 0.006 ms/commit` figure once floated for
-  reader membership is withdrawn. Reader membership is simply UNRESOLVED at
-  this window. A genuine negative control — an arm ablating nothing at all —
-  has to be added deliberately; coordinate one with rf2-3l6hf rather than
-  promoting an existing arm into the role.
+  The arithmetic-impossibility residual cannot do it either: `c-noreaders` has
+  an unknown positive true cost, so a negative reading of it establishes
+  neither a symmetric error band nor any bound on the term, and the
+  `< 0.006 ms/commit` figure once floated for reader membership is withdrawn.
+
+  ## The measured null, which is what arbitrates
+
+  **[[c-null]] is the negative control this instrument lacked** (rf2-3l6hf).
+  It is `c-local` again — the same `C-FULL` mode, the same work, a second id —
+  so `c-local - c-null` has a true cost of EXACTLY ZERO by construction, and
+  every millisecond it reads is the estimator's own error at this shape, on
+  this box, against a pair of arms of this size. That is the one quantity the
+  ablation deltas needed and could not supply themselves.
+
+  **Read what it licenses and not one step more.** It measures THE
+  INSTRUMENT, so it says whether a term is distinguishable from zero here. It
+  does NOT bound any term's true cost: an ablation delta that lands inside the
+  null's spread is a term this window cannot see, which leaves its size open
+  in both directions. Promoting a null spread into an upper bound on a cost is
+  the same error as the withdrawn `< 0.006`, one layer further back.
 
   The arm still earns its place, because the term is NOT a no-op under the
   ratom family, where a `Reaction` learns its sources only
@@ -185,15 +198,28 @@
   "How many identically-seeded frames ONE phase-B window commits
   (rf2-3l6hf). It was 4, and 4 could not decompose the commit half.
 
-  **A window's resolution is set here and nowhere else, because the
-  reported statistic is a p50.** `lane/now-ms` is `performance.now`,
-  which Chrome clamps to 100 µs, so every raw window reading is a
-  multiple of 0.1 ms; [[lane/summarise]] takes the mean of the two middle
-  order statistics on an even sample count, which halves that to 0.05 ms;
-  and the row divides by the frame count. The grid a phase-B delta can
-  land on is therefore exactly `0.05 / frames-per-window` ms/commit — at
-  4 frames, 0.0125, which is precisely the spacing every delta rf2-d360z
-  published turned out to be a multiple of.
+  **A window's resolution is set here and by the KEPT SAMPLE COUNT'S
+  PARITY, because the reported statistic is a p50.** `lane/now-ms` is
+  `performance.now`, which Chrome clamps to 100 µs, so every raw window
+  reading is a multiple of 0.1 ms; [[lane/summarise]] takes the mean of
+  the two middle order statistics on an EVEN sample count, which halves
+  that to 0.05 ms, and a single order statistic on an ODD one, which does
+  not halve it at all; and the row divides by the frame count. So the
+  grid a phase-B delta can land on is `0.05 / frames-per-window` at even
+  parity and `0.1 / frames-per-window` at odd — at 4 frames and the even
+  parity of the day, 0.0125, which is precisely the spacing every delta
+  rf2-d360z published turned out to be a multiple of.
+
+  **The frame count is the only knob you would REACH for, and it is not
+  the only one that moves the grid.** This docstring claimed resolution
+  was set HERE AND NOWHERE ELSE; [[b-rounds]] and [[b-sampling]] are
+  separate vars, no contract holds their product even, and an odd kept
+  total would double the grid under a design line still printing the
+  halved one (merged-PR audit of #8328). [[phase-b-grid-ms]] therefore
+  DERIVES the grid from the parity rather than asserting a constant, and
+  [[phase-b-design-line]] prints what it derives, so the two can no
+  longer disagree. `read-profile-grid-cljs-test` pins that by driving the
+  design line at both parities.
 
   **More SAMPLES cannot move that grid.** A median of quantised readings
   is itself a grid value whatever the sample count; more samples make the
@@ -212,21 +238,26 @@
   reads, still 200x the clock's own quantum, and the run stays under a
   minute of sampling.
 
-  **This window has no arbiter, and `c-noactivate` is not one** (rf2-tcffa).
-  This docstring gave that arm the job on the ground that it ablates a routed
-  no-op and so reads the instrument's own floor. It does not: the call it
-  ablates resolves a hook key that is never published on this host and so can
-  never be cached, which is real work — rf2-07rnj's runs read the arm LARGER
-  than the cell-map insert in two of three. The namespace docstring carries
-  the mechanism. Nor does the arithmetic-impossibility residual serve as a
-  floor: `c-noreaders` has an unknown positive true cost, so a negative
-  reading of it bounds nothing.
+  **`c-noactivate` is not this window's arbiter** (rf2-tcffa). This docstring
+  gave that arm the job on the ground that it ablates a routed no-op and so
+  reads the instrument's own floor. It does not: the call it ablates resolves
+  a hook key that is never published on this host and so can never be cached,
+  which is real work — rf2-07rnj's runs read the arm LARGER than the cell-map
+  insert in two of three. The namespace docstring carries the mechanism. Nor
+  does the arithmetic-impossibility residual serve as a floor: `c-noreaders`
+  has an unknown positive true cost, so a negative reading of it bounds
+  nothing.
+
+  **The arbiter is [[c-null]], added by rf2-3l6hf**, and it is an arbiter
+  precisely because its true cost is zero by construction rather than
+  argued to be small. It reads the estimator's error directly, so a term
+  can be adjudicated against a measured null instead of against sign
+  stability alone.
 
   So the case for 32 is the grid arithmetic above and nothing else, and it is
-  a case about RESOLUTION, not about trust in any particular delta. Until a
-  real negative control exists (rf2-3l6hf), a term is credited on sign
-  stability across runs — which is exactly why rf2-07rnj published four terms
-  and refused the fifth."
+  a case about RESOLUTION, not about trust in any particular delta. What the
+  null adds is the other half: resolution says how finely a delta CAN land,
+  the null says how far it wanders when the thing under it is nothing."
   32)
 
 (def commit-frames
@@ -599,6 +630,12 @@
              (mapv (fn [f] (rt/commit-boundary! (get entries f) (fn [] nil)))
                    commit-frames))}
      {:id :c-local   :run (mk-local C-FULL)}
+     ;; The negative control: C-FULL again, so `c-local - c-null` has a
+     ;; true cost of exactly zero and reads the estimator's own error
+     ;; (rf2-3l6hf). It is built from the same `mk-local` as `c-local`
+     ;; rather than transcribed beside it, because a null whose code path
+     ;; could drift from the arm it nulls is not one.
+     {:id :c-null    :run (mk-local C-FULL)}
      {:id :c-noactivate :run (mk-local C-NOACTIVATE)}
      {:id :c-nowatch :run (mk-local C-NOWATCH)}
      {:id :c-nosub   :run (mk-local C-NOSUB)}
@@ -618,6 +655,46 @@
   {:warmup 2 :samples 8})
 
 (def ^:private b-rounds 8)
+
+(defn phase-b-shape
+  "The phase-B window shape as data: `{:rounds :sampling :frames}`.
+
+  ONE authority, read by the design line and by
+  `read-profile-grid-cljs-test`'s live-shape row. A witness that
+  restated the three numbers would go green on the shape it remembered
+  rather than the shape the window runs, which is the same vacuity
+  `read-profile-baseline-cljs-test` was written to avoid."
+  []
+  {:rounds b-rounds :sampling b-sampling :frames frames-per-window})
+
+(def clock-clamp-ms
+  "The quantum of [[lane/now-ms]] on this host: Chrome clamps
+  `performance.now` to 100 µs, so the difference of two readings — which
+  is every raw window sample phase B takes — is a multiple of 0.1 ms."
+  0.1)
+
+(defn phase-b-grid-ms
+  "The grid one phase-B row or delta can land on, in ms/commit, DERIVED
+  from the shape rather than asserted (merged-PR audit of #8328).
+
+  Three steps, and the middle one is the one that was being taken for
+  granted. Raw samples are multiples of [[clock-clamp-ms]].
+  [[lane/summarise]]'s p50 is the MEAN OF THE TWO MIDDLE order statistics
+  when the kept count is even, which puts it on a half-clamp grid, and a
+  SINGLE order statistic when it is odd, which leaves it on the full
+  clamp. The row then divides by the frame count. A delta is a difference
+  of two p50s, so it lands on the same grid either way.
+
+  `rounds` x `:samples` is the kept count, and nothing in this file
+  constrains its parity: [[b-rounds]] and [[b-sampling]] are independent
+  vars, so an editor moving either could halve the instrument's
+  resolution while the design line went on advertising the finer grid.
+  Deriving it here is what stops that — the number printed and the number
+  the arithmetic supports are now one expression."
+  [rounds {:keys [samples]} frames]
+  (let [kept (* rounds samples)]
+    (/ (if (even? kept) (/ clock-clamp-ms 2.0) clock-clamp-ms)
+       frames)))
 
 (defn residue-settle!
   "**The one point behind which every phase-B residue reading is taken** —
@@ -667,18 +744,26 @@
   visits every arm in [[lane/slot-order]]'s order; warm-up samples are
   taken and discarded; between samples the arm's teardowns run, the
   runtime settles behind [[residue-settle!]], and the residue gate must
-  answer clean. Mirrors `lane/rounds!`, which cannot yield."
+  answer clean. Mirrors `lane/rounds!`, which cannot yield.
+
+  **Readings come back BUCKETED BY ROUND**, one map per round, which is
+  what `lane/rounds!` has always answered and what this fn used to
+  flatten into a single bucket. Pooling is unchanged — [[arm-rows]]
+  `mapcat`s the buckets before it summarises, so the published p50 is the
+  same number over the same 64 samples — but the per-round structure now
+  survives into the record, and a published window can be re-adjudicated
+  without being re-taken (rf2-3l6hf)."
   [arms {:keys [warmup samples]} rounds' baseline]
   (let [k    (count arms)
         coll (lane/sample-collector)
-        acc  (atom (zipmap (map :id arms) (repeat [])))]
+        acc  (atom (vec (repeat rounds' (zipmap (map :id arms) (repeat [])))))]
     (-> (lane/chain
           nil
-          (for [_round (range rounds')
-                s      (range (+ warmup samples))
-                j      (lane/slot-order k s)]
-            [s j])
-          (fn [_ [s j]]
+          (for [round (range rounds')
+                s     (range (+ warmup samples))
+                j     (lane/slot-order k s)]
+            [round s j])
+          (fn [_ [round s j]]
             (let [{:keys [id run]} (nth arms j)
                   t0        (lane/now-ms)
                   teardowns (run)
@@ -697,9 +782,9 @@
                                           {:arm id :baseline baseline :residue now})))
                         (when (>= s warmup)
                           (lane/collect! coll (name id) ms)
-                          (swap! acc update id conj ms))
+                          (swap! acc update-in [round id] conj ms))
                         nil)))))))
-        (.then (fn [_] {:readings [@acc] :samples (:samples @coll)})))))
+        (.then (fn [_] {:readings @acc :samples (:samples @coll)})))))
 
 ;; ---------------------------------------------------------------------------
 ;; Micro benches — the per-read primitives
@@ -735,12 +820,64 @@
 
 (defn- fmt [x n] (.toFixed ^number x n))
 
+(defn phase-b-design-line
+  "The `design …` line phase B prints, as a pure fn of the shape, so the
+  parity claim inside it can be witnessed without running a window.
+
+  It prints the kept count, names its parity and says which statistic
+  that parity makes the p50, because the grid is only checkable by a
+  reader who is told all three (merged-PR audit of #8328). The number at
+  the end is [[phase-b-grid-ms]]'s, not a constant standing beside it."
+  [rounds {:keys [warmup samples] :as sampling} frames]
+  (let [kept       (* rounds samples)
+        even-kept? (even? kept)]
+    (str ";;   design " rounds "x(" warmup "+" samples ")"
+         "  window = " frames " frames/commit each"
+         "  kept = " kept " samples/arm (" (if even-kept? "EVEN" "ODD")
+         " — p50 is " (if even-kept?
+                        "the mean of two middle clock readings"
+                        "a single clock reading")
+         ")  grid = " (fmt (phase-b-grid-ms rounds sampling frames) 6)
+         " ms/commit")))
+
 (defn- arm-rows [arm-ids readings per-window]
   (into {}
         (map (fn [id]
                (let [xs (mapcat #(get % id) readings)]
                  [id (lane/summarise (mapv #(/ % per-window) xs))])))
         arm-ids))
+
+(defn- per-round-p50s
+  "`{arm-id [p50-of-round-0 p50-of-round-1 …]}` in ms/commit — the same
+  division by `per-window` [[arm-rows]] performs, applied WITHIN each
+  round instead of across the pool.
+
+  **Recorded so a published window is re-adjudicable without a re-run.**
+  A pooled p50 answers one question and refuses every follow-up: whether
+  a term's sign held round by round, whether one round carried a
+  contaminated span, how far the null control wandered inside a single
+  run. All three were asked of windows that had kept only the pool, and
+  the only way to answer was to take the window again (rf2-3l6hf)."
+  [arm-ids readings per-window]
+  (into {}
+        (map (fn [id]
+               [id (mapv (fn [round]
+                           (lane/round4
+                             (:p50 (lane/summarise
+                                     (mapv #(/ % per-window) (get round id))))))
+                         readings)]))
+        arm-ids))
+
+(defn- per-round-deltas
+  "`c-local - arm`, per round, for each ablation arm — the per-round form
+  of the delta lines, on the same values [[per-round-p50s]] records."
+  [p50s base-id arm-ids]
+  (let [base (get p50s base-id)]
+    (into {}
+          (map (fn [id]
+                 [id (mapv (fn [b a] (lane/round4 (- b a)))
+                           base (get p50s id))]))
+          arm-ids)))
 
 (defn- us-per-read [ms] (* 1e3 (/ ms 141)))
 
@@ -822,8 +959,10 @@
                           (js/console.log (str ";;   control: " (:why ctl))))
                         (when (:refuse? gv)
                           (set! (.-HICASSO_GUARD_REFUSED js/window) true))
-                        ;; ---- Phase B setup: four identically-seeded frames,
-                        ;; entries harvested through the door.
+                        ;; ---- Phase B setup: [[frames-per-window]]
+                        ;; identically-seeded frames (32, not the 4 this
+                        ;; comment named until rf2-3l6hf), entries
+                        ;; harvested through the door.
                         (doseq [f commit-frames] (seed-frame! f))
                         (let [entries (into {} (map (fn [f]
                                                       (rt/render-body f (fn [_] (sub-pass! roster) [:span]) {})
@@ -838,23 +977,29 @@
                                                         b-sampling b-rounds baseline))))
                               (.then
                                 (fn [{:keys [readings samples]}]
-                                  (let [ids  [:commit :c-local :c-noactivate :c-nowatch :c-nosub :c-noreaders :c-nomap :b-build]
+                                  (let [ids  [:commit :c-local :c-null :c-noactivate :c-nowatch :c-nosub :c-noreaders :c-nomap :b-build]
                                         rows (arm-rows ids readings frames-per-window)
+                                        p50s (per-round-p50s ids readings frames-per-window)
                                         gv-b (lane/guard! samples "read-profile phase B (in-page ms, diagnostic)")]
                                     (lane/record! :read-profile-commit
                                                   (into {} (map (fn [[k v]] [k (-> v (update :min lane/round4)
                                                                                    (update :max lane/round4)
                                                                                    (update :p50 lane/round4))])) rows))
+                                    (lane/record! :read-profile-commit-per-round p50s)
+                                    (lane/record! :read-profile-commit-per-round-deltas
+                                                  (per-round-deltas p50s :c-local
+                                                                    [:c-null :c-noactivate :c-nowatch
+                                                                     :c-nosub :c-noreaders :c-nomap]))
                                     (js/console.log ";; ==== READ PROFILE, PHASE B — THE COMMIT HALF (ms per 141-key boundary commit) ====")
-                                    (js/console.log (str ";;   design " b-rounds "x(" (:warmup b-sampling) "+" (:samples b-sampling)
-                                                         ")  window = " frames-per-window " frames/commit each"
-                                                         "  grid = " (fmt (/ 0.05 frames-per-window) 6) " ms/commit"))
+                                    (js/console.log (phase-b-design-line b-rounds b-sampling frames-per-window))
                                     (doseq [id ids]
                                       (js/console.log (arm-line id (get rows id))))
                                     (js/console.log ";; ==== PHASE B DELTAS (c-local minus ablation; floors) ====")
                                     (let [commit' (:p50 (get rows :commit))
                                           clocal  (:p50 (get rows :c-local))]
                                       (js/console.log (str ";;   copy fidelity: c-local/commit = " (fmt (/ clocal commit') 4)))
+                                      (js/console.log (delta-line "NULL CONTROL (c-local - c-null)" clocal (:p50 (get rows :c-null))))
+                                      (js/console.log ";;     ^ true cost EXACTLY ZERO by construction — both arms are C-FULL. What it reads is this instrument's own error at this shape, and it is what the terms below are adjudicated against (rf2-3l6hf). It bounds no term's cost: a delta inside this spread is a term the window cannot SEE, which leaves its size open in both directions")
                                       (js/console.log (delta-line "activation-capture (c-local - c-noactivate)" clocal (:p50 (get rows :c-noactivate))))
                                       (js/console.log ";;     ^ a REAL term here, NOT a floor and not an arbiter: nothing activates on this UIx host, but the hook key is never published and so never cached, and this prices that lookup (rf2-tcffa, rf2-19usn). The capture itself is real only under the ratom family (rf2-lzpfj)")
                                       (js/console.log (delta-line "watch-wiring (c-local - c-nowatch)" clocal (:p50 (get rows :c-nowatch))))
