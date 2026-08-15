@@ -18,9 +18,9 @@ The rule is a conjunction, and its two halves need different instruments.
 
 ## The mechanism, read from source before anything was measured
 
-`impl.intent`'s `intent-handler`, `key-map-handler` and `event-callback` each allocate a fresh closure at LOWERING time, and lowering happens per render. Every event-position carrier therefore churns identity per render — the intent vector and the key-map exactly as much as `h/fn`. The churn is the lowering's, not the author's.
+`impl.intent`'s `intent-handler`, `key-map-handler` and `event-callback` each allocate a fresh closure at LOWERING time, and lowering happens per render. Every event-position carrier therefore churns identity per render — the intent vector and the key-map exactly as much as `h/event`. The churn is the lowering's, not the author's.
 
-Two paths already preserve identity, and both say so in their own docstrings: `lower-declared-prop` hands an unmarked function through untouched at every contract and hands a marked `h/fn` through by identity at `:handler`; and `codec/host-prop-value` crosses functions by identity *"so `React.memo` and every downstream bail-out that compares handler identity keep working"*.
+Two paths already preserve identity, and both say so in their own docstrings: `lower-declared-prop` hands an unmarked function through untouched at every contract and hands a marked `h/event` through by identity at `:handler`; and `codec/host-prop-value` crosses functions by identity *"so `React.memo` and every downstream bail-out that compares handler identity keep working"*.
 
 **Hicasso's own boundaries never had this problem.** `codec/boundary-props=` compares with CLJS `=`, and an intent vector or key-map is data, so a boundary child bails on value equality. The question exists only at a foreign `React.memo` edge.
 
