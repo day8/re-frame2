@@ -105,6 +105,7 @@
   (:require [re-frame.adapter.context :as adapter-context]
             [re-frame.hicasso.impl.codec :as codec]
             [re-frame.hicasso.impl.collector :as collector]
+            [re-frame.hicasso.impl.error :refer [fail!]]
             [re-frame.hicasso.impl.intent :as intent]
             ["react" :as react]))
 
@@ -194,13 +195,33 @@
   first release then restores an empty string instead of the author's own
   name. That was a real red before it was a comment.
 
-  A no-op when the id names nothing. The refusal the guide promises there
-  is deferred rather than declined — see the door."
+  **No `:anchor` is nil; an `:anchor` that names no element REFUSES**
+  (rf2-1ppe0). The two are not one absence, and answering nil to both is
+  what made the second invisible: an author who wrote no anchor asked for
+  the UA's default position and got it, while an author who wrote one
+  asked to be positioned against a trigger and got that same default in
+  silence. A typo in a DOM id read exactly like a design choice.
+
+  It refuses from the REF CALLBACK, which is the only place the question
+  can be asked: the id resolves against a document React has already
+  mutated for this commit, so the same check during render would be
+  reading the previous one. React routes a commit-phase throw to an
+  enclosing `h/error-boundary`, and to `reportError` when there is none —
+  which is why the witness in `re-frame.hicasso.overlay-dom-cljs-test`
+  reads that channel rather than `cljs.test`'s stack."
   [anchor-id ident]
-  (when-some [^js el (and anchor-id (.getElementById js/document anchor-id))]
-    (let [previous (.. el -style -anchorName)]
-      (set! (.. el -style -anchorName) ident)
-      #js [el previous])))
+  (when anchor-id
+    (if-some [^js el (.getElementById js/document anchor-id)]
+      (let [previous (.. el -style -anchorName)]
+        (set! (.. el -style -anchorName) ident)
+        #js [el previous])
+      (fail! :rf.error/hicasso-overlay-anchor-missing
+             're-frame.hicasso.impl.overlay/claim-anchor!
+             (str "An overlay's :anchor is " (pr-str anchor-id) ", and no "
+                  "element in the document carries that id, so there is "
+                  "nothing to position the panel against.")
+             :give-the-trigger-the-dom-id-the-anchor-names
+             {:anchor anchor-id}))))
 
 (defn- anchor-panel!
   "Point `panel` at the CSS anchor name `ident` — the PANEL's half of the
@@ -608,12 +629,13 @@
                 claimed (claim-anchor! (unchecked-get cell "anchorId") ident)]
             (unchecked-set cell "claimed" claimed)
             ;; BOTH HALVES OF ONE CLAIM, OR NEITHER. `claim-anchor!`
-            ;; answers nil when there is no `:anchor` and when the id
-            ;; names nothing, and a panel pointed at a name no element
-            ;; declares is not anchored to anything — the engine falls
-            ;; back to the UA's default position either way. Writing the
-            ;; panel's half alone would be a dangling reference dressed
-            ;; up as a claim.
+            ;; answers nil for exactly one case now — no `:anchor` at
+            ;; all — because an `:anchor` that names no element raises
+            ;; `:rf.error/hicasso-overlay-anchor-missing` rather than
+            ;; returning (rf2-1ppe0). Writing the panel's half alone
+            ;; would be a dangling reference dressed up as a claim, so
+            ;; the guard stays: it now reads "the author asked for no
+            ;; anchor" and nothing else.
             (when claimed
               (anchor-panel! node ident)))
           (show! node)

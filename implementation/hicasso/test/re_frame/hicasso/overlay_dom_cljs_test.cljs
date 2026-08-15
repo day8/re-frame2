@@ -285,6 +285,29 @@
 
 (defn- $ [sel] (.querySelector js/document sel))
 
+(defn- watch-uncaught!
+  "The error OBJECTS React reports out of a commit — the only channel a
+  refusal raised in a ref callback can be read from.
+
+  React 19 routes an uncaught commit-phase throw to the root's
+  `onUncaughtError`, whose default calls `reportError` and RETURNS; it
+  does not rethrow. So nothing lands on the stack `cljs.test` is
+  watching, and `(is (thrown? …))` here would be red over a working
+  refusal — the same trap
+  [[re-frame.hicasso.portal-dom-cljs-test]]'s `watch-errors!` records.
+  Read off `react-dom` 19.2's `defaultOnUncaughtError` rather than
+  assumed.
+
+  The objects and not their messages: the claim is about the ex-data a
+  catch site receives — the id, the site, the recovery and the payload —
+  and a message substring would pass on a refusal carrying the wrong id."
+  []
+  (let [seen     (atom [])
+        on-error (fn [e] (swap! seen conj (.-error e)))]
+    (.addEventListener js/window "error" on-error)
+    {:seen    seen
+     :restore (fn [] (.removeEventListener js/window "error" on-error))}))
+
 ;; --- the clipping fixture --------------------------------------------------
 
 (def ^:private clip-style
@@ -1082,13 +1105,46 @@
                            " panel.left=" (.-left p)))))
               (go! [::closed :pa])))
 
-          (testing "an `:anchor` naming no element is a no-op in this bead —
-                    the panel opens in the top layer, visibly unanchored, and
-                    raises nothing. The refusal the guide promises is reserved,
-                    provisional, and needs a Spec 009 row: see the door"
-            (go! [::opened :px])
-            (is (some? ($ "#pop-x")))
-            (is (.matches ($ "#pop-x") ":popover-open")))
+          (testing "an `:anchor` naming no element REFUSES (rf2-1ppe0). It was
+                    a no-op for as long as the reservation stood: the panel
+                    opened in the top layer, visibly unanchored, and said
+                    nothing"
+            (let [{:keys [seen restore]} (watch-uncaught!)]
+              (try
+                ;; THE CONTROL, and the reason the row below is a reading
+                ;; rather than a constant. A claim that RESOLVES runs inside
+                ;; the same watch window and reports nothing — so the capture
+                ;; is not simply firing on every overlay commit.
+                (go! [::opened :pa])
+                (go! [::closed :pa])
+                (is (empty? @seen)
+                    (str "premise: an anchor that resolves is silent, so the "
+                         "channel is quiet before the refusal. saw "
+                         (pr-str (mapv ex-data @seen))))
+
+                (go! [::opened :px])
+                (is (= 1 (count @seen))
+                    "the refusal reached the channel React reports commits on")
+                (let [data (some-> (first @seen) ex-data)]
+                  (is (= :rf.error/hicasso-overlay-anchor-missing
+                         (:rf.error/id data))
+                      (str "and it is THIS complaint, by id rather than by "
+                           "message. saw " (pr-str data)))
+                  (is (= 're-frame.hicasso.impl.overlay/claim-anchor!
+                         (:where data))
+                      "tagged with the site that refused")
+                  (is (= :give-the-trigger-the-dom-id-the-anchor-names
+                         (:recovery data))
+                      "carrying the recovery Spec 009's row states")
+                  (is (= "no-such-element" (:anchor data))
+                      "and the payload names the id that resolved to nothing"))
+
+                ;; The refusal runs BEFORE `show!`, so the panel does not
+                ;; reach the top layer at all — an overlay cannot be both
+                ;; refused and open.
+                (is (not (some-> ($ "#pop-x") (.matches ":popover-open")))
+                    "and the panel never opened")
+                (finally (restore)))))
           (finally (mount/release! handle)))))))
 
 ;; --- the budget ------------------------------------------------------------
