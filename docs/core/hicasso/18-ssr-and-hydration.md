@@ -343,7 +343,7 @@ React renders the server output; there is no parallel JVM string emitter.
 | Portals, raw React elements, and opaque foreign components | Client-only |
 | Intrinsic `n/$` | Render |
 | `n/defcomponent` and component-headed `n/$` | Client-only until declared Render |
-| Resource and demand boundaries | Follow their module's server contract; committed client demand does not run during server rendering |
+| Resource boundaries | Follow their module's server contract; a passive read causes nothing, so no client `[:rf.resource/ensure …]` runs during server rendering |
 
 Event intents require no wire serialisation. Each side turns the same vector
 into its own callback.

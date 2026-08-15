@@ -211,7 +211,7 @@ already has a more specific owner:
 
 | Job | Use |
 | --- | --- |
-| Load data for a screen | Route `:resources` or a demand-driven resource ([Routing](07-routing-and-navigation.md), [Async resources](08-async-resources.md)) |
+| Load data for a screen | Route `:resources`, or an `[:rf.resource/ensure …]` from the event that decides the data is wanted ([Routing](07-routing-and-navigation.md), [Async resources](08-async-resources.md)) |
 | Run startup work once | `:initial-events`, before first paint ([Installation](00-installation.md)) |
 | Animate an entrance or exit | CSS or [`motion/presence`](12-motion-and-presence.md) |
 | Attach to a DOM node or SDK | A callback ref or declared host ([Interop](09-interop.md)) |
