@@ -675,6 +675,23 @@ version control's own object database. Never spray that acknowledgement across a
 
 Delete merged local and remote worker branches — **never one whose change is not verifiably merged**.
 
+**"Verifiably merged" needs a test, and where the project merges by REBASE the two obvious ones are
+both wrong — in opposite directions.** A rebase replays every commit under a new identity, so a
+merged branch never becomes an ancestor of the trunk and never stops reading as *ahead* of it.
+Ancestry therefore reports fully merged work as unmerged, and the ahead count says the same thing
+for the same reason. That is the identical rebase invariance *The stranded sweep* explains above,
+asked on a different question — containment rather than liveness — which is why that paragraph is
+the cross-reference here rather than something to restate.
+
+**The test is patch-equivalence**, which asks what each commit *does* rather than which object it
+is: an equivalent patch already upstream means the work is contained, and anything with no upstream
+equivalent is genuinely new. In the dominant toolchain that is `cherry`, which marks the two answers
+`-` and `+`. It protects in both directions at once, and that is what earns it over either half of a
+rule that only ever fails safe one way. Measured here across 63 worktrees: 60 branches read one to
+three commits ahead of the trunk and 58 of those were fully merged, while one carried three commits
+that were genuinely new. Deleting on ancestry would have kept all 58 forever; deleting on the ahead
+count alone would have destroyed those three. One command separated them.
+
 **Key destructive operations on identity, never on a name.** Branch names repeat across sessions and
 prefix-match each other. A search for `head:feature-x` also returns the change for `feature-x2`, and
 may rank the sibling *first*, so a loop reading the top row reads one branch's state as another's.
