@@ -397,7 +397,11 @@
                   "RECOVERY is the point of the row (rf2-6xhxu): a function is "
                   "the ONE value with a site of its own to be hoisted to, "
                   "because the marker is waiting for it at a prop, so hoisting "
-                  "is a real exit here and stays the advice.")}
+                  "is a real exit here and stays the advice. Note what the "
+                  "walk reports as this offender's `:path` — `[:data-x]`, "
+                  "because a bad KEY is reported at the value it is a key OF. "
+                  "Nested and top-level are indistinguishable by path even "
+                  "here, on the oldest nested row in the table.")}
 
    {:case    "a function inside a SET is hoistable too, though its path is EMPTY"
     :form    [:div {:data-x #{(fn [] 1)}}]
@@ -405,14 +409,14 @@
     :refuses {:rf.error/id :rf.error/ui-tree-malformed
               :where       're-frame.hicasso.test
               :recovery    :hoist-it-to-its-own-site}
-    :why     (str "The row that makes the recovery's question `(fn? offender)` "
-                  "rather than `(seq path)` (rf2-6xhxu). A set member has no "
-                  "position worth naming, so the kit's walk stops the path "
-                  "there — this offender is nested and its `:path` is "
-                  "`[:data-x]`, exactly like a top-level one. Reading NESTEDNESS "
-                  "off the path would deny hoisting to a function that can in "
-                  "fact be hoisted; reading the VALUE answers correctly at both "
-                  "positions.")}
+    :why     (str "The SECOND arm that drops the path (rf2-6xhxu), and the one "
+                  "`non-data` says so in: a set member has no position worth "
+                  "naming, so the walk stops there and this offender's `:path` "
+                  "is `[:data-x]`, exactly like a top-level one's. Two arms, "
+                  "two reasons, same consequence — which is why the recovery "
+                  "asks `(fn? offender)` and not `(seq path)`. Reading "
+                  "NESTEDNESS off the path would deny hoisting to a function "
+                  "that can in fact be hoisted.")}
 
    {:case    "a JS host object at a prop of its own may NOT be told to hoist"
     :form    [:div {:data-x #js {"a" 1}}]
@@ -440,11 +444,12 @@
                   "path says the value is nested, not that it has somewhere to "
                   "go: hoisted to `:data-y` this object meets the identical "
                   "refusal, because 004B's marker is for a FUNCTION and for "
-                  "nothing else. Two rows above, a nested FUNCTION keeps "
-                  "`:hoist-it-to-its-own-site` on the same form — so the two "
-                  "differ by the offending value alone.")}
+                  "nothing else. The map-KEY row keeps "
+                  "`:hoist-it-to-its-own-site` on this very shape — a non-data "
+                  "value one map deep inside `:data-x` — so the two rows differ "
+                  "by the offending value and by nothing else.")}
 
-   {:case    "ordinary nested EDN is untouched — the two rows above's control"
+   {:case    "ordinary nested EDN is untouched — the four rows above's control"
     :form    [:div {:data-x {:a [1 #{:b}] "k" 'sym}}]
     :runtime [:element "div"]
     :tree    {:rf.ui/tree-version v :tag :div

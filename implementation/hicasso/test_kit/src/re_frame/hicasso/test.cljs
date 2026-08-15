@@ -772,10 +772,11 @@
   "How a refusal LOCATES the offending value inside the prop `k`'s value.
 
   Three phrasings because there are three positions, and the walk knows
-  which by asking two questions rather than one. `path` is empty BOTH
-  when the prop's own value is the offender and when the offender sits
-  inside a set or a seq, which [[non-data]] deliberately does not index —
-  so `path` alone cannot tell a top-level value from a nested one, and a
+  which by asking two questions rather than one. `path` is empty for the
+  prop's own value AND for two nested positions [[non-data]] does not
+  index: a member of a set or a seq, which has no position worth naming,
+  and a map KEY, which is reported at the value it is a key OF. So
+  `path` alone cannot tell a top-level value from a nested one, and a
   message that read it that way would tell an author looking at a set
   that the set is a function."
   [k path bad v]
@@ -806,12 +807,15 @@
   reader takes back, or assert the real one at L3, where a mounted DOM
   carries it and no value grammar applies.
 
-  The question is `(fn? bad)` and NOT `(seq path)`, although the two
-  agree on the rows a reader thinks of first. `path` is empty for a
-  top-level value AND for one inside a set or a seq, so a function in a
-  set — hoistable — reads as top level; and a host object nested three
-  maps deep — not hoistable — reads as nested. Asking which value it IS
-  answers both, and is the question the recovery is actually about.
+  The question is `(fn? bad)` and NOT `(seq path)`, which is the
+  distinction it is tempting to reach for and wrong in both directions.
+  A host object nested three maps deep has a path and still cannot be
+  hoisted anywhere. And `path` is empty at two NESTED positions as well
+  as at the top level — a set or seq member, and a map key, which
+  [[non-data]] reports at the value it is a key of — so `(seq path)`
+  would deny hoisting to a function that can in fact be hoisted, at both
+  of them. Asking which value it IS answers every position, and is the
+  question the recovery is actually about.
 
   `site` is `:crossing` for a BOUNDARY's props map and `:attr` for a
   native element's attributes and handlers, and the two differ over
