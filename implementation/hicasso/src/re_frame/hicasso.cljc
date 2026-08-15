@@ -250,7 +250,9 @@
   `:advanced` + `goog.DEBUG=false` nothing registers and a production
   Hicasso app still holds no registry at runtime — the entry serves
   tools. Re-evaluating a declaration replaces the entry behind the same
-  id, which is the registrar's own behaviour and needed nothing added.
+  id — the registrar's own behaviour, with nothing added for it beyond
+  the slot naming where its executable identity lives, so that the
+  replacement a tool is told about is the one that happened.
   [[re-frame.hicasso.impl.collector/publish-view-alias!]] carries the
   slot's shape and why it is written there rather than through
   `rf/reg-view*`."

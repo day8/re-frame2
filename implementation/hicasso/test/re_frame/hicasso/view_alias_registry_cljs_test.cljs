@@ -17,6 +17,7 @@
   | `:ns` / `:file` / `:line` / `:column` | the coordinate, at the top level, where `reg-view` puts it |
   | `:doc` | the author's docstring, when they wrote one |
   | `:hicasso/component` | the minted head, `identical?` to what the `def` binds |
+  | `:executable-key` | `:hicasso/component` — where this entry's executable identity lives, so the registrar's `:different-fn?` tells a real reload from an idempotent one |
   | `:handler-fn` | **absent** |
 
   ## The peer registration is the point of comparison, not decoration
@@ -48,6 +49,7 @@
             [re-frame.core :as rf]
             [re-frame.hicasso :as h]
             [re-frame.hicasso.impl.collector :as collector]
+            [re-frame.registrar :as registrar]
             [re-frame.test-support :as test-support]))
 
 ;; ---------------------------------------------------------------------------
@@ -217,3 +219,78 @@
               `:handler-fn`, still the coordinate"
       (is (not (contains? (slot ::aliased-row) :handler-fn)))
       (is (= coords (select-keys (slot ::aliased-row) coord-keys))))))
+
+;; ---------------------------------------------------------------------------
+;; What the reload TELLS a tool — the `:different-fn?` discriminator
+;; ---------------------------------------------------------------------------
+;;
+;; Replacing the entry is half the contract; the other half is what
+;; `register!` says about the replacement, and the row above never looked.
+;; `:different-fn?` is derived by default from `:handler-fn`, and this entry
+;; has none by design — so the default derivation compares nil with nil and
+;; calls a real component rotation idempotent. A hot-reload consumer branching
+;; on the tag would decline to refresh on every Hicasso view edit. The slot
+;; names `:hicasso/component` as its executable identity under
+;; `:executable-key`, and `re-frame.registrar/executable-identity` reads the
+;; key the registration named (merged-PR audit #8332 on rf2-5qaf4).
+;;
+;; The HOOK is the seam asserted here rather than the trace bus, and it
+;; covers both surfaces: `register!` binds `different?` ONCE and hands the
+;; same value to every replacement hook and to the
+;; `:rf.registry/handler-replaced` `:tags`. A hook also fires on EVERY
+;; re-registration, where the trace emit is additionally dedup-by-shape gated
+;; — so the hook can witness the idempotent row below, and the trace cannot.
+
+(defonce ^:private recorded
+  ;; nil except while a row below is recording. The registrar has no
+  ;; remove-hook door, so the hook installed beside it lives for the whole
+  ;; process and MUST stay inert for every other namespace in the shared
+  ;; `:node-test` bundle.
+  (atom nil))
+
+(defonce ^:private recording-hook
+  (do (registrar/add-replacement-hook!
+        (fn [m]
+          (when @recorded
+            (swap! recorded conj (select-keys m [:kind :id :different-fn?])))))
+      true))
+
+(defn- while-recording
+  "Run `f`, answering the replacement-hook calls it provoked. The
+  `finally` is what keeps a failing row from leaving the hook live for
+  every namespace that loads after this one."
+  [f]
+  (reset! recorded [])
+  (try (f)
+       @recorded
+       (finally (reset! recorded nil))))
+
+(deftest a-reloaded-head-is-reported-as-a-real-change-not-an-idempotent-reload
+  (let [coords (select-keys (slot ::aliased-row) coord-keys)
+        head   #(:hicasso/component (slot ::aliased-row))]
+
+    (testing "the slot names where its executable identity lives, which is
+              what lets the registrar tell the two cases apart without
+              learning anything about Hicasso"
+      (is (= :hicasso/component (:executable-key (slot ::aliased-row))))
+      (is (contains? (slot ::aliased-row) (:executable-key (slot ::aliased-row)))))
+
+    (testing "a save that changes the boundary's body mints a NEW head, and
+              the replacement is reported as a real change — the tag a
+              devtool refreshes on"
+      (let [rotated (fn rotated-row [_] nil)
+            calls   (while-recording
+                      #(collector/publish-view-alias! ::aliased-row coords rotated))]
+        (is (= 1 (count calls)) "exactly one replacement, not zero and not two")
+        (is (= {:kind :view :id ::aliased-row :different-fn? true}
+               (first calls)))))
+
+    (testing "and it is a DISCRIMINATOR, not a constant: re-publishing the
+              head already in the slot is the idempotent reload it looks
+              like, and still says so"
+      (let [same  (head)
+            calls (while-recording
+                    #(collector/publish-view-alias! ::aliased-row coords same))]
+        (is (= 1 (count calls)) "the hook fires on every re-registration")
+        (is (= {:kind :view :id ::aliased-row :different-fn? false}
+               (first calls)))))))
