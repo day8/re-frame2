@@ -1263,6 +1263,45 @@
 ;;     `tape-evaluated-assertion?` branch is the single source of truth for
 ;;     that split).
 
+(defn- terminal-settle-refusal-record
+  "The assertion record for a terminal atom whose PRE-READ SETTLE refused or
+  threw — the record that carries a non-settled substrate into the unified
+  verdict. Pure data → data.
+
+  A terminal assertion is not a runner step stream, so the step-result
+  `settle-substrate-for-step!` hands back has nowhere to be recorded; the
+  ONE accumulator a terminal verdict is folded from is
+  `:rf.story/assertions`. This projects the refusal onto that accumulator
+  in the SAME shape every other refusal on the run path uses
+  (`exec-assert-browser-atom!`'s `:cannot-run` record, whose `:status` is
+  what `requirements/aggregate-status` reads), so a settle that never
+  happened reads as the distinct THIRD status rather than vanishing.
+
+  Two verdicts, matching the two ways `settle-to!` can decline (it never
+  refuses on `:provides` — `dispatch-and-settle!` owns that check):
+
+  - a flush that exceeded the hooks' `:timeout-ms` budget arrives as
+    `:cannot-run?` and records `:cannot-run` — the runner could not
+    establish the boundary it needed, and proved nothing;
+  - a flush that THREW arrives as a step-exception and records `:error` —
+    `:error` outranks everything in the aggregation rule, which is right:
+    a substrate that blew up mid-commit is not a refusal, it is a fault.
+
+  `atom-v` is a vector by construction — the settle only produces a
+  non-nil result for a boundary above `:headless`, and the only terminal
+  atoms that reach one are the DOM family, which `step-settle-boundary`
+  identifies by `(contains? dom-assertion-ids (first atom-v))`."
+  [atom-v settle-result]
+  (let [cannot-run? (boolean (:cannot-run? settle-result))]
+    (cond-> {:assertion (assertions/assertion-atom-id atom-v)
+             :payload   (vec (rest atom-v))
+             :passed?   false
+             :status    (if cannot-run? :cannot-run :error)
+             :reason    (or (:message settle-result)
+                            (str "the substrate did not settle before "
+                                 (pr-str atom-v)))}
+      cannot-run? (assoc :cannot-run? true))))
+
 (defn run-terminal-assertions!
   "Evaluate `frame-id`'s terminal handler-backed `:assertions` against the
   FINAL settled state, AFTER the script phase. `atoms` is the
@@ -1283,6 +1322,10 @@
   and never dispatches — the result boundary already evaluates them against
   the epoch tape from the plan, so they are NOT double-processed here.
 
+  A pre-read settle that REFUSED or THREW PREVENTS the assertion from
+  being evaluated at all, and lands as a `:cannot-run` / `:error` record
+  instead (`terminal-settle-refusal-record`). See the call site.
+
   Idempotent w.r.t. an empty / nil `atoms` (no-op). Production callers
   (Story disabled) no-op."
   [frame-id atoms]
@@ -1294,12 +1337,31 @@
         ;; gets (rf2-ek9qb). Without it the rule would be half-applied: a
         ;; terminal `:rf.assert/dom-*` would read whatever the DOM happened
         ;; to be when the script phase ended, which is settled only if the
-        ;; script's LAST step happened to be a DOM step. The result is
-        ;; discarded here exactly as the executor's own is — terminal
-        ;; assertions are not a runner step stream — and the commit is
-        ;; no-op-safe, so an already-settled substrate costs nothing.
-        (settle-substrate-for-step! frame-id idx step)
-        (exec-assert! frame-id idx step))))
+        ;; script's LAST step happened to be a DOM step.
+        ;;
+        ;; And the settle GATES the read. `exec-step!` has always short-
+        ;; circuited on a non-settled pre-step result — `(or (settle… ) …)`
+        ;; — but this path discarded the same result and evaluated anyway,
+        ;; so a terminal DOM assertion could still read, and record a PASS,
+        ;; over a substrate whose commit had just thrown or timed out. The
+        ;; settle failure then disappeared from the terminal verdict
+        ;; entirely: the step-result is dropped here by design (terminal
+        ;; assertions are not a runner step stream), and the executor's own
+        ;; record said only what the stale DOM happened to show. A pass
+        ;; earned against a substrate that never committed is exactly the
+        ;; false-GREEN class this bead exists to close, so the refusal now
+        ;; REPLACES the evaluation rather than preceding it.
+        ;;
+        ;; Inert on a settled substrate: the commit is no-op-safe and
+        ;; `settle-substrate-for-step!` returns nil below `:cljs-reactive`,
+        ;; so every headless run (JVM included) takes the `exec-assert!`
+        ;; arm unchanged.
+        (if-let [refused (settle-substrate-for-step! frame-id idx step)]
+          (assertions/record!
+            frame-id
+            (assoc (terminal-settle-refusal-record atom-v refused)
+                   :source-coord (:source (registrar/handler-meta :variant frame-id))))
+          (exec-assert! frame-id idx step)))))
   nil)
 
 ;; ---- single-step driver -------------------------------------------------
