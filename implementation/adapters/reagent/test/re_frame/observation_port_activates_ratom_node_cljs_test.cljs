@@ -44,9 +44,11 @@
 
   CLJS-only (Reagent is CLJS); the `-cljs-test` suffix enrols it in the
   consolidated `:node-test` build — no DOM and no React needed, because the
-  claim is about the notification channel, not about a render. The mounted
-  counterpart, where a real Freehand ViewCell repaints under this adapter,
-  is `re-frame.freehand-cell-under-ratom-adapter-dom-cljs-test`."
+  claim is about the notification channel, not about a render. A mounted
+  counterpart used to sit beside this one, watching a real Freehand ViewCell
+  repaint under this adapter; rf2-0yp7w retired that substrate and the
+  counterpart went with it. The claim here is substrate-neutral and stands
+  on its own."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [reagent.core :as r]
             [reagent.ratom :as ratom]
