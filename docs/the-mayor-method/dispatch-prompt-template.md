@@ -32,13 +32,19 @@ a capable agent. Placeholders:
 
 The order is what makes it accurate. Each step is a check the next depends on.
 
-1. **Read the tracker item, and find its newest text by DATE — not by position.** The
-   description is the *oldest* text; corrections accrete below it, so a top-down read
-   gets superseded instructions. But the bottom is not reliably the newest either:
-   audit notes append into the description block while dated comments render after it,
-   so the last lines on screen can be days staler than material higher up. `bd show |
-   tail` is not a read-the-newest method. Grep the bead for dates and read around the
-   latest one. **And if the bead has children, re-enumerate them before concluding a
+1. **Read the tracker item, and order it by the tracker's own TIMESTAMPS.** The
+   description is *usually* the oldest text and corrections accrete below it, so a
+   top-down read gets superseded instructions. But the bottom is not reliably newest
+   either: audit notes append into the description block while dated comments render
+   after it, so the last lines on screen can be days staler than material higher up.
+   `bd show | tail` is not a read-the-newest method.
+
+   **Nor is grepping the prose for dates.** A date inside the text is content, not a
+   mutation time — an undated scope correction is invisible to it, an old description
+   can cite a later release date, and `bd update --description` can make the
+   "oldest" field the most recently edited one. Use `bd history <id>`, which lists
+   real mutation times newest-first, and `bd comments <id> --json` for comment
+   `created_at`. **And if the bead has children, re-enumerate them before concluding a
    decision is absent** — a ruling is sometimes recorded as a *new child bead*, where
    no amount of reading the parent will find it.
 2. **Check every factual claim you are about to write.** Does the symbol resolve?
@@ -65,9 +71,9 @@ same case, and gets the sentence too.
 > complete and good deliverable — report it with the evidence rather than going
 > looking for work to do.
 
-> **Read the item before this brief, and find its newest note by DATE, not by
-> position.** Where they disagree, the item governs — follow it, and say in your
-> report what differed.
+> **Read the item before this brief, and order it by the tracker's own timestamps —
+> not by position, and not by dates written in the prose.** Where they disagree, the
+> item governs — follow it, and say in your report what differed.
 
 > **The control is the deliverable.** Show it red when the property is removed,
 > restore, and verify the restore by hashing the bytes.
@@ -491,14 +497,16 @@ first, and the description is the OLDEST text on the item: corrections, scope ch
 and sibling landings accrete BELOW it as notes, so a straight top-down read gets
 superseded instructions.
 
-BUT FIND THE NEWEST BY DATE, NOT BY POSITION. The bottom of the output is NOT
-reliably the newest text — audit notes often append into the DESCRIPTION block while
-dated comments render after it, so the last lines on screen can be older than material
-higher up. `bd show <id> | tail` is not a read-the-newest method. Locate the latest
-date first with
-`bd show <id> | grep -n "AUDIT\|202[0-9]-[0-9][0-9]-[0-9][0-9]"`, then read around it.
-If the bead has children, re-enumerate them too: a ruling is sometimes recorded as a
-NEW CHILD BEAD rather than as a note.
+BUT ORDER IT BY THE TRACKER'S TIMESTAMPS, NOT BY POSITION AND NOT BY DATES IN THE
+PROSE. The bottom of the output is NOT reliably the newest text — audit notes often
+append into the DESCRIPTION block while dated comments render after it, so the last
+lines on screen can be older than material higher up. `bd show <id> | tail` is not a
+read-the-newest method. Neither is grepping the text for dates: a date in the prose is
+CONTENT, not a mutation time, so an undated scope correction is invisible to it and an
+edited description can be the newest field on the bead. Use `bd history <id>`, which
+lists real mutation times newest-first, and `bd comments <id> --json` for comment
+`created_at`. If the bead has children, re-enumerate them too: a ruling is sometimes
+recorded as a NEW CHILD BEAD rather than as a note.
 
 Where the item and this brief disagree, the ITEM governs — follow it, and say in your
 report what differed.
