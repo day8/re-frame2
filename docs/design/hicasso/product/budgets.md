@@ -6,7 +6,9 @@ re-frame2 product operator's (Mike Thompson)**; this document records the
 profiles a budget is stated *on*, the estimand/instrument/control standard each
 row must meet, and the state of every baseline the later gates will anchor to.
 Enforcement lives in [`rf2-hic-089`](#7-where-each-row-is-enforced) (the early
-framework) and `rf2-hic-071` (the full gates), never here. What this page does
+framework) and `rf2-85og2` (the full gates), never here. *The full-gates half was
+`rf2-hic-071`'s until that bead CLOSED on 2026-08-14 and its measurement remainder
+was split to `rf2-85og2` ([§9.2](#92-what-each-not-green-row-is-waiting-on)'s amendment of 2026-08-15).* What this page does
 carry, since 2026-08-12, is [§9's reconciliation ledger](#9-the-budget-line-reconciliation-ledger)
 — one row per registered line, each stating its own verdict — and the gate that
 keeps that ledger honest. **That gate enforces the record, not the budgets**:
@@ -19,7 +21,7 @@ another bead's to decide:
 |---|---|
 | The R=0 shell's breach of its paper-fail line — remediate, or disposition it | `rf2-hic-018` |
 | The per-read K3 record and its three non-substitutable scoreboards | `rf2-hic-070` — decided in [`k3-disposition.md`](k3-disposition.md) |
-| Turning any row below into a blocking gate | `rf2-hic-089`, `rf2-hic-071` |
+| Turning any row below into a blocking gate | `rf2-hic-089` (the early framework); `rf2-85og2` for the measurement half — `rf2-hic-071` held it until its 2026-08-14 close |
 
 ---
 
@@ -275,7 +277,9 @@ like D10–D13 they carry no hardware profile, which is what lets them sit in th
 section rather than §4. And **they are the deterministic half of C7 only**: they
 say there is no interposed work, never how long a render takes, so C7 stays
 `UNPINNED` and its clock half remains `rf2-hic-071`'s, along with the ladder re-pin
-and the package-resident clock instrument that half needs.
+and the package-resident clock instrument that half needs. **[Repointed 2026-08-15,
+`rf2-b3oni`: that half is `rf2-85og2`'s — `rf2-hic-071` closed on 2026-08-14 and
+its measurement remainder went there.]**
 
 **On D17–D25 — the per-keystroke census (`rf2-hic-045`).** These are the
 remaining five stages of one keystroke, counted on the two public-package
@@ -822,10 +826,10 @@ and no figure may be scaled from one onto the other.
 
 | Family | Enforcement home |
 |---|---|
-| Deterministic rows D1–D26 | ordinary blocking PR gates; framework in `rf2-hic-089`, full gates in `rf2-hic-071` |
+| Deterministic rows D1–D26 | ordinary blocking PR gates; framework in `rf2-hic-089`, full gates in `rf2-85og2` (`rf2-hic-071`'s measurement remainder, split there on its 2026-08-14 close) |
 | Distributional rows S1–S8, U1–U4 | pinned interleaved evidence runs on P-DEV-1; never converted into flaky PR thresholds |
 | Shell breach disposition | `rf2-0xx2` |
-| K3 per-read record | `rf2-hic-070` — [`k3-disposition.md`](k3-disposition.md), whose §8 makes the 10% same-witness per-read rule executable for `rf2-hic-071` |
+| K3 per-read record | `rf2-hic-070` — [`k3-disposition.md`](k3-disposition.md), whose §8 makes the 10% same-witness per-read rule executable for `rf2-85og2` (`rf2-hic-071` until its 2026-08-14 close) |
 
 Row by row, with each verdict beside its line, that table is
 [§9's ledger](budgets.md#9-the-budget-line-reconciliation-ledger). The routing
@@ -1044,7 +1048,7 @@ is asked about.
 **[Amended 2026-08-13.]** *Authority* is read in **two modes**, and which one
 applies follows the state of the **disposition**, not the state of the bead.
 While a live transition remains to be made — the `UNPINNED` rows waiting on
-`rf2-hic-071`'s instruments; `S6` and `C2`, whose K1 price record is amendable
+`rf2-hic-071`'s instruments (**`rf2-85og2`'s since 2026-08-14**); `S6` and `C2`, whose K1 price record is amendable
 only through `rf2-hic-085`; `S3` and `C6`, handed onward because real work
 remained — the cell names the **live** bead that can actually move the row, and
 a closed id there is a defect. Once the row's *Disposition* cell records a
@@ -1242,14 +1246,16 @@ or `C5` changes with it.
   census narrows is what the clock will eventually be timing: work inside one
   discrete event, on a path whose other five stages are now counted.
   §9.3's *one-frame keystroke echo* deliverable is therefore still
-  `rf2-hic-071`'s, and its scope is unchanged.
+  `rf2-hic-071`'s, and its scope is unchanged. **[Repointed 2026-08-15, `rf2-b3oni`:
+  `rf2-85og2`'s. The scope is still unchanged — only the custody moved.]**
 - **The 5% rule has no same-instrument anchor.** `C1` compares a reading
   against the pinned ordinary-Hicasso benchmark, and §6 records that the
   registered instrument's eleven pinned blobs are superseded rather than
   repaired — one of its files no longer exists. Until the ladder is re-pinned,
   "the same instrument" names nothing, and a comparison against it would be
   un-attributable in exactly the way §6 describes. The re-pin is `rf2-hic-071`'s
-  along with the gate it enables.
+  along with the gate it enables. **[Repointed 2026-08-15, `rf2-b3oni`: `rf2-85og2`'s
+  — the ladder re-pin is one of the three things that bead carries.]**
 - **The cold-mount line is missed, and the price accepted for it is not a
   second line.** `S6` and `C2` are red against the registered `1.10x`. The
   `1.25x` figure was ratified on 2026-08-13 by operator ruling rather than by a
@@ -1371,7 +1377,8 @@ or `C5` changes with it.
   rule has no same-instrument anchor until the ladder is re-pinned, and §7
   forbids converting a distributional row into a pull-request threshold in any
   case. All three are `rf2-hic-071`'s, which names these beads as the ones it
-  extends over — the same statement from the other side.
+  extends over — the same statement from the other side. **[Repointed 2026-08-15,
+  `rf2-b3oni`: `rf2-85og2`'s.]**
 - **`C5` and `C6` are rules whose readings have been dispositioned, and the
   rules have not.** `C5` is the shell rule; its evidence is `S1` and `S2`,
   carried red by the substrate decision's §5.2. `C6` is the per-read rule; its
@@ -1435,6 +1442,37 @@ or `C5` changes with it.
   their predecessors in the *Authority* column and in no other — and the
   ledger gate reads the same 49 rows, 31 `MET`, 5 `BREACH`, 3 `UNRESOLVED`
   and 10 `UNPINNED` after the repoint as before it.
+  **[Extended 2026-08-15, `rf2-b3oni`, which took the PROSE that cell move left
+  behind.]** The page named `rf2-hic-071` at **twenty-three** sites when this pass
+  began, and each was read against one test: *would a reader act on this sentence as
+  currently true?* **Ten fail it** — an owner, an enforcement home or a thing still
+  to be taken — and each is repointed to `rf2-85og2` with its original wording kept
+  beside, this page's own beside-amendment convention. §9.4's *Not taken* paragraph
+  is repointed with them; it said *this bead* rather than the id, which is why it is
+  not among the twenty-three. **The other thirteen are deliberately KEPT.**
+
+  Seven of the thirteen sit inside — or are superseded in place by — DATED records:
+  this section's three *[Amended 2026-08-13]* paragraphs (the custody move, the `C6`
+  condition, and the `C8` corrections) and Ruling 2 of `rf2-5yn9`. A dated record
+  states what was true when it was taken, so re-pointing one falsifies the record
+  instead of repairing it. §9.1's own *[Amended 2026-08-13]* paragraph is the one
+  exception, and it is repointed rather than kept: its illustration of a live-mode
+  *Authority* cell had become the exact defect the rule it states names — a closed
+  id sitting where a live bead must be — so the correction goes beside the original
+  words rather than over them. **Where such a record routes forward to `rf2-hic-071`, the
+  destination is `rf2-85og2` for the measurement half, by this paragraph.** Two more
+  are the 2026-08-15 amendment above, which already names the move and is correct.
+  The last four are the §9.3 heading and the slug link into it —
+  [`per-keystroke.md`](per-keystroke.md) links that slug, so renaming it is a
+  two-file change this bead was not asked to make — the §9.4 heading, which records
+  what `rf2-hic-071` actually took, and the deferral parenthetical in §6's studio
+  note. Every one is a record of what that programme did rather than an instruction
+  to a reader.
+
+  **This too moves custody and nothing else**: no reading, status, population,
+  instrument or disposition cell is touched, and the ledger gate reads the same 49
+  rows, 31 `MET`, 5 `BREACH`, 3 `UNRESOLVED` and 10 `UNPINNED` after this pass as
+  before it.
 
 ### 9.3 Where this ledger stops and rf2-hic-071 begins
 
@@ -1476,6 +1514,19 @@ comparison it makes meaningful, and the escape-benefit rule over the escapes
 its own dependencies land. This ledger is what it will report into — the bead
 owns the status columns from the moment it takes them.
 
+**[Repointed 2026-08-15, `rf2-b3oni`.]** The three things are unchanged and the
+paragraph above is kept as the record of how they were carved. What changed is who
+holds them: `rf2-hic-071` CLOSED on 2026-08-14 and its measurement remainder was
+split to **`rf2-85og2`**, whose own description enumerates the identical three —
+the clock instrument and the U-row gates it makes possible, the ladder re-pin and
+the 5% comparison it makes meaningful, and the escape-benefit rule once a
+benefit-claiming escape site lands. A closed bead inherits nothing and takes
+nothing, so *the bead owns the status columns from the moment it takes them* reads
+of `rf2-85og2` now. **The heading above keeps `rf2-hic-071`'s name deliberately**:
+[`per-keystroke.md`](per-keystroke.md) links this section by that slug, so renaming
+it is a two-file change, and the heading records which bead the boundary was drawn
+against rather than who stands on the far side of it today.
+
 ### 9.4 What rf2-hic-071 has taken so far, and what it still cannot take
 
 **Taken, 2026-08-14.** Ten rows and one rule. `D17`–`D25` bring
@@ -1491,7 +1542,11 @@ second thing to drift.
 
 **Not taken, and the reason is the same reason in three places: each needs a
 measurement window this bead did not open.** They are recorded here rather than
-quietly carried:
+quietly carried — and **[repointed 2026-08-15, `rf2-b3oni`]** they are no longer
+`rf2-hic-071`'s to take. That bead CLOSED on 2026-08-14 and the three below went to
+`rf2-85og2`, which was split out to carry exactly them. The *Taken, 2026-08-14*
+half above is a true record of what `rf2-hic-071` did and stands unamended, as does
+this section's heading:
 
 - **The user-visible gates** — `U1`–`U4`, and `C3`/`C4` stated on the same
   readings. §4 says in terms that no package-resident clock instrument exists,
