@@ -366,7 +366,16 @@ at all.
 - **Verify the machine with real counters, not the convenient one.** One system's headline CPU counter
   read 93% while the true value was 11%. Cross-check with a second source, and prefer the counter that
   says whether anything is actually *waiting for a core* — that is the only thing the window cares
-  about.
+  about. **Read that counter on its own, and never inside a measured run.** Sampled alongside anything
+  heavy it measures the sampler: one reading of 59–77 was the dispatcher's own directory copy, and it
+  nearly disqualified a window that was in fact idle. Sampled *inside* a run it measures the benchmark,
+  which answers nothing — so bracket the run and say plainly that nothing is claimed about within-run
+  quietness beyond the bracketing.
+- **Only a CLOCK estimand needs the quiet machine.** A census of monotone counters — allocations,
+  recomputations, calls — reads the same on a loaded box, so it may run beside anything and must not
+  consume a drain. Classify the estimand before you schedule it. Getting this wrong is expensive in
+  both directions: drain the fleet for a counter census and the idle machine is wasted, run a clock
+  window beside a peer and the number is worthless while looking measured.
 - **One run at a time, never concurrent.** Concurrency is precisely the contention the window exists to
   exclude, so two runs the worker believes are independent still are not.
 - **Your published sentences are claims too, and they are audited.** For every summarising statement you
