@@ -80,6 +80,21 @@
   no props-schema slot — deferred by rf2-1gy4e until someone asks for
   auto-Controls, rather than invented here.
 
+  ### One live limit, and it is not this renderer's (rf2-phabt)
+
+  A Hicasso boundary crossed into from a Reagent parent — which is what
+  the canvas is — **paints once and does not re-render on a write into
+  its own frame.** Measured against a live control while this renderer
+  landed: the same boundary under `h/mount!` repaints, and both outward
+  doors (`h/as-element` and a memoized `h/as-component`) are deaf, so it
+  is the crossing rather than the door, the adapter or the drain.
+
+  So a hicasso story renders, takes its args, resolves its variant frame
+  and reads it — and does not yet respond to its own dispatches. Nothing
+  here works around it: a workaround would be a second reactivity path
+  for one substrate. It is fixed in Hicasso, and rf2-kttom's worked
+  testbed waits on it.
+
   ## Grid layout
 
   Each substrate renders into its own bordered cell with a small header

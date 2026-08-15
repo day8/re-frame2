@@ -148,8 +148,8 @@
 ;; `[:world :substrates]` and falls back to the `:reagent` host default.
 ;; That is a narrower residue of the same disagreement rf2-3afns closed,
 ;; it is not about hicasso, and both files are outside this bead's fence;
-;; it is filed rather than fixed here. The rows below pin what the plan
-;; DOES carry.
+;; it is FILED rather than fixed here, as rf2-sc5g0. The rows below pin
+;; what the plan DOES carry.
 
 (deftest the-plan-carries-the-hicasso-declaration
   (testing "rf2-3afns routed `canonical/render-host-scope` at the COMPILED

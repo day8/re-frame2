@@ -46,6 +46,43 @@
     type and the boundary re-renders instead of remounting. A memoized
     `as-component` would re-implement that machinery one layer up.
 
+  ## KNOWN GAP — a crossed boundary is DEAF to writes (rf2-phabt)
+
+  The spike settled what it was asked to settle and found one more thing
+  on the way, which is filed rather than fixed here (`implementation/**`
+  is outside this bead's fence):
+
+  **a boundary crossed into from a Reagent parent paints once, correctly,
+  and then never re-renders on a write into its own frame.** Body-run
+  counts say it plainly — the body is not re-invoked, so this is a
+  missing NOTIFICATION rather than a stale read.
+
+  It was measured with a live control, which is what makes the zero
+  readable: same boundary, same subscription, same Reagent adapter, same
+  drain, only the mounting route varying. Under `h/mount!` it repaints —
+  that row is [[a-write-repaints-a-boundary-under-hicassos-own-root]],
+  green, below. Crossed in with `h/as-element` it is deaf; crossed in
+  with a memoized `h/as-component` it is deaf in exactly the same way, so
+  the outward-bridge DOOR is not the variable and rf2-2dbpd's
+  pre-authorized fallback B is not the remedy. Ruled out with it: the
+  adapter, the drain, the provider object (both routes provide over the
+  same `re-frame.adapter.context/frame-context`), frame resolution across
+  the crossing (both crossed routes read the VARIANT frame's value on
+  their first paint), and React reconciliation
+  ([[a-reagent-parent-rerender-does-not-remount-the-boundary]] is green).
+
+  The two red routes were run and then REMOVED rather than shipped red or
+  pinned as a change-detector; rf2-phabt carries them verbatim. What
+  stays here is the live half, because a control with nothing to control
+  is still the row that says the harness can see a repaint at all.
+
+  **What this gap does and does not cost.** Everything this file proves
+  green is unaffected: registry dispatch, late resolution, degradation,
+  the stable element type, and a crossed boundary observing its variant
+  frame at render. What is blocked is INTERACTIVITY — a hicasso story
+  whose subject re-renders on its own writes — which is rf2-kttom's
+  concern, not this bead's.
+
   ## Two lanes, one file
 
   `-dom-cljs-test$` puts this namespace in the `:browser-test` build
@@ -56,6 +93,7 @@
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             ["react" :as react]
             ["react-dom" :as react-dom]
+            [reagent.core :as r]
             [reagent.dom.client :as rdc]
             [re-frame.adapter.reagent :as reagent-adapter]
             [re-frame.core :as rf]
@@ -128,7 +166,7 @@
 
 ;; ---- fixture --------------------------------------------------------------
 
-(declare register-probes!)
+(declare register-probes! leave-act-environment!)
 
 (defn- reset-all! []
   (story/clear-all!)
@@ -207,6 +245,35 @@
   (and (exists? js/document)
        (some? (.-createElement js/document))))
 
+(defn- leave-act-environment!
+  "React's `act` queue is not the browser's scheduler, and
+  `IS_REACT_ACT_ENVIRONMENT` is a GLOBAL that sibling suites in this lane
+  set and never clear (`story.sub-overrides-render-dom-cljs-test` is one).
+  Left on, React parks a store notification in the act queue instead of
+  committing it, and `the-frame-the-reagent-provider-scoped-is-the-one-
+  observed` reads a stale DOM through a channel that is in fact alive —
+  measured, and it is how that row first failed. Mirrors
+  `re-frame.bench.hicasso.lane/leave-act-environment!`, which exists for
+  exactly this reason."
+  []
+  (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) false)
+  nil)
+
+(defn- settle!
+  "The ratom host's drain, and it is two acts rather than one — the pair
+  `re-frame.bench.hicasso.arm1.ratom-activation-dom-cljs-test` spells out.
+
+  `r/flush` runs the reactions the write enqueued, which is what turns an
+  activated node's recompute into the `notify-w` a Hicasso cell's watch
+  rides (a re-frame subscription under the ratom family IS a bare
+  `reagent.ratom/Reaction`). The empty `flushSync` then lets the sync-lane
+  `onStoreChange` that raised commit — `impl.mount/settle!`'s shape,
+  spelled here so this file needs no impl namespace."
+  []
+  (r/flush)
+  (react-dom/flushSync (fn [] nil))
+  nil)
+
 (defn- make-mount-node! []
   (let [node (js/document.createElement "div")]
     (js/document.body.appendChild node)
@@ -282,37 +349,46 @@
           (finally
             (try (.unmount root) (catch :default _ nil))))))))
 
-(deftest the-frame-the-reagent-provider-scoped-is-the-one-observed
-  (testing "the crossing is not merely wired at mount — a write into the
-            variant frame after the commit reaches the boundary's read. If
-            the boundary had resolved the ambient/default frame, the first
-            paint could still have been right by accident and this update
-            would not land."
+(deftest a-write-repaints-a-boundary-under-hicassos-own-root
+  (testing "THE LIVE HALF OF THE KNOWN GAP, and the reason the gap's zero
+            can be read at all (see this namespace's §KNOWN GAP).
+
+            The same boundary, the same subscription, the same Reagent
+            adapter, the same write and the same drain — mounted through
+            Hicasso's OWN root door rather than spliced into a Reagent
+            tree. It repaints. So when the crossed counterpart does not,
+            the difference is the CROSSING and not the substrate, the
+            harness, the drain or the adapter — a zero with no live
+            control beside it settles none of those.
+
+            It also keeps this file honest as the gap is worked: the day
+            the crossing repaints, this row is what says the two are
+            finally the same measurement."
     (if-not (browser?)
       (is true ":node-test — no DOM; :browser-test runs this row")
-      (let [variant-id :story.hicasso/card
-            mount-node (make-mount-node!)
-            root       (rdc/create-root mount-node)]
-        (rf/make-frame {:id variant-id})
-        (rf/dispatch-sync [:hicsub/bump 1] {:frame variant-id})
-        (try
-          (react-dom/flushSync
-            (fn []
-              (rdc/render root
-                [rf/frame-provider {:frame variant-id}
-                 [:div.reagent-parent
-                  (h/as-element [hicasso-card {:label "alpha"}])]])))
-          (is (= "alpha/1"
-                 (some-> (.querySelector mount-node "[data-test=\"hicasso-card\"]")
-                         .-textContent)))
-          (react-dom/flushSync
-            (fn [] (rf/dispatch-sync [:hicsub/bump 42] {:frame variant-id})))
-          (is (= "alpha/42"
-                 (some-> (.querySelector mount-node "[data-test=\"hicasso-card\"]")
-                         .-textContent))
-              "the boundary tracked the variant frame across a write")
-          (finally
-            (try (.unmount root) (catch :default _ nil))))))))
+      (let [frame-id  ::own-root-frame
+            container (make-mount-node!)]
+        (rf/make-frame {:id frame-id})
+        (rf/dispatch-sync [:hicsub/bump 1] {:frame frame-id})
+        (let [handle (h/mount! container {:frame frame-id}
+                               [hicasso-card {:label "ctl"}])]
+          (try
+            (is (= "ctl/1"
+                   (some-> (.querySelector container "[data-test=\"hicasso-card\"]")
+                           .-textContent))
+                "mounted, and read its frame")
+            (let [runs-at-mount @!card-runs]
+              (rf/dispatch-sync [:hicsub/bump 42] {:frame frame-id})
+              (settle!)
+              (is (> @!card-runs runs-at-mount)
+                  "the write re-ran the body — the notification channel is
+                   alive on this adapter, with this drain")
+              (is (= "ctl/42"
+                     (some-> (.querySelector container "[data-test=\"hicasso-card\"]")
+                             .-textContent))
+                  "and the readout moved"))
+            (finally
+              (try (h/unmount! handle) (catch :default _ nil)))))))))
 
 (deftest a-reagent-parent-rerender-does-not-remount-the-boundary
   (testing "the identity decision, measured on a fiber. The render fn mints
@@ -328,31 +404,45 @@
             reading React itself cannot fake: a remount discards the
             subtree's host instances and builds new ones, so the `<article>`
             object would not survive. A text-only assertion would be green
-            either way, which is exactly how this class of defect hides."
+            either way, which is exactly how this class of defect hides.
+
+            AND THE RE-RENDER IS DRIVEN FROM INSIDE THE TREE, by a Reagent
+            ratom, because a second top-level `rdc/render` CANNOT measure
+            this and would report a remount every time. Reagent's own
+            source says why, in a comment above `reagent.dom.client/render`:
+            each call builds a fresh `comp` fn and `reagent-root` does
+            `createElement(comp)` on it, *\"re-created on every render call
+            to ensure React will consider it a new component always\"* — a
+            new component TYPE per call, so React discards the whole tree
+            by construction. That is Reagent's root door behaving as
+            designed and says nothing about the crossing; a ratom write is
+            what a Reagent parent re-rendering actually looks like."
     (if-not (browser?)
       (is true ":node-test — no DOM; :browser-test runs this row")
       (let [variant-id :story.hicasso/card
             mount-node (make-mount-node!)
             root       (rdc/create-root mount-node)
-            render!    (fn [label]
+            !label     (r/atom "alpha")
+            parent     (fn []
+                         [:div.reagent-parent
+                          [:i (str "parent:" @!label)]
+                          (hicasso-render variant-id card-id {:label @!label})])
+            card-node  #(.querySelector mount-node "[data-test=\"hicasso-card\"]")
+            relabel!   (fn [label]
                          (react-dom/flushSync
-                           (fn []
-                             (rdc/render root
-                               [rf/frame-provider {:frame variant-id}
-                                [:div.reagent-parent
-                                 [:i (str "parent:" label)]
-                                 (hicasso-render variant-id card-id
-                                                 {:label label})]]))))
-            card-node  #(.querySelector mount-node "[data-test=\"hicasso-card\"]")]
+                           (fn [] (reset! !label label) (r/flush))))]
         (rf/make-frame {:id variant-id})
         (rf/dispatch-sync [:hicsub/bump 3] {:frame variant-id})
         (try
-          (render! "alpha")
-          (let [first-node (card-node)
+          (react-dom/flushSync
+            (fn []
+              (rdc/render root
+                [rf/frame-provider {:frame variant-id} [parent]])))
+          (let [first-node       (card-node)
                 runs-after-mount @!card-runs]
             (is (some? first-node) "mounted")
-            (render! "beta")
-            (render! "gamma")
+            (relabel! "beta")
+            (relabel! "gamma")
             (is (= "gamma/3" (some-> (card-node) .-textContent))
                 "the boundary re-rendered with the new props")
             (is (identical? first-node (card-node))
