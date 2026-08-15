@@ -32,6 +32,12 @@ evidence both pages read.
   **That absence is itself the datum**: row 18's *retire* recommendation costs an ordinary
   application nothing, because no ordinary application reached it.
 - **`root!`/`render!`/`unmount!`.** Reached by both applications under exactly those spellings.
-  [`naming-ledger.md`](naming-ledger.md) row 13's open half (`root!`→`mount!`) is unaffected — two
-  applications typing the current spelling is not evidence about the candidate, and this checkpoint
+  [`naming-ledger.md`](naming-ledger.md) row 13's then-open half (`root!`→`mount!`) is unaffected — two
+  applications typing the spelling then current is not evidence about the candidate, and this checkpoint
   does not offer it as any.
+  **[That half has since LANDED, 2026-08-15, `rf2-7mtcf` (PR #8291), and the finding above is kept as
+  written because what Phase 2 offered the sitting is unchanged by the landing.]** The facade's root door
+  is `h/mount!`, and it was **not renamed but re-shaped**: a `defn` over `(node config view)` whose config
+  carries `:frame` and `:initial-events`, with `impl.mount/root!` keeping its own name and its positional
+  shape. Row 13 records the stop that preceded it as right, on the ground that renaming the var alone
+  would have published the name against taught call sites it could not serve (`rf2-ewn6y`).

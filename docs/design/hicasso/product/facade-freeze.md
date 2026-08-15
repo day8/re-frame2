@@ -29,6 +29,17 @@ The evidence this freeze reads is reported, not restated, in
 > fix published is unchanged, and [`correction-ledger.md`](correction-ledger.md) carries the closure
 > evidence clause by clause.
 
+> **Amended 2026-08-15.** [§1](#1-the-membership-and-how-it-was-decided)'s root-lifecycle member is
+> spelled `root!` because that is what both witness applications typed; the facade has since published
+> that door as `h/mount!` (`rf2-7mtcf`, PR #8291), and the row now says so. **Nothing this page freezes
+> moves, and nothing here was a name.** The door was not renamed but re-shaped — `h/mount!` is a `defn`
+> over `(node config view)` whose config carries `:frame` and `:initial-events`, and `impl.mount/root!`
+> keeps its own name and its positional shape — so the member, the evidence that admitted it and the law
+> it is frozen under are all exactly the ones recorded below. This page freezes laws, and it froze no
+> spelling to begin with: the paragraph above says so, and every question about §1's spellings remains
+> [`naming-findings-cp2.md`](naming-findings-cp2.md)'s for `rf2-hic-065` to consolidate. **Fourteen of
+> fourteen** laws remain frozen, unchanged by this. (`rf2-ewn6y`)
+
 ## Where each fact lives
 
 | Fact | Owner |
@@ -54,7 +65,7 @@ analyzer rather than reviewed. **The Todo class reached a strict subset of the s
 | `error-boundary` | slice only — two, one nested | §4 *error region* |
 | `route-link` | both — 2 link sites and 3 filter tabs | §4.3 / routing integration |
 | `reg-state` | both — one per-row concern each | HD-009; **see the caveat below** |
-| `root!` | both — the entry point | §4 *root lifecycle* |
+| `root!` — on the facade as `mount!` since `rf2-7mtcf` | both — the entry point | §4 *root lifecycle* |
 | `render!` | both — the `^:dev/after-load` hook | §4 *root lifecycle* |
 | `unmount!` | slice only — the teardown half | §4 *root lifecycle* |
 
