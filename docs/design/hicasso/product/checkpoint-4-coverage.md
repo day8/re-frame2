@@ -35,6 +35,17 @@ attribution unreachable by construction, and two live remainders `rf2-dybf9` car
 closing over. §3 takes them one at a time. **Closing a finding is not the same as closing the conjunct it was filed
 under**, and a re-run that flipped this verdict on the arithmetic alone would have proved only that it had not read §3.
 
+**[Amended 2026-08-15, `rf2-hic-048`, after PR #8286 landed the `rf2-fdg4w` ruling.]** This is the first amendment where
+a **decision** landed rather than a fix or a disproved premise, and it is the one that moves the least. The operator ruled
+HS-23's `n/$` Activity route — **Disposition 1, accept the render, docs only, no gate and no code** — and `rf2-fdg4w` is
+closed. So the clause this page has carried since #8275, that conjunct B is failed in part by *a policy the measurement
+disproves whose disposition is an open operator decision*, is retired: the policy is not disproven, it is
+**declaration-scoped**, and a route carrying no declaration carries no Hicasso policy to disprove. **Nothing else moves.**
+The count stays **nineteen and one** and the verdict stays **NOT MET**, because conjunct B was never failed by HS-23 alone:
+HS-33, HS-17, HS-18, HS-21 and HS-34 fail it too, none of them was touched by #8286, and all five were re-read against
+`main` for this amendment. §3 records the settled disposition and §7's live table is one row shorter and still not empty.
+**A discharged blocker is not a moved row, and a moved row would not be a moved conjunct.**
+
 This page is the audit `rf2-hic-048` owes. It is a review: it certifies against evidence that already exists and it took
 no new measurement. Every miss below is filed as a `bd` issue and carries a row in
 [`correction-ledger.md`](correction-ledger.md), on that file's [closure rule](correction-ledger.md#the-closure-rule) —
@@ -71,10 +82,12 @@ row. **Conjunct A now fails on exactly what conjunct B fails on**, which is a na
 splitting was the last row failing for a reason of its own, and its HMR witness landed.
 
 **Conjunct B — the canonical SSR/hydration suite is green. NOT MET.** One inventory id is measured to satisfy *neither*
-policy; two are unwitnessed on the server; one has an attribution clause unreachable by construction; one carries a
-policy the measurement **disproves** rather than merely leaves unproved, and its disposition is an open operator
-decision; and one names a module that does not exist. The denominator this conjunct is stated over **was** short by
-three public surfaces and no longer is — that half is closed, and machine-checked. §3.
+policy; two are unwitnessed on the server; one has an attribution clause unreachable by construction; and one names a
+module that does not exist. **A fifth clause stood here until 2026-08-15** — an id whose policy the measurement
+*disproved*, held open on an operator decision — and PR #8286 settled it: HS-23's policy is declaration-scoped and the
+`n/$` route carries no declaration, so nothing is disproven and nothing is owed. **Dropping that clause does not move this
+conjunct**, which the four clauses above fail it on, over five ids, without it. The denominator this conjunct is stated
+over **was** short by three public surfaces and no longer is — that half is closed, and machine-checked. §3.
 
 **Conjunct C — the bulk suite is green. UNADDRESSED, and that is neither red nor green.** The tournament published its
 deterministic work census and its clock table is recorded NOT INSTRUMENTED; it concluded, in its own words, *"no verdict
@@ -112,7 +125,7 @@ Three values, and *unaddressed* never reads as *works*.
 | Code splitting | **met** | §7's Required-proof cell for this row reads *load, fallback, error, retry, HMR*. The first four are `lazy_boundary_dom_cljs_test.cljs`'s (`rf2-hic-041`). **HMR is the fifth and it landed** — `testbed/hmr_spec.cjs`'s `native-lazy-island-across-a-save` drives one lazy island through a real `shadow-cljs watch` recompile on Chromium, Firefox and WebKit, with `pinned-lazy-head-sabotage` beside it as the arm that reds when the bridge caches its head across a save. **This row read NOT MET until 2026-08-15**, on the measurement that `hmr_registry_cljs_test.cljs` and `hmr_remount_cljs_test.cljs` carried zero occurrences of *lazy* between them. **That measurement is still exact and is no longer the deciding one**: both suites still return zero (re-measured 2026-08-15), and the witness landed in the browser HMR runner instead — a real recompile rather than an in-process re-mint, which is the stronger instrument of the two and the one §7's cell was always describing. `rf2-y5x6j` **closed** on a re-run by `rf2-dybf9`, which drove the runner rather than quoting it |
 | Multiple frames and roots | **met** | two roots with isolated ownership, root-scoped hydration adoption, same-public-id reincarnation and delayed-callback routing |
 | Suspense and Activity | **met** | hide/reveal releasing and reacquiring reads, and genuine abandonment, retry and rollback driven rather than simulated. Open correction `rf2-9ywe` |
-| SSR and hydration | **NOT MET** | §3 of this page. **The two beads this cell used to name are both closed** and neither closure moved the row: `rf2-2l8pw` repaired the claim's *denominator*, and `rf2-cfriw` replaced *four ids with no witness* by four ids that have been server-rendered and read — of which, in [§1.1](dispositions.md#11-classification-table)'s own words, *"not one of them went green"*. What the row now turns on is inside the inventory rather than outside it: `rf2-fdg4w` (**open, and an operator decision**), `rf2-s52w` (open), HS-33's decided-and-unbuilt repair, HS-34's unbuilt module, and HS-17/HS-18 |
+| SSR and hydration | **NOT MET** | §3 of this page. **The two beads this cell used to name are both closed** and neither closure moved the row: `rf2-2l8pw` repaired the claim's *denominator*, and `rf2-cfriw` replaced *four ids with no witness* by four ids that have been server-rendered and read — of which, in [§1.1](dispositions.md#11-classification-table)'s own words, *"not one of them went green"*. What the row now turns on is inside the inventory rather than outside it: `rf2-s52w` (**open, and the operator's call**), HS-33's decided-and-unbuilt repair, HS-34's unbuilt module, and HS-17/HS-18. **`rf2-fdg4w` stood in that list until 2026-08-15 and no longer does** — PR #8286 ruled HS-23's `n/$` route dispositioned rather than blocked — and **the row does not move with it**, because the five ids beside it are untouched and each still fails on its own |
 | Accessibility | **met** | §7's Required-proof cell for this row reads *names, roles, keyboard, virtualized/overlay focus*, and every limb of it is witnessed — `test_kit_a11y_cljs_test.cljs` over three L2 kit projections, `examples/slice/a11y_cljs_test.cljs`, `.../a11y_focus_dom_cljs_test.cljs` and `combobox_keyboard_dom_cljs_test.cljs` (`rf2-hic-043`); `examples/ledger/keyboard_dom_cljs_test.cljs`, `.../virtualized_dom_cljs_test.cljs` and `overlay_focus_dom_cljs_test.cljs` (`rf2-hic-049`). **This row read NOT MET until 2026-08-14** on one further deficit: an **axe** sweep, which is in no acceptance column here and which `rf2-5q8o` ruled a **DECLINE** — a non-goal, not an unlanded witness. With that the row's only remaining deficit is gone. `rf2-5q8o` |
 | i18n and theming | **met** | the page is mounted once and never re-mounted, and `<main>`'s identity is asserted across every switch — so a mechanism that tore the tree down would show a different node |
 | Testing | **met** | L0–L2 pure kit with its runtime-parity claim held, L3 mounted facade sabotaged across four leak kinds, production-sentinel erasure chained into the release build |
@@ -181,16 +194,22 @@ established that:
   and not a policy, and its one remaining ident was taken out of the bytes by `rf2-9zz0y`. Neither is upgraded, because
   [§2.4](dispositions.md#24-the-default-rule-and-how-a-row-is-upgraded) asks five clauses and `rf2-cfriw`'s scope was
   the refusal arm alone. Honest is not green, and this conjunct asks for green.
-- **HS-23 is the one the measurement made WORSE, and it is now an open operator decision.** Through `n/$` — the route
-  [`lanes/react-compatibility-notes.md`](lanes/react-compatibility-notes.md) recommends first — a visible Activity's
-  subtree and its `h/sub` read reach the response. The Target policy reads Client-only. So the refusal here is not
-  *unproved* in note 3's sense but **disproven**, which is the stronger failure. And the defect is wider than one route:
-  the raw `[:>]` escape renders nothing (HS-19) while `n/$` renders the subtree, so one foreign component reached by two
-  undeclared spellings gives opposite server bytes and no page states it. **`rf2-fdg4w` owns this and is OPEN.** Its
-  three candidate dispositions — accept the render by design and amend the lane note, gate the native form at
-  [React 4](lanes/design-laws.md#react-and-ownership), or rule the route HS-25's — differ in cost and in law. **This
-  checkpoint does not choose among them and does not score the row as though one had been chosen.** A witness is *not*
-  owed here; a disposition is.
+- **HS-23 is the one the measurement made worse, and it is the one that is now SETTLED.** It read here as an open
+  operator decision until 2026-08-15, when PR #8286 landed `rf2-fdg4w`'s ruling — **Disposition 1: accept the render on
+  the `n/$` route, docs only, no gate and no code** — and closed the bead. What the ruling changes is the *diagnosis*,
+  never the measurement: a Hicasso server policy attaches to a **declaration**, `h/defhost` and `n/defcomponent` are the
+  two declaration doors, and a foreign head under `n/$` passes through neither. So the Target policy is not *disproven*
+  on that route — it never reached it. Through `h/defhost` the refusal fires at the declaration source, with its declared
+  fallback and its `:server :render` control beside it: both arms, which is what note 3 asks of a Client-only row.
+  Through the raw `[:>]` escape it is HS-19's hard refusal, **inherited** from that same gate rather than invented, which
+  is why the `[:>]`/`n/$` split is a principled tier boundary and not the inconsistency this bullet used to call it.
+  Through `n/$` there is **no Hicasso policy at all: React's own server semantics govern — bytes witnessed, no hydration
+  claim made, and the route is NOT upgraded to Render**, because
+  [§2.4](dispositions.md#24-the-default-rule-and-how-a-row-is-upgraded) asks five clauses and only the first of them is
+  measured here. **A witness was never owed and none was added** —
+  `client_only_arms_ssr_cljs_test.cljs`'s *through-n-dollar-a-visible-activity-subtree-reaches-the-response* is that
+  witness, landed with `rf2-cfriw` and cited by HS-23's cell all along. The **disposition** that was owed now exists.
+  **This checkpoint records a disposition and reads it as one**, which is the distinction scoring the row would lose.
 - **HS-34 owes nothing until a module exists.** There is no `re-frame.hicasso.routing` namespace anywhere under
   `implementation/`; `check_optional_module_reachability.py`'s `MODULES` roster names five and routing is not among
   them. No refusal can fire at a declaration source that does not exist, so the row is a finding rather than a gap and
@@ -250,9 +269,10 @@ this audit — but none of them is green, and the conjunct asks for green.
 
 **[Re-run 2026-08-15.] All four cells were re-read against `main` and not one has moved**, which is the load-bearing
 fact of this whole re-run. Nothing in PR #8275 touched them: `rf2-2l8pw` worked on the inventory's membership,
-`rf2-cfriw` on four *other* ids, `rf2-y5x6j` on a different §7 row entirely. **So the conjunct that decides this exit is
-failed today by the same rows that failed it before the three findings closed, plus HS-23's disproven policy and
-HS-34's absent module.** `rf2-s52w` remains `open` in both the tracker and
+`rf2-cfriw` on four *other* ids, `rf2-y5x6j` on a different §7 row entirely. **Nothing in PR #8286 touched them either**
+— it ruled on HS-23 and edited two other pages — so all four were re-read against `main` a second time, later on
+2026-08-15, with the same result. **So the conjunct that decides this exit is failed today by the same rows that failed
+it before the three findings closed, plus HS-34's absent module.** `rf2-s52w` remains `open` in both the tracker and
 [`correction-ledger.md`](correction-ledger.md), re-checked on the day of writing. That is why the arithmetic moved and
 the verdict did not, and it is the difference between reading §2 and reading §3.
 
@@ -341,7 +361,7 @@ table is where that distinction is drawn.
 |---|---|---|
 | Three facade surfaces with no inventory id | `rf2-2l8pw` | **Closed 2026-08-15** on a §1 re-run by closure bead `rf2-dybf9`, which wrote none of the fix. HS-40, HS-41 and HS-42 minted; the roster re-derived from the door as code by `check_facade_inventory.py`, zero escapes. The fix's own *no fourth escape* claim was false when written — `h/hframe` was one, minted since as HS-43 (`rf2-lvelh`) — so the row closed over a **larger** denominator than the fix claimed |
 | HMR through the `React.lazy` bridge, unwitnessed and unowned | `rf2-y5x6j` | **Closed 2026-08-15**, same closure bead. `npm run test:hicasso-hmr` driven rather than quoted: 45 real shadow reloads, 153 checks per engine on Chromium, Firefox and WebKit, with a section-name coverage floor so a skipped section cannot hide in the total. §7's Code splitting row is **met** above on it |
-| HS-31, HS-32, HS-34, HS-23 owe an unproved refusal, no live owner | `rf2-cfriw` | **Closed 2026-08-15**, same closure bead, and it is the one whose closure left work standing rather than finishing it. The witness landed and was executed; the diagnosis changed and no id went green. **Two remainders were carried forward deliberately** — HS-23's disposition, now `rf2-fdg4w` and **open**, and HS-34's absent module. §3 |
+| HS-31, HS-32, HS-34, HS-23 owe an unproved refusal, no live owner | `rf2-cfriw` | **Closed 2026-08-15**, same closure bead, and it is the one whose closure left work standing rather than finishing it. The witness landed and was executed; the diagnosis changed and no id went green. **Two remainders were carried forward deliberately** — HS-23's disposition and HS-34's absent module. **The first is settled**: PR #8286 ruled it on 2026-08-15 and `rf2-fdg4w` is closed. The second stands. §3 |
 | ~~The axe checks never landed and the routing chain terminates in nothing~~ | `rf2-5q8o` | **Withdrawn, and blocks nothing.** `rf2-7znnl` was closed as a duplicate of `rf2-5q8o`, whose ruling is **DECLINE**: no acceptance column asks for an axe sweep, so it is a non-goal rather than an unlanded witness. The Accessibility row it was filed against is met on §7's own Required proof |
 | ~~Migration's population is the in-repo corpus alone~~ | `rf2-gqp5s` | **Withdrawn, and blocks nothing.** The premise is false: `rf2-hic-055` ran three repositories and pinned each by commit, and the two external ones are checked out read-only and measured rather than vendored, so this tree was never where they would appear. Withdrawn in [`correction-ledger.md`](correction-ledger.md); the bead is closed and owes no work |
 
@@ -349,20 +369,23 @@ table is where that distinction is drawn.
 
 The table above is this checkpoint's **filed** misses and it is now empty of blockers. The exit is still not met, so a
 reader who stops at the table draws the wrong conclusion — precisely the reading
-[`correction-ledger.md`](correction-ledger.md) warns of when it says rows are not the verdict. Four things stand between
+[`correction-ledger.md`](correction-ledger.md) warns of when it says rows are not the verdict. Three things stand between
 this page and a met conjunct B, and **not one of them is a row this checkpoint filed**:
 
 | What stands | Owner | Kind |
 |---|---|---|
-| HS-23's `n/$` route renders where its Client-only policy says it refuses, and `defhost`, `[:>]` and `n/$` disagree in opposite directions | **`rf2-fdg4w`, open** | **An operator decision.** Three candidate dispositions differing in cost and in law; a witness is not owed |
 | HS-21's outward-bridge mismatch attribution is unreachable by construction — no Spec 011 reporter on a hand-rolled `hydrateRoot` | `rf2-s52w`, open | A missing door; the ledger row is open too, and the door is the operator's call |
 | HS-33 satisfies neither policy; its Render repair is recorded DECIDED and unbuilt | unowned — recorded in `impl.roots/open-adoption-window!` | Work, and the only one of the four that is plainly that |
 | HS-34's module does not exist, and HS-17/HS-18 are unwitnessed on the server | owed inside whichever bead lands `re-frame.hicasso.routing`; HS-17/HS-18 unowned | Work that is not yet scheduled |
 
-**`rf2-fdg4w` is not scored here in either direction and this checkpoint did not choose among its three dispositions.**
-Two of the three would make HS-23 green and one would move the question to HS-25; scoring the row on a guess at which
-would be this page asserting a decision the operator has not made. It is named as a live owner, counted against
-conjunct B, and left there.
+**`rf2-fdg4w` was the fourth row of that table until 2026-08-15, and its removal is the whole of what this amendment
+changes.** This page declined to score it while three dispositions were live, on the ground that scoring it would be
+asserting a decision the operator had not made. The operator has now made it — Disposition 1, landed in PR #8286 — so
+the reason to leave it standing went with it. **What replaced it is a disposition, not a green row**: HS-23 stays
+Client-only at its declaration doors, and the `n/$` route is recorded as conduct outside the declaration policy with its
+bytes witnessed and no hydration claim made. This page reads it that way and does not read it as an upgrade.
+**`rf2-s52w` is the operator call still outstanding**, and it is a different one — a missing door on HS-21, not a policy
+question — so it keeps its row above on its own evidence and is **not** swept out on the strength of HS-23's ruling.
 
 **Why this one was got wrong, since the same mistake has now been made twice.** The finding was reached by reading the
 tree for the population and not finding it — sound for every other row on this page, and unsound for this one.
@@ -401,11 +424,12 @@ arise, and `rf2-hic-064` has no ownerless §7 row to gate on here.
 only one left — and the SSR row is conjunct B stated as a coverage row. The two conjuncts have converged, which is the
 clearest the exit has been about what it wants.
 
-**Conjunct B needs four things and one of them is not work.** In the order a reader can act on them: `rf2-fdg4w`'s
-**decision** on HS-23, which is the operator's and which nothing else can proceed past; HS-33's Render repair, decided
-and unbuilt; witnesses for HS-17's named slot positions and HS-18's `h/as-element` on the server; and a
-`re-frame.hicasso.routing` namespace, inside which HS-34's refusal is witnessed. `rf2-s52w`'s door sits behind the same
-operator call as `rf2-fdg4w` and is the fifth if it is taken.
+**Conjunct B needs three things and all three are work.** In the order a reader can act on them: HS-33's Render repair,
+decided and unbuilt; witnesses for HS-17's named slot positions and HS-18's `h/as-element` on the server; and a
+`re-frame.hicasso.routing` namespace, inside which HS-34's refusal is witnessed. **A fourth item stood at the front of
+this list until 2026-08-15** — `rf2-fdg4w`'s decision on HS-23 — and PR #8286 answered it, which removed the item
+rather than completing the list. `rf2-s52w`'s door is the fourth if it is taken; it is its own operator call and no
+longer sits behind `rf2-fdg4w`'s, which has been made.
 
 **Conjunct C is unchanged.** Its economic half needs no work at all: it is red by ratified decision and stays red until
 a shell arm lands under `1,024 B`. Its bulk half needs a clock, which is `rf2-w01c`'s and is deferred to the
@@ -413,8 +437,8 @@ measurement lane.
 
 **The exit does not need all of that to become adjudicable, and it does need all of it to become met.** Nothing here is
 large — the three code items are a witness apiece, which is what they were when this page first said so. **What is
-different after #8275 is that the front of the queue is a decision rather than a build**, and a decision does not
-land by anyone working harder at it.
+different after #8286 is that the front of the queue is a build again.** #8275 left a decision there, and a decision
+does not land by anyone working harder at it; #8286 made it, and the three that remain are witnesses, which do.
 
 ## 10. What this record is not
 
