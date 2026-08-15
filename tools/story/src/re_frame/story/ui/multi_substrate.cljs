@@ -12,8 +12,73 @@
 
   Story doesn't add a new framework registry — substrate-rendering hooks
   are looked up in `substrate->render-fn` here. Story installs `:reagent`;
-  hosts that load UIx or another adapter register its renderer with
-  `register-substrate!`.
+  hosts that load UIx, Hicasso or another authoring layer register its
+  renderer with `register-substrate!`.
+
+  A substrate here is an AUTHORING LAYER — which registered render fn
+  embeds the subject — and not the adapter `rf/init!` installed. The two
+  are different axes, which `re-frame.story.schemas/SubstrateSet`'s
+  docstring sets out; `:hicasso` is the member that makes the difference
+  visible, since Hicasso ships no adapter and boots on UIx.
+
+  ## The `:hicasso` recipe (rf2-2dbpd)
+
+  Story ships no installer for it, for exactly the reason it ships none
+  for `:uix`: the renderer's one dependency is the HOST's, and Story core
+  stays free of it. Five lines at boot are the whole of it.
+
+      (ns my.app.story-boot
+        (:require [re-frame.core :as rf]
+                  [re-frame.hicasso :as h]
+                  [re-frame.story :as story]))
+
+      (story/register-substrate! :hicasso
+        (fn [_variant-id view-id args]
+          (if-let [head (:hicasso/component (rf/handler-meta :view view-id))]
+            (h/as-element [head args])
+            [:div (str \":component \" (pr-str view-id)
+                       \" is not registered as a hicasso view\")])))
+
+  Four facts about those lines, and each is a reason there are so few.
+
+  **`h/defview` publishes the keyword a story names** (rf2-5qaf4). The
+  declaration registers one `:view` entry under `(keyword \"<ns>\" \"<sym>\")`
+  carrying the minted head at `:hicasso/component`. It is an AUTHORING-TIME
+  ALIAS — debug-gated, and with NO `:handler-fn`, so `rf/view` answers nil
+  for it and this render fn reads the slot instead. A story therefore names
+  a Hicasso view exactly as it names a Reagent one, and `:component` stays
+  a keyword everywhere.
+
+  **Resolution is LATE, per render, and that is not incidental to the
+  shape.** Re-evaluating a `defview` replaces the entry behind the same id
+  with a fresh head, so a hot reload of the view's namespace reaches the
+  story with no story change. A head captured once at boot would paint the
+  stale one after every save.
+
+  **The element is minted fresh and its TYPE is stable, so there is no
+  cache to keep.** `h/defview` already mints ONE `React.memo` wrapper per
+  head at definition time and every element made from that head rides it
+  (`re-frame.hicasso.impl.codec/memoize-boundary!` + `element-type`), so a
+  fresh element per pass re-renders the boundary and never remounts it.
+  `h/as-component` is the wrong door here on both counts: it allocates a
+  component per call — a new element type every render, which React
+  responds to by unmounting the subtree — and it exists to decode
+  camelCase props from a NATIVE parent, work Story does not need, since it
+  already holds the kebab-keyword CLJS args map the boundary body wants.
+
+  **No frame plumbing appears, because none is needed.** The canvas
+  already wraps the subject in `[rf/frame-provider {:frame variant-id} …]`
+  (`re-frame.story.ui.canvas`), whose provider is
+  `re-frame.adapter.context/frame-context` — the single React context
+  every React-shaped adapter reads. A Hicasso boundary spliced into that
+  Reagent tree resolves the VARIANT's frame from it, with no second root,
+  no second state owner and no props ABI. (`h/mount!` is likewise the
+  wrong door: it makes a root, and the canvas is already inside one.)
+
+  Hicasso stories hand-author `:argtypes`. Auto-derivation reads the
+  view's `[:rf/props :schema]` `reg-view` metadata and `defview` carries
+  no props-schema slot — deferred by rf2-1gy4e until someone asks for
+  auto-Controls, rather than invented here.
 
   ## Grid layout
 
@@ -96,8 +161,9 @@
          the named substrate, threading `args` into the component.
 
          Pre-populated with `:reagent` which uses `re-frame.core/view`
-         + plain reagent. UIx entries plug in via
-         `register-substrate!` from the host app."}
+         + plain reagent. `:uix` and `:hicasso` entries plug in via
+         `register-substrate!` from the host app — the `:hicasso`
+         renderer is written out in this namespace's ns docstring."}
   substrate->render-fn
   (atom {}))
 
@@ -108,8 +174,11 @@
   `install-reagent-substrate!` below).
 
   `render-fn` takes `(variant-id view-id args)` and returns a hiccup
-  vector (Reagent) or a `react/createElement`-style React element
-  (UIx). Story's grid renders the result inside a `:div` cell."
+  vector (Reagent) or a `react/createElement`-style React element (UIx,
+  and Hicasso via `h/as-element`). Story's grid renders the result inside
+  a `:div` cell, and the single pane splices it into the canvas tree —
+  Reagent passes a React element in child position through untouched, so
+  the two return shapes are interchangeable at every call site."
   [substrate-id render-fn]
   (swap! substrate->render-fn assoc substrate-id render-fn)
   nil)
