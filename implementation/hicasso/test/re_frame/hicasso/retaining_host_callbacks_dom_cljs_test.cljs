@@ -190,7 +190,7 @@
 (h/defhost sink-handler
   "The SAME vendor at the `:handler` contract, which passes an `h/event`
   through by identity. One declaration apart from the row above, so the
-  grid's `:handler` row differs from its `:hfn-hoisted` row in the
+  grid's `:handler` row differs from its `:event-hoisted` row in the
   declaration and in nothing else."
   sink
   {:callbacks {:on-ping :handler}})
@@ -208,12 +208,12 @@
   (swap! !plain-calls inc)
   nil)
 
-(def ^:private hoisted-hfn
+(def ^:private hoisted-event
   "The one callback form, minted once at load rather than per render.
   At an `:event` contract this is STILL re-wrapped every render — the
   wrapper is what closes over the frame-locked dispatch — so hoisting the
   author's own function does not hoist what the vendor sees. That is the
-  `:hfn-hoisted` row, and it is the row that shows the churn is the
+  `:event-hoisted` row, and it is the row that shows the churn is the
   LOWERING's and not the author's."
   (h/event [& _] (swap! !plain-calls inc) [::ping :hoisted]))
 
@@ -233,10 +233,10 @@
      (case arm
        :absent        [sink-event   {:label "s"}]
        :plain-fn      [sink-event   {:label "s" :on-ping plain-ping}]
-       :handler       [sink-handler {:label "s" :on-ping hoisted-hfn}]
+       :handler       [sink-handler {:label "s" :on-ping hoisted-event}]
        :intent-vector [sink-event   {:label "s" :on-ping [::ping :vector]}]
-       :hfn-inline    [sink-event   {:label "s" :on-ping (h/event [& _] [::ping :inline])}]
-       :hfn-hoisted   [sink-event   {:label "s" :on-ping hoisted-hfn}]
+       :event-inline  [sink-event   {:label "s" :on-ping (h/event [& _] [::ping :inline])}]
+       :event-hoisted [sink-event   {:label "s" :on-ping hoisted-event}]
        :key-map       [sink-event   {:label "s" :on-ping {"Enter" [::ping :key-map]}}])]))
 
 ;; ---------------------------------------------------------------------------
@@ -373,8 +373,8 @@
    [:handler       [host-parent {:arm :handler}]       :bails]
    [:native-stable [stable-parent {}]                  :bails]
    [:intent-vector [host-parent {:arm :intent-vector}] :re-renders]
-   [:hfn-inline    [host-parent {:arm :hfn-inline}]    :re-renders]
-   [:hfn-hoisted   [host-parent {:arm :hfn-hoisted}]   :re-renders]
+   [:event-inline  [host-parent {:arm :event-inline}]  :re-renders]
+   [:event-hoisted [host-parent {:arm :event-hoisted}] :re-renders]
    [:key-map       [host-parent {:arm :key-map}]       :re-renders]
    [:native-churn  [churn-parent {}]                   :re-renders]])
 
