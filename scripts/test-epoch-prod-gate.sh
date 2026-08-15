@@ -84,8 +84,15 @@
 # namespace added to `implementation/epoch/test/` joins this lane BY DEFAULT and
 # has to be excluded deliberately, so a new suite that quietly starts retaining
 # state under the production gate reddens this job the day it lands.  An
-# allowlist would have the opposite failure mode.  The triage bead is rf2-t7qh8
-# — read the note above before treating any line below as debt.
+# allowlist would have the opposite failure mode.
+#
+# TRIAGED (rf2-t7qh8, 2026-08-15) AND LEFT AT 22.  Every entry was classified,
+# and the classes are recorded beside the entries below: 15 subject-elided, 6
+# publication-elided, 1 non-terminating.  None was incidental, so the roster did
+# not shrink and is not expected to.  The count is not the health metric here —
+# a shrinking roster would mean epoch had acquired production behaviour, which
+# is the opposite of its design.  What triage DID change is in the runnable
+# half, not this list: see the note above `known_red`.
 #
 # BEFORE YOU ADD A LINE: a namespace that is red here is asserting epoch's DEV
 # behaviour, or it is a genuine production defect (rf2-9c2jf was the latter).
@@ -113,13 +120,32 @@ test_root="$artefact/test"
 # below), so a rename cannot leave a stale exclusion quietly suppressing
 # coverage.
 # ---------------------------------------------------------------------------
+# rf2-t7qh8 TRIAGED THIS ROSTER AND CHANGED NO ENTRY.  All 22 fall into three
+# classes, below; NONE is the "could run, nobody tried" class, so the roster has
+# no incidental members and nothing to shrink.  The discriminator that decides
+# every case is one question — DOES THE GATE ERASE WHAT THE SUITE IS ABOUT? — and
+# the two green projection suites are what make it sharp rather than rhetorical.
+# `epoch-egress-resource-scope-test` and the projection suites in class A test
+# the SAME transform; the green one SYNTHESISES its record as a literal, the red
+# ones dispatch and read theirs back out of the ring.  Projection is ungated
+# (tool_pair.cljc — the gate elides record ASSEMBLY, not record PROJECTION), so
+# what fails is never the subject, it is the suite's ability to obtain one.
+#
+# THE ONE THING TRIAGE FOUND WORTH DOING was not on this list at all.  It was in
+# the lane's RUNNABLE half: six of `epoch-jvm-prod-gate-test`'s ten lane-running
+# deftests asserted an absence with no witness that the dispatch they reason
+# about had happened — rf2-9c2jf's exact shape, inside a required job.  Each now
+# reads its handler's app-db write back before asserting the absence.  That is
+# the VACUOUS-PASS class rf2-o5dbf kept finding in routing, and for this artefact
+# it lives among the greens, not among the reds.
 known_red=(
-  # ── EPOCH IS OFF UNDER THIS GATE, BY DESIGN.  Every namespace in this group
-  #    exercises epoch's recording, restore, projection, redaction, silencing
-  #    or attribution behaviour, and under the production gate the artefact
-  #    performs none of it — see the header, and rf2-vnjfg / rf2-0la4f for why
-  #    that is the intended posture.  These are legitimate dev-posture suites,
-  #    not defects and not triage debt; see rf2-t7qh8 before moving any of them.
+  # ── CLASS A · SUBJECT ELIDED (15).  These suites obtain their subject by
+  #    dispatching and reading the ring back — recording, restore, replay,
+  #    capture-buffer and projection-of-a-recorded-record.  Under the gate the
+  #    ring never fills, so there is no subject to assert about; see the header
+  #    and rf2-vnjfg / rf2-0la4f for why that is the intended posture.  NOT debt:
+  #    re-including one would require inventing behaviour the artefact is
+  #    designed not to have in production.  DISPOSITION: correct as-is.
   re-frame.actor-revertibility-restore-test              #  21 /   44
   re-frame.epoch-attribution-test                        # 107 /  208
   re-frame.epoch-drain-serialization-test                #  13 /   26
@@ -132,24 +158,51 @@ known_red=(
   re-frame.epoch-redact-fn-projection-test               #  23 /   45
   re-frame.epoch-redact-fn-test                          #  42 /   66
   re-frame.epoch-run-cause-test                          #  20 /   27
+  re-frame.epoch-test                                    # 428 /  752
+  re-frame.join-strict-mint-epoch-replay-test            #  17 /   29
+  re-frame.machine-minted-cofx-replay-token-test         #   6 /    9
+
+  # ── CLASS B · PUBLICATION ELIDED (6).  Different mechanism, same verdict, and
+  #    worth separating because the failure ratios invite the wrong conclusion —
+  #    `lineage-285` fails 68 of 3608 assertions, which reads like a suite that
+  #    almost runs.  It nearly does: the LEDGER these suites drive
+  #    (`re-frame.epoch.state`) carries no `debug-enabled?` gate at all, so its
+  #    arithmetic is posture-INDEPENDENT and its thousands of assertions pass
+  #    here for the same reason they pass in dev.  What the gate erases is the
+  #    PUBLICATION — `listeners.cljc`'s `on-frame-destroyed!` and the fan-out
+  #    around it are gated — and the emitted silencing trace is the observable
+  #    every one of these suites is actually about.
+  #
+  #    So splitting them would buy assertions, not coverage: a posture-
+  #    independent path re-run in a second posture reports what the dev lane
+  #    already reported, at the cost of permanent per-deftest tagging and, for
+  #    `lineage-285` and `lineage-aba`, concurrency latches in a required job.
+  #    The lane already carries two ungated-ledger suites under the real gate
+  #    (`silence-decision-atomicity`, `silencing-emit-deadlock`), which is what
+  #    covers the load-time risk; four more of the same shape add cost, not
+  #    information.  DISPOSITION: correct as-is.
   re-frame.epoch-silence-contract-test                   #   6 /   21
   re-frame.epoch-silence-receiver-public-api-test        #   7 /   12
   re-frame.epoch-silencing-generation-emission-test      #   4 /   13
   re-frame.epoch-silencing-lineage-285-test              #  68 / 3608
   re-frame.epoch-silencing-lineage-aba-test              #   7 /   19
   re-frame.epoch-silencing-same-generation-rearm-test    #  17 /   34
-  re-frame.epoch-test                                    # 428 /  752
-  re-frame.join-strict-mint-epoch-replay-test            #  17 /   29
-  re-frame.machine-minted-cofx-replay-token-test         #   6 /    9
 
-  # ── DOES NOT TERMINATE under the gate, which is a different fact from "red"
-  #    and is recorded as such.  Its stress loops wait on epoch ids the no-op
-  #    floor never mints, so each iteration burns its full budget: the whole
-  #    namespace runs inside a 53s dev-posture suite and exceeded a 150s ceiling
-  #    ALONE under the gate.  It stays excluded on cost grounds regardless of
-  #    how rf2-t7qh8 triages the group above — a lane that WEDGES is worse than
-  #    one that reds, because it consumes the job's whole timeout and reports
-  #    nothing.
+  # ── CLASS C · HAZARDOUS: DOES NOT TERMINATE (1).  A different fact from "red"
+  #    and recorded as such.  Its stress loops wait on epoch ids the no-op floor
+  #    never mints, so each iteration burns its full budget.  RE-MEASURED under
+  #    rf2-t7qh8, this namespace ALONE, on the same box minutes apart:
+  #
+  #        dev posture   7 tests / 929 assertions, 0 failures, exit 0 —   21s
+  #        under gate    no summary line, no verdict, killed at a 200s bound
+  #
+  #    The shape is worse than the ratio suggests.  It emits a ~267KB burst of
+  #    failures in its first half-minute and then produces NOTHING for the rest
+  #    of the bound — from outside, indistinguishable from a healthy long run.
+  #    A lane that WEDGES is worse than one that reds: it consumes the job's
+  #    whole timeout and reports no verdict at all.  DISPOSITION: stays excluded
+  #    on cost grounds, permanently, independent of how A and B are read.  This
+  #    is the highest-risk line in the file to re-include — do not.
   re-frame.epoch-concurrency-stress-test
 )
 

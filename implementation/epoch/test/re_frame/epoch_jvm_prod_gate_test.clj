@@ -81,7 +81,24 @@
   The companion core gate vocabulary suite is
   `re-frame.interop-debug-gate-test`; the core integration suite is
   `re-frame.jvm-prod-gate-integration-test`. This file is the epoch
-  artefact's contribution."
+  artefact's contribution.
+
+  ## Why every negative assertion below is paired with a WITNESS (rf2-t7qh8)
+
+  Almost everything this suite claims is an ABSENCE — an empty ring, a silent
+  listener, an uninvoked `:redact-fn`, a warning that never fired. An absence is
+  satisfied by two different worlds: the gate elided the recording (the claim),
+  or the dispatch never happened at all (a defect). rf2-9c2jf was the second
+  world — `dispatch-sync` running its handler ZERO times under the documented
+  gate — and a bare `(is (empty? …))` cannot tell them apart. It reports green
+  for both, which is what let rf2-9c2jf live.
+
+  So each of these deftests asserts, beside the absence, that the dispatch it is
+  reasoning about actually landed: the handler's app-db write is read back
+  through `app-db-of`. That converts \"nothing was recorded\" from an
+  unfalsifiable statement into a conditional one — the run did the work AND
+  epoch kept none of it. Do not delete a witness to \"simplify\" a test; the
+  witness is the half that makes the other half mean something."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.epoch :as epoch]
@@ -115,6 +132,11 @@
     {:adapter plain-atom/adapter
      :init-fn (fn [] (rf/configure! {:epoch-history {:trace-events-keep 5}}))}))
 
+;; rf2-t7qh8 — the witness read. See the docstring section above: it is what
+;; separates "epoch recorded nothing" from "nothing happened".
+(defn- app-db-of [frame-id]
+  (:rf.db/app (rf/frame-state-value frame-id)))
+
 (deftest epoch-history-inert-when-debug-disabled
   (testing "Per rf2-0la4f: when the JVM debug gate reads false, the
             per-frame epoch ring stays empty regardless of how many
@@ -128,6 +150,9 @@
       (rf/dispatch-sync [:prod-gate.epoch/inc])
       (rf/dispatch-sync [:prod-gate.epoch/inc])
       (rf/dispatch-sync [:prod-gate.epoch/inc])
+      (is (= 3 (:n (app-db-of :rf/default)))
+          "WITNESS: all three dispatches ran their handler and committed —
+           so the empty ring below is elision, not a dead dispatch loop")
       (is (empty? (epoch/epoch-history :rf/default))
           "epoch ring is empty under disabled debug gate"))))
 
@@ -144,6 +169,9 @@
         (rf/reg-event :prod-gate.epoch/silent
                          (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
         (rf/dispatch-sync [:prod-gate.epoch/silent])
+        (is (= 1 (:n (app-db-of :rf/default)))
+            "WITNESS: the dispatch ran — the silent listener below had a real
+             cascade to miss")
         (is (empty? @seen)
             "epoch listener silent under disabled debug gate")))))
 
@@ -201,6 +229,9 @@
       (rf/reg-event :prod-gate.priv/silent
                        (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
       (rf/dispatch-sync [:prod-gate.priv/silent])
+      (is (= 1 (:n (app-db-of :rf/default)))
+          "WITNESS: the dispatch ran — nothing reached the ring for the
+           projection to read")
       (is (= [] (epoch/projected-history :rf/default))
           "empty projected-history under the disabled gate"))))
 
@@ -215,6 +246,9 @@
                        {:sensitive? true}
                        (fn [{:keys [db]} _] {:db (assoc db :token "shh")}))
       (rf/dispatch-sync [:prod-gate.priv/sensitive])
+      (is (= "shh" (:token (app-db-of :rf/default)))
+          "WITNESS: the `:sensitive?`-flagged handler ran and wrote the token —
+           so the absent rollup below is elision, not an absent event")
       (is (empty? (epoch/epoch-history :rf/default))
           "no record assembled — rollup never reached"))))
 
@@ -243,6 +277,9 @@
         (rf/dispatch-sync [:prod-gate.redact/inc])
         (rf/dispatch-sync [:prod-gate.redact/inc])
         (rf/dispatch-sync [:prod-gate.redact/inc])
+        (is (= 3 (:n (app-db-of :rf/default)))
+            "WITNESS: all three dispatches ran — the zero invocation count
+             below is a hook that was never on the path, not a path never taken")
         (is (zero? @invocations)
             ":redact-fn was never called along the storage path — it is a
              projection-side hook, and record assembly is elided anyway")
@@ -309,6 +346,10 @@
                        (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
       (rf/dispatch-sync [:prod-gate.redact/throw] {:frame :prod-gate.throw/frame})
       (rf/dispatch-sync [:prod-gate.redact/throw] {:frame :prod-gate.throw/frame})
+      (is (= 2 (:n (app-db-of :prod-gate.throw/frame)))
+          "WITNESS: both dispatches ran with a THROWING :redact-fn installed —
+           the absent warning below is a hook never reached at settle, not a
+           dispatch that never happened")
       (let [redact-warns (filter (fn [ev]
                                    (= :rf.warning/epoch-redact-fn-exception
                                       (:operation ev)))
