@@ -77,6 +77,43 @@ R2  RESOLVED.  Every `alias/verb` a Clojure block names — where `alias` is one
     aliases are out of scope by construction rather than by a filter someone
     has to maintain.
 
+    R2 POOLS THOSE ALIASES ACROSS THE WHOLE GUIDE, and that is correct FOR R2:
+    its question is "does this verb exist in that namespace", and answering it
+    needs only a name-to-namespace map, no matter which page bound it.  What
+    the pooling cannot do is answer a DIFFERENT question — "does this block
+    bind the alias it uses" — and for a long time nothing asked it.  That is
+    R5 below, and the two are kept apart deliberately rather than by folding
+    a scope test into R2 and giving one rule two jobs.
+
+R5  SELF-CONTAINED.  Every alias a Clojure block USES is bound by the `(ns …)`
+    form governing that block's section.  A block that names `rf/reg-event`
+    while its own `ns` form requires no `re-frame.core` cannot compile, and
+    before this rule nothing here could see it (rf2-vz6dg).
+
+    SCOPE IS PER SECTION, not per page and not per block.  Per block is wrong
+    because the guide legitimately teaches an `ns` form once and then shows
+    several blocks under it; per page is wrong MEASURED — it reports 21 sites
+    on a corpus that is correct, because a page routinely finishes with one
+    namespace and starts illustrating another without a new `ns` form.  A
+    markdown heading is where the guide changes subject, so a heading ends the
+    scope.  Measured on the corpus this rule shipped against: 0 problems,
+    and 6 on the pre-repair cookbook, which is every defect rf2-hic-060 found
+    by hand plus the two further sites in the same recipes.
+
+    IT READS AUTO-RESOLVED KEYWORDS, and that is the half R2 is blind to by
+    construction.  `::subs/row-count` needs `subs` bound AT READ TIME, so a
+    missing alias there is not an undefined var but a hard reader failure —
+    `Invalid keyword` — a recipe that never parsed at all.  R2 correctly does
+    not treat such a keyword as a VAR USE (its own self-test asserts so, and
+    that stays true); R5 reads the same form for its ALIAS only.  This is why
+    the rule that catches the cookbook's two defects is ONE rule: a missing
+    `re-frame.core` and a missing `my.app.subs` are the same failure, seen
+    once through a symbol and once through a keyword.
+
+    Only aliases THE GUIDE ITSELF BINDS somewhere are in scope, by the same
+    construction R2 uses: `js/`, `goog/` and a reader's own spellings are
+    never flagged, because the guide never requires them.
+
 R3  THE LEDGER IS LIVE.  This is the rule the Freehand mechanism did not have,
     and the reason the promotion's coverage loss is worth more than a digest.
 
@@ -399,11 +436,107 @@ def defined_names(path: str) -> set[str]:
 
 
 def guide_aliases(pages: dict[str, str]) -> dict[str, str]:
-    """`{alias: namespace}` read off the guide's own `:require` forms."""
+    """`{alias: namespace}` read off the guide's own `:require` forms.
+
+    POOLED ACROSS THE GUIDE ON PURPOSE — see R2.  This map answers "which
+    namespace does this alias mean", which no page boundary changes.  It is
+    NOT a statement that the alias is in scope anywhere in particular, and
+    reading it as one is the hole rf2-vz6dg recorded; [[section_scopes]] is
+    what knows where an alias is actually bound.
+    """
     out: dict[str, str] = {}
     for text in pages.values():
         for ns, alias in _REQUIRE_RE.findall(text):
             out[alias] = ns
+    return out
+
+
+# Every `[some.namespace :as alias]`, hicasso or not.  R5 needs the WHOLE
+# require vocabulary — the cookbook's two defects were `re-frame.core` and
+# `my.app.subs`, neither of which `_REQUIRE_RE` matches.
+_ANY_REQUIRE_RE = re.compile(r"\[([a-zA-Z][\w.-]*)\s+:as\s+([a-zA-Z][\w.-]*)\]")
+
+# An `(ns …)` form opening a block.
+_NS_FORM_RE = re.compile(r"\(ns\s+[a-zA-Z]")
+
+# `::alias/name`.  The lookbehind rejects `:::`; a SINGLE-colon `:alias/name`
+# is a plain qualified keyword that needs no alias and is deliberately not
+# matched.  R2 reads this form for nothing — an auto-resolved keyword is not a
+# var use — and R5 reads it for its ALIAS only, which is what has to be bound
+# at read time.
+_AUTO_KEYWORD_RE = re.compile(
+    r"(?<!:)::([a-zA-Z][\w.-]*)/([a-zA-Z*+!?<>=_-][\w*+!?<>=_.'-]*)"
+)
+
+_HEADING_RE = re.compile(r"^#{1,6}\s")
+
+
+def all_guide_aliases(pages: dict[str, str]) -> dict[str, str]:
+    """Every alias the guide binds ANYWHERE, hicasso or not.
+
+    R5's vocabulary of "things that are aliases at all".  Derived, never
+    listed, for R2's reason: a token the guide never requires — `js/`,
+    `goog/` — is out of scope by construction rather than by a filter.
+    """
+    out: dict[str, str] = {}
+    for text in pages.values():
+        for ns, alias in _ANY_REQUIRE_RE.findall(text):
+            out[alias] = ns
+    return out
+
+
+def section_scopes(text: str) -> list[dict[str, str] | None]:
+    """The alias scope in force at each fenced block, in document order.
+
+    One entry per block, aligned with [[blocks]] so a caller can zip the two.
+    `None` means no `(ns …)` form governs the block — it is an illustrative
+    fragment that declares nothing, so R5 asks nothing of it.
+
+    A markdown heading ENDS a scope.  That is the whole scoping model, and it
+    is measured rather than assumed: inheriting across headings instead
+    reports 21 sites on a corpus that is correct, because a page regularly
+    finishes with one namespace and begins illustrating another under the
+    next heading without a fresh `ns` form.
+    """
+    lines = text.replace("\r\n", "\n").split("\n")
+    out: list[dict[str, str] | None] = []
+    scope: dict[str, str] | None = None
+    i = 0
+    while i < len(lines):
+        if _HEADING_RE.match(lines[i]):
+            scope = None
+            i += 1
+            continue
+        if not lines[i].startswith("```"):
+            i += 1
+            continue
+        lang = lines[i][3:].strip() or "none"
+        j = i + 1
+        while j < len(lines) and not lines[j].startswith("```"):
+            j += 1
+        body = lines[i + 1:j]
+        if lang in CLOJURE_LANGS and _NS_FORM_RE.search("\n".join(body)):
+            scope = {alias: ns
+                     for ns, alias in _ANY_REQUIRE_RE.findall("\n".join(body))}
+        out.append(scope)
+        i = j + 1
+    return out
+
+
+def used_aliases(body: list[str]) -> set[tuple[str, str, str]]:
+    """`{(alias, name, kind)}` for every alias a block's code names.
+
+    Two kinds, because the guide's two recorded defects were one of each and
+    the failure they cause differs: a `var` use of an unbound alias is an
+    undeclared var at compile time, and a `keyword` use of one is a READER
+    error — the sample never parses.
+    """
+    out: set[tuple[str, str, str]] = set()
+    for line in mask(body):
+        for alias, verb in _QUALIFIED_RE.findall(line):
+            out.add((alias, verb, "var"))
+        for alias, name in _AUTO_KEYWORD_RE.findall(line):
+            out.add((alias, name, "keyword"))
     return out
 
 
@@ -644,6 +777,48 @@ def r4_status_block_declares(
     return problems
 
 
+def r5_unbound_alias(
+    pages: dict[str, str],
+    corp: dict[str, list[dict]],
+    vocabulary: dict[str, str],
+) -> list[str]:
+    """R5 — a block's own section binds every alias the block uses.
+
+    The rule R1 and R2 could not between them express.  R1 pins BYTES, so it
+    certifies "nobody edited this", not "this compiles"; R2 pools aliases
+    across the guide, so a block missing its own `:require` still resolved
+    against some other page's.  Both were green on a cookbook recipe that
+    could not be read, let alone run (rf2-vz6dg).
+
+    A block governed by no `ns` form is not checked.  That is not a gap: such
+    a block declares no compilation unit, so there is nothing it could be
+    failing to declare.  The rule speaks exactly where the guide has made a
+    claim about what a namespace contains.
+    """
+    problems: list[str] = []
+    for page in sorted(corp):
+        scopes = section_scopes(pages[page])
+        for block, scope in zip(corp[page], scopes):
+            if block["lang"] not in CLOJURE_LANGS or scope is None:
+                continue
+            for alias, name, kind in sorted(used_aliases(block["body"])):
+                if alias in vocabulary and alias not in scope:
+                    detail = (
+                        "an auto-resolved keyword needs its alias AT READ "
+                        "TIME, so this block does not parse"
+                        if kind == "keyword"
+                        else "an undeclared var"
+                    )
+                    problems.append(
+                        f"{page} block {block['n']} uses `{alias}/{name}` but "
+                        f"the `ns` form governing its section does not require "
+                        f"`{vocabulary[alias]}` — {detail}. Add the alias to "
+                        f"that `ns` form, or move the block under one that has "
+                        f"it"
+                    )
+    return problems
+
+
 # ---------------------------------------------------------------------------
 # The roster
 # ---------------------------------------------------------------------------
@@ -827,16 +1002,25 @@ def run_check(verbose: bool = False) -> int:
         src = namespace_source(ns)
         exports[ns] = defined_names(src) if src else None
 
+    vocabulary = all_guide_aliases(pages)
+
     failures: list[tuple[str, list[str]]] = [
         ("R1 PINNED", r1_pin_drift(corp, ROSTER)),
         ("R2 RESOLVED", r2_unresolved(uses, exports)),
         ("R3 LEDGER IS LIVE", r3_stale_ledger(exports)),
         ("R4 THE PAGE MATCHES THE LEDGER", r4_status_block_declares(pages, aliases)),
+        ("R5 SELF-CONTAINED", r5_unbound_alias(pages, corp, vocabulary)),
     ]
 
     total_blocks = sum(len(b) for b in corp.values())
     code_blocks = sum(
         1 for b in corp.values() for x in b if x["lang"] in CLOJURE_LANGS
+    )
+    scoped_blocks = sum(
+        1
+        for page in corp
+        for block, scope in zip(corp[page], section_scopes(pages[page]))
+        if block["lang"] in CLOJURE_LANGS and scope is not None
     )
 
     bad = False
@@ -859,6 +1043,8 @@ def run_check(verbose: bool = False) -> int:
         f"Hicasso guide samples: {total_blocks} fenced blocks pinned across "
         f"{len(corp)} pages ({code_blocks} Clojure), "
         f"{len(uses)} hicasso verb use-sites resolved, "
+        f"{scoped_blocks} block(s) checked self-contained against "
+        f"{len(vocabulary)} guide alias(es), "
         f"{len(DIVERGENCES)} declared divergence(s) + "
         f"{len(ABSENT_NAMESPACES)} absent namespace(s) still live."
     )
@@ -1010,6 +1196,91 @@ def self_test() -> int:
     check("R4 reds when the Status section is missing entirely",
           any("no `## Status` section" in p
               for p in r4("# Guide\n\nno status here\n", two)))
+
+    # ---- R5 -----------------------------------------------------------
+    #
+    # Both recorded defects are reproduced here in their real shape, because
+    # this rule exists for them specifically (rf2-vz6dg): a var use whose
+    # alias no `ns` form bound, and an auto-resolved KEYWORD whose alias no
+    # `ns` form bound.  The second is the one that never parsed.
+    fx_vocab = {"rf": "re-frame.core", "h": "re-frame.hicasso",
+                "subs": "my.app.subs", "str": "clojure.string"}
+
+    def r5(page_text: str):
+        pages_ = {"p.md": page_text}
+        return r5_unbound_alias(pages_, {"p.md": blocks(page_text)}, fx_vocab)
+
+    ok_page = (
+        "## A recipe\n\n"
+        "```clojure\n(ns my.app.views\n"
+        "  (:require [re-frame.core :as rf]\n"
+        "            [re-frame.hicasso :as h]))\n```\n\n"
+        "```clojure\n(rf/reg-event :x)\n(h/sub [:y])\n```\n"
+    )
+    check("R5 silence when the section's ns form binds what it uses",
+          r5(ok_page) == [])
+
+    # Defect 1: `rf/reg-event` in a later block, no `re-frame.core` required.
+    missing_var = (
+        "## A recipe\n\n"
+        "```clojure\n(ns my.app.views\n"
+        "  (:require [re-frame.hicasso :as h]))\n```\n\n"
+        "```clojure\n(rf/reg-event :x)\n```\n"
+    )
+    problems = r5(missing_var)
+    check("R5 catches a VAR use whose alias the section never required",
+          any("`rf/reg-event`" in p and "re-frame.core" in p for p in problems))
+    check("R5 names the var case as an undeclared var",
+          any("an undeclared var" in p for p in problems))
+
+    # Defect 2, the reader failure: `::subs/row-count` with no `subs` alias,
+    # in the SAME block as the ns form that omits it.
+    missing_kw = (
+        "## A recipe\n\n"
+        "```clojure\n(ns my.app.views\n"
+        "  (:require [re-frame.hicasso :as h]))\n\n"
+        "(h/defview ledger [_]\n"
+        "  (let [total (h/sub [::subs/row-count])]\n"
+        "    [:div total]))\n```\n"
+    )
+    problems = r5(missing_kw)
+    check("R5 catches an AUTO-RESOLVED KEYWORD whose alias is unbound",
+          any("`subs/row-count`" in p for p in problems))
+    check("R5 explains the keyword case as a READ-TIME failure",
+          any("AT READ TIME" in p and "does not parse" in p for p in problems))
+
+    # A heading ENDS the scope — the measured difference between this rule
+    # reporting 0 sites on a correct corpus and reporting 21.
+    after_heading = (
+        "## First\n\n"
+        "```clojure\n(ns my.app.views\n"
+        "  (:require [re-frame.core :as rf]))\n```\n\n"
+        "## Second\n\n"
+        "```clojure\n(rf/reg-event :x)\n```\n"
+    )
+    check("R5 does not inherit a scope across a heading",
+          r5(after_heading) == [])
+
+    check("R5 asks nothing of a block no ns form governs",
+          r5("## Fragment\n\n```clojure\n(rf/reg-event :x)\n```\n") == [])
+    check("R5 ignores an alias the guide never binds",
+          r5("## S\n\n```clojure\n(ns a (:require [re-frame.core :as rf]))\n"
+             "(js/setTimeout f 0)\n```\n") == [])
+    check("R5 reads no verb from a non-Clojure fence",
+          r5("## S\n\n```clojure\n(ns a (:require [re-frame.core :as rf]))\n```\n\n"
+             "```css\n.x{}\n```\n") == [])
+    check("R5 ignores a plain qualified keyword, which needs no alias",
+          r5("## S\n\n```clojure\n(ns a (:require [re-frame.core :as rf]))\n"
+             "(def m {:subs/row-count 1})\n```\n") == [])
+    check("R5 is silent on an alias used inside a string or comment",
+          r5("## S\n\n```clojure\n(ns a (:require [re-frame.core :as rf]))\n"
+             '(def d "subs/row-count") ; str/join\n```\n') == [])
+
+    # `section_scopes` stays aligned with `blocks`, which is what lets R1's
+    # ordinals and R5's scopes describe the same block.
+    aligned = ok_page + "\n## Next\n\n```css\n.a{}\n```\n"
+    check("section_scopes is one entry per fenced block, in the same order",
+          len(section_scopes(aligned)) == len(blocks(aligned)))
 
     # ---- masking ------------------------------------------------------
     check("mask blanks a `;` comment", mask(["(h/sub) ; h/ghost"])[0].strip()
