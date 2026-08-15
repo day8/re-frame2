@@ -1135,6 +1135,63 @@
     (k result))
   nil)
 
+(defn- step-settle-boundary
+  "The boundary the substrate must already be AT for `step` to observe or
+  drive an honest DOM. Pure data → data.
+
+  Mostly this is the step's own `step-required-boundary`. The one place it
+  is not is the folded in-script checkpoint: a shipping
+  `[:assert-dom selector …]` has been rewritten to
+  `[:assert [:rf.assert/dom-* …]]` by the time it reaches the executor, and
+  `default-step-boundaries` maps the `:assert` tag to `:headless` on
+  purpose — 'the wrapped atom may need more (e.g. DOM); its capability
+  tokens, not its boundary, gate that'. So the boundary ladder alone
+  cannot see that this particular checkpoint reads the DOM. We recover it
+  from the atom's family, using the SAME `dom-assertion-ids` set
+  `exec-assert!` routes on, rather than re-deriving a second notion of
+  'this one is a DOM assertion'.
+
+  Tolerant: a malformed / non-vector assertion atom reads as its declared
+  boundary rather than throwing on the way to the executor that will
+  report it properly."
+  [step]
+  (let [declared (boundary/step-required-boundary step)]
+    (if (and (= :assert (runner/step-type step))
+             (let [atom-v (runner/step-assertion step)]
+               (and (vector? atom-v)
+                    (contains? assertions/dom-assertion-ids (first atom-v)))))
+      (boundary/max-boundary declared :dom)
+      declared)))
+
+(defn- settle-substrate-for-step!
+  "Establish `step`'s required settled-boundary BEFORE the step runs, via
+  the active flush-hooks. Returns a step-result when the settle refused /
+  errored (projected through the same `boundary-result->step` the dispatch
+  path uses, so a refusal reads identically wherever it arose), else nil.
+
+  Why BEFORE. A step that requires `:dom` requires it as a PRECONDITION:
+  `[:click …]` must match its selector against the DOM as it currently
+  stands, and `[:assert [:rf.assert/dom-text …]]` must read the DOM the
+  preceding steps produced. Establishing the boundary up front is also
+  what `dispatch-and-settle!` already does with its fail-closed refusal —
+  it decides before it acts, not after.
+
+  This is what retired the `setTimeout` 0 as Story's settle signal
+  (rf2-ek9qb). The run-loop's macrotask yield stays where it is: it drains
+  the MICROTASK queue after a synthetic DOM event, which is a different
+  job and still a real one. What it never did was ask the substrate to
+  COMMIT, and on a rAF-scheduled substrate no amount of yielding makes it.
+
+  Cheap and inert below `:cljs-reactive` — the overwhelming majority of
+  steps — and inert on any host whose hooks register no richer flush,
+  which is every headless host. So the JVM path is unchanged."
+  [frame-id idx step]
+  (let [required (step-settle-boundary step)]
+    (when (boundary/boundary>= required :cljs-reactive)
+      (boundary-result->step
+        idx step
+        (boundary/settle-to! frame-id (current-flush-hooks frame-id) required step)))))
+
 (defn exec-step!
   "Execute ONE step against `frame-id`. Returns a step-result record
   (per `runner/step-pass` / `step-fail` / `step-skip` / `step-exception`).
@@ -1151,24 +1208,30 @@
   (a hand-built step that bypassed resolution) is folded inline as a
   belt-and-braces guard so there is ONE in-script assertion executor and
   ONE assertion-record vocabulary — never a synthetic `:rf.assert/db` /
-  `:rf.assert/dom` rail."
+  `:rf.assert/dom` rail.
+
+  A step that requires a boundary richer than `:headless` has that
+  boundary ESTABLISHED first (`settle-substrate-for-step!`), so it runs
+  against a substrate that has committed rather than one that is about to."
   [frame-id idx step]
-  (let [stype (runner/step-type step)]
-    (case stype
-      :dispatch       (exec-dispatch!      frame-id idx step)
-      :dispatch-sync  (exec-dispatch-sync! frame-id idx step)
-      :assert         (exec-assert!        frame-id idx step)
-      ;; A raw shipping assertion step that escaped folding — fold it inline
-      ;; to the canonical checkpoint and run the ONE assert executor.
-      (:assert-db
-       :assert-dom)   (exec-assert! frame-id idx (assertions/fold-assert-step step))
-      :wait-until     (exec-wait-until!    frame-id idx step)
-      :flush-presence (exec-flush-presence! frame-id idx step)
-      :click          (exec-click!         frame-id idx step)
-      :type           (exec-type!          frame-id idx step)
-      :focus          (exec-focus!         frame-id idx step)
-      :wait           (runner/step-skip idx step)   ; driver handles the actual sleep
-      (runner/unknown-step idx step))))
+  (or
+    (settle-substrate-for-step! frame-id idx step)
+    (let [stype (runner/step-type step)]
+      (case stype
+        :dispatch       (exec-dispatch!      frame-id idx step)
+        :dispatch-sync  (exec-dispatch-sync! frame-id idx step)
+        :assert         (exec-assert!        frame-id idx step)
+        ;; A raw shipping assertion step that escaped folding — fold it inline
+        ;; to the canonical checkpoint and run the ONE assert executor.
+        (:assert-db
+         :assert-dom)   (exec-assert! frame-id idx (assertions/fold-assert-step step))
+        :wait-until     (exec-wait-until!    frame-id idx step)
+        :flush-presence (exec-flush-presence! frame-id idx step)
+        :click          (exec-click!         frame-id idx step)
+        :type           (exec-type!          frame-id idx step)
+        :focus          (exec-focus!         frame-id idx step)
+        :wait           (runner/step-skip idx step)   ; driver handles the actual sleep
+        (runner/unknown-step idx step)))))
 
 ;; ---- terminal assertions ------------------------------------------------
 ;;
@@ -1224,7 +1287,18 @@
   [frame-id atoms]
   (when (and config/enabled? (seq atoms))
     (doseq [[idx atom-v] (map-indexed vector atoms)]
-      (exec-assert! frame-id idx [:assert atom-v])))
+      (let [step [:assert atom-v]]
+        ;; Terminal assertions are the OTHER place a DOM atom is evaluated,
+        ;; so they get the same pre-read settle the in-script checkpoint
+        ;; gets (rf2-ek9qb). Without it the rule would be half-applied: a
+        ;; terminal `:rf.assert/dom-*` would read whatever the DOM happened
+        ;; to be when the script phase ended, which is settled only if the
+        ;; script's LAST step happened to be a DOM step. The result is
+        ;; discarded here exactly as the executor's own is — terminal
+        ;; assertions are not a runner step stream — and the commit is
+        ;; no-op-safe, so an already-settled substrate costs nothing.
+        (settle-substrate-for-step! frame-id idx step)
+        (exec-assert! frame-id idx step))))
   nil)
 
 ;; ---- single-step driver -------------------------------------------------

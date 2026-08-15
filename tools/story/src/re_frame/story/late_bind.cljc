@@ -146,7 +146,28 @@
                                      can walk the rendered tree. The bare
                                      headless floor leaves it nil, so the
                                      executor refuses `:cannot-run` (never a
-                                     vacuous pass over a nil tree)."
+                                     vacuous pass over a nil tree).
+
+  - `:settled-boundary-hooks`       — an adapter-aware caller → the play
+                                     runner (`re-frame.story.play.runner-events/
+                                     current-flush-hooks`). Supplies the
+                                     flush-hooks map that decides how far a
+                                     step settles: `{:provides … :dispatch! …
+                                     :flush! {…} :timeout-ms …}` per
+                                     `re-frame.story.play.settled-boundary`.
+                                     Signature: `(f frame-id) → hooks-map`.
+                                     Story SHIPS the producer
+                                     (`play/substrate-boundary`, installed from
+                                     `canonical`), which reads `:flush-render!`
+                                     off the live adapter and declares
+                                     `:provides :dom` when it finds one. A host
+                                     with a richer boundary — a real browser
+                                     runner settling layout and paint —
+                                     re-registers and wins the slot. An absent
+                                     producer is a no-op: the runner falls back
+                                     to `headless-flush-hooks`, which is what
+                                     every host silently ran on before rf2-ek9qb
+                                     wired this one."
   )
 
 (defonce

@@ -27,6 +27,7 @@
             [re-frame.story.loaders      :as loaders]
             [re-frame.story.play         :as play]
             [re-frame.story.play.runner-events :as runner-events]
+            [re-frame.story.play.substrate-boundary :as substrate-boundary]
             [re-frame.story.registrar    :as registrar]
             [re-frame.story.render       :as render]
             [re-frame.story.runtime      :as runtime]
@@ -179,6 +180,13 @@
    install-late-bind-shims!
    layout-debug/install-canonical-layout-debug!
    ui-cofx/install-canonical-cofx!
+   ;; The `:settled-boundary-hooks` producer (rf2-ek9qb). Unconditional
+   ;; rather than CLJS-gated: it names no substrate — it reads
+   ;; `:flush-render!` off whatever adapter is seated — so it adds nothing
+   ;; to the JVM classpath, and on the JVM (no adapter) it resolves to the
+   ;; headless hooks the runner already defaulted to. Installing it in both
+   ;; readers keeps ONE settle story rather than a CLJS-only one.
+   substrate-boundary/install!
    #?@(:cljs [ui-multi-substrate/install-reagent-substrate!
               install-render-host!
               ui-open-in-editor/install!
