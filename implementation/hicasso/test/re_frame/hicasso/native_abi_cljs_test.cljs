@@ -34,7 +34,18 @@
   `re-frame.hicasso.native-abi-dom-cljs-test`. What is here is what a
   server render and a pure function can settle, and the server renderer
   runs bodies for real, so the props-arrival row is a measurement rather
-  than an assertion about a data structure."
+  than an assertion about a data structure.
+
+  HS-21's OTHER half is over there for the same reason (rf2-s52w). The
+  bytes half is here — `renderToStaticMarkup` through the outward bridge,
+  below — but *mismatch attribution* is a claim about an adoption, so the
+  sibling's
+  [[re-frame.hicasso.native-abi-dom-cljs-test/a-consumer-built-root-hydrates-a-bridged-subtree-with-no-framework-reporter]]
+  measures it, and that file's header states the scope: the framework's
+  Spec 011 reporter is a ROOT option, a bridged subtree lives under a root
+  the CONSUMER opened, and Spec 011 already says a direct `hydrateRoot`
+  takes React's silent default. A boundary, not a gap — and measured with
+  the package's own door beside it so the zero means something."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as uix-adapter]
             [re-frame.core :as rf]
