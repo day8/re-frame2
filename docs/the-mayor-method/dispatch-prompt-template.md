@@ -42,11 +42,16 @@ The order is what makes it accurate. Each step is a check the next depends on.
    **Nor is grepping the prose for dates.** A date inside the text is content, not a
    mutation time — an undated scope correction is invisible to it, an old description
    can cite a later release date, and `bd update --description` can make the
-   "oldest" field the most recently edited one. Use `bd history <id>`, which lists
-   real mutation times newest-first, and `bd comments <id> --json` for comment
-   `created_at`. **And if the bead has children, re-enumerate them before concluding a
-   decision is absent** — a ruling is sometimes recorded as a *new child bead*, where
-   no amount of reading the parent will find it.
+   "oldest" field the most recently edited one. Use `bd history <id>`, which lists real
+   mutation times newest-first, and `bd comments <id> --json` for comment `created_at`.
+
+   **The plain history listing tells you a newer mutation exists, not what it says** —
+   it prints commit, time, author and the item's title and status, and names no changed
+   field. To see the change itself, `bd history <id> --json` carries a full item
+   snapshot per commit: compare the newest against its predecessor. **And if the bead
+   has children, re-enumerate them before concluding a decision is absent** — a ruling
+   is sometimes recorded as a *new child bead*, where no amount of reading the parent
+   will find it.
 2. **Check every factual claim you are about to write.** Does the symbol resolve?
    Does the file say what you think? Is the count still true? Is the ruling you cite
    *ruled*, or only recommended? A recommendation and a decision read identically in
@@ -505,8 +510,11 @@ read-the-newest method. Neither is grepping the text for dates: a date in the pr
 CONTENT, not a mutation time, so an undated scope correction is invisible to it and an
 edited description can be the newest field on the bead. Use `bd history <id>`, which
 lists real mutation times newest-first, and `bd comments <id> --json` for comment
-`created_at`. If the bead has children, re-enumerate them too: a ruling is sometimes
-recorded as a NEW CHILD BEAD rather than as a note.
+`created_at`. THE PLAIN LISTING TELLS YOU A NEWER MUTATION EXISTS, NOT WHAT IT SAYS —
+it names no changed field, so for the change itself use `bd history <id> --json`, which
+carries a full snapshot per commit, and compare the newest against its predecessor. If
+the bead has children, re-enumerate them too: a ruling is sometimes recorded as a NEW
+CHILD BEAD rather than as a note.
 
 Where the item and this brief disagree, the ITEM governs — follow it, and say in your
 report what differed.
@@ -806,7 +814,7 @@ that noise.
 - Clusters split that should be one change, or the reverse → the cluster reviewer pre-validates shape.
 - Stalled workers losing analysis → findings first, and one-item-at-a-time tracker creates.
 - Re-discovering known issues → name recent landings and prior findings.
-- A brief that was accurate when written but stale when read → the item governs the brief, newest note found by date.
+- A brief that was accurate when written but stale when read → the item governs the brief, newest material found by tracker timestamp.
 - Generic prompts → require `file:line` citations and concrete fix sketches.
 - A measurement worker iterating until the number looked right → Shape 6: the controls arbitrate, a refusal is a
   deliverable, and the rig does not change mid-window.

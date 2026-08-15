@@ -326,7 +326,9 @@ notes append into the description block while dated comments render after it. `b
 is not a read-the-newest method, and neither is grepping the prose for dates: a date in the
 text is content rather than a mutation time, so an undated correction is invisible to it and an
 edited description can be the newest field on the item. `bd history <id>` lists real mutation
-times newest-first; `bd comments <id> --json` carries comment `created_at`. And when a bead has
+times newest-first; `bd comments <id> --json` carries comment `created_at`. That listing tells you
+a newer mutation exists but names no changed field — for the change itself, `bd history <id> --json`
+carries a full snapshot per commit, so compare the newest against its predecessor. And when a bead has
 children, re-enumerate them — a ruling is sometimes recorded as a new child bead rather than as
 a note.
 
@@ -442,8 +444,9 @@ is looking straight at it, while a held item that should have been released is c
 nobody, because nothing in the short loop reads it again.
 
 So on a medium cadence, read **all** open items from the raw list — not a saved filter, not
-the ready view, not what you remember filing. On each one find the newest note by date
-rather than by position, and re-enumerate any children; *Dispatch* above explains why.
+the ready view, not what you remember filing. On each one order the material by the tracker's
+own timestamps rather than by position, and re-enumerate any children; *Dispatch* above
+explains why.
 
 Four things surface here and nowhere else.
 
@@ -787,9 +790,16 @@ with long reasons and their output trimmed to the last line — which, when the 
 text, so a refused close and an accepted one looked identical; all four evaporated and were found cycles later
 reading open with no reason recorded. Nine worktree removals were then called with the wrong argument shape and
 their output counted for a string that the script prints on the way out whether it acts or refuses; every one
-had exited non-zero saying "nothing was touched", and all nine were still there. **So confirm a mutation by its
-exit status, or by re-reading the thing it was supposed to change — never by what it printed.** A maintenance
-script that refuses safely is doing its job; the failure is the caller who does not look.
+had exited non-zero saying "nothing was touched", and all nine were still there. A maintenance script that
+refuses safely is doing its job; the failure is the caller who does not look.
+
+**But the exit status and the mutation are two different questions, and only the first is cheap.** A non-zero
+status is proof the command refused, so **always read it** — that alone would have caught both incidents above.
+A *zero* status proves only that the command reported success. It does not prove state changed: an idempotent
+call legitimately succeeds having done nothing, and a durable operation can acknowledge locally before the
+remote or the postcondition you actually care about is true. **So when the outcome you need is a state change or
+a durable one — or when a successful no-op is possible — re-read the exact target as well.** Never take the
+printed output for either answer.
 
 **A tracker write can silently revert.** Items verified closed can read open again cycles later — a
 rollback to an earlier snapshot, a re-import over the top — and nothing in the loop surfaces it, so the
