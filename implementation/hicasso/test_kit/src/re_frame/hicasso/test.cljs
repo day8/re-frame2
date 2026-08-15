@@ -175,9 +175,12 @@
     assert its contents.
   - A **`defhost` crossing**, a **well-formed raw escape `[:> …]`**, a
     **raw React element** and anything else the codec hands to React
-    untouched are **opaque** and refuse with a pointer to L3. So does an
-    unforced `delay`, which Hicasso itself refuses at a boundary
-    crossing. A MALFORMED escape is not opaque — see above.
+    untouched are **opaque** and refuse with a pointer to L3. An
+    unforced `delay` is NOT among them, for the reason a MALFORMED
+    escape is not: Hicasso itself refuses it at a boundary crossing, so
+    it carries the runtime's id and the runtime's own recovery,
+    `:hand-a-function-or-deref-it-in-this-body`, rather than a pointer
+    to a tier where the identical refusal is waiting (rf2-llps1).
 
   ### Subs
 
@@ -1054,12 +1057,21 @@
 
     :foreign
     (if (delay? x)
-      (refuse-opaque! :rf.error/hicasso-deferred-read-at-boundary
-                      (str "an unforced `delay` reached a boundary crossing. "
-                           "Hicasso refuses it there rather than forcing it, "
-                           "because forcing an author's explicit deferral would "
-                           "change what their program means.")
-                      {:value x})
+      ;; The RUNTIME refuses this one, so it is refused here with the
+      ;; runtime's id AND the runtime's recovery — not with this
+      ;; namespace's opacity. Opacity is honest only where the runtime CAN
+      ;; read the form; `:assert-it-at-l3` would send the programmer to
+      ;; mount, in a browser, a crossing where the same refusal is waiting.
+      (refuse! :rf.error/hicasso-deferred-read-at-boundary
+               (str "an unforced `delay` reached a boundary crossing. "
+                    "Hicasso refuses it there rather than forcing it, "
+                    "because forcing an author's explicit deferral would "
+                    "change what their program means. Hand a FUNCTION "
+                    "instead — the child calls it on every render, so its "
+                    "reads are the child's edges and are kept — or deref "
+                    "the delay in the body that wrote it.")
+               :hand-a-function-or-deref-it-in-this-body
+               {:value x})
       (refuse! :rf.error/ui-tree-malformed
                (str "a child outside the tree's value grammar. The runtime "
                     "hands this to React as it stands, which has no semantic "
