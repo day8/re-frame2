@@ -166,7 +166,7 @@
 
 ;; ---- fixture --------------------------------------------------------------
 
-(declare register-probes! leave-act-environment!)
+(declare register-probes!)
 
 (defn- reset-all! []
   (story/clear-all!)
@@ -244,20 +244,6 @@
 (defn- browser? []
   (and (exists? js/document)
        (some? (.-createElement js/document))))
-
-(defn- leave-act-environment!
-  "React's `act` queue is not the browser's scheduler, and
-  `IS_REACT_ACT_ENVIRONMENT` is a GLOBAL that sibling suites in this lane
-  set and never clear (`story.sub-overrides-render-dom-cljs-test` is one).
-  Left on, React parks a store notification in the act queue instead of
-  committing it, and `the-frame-the-reagent-provider-scoped-is-the-one-
-  observed` reads a stale DOM through a channel that is in fact alive —
-  measured, and it is how that row first failed. Mirrors
-  `re-frame.bench.hicasso.lane/leave-act-environment!`, which exists for
-  exactly this reason."
-  []
-  (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) false)
-  nil)
 
 (defn- settle!
   "The ratom host's drain, and it is two acts rather than one — the pair
