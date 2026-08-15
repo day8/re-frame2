@@ -542,12 +542,12 @@
   siblings.
 
   What never got the repair was [[rounds!]] — the SHARED loop every other
-  harness on this lane rides. Nine bench apps ran on it carrying the
-  fault, and the two that had fixed it were the two that did not use it.
-  This is that fix moved to the one place it belongs, and the private
-  copies now call it: a second authority with nothing holding it in step
-  is the shape that let the `k = 2` degeneracy in [[slot-order]] survive a
-  fix to its own sibling.
+  harness on this lane rides. TEN bench apps call it and every one of them
+  carried the fault, and the two that had fixed it were exactly the two
+  that do not call it. This is that fix moved to the one place it belongs,
+  and the private copies now call it: a second authority with nothing
+  holding it in step is the shape that let the `k = 2` degeneracy in
+  [[slot-order]] survive a fix to its own sibling.
 
   ## What it cost on the two clocks this bead came from
 
