@@ -76,7 +76,6 @@ teaches forms that do not exist. Measured examples, each verified absent from
 | Taught | Reality |
 |---|---|
 | `re-frame.hicasso.server/render`, `ssr/hydrate!`, `h/hydrate!` | no server namespace; `hydrate-root!` deliberately off the facade |
-| `h/mount!` with `{:frame … :initial-events …}` | shipped is positional `h/root!`, which ensures nothing |
 | a Maven coordinate on the installation page | does not resolve |
 | key maps "valid only at `:on-key-down`/`:on-key-up`" | accepted at any event position |
 | a plain `merge` for caller attrs | shipped is the reserved `:&` key + owned-literal law |

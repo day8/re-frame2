@@ -103,7 +103,7 @@
 
 (defn- render-under-frame!
   "Render `element` with the frame context installed — the same provider
-  `h/root!` installs, reached through the runtime's own door rather than
+  `h/mount!` installs, reached through the runtime's own door rather than
   through a hand-built context wrapper this suite would then be pinning
   instead of the product."
   [element]

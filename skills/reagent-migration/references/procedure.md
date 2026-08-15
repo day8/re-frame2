@@ -123,9 +123,9 @@ Two things to do *before* you call a view converted:
   `.native`) only where one is actually used; they are absent when unused and
   that is the point of them.
 - **Root (MIG-15):** once per root, and in this order — `rf/init!` (Hicasso
-  ships no adapter, so the app's existing one stays), `rf/make-frame` carrying
-  the `:initial-events` seed, then `h/root!`. Add the
-  `defonce` root atom and the `^:dev/after-load` `h/render!` reload hook.
+  ships no adapter, so the app's existing one stays), then `h/mount!` carrying
+  `{:frame … :initial-events …}`, which ensures and seeds the frame itself. Add
+  the `defonce` root atom and the `^:dev/after-load` `h/render!` reload hook.
 
 ## Step 5 — Compile and test (the skill runs the gates); the programmer renders
 

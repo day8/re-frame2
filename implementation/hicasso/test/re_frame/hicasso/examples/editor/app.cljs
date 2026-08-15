@@ -76,6 +76,6 @@
   []
   (rf/init! uix-adapter/adapter)
   (rf/make-frame {:id frame-id :initial-events initial-events})
-  (reset! !root (h/root! (js/document.getElementById "app") frame-id
-                         [views/editor {}]))
+  (reset! !root (h/mount! (js/document.getElementById "app") {:frame frame-id}
+                          [views/editor {}]))
   nil)

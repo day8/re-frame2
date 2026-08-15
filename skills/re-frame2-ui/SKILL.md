@@ -59,7 +59,7 @@ allowed-tools:
     already has. For porting Reagent views onto Hicasso, use
     [`reagent-migration`](../reagent-migration).
     Hicasso's shapes are deliberately **not** `ui/` shapes — it has no `local`,
-    no `effect` and no `frame-root`, its roots are `h/root!` / `h/render!` /
+    no `effect` and no `frame-root`, its roots are `h/mount!` / `h/render!` /
     `h/unmount!` rather than `ui/mount`, and its ephemeral state lives in
     app-db behind `h/reg-state`. Do not carry an idiom across from this page
     by analogy; read Hicasso's own surface instead.

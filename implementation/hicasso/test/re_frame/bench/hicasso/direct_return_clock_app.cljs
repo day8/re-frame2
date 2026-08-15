@@ -190,7 +190,7 @@
 
 (defn- mount-page
   [view]
-  (fn [container _props _n] (h/root! container frame-id (page view))))
+  (fn [container _props _n] (h/mount! container {:frame frame-id} (page view))))
 
 (defn- unmount-page [handle] (h/unmount! handle))
 

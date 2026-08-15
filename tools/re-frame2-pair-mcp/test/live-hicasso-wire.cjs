@@ -45,7 +45,7 @@
 // ## The application is the slice, booted by its own entry point
 //
 // The population is the `rf2-hic-025` slice application, started with its
-// own `-main` — `rf/init!`, `make-frame!`, `h/root!` — over `eval-cljs`.
+// own `-main` — `rf/init!`, `make-frame!`, `h/mount!` — over `eval-cljs`.
 // This script registers no subscription, no event and no view, so every
 // id that appears in an answer below was written by another bead for
 // another purpose. The one thing it supplies the host page is a `<div

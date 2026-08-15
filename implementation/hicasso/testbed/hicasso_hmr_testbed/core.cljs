@@ -458,9 +458,9 @@
     (rf/make-frame {:id frame})
     (seed! frame label)
     (swap! !handles assoc frame
-           (h/root! (js/document.getElementById container)
-                    frame
-                    [views/app {:ref-sink    (get ref-sinks frame)
-                                :island-refs (island-refs-for frame)}])))
+           (h/mount! (js/document.getElementById container)
+                     {:frame frame}
+                     [views/app {:ref-sink    (get ref-sinks frame)
+                                 :island-refs (island-refs-for frame)}])))
   (install-door!)
   nil)

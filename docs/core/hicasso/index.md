@@ -43,31 +43,35 @@ view model is useful.
 
 ## Status
 
-!!! warning "Pre-alpha — two doors this guide spells differently from the code"
+!!! warning "Pre-alpha — one door this guide spells differently from the code"
 
-    Hicasso is pre-alpha, and parts of this guide are written against an
-    intended authoring surface rather than against today's exported
-    spellings. Two differences are known and deliberate, and each is
-    recorded in the source rather than only here. One of them is an open
-    naming question rather than work the code owes the guide: the guide's
-    spelling is one candidate among several, and is not the name the door is
-    waiting to take.
+    Hicasso is pre-alpha, and one verb in this guide is written against an
+    intended authoring surface rather than against today's exported spelling.
+    The difference is known and deliberate, and is recorded in the source
+    rather than only here. It is an open naming question rather than work the
+    code owes the guide: the guide's spelling is one candidate among several,
+    and is not the name the door is waiting to take.
 
-    The callback form is no longer among them. It was taught here as `h/fn`
-    against an exported `hfn`, and both sides now spell it **`h/event`**
-    (`rf2-hic-066`, applying the operator's ruling on naming-ledger row 1).
+    Two forms are no longer among them. The callback form was taught here as
+    `h/fn` against an exported `hfn`, and both sides now spell it
+    **`h/event`** (`rf2-hic-066`, applying the operator's ruling on
+    naming-ledger row 1). The root door was taught as `h/mount!` against an
+    exported `h/root!` that took the frame keyword positionally and carried no
+    `:initial-events` option — and both sides now spell it **`h/mount!`**,
+    over the config map this guide teaches (`rf2-7mtcf`, applying
+    naming-ledger row 13's rename over row 20's ratified contract shape). That
+    gap needed the contract and not just the name, which is why it outlived
+    the rename sweep that closed the callback form.
 
     - **`h/frame`** is exported today as `h/hframe`. A bare `frame` shadows on
       a `:refer` in the same way, and the recommendation on record is to
       retire the verb rather than respell it, leaving `rf/current-frame-id`
       and `rf/capture-frame` as the frame doors they already are.
-    - **`h/mount!`** is the root door this guide teaches; the exported door is
-      `h/root!`, which takes the frame keyword positionally and carries no
-      `:initial-events` option. `h/render!` and `h/unmount!` are as described.
 
     The other namespaces and verbs the guide names — `h/defview`, `h/sub`,
-    `h/defhost`, `h/portal`, `h/as-component`, `h/error-boundary`,
-    `h/hydrate!`, the `n/`, `overlay/`, `motion/` and `forms/` surfaces,
-    `re-frame.hicasso.server`, and the `ht/` and `hm/` test kits — are
-    exported today. [SSR and hydration](18-ssr-and-hydration.md) describes
-    shipped behaviour rather than an intended contract.
+    `h/mount!`, `h/render!`, `h/unmount!`, `h/defhost`, `h/portal`,
+    `h/as-component`, `h/error-boundary`, `h/hydrate!`, the `n/`, `overlay/`,
+    `motion/` and `forms/` surfaces, `re-frame.hicasso.server`, and the `ht/`
+    and `hm/` test kits — are exported today. [SSR and
+    hydration](18-ssr-and-hydration.md) describes shipped behaviour rather
+    than an intended contract.

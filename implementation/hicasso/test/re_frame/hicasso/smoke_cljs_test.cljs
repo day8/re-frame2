@@ -29,7 +29,7 @@
   The three harness namespaces reached below the door (`impl.mount`'s
   provider, `impl.codec`'s root element, `impl.collector`'s reset) are the
   server-render harness, not authoring surface. Mounting is
-  [[re-frame.hicasso/root!]]'s job and needs a DOM; wiring a consumer app
+  [[re-frame.hicasso/mount!]]'s job and needs a DOM; wiring a consumer app
   and an SSR entry to the package is rf2-hic-008's."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [clojure.string :as str]

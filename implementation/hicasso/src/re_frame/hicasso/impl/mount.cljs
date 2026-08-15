@@ -1,18 +1,27 @@
 (ns re-frame.hicasso.impl.mount
   "ARM 1's ROOT — one operation, an idempotent teardown (HD-021(b)).
 
-  `root!` associates a DOM node, a frame, and a hiccup tree, and returns
-  the handle every other door here takes. That is the whole execution
-  contract this arm needs; the names stay unfrozen (HD-021 pins the
-  semantics, not the spelling).
+  `root!` ENSURES a frame, associates it with a DOM node and a hiccup
+  tree, and returns the handle every other door here takes. That is the
+  whole execution contract this arm needs; the names stay unfrozen
+  (HD-021 pins the semantics, not the spelling).
 
   ## Three of these vars ARE the public door (rf2-31xm, rf2-e2al)
 
-  `re-frame.hicasso` re-exports [[root!]], [[render!]] and [[unmount!]]
-  under their own names, so a consumer's whole root lifecycle — mount,
-  re-render after a hot reload, tear down — is spelled here. Each of the
-  three is root-scoped: it takes a handle (or makes one) and reaches
-  nothing another root owns.
+  `re-frame.hicasso` re-exports [[root!]], [[render!]] and [[unmount!]],
+  so a consumer's whole root lifecycle — mount, re-render after a hot
+  reload, tear down — is spelled here. Each of the three is root-scoped:
+  it takes a handle (or makes one) and reaches nothing another root owns.
+
+  **Two of the three keep their spelling on the door and [[root!]] does
+  not** (rf2-7mtcf, naming-ledger row 13): it is published as `h/mount!`,
+  over the `(node config view)` contract row 20 settles, and the config
+  map is what carries [[ensure-frame!]]'s `:initial-events` alongside
+  `:identifier-prefix` without a second arity. [[hydrate-root!]] is
+  published as `h/hydrate!` over the same shape and for the same reason,
+  so the asymmetry here is one rule rather than two exceptions: the impl
+  door keeps ONE positional caller shape for its own witnesses to drive,
+  and the facade adapts.
 
   [[release!]] is NOT among them. It is [[unmount!]] plus a detached
   container plus a page-wide `collector/reset-runtime!` — the fixture
@@ -45,6 +54,8 @@
   door returns before the tree is adopted, and a witness for it waits for
   the closer instead of for a flush."
   (:require [re-frame.adapter.context :as adapter-context]
+            [re-frame.core :as rf]
+            [re-frame.frame :as frame]
             [re-frame.hicasso.impl.codec :as codec]
             [re-frame.hicasso.impl.collector :as collector]
             [re-frame.hicasso.impl.roots :as roots]
@@ -129,7 +140,7 @@
       (defonce ^:private !root (atom nil))
 
       (defn ^:export init []
-        (reset! !root (h/root! node ::frame [app {}])))
+        (reset! !root (h/mount! node {:frame ::frame} [app {}])))
 
       (defn ^:dev/after-load reload! []
         (h/render! @!root [app {}]))
@@ -205,17 +216,80 @@
         (unchecked-set o "onRecoverableError" on-recoverable-error))
       o)))
 
+(defn ensure-frame!
+  "ENSURE `frame-kw` before its root's first render: create the frame if
+  it is absent, seeding it with `initial-events`; JOIN it untouched if it
+  is already live (rf2-7mtcf). Answers `frame-kw`.
+
+  ## This is core's `frame-root` vocabulary, not a second one
+
+  `rf/frame-root` (Reagent) and `re-frame.adapter.uix/frame-root` are the
+  substrate's ENSURE boundaries and they already read exactly this way —
+  *creates the frame if absent, REUSES it if present without re-seeding*,
+  taking `rf/make-frame`'s own opts, `:initial-events` among them
+  (EP-0027). This arm was the odd one out: its client root could scope a
+  frame but never make one, so every consumer boot in the package wrote
+  `rf/make-frame` and then `root!` with the frame id spelled twice. Both
+  halves of that pair are here now, and `:initial-events` reaches
+  `make-frame` UNTOUCHED — no default, no coercion, no second spelling
+  and no re-validation, the pass-through discipline
+  [[root-options]] already applies to `:identifier-prefix`. EP-0027's
+  preflight owns the shape and its errors name `rf/make-frame`, which is
+  the constructor a consumer would otherwise have called by hand.
+
+  ## Why the guard is on the INCARNATION and not on `make-frame`
+
+  Re-`make-frame`-ing a live id is IDEMPOTENT REPLACEMENT — config and
+  generation refresh, durable state preserved — so an unguarded call
+  would not crash a joining root, it would silently refresh the config of
+  the frame the first root created. The guide teaches the opposite in as
+  many words (*\"a later root that names the same frame joins its current
+  state and does not replay `:initial-events`\"*), so absence is asked
+  first. `frame/frame-incarnation-token` is the arm's own liveness
+  question — nil for absent, destroyed, or another actor's provisional
+  record — and it is what [[re-frame.hicasso.impl.frames/frame-row]]
+  already asks one layer down.
+
+  ## Synchronous, and that is what buys \"before first paint\"
+
+  `make-frame` dispatches `:initial-events` synchronously, in order,
+  draining each to a fixed point before it returns. So calling this
+  BEFORE `createRoot` means the seeded app-db is on the frame by the time
+  React renders anything, and the first paint is the seeded one rather
+  than an empty frame filled in a moment later. That is the ordering the
+  substrate's `frame-root` cannot have — it is a component, so its ENSURE
+  runs in a `useLayoutEffect` after the first commit — and a ROOT door,
+  being an ordinary function call, can simply do it first.
+
+  Not [[hydrate-root!]]'s: an adopting root takes its state from the
+  server payload through `re-frame.ssr/hydrate!`, so a seed here would
+  overwrite it. That door's chapter tells a consumer to `rf/make-frame`
+  first and means it."
+  [frame-kw initial-events]
+  (when (nil? (frame/frame-incarnation-token frame-kw))
+    (rf/make-frame (cond-> {:id frame-kw}
+                     (seq initial-events) (assoc :initial-events initial-events))))
+  frame-kw)
+
 (defn root!
   "Associate `container`, `frame-kw` and `hiccup`. Returns the handle.
 
-  `opts` is optional and carries ONE key, `:identifier-prefix`, handed
-  straight to `createRoot` as React's `identifierPrefix` (rf2-hic-046).
-  A page mounting two roots gives them distinct prefixes so their `useId`
-  values cannot collide; a page with one root names none, and passing no
-  `opts` is how it says so — the call React receives is then the bare one
-  it always was."
+  `opts` is optional and carries two keys, both of them the CALLER's:
+
+  `:initial-events` seeds the frame this root names, through
+  [[ensure-frame!]] and before React renders anything — ordinary events,
+  in the order given, run once when this mount CREATES the frame and
+  never when it joins one (rf2-7mtcf). It is core's `:initial-events`
+  reaching `rf/make-frame` untouched, not a spelling this arm owns.
+
+  `:identifier-prefix` is handed straight to `createRoot` as React's
+  `identifierPrefix` (rf2-hic-046). A page mounting two roots gives them
+  distinct prefixes so their `useId` values cannot collide; a page with
+  one root names none, and passing no `opts` is how it says so — the call
+  React receives is then the bare one it always was."
   ([container frame-kw hiccup] (root! container frame-kw hiccup nil))
   ([container frame-kw hiccup opts]
+   (ensure-frame! frame-kw (:initial-events opts))
    (let [ropts  (root-options (:identifier-prefix opts) nil)
          handle {:root      (if ropts
                               (react-dom-client/createRoot container ropts)

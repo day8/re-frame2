@@ -879,6 +879,6 @@
   []
   (rf/init! uix-adapter/adapter)
   (rf/make-frame {:id frame-id :initial-events [[:tb/seed]]})
-  (h/root! (js/document.getElementById "app") frame-id [app {}])
+  (h/mount! (js/document.getElementById "app") {:frame frame-id} [app {}])
   (unchecked-set js/window "__RF2_HIC_TB__" #js {:model model-json})
   nil)
