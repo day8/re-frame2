@@ -101,14 +101,32 @@
              [:assert [:rf.assert/dom-visible "[data-test=out]"]]))))
   (testing "a raw shipping :assert-dom step that bypassed folding is covered too"
     (is (= "[data-test=out]"
-           (step-required-selector [:assert-dom "[data-test=out]" :text "42"])))))
+           (step-required-selector [:assert-dom "[data-test=out]" :text "42"])))
+    (is (= "[data-test=out]"
+           (step-required-selector [:assert-dom "[data-test=out]" :visible])))))
 
 (deftest dom-hidden-must-not-wait-for-the-node
   (testing "THE TRAP. An ABSENT node is :rf.assert/dom-hidden's PASS
             condition. Waiting for one to appear would invert the assertion
             and burn the whole budget doing it, so it is excluded"
     (is (nil? (step-required-selector
-                [:assert [:rf.assert/dom-hidden "[data-test=gone]"]])))))
+                [:assert [:rf.assert/dom-hidden "[data-test=gone]"]]))))
+  (testing "AND IN RAW FORM, which is the half audit #8319 caught. `run!`
+            documents and accepts a hand-built spec and does not fold it, so
+            this shape reaches the run-loop verbatim. Read as a bare
+            selector it demanded the node be PRESENT — inverting the
+            assertion, burning the whole budget, and failing a script that
+            passes character-for-character through the folded entry path.
+            One step must not mean two things"
+    (is (nil? (step-required-selector [:assert-dom "[data-test=gone]" :hidden])))))
+
+(deftest a-malformed-assert-dom-waits-for-nothing
+  (testing "tolerant: an :assert-dom the fold cannot parse (missing mode,
+            unknown mode) reads as needing no node, so it reaches the
+            executor that reports it properly rather than timing out on a
+            precondition first"
+    (is (nil? (step-required-selector [:assert-dom "[data-test=x]"])))
+    (is (nil? (step-required-selector [:assert-dom "[data-test=x]" :sideways])))))
 
 (deftest non-dom-steps-require-no-node
   (testing "a step naming no node waits for no node"
