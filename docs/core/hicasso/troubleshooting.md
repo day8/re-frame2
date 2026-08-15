@@ -72,16 +72,6 @@ what an error monitor's grouping rule and your own tests should key on. The
 `:recovery` beside it is **not** frozen the same way: it is concrete advice about
 a live API, so it is rewritten when that API is renamed.
 
-!!! note "Four recoveries name a form that has been renamed"
-    `:write-an-h-fn-at-a-value-first-position`,
-    `:declare-the-position-event-or-write-an-h-fn`,
-    `:read-the-file-list-with-an-h-fn` and
-    `:leave-the-file-input-uncontrolled-and-read-files-with-an-h-fn` all name the
-    one callback form as `h-fn`. It is spelled `h/event`. The rename reached the
-    door and has not yet reached these four keywords; they are quoted below
-    exactly as the runtime raises them so that a search for what you saw finds
-    the entry.
-
 ## The complaint index
 
 Every complaint the shipped package raises today, grouped by the surface that
@@ -263,8 +253,8 @@ Named in [Events as data](03-events-as-data.md), [Interop](09-interop.md).
 
 You put an intent at a position declared `:handler` or `:render`.
 
-Recovery: `:declare-the-position-event-or-write-an-h-fn` — declare the position
-`:event` if what happens there is an event, or write an `h/hfn` that does the
+Recovery: `:declare-the-position-event-or-write-an-h-event` — declare the position
+`:event` if what happens there is an event, or write an `h/event` that does the
 declared work.
 
 Named in [Events as data](03-events-as-data.md), [Interop](09-interop.md).
@@ -274,7 +264,7 @@ Named in [Events as data](03-events-as-data.md), [Interop](09-interop.md).
 
 You wrote an event-reading intent at a value-first foreign callback.
 
-Recovery: `:write-an-h-fn-at-a-value-first-position` — the one callback form
+Recovery: `:write-an-h-event-at-a-value-first-position` — the one callback form
 receives every argument the invoker passed, in order.
 
 Named in [Events as data](03-events-as-data.md), [Interop](09-interop.md).
@@ -338,7 +328,7 @@ whatever the caller sent through an ordinary prop.
 You put a non-empty `:value` on a file input, which the platform refuses and
 React writes anyway.
 
-Recovery: `:leave-the-file-input-uncontrolled-and-read-files-with-an-h-fn`.
+Recovery: `:leave-the-file-input-uncontrolled-and-read-files-with-an-h-event`.
 
 <a id="hicasso-file-input-value-marker"></a>
 #### `:rf.error/hicasso-file-input-value-marker`
@@ -346,7 +336,7 @@ Recovery: `:leave-the-file-input-uncontrolled-and-read-files-with-an-h-fn`.
 You read `::h/value` off a file input, where `.value` is the `C:\fakepath\`
 fiction and the first file's name — not the files.
 
-Recovery: `:read-the-file-list-with-an-h-fn`.
+Recovery: `:read-the-file-list-with-an-h-event`.
 
 ### Error boundaries
 

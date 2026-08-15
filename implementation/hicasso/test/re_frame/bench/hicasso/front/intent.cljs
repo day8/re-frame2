@@ -730,7 +730,7 @@
                 "event) — has no event there, and nothing can guess which of "
                 "its arguments is one. Write an h/event instead: the one form "
                 "receives every argument the invoker passed, in order.")
-           :write-an-h-fn-at-a-value-first-position
+           :write-an-h-event-at-a-value-first-position
            {:position k :form form :argument e :needed slot})))
 
 ;; ---------------------------------------------------------------------------
@@ -1152,7 +1152,7 @@
               "event, or write an h/event that does the " (pr-str contract)
               " work. The contract comes from the position, so the value "
               "never gets to overrule it.")
-         :declare-the-position-event-or-write-an-h-fn
+         :declare-the-position-event-or-write-an-h-event
          {:position k :contract contract :value v}))
 
 (defn lower-declared-prop
