@@ -175,6 +175,110 @@ and settled between samples behind a residue equality gate that never fired):
 > `rf2-gttif` gave: every term that has left or joined `c-local` left or joined
 > the seam it is divided by.
 
+> **THE WHOLE RE-TAKE RAN ON THE WIDENED WINDOW, AND IT DOES NOT PUBLISH**
+> (`rf2-07rnj`, 2026-08-16, commit `a43aa8609f`, instrument blob
+> `6d2b67b5b0`, `:advanced`, HeadlessChrome 147.0.7727.15, node v24.13.0).
+> Three runs, `exit 0` on each, **both arm-order guards reportable on every
+> run**, the phase-A positive control passing on every run, the phase-B
+> residue gate never firing.
+>
+> **The window shape, chosen once before the first run and held for every arm
+> of every run: 32 frames per window, 8 × (2 + 8) = 64 kept samples per arm,
+> grid 0.0015625 ms/commit.** That is `rf2-3l6hf`'s widened shape exactly as
+> it landed; no gate, tolerance or knob was touched, and nothing was adjusted
+> between runs. Every arm of a run was taken in ONE process, interleaved under
+> the lane's reflecting schedule. **The shape is stated because the shares are
+> not invariant to it** — the reaction build reads 56% of `c-local` at 4
+> frames and 67–68% at 32 — and **no share is computed below**, for the reason
+> the next paragraph but one gives.
+>
+> | arm | run 1 p50 [min–max] | run 2 p50 [min–max] | run 3 p50 [min–max] |
+> |---|---|---|---|
+> | `commit` (shipping seam) | 0.6953 [0.5281–0.8844] | 0.7516 [0.5313–1.0875] | 0.7203 [0.5812–0.8969] |
+> | `c-local` (the copy) | 0.6594 [0.4750–1.0281] | 0.6969 [0.5469–0.9188] | 0.6875 [0.5062–0.9219] |
+> | `c-noactivate` | 0.6172 [0.4750–0.8906] | 0.6484 [0.4875–0.8469] | 0.6313 [0.4813–0.8625] |
+> | `c-nowatch` | 0.5875 [0.4313–0.7531] | 0.6313 [0.4625–0.8281] | 0.6094 [0.4562–0.8875] |
+> | `c-nosub` | 0.2156 [0.1594–0.4188] | 0.2250 [0.1625–0.4500] | 0.2188 [0.1688–0.2969] |
+> | `c-noreaders` | 0.6547 [0.5250–0.8250] | 0.7109 [0.4875–1.0125] | 0.6750 [0.5344–0.8188] |
+> | `c-nomap` | 0.6156 [0.4375–0.7875] | 0.6703 [0.4875–0.9125] | 0.6375 [0.4750–0.9063] |
+> | `b-build` | 0.4938 [0.3937–0.9906] | 0.5688 [0.3937–0.8656] | 0.5406 [0.4531–0.7750] |
+> | copy fidelity `c-local`/`commit` | 0.9483 | 0.9272 | 0.9544 |
+>
+> **Four of the five ablation terms resolve at this shape with one sign on
+> every run. The fifth does not, and that is why nothing above is
+> republished.**
+>
+> | term (`c-local −` the arm) | run 1 | run 2 | run 3 |
+> |---|---|---|---|
+> | reaction build + cache insert (`c-nosub`) | 0.4437 | 0.4719 | 0.4688 |
+> | watch wiring (`c-nowatch`) | 0.0719 | 0.0656 | 0.0781 |
+> | activation capture (`c-noactivate`) | 0.0422 | 0.0484 | 0.0562 |
+> | cell-map insert (`c-nomap`) | 0.0437 | 0.0266 | 0.0500 |
+> | **reader membership (`c-noreaders`)** | **+0.0047** | **−0.0141** | **+0.0125** |
+>
+> **Reader membership straddles zero across three runs of one binary in one
+> session.** A negative delta is arithmetically impossible here — `c-noreaders`
+> does strictly less work than `c-local` — so the term the `rf2-dabt3` fusion
+> left in place of the retired index write is **UNRESOLVED at this window**. A
+> decomposition that cannot see one of its terms is not a decomposition; that
+> is this page's own standard, and it applies to its own re-take.
+>
+> **The `< 0.006 ms/commit` bound floated for that term is withdrawn, and this
+> window did not chase it.** The reasoning was that a most-negative reading of
+> −0.0062 measures a symmetric instrument floor. It does not. If an observed
+> delta is an unknown positive cost plus estimator error, a reading of −0.0062
+> establishes only that one negative excursion exceeded 0.0062 *plus that
+> cost*: it neither calibrates a symmetric floor nor bounds the cost from
+> above, and comparing most-negative readings taken at two window widths
+> cannot demonstrate that a floor scaled with the window. The arithmetic is
+> beside the point on this box in any case — **run 2 read −0.0141, more than
+> twice the figure that was to have been published as the bound.** (Merged-PR
+> audit of #8328; `rf2-3l6hf` reopened on it.) Widening the window further was
+> deliberately not attempted: whether 128–256 frames would bring the term clear
+> is a prediction from floor readings, not a measurement, and a rung added
+> between runs makes the series two instruments.
+>
+> **`c-noactivate` is a term and not the noise floor** the instrument's own
+> namespace docstring calls it (`rf2-tcffa`; `rf2-19usn` carries the shipping
+> cost behind it), and this window corroborates that independently: it reads
+> 0.0422 / 0.0484 / 0.0562 with one sign on every run, **larger than the
+> cell-map insert in two runs of three.** It therefore cannot serve as the
+> arbiter of whether a window is wide enough, which is the job the widening
+> commit gave it.
+>
+> **Nothing in §1's table or in §4 is restated by this window, and the
+> obligations that ride the republication stay open on `rf2-07rnj`.** The
+> `index write` row still prices the structure `rf2-dabt3` deleted; 0.8625 is
+> still not the `c-local` measured above; and the conclusions built on both —
+> §1's "Reading it" 4, and `the-in-page-mount-term-decomposed.md`'s §6(b)
+> comparison and §9.2 "batching the index write" — still read as current.
+> Retiring or qualifying them was to ride the republished decomposition, and
+> there is no republished decomposition.
+>
+> **The box, sampled with real counters and reported whole.** Processor Queue
+> Length (`\System\Processor Queue Length`) was sampled **235 times** across
+> the window, back-to-back at 1 s during every run, and read **0 on 211 of
+> them**. Of the 24 non-zero readings: **10 are build-phase** — `run.cjs`
+> rebuilds the `:advanced` bundle unconditionally on every run and that
+> compile saturates this box — and they are the only large ones (2, 34, 57, 1,
+> 26 in run 2; 1, 1, 1, **93**, 1 in run 3), every one of them before the
+> bundle's own mtime. **10 are measurement-phase** and none exceeds 2 (five
+> 1s in run 2; 2, 1, 1, 1, 1 in run 3). Three more (all 1) fall inside run 1,
+> which was sampled without timestamps and whose readings therefore **cannot
+> be proven to sit in either phase**; the remaining one is a 1 on the idle box
+> before certification. The non-zero count is higher than the predecessor
+> windows' because the sampling here is continuous rather than spaced, not
+> because the box was busier.
+>
+> Raw driver output for all three runs, unedited, is committed beside the
+> instrument at
+> `implementation/hicasso/test/re_frame/bench/hicasso/data/readprofile-07rnj/`
+> (`run1.txt`, `run2.txt`, `run3.txt` — `.txt` because the repo ignores
+> `*.log`).
+> Reproduction: `HICASSO_INIT_FN=re-frame.bench.hicasso.read-profile-app/-main
+> HICASSO_OUT_DIR=out/hicasso-readprof node
+> implementation/hicasso/test/re_frame/bench/hicasso/run.cjs`.
+
 Micro table, over the page's own roster (ns/op): `subscribe-once` 5,284;
 `compute-sub` 1,170; the raw handler invoke 227; `registrar/lookup` 67;
 `frame-state-value` 266; the `call-with-frame-resolution` wrap 206; the
