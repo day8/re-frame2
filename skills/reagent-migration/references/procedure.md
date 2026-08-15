@@ -78,15 +78,15 @@ tier:
 
 - **An R hit → hold the WHOLE view on Reagent**, honestly, and record why. The
   list is short: the prev-props update protocol (MIG-36), a frame-pinned
-  reactive read (MIG-03), SSR-then-hydrate (MIG-23), Reagent introspection and
-  schedulers (MIG-35). → [`catalog-reject.md`](catalog-reject.md).
+  reactive read (MIG-03), Reagent introspection and schedulers (MIG-35). →
+  [`catalog-reject.md`](catalog-reject.md).
 - **A D hit → decide it with the author, then convert the WHOLE view or hold the
   WHOLE view** — never a partial body. → [`catalog-judgment.md`](catalog-judgment.md):
   state (MIG-16), lifecycle (MIG-17), the `:on-*` handler split (MIG-18),
   derived state and the ratom-store restructure (MIG-19/20), foreign React and
   its callback contracts (MIG-09/10/22), ambient reads in plain fns (MIG-26),
-  fn props on internal views (MIG-27), computed props (MIG-28), and the loop /
-  render-prop shaping calls (MIG-08/13).
+  fn props on internal views (MIG-27), computed props (MIG-28), SSR-then-hydrate
+  (MIG-23), and the loop / render-prop shaping calls (MIG-08/13).
 
 Do not rewrite the clean parts of a held view — whole-view coherence,
 [`gotchas.md`](gotchas.md).

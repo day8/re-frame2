@@ -10,7 +10,7 @@
 > The list is deliberately **short**. Hicasso has a first-class foreign-React
 > door, a callback ref, an error boundary, portals, an ephemeral-state sugar and
 > a real test kit, so most of what an earlier substrate had to refuse now
-> converts. Four things genuinely do not.
+> converts. Three things genuinely do not.
 
 ## MIG-36 — the prev-props / prev-state update protocol
 
@@ -58,26 +58,6 @@ rather than an ergonomics gap. Two honest routes before you hold:
 
 If neither fits — a cell inside one tree that must reactively read a sibling
 frame — hold the view.
-
-## MIG-23 — SSR-then-hydrate
-
-**There is no shipped Hicasso server-render door.** `re-frame.hicasso.server`
-does not exist, and `hydrate-root!` is deliberately **not** on the public facade
-for exactly that reason: a hydrating door adopts bytes something produced, and
-this package publishes nothing that produces them. The absence is held and
-documented in the door's own source, not overlooked.
-
-The draft guide teaches `re-frame.hicasso.server/render`, `ssr/hydrate!` and
-`h/hydrate!`. **None of the three exists.** This is the clearest case in the
-whole migration of cardinal rule 6: a design page is not authority for a
-spelling.
-
-So an app with an SSR-then-hydrate pipeline **keeps its hydrating roots on
-Reagent**. Client-only roots in the same app can convert normally — the hold is
-per-root, not per-app.
-
-(`h/portal` is client-only too, and takes a `:fallback` for its tree position on
-a server render — but that is a portal's own policy, not a hydration path.)
 
 ## MIG-35 — Reagent component-introspection and schedulers
 
@@ -141,6 +121,11 @@ carry the old refusal across:
   It needs no rewrite — but it does need **flagging**, because Reagent deleted
   the prop and Hicasso does not, so a dead site becomes live. That is a
   behaviour change to raise with the author, not a hold. → M-tier.
+- **SSR-then-hydrate** (MIG-23). The whole pipeline shipped: `server/render` is
+  the optional server module's product door, `re-frame.ssr/hydrate!` installs
+  the server's app-db, and `h/hydrate!` adopts the server DOM. What is left is
+  an infrastructure decision — the renderer is React's, running on Node — not a
+  missing spelling. → D-tier.
 
 ## How to phrase a hold to the author
 
