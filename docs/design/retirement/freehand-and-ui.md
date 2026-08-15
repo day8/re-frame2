@@ -265,9 +265,27 @@ tests and regenerated outputs, and `implementation/freehand/` itself — 376 fil
 the two surviving producer vectors, renumbers the Spec 002 destroy recipe, and **repoints** the
 four core tests rather than deleting them.
 
-**R5** deletes `spec/conformance/freehand/` (59 files), `.github/workflows/freehand-conformance.yml`,
-`scripts/check_freehand_conformance_index.py` and `scripts/check_donor_inventory.py`, and trims
-`.github/scripts/report-changed-surfaces.sh` with its `_changed-surfaces.test.cjs` mirror.
+**R5** was planned to delete `spec/conformance/freehand/` (59 files),
+`.github/workflows/freehand-conformance.yml`, `scripts/check_freehand_conformance_index.py` and
+`scripts/check_donor_inventory.py`, and to trim `.github/scripts/report-changed-surfaces.sh` with
+its `_changed-surfaces.test.cjs` mirror.
+
+**Two of those numbers were wrong and one of those deletions cannot happen yet — measured
+2026-08-16.** The corpus is **116** tracked files, not 59 (113 fixtures plus three Markdown pages;
+59 was a count of files *mentioning* "freehand" under `spec/conformance`, which is a different
+question). And the corpus is a **compile-time input to `implementation/freehand/test/`**:
+`conformance.cljc` reads `fixtures/*.edn` at macro-expansion time and `roster.cljc` reads
+`conformance-index.md` the same way, both failing the compile by design when the file is absent.
+Deleting the corpus while `implementation/freehand/` stands therefore reds `jvm-freehand`, `cljs`
+and `cljs-browser` — three REQUIRED jobs. Reproduced by moving the corpus aside and loading the
+suites. So the corpus, the workflow and `check_freehand_conformance_index.py` ride **R3b**, and
+dropping the validator earlier would disarm a gate whose subject still stands.
+
+**What R5 did land** is the half with no such coupling: `scripts/check_donor_inventory.py` and
+`spec/conformance/freehand/donor-inventory.md`, deleted together in one commit, with
+`freehand-conformance.yml` **narrowed** to its index job rather than removed, and the archive's
+arms trimmed out of the classifier and its mirror. See `TESTING.md` § "Retirement order for the
+Freehand CI lanes", stages 2 and 3.
 
 **R6** is the remaining ~237 prose files: `docs/design/freehand/`, the `docs/api` pages, `docs/skills`,
 `skills/re-frame2-ui/` entire, `mkdocs.yml`'s nav, the root `README.md`/`CHANGELOG.md`/`AGENTS.md`/

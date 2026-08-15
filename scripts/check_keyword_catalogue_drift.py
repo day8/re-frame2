@@ -109,8 +109,9 @@ never-a-trace id cannot have an error-EVENT row, so widening this scan to the
 family would not find drift; it would manufacture ~110 findings against a
 contract nobody wrote. The family's own roster gate is real and in flight
 elsewhere: `implementation/ui/test/re_frame/ui/error_roster_*`, dispositioned
-**MOVE** in `spec/conformance/freehand/donor-inventory.md` (F1, pending) — it
-CROSSES into Freehand rather than dying with the donor tree, and the ids
+**MOVE** by the F1 absorption ledger (that archive was deleted by rf2-0yp7w.8;
+git history holds it) — it CROSSES into Freehand rather than dying with the
+donor tree, and the ids
 themselves already live on the Freehand side
 (`implementation/freehand/src/re_frame/freehand/compiler/`), so the pending
 `implementation/ui` deletion takes the donor copy only.
