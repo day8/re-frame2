@@ -30,6 +30,8 @@ The representative mount difference is largely associated with a richer read top
 
 That paid-for read declaration suggests the flagship extension: committed resource demand. A committed read can acquire demand; unmount or parameter change releases it; debounce, supersession, refresh and cancellation are explicit policy. Abandoned render acquires nothing and no second ledger appears. A typeahead witness decides adoption.
 
+*The witness ran and the verdict is **STOP*** (`rf2-hic-050`, 2026-08-12; record page [`resource-demand-verdict.md`](../resource-demand-verdict.md)). Committed-read resource demand is not adopted and nothing implements it: a subscription is a passive read that never fetches, and an explicit event, route or machine cause owns the fetch. The paragraph above is retained as the corpus reading that *proposed* the experiment — this document preserves rationale — and not as a live product direction. (`rf2-h3tke`, 2026-08-16.)
+
 ## Evidence is a designed product
 
 Instrument eligibility precedes every product row because an invalid clock, control, allocation method, estimand, or population can flatter or obscure a candidate. Name the estimand and population, use a tuned behaviorally equal control, state which failure class each control detects, pin the estimator before candidate data opens, and sabotage the instrument so it demonstrably refuses. Invalid evidence produces no fallback ratio.

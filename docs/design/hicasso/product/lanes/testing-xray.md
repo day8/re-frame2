@@ -70,7 +70,9 @@ Production-erasure tests use unique sentinels and a reachable positive-control s
 
 Every testing refusal is structured and source-located. Query results never leave the process unless an explicitly authorized consumer requests them, and query arguments pass through the existing privacy projector. Sink failures are contained. Performance collection is independently gated and off by default.
 
-Optional modules contribute evidence only while installed and used. Forms, overlays, presence, resources, and native islands may add their own bounded projections—for example draft ownership, active top-layer region, transition posture, resource demand, or native read edges—but none adds a universal accumulator to ordinary Hicasso.
+Optional modules contribute evidence only while installed and used. Forms, overlays, presence, resources, and native islands may add their own bounded projections—for example draft ownership, active top-layer region, transition posture, resource owners and fetch cause, or native read edges—but none adds a universal accumulator to ordinary Hicasso.
+
+*The resources projection above read* "resource demand" *until 2026-08-16 (`rf2-h3tke`).* `rf2-hic-050` returned **STOP** on committed-read demand and a subscription never fetches, so what there is to project is the explicit owner and the cause that fetched — which is what the public diagnostics page names.
 
 ## Acceptance
 
