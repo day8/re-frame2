@@ -93,7 +93,7 @@
   |-------------|---------------------------------------------------|----------------|
   | `commit`    | [[frames-per-window]] frames x `rt/commit-boundary!` on the harvested entry | the shipping commit half |
   | `c-local`   | faithful copy: cell mint + subscribe + activation + baseline deref + watch + dispose hook + map insert + reader membership | the ablation baseline, validated against `commit` |
-  | `c-noactivate` | `c-local` minus `interop/activate-derived-value!` | the substrate's capture run (rf2-lzpfj) |
+  | `c-noactivate` | `c-local` minus `interop/activate-derived-value!` | ON THIS HOST the uncached hook resolution, a real term (rf2-tcffa); the substrate's capture run under a ratom host (rf2-lzpfj) |
   | `c-nowatch` | `c-local` minus add-watch + the disposal hook     | the watch wiring |
   | `c-nosub`   | `c-local` with `compute-sub` in place of subscribe + deref | the reaction build + cache insert (the compute is kept, priced by the swap) |
   | `c-noreaders` | `c-local` minus the cell's reader array and the membership push | the fused reverse edge (rf2-dabt3) |
@@ -108,13 +108,45 @@
   bare macrotask, and its docstring says why the difference is the
   difference between phase B reaching a number and not (rf2-981nt).
 
-  **`c-noactivate` should read at the noise floor ON THIS HOST, and that is
-  the point of quoting it** (rf2-lzpfj). This app installs the UIx adapter,
-  and `interop/activate-derived-value!` is a routed no-op on the React-hook
-  spine — that spine wires one watch per source at construction, so there
-  is nothing to activate and the delta prices one cached hook lookup that
-  misses, per key, and nothing else. The arm exists because the term is NOT
-  a no-op under the ratom family, where a `Reaction` learns its sources only
+  **`c-noactivate` is a REAL TERM on this host — it is NOT the noise floor,
+  and nothing may be arbitrated against it** (rf2-tcffa; this docstring
+  claimed the opposite until that bead, and the claim was load-bearing). This
+  app installs the UIx adapter, and no activation happens on the React-hook
+  spine: that spine wires one watch per source at construction, so there is
+  nothing to activate and the routed call bottoms out at nil.
+
+  **But the LOOKUP that reaches that nil is real work, and it is the one
+  lookup that can never be cached.** `:adapter/activate-derived-value!` is
+  published by the ratom family ALONE, and `late-bind/get-fn-cached` memoises
+  positive resolutions only — its own docstring says nil resolutions are NOT
+  cached, deliberately, so that a deferred publication is visible on the next
+  call. A key no adapter on this host ever publishes therefore misses both
+  slots on every call: two atom derefs and two hash-map misses, once per key
+  of the read set, which is 141 calls per boundary commit in this arm's own
+  loop. rf2-19usn carries that cost where it is paid in shipping code and is
+  the reason this delta is not zero.
+
+  It measures accordingly. Over rf2-07rnj's three runs the arm read
+  0.0422 / 0.0484 / 0.0562 ms/commit — one sign on every run, and LARGER than
+  the cell-map insert in two of the three. An arm reading above a term the
+  same table asks you to believe is not a floor, and reading it as one invites
+  the opposite of the truth: that a window resolving its terms is failing.
+
+  **What it can be used for is what every other arm is used for** — quoted
+  beside them as the price of one unpublishable hook resolution per key. What
+  it cannot do is arbitrate whether the window is wide enough, which is the
+  job [[frames-per-window]] gave it and which that docstring now withdraws.
+  **No measured null exists on this instrument.** The arithmetic-impossibility
+  residual is not one either: `c-noreaders` has an unknown positive true cost,
+  so a negative reading of it establishes neither a symmetric error band nor
+  any bound on the term, and the `< 0.006 ms/commit` figure once floated for
+  reader membership is withdrawn. Reader membership is simply UNRESOLVED at
+  this window. A genuine negative control — an arm ablating nothing at all —
+  has to be added deliberately; coordinate one with rf2-3l6hf rather than
+  promoting an existing arm into the role.
+
+  The arm still earns its place, because the term is NOT a no-op under the
+  ratom family, where a `Reaction` learns its sources only
   through `deref-capture`: the capture run retains a `watching` array per
   reaction and an entry in each source's watcher set — per-key retained heap
   the model understated for as long as the call was missing. Quoting it as
@@ -180,10 +212,21 @@
   reads, still 200x the clock's own quantum, and the run stays under a
   minute of sampling.
 
-  **The arbiter that this was enough is not this docstring — it is
-  `c-noactivate`**, which on this UIx host ablates a routed no-op and so
-  reads the instrument's own floor. A term is trustworthy when it stands
-  clear of that arm, and no wider."
+  **This window has no arbiter, and `c-noactivate` is not one** (rf2-tcffa).
+  This docstring gave that arm the job on the ground that it ablates a routed
+  no-op and so reads the instrument's own floor. It does not: the call it
+  ablates resolves a hook key that is never published on this host and so can
+  never be cached, which is real work — rf2-07rnj's runs read the arm LARGER
+  than the cell-map insert in two of three. The namespace docstring carries
+  the mechanism. Nor does the arithmetic-impossibility residual serve as a
+  floor: `c-noreaders` has an unknown positive true cost, so a negative
+  reading of it bounds nothing.
+
+  So the case for 32 is the grid arithmetic above and nothing else, and it is
+  a case about RESOLUTION, not about trust in any particular delta. Until a
+  real negative control exists (rf2-3l6hf), a term is credited on sign
+  stability across runs — which is exactly why rf2-07rnj published four terms
+  and refused the fifth."
   32)
 
 (def commit-frames
@@ -475,9 +518,11 @@
   The stubs, stated: `c-nosub` keeps the computation (a `compute-sub`
   against the frame-state snapshot) so its delta prices the reaction
   build + cache insert rather than build-plus-compute; `c-noactivate`
-  skips the activation alone (see the namespace docstring — a routed
-  no-op on this UIx host, a real capture run under the ratom family, and
-  quoted separately so it stays attributable either way); `c-nowatch` skips
+  skips the activation alone (see the namespace docstring — nothing
+  activates on this UIx host, but the hook resolution it ablates can never
+  be cached, so the arm prices real work and is NOT a floor (rf2-tcffa); a
+  real capture run under the ratom family, and quoted separately so it
+  stays attributable either way); `c-nowatch` skips
   both the watch and the disposal hook; the disposal hook and the watch
   callback are no-ops rather than the arm's real repair fns, which is a
   floor in the stubs' favour.
@@ -811,7 +856,7 @@
                                           clocal  (:p50 (get rows :c-local))]
                                       (js/console.log (str ";;   copy fidelity: c-local/commit = " (fmt (/ clocal commit') 4)))
                                       (js/console.log (delta-line "activation-capture (c-local - c-noactivate)" clocal (:p50 (get rows :c-noactivate))))
-                                      (js/console.log (str ";;     ^ routed no-op on this UIx host — expect the noise floor; real only under the ratom family (rf2-lzpfj)"))
+                                      (js/console.log ";;     ^ a REAL term here, NOT a floor and not an arbiter: nothing activates on this UIx host, but the hook key is never published and so never cached, and this prices that lookup (rf2-tcffa, rf2-19usn). The capture itself is real only under the ratom family (rf2-lzpfj)")
                                       (js/console.log (delta-line "watch-wiring (c-local - c-nowatch)" clocal (:p50 (get rows :c-nowatch))))
                                       (js/console.log (delta-line "reaction-build+cache-insert (c-local - c-nosub)" clocal (:p50 (get rows :c-nosub))))
                                       (js/console.log (delta-line "reader-membership (c-local - c-noreaders)" clocal (:p50 (get rows :c-noreaders))))
