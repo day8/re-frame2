@@ -31,14 +31,32 @@
     * `re-frame.prod-gate-dispatch-jvm-test` — the child-JVM pattern for a
       defect that only reproduces at load time.
 
-  THE EPOCH ARTEFACT HAS NO SUCH LANE. There is no `:prod-gate` alias in
-  `implementation/epoch/deps.edn`, no `scripts/test-epoch-prod-gate.sh` and no
-  lane pin, so the surfaces below have never executed under the posture they
-  are about — which bites harder here than elsewhere, the whole security
-  rationale (rf2-vnjfg / rf2-0la4f) being that the ring must not retain
-  `:db-before` / `:db-after` / raw `:trace-events` in a production heap. Filed
-  as rf2-bo8lq. This docstring makes the file listing honest; it does not make
-  the coverage exist.
+  THE EPOCH ARTEFACT NOW HAS SUCH A LANE (rf2-bo8lq). `:prod-gate` in
+  `implementation/epoch/deps.edn`, `scripts/test-epoch-prod-gate.sh`, the
+  `jvm-epoch-prod-gate` job and `re-frame.epoch-prod-gate-lane-pin-test` did not
+  exist when the paragraph above was written; the surfaces below had then never
+  executed under the posture they are about, which bit harder here than
+  elsewhere, the whole security rationale (rf2-vnjfg / rf2-0la4f) being that the
+  ring must not retain `:db-before` / `:db-after` / raw `:trace-events` in a
+  production heap.
+
+  THIS FILE'S OWN DISCLAIMER STILL STANDS, and the distinction is worth keeping
+  straight now that both things are true at once. Every deftest below still
+  rebinds the Var, so this file still does not reach the load-time gate on its
+  own. What changed is that ten of its twelve deftests are now ALSO executed by
+  the lane above, in a JVM where the property is genuinely on the command line —
+  so the same assertions are made twice, once against a rebound flag and once
+  against a real one. The two remaining deftests are `^:requires-debug`: they
+  assert epoch's DEV parity, which the production lane by definition cannot.
+
+  Stated precisely, since the loose version of this sentence caused the original
+  confusion: epoch reads the gate only as `(when interop/debug-enabled? …)`
+  inside fn bodies, which is a runtime Var deref, so the rebinds below do reach
+  epoch's own gated branches — this suite was never vacuous. What a rebind
+  cannot reach is what the framework decided while it LOADED under the dev
+  default: top-level registrations, `defonce` initialisation, interceptor chains
+  composed once at load. That is the half the lane adds, and the half rf2-9c2jf
+  lived in.
 
   HOW THIS WENT UNSAID FOR SO LONG, worth recording because the mechanism is
   general. rf2-f7qj4 re-docstringed the three core suites in exactly this shape
@@ -148,7 +166,17 @@
       (is (false? (rf/replace-frame-state! :rf/default {:rf.db/app {:any "db"}}))
           "replace-frame-state! returns false (refuses to operate)"))))
 
-(deftest epoch-still-records-with-default-gate
+;; rf2-bo8lq — `^:requires-debug` (core's existing dev-only declaration,
+;; rf2-d2841). This deftest is a statement about the DEV posture, so the epoch
+;; production-gate lane excludes it (`-e :requires-debug` in the `:prod-gate`
+;; alias). Measured, not guessed: under a real load-time `-Dre-frame.debug=false`
+;; it is one of exactly two reds in this namespace, and both are these dev-parity
+;; sanity tests. A `(when interop/debug-enabled? …)` posture arm would be the
+;; WRONG repair — it would leave a deftest with no assertion at all under the
+;; gate, reporting green for a run that executed nothing, which is the false
+;; green this programme exists to close. It still runs, exactly once, in
+;; `clojure -M:test`.
+(deftest ^:requires-debug epoch-still-records-with-default-gate
   (testing "Sanity: with the gate at its default `true` reading
             (dev parity), epoch recording continues to work. This
             test fails fast if a future refactor accidentally
@@ -222,7 +250,11 @@
             "no record assembled under the disabled gate")
         (rf/configure! {:epoch-history {:redact-fn nil}})))))
 
-(deftest redact-fn-not-invoked-at-storage-under-default-gate
+;; rf2-bo8lq — `^:requires-debug`, for the reason recorded at
+;; `epoch-still-records-with-default-gate` above: its second assertion needs the
+;; ring to hold a record for `projected-record` to fire the override, and under
+;; the real load-time gate the ring is never filled.
+(deftest ^:requires-debug redact-fn-not-invoked-at-storage-under-default-gate
   (testing "Per EP-0015 §15 + open-issue 6: even under the DEFAULT-TRUE
             gate, dispatching does NOT invoke the :redact-fn — it is no
             longer a storage-side hook. The ring record is RAW; the
