@@ -246,6 +246,74 @@
      ;; default :cannot-run
      (cannot-run-refusal required provided step :flush-timeout))))
 
+;; ---- the flush phase -----------------------------------------------------
+
+(defn settle-to!
+  "Run `hooks`' registered flushes up to and including `required`, in
+  ladder order, WITHOUT dispatching anything. The flush half of
+  `dispatch-and-settle!`, factored out so there is ONE flush loop in the
+  codebase rather than a second copy of the ladder walk and its deadline
+  arithmetic.
+
+  Two callers, and the split between them is the point:
+
+  - `dispatch-and-settle!` calls it AFTER its `:dispatch!` hook, so
+    `[:dispatch …]` means dispatch-then-settle.
+  - the play runner calls it BEFORE a step that reads or drives the DOM
+    (`runner-events/exec-step!`), so such a step runs against a substrate
+    that has already committed — the guarantee its required boundary
+    names, established before the step rather than hoped for after it.
+
+  This fn does NOT refuse. `dispatch-and-settle!` owns the fail-closed
+  `:cannot-run` check because refusing there means the event is not
+  dispatched at all, which is a decision about a side effect; settling is
+  not. A rung the hooks do not register is simply a no-op for that rung
+  (the cheaper rungs still ran), so a headless host settles to `:headless`
+  and changes nothing — which is what makes calling this on every host
+  safe.
+
+  Returns `{:status :settled :boundary required}`, a `flush-timeout-result`
+  when the hooks' `:timeout-ms` budget is exceeded (re-checked after each
+  flush fn returns, terminal flush included), or `{:status :error …}` when
+  a flush fn throws. NEVER a silent pass."
+  ([frame-id hooks required] (settle-to! frame-id hooks required nil))
+  ([frame-id hooks required step]
+   (let [required (if (boundary? required) required :headless)
+         provided (hooks-provided-boundary hooks)]
+     (try
+       (let [flushes    (:flush! hooks)
+             timeout-ms (:timeout-ms hooks)
+             deadline   (when (number? timeout-ms)
+                          (+ (interop/now-ms) timeout-ms))
+             ;; Every registered level up to and including `required`, in
+             ;; ladder order. The headless flush is folded into `:dispatch!`
+             ;; (`drain-sync!`), so its hook is a no-op; the richer flushes
+             ;; carry the adapter's reactive / DOM work.
+             levels     (take-while #(boundary>= required %) boundary-levels)]
+         (loop [[level & more] levels]
+           (cond
+             ;; The deadline is re-checked BEFORE this branch returns so it
+             ;; also covers the TERMINAL flush: the last (richest) flush can
+             ;; run within budget on entry yet blow the wall-clock budget as
+             ;; it returns. Checking here — not only at the top of the next
+             ;; iteration — means an over-budget terminal flush refuses with
+             ;; a fail-closed `:flush-timeout` instead of a settled pass it
+             ;; did not earn.
+             (and deadline (> (interop/now-ms) deadline))
+             (flush-timeout-result required provided step)
+
+             (nil? level)
+             {:status :settled :boundary required}
+
+             :else
+             (do (when-let [f (get flushes level)]
+                   (f frame-id))
+                 (recur more)))))
+       (catch #?(:clj Throwable :cljs :default) e
+         {:status :error
+          :error  #?(:clj (.getMessage ^Throwable e) :cljs (str e))
+          :step   step})))))
+
 ;; ---- the dispatch-and-settle entry point ---------------------------------
 
 (defn dispatch-and-settle!
@@ -302,51 +370,20 @@
        ;; needs a richer boundary than the runner provides is refused.
        (cannot-run-refusal required provided step)
        (try
-         (let [dispatch!  (or (:dispatch! hooks) drain-sync!)
-               flushes    (:flush! hooks)
-               timeout-ms (:timeout-ms hooks)
-               deadline   (when (number? timeout-ms)
-                            (+ (interop/now-ms) timeout-ms))
-               ;; The flush levels to run: every registered level up to and
-               ;; including `required`, in ladder order. The headless flush
-               ;; is folded into `:dispatch!` (`drain-sync!`), so its hook is
-               ;; a no-op; the richer flushes carry the adapter's reactive /
-               ;; DOM work.
-               levels     (take-while #(boundary>= required %) boundary-levels)
-               ;; A replayed `[:dispatch evec {:rf.cofx …}]` step carries a
-               ;; captured recordable-coeffect envelope. The caller
-               ;; (`exec-dispatch!`) extracts it off the step and passes it as
-               ;; `dispatch-opts`; thread it into the dispatch opts (via the
-               ;; hook's optional 3-arity) so the handler's declared recordable
-               ;; coeffects replay from the recorded value rather than being
-               ;; restamped. Absent cofx uses the bare 2-arity call.
-               ]
+         (let [dispatch! (or (:dispatch! hooks) drain-sync!)]
+           ;; A replayed `[:dispatch evec {:rf.cofx …}]` step carries a
+           ;; captured recordable-coeffect envelope. The caller
+           ;; (`exec-dispatch!`) extracts it off the step and passes it as
+           ;; `dispatch-opts`; thread it into the dispatch opts (via the
+           ;; hook's optional 3-arity) so the handler's declared recordable
+           ;; coeffects replay from the recorded value rather than being
+           ;; restamped. Absent cofx uses the bare 2-arity call.
            (if (and (map? dispatch-opts) (seq dispatch-opts))
              (dispatch! frame-id event-vector dispatch-opts)
              (dispatch! frame-id event-vector))
-           ;; Run each flush, re-checking the `:timeout-ms` deadline after
-           ;; each returns. An over-budget flush phase stops the ladder and
-           ;; refuses with a fail-closed `:flush-timeout` (`flush-timeout-result`)
-           ;; rather than reporting a settled pass it did not earn.
-           (loop [[level & more] levels]
-             (cond
-               ;; The deadline is re-checked BEFORE this branch returns so it
-               ;; also covers the TERMINAL flush: the last (richest) flush can
-               ;; run within budget on entry yet blow the wall-clock budget as
-               ;; it returns. Checking here — not only at the top of the next
-               ;; iteration — means an over-budget terminal flush refuses with
-               ;; a fail-closed `:flush-timeout` instead of a settled pass it
-               ;; did not earn.
-               (and deadline (> (interop/now-ms) deadline))
-               (flush-timeout-result required provided step)
-
-               (nil? level)
-               {:status :settled :boundary required}
-
-               :else
-               (do (when-let [f (get flushes level)]
-                     (f frame-id))
-                   (recur more)))))
+           ;; The flush phase — one shared ladder walk (`settle-to!`),
+           ;; deadline arithmetic and all.
+           (settle-to! frame-id hooks required step))
          (catch #?(:clj Throwable :cljs :default) e
            {:status :error
             :error  #?(:clj (.getMessage ^Throwable e) :cljs (str e))

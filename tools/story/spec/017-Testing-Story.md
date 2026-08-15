@@ -902,6 +902,46 @@ the existing framework drain and a flush-hook seam over it.
   `:provides`; the runner resolves them through the
   `:settled-boundary-hooks` late-bind slot and never reaches for
   `dispatch-sync` directly.
+
+  **Story SHIPS the producer for that slot** —
+  `re-frame.story.play.substrate-boundary`, installed from the canonical
+  installer chain. It names no substrate: it reads the optional
+  `:flush-render!` contract fn off the LIVE adapter
+  (`rf/current-adapter-spec`, Spec 006 §Adapter introspection) and, when it
+  finds one, declares `:provides :dom` with that synchronous commit
+  registered at the `:cljs-reactive` and `:dom` rungs. `flush-render!` is
+  the framework's substrate-neutral settle signal (Spec 006
+  §`flush-render!`) and the same primitive the pair MCP's own
+  dispatch-and-settle op builds on; reaching it through the installed
+  adapter rather than a named substrate API is required by
+  [Tool-Pair §Driving the render](../../../spec/Tool-Pair.md) — "a tool that
+  names `reagent.core/flush!` is non-conforming and breaks under UIx". An
+  adapter with no live commit (plain-atom, SSR) and a bare JVM run with no
+  adapter both fall back to `headless-flush-hooks`, so the headless floor
+  is unchanged. A host with a genuinely richer boundary — a browser runner
+  that settles layout and paint — re-registers the slot and wins it.
+
+- `settle-to!` — the flush phase on its own: run the registered flushes
+  `<= required` in ladder order, with the same `:timeout-ms` deadline
+  discipline, and settle **without dispatching**. `dispatch-and-settle!`
+  is `:dispatch!` followed by `settle-to!`, so there is one flush loop
+  rather than two. It does NOT refuse: the fail-closed `:cannot-run` check
+  belongs to `dispatch-and-settle!`, where refusing means an event is not
+  dispatched at all. A rung the hooks do not register is a no-op for that
+  rung.
+
+  **A step that reads or drives the DOM has its required boundary
+  established BEFORE it runs** (`runner-events/exec-step!`). `[:click …]`
+  must match its selector against the DOM as it currently stands, and a
+  folded `[:assert [:rf.assert/dom-* …]]` checkpoint must read the DOM the
+  preceding steps produced; both are preconditions, not afterthoughts.
+  Because the folded checkpoint carries the `:assert` tag — whose declared
+  boundary is deliberately `:headless`, its capability tokens rather than
+  its boundary gating the DOM requirement — the runner recovers the `:dom`
+  requirement from the assertion's own family (`dom-assertion-ids`), the
+  same set the assert executor routes on. Steps below `:cljs-reactive` are
+  untouched, and on a host whose hooks register no richer flush the whole
+  mechanism is inert.
 - `dispatch-and-settle!` — the entry point `[:dispatch event-vector]`
   lowers to: dispatch through the supplied `:dispatch!`, then run each
   registered flush whose level is `<= required` in ladder order. It
