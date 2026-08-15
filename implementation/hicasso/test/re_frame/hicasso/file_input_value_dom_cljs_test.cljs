@@ -111,6 +111,17 @@
 
 (defn- id-of [e] (:rf.error/id (ex-data e)))
 
+(defn- recovery-of
+  "The `:recovery` slot. Read separately from the id because the two
+  carry different promises: the id is frozen for the life of the refusal,
+  while `:recovery` is concrete advice about a LIVE api and is rewritten
+  when that api is renamed (the complaint register's own ruling). Both
+  rows below assert it, so a rename that moves the door and forgets these
+  emitters reds here rather than shipping advice naming a form nobody
+  exports — which is exactly what rf2-15bqc found."
+  [e]
+  (:recovery (ex-data e)))
+
 (defn- file-input!
   "A real `<input type=file>` in the document, at the given SPELLING of
   the type attribute — `setAttribute`, so the attribute keeps the
@@ -198,7 +209,12 @@
               [:input {:type :file :value 0 :on-change noop-change}]]]]
       (is (= :rf.error/hicasso-file-input-value-prop
              (id-of (thrown-by #(codec/as-element hiccup))))
-          what))))
+          what)))
+  (testing "and its recovery names the form the door exports (rf2-15bqc)"
+    (is (= :leave-the-file-input-uncontrolled-and-read-files-with-an-h-event
+           (recovery-of (thrown-by
+                         #(codec/as-element
+                           [:input {:type :file :value "budget.csv"}])))))))
 
 (deftest the-empty-value-is-the-reset-idiom-and-is-permitted
   (testing "`:value \"\"` is how an author clears a file input from the
@@ -334,7 +350,12 @@
              (id-of (thrown-by
                      #(intent/materialize [:app/upload :re-frame.hicasso/value]
                                           (ev target)))))
-          "the marker used to lower to that string")))
+          "the marker used to lower to that string")
+      (is (= :read-the-file-list-with-an-h-event
+             (recovery-of (thrown-by
+                           #(intent/materialize [:app/upload :re-frame.hicasso/value]
+                                                (ev target)))))
+          "and its recovery names the form the door exports (rf2-15bqc)")))
   (testing "three files picked: it names the FIRST, and discards the rest"
     (let [target (file-stand-in ["a.csv" "b.csv" "c.csv"])]
       (is (= "C:\\fakepath\\a.csv" (.-value target)))

@@ -652,6 +652,9 @@
                 (is (= :onValueChange (:position d)))
                 (is (= contract (:contract d)))
                 (is (= carrier (:value d)))
+                (is (= :declare-the-position-event-or-write-an-h-event (:recovery d))
+                    "the recovery names the form the door actually exports
+                     (rf2-15bqc)")
                 (is (re-find #":onValueChange" (ex-message e))
                     "and the diagnostic names the POSITION")))))
         (is (= [] @!seen) "nothing was dispatched on the way to any refusal"))
@@ -690,6 +693,10 @@
               (is (= :on-pick (:position data)))
               (is (= "preventDefault" (:needed data)))
               (is (= "a-value" (:argument data)))
+              (is (= :write-an-h-event-at-a-value-first-position (:recovery data))
+                  "the recovery names the form the door actually exports: a
+                   `:recovery` is advice about a LIVE api, so it moved with
+                   `hfn` → `h/event` (rf2-15bqc)")
               (is (re-find #":on-pick" (ex-message e)) "it names the POSITION")
               (is (re-find #"h/event" (ex-message e)) "and the spelling that works"))))))
     (testing "`:on-submit`'s auto-prevent is the same law, reached by the
