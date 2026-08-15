@@ -226,9 +226,9 @@ nav:
     # with the digest roster that pinned them
     # (implementation/freehand/test/.../guide/samples_coverage_jvm_test.clj) —
     # same commit, because the roster `file-seq`s the page tree and deleting
-    # either half alone reds the suite. The `api/re-frame.freehand*.md` and
-    # `api/re-frame.ui*.md` pages that linked in survive until they retire with
-    # the code tree; their inbound links were de-linked rather than re-pointed.
+    # either half alone reds the suite. The `api/re-frame.freehand*.md` pages
+    # that linked in survive until they retire with the code tree; their
+    # inbound links were de-linked rather than re-pointed.
     - "Hicasso: the view layer":
       - core/hicasso/index.md
       - "0. Installation": core/hicasso/00-installation.md
@@ -294,15 +294,6 @@ nav:
     - "re-frame.freehand.controls (pre-alpha)": api/re-frame.freehand.controls.md
     - "re-frame.freehand.splitter (pre-alpha)": api/re-frame.freehand.splitter.md
     - "re-frame.freehand.collection (pre-alpha)": api/re-frame.freehand.collection.md
-    # The compiled-view substrate has no published Maven coordinate
-    # (docs/release-process.md §Policy) and is now retired and awaiting
-    # removal. The nav says so, matching the Skills entry
-    # "re-frame2-ui (retired compiled views)" — a reader must not mistake
-    # these three pages for an installable dependency (rf2-9yvpf). The
-    # "(donor)" markers below are the API tree's own and retire with those
-    # pages, in the API-page phase (rf2-pzu4g), not here.
-    - "re-frame.ui (donor)": api/re-frame.ui.md
-    - "re-frame.ui.react (donor)": api/re-frame.ui.react.md
     - "re-frame.schemas": api/re-frame.schemas.md
     - "re-frame.flows": api/re-frame.flows.md
     - "re-frame.http": api/re-frame.http.md
@@ -318,7 +309,6 @@ nav:
     - "re-frame.test-support": api/re-frame.test-support.md
     - "re-frame.test-helpers": api/re-frame.test-helpers.md
     - "re-frame.freehand.test (pre-alpha)": api/re-frame.freehand.test.md
-    - "re-frame.ui.test (donor)": api/re-frame.ui.test.md
 
   - Machines:
     # Section label IS the landing page (navigation.indexes). Flat list —
@@ -446,7 +436,6 @@ nav:
     # Section label IS the Skills overview page (navigation.indexes, rf2-qgpkm).
     - skills/index.md
     - "re-frame2 (authoring)": skills/re-frame2.md
-    - "re-frame2-ui (retired compiled views)": skills/re-frame2-ui.md
     - re-frame2-improver: skills/re-frame2-improver.md
     - re-frame2-setup: skills/re-frame2-setup.md
     - "re-frame-migration (v1→v2)": skills/re-frame-migration.md

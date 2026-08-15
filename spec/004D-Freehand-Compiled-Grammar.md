@@ -966,9 +966,8 @@ differently (rf2-sv2oq).
 [API.md §Freehand views](API.md#freehand-views--re-framefreehand-spec-004). Its
 donor-era staging note ("export at S1, assert at S4") is retired with the publication:
 the name entered the `re-frame.ui` blessed public-surface freeze table as the delta
-protocol's first row-level delta — see
-[API §Freeze provenance and row-level delta protocol](API.md#freeze-provenance-and-row-level-delta-protocol)
-— and that table is design provenance for the donor spelling, not the live roster.
+protocol's first row-level delta — and that table was design provenance for the donor
+spelling, not the live roster. It retired with the substrate (rf2-0yp7w.4).
 
 ### Compile-tier warnings
 
@@ -2482,16 +2481,13 @@ that definition. It merges **as part of the spec text** and is the device that k
 intermediate checked-in spec honest: rows tagged above the current implementation stage
 are **declared, not yet asserted** — their contract text is final, their enforcement
 rides their stage's conformance slice, which lands atomically with that stage's spec
-edits (the spec-landing rule stated in
-[API §Authoritative surface matrix](API.md#authoritative-surface-matrix-2b--name--stage--owner--proof--spec-home)).
+edits.
 
 **Definition.** Every normative section of this Spec is tagged with the stage (S1–S7)
 whose implementation slice first *asserts* it with conformance fixtures.
 **"Stage-N-conforming" = every row tagged ≤ N passes its named assertions.** A row with
 a "completes" note is asserted at its tagged stage to the tagged scope only; the
-completing stage extends the assertion. Stage assignments align with the
-[authoritative surface matrix](API.md#authoritative-surface-matrix-2b--name--stage--owner--proof--spec-home)
-and with the stage contents in
+completing stage extends the assertion. Stage assignments align with the stage contents in
 [EP-0030 §Stages S1–S7](../docs/EP/EP-0030-the-compiled-view-substrate-program.md#stages-s1s7);
 a conflict is resolved in that order and is a defect in this table.
 

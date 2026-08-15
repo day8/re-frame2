@@ -1606,4 +1606,3 @@ itself.
 
 - [spec/004-Views.md](../../spec/004-Views.md) — the normative contract
 - [spec/API.md](../../spec/API.md) — the tiered var catalogue
-- [`re-frame.ui`](re-frame.ui.md) — the compiled-view donor substrate

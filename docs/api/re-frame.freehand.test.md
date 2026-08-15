@@ -214,4 +214,3 @@ raw leaves.
 - [spec/008-Testing.md](../../spec/008-Testing.md#freehand-structural-and-mounted-testing) — the contract
 - [spec/004B-UI-Tree-and-Conversion.md](../../spec/004B-UI-Tree-and-Conversion.md#the-node-schema--version-1) — the node schema the tree carries
 - [`re-frame.freehand`](re-frame.freehand.md) — the substrate under test
-- [`re-frame.ui.test`](re-frame.ui.test.md) — the compiled-view substrate's donor test surface

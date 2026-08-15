@@ -46,8 +46,7 @@ set -euo pipefail
 # could not carry the whole truth here, and did not: a required check can be a
 # STEP INSIDE A JOB THIS SPINE RUNS — the EP-0036 donor-boundary `git grep` is
 # the last step of `jvm-freehand`, so it reports as "JVM freehand (clojure
-# -M:test)" and is not a test; `npm run test:ui-isolation` is a step of the same
-# `cljs` job whose node-test build this spine does run; and thirty-eight of CI's
+# -M:test)" and is not a test; and thirty-eight of CI's
 # required `python scripts/check_*.py` invocations had no local lane at all until
 # rf2-ejm7m measured them and gave them one — twenty-nine in the always-on block
 # below, nine in the documentation tier.  None of those is a skipped TIER, so
@@ -957,18 +956,6 @@ run "thrown-error message gate self-test" "python scripts/check_thrown_error_mes
 
 run "thrown-error message gate (rf2-vvixub)" "python scripts/check_thrown_error_messages.py --verbose" \
   python "$spine_root/scripts/check_thrown_error_messages.py" --verbose
-
-# re-frame.ui Root lifecycle projection guard (rf2-vxgfnd.291): the exact
-# failed-first-mount rollback ordering, three-state settlement law, three
-# tearing-down diagnostics, WeakRef capability boundary, and their 004C/006/009
-# + API/guide projections are one atomic contract. Literal anchors are
-# intentional (not a general prose parser). Self-test first mutates every tooth
-# independently, then the live scan catches code/spec/doc drift.
-run "UI Root lifecycle drift self-test" "python scripts/check_ui_root_lifecycle_drift.py --self-test" \
-  python "$spine_root/scripts/check_ui_root_lifecycle_drift.py" --self-test
-
-run "UI Root lifecycle drift" "python scripts/check_ui_root_lifecycle_drift.py --ci" \
-  python "$spine_root/scripts/check_ui_root_lifecycle_drift.py" --ci
 
 # EP-0010 §Validation/Conformance ambient-durable-read gate (rf2-f2t151): a
 # direct ambient host read (clock / RNG / browser fact) written into a DURABLE

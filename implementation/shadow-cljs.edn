@@ -120,16 +120,6 @@
                 ;; required, and core never :requires re-frame.resources.
                 "resources/src"
                 "resources/test"
-                ;; rf2-vxgfnd.1 — the re-frame.ui compiled-view substrate
-                ;; (epic rf2-vxgfnd), S1a skeleton. src carries the
-                ;; empty-but-loadable compiler (.cljc) + client-kernel
-                ;; (.cljs) stubs; test carries the classpath probe
-                ;; (re-frame.ui.skeleton-cljs-test), which rides the
-                ;; always-on :node-test gate (`cljs-test$` matches) AND
-                ;; the focused :node-test-ui build below. Bundle-isolation
-                ;; holds: no production build :requires re-frame.ui.*.
-                "ui/src"
-                "ui/test"
                 ;; rf2-drpa3.15 — the Freehand view substrate (EP-0036),
                 ;; F1a skeleton. src carries the empty-but-loadable
                 ;; `.cljc` entry namespace (no public surface yet); test
@@ -231,38 +221,6 @@
                 ;; cache, so every run re-reads the file) and do not carry
                 ;; this root: each walks up from the compile CWD instead.
                 "../spec"
-                ;; rf2-nojiwy — re-frame.ui testbed (the four-suites rule's
-                ;; new-UI smoke). Standalone counter app under ui/testbed/
-                ;; that proves the compiled-view substrate wires up
-                ;; end-to-end. Source path here so the :ui/testbed build's
-                ;; init-fn resolves; homed with the substrate (it is not an
-                ;; adapter) but driven by the shared adapter-smoke runner —
-                ;; see the ADAPTER_SMOKES manifest in
-                ;; adapters/scripts/adapter-smoke-filter.cjs.
-                "ui/testbed"
-                ;; rf2-vxgfnd.6 — the G-1 direct-render parity bench
-                ;; surface (compiled bench views + hand-written
-                ;; jsx-runtime baselines + the estimator harness).
-                ;; Consumed ONLY by the :ui-bench release build below
-                ;; (npm run test:ui-g1); nothing under a production
-                ;; build or another test build :requires it.
-                "ui/bench"
-                ;; rf2-vxgfnd.12.3 — isolated G-13 browser push-economics
-                ;; fixture + advanced instrumentation-elision companion.
-                "ui/g13"
-                ;; rf2-vxgfnd.95.10 — isolated G-8 real-browser controlled-input
-                ;; correctness fixture (IME / caret / ordering / pre-paint through
-                ;; the reusable event-prefix control). Consumed ONLY by the
-                ;; :ui-g8 build below (npm run test:ui-g8, run in Chromium AND
-                ;; WebKit by run-ui-g8.cjs); nothing else :requires it.
-                "ui/g8"
-                ;; rf2-vxgfnd.95.10 — the component-library PROOF PACK (readiness
-                ;; §7) + the G-18 facade-isolation subject. A small multi-view
-                ;; library and its single-view / all-views advanced-build
-                ;; consumers. Consumed ONLY by :proof-pack-single /
-                ;; :proof-pack-all (npm run test:ui-facade-isolation); nothing
-                ;; under a production build or another test build :requires it.
-                "ui/proof-pack"
                 ;; rf2-3cfvt — adversarial-property SECURITY tier. A small
                 ;; cross-artefact test tree probing the three security
                 ;; boundaries the pin-and-assert regime missed: SSR escaping
@@ -511,22 +469,6 @@
                 ;; sanitization contract.
                 [io.github.nextjournal/markdown "0.7.225"]]
 
- ;; rf2-u53yy.1 — the re-frame.ui compiler registries (view digests, the
- ;; Layer-1 root/plan indexes, the Root Descriptor index, the compile-time
- ;; custom-element declarations) are HARVESTED at build time from cache-durable
- ;; carriers, not from macro-expansion side effects. Each compiled view/mount
- ;; stamps its descriptor into per-namespace analyzer data that Shadow persists
- ;; to its disk cache and restores on a cache HIT (rf2-u53yy.1.1, S0); custom
- ;; elements are read syntactically from source. At :compile-finish the build
- ;; hook aggregates every authoritative member's descriptor — present identically
- ;; for a cached member and a freshly compiled one — so a warm-cache daemon start
- ;; REUSES the disk cache instead of re-expanding the UI-consuming namespace set.
- ;; That is why the old :cache-blockers #{re-frame.ui} tax is GONE (S6 cut-over):
- ;; only ONE setting remains, the build hook itself. The hook seeds scratch from
- ;; the incoming accepted functional build-state and carries the finalized
- ;; candidate in the returned state; a later Shadow failure discards it.
- :build-defaults {:build-hooks [(re-frame.ui.compiler.build-hook/hook)]}
-
  ;; Top-level dev-http servers (rf2-aqcix). shadow-cljs's `:dev-http`
  ;; map binds a port to a list of file roots; the dev server cascades
  ;; through the roots in order, returning the first match. Used here for
@@ -768,8 +710,6 @@
    ;; the compile's exit code silently re-ran a stale bundle and reported a
    ;; green that meant nothing.
    ;;
-   ;; The compiler pass-boundary hook is inherited once
-   ;; from :build-defaults (rf2-n7ff9f); do not duplicate it per build.
    ;; rf2-try1x — silent-on-success reporter. Custom runner installs
    ;; the cljs.test/report defmethod overrides before discovery. Source
    ;; ns lives at
@@ -906,32 +846,11 @@
    :compiler-options {:warnings      {:redef false}
                       :infer-externs false}}
 
-  ;; rf2-vxgfnd.1 — FOCUSED node-test build for the re-frame.ui artefact
-  ;; (the compiled-view substrate, epic rf2-vxgfnd).
-  ;;
-  ;; Mirrors :node-test-testbed-support above: the ns-regexp selects only
-  ;; this artefact's own suites (every `re-frame.ui.*` test namespace —
-  ;; nothing else in the repo lives under that prefix), giving the
-  ;; re-frame.ui program a named, cheap gate (`npm run test:ui`) so the
-  ;; long-lived S1b+ compiler-slice workers don't compile + run the full
-  ;; ~3500-test node suite on every iteration. The same namespaces also
-  ;; match the always-on `:node-test` build's broader `cljs-test$` regex,
-  ;; so the artefact is covered on every PR whether or not this focused
-  ;; build is invoked — this is the *named* surface, not an additional
-  ;; required gate.
-  :node-test-ui
-  {:target    :node-test
-   :output-to "out/node-test-ui.js"
-   :ns-regexp "^re-frame\\.ui\\..+-cljs-test$"
-   :main      re-frame.test-quiet.shadow-node/main
-   ;; The load-bearing watch hook is inherited from :build-defaults.
-   :compiler-options {:warnings      {:redef false}
-                       :infer-externs false}}
-
   ;; rf2-drpa3.15 — FOCUSED node-test build for the Freehand view
   ;; substrate artefact (EP-0036).
   ;;
-  ;; Same shape and same reasoning as :node-test-ui above: the ns-regexp
+  ;; Same shape and same reasoning as :node-test-testbed-support above: the
+  ;; ns-regexp
   ;; selects only this artefact's own suites (every `re-frame.freehand.*`
   ;; test namespace — nothing else in the repo lives under that prefix),
   ;; giving the Freehand programme a named, cheap gate
@@ -946,8 +865,6 @@
    :output-to "out/node-test-freehand.js"
    :ns-regexp "^re-frame\\.freehand\\..+-cljs-test$"
    :main      re-frame.test-quiet.shadow-node/main
-   ;; The load-bearing watch hook is inherited from :build-defaults.
-   ;;
    ;; rf2-41igl: this build carries no :redef suppression. The lone redef
    ;; it once needed it for — the test-local `(defrecord Box …)`, whose
    ;; generated `->Box` shadowed cljs.core/->Box — is gone: the fixture
@@ -956,7 +873,7 @@
    :compiler-options {:infer-externs false}}
 
   ;; rf2-hic-001 — the Hicasso PACKAGE's compile target. Mirrors
-  ;; :node-test-ui and :node-test-freehand above: the ns-regexp selects
+  ;; :node-test-freehand above: the ns-regexp selects
   ;; only `re-frame.hicasso.*` suites, and nothing else in the repo lives
   ;; under that prefix. Those namespaces also match the always-on
   ;; :node-test build's broader `cljs-test$` regex, so the package is
@@ -983,7 +900,6 @@
    :output-to "out/node-test-hicasso.js"
    :ns-regexp "^re-frame\\.hicasso\\..+-cljs-test$"
    :main      re-frame.test-quiet.shadow-node/main
-   ;; The load-bearing watch hook is inherited from :build-defaults.
    :compiler-options {:infer-externs false}}
 
   ;; rf2-hic-008 — the Hicasso artefact's RELEASE build: the substrate
@@ -1007,8 +923,8 @@
   ;; adapter, with nothing from the bench tree or from `tools/`. That
   ;; fence is the bead's acceptance and the entry's whole point.
   ;;
-  ;; Shape follows the sibling advanced builds (:freehand-release,
-  ;; :proof-pack-single, :ui-g13-prod): both settings pinned rather than
+  ;; Shape follows the sibling advanced build :freehand-release: both
+  ;; settings pinned rather than
   ;; left to `release`'s defaults, so the build says what it is at the
   ;; point a reader is looking. The entry sits under `hicasso/test/` — on
   ;; :source-paths above, outside the artefact's published :paths — which
@@ -1051,8 +967,8 @@
   ;; DCE — had no artefact to measure. Not a thin measurement: no
   ;; measurement at all.
   ;;
-  ;; Shape follows the sibling advanced builds (:proof-pack-single,
-  ;; :ui-g13-prod): both settings pinned rather than left to `release`'s
+  ;; Shape follows the sibling advanced builds: both settings pinned
+  ;; rather than left to `release`'s
   ;; defaults, so the build says what it is at the point a reader is
   ;; looking. `re-frame.freehand.release-app` mounts a small real
   ;; application — a subscription read, a dispatch, the compiled twin of
@@ -1216,7 +1132,6 @@
   {:target    :node-script
    :main      re-frame.freehand.bench.node/-main
    :output-to "out/freehand-bench-node.js"
-   ;; The load-bearing hook is inherited from :build-defaults.
    :compiler-options {:infer-externs false}}
 
   ;; rf2-2rtt6.2 — THE HICASSO MEASUREMENT LANE (EP-0038 / HD-017).
@@ -1265,88 +1180,6 @@
                       :infer-externs   :auto
                       :closure-defines {goog.DEBUG false}}
    :modules {:main {:init-fn re-frame.bench.hicasso.p0-reagent-app/-main}}}
-
-  ;; rf2-vxgfnd.6 — the G-1 direct-render parity gate (07 §5) for the
-  ;; re-frame.ui compiled-view substrate. A :node-script RELEASE build
-  ;; (:advanced — the gate measures + inspects PRODUCTION emission):
-  ;; compiled bench views vs hand-written jsx-runtime baselines under
-  ;; the revised noise-robust estimator (alternating interleaved
-  ;; rounds, median-of-rounds; supersedes the S-1 spike's
-  ;; best-round/min), p50/p95 within 10% per component, plus the
-  ;; emitted-JS golden (scripts/run-ui-bench.cjs greps this bundle for
-  ;; direct jsx calls and the IFn-dispatch trap — S-1's landmine).
-  ;; Run via `npm run test:ui-g1` under NODE_ENV=production.
-  :ui-bench
-  {:target    :node-script
-   :main      re-frame.ui.bench.main/-main
-   :output-to "out/ui-bench.js"
-   ;; The load-bearing pass hook is inherited from :build-defaults.
-   :compiler-options {:optimizations :advanced
-                      :infer-externs :auto}}
-
-  ;; rf2-vxgfnd.12.3 — G-13 exact push-work browser gate. The development
-  ;; build retains gate-local evidence; its advanced companion compiles the
-  ;; SAME view fixture with all instrumentation closed and goog.DEBUG=false.
-  :ui-g13
-  {:target :browser
-   :output-dir "out/ui-g13"
-   :asset-path "."
-   :modules {:main {:entries [re-frame.ui.g13.dev]
-                    :init-fn re-frame.ui.g13.dev/-main}}
-   :compiler-options
-   {:closure-defines {re-frame.ui.g13.fixture/instrumentation? true}}}
-
-  :ui-g13-prod
-  {:target :browser
-   :output-dir "out/ui-g13-prod"
-   :asset-path "."
-   :modules {:main {:entries [re-frame.ui.g13.prod]
-                    :init-fn re-frame.ui.g13.prod/-main}}
-   :compiler-options
-   {:optimizations :advanced
-    :infer-externs :auto
-    :closure-defines {goog.DEBUG false
-                      re-frame.ui.g13.fixture/instrumentation? false}}}
-
-  ;; rf2-vxgfnd.95.10 — G-8 real-browser controlled-input correctness matrix.
-  ;; A single un-optimized :browser build mounting the reusable event-prefix
-  ;; control (sync door) and the async-door regression; the run-ui-g8.cjs runner
-  ;; serves this bundle and drives the SAME page in real Chromium AND real
-  ;; WebKit, asserting the matrix passes under the sync door and FAILS under the
-  ;; async door (the tooth). Correctness only — no advanced/elision companion
-  ;; (that surface is G-11's).
-  :ui-g8
-  {:target :browser
-   :output-dir "out/ui-g8"
-   :asset-path "."
-   :modules {:main {:entries [re-frame.ui.g8.dev]
-                    :init-fn re-frame.ui.g8.dev/-main}}}
-
-  ;; rf2-vxgfnd.95.10 — G-18 library-facade isolation (fixture-first; EP-0035).
-  ;; :proof-pack-single imports EXACTLY ONE view from the multi-view proof-pack
-  ;; library; check-ui-facade-isolation.cjs greps this advanced bundle and
-  ;; asserts the five unimported siblings' sentinels are ABSENT (whole-view DCE)
-  ;; while the imported view's sentinel is PRESENT. :proof-pack-all imports every
-  ;; view as the non-vacuity positive control (all sentinels present). Both are
-  ;; :advanced + goog.DEBUG=false, so the ordinary defview registration arm folds
-  ;; to a direct React.memo (emit_cljs.cljc) and an unimported view can DCE.
-  :proof-pack-single
-  {:target :browser
-   :output-dir "out/proof-pack-single"
-   :asset-path "."
-   :compiler-options {:optimizations :advanced
-                      :infer-externs :auto
-                      :closure-defines {goog.DEBUG false}}
-   :modules {:main {:init-fn re-frame.ui.proof-pack.single-view/-main}}}
-
-  :proof-pack-all
-  {:target :browser
-   :output-dir "out/proof-pack-all"
-   :asset-path "."
-   :compiler-options {:optimizations :advanced
-                      :infer-externs :auto
-                      :closure-defines {goog.DEBUG false}}
-   :modules {:main {:init-fn re-frame.ui.proof-pack.all-views/-main}}}
 
   ;; rf2-2hrj8 — `:browser-test` is narrowed to DOM-dependent tests only.
   ;; The ns-regexp `-dom-cljs-test$` matches files whose namespace ends in
@@ -1641,13 +1474,6 @@
     :epoch             {:init-fn re-frame.bundle-isolation-positive-control.epoch/run
                         :depends-on #{:trace-tooling}}
     :ssr               {:init-fn re-frame.bundle-isolation-positive-control.ssr/run
-                        :depends-on #{:trace-tooling}}
-    ;; rf2-vxgfnd.99.2 — re-frame.ui is a browser-optional substrate carrying a
-    ;; client sentinel (rf.error/ui-tree-malformed), so it needs a positive
-    ;; control proving it is emitted by re-frame.ui.runtime. What is under test
-    ;; is the sentinel reaching a browser bundle, not a shipped artefact:
-    ;; day8/re-frame2-ui is in-tree donor code that never publishes.
-    :ui                {:init-fn re-frame.bundle-isolation-positive-control.ui/run
                         :depends-on #{:trace-tooling}}
     ;; rf2-gra70 — day8/re-frame2-hicasso is a PUBLISHED browser-optional view
     ;; substrate, so the release lockstep and the bundle-isolation gate now
@@ -2233,23 +2059,6 @@
    :asset-path "."
    :modules    {:main {:init-fn realworld-resources.core/run}}}
 
-  ;; RealWorld (Conduit) on resources + mutations, authored ENTIRELY on the
-  ;; re-frame.ui COMPILED-VIEW substrate (rf2-nn5s8, S7-entry proof P-1). The
-  ;; ui arm ADDED ALONGSIDE `:examples/realworld-resources` (Reagent) — same
-  ;; substrate-free dataflow (events / subs / resources / mutations / routing /
-  ;; auth machine / flows, shared by require), every VIEW re-authored with
-  ;; `ui/defview` and mounted on a re-frame.ui root via `ui/mount` +
-  ;; `ui/frame-root` (`realworld-resources.ui-core/run`, not the Reagent
-  ;; `.core/run`). The `re-frame.ui` build-hook is inherited from the top-level
-  ;; `:build-defaults` (do not duplicate it per build).
-  ;; `realworld-resources.*` resolve via `../examples/real-apps`
-  ;; (already on :source-paths above), so no per-build deps.
-  :examples/realworld-resources-ui
-  {:target     :browser
-   :output-dir "out/examples/realworld-resources-ui"
-   :asset-path "."
-   :modules    {:main {:init-fn realworld-resources.ui-core/run}}}
-
   ;; Pattern-Boot example (rf2-dsm2). Demonstrates the canonical
   ;; re-frame2 application-boot shape: a single :app/boot state
   ;; machine owns the initialisation graph (config → parallel
@@ -2818,23 +2627,6 @@
    :output-dir "out/examples/adapter-testbeds/uix"
    :asset-path "."
    :modules    {:main {:init-fn adapter-testbed-uix.core/init}}
-   :devtools   {:preloads [re-frame2-pair.runtime]}}
-
-  ;; rf2-nojiwy — re-frame.ui testbed smoke (the four-suites rule's new-UI
-  ;; smoke). Same minimal-counter shape as the adapter testbeds above, but
-  ;; the app is authored on the compiled-view substrate (ui/defview +
-  ;; ui/mount) and the fixture is homed with the substrate at
-  ;; implementation/ui/testbed/ — re-frame.ui is not an adapter. It IS in
-  ;; the shared adapter-smoke manifest (a bespoke entry in
-  ;; adapters/scripts/adapter-smoke-filter.cjs), so the shared orchestrator
-  ;; (npm run test:adapter-smokes) compiles, stages, and drives it exactly
-  ;; like the two adapter smokes; the ui-smoke CI job narrows to it via
-  ;; ADAPTER_SMOKE_FILTER=ui/testbed.
-  :ui/testbed
-  {:target     :browser
-   :output-dir "out/examples/ui-testbed"
-   :asset-path "."
-   :modules    {:main {:init-fn ui-testbed.core/init}}
    :devtools   {:preloads [re-frame2-pair.runtime]}}
 
   ;; rf2-hic-016 — the Hicasso controlled-input testbed. NOT in the shared

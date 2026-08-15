@@ -42,21 +42,8 @@
       - `day8.re-frame2-xray.open-in-editor` — the editor-URI chip.
       - `day8.re-frame2-xray.runtime` — the discovery sentinel + safe-egress
         entry points.
-  - `re-frame.ui` (rf2-qz1h5d; rf2-vxgfnd.83 + rf2-vxgfnd.103) — the Spec-004
-    compiled-view substrate. FULLY-ROWED (both directions): the ENTIRE blessed
-    export set is rowed. That set is NOT re-listed here — it grows every stage
-    and a second hand-maintained inventory would drift silently. The ONE
-    authoritative enumeration is the JVM assertion
-    `re-frame.ui.defview-grammar-jvm-test/export-surface-is-exactly-the-blessed-set`
-    (`implementation/ui/test/re_frame/ui/defview_grammar_jvm_test.clj`), which
-    pins `(ns-publics 're-frame.ui)` to an exact literal set; the manifest's
-    `:cljs-only` `re-frame.ui` rows are its projection. A row removed / renamed
-    in source → RED (direction 1); a NEW public Var added to this closed
-    compiler grammar without a row → RED (direction 2), so an accidental
-    public export cannot accumulate silently.
-
   - `re-frame.freehand` (rf2-drpa3.63) — the Spec-004 Freehand view
-    substrate's ONE public door. Like `re-frame.ui.test` it is `.cljc` and
+    substrate's ONE public door. It is `.cljc` and
     JVM-introspected for its manifest rows (the generator owns tier/kind);
     this probe reconciles its live CLJS surface against those rows so
     neither host can silently expose an extra public. FULLY-ROWED, both
@@ -65,8 +52,8 @@
     that reappeared on the door would fail direction-2 completeness here.
 
   - `re-frame.freehand.test` (rf2-drpa3.79) — the Freehand substrate's
-    STRUCTURAL TEST surface (`t`), enrolled on the same terms as the door and
-    as `re-frame.ui.test`: `.cljc`, JVM-introspected for its manifest rows,
+    STRUCTURAL TEST surface (`t`), enrolled on the same terms as the door:
+    `.cljc`, JVM-introspected for its manifest rows,
     its live CLJS surface reconciled here. FULLY-ROWED, both directions —
     `render` / `with-render` / `find` / `find-all` / `attrs` / `text` are the
     whole surface (everything beneath them is `defn-`), so one more public var
@@ -118,7 +105,6 @@
   (:require-macros [re-frame.api-manifest.cljs-publics
                     :refer [emit-ns-publics emit-cljs-only-rows
                             emit-classification-rows emit-ns-surface
-                            emit-ui-test-signature-contract
                             emit-signature-contract]])
   (:require [cljs.test :refer-macros [deftest is testing]]
             [clojure.string :as str]
@@ -147,20 +133,6 @@
             [day8.re-frame2-xray.config]
             [day8.re-frame2-xray.open-in-editor]
             [day8.re-frame2-xray.runtime]
-            ;; rf2-qz1h5d — the Spec-004 compiled-view substrate. A `.cljc`
-            ;; namespace already on the consolidated :node-test classpath
-            ;; (ui/src); the require forces its analysis so `emit-ns-publics`
-            ;; reads the live CLJS publics. Fully-rowed, BOTH directions
-            ;; checked — see the Coverage note and `fully-rowed` below.
-            [re-frame.ui]
-            ;; rf2-vxgfnd.200 — the compiled-view substrate's testing surface.
-            ;; UNLIKE re-frame.ui (curated :cljs-only), `re-frame.ui.test`'s
-            ;; Tier-1 surface runs headless on the JVM, so it is JVM-INTROSPECTED
-            ;; (generator `jvm-namespaces` + :classification rows). This probe
-            ;; reconciles its reader-conditional CLJS surface against those rows
-            ;; (via `emit-classification-rows` below) so the CLJS host cannot
-            ;; silently expose an extra public. Fully-rowed, BOTH directions.
-            [re-frame.ui.test]
             ;; rf2-drpa3.63 — the Freehand view substrate's public door. A
             ;; `.cljc` namespace already on the consolidated :node-test
             ;; classpath (freehand/src); JVM-introspected for its manifest
@@ -168,7 +140,7 @@
             ;; directions.
             [re-frame.freehand]
             ;; rf2-drpa3.79 — the Freehand structural TEST surface, enrolled on
-            ;; the same terms as the door above and as re-frame.ui.test.
+            ;; the same terms as the door above.
             [re-frame.freehand.test]
             ;; rf2-hytu5 — the Freehand TOOL-TIER reader door, enrolled on the
             ;; same terms again. Six names, and the require forces its analysis
@@ -212,17 +184,6 @@
    "day8.re-frame2-xray.config"                      (emit-ns-publics day8.re-frame2-xray.config)
    "day8.re-frame2-xray.open-in-editor"              (emit-ns-publics day8.re-frame2-xray.open-in-editor)
    "day8.re-frame2-xray.runtime"                     (emit-ns-publics day8.re-frame2-xray.runtime)
-   ;; rf2-qz1h5d + rf2-vxgfnd.83 + rf2-vxgfnd.103 — re-frame.ui compiled-view
-   ;; substrate. FULLY-ROWED: the entire blessed export set is rowed, so
-   ;; re-frame.ui is in `fully-rowed` below (both directions checked). The
-   ;; blessed set itself is enumerated ONCE, in
-   ;; `export-surface-is-exactly-the-blessed-set` (see the ns docstring) —
-   ;; never re-listed here.
-   "re-frame.ui"                                     (emit-ns-publics re-frame.ui)
-   ;; rf2-vxgfnd.200 — re-frame.ui.test testing surface. JVM-introspected for
-   ;; its manifest rows (the generator owns tier/kind); the probe reconciles
-   ;; the live CLJS surface so a CLJS-only public addition reddens too.
-   "re-frame.ui.test"                                (emit-ns-publics re-frame.ui.test)
    ;; rf2-drpa3.63 — the Freehand public door. JVM-introspected for its
    ;; manifest rows; the probe reconciles the live CLJS surface so a
    ;; CLJS-only public addition reddens too.
@@ -247,20 +208,11 @@
 (def fully-rowed
   "Namespaces whose ENTIRE public surface must be rowed (direction 2).
    The two adapter namespaces — their public surface IS the documented
-   adapter API — and `re-frame.ui`, the Spec-004 compiled-view substrate,
-   whose entire blessed export set is rowed (that set is enumerated ONCE, in
-   `export-surface-is-exactly-the-blessed-set` — see the ns docstring), so a
-   NEW accidental public Var added to this first-party closed compiler grammar
-   fails direction-2 completeness. The Xray mount surface stays a curated
-   subset (direction 1 only), so it is deliberately absent here."
+   adapter API — plus the Freehand door and its siblings below. The Xray mount
+   surface stays a curated subset (direction 1 only), so it is deliberately
+   absent here."
   #{"re-frame.adapter.reagent"
     "re-frame.adapter.uix"
-    "re-frame.ui"
-    ;; rf2-vxgfnd.200 — direction-2 completeness on the CLJS side: a NEW
-    ;; public var added to re-frame.ui.test's CLJS surface without a manifest
-    ;; row → RED. Its rows come from :classification (JVM lane), fed in via
-    ;; `ui-test-rows` below, not :cljs-only.
-    "re-frame.ui.test"
     ;; rf2-drpa3.63 — direction-2 completeness for the Freehand door: a NEW
     ;; public var added on either host without a manifest row → RED. Its rows
     ;; come from :classification (JVM lane), fed in via `freehand-rows` below.
@@ -299,18 +251,9 @@
    compile time (no runtime filesystem)."
   (emit-cljs-only-rows))
 
-(def ui-test-rows
-  "The `re-frame.ui.test` `:classification` rows (rf2-vxgfnd.200), projected
-   to `{:namespace :var}` so the probe reconciles them exactly like the
-   `:cljs-only` rows. `re-frame.ui.test` is JVM-introspected for its manifest
-   rows (its Tier-1 surface runs headless on the JVM), but its reader-
-   conditional CLJS surface must still be reconciled here so neither host can
-   silently expose an extra public."
-  (emit-classification-rows "re-frame.ui.test"))
-
 (def freehand-rows
   "The `re-frame.freehand` `:classification` rows (rf2-drpa3.63), projected
-   exactly as `ui-test-rows` is. The Freehand door is JVM-introspected for
+   exactly as the `:cljs-only` rows are. The Freehand door is JVM-introspected for
    its manifest rows, but its CLJS surface must still be reconciled here so
    neither host can silently expose an extra public — in particular the
    descriptor constructor, which lives in the internal
@@ -367,12 +310,11 @@
 
 (def reconcile-rows
   "Every row the probe reconciles: the `:cljs-only` surfaces plus the
-   JVM-owned `re-frame.ui.test`, `re-frame.freehand`, `re-frame.freehand.test`,
+   JVM-owned `re-frame.freehand`, `re-frame.freehand.test`,
    `re-frame.freehand.tool`, `re-frame.freehand.form`,
    `re-frame.freehand.controls`, `re-frame.freehand.splitter` and
    `re-frame.freehand.collection` rows."
   (-> cljs-only-rows
-      (into ui-test-rows)
       (into freehand-rows)
       (into freehand-test-rows)
       (into freehand-tool-rows)
@@ -510,53 +452,15 @@
     (is (probe/in-sync? (probe/reconcile live-publics reconcile-rows fully-rowed)))))
 
 ;; ---------------------------------------------------------------------------
-;; re-frame.ui.test HOST-ARITY guard — CLJS (:cljs) lane (rf2-5bcdi).
+;; Synthetic reconciler contracts — the mutation proof for the pure
+;; `signature-problems`, exercised directly so a reshape / kind flip goes RED
+;; and the in-sync state stays green regardless of any live analyzer.
 ;;
-;; The manifest carries name + :kind but NO arity, so a re-frame.ui.test
-;; FUNCTION can reshape a supported arity and stay green — and the contract is
-;; host-specific: `flush!` is 0-arity on the JVM but 0/1-arity on CLJS. This
-;; enumerates the live CLJS analyzer arities of the reader-conditional surface
-;; and reconciles the FUNCTION arities against the `:cljs` half of the sidecar
-;; signature authority. A CLJS-only reshape (e.g. dropping flush!'s 1-arity)
-;; turns this RED. Macros are host-invariant (pinned once on the JVM lane).
-;; ---------------------------------------------------------------------------
-
-(def live-ui-test-surface
-  "`{var-name {:kind kw :arities (#{arity} | nil)}}` for re-frame.ui.test's live
-   CLJS public surface, enumerated off the analyzer at compile time — the live
-   classification (kind) + host arities the sidecar signature contract is
-   reconciled against (rf2-d7sso)."
-  (emit-ns-surface re-frame.ui.test))
-
-(def ui-test-signature-contract
-  "The sidecar `:ui-test-signatures` authority, embedded at compile time
-   (no runtime filesystem). `:vars` is the per-var host-aware contract."
-  (emit-ui-test-signature-contract))
-
-(deftest ui-test-cljs-signatures-in-sync
-  (testing "the live CLJS classification + function arities of re-frame.ui.test
-            match the signature contract (kind reconciled; flush! 0/1-arity pinned)"
-    (let [problems (probe/signature-problems (:vars ui-test-signature-contract)
-                                             live-ui-test-surface)]
-      (is (empty? problems) (probe/signature-report problems)))))
-
-(deftest ui-test-signature-contract-is-non-vacuous
-  (testing "the embedded contract carries the SIX blessed ui.test vars (render /
-            attrs / text on the JVM structural host, with-root / flush! /
-            flush-presence! on the CLJS mounted host — the ratified rf2-n7jtp
-            minimization) and the analyzer surfaced flush!'s live CLJS :fn
-            0/1-arity (guards against a vacuous green from an unread sidecar or
-            un-analysed namespace)"
-    (is (= "re-frame.ui.test" (:namespace ui-test-signature-contract)))
-    (is (= 6 (count (:vars ui-test-signature-contract))))
-    (is (= :fn (get-in live-ui-test-surface ["flush!" :kind]))
-        "flush! must be classified :fn by the live analyzer — the kind authority")
-    (is (= #{[0] [1]} (get-in live-ui-test-surface ["flush!" :arities]))
-        "flush! must be observed 0/1-arity on CLJS — the blessed host difference")))
-
-;; Synthetic reconciler contracts — the mutation proof, exercised directly on
-;; the pure `signature-problems` so a reshape / kind flip goes RED and the
-;; in-sync state stays green regardless of the live analyzer.
+;; The fixtures below are PURE DATA: they name no namespace and require none.
+;; They outlived the live re-frame.ui.test host-arity lane they were written
+;; beside (retired with the substrate, rf2-0yp7w.4) because what they cover is
+;; the reconciler itself — host-specific function arities, host-invariant
+;; macros, and every mutation shape that must red.
 ;; Carries BOTH halves, exactly like a real sidecar row: `flush!` keeps the
 ;; blessed host-specific function difference (0-arity JVM, 0/1-arity CLJS),
 ;; and the two macros are host-invariant (`:clj` = `:cljs`).
@@ -716,7 +620,7 @@
 ;; ---------------------------------------------------------------------------
 ;; re-frame.freehand.test HOST-SIGNATURE guard — CLJS (:cljs) lane (rf2-drpa3.99).
 ;;
-;; The SIBLING of the re-frame.ui.test CLJS lane above, reusing the SAME pure
+;; The Freehand structural-test signature lane, reusing the SAME pure
 ;; reconciler `probe/signature-problems`. The manifest + the enrolment probe
 ;; carry name + :kind but NO arity, so a freehand.test fn/macro could reshape a
 ;; supported arity and stay green (the reproduction: `render` grew a second

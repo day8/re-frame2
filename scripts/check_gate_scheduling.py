@@ -236,14 +236,6 @@ DISPOSITIONS: dict[str, dict] = {
                "`^re-frame\\.testbed\\..+-cljs-test$` — again a strict subset "
                "of `cljs-test$`, so the scheduled consolidated lane runs them",
     },
-    "test:ui": {
-        "kind": "covered-by",
-        "by": "test:cljs",
-        "why": "`:node-test-ui` selects `^re-frame\\.ui\\..+-cljs-test$`, a "
-               "strict subset of `cljs-test$`. Its other half, "
-               "`test:ui-isolation`, has its own scheduled step in test.yml's "
-               "`cljs` job",
-    },
     "test:cljs-isolation": {
         "kind": "ci-runs-it-directly",
         "probe": "node scripts/check-per-ns-isolation.cjs",

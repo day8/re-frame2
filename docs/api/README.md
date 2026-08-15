@@ -11,12 +11,7 @@ For the mental model, start with the [Core guide](../core/introduction.md). This
 corpus is deliberately terse: it states *what* you may call, not *why* the design
 chose it.
 
-**Not everything here is installable, and two different reasons say so.** Three
-pages — [`re-frame.ui`](re-frame.ui.md), [`re-frame.ui.react`](re-frame.ui.react.md)
-and [`re-frame.ui.test`](re-frame.ui.test.md) — document the **donor** compiled-view
-substrate, which has no published Maven coordinate and never will
-([release process](../release-process.md#policy)). They are the contract record for
-code an app already carries. The four **Freehand** pages —
+**Not everything here is installable.** The four **Freehand** pages —
 [`re-frame.freehand`](re-frame.freehand.md),
 [`re-frame.freehand.form`](re-frame.freehand.form.md),
 [`re-frame.freehand.controls`](re-frame.freehand.controls.md) and
@@ -36,10 +31,9 @@ workflow deploys.
 | Day-to-day app API | [`re-frame.core`](re-frame.core.md) (the facade) |
 | Freehand views (`defview`, callbacks, event intent) | [`re-frame.freehand`](re-frame.freehand.md) — **pre-alpha, not published** |
 | Freehand forms and controls | [`re-frame.freehand.form`](re-frame.freehand.form.md), [`re-frame.freehand.controls`](re-frame.freehand.controls.md), [`re-frame.freehand.splitter`](re-frame.freehand.splitter.md), [`re-frame.freehand.collection`](re-frame.freehand.collection.md) — **pre-alpha, not published** |
-| Compiled views (`defview`, `mount`, `sub`) | [`re-frame.ui`](re-frame.ui.md) — **donor, not published** |
 | Optional capabilities | machines, routing, resources, flows, schemas, HTTP, SSR |
 | Substrate adapters | `re-frame.adapter.{reagent,uix}` — first-class and permanent |
-| Tests | [`re-frame.test-support`](re-frame.test-support.md), [`re-frame.test-helpers`](re-frame.test-helpers.md), [`re-frame.freehand.test`](re-frame.freehand.test.md) (pre-alpha, not published — Freehand substrate), [`re-frame.ui.test`](re-frame.ui.test.md) (donor compiled-view substrate) |
+| Tests | [`re-frame.test-support`](re-frame.test-support.md), [`re-frame.test-helpers`](re-frame.test-helpers.md), [`re-frame.freehand.test`](re-frame.freehand.test.md) (pre-alpha, not published — Freehand substrate) |
 | Production timing | [`re-frame.performance`](re-frame.performance.md) |
 
 **Facade vs owning namespace.** Many optional features re-export registration verbs
@@ -75,7 +69,6 @@ red. A member heading may be written bare (`### \`sub\``) or namespace-qualified
 | [re-frame.freehand.controls](re-frame.freehand.controls.md) | **Pre-alpha — `day8/re-frame2-freehand` is not published.** The first-party control kit: `field`, `buffered-field`, the causal owner's `release`, and the composing-Enter law |
 | [re-frame.freehand.splitter](re-frame.freehand.splitter.md) | **Pre-alpha — `day8/re-frame2-freehand` is not published.** The kit's pointer control: a resizable pane divider, the `settle` arithmetic both its clocks end at, the keyboard law, and five transitions over an ordinary value |
 | [re-frame.freehand.collection](re-frame.freehand.collection.md) | **Pre-alpha — `day8/re-frame2-freehand` is not published.** The fixed-size virtual collection: a semantic-neutral `virtual-collection` engine, the `virtual-list` listbox over it, and the `window` / `reveal-offset` arithmetic |
-| [re-frame.ui](re-frame.ui.md) | **Donor, not published.** Compiled-view substrate: `defview`, `sub`, `mount`, `frame-root`, interop forms |
 
 ### Optional capabilities
 
@@ -100,7 +93,6 @@ red. A member heading may be written bare (`### \`sub\``) or namespace-qualified
 | [re-frame.test-support](re-frame.test-support.md) | Fixtures, registrar snapshot, poll, sequester |
 | [re-frame.test-helpers](re-frame.test-helpers.md) | Hiccup walkers, testids |
 | [re-frame.freehand.test](re-frame.freehand.test.md) | **Pre-alpha — `day8/re-frame2-freehand` is not published.** Freehand structural test surface: headless render + with-render/find/find-all/attrs/text, both hosts |
-| [re-frame.ui.test](re-frame.ui.test.md) | **Donor, not published.** Compiled-view test surface: headless render + find/attrs/text, mounted DOM |
 | [re-frame.performance](re-frame.performance.md) | Compile-time User-Timing flags |
 
 ## Require patterns

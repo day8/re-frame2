@@ -49,10 +49,10 @@ elif [ "${GITHUB_EVENT_NAME:-}" = "pull_request" ] && [ -n "${GITHUB_BASE_REF:-}
   git fetch --no-tags origin "${GITHUB_BASE_REF}" >/dev/null 2>&1 || true
   # rf2-vxgfnd.137 — `--no-renames` is load-bearing, not cosmetic. Git rename
   # detection collapses a rename to its DESTINATION path only, so a pure rename
-  # OUT of a classified surface (e.g. implementation/ui/** -> docs/**) would
+  # OUT of a classified surface (e.g. implementation/core/** -> docs/**) would
   # report only the unclassified destination and leave every gate for the
-  # DELETED endpoint false — a CI false-green (the deleted production UI code
-  # runs no browser/UI/JVM/node gate). Disabling rename detection makes Git emit
+  # DELETED endpoint false — a CI false-green (the deleted production code
+  # runs no browser/JVM/node gate). Disabling rename detection makes Git emit
   # both endpoints (old path as a deletion, new path as an addition), so the
   # classifier below arms the gates for BOTH surfaces. Every rename is thus
   # classified as delete + add; ordinary add/modify/delete are unaffected.
@@ -150,7 +150,6 @@ fi
 
 implementation_jvm=false
 cljs_node_test=false
-ui_gates=false
 adapter_diagnostic=false
 cljs_browser=false
 examples_compile=false
@@ -160,7 +159,6 @@ reagent_slim_bundle=false
 freehand_evidence_elision=false
 freehand_reachability=false
 adapter_testbed_smokes=false
-ui_smoke=false
 tools_jvm=false
 # rf2-wq17m — two artefacts with a wired `:test` alias and a slot on
 # scripts/test-jvm-tools.sh's roster, but no PR-time CI lane until now. They get
@@ -228,7 +226,6 @@ ssr_node=false
 mark_all() {
   implementation_jvm=true
   cljs_node_test=true
-  ui_gates=true
   adapter_diagnostic=true
   cljs_browser=true
   examples_compile=true
@@ -238,7 +235,6 @@ mark_all() {
   freehand_evidence_elision=true
   freehand_reachability=true
   adapter_testbed_smokes=true
-  ui_smoke=true
   tools_jvm=true
   tools_jvm_machines_viz=true
   tools_jvm_testbed_support=true
@@ -545,59 +541,6 @@ is_route_path_census_input() {
   esac
 }
 
-# rf2-6ng7 — THE re-frame.ui SHADOW CONFIGURATION CONTRACT'S FOUR HOLDERS.
-#
-# `implementation/ui/test/re_frame/ui/shadow_config_contract_jvm_test.clj`
-# contains, by design, NO literal expected value: the expected value IS the
-# repository's real configuration, read at run time from four holders and
-# compared as data. It runs in `jvm-ui`, which only `implementation_jvm`
-# gates — and measured on main before this bead, not one of the four armed
-# that output:
-#
-#   implementation/shadow-cljs.edn                    implementation_jvm=false
-#   implementation/package.json                       implementation_jvm=false
-#   examples/ui/minimal-counter/deps.edn              implementation_jvm=false
-#   skills/re-frame2-setup/references/shadow-cljs.md  implementation_jvm=false
-#
-# So the suite whose entire subject is those four files could not fire on an
-# edit to any of them — the rf2-w9ip shape exactly, one artefact over. The
-# skill reference is the sharpest case: it exists to be a pin rather than a
-# copy free to drift, and drift there was invisible at PR time.
-#
-# `examples/*` does arm `implementation_jvm` already, via the route-path
-# census predicate above — but only for `.cljs`/`.cljc`, which are the
-# census's extensions. The scaffold holder is a `deps.edn`, so it falls
-# through that filter and needs this one.
-#
-# WHY A PREDICATE AND NOT AN ARM OF THE BIG `case` — the rf2-65ajl / rf2-w9ip
-# reason again. All four paths already have arms there
-# (`implementation/shadow-cljs.edn|implementation/package.json|…`,
-# `examples/*`, `skills/re-frame2-setup/*`), so an arm placed after them is
-# shadowed and an arm placed before them would silently narrow what they set.
-# A predicate consulted for every file can only ever SET `implementation_jvm`.
-#
-# WHY `implementation_jvm` and not an output of its own: unchanged from the
-# note above. A second output would have to be taught to
-# `scripts/test-fast-pr.sh` and then held in step with this file, which is a
-# fresh instance of the class rather than a repair of one.
-#
-# HELD IN STEP: `implementation/scripts/_changed-surfaces.test.cjs` reads the
-# `*-rel` holder paths out of the suite's own source and asserts this
-# predicate arms the lane for every one of them. Add a holder over there and
-# the assertion reds here until this list catches up.
-is_shadow_config_contract_holder() {
-  case "$1" in
-    implementation/shadow-cljs.edn|implementation/package.json)
-      return 0 ;;
-    examples/ui/minimal-counter/deps.edn)
-      return 0 ;;
-    skills/re-frame2-setup/references/shadow-cljs.md)
-      return 0 ;;
-    *)
-      return 1 ;;
-  esac
-}
-
 if [ "$files" = "__ALL__" ]; then
   mark_all
 else
@@ -628,7 +571,7 @@ else
     # below, not this list — `testbeds/*` is deliberately NOT here, because a
     # first-match `case` would then swallow the extension narrowing.
     case "$file" in
-      examples/*|implementation/adapters/*|implementation/epoch/*|implementation/schemas/*|implementation/machines/*|implementation/routing/*|implementation/flows/*|implementation/http/*|implementation/ssr/*|implementation/ssr-ring/*|implementation/resources/*|implementation/security/*|implementation/ui/*|implementation/freehand/*|implementation/deps.edn|implementation/shadow-cljs.edn|implementation/package.json|implementation/package-lock.json|implementation/scripts/check-examples-compile.cjs)
+      examples/*|implementation/adapters/*|implementation/epoch/*|implementation/schemas/*|implementation/machines/*|implementation/routing/*|implementation/flows/*|implementation/http/*|implementation/ssr/*|implementation/ssr-ring/*|implementation/resources/*|implementation/security/*|implementation/freehand/*|implementation/deps.edn|implementation/shadow-cljs.edn|implementation/package.json|implementation/package-lock.json|implementation/scripts/check-examples-compile.cjs)
         examples_compile=true
         ;;
       # rf2-in6c4 — top-level testbed CLJS sources. The extensions are the
@@ -696,14 +639,6 @@ else
       implementation_jvm=true
     fi
 
-    # rf2-6ng7 — same shape, same reason (see the predicate's own note): the
-    # re-frame.ui shadow-configuration contract compares four holders that all
-    # have shadowing arms in the `case` below, and it runs in `jvm-ui`, which
-    # only `implementation_jvm` gates.
-    if is_shadow_config_contract_holder "$file"; then
-      implementation_jvm=true
-    fi
-
     case "$file" in
       .github/workflows/test.yml|.github/workflows/expensive-tests.yml|.github/scripts/report-changed-surfaces.sh|TESTING.md)
         mark_all
@@ -758,20 +693,6 @@ else
         template_expensive=true
         mcp_conformance=true
         mcp_live=true
-        # rf2-vxgfnd.209 — G-13 (cljs-ui-g13) is the end-to-end MOUNTED
-        # falsifier for re-frame.ui push economics (05 §3), and it traverses
-        # core dispatch/drain, the router, frame scheduling, the observation
-        # port, ViewCell enrolment, uSES, compiled bodies, and the React
-        # commit. A change to any implementation/core/* runtime source (the
-        # observation port, router drain, the frame scheduler, …) can introduce
-        # V-wide fan-out or split the write/read batching G-13 exists to catch,
-        # yet the gate ran only under ui_gates — false for a core-only PR — so
-        # the required-check aggregator accepted the skipped job. Arm ui_gates
-        # for the whole core surface (a conservative superset; a narrower
-        # explicit dependency list would be brittle as core evolves) so
-        # cljs-ui-g13 runs for any core runtime change. Docs/spec/tool-only PRs
-        # never reach this case and keep their existing skip.
-        ui_gates=true
         # rf2-tzy13 — the docs/cljs live-cell SCI bundle BAKES IN re-frame2
         # core. The bundle is no longer committed (it is generated in CI and on
         # docs deploy), so there is no committed snapshot to go stale — but the
@@ -830,10 +751,10 @@ else
       implementation/adapters/scripts/*)
         # The adapter-smoke harness (orchestrator + runner + shared
         # manifest) lives with the adapters it drives. A harness-script
-        # edit drives the adapter-testbed-smokes job AND the ui-smoke job
-        # (both run `npm run test:adapter-smokes` over the shared
-        # ADAPTER_SMOKES manifest — rf2-nojiwy) but does NOT change adapter
-        # or substrate source, so it fires ONLY those gates — not the full
+        # edit drives the adapter-testbed-smokes job (it runs
+        # `npm run test:adapter-smokes` over the shared ADAPTER_SMOKES
+        # manifest) but does NOT change adapter
+        # or substrate source, so it fires ONLY that gate — not the full
         # adapter-source fan-out the broad implementation/adapters/* case
         # below triggers. This mirrors the dedicated harness-script case
         # the examples tree used before the harness moved here.
@@ -842,7 +763,6 @@ else
         # there, since the example dev runner and the Story launchers
         # share them.)
         adapter_testbed_smokes=true
-        ui_smoke=true
         ;;
       implementation/adapters/*)
         # rf2-bxdk8 + rf2-cjp0i — the adapter-testbed-smokes gate is
@@ -866,9 +786,8 @@ else
         # rf2-bxdk8 + rf2-cjp0i — the shared Playwright assertion matchers.
         # The adapter-smoke harness moved to implementation/adapters/scripts/
         # (its own case above), but this helper stays under examples/scripts/
-        # because FOUR gate families require it: the adapter smokes + the
-        # re-frame.ui smoke (both testbed spec.cjs files import the matchers;
-        # ui_smoke per rf2-nojiwy — same orchestrator), the Story/Xray
+        # because THREE gate families require it: the adapter smokes (their
+        # testbed spec.cjs files import the matchers), the Story/Xray
         # PR-smoke tier (serve-and-run-story-play-scripts.cjs and
         # tools/xray/testbeds/feature_matrix/scenarios.cjs — the module the
         # Xray feature gate loads — both require it; the full-gate roster's
@@ -880,7 +799,6 @@ else
         # or the tenant spec's matchers merged green and was caught only by
         # the nightly. Fire every gate that actually loads the file.
         adapter_testbed_smokes=true
-        ui_smoke=true
         story_xray_browser=true
         tenant_switcher_smoke=true
         ;;
@@ -894,10 +812,7 @@ else
         # of examples/** is test-free per rf2-8cevm. (port-resolver.cjs is
         # shared with the Story launchers and is handled in its own case
         # below so it fires BOTH gates; examples-staging.cjs likewise.)
-        # ui_smoke fires too (rf2-nojiwy): the re-frame.ui smoke rides the
-        # same orchestrator.
         adapter_testbed_smokes=true
-        ui_smoke=true
         ;;
       examples/scripts/serve-and-run-story-feature-load-tests.cjs|examples/scripts/run-story-feature-load-tests.cjs)
         # rf2-65ajl — the full gate's own orchestrator + runner. Their gate is
@@ -947,10 +862,8 @@ else
         # imported by BOTH examples-port.cjs (adapter smoke orchestrator)
         # and story-feature-load-port.cjs (Story launchers). A break here
         # affects every examples/scripts browser gate, so it fires the
-        # adapter-testbed-smokes, ui-smoke (rf2-nojiwy — same
-        # orchestrator), and story-xray-browser gates.
+        # adapter-testbed-smokes and story-xray-browser gates.
         adapter_testbed_smokes=true
-        ui_smoke=true
         story_xray_browser=true
         ;;
       examples/scripts/examples-staging.cjs)
@@ -972,10 +885,8 @@ else
         # exactly like the shared port-resolver.cjs case, so editing the shared
         # helper runs the browser gates that depend on it. (The dev runner
         # serve-example.cjs also imports it but is not a CI gate, so no extra
-        # fan-out is warranted.) ui_smoke fires too (rf2-nojiwy): the
-        # re-frame.ui smoke's staging rides the same helper.
+        # fan-out is warranted.)
         adapter_testbed_smokes=true
-        ui_smoke=true
         story_xray_browser=true
         ;;
       examples/scripts/examples-asset-manifest.cjs)
@@ -996,11 +907,8 @@ else
         # examples-staging.cjs case, so editing the manifest runs the browser
         # gates that depend on it. (The static asset scanner
         # check-examples-assets.cjs also require's `pageExemptions`, but it is
-        # not a CI gate, so no extra fan-out is warranted.) ui_smoke fires
-        # too (rf2-nojiwy): the re-frame.ui smoke's staged output rides the
-        # same manifest-driven staging.
+        # not a CI gate, so no extra fan-out is warranted.)
         adapter_testbed_smokes=true
-        ui_smoke=true
         story_xray_browser=true
         ;;
       implementation/epoch/*)
@@ -1139,59 +1047,6 @@ else
             # engine change must schedule both of its lanes.
             tools_cljs_machines_viz=true ;;
         esac
-        ;;
-      implementation/ui/*)
-        # rf2-vxgfnd.6 — the re-frame.ui compiled-view substrate (epic
-        # rf2-vxgfnd). Before this case a ui-only PR left every output
-        # false: the jvm-ui suite, the consolidated :node-test ui
-        # surface (incl. the S1f parity corpus) AND the G-1/G-14 gates
-        # all skipped — a false-green hole for the whole artefact.
-        # implementation_jvm fires jvm-ui (canonical trees + N
-        # invariants + G-14 compile budget); cljs_node_test fires the
-        # consolidated node suite (the live cross-emitter parity
-        # corpus rides it); ui_gates fires the cljs-ui-g1 bench gate
-        # (test.yml).
-        #
-        # rf2-vxgfnd.90 — false-green fix. re-frame.ui now ships REAL DOM
-        # tests: the `*-dom-cljs-test.{cljs,cljc}` namespaces (the S1c/S2
-        # mount + reactivity + frame-scope keystone fixtures) opt into the
-        # `:browser-test` build (headless Chromium) and are the ONLY place
-        # React act discipline, real react-dom/client roots, and live
-        # ViewCell teardown are exercised — none of which the JVM/node
-        # suites can validate. The stale "no production build :requires
-        # re-frame.ui.* yet, so no cljs_browser" reasoning conflated a
-        # PRODUCTION-bundle surface (still absent) with a browser-TEST
-        # surface (now present): a test-only UI PR (e.g. #5767, which
-        # changed exactly one `*-dom-cljs-test`) merged GREEN while its
-        # only relevant browser test reported SKIPPED. Fire cljs_browser
-        # for EVERY implementation/ui/** source or test change — UI runtime
-        # changes affect those DOM tests transitively, and the conservative
-        # direction is to trigger the gate MORE (worst case: slower CI),
-        # never to skip it (worst case: a false-green).
-        #
-        # rf2-vxgfnd.12.2 — the mounted ViewCell now consumes the Story
-        # override React carriage, and its zero-production-residue contract is
-        # exercised by a generated/mounted `:advanced` prod-elision test.
-        # re-frame.ui therefore HAS a release-probe-covered production surface:
-        # every UI change must run cljs_prod.  It also ships as its own artifact,
-        # so keep the generic bundle-boundary checks armed alongside the focused
-        # ui adapter isolation step.
-        #
-        # rf2-nojiwy — the four-suites rule's new-UI smoke. The re-frame.ui
-        # testbed (implementation/ui/testbed/) and the substrate runtime it
-        # mounts both live under this tree, so any implementation/ui/**
-        # change fires the ui-smoke browser gate — the direct-source-change
-        # trigger discipline the adapter smokes use (adapter source →
-        # adapter_testbed_smokes). Core changes deliberately do NOT fire it,
-        # per the same rf2-8jz9t reasoning: the smoke catches
-        # substrate-mount bugs, not core regressions.
-        implementation_jvm=true
-        cljs_node_test=true
-        ui_gates=true
-        cljs_browser=true
-        cljs_prod=true
-        bundle_isolation=true
-        ui_smoke=true
         ;;
       implementation/freehand/src/re_frame/freehand/evidence.cljc|implementation/freehand/src/re_frame/freehand/cell.cljc|implementation/freehand/src/re_frame/freehand/occurrences.cljc|implementation/freehand/src/re_frame/freehand/shell.cljs|implementation/freehand/test/re_frame/freehand/release_app.cljs)
         # rf2-xwa4n — the F4g evidence-elision gate's Freehand PRODUCER
@@ -1492,9 +1347,9 @@ else
         # no jvm output. `implementation/scripts/_changed-surfaces.test.cjs`
         # pins all three facts.
         #
-        # NOT cljs_prod / bundle_isolation / ui_gates / ui_smoke: no
-        # `-elision-prod-test$` namespace, no example resolves the
-        # artefact, and it mounts no testbed the smokes drive.
+        # NOT cljs_prod / bundle_isolation: no
+        # `-elision-prod-test$` namespace and no example resolves the
+        # artefact.
         cljs_node_test=true
         # rf2-8a6s — cljs_browser, AND THE CONDITION FOR IT HAS NOW BEEN
         # MET. This arm originally read "NOT cljs_browser … the package
@@ -1589,67 +1444,6 @@ else
         # suite is the cheaper error, and TESTING.md says to prefer it.
         migration_hicasso_codemod=true
         ;;
-      implementation/scripts/run-ui-bench.cjs)
-        # rf2-vxgfnd.6 — false-green fix, mirroring the launcher cases
-        # above: run-ui-bench.cjs IS the executable orchestration for
-        # `npm run test:ui-g1` (the cljs-ui-g1 PR job). A break in the
-        # launcher (shadow runner resolution, the emitted-JS golden
-        # regexes, env wiring) can break the very gate it drives, so
-        # editing it must run that gate. The generic
-        # implementation/scripts/* surfaces stay armed too — this case
-        # widens coverage, it does not narrow it.
-        cljs_node_test=true
-        cljs_browser=true
-        cljs_prod=true
-        bundle_isolation=true
-        reagent_slim_bundle=true
-        ui_gates=true
-        ;;
-      implementation/scripts/run-ui-g13.cjs)
-        # rf2-vxgfnd.12.3 — this is the complete G-13 compile/serve/browser/
-        # advanced-elision orchestrator. A launcher-only change must run the
-        # ui_gates job it owns; retain the generic scripts fan-out too.
-        cljs_node_test=true
-        cljs_browser=true
-        cljs_prod=true
-        bundle_isolation=true
-        reagent_slim_bundle=true
-        ui_gates=true
-        ;;
-      implementation/scripts/run-ui-g8.cjs)
-        # rf2-vxgfnd.95.10 — the complete G-8 compile/serve/dual-engine
-        # (Chromium + WebKit) controlled-input orchestrator. A launcher-only
-        # change must run the ui_gates job it owns (cljs-ui-g8); retain the
-        # generic scripts fan-out too.
-        cljs_node_test=true
-        cljs_browser=true
-        cljs_prod=true
-        bundle_isolation=true
-        reagent_slim_bundle=true
-        ui_gates=true
-        ;;
-      implementation/scripts/check-ui-adapter-isolation.cjs)
-        # The checker IS the focused re-frame.ui dependency-closure gate.
-        # A checker-only PR must start the consolidated CLJS job that owns
-        # that focused step AND satisfy the step's ui_gates condition;
-        # otherwise the gate can silently edit itself out of CI.
-        cljs_node_test=true
-        ui_gates=true
-        ;;
-      implementation/scripts/check-ui-facade-isolation.cjs)
-        # rf2-kxork — the checker IS the G-18 library-facade-isolation gate
-        # (cljs-ui-facade-isolation, gated on ui_gates). A checker-only PR must
-        # fire the job it implements, otherwise the gate could silently edit
-        # itself out of CI — the same self-protection the G-1/G-13/G-8
-        # launchers and the two sibling ui checkers above already carry.
-        # cljs_node_test stays armed so the checker keeps the generic
-        # implementation/scripts/* coverage too; this widens, never narrows.
-        # No cljs_browser/bundle_isolation fan-out: G-18 is a shadow-cljs
-        # release plus a bundle string inspection — it drives no browser and
-        # no packaging boundary beyond its own two proof-pack builds.
-        cljs_node_test=true
-        ui_gates=true
-        ;;
       implementation/reply-conformance/*|implementation/derivation-conformance/*|implementation/event-conformance/*)
         # rf2-dxndhc — the three EP cross-conformance tiers
         # (reply-conformance / derivation-conformance / event-conformance)
@@ -1719,21 +1513,6 @@ else
         # no reliance on js-harness-self-tests as the sole verifier.
         implementation_jvm=true
         cljs_node_test=true
-        ;;
-      spec/conformance/S3-view-conformance-profile.md|spec/conformance/S4-view-conformance-profile.md|spec/conformance/S5-view-conformance-profile.md)
-        # rf2-vxgfnd.97.3 — the S3/S4/S5 view-conformance PROFILE docs are the
-        # human catalogues bound ROW BY ROW by the executable drift guards
-        # (implementation/ui/test/re_frame/ui/s{3,4,5}_conformance_profile_jvm_test.clj),
-        # which run inside the jvm-ui job. Those guards gate on
-        # implementation_jvm, but a profile-DOC-only edit previously matched no
-        # case here — every output false — so the guard the profile CLAIMS to be
-        # held by did not run: a PR could delete a row, hollow one out, swap a
-        # proof home between rows, or flip the conformance declaration with the
-        # drift guard silently SKIPPED. Fire implementation_jvm so the jvm-ui job
-        # re-runs the S3-S5 profile guards on any profile-doc-only edit. No new
-        # dedicated job — the guards ride the existing jvm-ui, exactly as the S3
-        # gate (#6182) and S4 gate (#6320) established (they added none either).
-        implementation_jvm=true
         ;;
       spec/conformance/fixtures/*)
         # rf2-qmiiz — Fixtures under spec/conformance/fixtures/*.edn
@@ -1884,8 +1663,6 @@ else
       #                                        _conformance_test.clj → jvm-machines
       #   spec/Cross-Spec-Interactions.md    destroyed_reason_channel_conformance
       #                                        _test.clj             → jvm-machines
-      #   spec/006-ReactiveSubstrate.md      slice_memo_lifetime_census_jvm_test
-      #                                        .clj                  → jvm-ui
       #   spec/Pattern-FormAction.md         ssr_doc_example_form_action_test.clj
       #                                                              → jvm-ssr
       #   spec/Spec-Schemas.md               SIX suites in FIVE artefacts — see
@@ -1896,10 +1673,8 @@ else
       # per-artefact JVM jobs gates on; a per-lane arm would mean 22 new outputs
       # and 22 `if:` widenings in test.yml for a saving the spec roster above
       # would not even collect (its pins already span jvm-core, jvm-machines,
-      # jvm-ui, jvm-epoch, jvm-ssr and jvm-routing). The precedent is directly
-      # overhead: rf2-vxgfnd.97.3 armed exactly this output for the S3/S4/S5
-      # profile DOCS "so the jvm-ui job re-runs the S3-S5 profile guards", and
-      # rf2-drpa3.70 arms it for `implementation/freehand/*.md`. So the
+      # jvm-epoch, jvm-ssr and jvm-routing). The precedent is directly
+      # overhead: rf2-drpa3.70 arms it for `implementation/freehand/*.md`. So the
       # narrowing this bead buys is bought on the PATH axis instead: prose a
       # suite reads arms the JVM tier, and prose nothing reads still arms
       # nothing, exactly as today.
@@ -1981,14 +1756,13 @@ else
         # The widest single miss in the roster, and the only prose file in the
         # repo that arms a CLJS output.
         #
-        # SIX suites in FIVE artefacts extract schema forms from this file:
+        # FIVE suites in THREE artefacts extract schema forms from this file:
         #   error_catalogue_channel_conformance_test.clj      (core)
         #   observation_schema_extract.clj                    (core)
         #   epoch_silence_contract_test.clj                   (epoch)
         #   destroyed_reason_channel_conformance_test.clj     (machines)
         #   spawn_all_schema_extract.clj                      (machines)
-        #   frame_destroyed_op_schema_jvm_test.clj            (ui)
-        # — jvm-core, jvm-epoch, jvm-machines and jvm-ui, all on
+        # — jvm-core, jvm-epoch and jvm-machines, all on
         # `implementation_jvm`.
         #
         # `cljs_node_test` as well, and this is the part no other prose arm
@@ -2211,7 +1985,7 @@ else
         #
         # Deliberately NOT the shared harness helpers this gate requires
         # (lib/local-browser-harness.cjs, lib/browser-test-report.cjs). Each is
-        # required by run-browser-tests.cjs, run-ui-g8.cjs, run-ui-g13.cjs,
+        # required by run-browser-tests.cjs,
         # serve-and-run-xray-feature-gate.cjs and serve-and-run-reagent-slim-
         # smoke.cjs — all PR-time gates — and each carries its own dedicated
         # policy test in the fast spine. A break in one already reds a job that
@@ -2268,18 +2042,6 @@ else
           implementation/package.json|implementation/package-lock.json)
             template_expensive=true ;;
         esac
-        # rf2-vxgfnd.6 — the G-1 bench gate compiles the :ui-bench
-        # release build straight off shadow-cljs.edn and resolves
-        # shadow-cljs + react from the npm pins, so build-config /
-        # npm-pin changes must re-run it (a broken :ui-bench build or
-        # a React bump shifting the measured ratio otherwise merges
-        # green and fails on main). Scoped to the three build-config
-        # files; implementation/scripts/* stays off ui_gates (the one
-        # script that drives the gate has its own case above).
-        case "$file" in
-          implementation/shadow-cljs.edn|implementation/package.json|implementation/package-lock.json)
-            ui_gates=true ;;
-        esac
         # rf2-ga8m — the three-engine controlled-input gate is DEFINED by
         # this trio in the same way, and scoped identically. shadow-cljs.edn
         # declares the `:hicasso/testbed` build the gate compiles; package.json
@@ -2287,9 +2049,8 @@ else
         # pin, which for this gate is not an ordinary dependency bump — the
         # pin IS the three engine revisions under test, so bumping it changes
         # the subject of every caret and composition witness. The lockfile
-        # fixes those revisions. `implementation/scripts/*` stays off, exactly
-        # as it does for ui_gates: the one script that drives this gate has
-        # its own case above.
+        # fixes those revisions. `implementation/scripts/*` stays off: the one
+        # script that drives this gate has its own case above.
         case "$file" in
           implementation/shadow-cljs.edn|implementation/package.json|implementation/package-lock.json)
             hicasso_controlled=true ;;
@@ -2329,7 +2090,7 @@ else
         # `test:freehand-evidence-elision` script that builds them and invokes
         # the checker. The lockfile pins the shadow-cljs (hence Closure)
         # version whose DCE the whole claim rests on. Scoped to the three
-        # build-config files exactly like the ui_gates arm above;
+        # build-config files exactly like the hicasso arms above;
         # implementation/scripts/* stays off (the one script that drives the
         # gate has its own case above).
         case "$file" in
@@ -2878,7 +2639,6 @@ emit() {
 
 emit implementation_jvm "$implementation_jvm"
 emit cljs_node_test "$cljs_node_test"
-emit ui_gates "$ui_gates"
 emit adapter_diagnostic "$adapter_diagnostic"
 emit cljs_browser "$cljs_browser"
 emit examples_compile "$examples_compile"
@@ -2888,7 +2648,6 @@ emit reagent_slim_bundle "$reagent_slim_bundle"
 emit freehand_evidence_elision "$freehand_evidence_elision"
 emit freehand_reachability "$freehand_reachability"
 emit adapter_testbed_smokes "$adapter_testbed_smokes"
-emit ui_smoke "$ui_smoke"
 emit tools_jvm "$tools_jvm"
 emit tools_jvm_machines_viz "$tools_jvm_machines_viz"
 emit tools_jvm_testbed_support "$tools_jvm_testbed_support"

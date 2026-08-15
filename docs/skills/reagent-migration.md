@@ -37,7 +37,6 @@ Do **not** use it for:
 - The re-frame **v1 → v2** events/subs/db migration → use [re-frame-migration](re-frame-migration.md).
 - Writing new re-frame2 code → use [re-frame2](re-frame2.md).
 - Greenfield setup → use [re-frame2-setup](re-frame2-setup.md).
-- Maintaining existing `day8/re-frame2-ui` views → use [re-frame2-ui](re-frame2-ui.md).
 - Live-runtime inspection → use [re-frame2-pair](re-frame2-pair.md).
 
 ## How the migration runs (incremental)
