@@ -788,19 +788,20 @@
      :script
      {:name      "type-click-and-assert-dom"
       :auto-run? true
-      ;; A leading `:wait 300` gives React's first commit a chance to
-      ;; render the component before the first DOM assertion. The
-      ;; auto-run fires as soon as the lifecycle machine reaches
-      ;; `:ready`, which can race ahead of React's render flush.
+      ;; NO `[:wait ms]` — this script is DETERMINISTIC end to end
+      ;; (rf2-n0sz4). It used to open with a 300ms sleep for the mount and
+      ;; carry another after the `:click` for the dispatch, because neither
+      ;; the mount nor a synthetic event's async dispatch had a settle
+      ;; rung. Both now do: the runner holds a step until its
+      ;; preconditions hold — the frame's event queue drained, and the
+      ;; node the step names present — yielding and committing the
+      ;; substrate until they do, bounded, failing readably if they never
+      ;; settle. `[:wait ms]` is spec/017's determinism OPT-OUT that
+      ;; `assert-deterministic` refuses, so its absence here is the point.
       :script    [[:dispatch-sync [:counter/initialise 0]]
-                  [:wait        300]
                   [:assert-dom  "[data-test=count-display]" :text "0"]
                   [:type        "[data-test=count-input]" "42"]
                   [:click       "[data-test=set-button]"]
-                  ;; The click dispatches :counter/set synchronously
-                  ;; on Reagent; the wait ensures the next render cycle
-                  ;; has flushed before we read the DOM.
-                  [:wait        300]
                   [:assert-db   [:count] 42]
                   [:assert-dom  "[data-test=count-display]" :text "42"]
                   [:assert-dom  "[data-test=set-button]"    :visible]]}
@@ -819,11 +820,13 @@
      :script
      {:name      "type-click-and-assert-dom-wrong"
       :auto-run? true
+      ;; Sleep-free for the same reason as its twin (rf2-n0sz4). The row
+      ;; must still reach `:fail`, and it does so on the ASSERTION it was
+      ;; written to fail — "99" against a settled "42" — rather than on a
+      ;; race that happened to read an unsettled DOM.
       :script    [[:dispatch-sync [:counter/initialise 0]]
-                  [:wait          50]
                   [:type          "[data-test=count-input]" "42"]
                   [:click         "[data-test=set-button]"]
-                  [:wait          100]
                   [:assert-dom    "[data-test=count-display]" :text "99"]]}
      :tags       #{:dev :test :internal}
      :substrates #{:reagent}})
