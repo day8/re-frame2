@@ -72,8 +72,9 @@ THE TEN RULES
                      RAISES for an id Spec 009 rows in its Hicasso
                      section appears in that row's recovery cell — read at
                      EVERY emit site, so an id needs both a site the gate
-                     can read and no site it cannot.  R1–R9 reconcile
-                     documents with documents;
+                     can read and no site it cannot, on either the id or
+                     the recovery.  R1–R9 reconcile documents with
+                     documents;
                      this is the only rule that opens the source and
                      reads what the runtime actually passes.  See R10 IS
                      THE RUNTIME ANCHOR below, which is careful about
@@ -181,8 +182,8 @@ WHAT R10 CANNOT SEE:
     That is the paragraph above, and it is the whole of rf2-15bqc.
   * WHAT a recovery MEANS.  The reader folds an argument expression to
     keywords; it does not evaluate anything, and a site that computes its
-    recovery from a lookup or a function call is not read — it is FAILED,
-    per the paragraph below.  Two expression shapes are admitted and
+    recovery — or its id — from a lookup or a function call is not read:
+    it is FAILED, per the paragraph below.  Two expression shapes are admitted and
     `_resolve` is the whole grammar: a keyword literal, and a two-branch
     `if`/`if-not` over keyword literals, which reads as the SET of arms
     because both are answers the id can give (`impl/codec` writes one).
@@ -206,12 +207,30 @@ WHAT R10 CANNOT SEE:
   the sibling names the same id.  So the second site could raise a keyword
   no row carries with every arm green.  The scan now KEEPS such a site and
   R10 fails on it, which is why both halves of the fixture are pinned in
-  `--self-test`.  MEASURED COST ON THIS TREE: 105 constructor call sites.
-  One is a constructor's own body forwarding its `id` parameter, which has
-  no id to attribute and is read where its CALLERS stand.  Of the other
-  104: 103 pass a keyword literal, 1 passes the `impl/codec` conditional,
-  and 0 are unreadable.  The rule tightens and nothing needed an
-  exemption — which is the evidence that it is worth its keep.
+  `--self-test`.
+
+  THE ID SIDE HELD THE SAME HOLE, and repairing the recovery alone did not
+  reach it (rf2-5zmul again, audit of #8323).  A call whose ID expression
+  the reader could not fold was still dropped whole, justified by the one
+  shape that genuinely has no id to attribute — a constructor's own body
+  forwarding its `id` parameter.  But the code dropped EVERY unresolved
+  id, so a sibling written `(fail! (choose-id x) … :unknown-recovery …)`
+  vanished exactly as the recovery-side one had, free to name a live id
+  and raise a keyword no row carries.  That one shape is now recognised
+  STRUCTURALLY, in `_own_id_spans` — the enclosing `defn` is itself a
+  discovered constructor, and the argument is by NAME the parameter that
+  constructor takes its id from — and every other unreadable id is
+  retained and failed.  Failed rather than subject-tested: with no id
+  there is no owner to establish, so waving one through as possibly
+  corpus-owned would be a guess standing where the subject rule is
+  supposed to be a structure.
+
+  MEASURED COST ON THIS TREE: 106 constructor call sites, one of them the
+  forwarding body above, which is read where its CALLERS stand.  Of the
+  other 105: 104 resolve to a keyword literal, 1 to the `impl/codec`
+  conditional, and 0 are unreadable on either side.  The rule tightened
+  twice and still needs no exemption LIST — which is the evidence that it
+  is worth its keep.
 
 WHAT COUNTS AS AN EMIT
 ----------------------
@@ -513,6 +532,22 @@ def _map_sources(body, params):
     return None
 
 
+def _definitions(sources):
+    """`(path, name, params, span, body)` for every `defn` in `sources`.
+
+    `span` is the definition's own character range, and it is here so that a
+    CALL can be attributed to the definition it sits inside — the one
+    structural fact `_own_id_spans` needs and a body-only reader cannot
+    give.
+    """
+    for path, code in sources:
+        for match, body in _forms(code, _DEFN_RE.pattern):
+            name = _DEFN_RE.match(code[match.start():]).group(1)
+            params = _PARAM_VEC_RE.search(body)
+            yield (path, name, params.group(1).split() if params else [],
+                   (match.start(), match.end() + len(body)), body)
+
+
 def read_constructors(sources):
     """`{name: (id-source, recovery-source)}` — the package's refusal minters.
 
@@ -531,12 +566,8 @@ def read_constructors(sources):
     refusal against `:rf.error/hicasso-deferred-read-at-boundary` that no
     call site raises.
     """
-    definitions = []
-    for _rel, code in sources:
-        for match, body in _forms(code, _DEFN_RE.pattern):
-            name = _DEFN_RE.match(code[match.start():]).group(1)
-            params = _PARAM_VEC_RE.search(body)
-            definitions.append((name, params.group(1).split() if params else [], body))
+    definitions = [(name, params, body)
+                   for _path, name, params, _span, body in _definitions(sources)]
 
     known = {}
     for _pass in range(len(definitions) + 1):
@@ -578,6 +609,40 @@ def _forwarded(body, params, known):
     return None
 
 
+def _own_id_spans(sources, constructors):
+    """`{path: [(start, end, id parameter name), …]}` over constructor BODIES.
+
+    The one call whose unreadable id is NOT a hole: a constructor's own body
+    handing its `id` PARAMETER to the minter it delegates to — the test
+    kit's `refuse-opaque!` writes `(refuse! id … :assert-it-at-l3 extra)`.
+    There is no id to attribute there, because the id is whatever the
+    CALLER passed, and the call-site scan reads it where those callers
+    stand.  A gate that failed this site would be demanding a literal in
+    the one position that cannot hold one.
+
+    It is recognised STRUCTURALLY — the enclosing `defn` is itself a
+    discovered constructor, and the argument is by name the very parameter
+    that constructor takes its id from — so this stays an exemption of one
+    SHAPE.  A list of function names would be the accretion the register's
+    own subject rule refused (rf2-5zmul, audit of #8323).
+    """
+    spans = {}
+    for path, name, params, span, _body in _definitions(sources):
+        found = constructors.get(name)
+        if not found:
+            continue
+        kind, value = found[0]
+        if kind == "param" and value < len(params):
+            spans.setdefault(path, []).append(span + (params[value],))
+    return spans
+
+
+def _forwards_own_id(spans, position, argument):
+    """Is the call at `position` a constructor passing its own id parameter?"""
+    return any(start <= position < end and argument == parameter
+               for start, end, parameter in spans)
+
+
 def read_runtime_recoveries(roots):
     """`({id: {recovery, …}}, [unreadable site, …])` as the PACKAGE passes them.
 
@@ -590,6 +655,10 @@ def read_runtime_recoveries(roots):
     and it is a LIST rather than a set of ids on purpose: the claim R10
     makes is per emit site, so an id with three readable sites and one
     unreadable one is not covered, and only a per-site record can say so.
+    An entry is `(id, where, constructor, the argument it could not fold)`,
+    and its id is `None` when the ID EXPRESSION is the argument in
+    question — one population, because "the reader could not fold this
+    site" is one fact whichever field it landed in.
     """
     sources = []
     for path in _source_files(roots):
@@ -614,13 +683,20 @@ def recoveries_in(sources):
     produced byte-for-byte identical output, and the second call could
     therefore raise an unrowed recovery with every arm green.
 
-    A call whose ID does not resolve is still dropped, and that is not the
-    same case: with no id there is no Spec 009 row to reconcile against,
-    and the shape occurs in the package already — a constructor's own body
-    forwarding its `id` parameter, which the call-site scan reads where
-    its CALLERS stand instead.
+    A CALL WHOSE ID DOES NOT RESOLVE IS KEPT TOO, as `(None, where,
+    constructor, argument-text)`.  Dropping it was the SAME hole one field
+    over, and the #8323 audit found it still open: the fix above justified
+    the drop by the one shape that legitimately has no id to attribute — a
+    constructor's own body forwarding its `id` parameter — but the code
+    dropped EVERY unresolved id.  A sibling call passing `(choose-id x)`
+    and a literal `:unknown-recovery` therefore vanished, free to choose a
+    live Spec 009 id and raise a keyword no row carries, while the two
+    fixtures again read byte-for-byte identically.  That one shape is now
+    recognised structurally (`_own_id_spans`) and everything else is
+    retained and FAILED rather than guessed at.
     """
     constructors = read_constructors(sources)
+    own_ids = _own_id_spans(sources, constructors)
     found, unreadable = {}, []
 
     def record(error_id, keywords):
@@ -645,22 +721,32 @@ def recoveries_in(sources):
                         return None
                     return _resolve(arguments[value])
 
-                ids = [error_id for error_id in (read(id_source) or [])
+                def unread(source):
+                    _kind, position = source
+                    argument = (arguments[position] if position < len(arguments)
+                                else "<no such argument>")
+                    return " ".join(argument.split())
+
+                where = "%s:%d" % (rel, code[:match.start()].count("\n") + 1)
+                resolved = read(id_source)
+                if resolved is None:
+                    argument = unread(id_source)
+                    if not _forwards_own_id(own_ids.get(rel, ()),
+                                            match.start(), argument):
+                        unreadable.append((None, where, name, argument))
+                    continue
+                ids = [error_id for error_id in resolved
                        if _ERROR_ID_RE.match(error_id)]
                 if not ids:
-                    continue
+                    continue        # read, and naming no complaint — not a refusal
                 recoveries = read(recovery_source)
                 if recoveries:
                     for error_id in ids:
                         record(error_id, recoveries)
                     continue
-                _kind, position = recovery_source
-                argument = (arguments[position]
-                            if position < len(arguments) else "<no such argument>")
-                where = "%s:%d" % (rel, code[:match.start()].count("\n") + 1)
                 for error_id in ids:
-                    unreadable.append(
-                        (error_id, where, name, " ".join(argument.split())))
+                    unreadable.append((error_id, where, name,
+                                       unread(recovery_source)))
     return found, unreadable
 
 
@@ -992,7 +1078,19 @@ def check(register, emitted, package_ids, spec_active, spec_retired, chapter_tex
                 "pass — runtime, Spec 009, then the guide R9 checks"
                 % (error_id, keyword,
                    ", ".join(sorted(rowed)) or "no recovery keyword at all"))
-    for error_id, where, minter, argument in sorted(unreadable_sites):
+    for error_id, where, minter, argument in sorted(
+            unreadable_sites, key=lambda site: (site[0] or "",) + tuple(site[1:])):
+        if error_id is None:
+            failures.append(
+                "R10 an emit site at %s raises through `%s` with an id this gate "
+                "cannot read: %s. With no id there is no Spec 009 row to "
+                "reconcile it against — and no way to ask whether the site is "
+                "even in R10's subject, so it cannot be waved through as "
+                "corpus-owned either. Pass a keyword literal, or an `if`/`if-not` "
+                "over two of them; a constructor's own body forwarding its own "
+                "`id` parameter is the one shape read at its CALLERS instead"
+                % (where, minter, argument))
+            continue
         if error_id not in live or error_id not in spec_hicasso_ids:
             continue
         failures.append(
@@ -1250,6 +1348,36 @@ def self_test():
         "and it names the expression and the place, because the reader's " \
         "own limit is what the author has to act on"
 
+    # THE COMPUTED-ID SIBLING, pinned exactly (rf2-5zmul, audit of #8323).
+    # The same defect one field over, and the fix above did not reach it: the
+    # scan dropped every call whose ID it could not fold, so this sibling —
+    # free to name the same LIVE id and raise a keyword no row carries —
+    # vanished, and the two texts read identically again.
+    computed_id = one_site + ('(defn c [x] (fail! (choose-id x) (quote w) "r"'
+                              '                   :unknown-recovery {}))')
+    still_known, kept_ids = read_fixture(computed_id)
+    assert still_known == known, \
+        "the aggregate is blind to a computed-id sibling too, byte for byte"
+    assert [(error_id, argument) for error_id, _where, _minter, argument
+            in kept_ids] == [(None, "(choose-id x)")], \
+        "so the site is KEPT with NO id — R10 fails it rather than guess one"
+
+    # AND THE ONE SHAPE THAT IS EXEMPT, structurally: a constructor's own body
+    # handing on its `id` parameter.  Its refusal belongs to its callers and is
+    # read where THEY stand, so keeping it would demand a literal in the one
+    # position that cannot hold one.
+    delegating = minter + ("(defn- refuse-opaque! [id reason extra]"
+                           "  (fail! id (quote w) reason :assert-it-at-l3 extra))")
+    _ignored, quiet_forward = read_fixture(delegating)
+    assert not quiet_forward, \
+        "a constructor forwarding its OWN id parameter is not an emit site"
+    bound = minter + ('(defn e [x] (let [chosen (choose-id x)]'
+                      '  (fail! chosen (quote w) "r" :some-recovery {})))')
+    assert [argument for _id, _where, _minter, argument in read_fixture(bound)[1]] \
+        == ["chosen"], \
+        "and the exemption is that PARAMETER, not any symbol: a let-bound id " \
+        "is a site the reader cannot fold, and is kept"
+
     # R10 — the rule, both arms, plus the subject boundary that is the whole
     # reason it needs no exemption list.
     runtime = inputs["runtime_recoveries"]
@@ -1267,6 +1395,12 @@ def self_test():
     # exactly what the aggregate could not distinguish.
     red("R10", unreadable_sites=[(an_anchored, "impl/codec.cljs:1", "fail!",
                                   "(recovery-for x)")])
+    # And the arm the audit of #8323 added, on the ID side.  This one carries
+    # NO id, so it is deliberately outside the subject test three lines below:
+    # a site whose id the reader cannot fold is a site whose OWNER it cannot
+    # establish, and "it might have been corpus-owned" is a guess, not a scope.
+    red("R10", unreadable_sites=[(None, "impl/codec.cljs:1", "fail!",
+                                  "(choose-id x)")])
 
     corpus_owned = sorted(set(register["live"]) - set(inputs["spec_hicasso_ids"]))
     assert corpus_owned, \
