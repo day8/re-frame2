@@ -169,13 +169,13 @@ vector, or pure imperative work:
 converted `h/defview` has no ambient `dispatch`, so this is not a one-line lift.
 Hicasso gives you exactly one escape and it is deliberately plain:
 
-- **A guarded or payload-shaping dispatch → `h/hfn`.** Its body runs with the
+- **A guarded or payload-shaping dispatch → `h/event`.** Its body runs with the
   live callback arguments, and **only a returned vector is dispatched** — any
   other return, `nil` included, is ignored. That *is* the guard, expressed as
   data-with-a-filter:
 
   ```clojure
-  {:on-click (h/hfn [e] (.preventDefault e) (when ok? [:save]))}
+  {:on-click (h/event [e] (.preventDefault e) (when ok? [:save]))}
   ```
 
 - **Pure imperative work whose return is irrelevant → a plain function.** It
@@ -185,11 +185,11 @@ Hicasso gives you exactly one escape and it is deliberately plain:
   half goes in the callback; the app intent goes on the natural element as a
   vector, where a test and a tool can read it.
 
-`h/hfn` receives **every argument the invoker passed, in order** — it does not
+`h/event` receives **every argument the invoker passed, in order** — it does not
 assume an event at position one, which is what makes it the right answer at a
 value-first foreign callback too (MIG-10).
 
-Two failure modes to know: an `h/hfn` that returns a vector but captured no
+Two failure modes to know: an `h/event` that returns a vector but captured no
 frame raises `:rf.error/hicasso-intent-outside-boundary` at *fire* time, not at
 render; and dispatching from inside a `:render`-contract callback while it is
 running raises `:rf.error/hicasso-dispatch-in-render-position`.
@@ -249,7 +249,7 @@ foreign React component never forces a whole view onto Reagent. The decision is
   (h/defhost date-picker DatePicker
     {:callbacks {:on-change :event}})
 
-  [date-picker {:selected due-date :on-change (h/hfn [date & _] [:task/set-due date])}]
+  [date-picker {:selected due-date :on-change (h/event [date & _] [:task/set-due date])}]
   ```
 
   `:callbacks` is a **finite map from exact prop names** to `:event`, `:handler`
@@ -275,7 +275,7 @@ Two migration failures fire loudly and are worth pre-empting:
 - **EVENT-FIRST vs VALUE-FIRST.** The vector's markers and `::h/prevent` read
   the DOM event from argument one. A library that calls `onChange(date, event)`
   is value-first, so `[:task/set-due ::h/value]` raises
-  `:rf.error/hicasso-intent-needs-the-event` naming the position, and `h/hfn` —
+  `:rf.error/hicasso-intent-needs-the-event` naming the position, and `h/event` —
   which sees the library's own arguments in order — is the spelling. At an
   event-first foreign callback the vector is legal and shorter.
 
@@ -304,7 +304,7 @@ nastiest one in the migration, because nothing refuses at render:
 - Preference order: (1) if it runs during render, leave it in the helper — that
   is the supported shape; (2) if it runs later, **hoist the read to render time
   and pass the value into the callback**; (3) if the callback genuinely needs to
-  act, it returns an intent vector from an `h/hfn`, which is the frame-carrying
+  act, it returns an intent vector from an `h/event`, which is the frame-carrying
   spelling.
 
 Grep these out rather than discovering them by clicking.

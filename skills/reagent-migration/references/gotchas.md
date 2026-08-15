@@ -24,7 +24,7 @@ so a grep for Hicasso diagnostics will not find it either.
 
 **So grep the converted bodies for surviving closures rather than finding them
 by clicking.** `#(`, `(fn [`, and any `dispatch` inside a props map are the
-search. The fix is MIG-04/05 (a vector) or MIG-18 (`h/hfn`, which carries the
+search. The fix is MIG-04/05 (a vector) or MIG-18 (`h/event`, which carries the
 frame it was lowered in).
 
 This is what cardinal rule 2 — never half-migrate a view — is protecting you
@@ -130,7 +130,7 @@ codebase needs no respelling (MIG-11). Three edges do not follow that:
 ## `:on-submit` prevents by default — and a key map there prevents everywhere
 
 `:on-submit` is the **one** position that calls `.preventDefault` for you, and
-only for the data spellings (a vector, a key map). An `h/hfn` or a plain fn at
+only for the data spellings (a vector, a key map). An `h/event` or a plain fn at
 `:on-submit` is never auto-prevented — whoever holds the event owns it.
 
 The consequence to watch: a **key map** written at `:on-submit` passes that
@@ -188,7 +188,6 @@ writing them produces a view that will not load:
 |---|---|
 | `re-frame.hicasso.server/render`, `ssr/hydrate!`, `h/hydrate!` | none exists — there is no server-render door (MIG-23) |
 | `h/mount!` taking a config map with `:frame` / `:initial-events` | shipped is positional `h/root!`, which ensures nothing (MIG-15) |
-| `h/fn` | the shipped macro is `h/hfn`; `h/fn` is the intended surface and has not landed |
 | "key maps are valid only at `:on-key-down` / `:on-key-up`" | shipped accepts a map at any event position |
 | the reserved vocabulary as four keywords | incomplete — it omits `::h/navigate`, `::h/mounting`, `::h/unmounting`, `::h/clear` |
 | a plain `merge` for forwarding caller attrs | shipped is the reserved `:&` key with the owned-literal law (MIG-28) |

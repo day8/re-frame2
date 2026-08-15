@@ -110,7 +110,7 @@ Two facts decide most sites:
 
 - **`:on-submit` prevents by default** and needs no head — that is the one
   special position, and it applies to the data spellings (vector, key map) only.
-  A plain fn or an `h/hfn` at `:on-submit` is *never* auto-prevented; whoever
+  A plain fn or an `h/event` at `:on-submit` is *never* auto-prevented; whoever
   holds the event owns it.
 - **A key map at `:on-submit` auto-prevents on every branch**, because the
   position is passed down to each branch. That is rarely what a Reagent
@@ -120,7 +120,7 @@ Two facts decide most sites:
 not exist, and neither does `:capture`, `:passive`, `:once` or
 `:stop-propagation` — these are unrepresentable, not undocumented. So:
 
-- **`stopPropagation`, and any other imperative event work, goes in `h/hfn`** (or
+- **`stopPropagation`, and any other imperative event work, goes in `h/event`** (or
   a plain fn). The callback holds the event and owns it.
 - **Capture phase is React's own prop spelling** — `:on-click-capture` /
   `:onClickCapture` is an ordinary event position and an intent vector lowers

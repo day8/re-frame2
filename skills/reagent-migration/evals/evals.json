@@ -49,7 +49,7 @@
        "Identifies the leftover Reagent closure as the cause: an unmarked plain function at an on-* prop is passed through to React BY IDENTITY, deliberately, so React.memo and handler-identity bail-outs keep working — nothing refuses it at lowering or at render.",
        "Explains the timing: when the browser invokes it later the render extent has unwound, ambient dispatch has no frame to resolve against, and the failure lands at click time.",
        "Notes the id is core's :rf.error/no-frame-context, not a :rf.error/hicasso-* one, so grepping for Hicasso diagnostics will not find it.",
-       "Fixes it to the event vector {:on-click [:save]} (MIG-04), or to h/hfn where the callback genuinely needs the event (MIG-18).",
+       "Fixes it to the event vector {:on-click [:save]} (MIG-04), or to h/event where the callback genuinely needs the event (MIG-18).",
        "Advises grepping the converted bodies for surviving closures rather than finding them by clicking, and connects that to the whole-view-coherence rule."
      ]},
 
@@ -94,7 +94,7 @@
        "Does NOT decline: [:> Component ...] is legal in Hicasso and still works, so a foreign React component never forces the view onto Reagent.",
        "Frames the decision as which door: keep [:>] for a one-off crossing, declare a repeated crossing once with h/defhost so the var becomes a legal hiccup head.",
        "States that :callbacks is a FINITE map from exact prop names to :event / :handler / :render and is NEVER inferred from an on* spelling — and warns that an event-spelled prop can be a render prop whose return the library consumes, so declaring it :event blanks the UI with no useful error. Says to confirm every contract against the library's documentation.",
-       "Gets the argument law right: react-datepicker calls onChange(date, event) — VALUE-first — so an intent vector with ::h/value would raise :rf.error/hicasso-intent-needs-the-event, and the spelling is h/hfn, which receives every argument the invoker passed in order.",
+       "Gets the argument law right: react-datepicker calls onChange(date, event) — VALUE-first — so an intent vector with ::h/value would raise :rf.error/hicasso-intent-needs-the-event, and the spelling is h/event, which receives every argument the invoker passed in order.",
        "Turns the @(subscribe [:date]) deref into a render-time (h/sub [:date]) read feeding :selected.",
        "Notes an intent vector at an UNDECLARED event-spelled defhost prop raises :rf.error/hicasso-host-undeclared-callback, and that under Reagent that vector crossed as an inert JS array so it never worked either — the migration forces the decision rather than breaking the code.",
        "Recommends running the migration reporter over the codebase for the rest of the [:>] prop-dialect differences, and treats its defhost suggestions as labelled guesses."
