@@ -151,6 +151,7 @@ Xray preload is wired — press `Ctrl+Shift+C`).
 | `:examples/login-with-stories` | 8041 | http://localhost:8041/#/stories | login showcase |
 | `:examples/counter-with-stories` | 8042 | http://localhost:8042/#/stories | canonical minimal testbed |
 | `:examples/login-form` | 8043 | http://localhost:8043/#/stories | five-state login-form testbed |
+| `:examples/hicasso-counter` | 8045 | http://localhost:8045/#/stories | the deck authored on the native substrate (`:substrates #{:hicasso}`) |
 
 Name the Story build(s) you want to watch and `npm run dev`
 (`implementation/scripts/dev-testbed.cjs`) prints each shell URL on start

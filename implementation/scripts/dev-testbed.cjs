@@ -104,12 +104,15 @@ const { REPO_ROOT, IMPL_ROOT } = require('./_path-policy.cjs');
 //                                         up when the gate and a watch run at
 //                                         once. The next free Xray slot is
 //                                         8038.
-//   8040-8044   Story showcases +         :dev-http (shadow-cljs.edn):
+//   8040-8045   Story showcases +         :dev-http (shadow-cljs.edn):
 //               worked examples             8040 nine-states-with-stories
 //                                           8041 login-with-stories
 //                                           8042 counter-with-stories
 //                                           8043 login-form
 //                                           8044 linearlite (plain example)
+//                                           8045 hicasso-counter (rf2-kttom)
+//                                         The next free slot in this band is
+//                                         8046.
 //   805x        examples orchestrator     DEFAULT_PORT in
 //                                           examples/scripts/examples-port.cjs
 //                                           (8050; pre-flight + forward scan).
@@ -126,7 +129,7 @@ const { REPO_ROOT, IMPL_ROOT } = require('./_path-policy.cjs');
 //                                         must share an origin.
 //   8765        Xray panel-gallery        :dev-http (shadow-cljs.edn).
 //
-// The :dev-http bands (8030-8036 / 8040-8044 / 8765) are mirrored in the
+// The :dev-http bands (8030-8036 / 8040-8045 / 8765) are mirrored in the
 // DEV_HTTP map below (READ-only — shadow-cljs.edn is hot-zone). The 805x
 // examples band is NOT a :dev-http port — it is the test-orchestrator's
 // http-server default, resolved at runtime — so it lives only here + in
@@ -156,6 +159,11 @@ const DEV_HTTP = {
   // rf2-tideyl — Linearlite optimistic-board example (804x band, plain
   // build: no Story shell, so no `story: true`).
   ':examples/linearlite': { port: 8044 },
+  // rf2-kttom — the Hicasso Story testbed (804x band). Story shell at
+  // /#/stories, so `story: true` like its Reagent siblings; the difference
+  // is in the deck, which declares `:substrates #{:hicasso}` and paints
+  // through the host-registered `:hicasso` render fn.
+  ':examples/hicasso-counter': { port: 8045, story: true },
   // rf2-5e22yc — top-level tenant-switcher testbed (806x band).
   ':testbeds/tenant-switcher': { port: 8060 },
   // rf2-vsgq — the Hicasso HMR testbed (806x band). Unlike every other
