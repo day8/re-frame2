@@ -7,7 +7,7 @@
 
 > **What this pattern classifies as.** The outer/inner shape below is spelled on **today's shipping view adapters** — the **stock-Reagent compatibility/interop tier** (Form-3 via `reg-view*`, render-time `capture-frame`) and the **UIx and reagent-slim adapters**. All three are first-class and actively supported — they live on (see [Spec 006 §CLJS reference scope](006-ReactiveSubstrate.md#cljs-reference-scope) for each adapter's lifecycle role; Helix was removed at S7/W13 — rf2-d6epb, 2026-07-22). It is the **current** guidance for bridging a stateful JS component.
 >
-> The **new, experimental** first-party view substrate is the compiled `re-frame.ui`, whose one component form is `ui/defview` over a single props map and whose stateful-bridge equivalent — component refs, `ui/effect`, and observation handles — is being specified through the re-frame.ui S1–S7 program and is **not yet the shipping bridge**. When it lands, this pattern's compiled form is specified in [Spec 004](004-Views.md) alongside the shipping adapters — no `spec/004A` compatibility appendix lands and nothing relocates. Until then, the Form-3 / `reg-view*` / `capture-frame` shape documented here is the one to use.
+> The two donor view substrates that once carried a second answer here — the compiled `re-frame.ui` and Freehand — were removed on 2026-08-16 (rf2-0yp7w). The Form-3 / `reg-view*` / `capture-frame` shape documented here is the shipping bridge.
 
 ## Role
 
@@ -95,7 +95,7 @@ The one cross-adapter discipline: **carry the frame from render-time into the af
 
 ## Worked example — a Mapbox-shaped widget
 
-A small map view, parameterised by a current position from `app-db`. The shape is library-agnostic; substitute D3, Three.js, CodeMirror, etc. with no structural change. Pseudo-code — the library calls are illustrative, not runnable. The spelling below is on the **stock-Reagent compatibility/interop** tier (Form-3 via `reg-view*`); it is the current bridge until the compiled `re-frame.ui` equivalent lands (see the classification callout above).
+A small map view, parameterised by a current position from `app-db`. The shape is library-agnostic; substitute D3, Three.js, CodeMirror, etc. with no structural change. Pseudo-code — the library calls are illustrative, not runnable. The spelling below is on the **stock-Reagent compatibility/interop** tier (Form-3 via `reg-view*`); it is the shipping bridge (see the classification callout above).
 
 ```clojure
 (ns my-app.map

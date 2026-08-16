@@ -1345,9 +1345,8 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
   ;; the declared type is the sole thing standing between this payload and a string,
   ;; number or arbitrary object at `:where`, so `:any` there enforced nothing. Every
   ;; producer emits a quoted symbol — the requiring primitives' call sites across
-  ;; core, http, machines, routing, flows, resources, ssr, freehand and ui, plus the
-  ;; `where` argument threaded through `require-frame-provider-target!` and
-  ;; `re-frame.ui.frames/resolve-frame`.
+  ;; core, http, machines, routing, flows, resources and ssr, plus the
+  ;; `where` argument threaded through `require-frame-provider-target!`.
   [:map
    [:category    :keyword]                         ;; [:= :rf.error/no-frame-context] in a closed schema
    [:operation   :keyword]                          ;; the failing frame-scoped op — open set (above)
@@ -1381,10 +1380,7 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
   ;; fn symbol: `'re-frame.views.provider/frame-provider`,
   ;; `'re-frame.adapter.uix/frame-provider`,
   ;; `'re-frame.substrate.spine/build-frame-provider-element`,
-  ;; `'re-frame.freehand.substrate/frame-provider`, `'v/->react`,
-  ;; `'re-frame.ui/frame-provider`, `'re-frame.ui/frame`, `'re-frame.ui/->react`
-  ;; (the last three arriving through `re-frame.ui.frames`' `require-scope-frame!`
-  ;; and `resolve-frame`), plus `'test/where` / `'test` in test. There is no
+  ;; plus `'test/where` / `'test` in test. There is no
   ;; keyword, string or map producer in src or in test. The type carries the
   ;; contract alone: the catalogue conformance gate diffs KEY SETS only, so
   ;; `:any` here enforced nothing while reading as though it did.
@@ -2240,8 +2236,9 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
 ;; STRIPPED from `:tags` (per §`:rf/trace-event`). `:tags` therefore carries ONLY
 ;; origin/ambient/query/reason. `CrossFrameCarriedOpEvent` below is the canonical
 ;; category contract that validates the full warning (envelope + `:tags`);
-;; `CrossFrameCarriedOpTags` describes the surviving `:tags` payload alone. Emitted by
-;; `re-frame.ui.frames/maybe-warn-cross-frame-carried-subscribe!`. Per the [009 error
+;; `CrossFrameCarriedOpTags` describes the surviving `:tags` payload alone. **The warning is
+;; RETIRED** (rf2-0yp7w): its only emitter went with the compiled-view substrate on
+;; 2026-08-16, and its Spec 009 row is struck. Per the [009 error
 ;; catalogue row](009-Instrumentation.md#error-event-catalogue), [002 §Frame target
 ;; resolution](002-Frames.md#frame-target-resolution--the-carried-invariant), and
 ;; [004C §Root identity](004C-Roots-and-Mount.md).
@@ -2257,7 +2254,7 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
 ;; this warning's real placement — category on `:operation` (no `:tags :category`),
 ;; severity `:warning`, `:recovery` hoisted top-level, `:tags` the four surviving
 ;; fields. Validates the actual emitted event end to end (pinned by the runtime
-;; conformance test `re-frame.ui.frame-ops-cljs-test`). It is a genuine REFINEMENT
+;; conformance test that pinned it). It is a genuine REFINEMENT
 ;; of `ErrorEvent`, not an independent subset: it restates every one of the
 ;; envelope's required core fields (`:id` / `:operation` / `:op-type` / `:time` /
 ;; `:tags`) and narrows the ones this category pins, so an event validating here
