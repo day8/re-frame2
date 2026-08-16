@@ -14,6 +14,47 @@ The test kit is split across two namespaces:
 - `re-frame.hicasso.test.mounted`, usually aliased `hm`, for real React and DOM
   tests.
 
+## Put the test kit on the classpath
+
+Neither namespace arrives with the artifact. The kit has its own source root,
+`test_kit/src`, deliberately outside the Hicasso artifact's `:paths` — so an
+application that writes no test carries none of it, and bundle isolation holds by
+construction rather than by convention. The cost of that is one line you have to
+add yourself, and until you add it every `ht` and `hm` require on this page fails
+to resolve.
+
+Following the [`:local/root` setup](00-installation.md#add-the-dependencies) — the
+only shape available while nothing is published — put the kit's root on a test
+alias in `deps.edn`:
+
+```clojure
+;; deps.edn
+{:paths ["src"]
+ :deps  {day8/re-frame2-hicasso {:local/root "../re-frame2/implementation/hicasso"}
+         day8/re-frame2-uix     {:local/root "../re-frame2/implementation/adapters/uix"}}
+
+ :aliases
+ {:shadow {:extra-deps {thheller/shadow-cljs {:mvn/version "3.4.10"}}}
+
+  ;; The test kit, from the same checkout the artifact resolves from.
+  :test   {:extra-paths ["../re-frame2/implementation/hicasso/test_kit/src"]}}}
+```
+
+Then select that alias in the build, beside the one that puts the compiler on the
+classpath:
+
+```clojure
+;; shadow-cljs.edn
+{:deps   {:aliases [:shadow :test]}
+ :builds {:test {:target    :node-test
+                 :output-to "out/node-tests.js"}}}
+```
+
+The path is relative to *your* `deps.edn`, exactly as the artifact coordinates
+above are. L3 additionally reaches for Testing Library, which is an npm package
+rather than a classpath entry: `npm install --save-dev @testing-library/dom`, and
+`@testing-library/user-event` as well if your tests drive real interactions.
+
 ## The testing ladder
 
 | Level | What it proves | Mechanism |
