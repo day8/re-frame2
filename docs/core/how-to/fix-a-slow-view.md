@@ -209,9 +209,9 @@ Xray rides the dev [trace stream](../glossary.md#trace-stream), which is [elided
 | `event` | an event handler ran (the full interceptor chain for one event) | `rf:event:article/toggle-favorite` |
 | `sub` | a subscription recomputed its body | `rf:sub:feed/slugs` |
 | `fx` | one effect executed (including reserved fx like `:dispatch` and managed HTTP) | `rf:fx:rf.http/managed` |
-| `render` | a `reg-view` rendered | `rf:render:my.app/article-row` |
+| `render` | a `reg-view` (or a Hicasso `h/defview` boundary) rendered | `rf:render:my.app/article-row` |
 
-The id keeps its full namespace, so you can split on the second `:` for a per-bucket view. Note that only `reg-view` views show up under `rf:render:` — a plain `defn` view has no registered id to bracket, which is one more reason to register the views you care about measuring.
+The id keeps its full namespace, so you can split on the second `:` for a per-bucket view. Note that only *registered* views show up under `rf:render:` — a plain `defn` view has no registered id to bracket, which is one more reason to register the views you care about measuring. Hicasso's `h/defview` counts as registered here: every boundary it declares is bracketed under the same `rf:render:<namespace>/<name>` id, so a Hicasso screen needs no extra step. See [Performance](../hicasso/19-performance.md) in the Hicasso guide for what its counts and durations mean.
 
 !!! warning "Gotcha — a throwing path still leaves a measure"
 
