@@ -20,7 +20,7 @@ Measured on `origin/main` at `a724be0d6d`, 2026-08-16 15:06 AUSEST.
 |---|---|---|---|
 | `implementation/ui/` (`re-frame.ui`, the compiled-view substrate) | **REMOVE** — executed | Operator ruling, Mike 2026-08-14 (`rf2-0yp7w`); plan at [`freehand-and-ui.md`](freehand-and-ui.md) | Gone. `git ls-files implementation/ui` returns **0** |
 | `implementation/freehand/` (`re-frame.freehand`) | **REMOVE** — executed | Same ruling and plan | Gone. `git ls-files implementation/freehand` returns **0** |
-| `implementation/hicasso/test/re_frame/bench/hicasso/` (the frozen Hicasso bench tree) | **KEEP AS EVIDENCE** | `implementation/hicasso/frozen-sources.edn` and `rf2-0xgk`; tree marker at the tree's own [`README.md`](../../../implementation/hicasso/test/re_frame/bench/hicasso/README.md) | Present, 220 tracked files, actively worked |
+| `implementation/hicasso/test/re_frame/bench/hicasso/` (the frozen Hicasso bench tree) | **KEEP AS EVIDENCE** | `implementation/hicasso/frozen-sources.edn` and `rf2-0xgk`; tree marker at the tree's own [`README.md`](../../../implementation/hicasso/test/re_frame/bench/hicasso/README.md) | Present — 220 tracked files at the stamped commit, before this change adds its marker — and actively worked |
 
 ### `re-frame.ui` and Freehand — removed, not archived
 
@@ -99,10 +99,10 @@ manifest states what each retirement cost.
 
 The published guide teaches one view story. `docs/core/views.md` sends a reader to the
 supported adapters (Reagent, reagent-slim, UIx) and to Hicasso as re-frame2's own native
-view layer, and names no donor; the `Hicasso: the view layer` nav section is the
-twenty-three-chapter guide plus its reference, cookbook, troubleshooting and escape
-ladder. `docs/core/freehand/`'s twenty-two pages went to zero on 2026-08-14 (`rf2-7cuns`)
-and the site nav changed with them.
+view layer, and names no donor; the `Hicasso: the view layer` nav section is a
+twenty-three-chapter guide plus its landing page, API reference, cookbook,
+troubleshooting, escape ladder and glossary. `docs/core/freehand/`'s twenty-two pages went
+to zero on 2026-08-14 (`rf2-7cuns`) and the site nav changed with them.
 
 One published page still presented a retired model as a live choice when this record was
 written, and it is fixed in the same change: `docs/skills/index.md`'s opening blurb
