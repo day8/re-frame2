@@ -617,9 +617,9 @@
 
   SO RAISING `warmup` IS A BLUNT LEVER — it buys round one's pre-warm at
   `rounds` times its cost, which on these clocks is five — and the
-  targeted repair is a run-level `:prewarm`
-  that runs the arms P times, discarded, before the first round, leaving
-  `warmup` as a small per-round settling allowance. **It is not built**,
+  targeted repair is a run-level `:prewarm` that runs the arms P times,
+  discarded, before the first round, leaving `warmup` as a small per-round
+  settling allowance. **It is not built**,
   because the knob sufficed: rf2-h904p raised the two clocks to `8`, which
   puts the +27% step this lane records after a site's sixth execution
   inside the warm-up, and rf2-adld3's three-run window on that warmed rig
