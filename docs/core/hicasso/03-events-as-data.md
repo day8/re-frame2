@@ -219,6 +219,19 @@ legal only during a boundary body (or a render callback that boundary
 supplied), that returns the current frame **id keyword**. It is not a tracked
 subscription.
 
+!!! warning "`h/frame` is exported today as `h/hframe`"
+
+    This is the one door this guide spells differently from the code, and the
+    difference is deliberate rather than a slip — [Status](index.md#status)
+    records the whole of it. The samples below teach `h/frame`; to run them
+    today, substitute `h/hframe` at each call site. Nothing else changes: same
+    arity, same return, same legality rule.
+
+    The recommendation on record is to retire the verb rather than respell it,
+    leaving `rf/current-frame-id` and `rf/capture-frame` as the frame doors
+    they already are. That is why the guide has not simply been rewritten to
+    `h/hframe`.
+
 The carry spelling is composition with core's capture primitive:
 
 ```clojure

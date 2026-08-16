@@ -232,6 +232,9 @@ Returns the frame **id keyword** of the Hicasso boundary currently rendering.
 Legal only during a boundary body or a render callback that boundary supplied.
 Not a tracked subscription.
 
+Exported today as `h/hframe`; substitute that spelling to run the sample below.
+The difference is deliberate and is recorded under [Status](index.md#status).
+
 The taught carry spelling is composition with core:
 
 ```clojure
