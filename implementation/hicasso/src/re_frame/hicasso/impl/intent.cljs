@@ -222,13 +222,12 @@
   lowering, loud on every malformed form. The
   click LAW is not restated here: the lowered closure hands the event to
   routing's own `:routing/activate-link!` late-bound seam — the same one
-  decision `rf/route-link`, `ui/route-link` and Freehand's `v/route-link`
-  all run — so caller-veto-first, modifier-click deferral, native-anchor
+  decision `rf/route-link` runs — so caller-veto-first, modifier-click deferral, native-anchor
   deferral and `preventDefault`-then-dispatch stay routing's law, stated
   once. A hook that vanished between render and click (dev hot-reload of
   the routing artefact) degrades to native navigation — the browser
-  follows the real `href` — after running the veto, exactly as Freehand's
-  seam degrades.
+  follows the real `href` — after running the veto, exactly as the
+  prototype's seam degraded.
 
   The `:veto` slot is where the two heads compose, and the composition is
   the existing grammar: `[::h/prevent [:app/event]]` there lowers to the
@@ -268,8 +267,8 @@
   render. [[re-frame.hicasso.impl.route-link/route-link]] reads it
   to capture the render frame into its navigate vector — a browser click
   fires long after the render's dynamic extent has unwound, so the frame
-  must travel as data (the same render-time capture Freehand's
-  `v/route-link` performs with `require-current-frame!`)."
+  must travel as data (the same render-time capture the prototype's
+  `v/route-link` performed with `require-current-frame!`)."
   nil)
 
 (def ^:private ambient-frame-refusal

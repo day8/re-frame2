@@ -92,8 +92,8 @@
   1)
 
 (def descriptor-keys
-  "Root Descriptor v1 — the compile-time static key set, as
-  `re-frame.ui.compiler.root/root-descriptor` emits it (004C §2). Listed here
+  "Root Descriptor v1 — the compile-time static key set a view compiler's
+  root descriptor emits (004C §2). Listed here
   as DATA so the subset property is checkable rather than asserted."
   #{:rf.root/schema-version
     :root-id
@@ -237,8 +237,8 @@
   root-id-slug`. Unique per page for free — the slug is injective over
   root-id (004C §1) and root-ids are page-unique (004C §7), so two
   synthesised locators can never collide. The slug is passed in rather
-  than recomputed: it is the `re-frame.ui` compiler's value, and the SSR
-  artefact does not depend on the UI artefact."
+  than recomputed: it is the view compiler's value, and the SSR
+  artefact depends on no view artefact."
   [root-id-slug]
   {:id (str "rf2-root-" root-id-slug)})
 
@@ -735,32 +735,36 @@
           (read-manifest 'rf.ssr/discover-root-manifest (.-textContent el)))))))
 
 ;; ---------------------------------------------------------------------------
-;; The `ui -> core late-bind <- ssr` discovery seam (rf2-3omxp)
+;; The `view -> core late-bind <- ssr` discovery seam (rf2-3omxp)
 ;; ---------------------------------------------------------------------------
 ;;
-;; `re-frame.ui/hydrate-root` must resolve a container's Root Manifest, but the
-;; discovery code lives HERE, in the optional `day8/re-frame2-ssr` artefact. A
-;; direct `re-frame.ui -> re-frame.ssr.manifest` require is ruled out twice
-;; over: the Independence rule reserves the single sanctioned direct
-;; cross-artefact require for `core -> ui` (Conventions §Internal cross-artefact
-;; seams), and this namespace is absent from a ui-only app's classpath — a
-;; static require would fail to COMPILE every non-SSR ui app and drag ssr into
-;; every ui bundle.
+;; A view artefact's hydrate-root door must resolve a container's Root Manifest,
+;; but the discovery code lives HERE, in the optional `day8/re-frame2-ssr`
+;; artefact. A direct `view artefact -> re-frame.ssr.manifest` require is ruled
+;; out twice over: the Independence rule reserves the single sanctioned direct
+;; cross-artefact require for `core -> view` (Conventions §Internal
+;; cross-artefact seams), and this namespace is absent from a view-only app's
+;; classpath — a static require would fail to COMPILE every non-SSR app and drag
+;; ssr into every view bundle.
 ;;
-;; So the seam is late-bind, the third instance of the shape ui already
+;; So the seam is late-bind, the same shape a view artefact already
 ;; exercises against routing (`:routing/link-model` / `:routing/activate-link!`).
 ;; The hook does EXACTLY what its name says: hand back the validated adjacent
 ;; Root Manifest, or nil when there is none. It exposes no payload install and
 ;; no other ssr operation — the two-call boot model (`ssr/hydrate!` for state,
-;; then `ui/hydrate-root` for DOM adoption) is unchanged by it.
+;; then the view artefact's own door for DOM adoption) is unchanged by it.
 ;;
 ;; Validation failures still throw `:rf.error/root-manifest-invalid` out of
 ;; `validate!` (a corrupt manifest is a wire fault, not an absence); nil means
-;; "no manifest here" and the CALLER decides — `ui/hydrate-root` fails loud with
+;; "no manifest here" and the CALLER decides — a hydrate door fails loud with
 ;; `{:missing :manifest}`, a client-only mount never asks.
+;;
+;; NO in-repo consumer resolves this hook today: both consumers went with the
+;; retired donor view artefacts. The publication stays because the seam is SSR's
+;; to offer, not theirs to own.
 ;;
 ;; Per Spec 011 §Discovery and the drift-parity rule (Conventions §Late-bind
 ;; hook key grammar rule 3, enforced by `late_bind_drift_test.clj`): this
-;; publication, the `re-frame.late-bind.directory` row, and the
-;; `re-frame.ui.client/hydrate-root*` consumer land as ONE change.
+;; publication, the `re-frame.late-bind.directory` row, and any consumer land as
+;; ONE change.
 #?(:cljs (late-bind/set-fn! :ssr/discover-root-manifest discover))

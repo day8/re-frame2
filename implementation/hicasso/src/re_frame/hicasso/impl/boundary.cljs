@@ -110,11 +110,11 @@
   mounts the failing tree in StrictMode and reads one record.
 
   This started life with an instance flag gating the report, on the
-  reasoning the freehand boundary uses for its generation counter
-  (`re-frame.freehand.error-react`, whose `componentDidUpdate` promotes
-  too and therefore genuinely needs one). Removing the flag changed no
+  reasoning the prototype's boundary USED for its generation counter (its
+  `componentDidUpdate` promoted too, so it genuinely needed one; that
+  substrate has since been retired). Removing the flag changed no
   witness — **the mutation went green**, which is the definition of a
-  line nothing observes — so it is gone. The freehand law is not being
+  line nothing observes — so it is gone. That law is not being
   contradicted; it is being told apart, and the difference is that this
   boundary reports from one lifecycle rather than three.
 
@@ -279,8 +279,8 @@
                         (:reset-key (or (unchecked-get props "rfProps") {})))
                   this))
         ;; Bound once and `^js`-tagged so the React lifecycle names below
-        ;; are inferred externs — the same discipline
-        ;; `re-frame.freehand.error-react` uses, for the same reason: a
+        ;; are inferred externs — the standard discipline for a class
+        ;; component built this way, for the reason that follows: a
         ;; `(.. ctor -prototype -X)` chain cannot infer them, and an
         ;; `:advanced` build that munged `componentDidCatch` would give a
         ;; boundary that silently never catches.

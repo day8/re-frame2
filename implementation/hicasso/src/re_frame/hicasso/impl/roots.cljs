@@ -80,7 +80,7 @@
   leaves nothing behind to close: the window it would have opened is
   simply unreachable. That is the shape of the prior art in this repo —
   `re-frame.substrate.spine` mints `#js {:adopting true}` per root and
-  closes over it in its reporter, and the Freehand root does the same
+  closes over it in its reporter, and the prototype's root did the same
   while also closing over its root-id."
   []
   #js {"open" true})
