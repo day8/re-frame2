@@ -64,6 +64,8 @@ const {
   allocSiteSplit,
   allocSiteWitness,
   allocSiteReport,
+  allocIntraLegRefusals,
+  allocWindowVerdict,
   ALLOC_SITES,
   ALLOC_SITE_NAMES,
 } = require('./p0_run.cjs');
@@ -1162,6 +1164,246 @@ test('THE REPORT RUNS — the mode is not merely defined', () => {
   assert.deepStrictEqual(allocSiteReport({ bySite: false, perRound: [] }), []);
 });
 
+// ===========================================================================
+// THE INTRA-LEG RECLAMATION GATE — rf2-4ctls
+// ===========================================================================
+//
+// THE DEFECT THIS PINS, and it was MEASURED rather than predicted. rf2-ojehu's
+// by-site window took 72 floor-arm windows over six runs on a quiet box. 24
+// carry at least one NEGATIVE site step — a reclamation inside a single leg —
+// and 21 of those are already refused by the falls gate. THREE have `falls` = 0
+// and TWO of those three ALSO CERTIFIED at τ.
+//
+// NEITHER OF THE TWO EXISTING GATES IS DEFECTIVE ON ITS OWN TERMS, which is
+// what makes this a gap between them rather than a bug in either. The falls
+// gate walks the COLLAPSED stride-2 stream, where such a leg is one
+// non-negative step. The leg tolerance — the gate written for exactly that
+// blind side — reads that leg's NET, which sits inside τ of the cohort median.
+// So the pins below assert BOTH halves on every replayed window: that the two
+// old gates pass it (the gap is real) and that the new one refuses it (the gap
+// is closed). Asserting only the second would pass just as well against a gate
+// that refuses everything.
+//
+// A REPLAY, NOT A FIXTURE. The three windows below are the site legs
+// rf2-ojehu's run actually recorded, to the byte, and each is driven through
+// the SAME four calls the driver makes — `allocSiteSplit`, `allocPrimeSplit`,
+// `allocSteps`, `allocWindowVerdict`. Nothing is reconstructed and no expected
+// verdict is asserted that the real code did not produce.
+
+// `[dispatch, drain]` per work unit, PRIME FIRST, exactly as `siteLegs` carries
+// them. The window's own leg numbering counts the prime as leg 1 — which is how
+// the measurement record quotes these — so the measured-cohort index the
+// refusals use is one lower.
+const OJEHU = {
+  // falls 0, CERTIFIED at τ: leg total +21,484 B against a 20,154 B median is
+  // +6.6%, comfortably inside 25%, while 178 KB was reclaimed inside the leg.
+  c6page_r0_uix: [
+    [25096, 80], [21824, 80], [199980, -178496], [18744, 80],
+    [18232, 80], [18232, 80], [23560, 80],
+  ],
+  // falls 0, CERTIFIED at τ: +20,100 B against 18,092 B is +11.1%, and 285 KB
+  // was reclaimed inside the leg. This is the window the bead leads with.
+  c6page_r2_uix: [
+    [24876, 80], [18012, 80], [18012, 80], [305392, -285292],
+    [17976, 80], [18012, 80], [18012, 80],
+  ],
+  // falls 0, and already refused — on two OTHER legs, at τ. The intra-leg
+  // reason is additional to those, never instead of them.
+  c24page_r0_reagent: [
+    [25000, 96], [279024, -259996], [18232, 80], [18196, 152],
+    [278416, 80], [18412, 80], [18948, 262148],
+  ],
+};
+
+// The driver's own four calls, in the driver's own order, over one window.
+const replay = (pairs) => {
+  const site = allocSiteSplit(siteStream(pairs), 3);
+  const { primeLegs, measured } = allocPrimeSplit(site.collapsed, 1);
+  const steps = allocSteps(measured);
+  return { site, primeLegs, steps, verdict: allocWindowVerdict(steps, site.siteLegs, 1) };
+};
+
+test('THE REPLAY — the two windows that CERTIFIED are refused, and both old gates are shown blind', () => {
+  for (const [name, pairs, reclaimed, legTotal, med] of [
+    ['c6page_r0_uix', OJEHU.c6page_r0_uix, 178496, 21484, 20154],
+    ['c6page_r2_uix', OJEHU.c6page_r2_uix, 285292, 20100, 18092],
+  ]) {
+    const { steps, verdict } = replay(pairs);
+
+    // HALF ONE: the gap is real. The falls gate saw nothing at all...
+    assert.strictEqual(steps.falls, 0, `${name}: no step fell — that IS the blind side`);
+    assert.strictEqual(steps.fall, 0, `${name}: and nothing was netted either`);
+    // ...and the leg tolerance, the gate written for that blind side, passed it
+    // because it reads the leg's NET.
+    assert.strictEqual(steps.legMedian, med, `${name}: the cohort median as measured`);
+    assert.deepStrictEqual(steps.refusals, [], `${name}: τ had nothing to say`);
+    assert.strictEqual(steps.certified, true, `${name}: which is how it got published`);
+    assert.ok(
+      Math.abs(steps.legWorstDeviation) < ALLOC_LEG_TOLERANCE,
+      `${name}: the net deviation is inside τ, so tightening τ is not the repair`
+    );
+
+    // HALF TWO: the third gate refuses it, and names what it found.
+    assert.strictEqual(verdict.certified, false, `${name}: the intra-leg gate must refuse it`);
+    assert.strictEqual(verdict.intraLegRefusals.length, 1, JSON.stringify(verdict.intraLegRefusals));
+    assert.match(verdict.intraLegRefusals[0], new RegExp(`reclaimed ${reclaimed} B inside its drain site`));
+    assert.match(verdict.intraLegRefusals[0], new RegExp(`leg total \\+${legTotal} B`));
+    assert.match(verdict.intraLegRefusals[0], /DO NOT WIDEN A GATE/);
+    // The refusal it carries is the intra-leg one and ONLY it: nothing was
+    // smuggled in from the tolerance, which passed this window.
+    assert.deepStrictEqual(verdict.legRefusals, []);
+    assert.deepStrictEqual(verdict.refusals, verdict.intraLegRefusals);
+  }
+});
+
+test('THE THIRD WINDOW was already refused, and the new reason is ADDITIONAL', () => {
+  // The gate never replaces a refusal. This window fails τ on two legs that ran
+  // an order of magnitude high, and carries an intra-leg reclamation as well.
+  const { steps, verdict } = replay(OJEHU.c24page_r0_reagent);
+  assert.strictEqual(steps.falls, 0, 'the falls gate is blind here too');
+  assert.strictEqual(steps.certified, false, 'but τ refused it on other legs');
+  assert.strictEqual(steps.refusals.length, 2);
+  assert.deepStrictEqual(verdict.legRefusals, steps.refusals, 'and those survive verbatim');
+  assert.strictEqual(verdict.intraLegRefusals.length, 1, 'with the intra-leg reason added');
+  assert.match(verdict.intraLegRefusals[0], /reclaimed 259996 B inside its drain site/);
+  assert.strictEqual(verdict.refusals.length, 3, 'the union is both gates, never one of them');
+  assert.strictEqual(verdict.certified, false);
+});
+
+test('THE GATE IS NOT VACUOUS — a clean window passes it, at every stride', () => {
+  // A gate that refuses everything would satisfy the replay above and be
+  // useless. rf2-ojehu's own numbers say 48 of the 72 windows carry no negative
+  // site step at all; this is that shape, through the same four calls.
+  const { steps, verdict } = replay([
+    [7988, 18056], [1200, 18056], [1200, 18056], [1200, 20696],
+    [1200, 18056], [1200, 18056], [1200, 18056],
+  ]);
+  assert.strictEqual(steps.certified, true, 'six alike legs are one work unit repeated');
+  assert.deepStrictEqual(verdict.intraLegRefusals, [], 'and nothing was reclaimed inside one');
+  assert.strictEqual(verdict.certified, true, 'so the gate must let it through');
+  assert.deepStrictEqual(verdict.refusals, []);
+  // A window that is merely LARGE is not a window that collected. Magnitude is
+  // not the test — the SIGN is — so there is no threshold here to drift.
+  const big = replay(Array.from({ length: 7 }, () => [900000, 900000]));
+  assert.deepStrictEqual(big.verdict.intraLegRefusals, []);
+  assert.strictEqual(big.verdict.certified, true);
+});
+
+test('INERT AT THE SHIPPED STRIDE — every published row is untouched', () => {
+  // The property that makes this bead additive, and the reason no published
+  // conclusion moves: every row ever published was taken at stride 2, where
+  // `allocSiteSplit` yields NO site legs, so there is no site step to be
+  // negative. Driven through the real collapse rather than asserted.
+  const s2 = allocSiteSplit(stream([19256, 19256, 19256, 19256]), 2);
+  assert.deepStrictEqual(s2.siteLegs, [], 'the shipped stride has no seam to read');
+  const steps = allocSteps(allocPrimeSplit(s2.collapsed, 1).measured);
+  const verdict = allocWindowVerdict(steps, s2.siteLegs, 1);
+  assert.deepStrictEqual(verdict.intraLegRefusals, []);
+  assert.deepStrictEqual(verdict.refusals, steps.refusals);
+  assert.strictEqual(verdict.certified, steps.certified);
+  // And the bare function, at the two ways a window can carry no site legs.
+  assert.deepStrictEqual(allocIntraLegRefusals([], 1), []);
+  assert.deepStrictEqual(allocIntraLegRefusals([{ dispatch: -9, drain: 1, leg: -8 }], 1), [],
+    'a single leg is the prime, and the prime is in no figure and no certificate');
+});
+
+test('THE FENCE HOLDS — `allocSteps` is untouched and no published quantity moves', () => {
+  // rf2-rs8q6's fence is load-bearing: the certificate is read off the
+  // COLLAPSED stream so that `rise`, `falls` and `maxStep` cannot move. Feeding
+  // the mid samples to `allocSteps` was the other available repair and would
+  // have split one step into two — on the second window below, `rise` would
+  // have gained the whole 285,292 B and `falls` would have gone to 1. This gate
+  // moves neither, on the windows where it fires hardest.
+  for (const pairs of Object.values(OJEHU)) {
+    const { steps, verdict } = replay(pairs);
+    for (const f of ['rise', 'fall', 'falls', 'maxStep', 'endpoints', 'legMedian',
+                     'legWorstDeviation', 'legTolerance']) {
+      assert.strictEqual(verdict[f], steps[f], `${f} must be the same number`);
+    }
+    for (const f of ['legs', 'gaps']) {
+      assert.deepStrictEqual(verdict[f], steps[f], `${f} must be the same array`);
+    }
+  }
+  // And the source says so: the driver still hands `allocSteps` the measured
+  // COLLAPSED region at both window sites, and the new gate reads `siteLegs`
+  // instead of reaching into the sample stream.
+  assert.strictEqual(
+    (SRC.match(/const verdict = allocWindowVerdict\(s, site\.siteLegs\);/g) || []).length,
+    2,
+    'both window sites apply the third gate, off the site legs'
+  );
+  lacks(
+    /allocSteps\(site\.siteLegs\)|allocSteps\(.*\.samples\)/,
+    'nothing hands a by-site stream to the certificate'
+  );
+});
+
+test('THE GATE HAS NO DIAL, AND τ IS NOT IT', () => {
+  // Every gate on this rig exists because something once passed that should
+  // not have, so widening one to admit today's run retro-admits that failure.
+  // This gate has nothing to widen: the test is a SIGN, not a threshold.
+  lacks(
+    /P0_ALLOC_INTRA|P0_ALLOC_SITE_STEP|P0_ALLOC_RECLAIM|P0_ALLOC_NEGATIVE/,
+    'a gate with an env dial on it is a gate that gets dialled off'
+  );
+  assert.strictEqual(
+    allocIntraLegRefusals.length,
+    1,
+    'site legs in, refusals out — there is no tolerance parameter on it to sweep or to dial'
+  );
+  // rf2-e9wr established that no honest τ calibration exists on the arms' data
+  // in either direction, and rf2-rs8q6 repeats the fence. Nothing in this bead
+  // is a reason to move it, and the placeholder marker stays.
+  assert.strictEqual(ALLOC_LEG_TOLERANCE, 0.25);
+  has(/THIS VALUE IS AN UNCALIBRATED PLACEHOLDER/, 'still not calibrated, still marked');
+  // The refusal it fires is independent of τ, because it never reads it: the
+  // two windows that certified refuse at every tolerance, exactly as the two
+  // audit probes at the foot of this file do.
+  for (const tolerance of [0.01, 0.25, 0.99]) {
+    const site = allocSiteSplit(siteStream(OJEHU.c6page_r2_uix), 3);
+    const steps = allocSteps(allocPrimeSplit(site.collapsed, 1).measured, tolerance);
+    assert.strictEqual(
+      allocWindowVerdict(steps, site.siteLegs, 1).intraLegRefusals.length,
+      1,
+      `τ = ${tolerance} does not move the intra-leg verdict`
+    );
+  }
+});
+
+test('THE SUMMARY REPORTS IT — the gate runs, and an operator can see it did', () => {
+  // "The gate is defined" and "the gate runs" are different claims, and this
+  // file makes that point about `summariseAlloc` and about `allocSiteReport`
+  // already. Drive a collected row through the real summary and read what an
+  // operator would have seen.
+  const site = allocSiteSplit(siteStream(OJEHU.c6page_r2_uix), 3);
+  const window = allocWindowVerdict(
+    allocSteps(allocPrimeSplit(site.collapsed, 1).measured),
+    site.siteLegs,
+    1
+  );
+  // Both floor arms, as the plan mounts them, with the reclamation in ONE of
+  // them: a summary that counted every window would read 4 rather than 2.
+  const arms = FLOOR_ARMS();
+  arms['uix-subs|grid/floor'] = { ...arms['uix-subs|grid/floor'], ...window };
+  const armed = allocSummaryFor('floor', arms, {
+    bySite: true,
+    sites: 3,
+    siteNames: ALLOC_SITE_NAMES,
+  });
+  assert.match(armed.out, /intra-leg reclamations: 2 negative site steps across 2 of 4 windows/);
+  assert.match(armed.out, /invisible to both the other gates, and REFUSED here/);
+  assert.strictEqual(armed.row.intraLegRefusalReasons, 2, 'two rounds of the same synthetic window');
+  // The refusal itself is printed under the summary, in full, as every other
+  // refusal on this row is.
+  assert.match(armed.out, /REFUSED round 1 uix-subs\|grid\/floor: leg 3 of 6 reclaimed 285292 B/);
+  // AND OFF THE MODE THE LINE IS ABSENT, so a published run's summary is
+  // unchanged to the byte. Off it there are no site legs at all, and a line
+  // reading "0 intra-leg reclamations" would claim the instrument looked when
+  // it could not.
+  const off = allocSummaryFor('floor', FLOOR_ARMS());
+  assert.doesNotMatch(off.out, /intra-leg reclamation/, 'silent at the shipped stride');
+});
+
 // --- the row-level witness the driver actually exits on --------------------
 
 const allocRowWith = (windows, rounds = 2) => ({
@@ -1205,6 +1447,33 @@ test('every REFUSED window is named, on every round, with its reason', () => {
   }
   assert.ok(fails.some((f) => f.startsWith('round 1 ')));
   assert.ok(fails.some((f) => f.startsWith('round 2 ')));
+});
+
+test('THE EXIT NAMES WHICH GATE FIRED — the two lists are read apart (rf2-4ctls)', () => {
+  // A failure line is what an operator repairs against, and the two gates send
+  // them to different places: a leg past τ is a question about the arm, an
+  // intra-leg reclamation is a question about the collector's schedule. A
+  // message claiming the tolerance fired when it did not would point at the one
+  // constant this row may not touch.
+  const site = allocSiteSplit(siteStream(OJEHU.c6page_r2_uix), 3);
+  const window = allocWindowVerdict(
+    allocSteps(allocPrimeSplit(site.collapsed, 1).measured),
+    site.siteLegs,
+    1
+  );
+  const row = { perRound: [{ round: 1, arms: { 'uix-subs|grid/floor': window } }] };
+  assert.deepStrictEqual(allocRefusedWindows(row, 'legRefusals'), [],
+    'the tolerance did NOT refuse this window, and the exit must not say it did');
+  const intra = allocRefusedWindows(row, 'intraLegRefusals');
+  assert.strictEqual(intra.length, 1);
+  assert.match(intra[0], /^round 1 uix-subs\|grid\/floor: leg 3 of 6 reclaimed 285292 B/);
+  // The default is still the union, which is what the summary prints.
+  assert.deepStrictEqual(allocRefusedWindows(row), intra);
+  // And a window from a stride-2 row, which carries no such list at all, is
+  // read as empty rather than throwing.
+  const plain = { perRound: [{ round: 1, arms: { a: allocSteps(SMALL) } }] };
+  assert.deepStrictEqual(allocRefusedWindows(plain, 'intraLegRefusals'), []);
+  assert.deepStrictEqual(allocRefusedWindows(plain, 'legRefusals'), []);
 });
 
 test('THE RATIO IS POSSIBLE — refusal REASONS are not counted against WINDOWS', () => {
@@ -1276,8 +1545,24 @@ test('THE RATIO IS POSSIBLE — refusal REASONS are not counted against WINDOWS'
 
 test('the driver exits on THIS function and does not re-derive the verdict', () => {
   has(/const refusedWindows = allocRefusedWindows\(out\.alloc\);/, 'the alloc gate calls it');
-  has(/if \(refusedWindows\.length > 0\) \{/, 'and its result is what pushes a failure');
+  // THE UNION IS WHAT THE SUMMARY PRINTS; THE EXIT READS THE TWO GATES APART
+  // (rf2-4ctls). `refusedWindows` above is still every reason on every refused
+  // window, and it is still what `summariseAlloc` is handed. What changed is
+  // that the exit no longer attributes all of them to the leg tolerance: a
+  // window refused for an intra-leg reclamation had no leg past τ, and a
+  // failure line naming the wrong gate points an operator at the one constant
+  // this row may not touch.
+  has(
+    /const legRefused = allocRefusedWindows\(out\.alloc, 'legRefusals'\);/,
+    'the leg tolerance reads its own list'
+  );
+  has(/if \(legRefused\.length > 0\) \{/, 'and its result is what pushes that failure');
   has(/DO NOT WIDEN THE TOLERANCE/, 'naming the repair, not the dial');
+  has(
+    /const intraRefused = allocRefusedWindows\(out\.alloc, 'intraLegRefusals'\);/,
+    'and the intra-leg gate reads its own'
+  );
+  has(/if \(intraRefused\.length > 0\) \{/, 'which is a separate exit, additional to both others');
   // The nine this file drives, in order. The trailing `};` came off in
   // rf2-gxrr: it made the pin a CLOSED list, which was never its content —
   // "so this file can drive it" is a claim about what is exported, not about
@@ -1785,8 +2070,10 @@ test('the narrow plans SUBTRACT arms — they add none, move none and reorder no
 // build, exactly as every other pin in this file.
 
 // The fields `summariseAlloc` reads, and no more. `arms` is what the plan
-// shape decides, so it is the parameter.
-function allocSummaryFor(planName, arms = {}) {
+// shape decides, so it is the parameter. `extra` overlays the row afterwards,
+// for the fields a MODE sets rather than a plan — `bySite` and its siblings
+// (rf2-4ctls) — so the by-site summary can be driven without a second harness.
+function allocSummaryFor(planName, arms = {}, extra = {}) {
   // The control windows carry a prime too and it costs them nothing — the
   // studio page records their worst leg deviation at <= 1% against the arms'
   // 26-46%, which is the contrast that located the term in the first place.
@@ -1821,6 +2108,7 @@ function allocSummaryFor(planName, arms = {}) {
       arms,
     })),
     allocFits: { perRound: {}, mean: {} },
+    ...extra,
   };
   const lines = [];
   const real = console.log;
