@@ -67,7 +67,7 @@ the left because normal layout owns the relationship.
 ├─────────────────────────────────────────────────────────────────────────┤
 │ LAYER 2  Event list (4-col table; 6 rows default; resize via L2/L3 seam)│  the spine / timeline
 ├─────────────────────────────────────────────────────────────────────────┤
-│ LAYER 3  Tab bar (40px) — 9 tabs                                        │  projection selector
+│ LAYER 3  Tab bar (40px) — 10 tabs                                       │  projection selector
 ├─────────────────────────────────────────────────────────────────────────┤
 │ LAYER 4  Detail panel (fills remaining canvas)                          │  per-tab content
 └─────────────────────────────────────────────────────────────────────────┘
@@ -90,7 +90,7 @@ the five-region layout + `ChromeRibbon` / `EventsRibbon` / `EventList`):
 │ view   │ :form/submit    │ 12:30:09.456   │  1.8 ms                      │
 ╞═════════════════════════════════════════════════════════════════════════╡   L2/L3 seam — drag ↕ to resize
 ├─────────────────────────────────────────────────────────────────────────┤
-│ [Epoch] app-db Views Trace Machine Routes Resources Graph Modules        │              L3 — 9 tabs
+│ [Epoch] app-db Views Trace Machine Routes Resources Graph Modules Hicasso│              L3 — 10 tabs
 ├─────────────────────────────────────────────────────────────────────────┤
 │ — Epoch tab content for the focused event —                             │   L4 — fills the rest
 └─────────────────────────────────────────────────────────────────────────┘
@@ -2126,18 +2126,18 @@ with L2; Static is 3-layer without). The composer (`surface-composer`
 in `shell.cljs`) `case`-dispatches between the two on `[:rf.xray/mode]`.
 
 **Tab inventory rule.** Tab inventories are mode-keyed and not shared.
-Dynamic ships 9 tabs (Epoch / App DB / Views / Trace / Machines /
-Routing / Resources / Graph / Modules — see
+Dynamic ships 10 tabs (Epoch / App DB / Views / Trace / Machines /
+Routing / Resources / Graph / Modules / Hicasso — see
 [`021-Dynamic-Panel-Designs.md`](./021-Dynamic-Panel-Designs.md)
 for the per-panel content designs + [`018-Event-Spine.md`](./018-Event-Spine.md)
-§The 9 tabs for the live registry ids; the Event/Handler tab was retired
+§The 10 tabs for the live registry ids; the Event/Handler tab was retired
 by rf2-5gl5r when the Epoch panel reached parity; the Issues tab was
 removed by rf2-gbz39 per Mike's Option (c) ruling — issues surface
 inline in the Epoch panel + the L2 event-row pink-wash + the always-on
-issues ribbon signal. Resources / Graph / Modules are the
-cohesive-sub-domain L4 lenses added per EP-0016 / EP-0014 / EP-0013;
-Graph + Modules are L4-only registry tabs with no standalone `mount-*!`
-facade). Static ships 5 tabs (Machines /
+issues ribbon signal. Resources / Graph / Modules / Hicasso are the
+cohesive-sub-domain L4 lenses added per EP-0016 / EP-0014 / EP-0013 /
+rf2-hic-023; Graph + Modules + Hicasso are L4-only registry tabs with no
+standalone `mount-*!` facade). Static ships 5 tabs (Machines /
 Routes / Schemas / Flows / Interceptors — see §Sub-tab inventory
 above). New tabs MUST declare which mode(s) they belong to; tab-id
 keyword collisions across modes (`:machines`) are deliberate and

@@ -40,7 +40,7 @@ Every selection event passes through a single spine sub — `:rf.xray/focus` —
 ├─────────────────────────────────────────────────────────────────────────┤
 │ LAYER 2  Event list (8 rows default; resizable; min 2)                  │  the spine / timeline
 ├─────────────────────────────────────────────────────────────────────────┤
-│ LAYER 3  Tab bar (40px) — 9 tabs                                        │  projection selector
+│ LAYER 3  Tab bar (40px) — 10 tabs                                       │  projection selector
 ├─────────────────────────────────────────────────────────────────────────┤
 │ LAYER 4  Detail panel (fills remaining canvas)                          │  per-tab content
 └─────────────────────────────────────────────────────────────────────────┘
@@ -62,8 +62,8 @@ Wireframe at default (800px popout, "cosy" density):
 │ ● :cart/recalculate                                                     │
 │ ◉ :order/retry                                      🌐  ← head/sel      │
 ├═════════════════════════════════════════════════════════════════════════┤   drag handle (L2/L3)
-│ ◉Epoch ○App-db ○Views 8 ○Trace 47 ○Machines 1 ○Routing ○Resources …    │   L3 — 9 tabs
-│   (… ○Graph ○Modules — strip scrolls horizontally below 560px)          │
+│ ◉Epoch ○App-db ○Views 8 ○Trace 47 ○Machines 1 ○Routing ○Resources …    │   L3 — 10 tabs
+│   (… ○Graph ○Modules ○Hicasso — strip scrolls horizontally below 560px) │
 ├─────────────────────────────────────────────────────────────────────────┤
 │ — Epoch panel content for the focused event —                           │   L4 — fills the rest
 │   numbered cascade: DISPATCH · COEFFECTS · HANDLER · FLOW · FX · …      │
@@ -507,12 +507,12 @@ When the user is inspecting a machine in Mode C (4+ instances; see [`003-Machine
 
 ## §5 Tab bar + detail panel (Layers 3 + 4)
 
-### The 9 tabs
+### The 10 tabs
 
 ```
-┌──────────────────────────────────────────────────────────────────────────────────────────┐
-│ ◉Epoch ○App-db ○Views 8 ○Trace 47 ○Machines 1 ○Routing ○Resources ○Graph ○Modules         │   L3
-└──────────────────────────────────────────────────────────────────────────────────────────┘
+┌───────────────────────────────────────────────────────────────────────────────────────────┐
+│ ◉Epoch ○App-db ○Views 8 ○Trace 47 ○Machines 1 ○Routing ○Resources ○Graph ○Modules ○Hicasso │   L3
+└───────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
 > The Issues tab (`i`) was removed per rf2-gbz39 (Mike RULED Option (c)). Its session-wide aggregate triage list was consciously dropped; issues surface inline in the Epoch panel + the L2 event-row pink-wash + the always-on issues ribbon signal (see the doc-intro note + §5.4 below).
@@ -533,6 +533,7 @@ is accepted as a host-friendly alias normalising to `:routing`):
 | 7 | **Resources** | `s` | `:resources` | Server-state / resource cache lens (EP-0016): registry · instances · in-flight work · invalidations · the route→resource graph · scope-resolver audit. Cohesive sub-domain earns its own L4 tab (Mike's cohesive-sub-domain ruling). | [`016-Auxiliary-Panels.md`](016-Auxiliary-Panels.md) §Xray and AI tooling |
 | 8 | **Graph** | — | `:derivation-graph` | The unified derivation/process graph across all algebra-view families (EP-0014 prop-3, rf2-9ett2d). **L4-only** — a `reg-l4-tab!` registry surface with no standalone `mount-*!` facade (shell-internal; focusable, not independently mountable). | [`019-Cross-Cutting-Insight.md`](019-Cross-Cutting-Insight.md) |
 | 9 | **Modules** | `u` | `:module-view` | The (realm, frame) address space + the disposition-6 demand-trigger surface (EP-0013, rf2-wtg9z4). **L4-only** — a `reg-l4-tab!` registry surface with no standalone `mount-*!` facade (shell-internal; focusable, not independently mountable). | [`019-Cross-Cutting-Insight.md`](019-Cross-Cutting-Insight.md) |
+| 10 | **Hicasso** | `h` | `:hicasso` | Six views over the adapter-neutral Hicasso evidence surface (rf2-hic-023): **Mounted** boundaries and their frames · **Reads** attribution · the **Intents** stream · **Why**, which separates what the epoch stamps prove from the causal link that cannot be made · **Advisor**, which ranks the mounted census and refuses the routes its evidence cannot support · **Causal**, which walks one dispatch link by link and names every link it cannot evidence (rf2-hic-037). The last two are derivations over the same four envelopes as the first four, taken in one turn, which is why they are sub-views of this tab rather than tabs of their own. **L4-only** — a `reg-l4-tab!` registry surface with no standalone `mount-*!` facade (shell-internal; focusable, not independently mountable). | [`027-Hicasso-Evidence.md`](027-Hicasso-Evidence.md) + [`028-Hicasso-Advisor.md`](028-Hicasso-Advisor.md) |
 
 (rf2-gbz39 — the **Issues** tab (`i`) was removed per Mike's Option (c) ruling. It carried JS exceptions + schema violations + sensitive-data warnings + hydration mismatches + perf-budget overruns + app console errors/warns. Those classes now surface inline in the Epoch panel + the L2 event-row pink-wash + the always-on issues ribbon signal; the §5.4 content contract below records WHAT surfaces + where. The underlying `:rf.xray/issues-ribbon` projection survives as the ribbon signal's data source.)
 

@@ -42,7 +42,7 @@ plus the event list are the scrubber; there is no bottom rail. Issues are
 not a tab — they surface inline in the Epoch panel, the L2 event-row
 pink-wash, and the always-on issues ribbon signal.
 
-### Dynamic mode — the 9 tabs (lenses on the focused event)
+### Dynamic mode — the 10 tabs (lenses on the focused event)
 
 The tab-bar render order + the registry `:id` each tab lands on
 `:rf.xray/selected-tab` (the host-facing `focus!` panel id; the
@@ -59,7 +59,7 @@ The tab-bar render order + the registry `:id` each tab lands on
 | **Resources** (`s`) | `:resources` | The server-state / resource cache for this event — registry · instances · in-flight work · invalidations · the route→resource graph. |
 | **Graph** | `:derivation-graph` | The unified derivation/process graph across all algebra-view families (EP-0014). L4-only — registry tab, no standalone `mount-*!` facade. |
 | **Modules** (`u`) | `:module-view` | The (realm, frame) address space + the demand-trigger surface (EP-0013). L4-only — registry tab, no standalone `mount-*!` facade. |
-| **Hicasso** (`h`) | `:hicasso` | Four views over the adapter-neutral Hicasso evidence surface — mounted boundaries · read attribution · the intent stream · explain-render — each stating its own scope, basis, completeness and loss. L4-only — registry tab, no standalone `mount-*!` facade. |
+| **Hicasso** (`h`) | `:hicasso` | Six views over the adapter-neutral Hicasso evidence surface — Mounted boundaries · Reads attribution · the Intents stream · Why · Advisor · Causal — each stating its own scope, basis, completeness and loss. The last two are derivations over the same four envelopes as the first four, taken in one turn. L4-only — registry tab, no standalone `mount-*!` facade. |
 
 All ten ids are focusable via `focus!`. The standalone-mountable `Panel`
 re-views (per [`spec/API.md`](./spec/API.md) §Additional public surfaces)
