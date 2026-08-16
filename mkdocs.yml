@@ -37,6 +37,32 @@ exclude_docs: |
   design/hicasso/
   design/retirement/
 
+# Link validation levels (rf2-5exqc).
+#
+# `--strict` fails the build on WARNING, not on INFO, so the DEFAULT levels
+# decide which broken links are gated and which ship silently.  MkDocs 1.6
+# grades a relative link it cannot resolve by whether the last path segment
+# carries a file extension (mkdocs/structure/pages.py, `_RelativePathTreeprocessor`):
+#
+#   * WITH an extension  -> `links.not_found`, default WARN  -> already gated.
+#   * WITHOUT one        -> `links.unrecognized_links`, default INFO -> NOT gated.
+#
+# So a *directory-shaped* link that escapes `docs_dir` — `](../examples)`,
+# `](../../../implementation/adapters)` — published as a 404 and `--strict`
+# stayed green.  mkdocs_hooks.py rewrites the cross-tree forms it knows to
+# absolute GitHub URLs, but any tree or depth missing from its table falls
+# through, and nothing said so.  Raising this one level makes the existing
+# `mkdocs build --strict` gate (scripts/test-fast-pr.sh's docs tier, and
+# docs.yml's "Build site (strict)" step) the permanent gate for the class.
+#
+# NOT raisable, and deliberately left alone: "contains a link to 'X' which is
+# excluded from the built site" is capped at INFO in MkDocs itself
+# (`min(logging.INFO, ...)` in pages.py), so no config value gates links into
+# `exclude_docs` trees.  That class is rf2-75q3l's, and it needs its own check.
+validation:
+  links:
+    unrecognized_links: warn
+
 # Build-time hooks. mkdocs_hooks.py rewrites core/* cross-references
 # from ../../spec/ (correct for GitHub source-tree browsing, where spec/
 # lives at the repo root) to ../spec/ (correct for the staged docs tree

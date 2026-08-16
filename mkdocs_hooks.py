@@ -159,7 +159,13 @@ _GUIDE_XRAY_DIR = re.compile(r'\]\(\.\./\.\./xray/\)')
 # Case 3c: directory-style conformance/ from spec/SPEC-AUTHORING.md — the
 # conformance corpus is staged at docs/spec/conformance/, with README.md as
 # its index. MkDocs needs the explicit .md target.
-_SPEC_CONFORMANCE_DIR = re.compile(r'\]\(conformance/\)')
+#
+# The trailing slash is OPTIONAL (rf2-5exqc). GitHub renders `](conformance)`
+# and `](conformance/)` identically, so authors write both; before the `/?`
+# the slashless form fell through every rule and shipped as a 404, and only
+# at MkDocs INFO — see the `validation:` block in mkdocs.yml for why that was
+# silent. `--strict` now fails on it, and this rule means it does not have to.
+_SPEC_CONFORMANCE_DIR = re.compile(r'\]\(conformance/?\)')
 
 # Case 2: cross-tree refs that don't exist in the staged docs tree.
 # These rewrites apply to ALL pages (guide/, spec/, and docs/-root pages
@@ -181,12 +187,21 @@ _REWRITES = (
     # how-to pages at docs/<cap>/<sub>/X.md) link ../../../examples/; depth-2
     # (docs/<tree>/X.md) link ../../examples/; depth-1 (docs/X.md) link
     # ../examples/. All resolve to the same GitHub blob URL.
-    (re.compile(r'\]\(\.\./\.\./\.\./examples/([^)\s]*)\)'),
-     rf']({GH_BLOB_BASE}/examples/\1)'),
-    (re.compile(r'\]\(\.\./\.\./examples/([^)\s]*)\)'),
-     rf']({GH_BLOB_BASE}/examples/\1)'),
-    (re.compile(r'\]\(\.\./examples/([^)\s]*)\)'),
-     rf']({GH_BLOB_BASE}/examples/\1)'),
+    #
+    # The path after the tree root is OPTIONAL, so a bare `](../examples)`
+    # naming the whole tree rewrites too (rf2-5exqc). It read as an oversight
+    # until `validation.links.unrecognized_links` was raised in mkdocs.yml,
+    # because MkDocs graded the resulting dead link INFO rather than WARNING:
+    # `spec/README.md` shipped three of them. Capturing the leading slash
+    # inside the group keeps every already-matching form byte-identical, and
+    # `examples-old/x` still does not match — after `examples` the regex needs
+    # either `/` or the closing paren.
+    (re.compile(r'\]\(\.\./\.\./\.\./examples(/[^)\s]*)?\)'),
+     rf']({GH_BLOB_BASE}/examples\1)'),
+    (re.compile(r'\]\(\.\./\.\./examples(/[^)\s]*)?\)'),
+     rf']({GH_BLOB_BASE}/examples\1)'),
+    (re.compile(r'\]\(\.\./examples(/[^)\s]*)?\)'),
+     rf']({GH_BLOB_BASE}/examples\1)'),
     # root README.md
     (re.compile(r'\]\(\.\./\.\./README\.md(#[^)\s]*)?\)'),
      rf']({GH_BLOB_BASE}/README.md\1)'),
