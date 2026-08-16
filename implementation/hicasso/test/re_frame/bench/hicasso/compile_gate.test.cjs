@@ -21,15 +21,26 @@
 // It is a SIBLING of `lane_build.test.cjs` and shares its shape deliberately:
 // spawn nothing, decide from a captured result, and pin both directions.
 
+// rf2-peorl added a FOURTH entry source — the two `re-frame.bench.*` core
+// attribution instruments, re-homed here when `implementation/freehand/` took
+// their own gate with it. Its refusals are pinned at the bottom for the same
+// reason: a stated roster that stopped naming real namespaces would leave the
+// gate compiling a set it had silently dropped them out of, and the two rows
+// are here precisely because nothing else in the repository would notice.
+
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 
 const {
   decideModuleNamespaces,
   optionalModuleNamespaces,
+  verifyRoster,
   MIN_MODULE_NAMESPACES,
   MODULE_ROSTER,
   MODULE_ROSTER_FLAG,
+  REHOMED_BENCH_ENTRIES,
 } = require('./compile_gate.cjs');
 
 const IMPL = path.resolve(__dirname, '../../../../..');
@@ -174,6 +185,56 @@ test('the real roster still answers, and answers namespaces', () => {
   // The overlay module is the one rf2-okhdf was filed off. Naming it pins the
   // live arm to a subject rather than to a count.
   assert.ok(d.namespaces.includes('re-frame.hicasso.impl.overlay'), d.namespaces.join(', '));
+});
+
+// ---------------------------------------------------------------------------
+// THE RE-HOMED CORE INSTRUMENTS — rf2-peorl.
+//
+// These two rows are the whole of the coverage the deleted `test:bspine-compile`
+// gate used to give `core/test/re_frame/bench/{read_attribution_cljs,
+// write_attribution}.cljs`. A row that has stopped naming a real namespace is
+// the one way this entry source can go quiet while the gate stays green, so
+// both directions are pinned: the live rows resolve, and a row that lies is
+// refused.
+// ---------------------------------------------------------------------------
+
+test('the two re-homed rows still name real namespaces', () => {
+  const { namespaces, broken } = verifyRoster(REHOMED_BENCH_ENTRIES);
+  assert.deepEqual(broken, []);
+  assert.deepEqual(namespaces.sort(), [
+    're-frame.bench.read-attribution-cljs',
+    're-frame.bench.write-attribution',
+  ]);
+});
+
+test('a roster row whose file has moved, or been renamed, is REFUSED', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'rehomed-roster-'));
+  try {
+    fs.mkdirSync(path.join(root, 'bench'), { recursive: true });
+    fs.writeFileSync(path.join(root, 'bench', 'kept.cljs'), '(ns re-frame.bench.kept)\n');
+    fs.writeFileSync(path.join(root, 'bench', 'renamed.cljs'), '(ns re-frame.bench.other)\n');
+    fs.writeFileSync(path.join(root, 'bench', 'headless.cljs'), ';; no ns form here\n');
+
+    const row = (ns, file) => [{ ns, file: path.join('bench', file) }];
+
+    // The direction that must pass, first — a verifier that had started
+    // refusing everything would satisfy all three refusals below and pin nothing.
+    assert.deepEqual(verifyRoster(row('re-frame.bench.kept', 'kept.cljs'), root).broken, []);
+
+    const gone = verifyRoster(row('re-frame.bench.gone', 'gone.cljs'), root);
+    assert.equal(gone.namespaces.length, 0);
+    assert.match(gone.broken.join('\n'), /no such file/);
+
+    const renamed = verifyRoster(row('re-frame.bench.renamed', 'renamed.cljs'), root);
+    assert.equal(renamed.namespaces.length, 0);
+    assert.match(renamed.broken.join('\n'), /declares re-frame\.bench\.other/);
+
+    const headless = verifyRoster(row('re-frame.bench.headless', 'headless.cljs'), root);
+    assert.equal(headless.namespaces.length, 0);
+    assert.match(headless.broken.join('\n'), /no readable ns form/);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  }
 });
 
 let failed = 0;
