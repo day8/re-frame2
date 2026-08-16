@@ -725,9 +725,11 @@
     (let [body @shadow-cljs-md]
       ;; A ":devtools block (optional, for hot-reload)" TOC/section header
       ;; would imply the Xray preload is opt-in hot-reload tooling. It is the
-      ;; day-one default — not optional hot-reload material. (For the :browser
-      ;; target the module :init-fn re-runs after each hot reload by default,
-      ;; so no separate ^:dev/after-load hook is needed at all.)
+      ;; day-one default — not optional hot-reload material. (Nor is the preload
+      ;; what drives hot reload: for the :browser target shadow calls the module
+      ;; :init-fn ONCE at bundle load and does NOT re-run it on a reload, so the
+      ;; entry ns carries a ^:dev/after-load hook — rf2-ms6r8, measured under
+      ;; rf2-r0kk7 / PR #8400.)
       (is (not (str/includes? body "optional, for hot-reload"))
           (str "shadow-cljs.md still labels the `:devtools` section "
                "\"optional, for hot-reload\". The Xray preload is the day-one "

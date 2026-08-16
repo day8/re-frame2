@@ -104,12 +104,12 @@ Six contractual bits:
 The day-one build (top of this file) already carries `:devtools {:preloads [day8.re-frame2-xray.preload]}`. What it wires:
 
 - **`:preloads [day8.re-frame2-xray.preload]`** — loads the Xray in-app devtools panel in dev/watch builds. `:preloads` (and the whole `:devtools` block) are cut from `release` builds automatically, so Xray never ships to production.
-- **`:init-fn` re-runs after each hot reload.** For shadow-cljs's `:browser` target the module `:init-fn` is both the startup entry and the default after-load hook, so a code reload re-invokes `init` — no separate `^:dev/after-load` hook. That is why the React root is held in a `defonce` and why the explicit `dispatch-sync` seed in `init` is the per-reload reset boundary. Full lifecycle → [`entry-namespace.md` §Order of operations](entry-namespace.md).
+- **`^:dev/after-load` is what makes a reload repaint — `:init-fn` is not.** shadow-cljs calls the module `:init-fn` **once**, when the bundle loads. A hot reload loads the new code and then calls the build's `^:dev/after-load` hooks; it does not call `:init-fn` again. So `core.cljs` splits the entry in two — the one-time boot ceremony in `init`, and a `^:dev/after-load mount!` that re-renders the edited views into the React root held in a `defonce`. Leave the hook out and shadow logs `reloading code but no :after-load hooks are configured!` while the page keeps painting the old view. Full lifecycle → [`entry-namespace.md` §Order of operations](entry-namespace.md).
 - The dev server comes from the top-level `:dev-http {8280 "resources/public"}`, not from a `:http-port`/`:http-root` inside `:devtools`. Use the top-level `:dev-http` form, matching the template.
 
 With this block in place, `npx shadow-cljs watch app` starts the dev server (use `npx` — or `npm run watch` — so the locally-installed `shadow-cljs` from `node_modules/.bin` resolves even with no global binary on PATH). Visit `http://localhost:8280/` and the browser auto-refreshes on every recompile.
 
-re-frame2's *core* does not need a preload for hot-reload — shadow-cljs's default behaviour is enough. **Xray is the one default preload**, wired here because it is a day-one dep; it auto-opens into the `index.html` `[data-rf-xray-host]` column after `rf/init!` seats the adapter (no lazy/manual-only launch step). The default day-one scaffold keeps it.
+re-frame2's *core* needs no preload for hot reload — shadow-cljs's own reload pipeline plus the entry ns's `^:dev/after-load` hook (above) is the whole mechanism. **Xray is the one default preload**, wired here because it is a day-one dep; it auto-opens into the `index.html` `[data-rf-xray-host]` column after `rf/init!` seats the adapter (no lazy/manual-only launch step). The default day-one scaffold keeps it.
 
 **Explicit Xray opt-out (the only no-Xray path).** If you genuinely want a Xray-free build, opt out by removing **all three** pieces together — they are one contract:
 

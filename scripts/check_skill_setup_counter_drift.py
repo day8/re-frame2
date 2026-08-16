@@ -17,18 +17,40 @@ ids its substrate view snippets DISPATCH/SUBSCRIBE. Two prior drifts broke that:
     prevent. This guard pins ONE shared vocabulary across the setup leaves and the
     generator template's `_shared/events.cljs` + `_shared/subs.cljs`.
 
-  * HOT-RELOAD-LIFECYCLE drift (finding 2). The correct shadow-cljs `:browser`
-    lifecycle is: the module `:init-fn` is wired as BOTH the startup entry and the
-    default after-load hook, so it re-runs after EACH hot reload — no separate
-    `^:dev/after-load` hook is needed, and the explicit `dispatch-sync` seed in
-    `init` is the per-reload reset boundary. This matches the generator template's
-    README §Hot reload (CI-guarded by `tools/template/.../template_test.clj`) and
-    the implementation. `references/shadow-cljs.md` / `references/entry-namespace.md`
-    had previously taught the OPPOSITE (Camp B): that `:init-fn` is a "one-time
-    startup hook" that does NOT re-run on a bare code reload, recommending a
-    separate `^:dev/after-load render!` hook. That framing is wrong. This guard
-    fails if the retired one-time-startup / "add an `^:dev/after-load` hook to
-    re-render" framing reappears.
+  * HOT-RELOAD-LIFECYCLE drift (finding 2, INVERTED by rf2-ms6r8). This arm was
+    installed pointing the wrong way, on an unmeasured premise, and now points
+    the right way. MEASURED under rf2-r0kk7 (PR #8400) on shadow-cljs 3.4.10,
+    against a real deps-new scaffold driven by a live `shadow-cljs watch` and a
+    browser: a `:browser` build whose only entry point is a module `:init-fn`
+    does **not** re-render after a hot reload. shadow loads the new code (the
+    console logs `load JS … views.cljs`), logs
+
+        shadow-cljs: reloading code but no :after-load hooks are configured!
+
+    and the page keeps painting the OLD view — measured unchanged for a full 90
+    seconds. shadow calls the module `:init-fn` ONCE, when the bundle loads; a
+    reload loads the new code and then calls the build's `^:dev/after-load`
+    hooks. With a separate `^:dev/after-load` re-render hook the identical edit
+    landed in 1033 ms (Reagent) / 513 ms (UIx) with app-db intact.
+
+    So the CORRECT lifecycle — the one `tools/template`,
+    `docs/core/how-to/boot-and-mount-an-app.md` and every `examples/` entry ns
+    teach — is the two-function split: the one-time boot ceremony stays in
+    `init`, and a separate `^:dev/after-load` hook re-renders into the retained
+    React root. The RETIRED framing, which this guard now fails on, is the
+    mirror image: that `:init-fn` re-runs after each hot reload, that it is the
+    "default after-load hook", that `init` IS the re-render path, or that "no
+    separate `^:dev/after-load` hook" is needed.
+
+    The arm is INVERTED rather than retired, so the protection is kept and
+    merely pointed the right way: the same three leaves are still pinned, and a
+    page that teaches the false claim still fails the build. It additionally
+    asserts the AFFIRMATIVE half — every leaf that teaches the boot lifecycle
+    must NAME `^:dev/after-load` — which the pre-inversion arm never checked in
+    either direction (its patterns matched only the negated forms, so a bare
+    "add a `^:dev/after-load` hook" recommendation passed it silently). That
+    mirrors the sibling gate PR #8400 landed over the generator template
+    (`hot-reload-prose-is-accurate-test`).
 
 The COUNTER-KEYWORD check is a CONTAINMENT assertion, not a literal-text diff:
 
@@ -135,31 +157,71 @@ REG_SUB = re.compile(r"reg-sub\s+(:counter/[a-z0-9-]+)")
 DISPATCH = re.compile(r"dispatch\s+\[\s*(:counter/[a-z0-9-]+)")
 SUBSCRIBE = re.compile(r"(?:use-subscribe|subscribe)\s+\[\s*(:counter/[a-z0-9-]+)")
 
-# HOT-RELOAD-LIFECYCLE retired framing (finding 2). The CORRECT shadow-cljs
-# `:browser` lifecycle is: the module `:init-fn` re-runs after each hot reload (it is
-# both the startup entry and the default after-load hook). The RETIRED (Camp B)
-# framing asserted the opposite — that `:init-fn` is a "one-time startup hook" that
-# does NOT re-run on a bare code reload, and recommended adding a separate
-# `^:dev/after-load` render hook to get hot reload. This guard fails if that retired
+# HOT-RELOAD-LIFECYCLE retired framing (finding 2, INVERTED by rf2-ms6r8). The
+# CORRECT shadow-cljs `:browser` lifecycle — measured under rf2-r0kk7 / PR #8400 on
+# shadow-cljs 3.4.10 — is that the module `:init-fn` is called ONCE when the bundle
+# loads and is NOT re-run by a hot reload; a reload loads the new code and then calls
+# the build's `^:dev/after-load` hooks, so the entry ns carries one. The RETIRED
+# framing is the mirror image: that `:init-fn` re-runs after each reload, that it is
+# the "default after-load hook", that `init` IS the re-render path, or that "no
+# separate `^:dev/after-load` hook" is needed. This guard fails if that retired
 # framing reappears. Patterns are case-insensitive, whitespace-tolerant, and matched
 # per-line so an honest mention can't trip a neighbouring line.
+#
+# These first patterns are unambiguous: no correct sentence contains them, whatever
+# the surrounding polarity.
 HOT_RELOAD_DRIFT = [
-    # "the :init-fn is a one-time startup hook" (the load-bearing wrong claim).
-    re.compile(r":?init-fn[^.\n]{0,40}\bone-?time\b[^.\n]{0,30}startup", re.IGNORECASE),
-    re.compile(r"\bone-?time\b[^.\n]{0,30}startup[^.\n]{0,40}:?init-fn", re.IGNORECASE),
-    # ":init-fn is ... NOT the hot-reload hook".
-    re.compile(r":?init-fn[^.\n]{0,40}\bnot\b[^.\n]{0,20}(?:the\s+)?hot[\s-]?reload[^.\n]{0,10}hook", re.IGNORECASE),
-    # "does not re-run / re-invoke :init-fn / init [on/after a reload]". The
-    # trailing `\b` pins `:init` / `:init-fn` as a COMPLETE token so the pattern
-    # does not falsely fire on the longer, unrelated `:initial-events` keyword
-    # (the EP-0027 seed-event id) — a sentence like "the surgical update does
-    # not rerun any `:initial-events`" is correct re-frame2 semantics, not the
-    # retired one-time-startup `:init-fn` claim this guard catches. Without the
-    # boundary the `:?init(?:-fn)?` prefix matched the `:init` of
-    # `:initial-events` and produced a false HOT-RELOAD-LIFECYCLE drift.
-    re.compile(r"does\s+\*?\*?not\*?\*?[^.\n]{0,30}re-?(?:run|invoke)s?[^.\n]{0,30}:?init(?:-fn)?\b", re.IGNORECASE),
-    re.compile(r"does\s+\*?\*?not\*?\*?[^.\n]{0,30}re-?(?:run|invoke)s?\s+(?:the\s+)?:?init\b", re.IGNORECASE),
+    # "no separate `^:dev/after-load` hook" / "no `:after-load` hook needed" — the
+    # actionable harm, because it tells the author NOT to write the hook that is
+    # the only thing making a reload repaint.
+    #
+    # The qualifier ("separate", or a trailing needed/necessary/required) is what
+    # keeps this off shadow-cljs's OWN diagnostic, which the corrected prose quotes
+    # verbatim in all three leaves: "reloading code but no :after-load hooks are
+    # configured!". A bare `no … after-load … hook` matches that sentence too, and
+    # would red the very pages that teach the fix.
+    re.compile(r"\bno\s+separate\b[^.\n]{0,25}(?:\^\s*)?:?(?:dev/)?after-?load\b[^.\n]{0,25}\bhook", re.IGNORECASE),
+    re.compile(r"\bno\b[^.\n]{0,25}(?:\^\s*)?:?(?:dev/)?after-?load\b[^.\n]{0,25}\bhooks?\b[^.\n]{0,25}\b(?:needed|necessary|required)\b", re.IGNORECASE),
+    re.compile(r"(?:\^\s*)?:?(?:dev/)?after-?load\b[^.\n]{0,15}\bhooks?\b[^.\n]{0,20}\b(?:not needed|unnecessary|isn'?t needed|is not needed)", re.IGNORECASE),
+    # ":init-fn is ... the default after-load hook" (incl. "both the startup entry
+    # and the default after-load hook").
+    re.compile(r":?init(?:-fn)?\b[^.\n]{0,60}\bdefault\b[^.\n]{0,25}after-?load\b[^.\n]{0,10}hook", re.IGNORECASE),
+    # "init IS the re-render path" / "init is the hot-reload hook".
+    re.compile(r":?init(?:-fn)?\b[^.\n]{0,25}\bis\b[^.\n]{0,20}(?:the\s+)?(?:re-?render\s+path|hot[\s-]?reload\s+hook)", re.IGNORECASE),
+    # "the dispatch-sync seed ... per-reload reset boundary" / "re-seeds ... on every
+    # hot reload". Same false claim in different words: with `init` not re-running,
+    # nothing in it re-seeds, and the `:initial-events` seed runs ONCE at frame
+    # creation (`frame-root` REUSES a live frame without re-seeding).
+    re.compile(r"\bper-?reload\b[^.\n]{0,20}reset\s+boundary", re.IGNORECASE),
+    re.compile(r"re-?seeds?\b[^.\n]{0,40}\b(?:each|every)\b[^.\n]{0,15}hot[\s-]?reload", re.IGNORECASE),
 ]
+
+# The affirmative "`:init-fn` re-runs after each hot reload" claim. This one needs
+# polarity, because the CORRECT sentence is the same words negated ("shadow does NOT
+# re-run the module `:init-fn` after a reload"). We match the affirmative shape and
+# then reject the hit if the clause leading into it carries a negation — see
+# `_rerun_is_negated`.
+#
+# The trailing `\b` on `:init` pins it as a COMPLETE token so the patterns do not
+# fire on the longer, unrelated `:initial-events` keyword (the EP-0027 seed-event
+# id). Without the boundary the `:?init(?:-fn)?` prefix matches the `:init` of
+# `:initial-events` and produces a false HOT-RELOAD-LIFECYCLE drift.
+HOT_RELOAD_RERUN = [
+    re.compile(r":?init(?:-fn)?\b[^.\n]{0,50}\bre-?(?:runs?|invokes?|invoked)\b[^.\n]{0,50}(?:hot[\s-]?)?(?:reload|rebuild|save)", re.IGNORECASE),
+    re.compile(r"\bre-?(?:runs?|invokes?|invoked)\b[^.\n]{0,50}:?init(?:-fn)?\b[^.\n]{0,50}(?:hot[\s-]?)?(?:reload|rebuild|save)", re.IGNORECASE),
+]
+
+# A negation anywhere in the clause running into the match flips its meaning, so the
+# hit is not drift. We look at the text preceding the match on the same line, back to
+# the previous sentence boundary (or 80 chars, whichever is nearer), plus the matched
+# span itself — long enough to catch "shadow ... does **not** re-run", short enough
+# that a negation in an unrelated earlier sentence cannot launder a false claim.
+RERUN_NEGATION = re.compile(r"\*{0,2}\b(?:not|never|n't|cannot|can't|won'?t)\b\*{0,2}", re.IGNORECASE)
+
+# The AFFIRMATIVE half: a leaf that teaches the boot lifecycle must NAME the hook.
+# Catching the false claim is not enough on its own — prose can be silently stripped
+# of the wrong sentence and still leave the author with no hook and no hot reload.
+AFTER_LOAD_HOOK = re.compile(r"(?:\^\s*)?:dev/after-?load", re.IGNORECASE)
 
 # ADAPTER-KEY retired wording (finding 3). The current Spec 006 adapter contract
 # names `:make-state-container` and `:subscribe-container`. The retired wording
@@ -268,27 +330,72 @@ def find_counter_drift(
     return problems
 
 
+_LIFECYCLE_REMEDY = (
+    "That is the wrong shadow-cljs lifecycle, and it costs the author their inner "
+    "loop. MEASURED on shadow-cljs 3.4.10 (rf2-r0kk7 / PR #8400): for the :browser "
+    "target shadow calls the module :init-fn ONCE, when the bundle loads, and does "
+    "NOT re-run it after a hot reload — it loads the new code and calls the build's "
+    "^:dev/after-load hooks. With none configured it logs 'reloading code but no "
+    ":after-load hooks are configured!' and the page keeps painting the OLD view "
+    "(measured unchanged for 90s). Teach the two-function split the generator "
+    "template, docs/core/how-to/boot-and-mount-an-app.md and every examples/ entry "
+    "ns already use: the one-time boot ceremony stays in `init`, and a separate "
+    "`^:dev/after-load` hook re-renders into the retained React root."
+)
+
+
+def _rerun_is_negated(line: str, start: int, end: int) -> bool:
+    """True when the clause running into a `re-runs :init-fn` hit negates it.
+
+    The CORRECT sentence is the false one negated ("shadow does **not** re-run the
+    module `:init-fn` after a reload"), so polarity is what separates them. We read
+    back from the match to the previous sentence boundary — capped at 80 chars so a
+    negation in an unrelated earlier clause cannot launder a false claim — and
+    include the matched span itself.
+    """
+    window = line[max(0, start - 80):start]
+    window = re.split(r"[.;:—]", window)[-1]
+    return bool(RERUN_NEGATION.search(window + line[start:end]))
+
+
 def find_hot_reload_drift(*texts_with_names: tuple[str, str]) -> list[str]:
     """HOT-RELOAD-LIFECYCLE check. Returns drift messages (empty == clean)."""
     problems: list[str] = []
-    for name, text in ((n, t) for t, n in [(t, n) for n, t in texts_with_names]):
+    for name, text in texts_with_names:
         for lineno, line in enumerate(text.splitlines(), start=1):
-            for pat in HOT_RELOAD_DRIFT:
-                if pat.search(line):
-                    problems.append(
-                        f"HOT-RELOAD-LIFECYCLE: {name}:{lineno} teaches the retired "
-                        "Camp B framing — that :init-fn is a one-time startup hook "
-                        "that does NOT re-run on a hot reload (and that you must add a "
-                        "separate ^:dev/after-load hook). That is the wrong shadow-cljs "
-                        "lifecycle. For the :browser target the module :init-fn IS "
-                        "re-invoked after each hot reload by default (it is wired as "
-                        "both the startup entry and the default after-load hook), so no "
-                        "^:dev/after-load hook is needed and the dispatch-sync seed in "
-                        "init is the per-reload reset boundary. Rewrite the sentence to "
-                        f"match the template README §Hot reload: {line.strip()!r}"
-                    )
-                    break
+            hit = next((p for p in HOT_RELOAD_DRIFT if p.search(line)), None)
+            if hit is None:
+                for pat in HOT_RELOAD_RERUN:
+                    m = pat.search(line)
+                    if m and not _rerun_is_negated(line, m.start(), m.end()):
+                        hit = pat
+                        break
+            if hit is not None:
+                problems.append(
+                    f"HOT-RELOAD-LIFECYCLE: {name}:{lineno} teaches the retired "
+                    "framing — that the module :init-fn re-runs after each hot "
+                    "reload (that it is the 'default after-load hook', that `init` "
+                    "IS the re-render path, or that no separate ^:dev/after-load "
+                    f"hook is needed). {_LIFECYCLE_REMEDY} Offending line: "
+                    f"{line.strip()!r}"
+                )
     return problems
+
+
+def find_missing_after_load_hook(*texts_with_names: tuple[str, str]) -> list[str]:
+    """AFTER-LOAD-HOOK presence check. Returns drift messages (empty == clean).
+
+    The affirmative half of the lifecycle contract. Deleting the false sentence
+    without teaching the hook leaves the author exactly as stranded — a scaffold
+    that compiles, reloads, and never repaints.
+    """
+    return [
+        f"AFTER-LOAD-HOOK: {name} never names `^:dev/after-load`. This leaf teaches "
+        "the boot lifecycle, so it must show the hook that makes a hot reload "
+        f"repaint. {_LIFECYCLE_REMEDY}"
+        for name, text in texts_with_names
+        if not AFTER_LOAD_HOOK.search(text)
+    ]
 
 
 def find_adapter_key_drift(name: str, text: str) -> list[str]:
@@ -385,10 +492,20 @@ def run(*, verbose: bool, ci: bool) -> int:
         _slurp(TEMPLATE_EVENTS),
         _slurp(TEMPLATE_SUBS),
     )
-    problems += find_hot_reload_drift(
+    # The hot-reload arm scans all four setup leaves. Before rf2-ms6r8 it read only
+    # shadow-cljs.md + entry-namespace.md, which is why the same false claim sat
+    # unguarded inside first-counter.md's copy-complete `core.cljs` — the single
+    # most load-bearing site, because it is the file the author actually copies.
+    lifecycle_leaves = (
         (str(SHADOW_CLJS.relative_to(REPO_ROOT)), shadow_text),
         (str(ENTRY_NAMESPACE.relative_to(REPO_ROOT)), entry_namespace_text),
+        (str(FIRST_COUNTER.relative_to(REPO_ROOT)), first_counter_text),
+        (str(SKILL_MD.relative_to(REPO_ROOT)), skill_text),
     )
+    problems += find_hot_reload_drift(*lifecycle_leaves)
+    # SKILL.md is scanned for the false claim but is NOT required to name the hook:
+    # it is the router, and the lifecycle is the three reference leaves' territory.
+    problems += find_missing_after_load_hook(*lifecycle_leaves[:3])
     problems += find_adapter_key_drift(
         str(ENTRY_NAMESPACE.relative_to(REPO_ROOT)), entry_namespace_text
     )
@@ -404,7 +521,9 @@ def run(*, verbose: bool, ci: bool) -> int:
         print(
             "setup-counter guard: checked counter-keyword containment "
             "(first-counter.md + entry-namespace.md + template), hot-reload "
-            "lifecycle wording (shadow-cljs.md + entry-namespace.md), adapter-key "
+            "lifecycle wording (shadow-cljs.md + entry-namespace.md + "
+            "first-counter.md + SKILL.md) and ^:dev/after-load presence in the "
+            "three reference leaves, adapter-key "
             "vocabulary (entry-namespace.md), one-canonical-source "
             "(first-counter.md is the sole copy-complete core.cljs), and the "
             "schemas single-require contract (only re-frame.schemas; no separate "
@@ -491,42 +610,110 @@ def _self_test() -> int:
         print(f"SELF-TEST FAIL (C superset clean): unexpected {probs}")
         failures += 1
 
-    # Case D — hot-reload clean: the CORRECT (Camp A) framing.
+    # Case D — hot-reload clean: the CORRECT (measured) framing. Note it is the
+    # retired claim's own words, NEGATED — which is exactly why the affirmative
+    # `re-runs :init-fn` patterns must be polarity-aware.
     good_shadow = (
-        "The `:browser` target re-runs the module `:init-fn` after each hot "
-        "reload, so no `:after-load` hook is needed; the dispatch-sync seed in "
-        "init is the per-reload reset boundary.\n"
+        "shadow calls the module `:init-fn` ONCE, when the bundle loads. It does "
+        "NOT re-run it after a hot reload — a reload loads the new code and then "
+        "calls the build's `^:dev/after-load` hooks, so `core.cljs` carries one.\n"
+        "`^:dev/after-load` is shadow's cue to re-run `mount!` after each "
+        "successful hot reload, re-rendering your edited views into the retained "
+        "React root.\n"
     )
     probs = find_hot_reload_drift(("shadow-cljs.md", good_shadow))
     if probs:
         print(f"SELF-TEST FAIL (D hot-reload clean): unexpected {probs}")
         failures += 1
+    probs = find_missing_after_load_hook(("shadow-cljs.md", good_shadow))
+    if probs:
+        print(f"SELF-TEST FAIL (D after-load presence): unexpected {probs}")
+        failures += 1
 
-    # Case E — the retired Camp B drift (the one-time-startup framing).
-    drift_shadow = (
-        "`:init-fn` is a one-time startup hook — it is NOT the hot-reload hook. "
-        "A plain code reload does not re-run `:init-fn`; add a `^:dev/after-load` "
-        "hook for an explicit re-render.\n"
+    # Case E — the retired drift, in each of the shapes the setup skill actually
+    # carried before rf2-ms6r8. Every one must be caught on its own line.
+    for label, drift_shadow in [
+        ("re-runs after each reload",
+         "shadow-cljs's `:browser` target re-runs `:init-fn` (`init`) after "
+         "**each** hot reload, so `init` IS the re-render path.\n"),
+        ("default after-load hook",
+         "For the `:browser` target the module `:init-fn` is both the startup "
+         "entry and the default after-load hook.\n"),
+        ("no separate hook",
+         "A code reload re-invokes `init` — no separate `^:dev/after-load` "
+         "hook.\n"),
+        ("init re-runs every save",
+         "`init` re-runs on **every** hot reload, so `rf/init!` runs again each "
+         "save.\n"),
+        # The subject is load-bearing and the pattern requires it. A subject-LESS
+        # "re-invoked on each hot reload" is not decidable per-line: said of
+        # `mount!` it is correct prose, said of `init` it is the false claim. The
+        # template's own subject-less docstring shape (`_uix/core.cljs`, "Idempotent
+        # — re-invoked on each hot reload") is gated where it lives, by PR #8400's
+        # `entry-namespace-carries-after-load-hook-test`.
+        ("init re-invoked on each reload",
+         "`init` is idempotent — it is re-invoked on each hot reload.\n"),
+        ("per-reload reset boundary",
+         "The explicit `dispatch-sync` seed in `init` is the per-reload reset "
+         "boundary.\n"),
+        ("re-seeds every reload",
+         "The `dispatch-sync` seed re-seeds this counter on every hot reload.\n"),
+    ]:
+        probs = find_hot_reload_drift(("shadow-cljs.md", drift_shadow))
+        if not any("HOT-RELOAD-LIFECYCLE" in p for p in probs):
+            print(f"SELF-TEST FAIL (E hot-reload drift / {label}): expected drift, got {probs}")
+            failures += 1
+
+    # Case E2b — shadow-cljs's OWN diagnostic must not trip the guard. All three
+    # corrected leaves quote it verbatim to tell the author what a missing hook
+    # looks like, so a bare `no … after-load … hook` pattern would red exactly the
+    # pages that teach the fix. Pinned in both the quoted and the paraphrased form.
+    for label, quoted_diagnostic in [
+        ("verbatim",
+         ";; \"reloading code but no :after-load hooks are configured!\" and the "
+         "page keeps painting the OLD view.\n"),
+        ("paraphrased",
+         "With no hook configured shadow says so — `reloading code but no "
+         "`:after-load` hooks are configured!` — and the page keeps painting the "
+         "old view.\n"),
+    ]:
+        probs = find_hot_reload_drift(("first-counter.md", quoted_diagnostic))
+        if probs:
+            print(f"SELF-TEST FAIL (E2b shadow diagnostic / {label}): unexpected {probs}")
+            failures += 1
+
+    # Case E3 — the AFFIRMATIVE half. Prose stripped of the false sentence but
+    # never taught the hook is the same stranded author, so it must still fail.
+    silent_shadow = (
+        "The `:browser` target compiles your edit and pushes the new module to "
+        "the page. Hold the React root in a `defonce` so a save reuses it.\n"
     )
-    probs = find_hot_reload_drift(("shadow-cljs.md", drift_shadow))
-    if not any("HOT-RELOAD-LIFECYCLE" in p for p in probs):
-        print(f"SELF-TEST FAIL (E hot-reload drift): expected drift, got {probs}")
+    probs = find_missing_after_load_hook(("shadow-cljs.md", silent_shadow))
+    if not any("AFTER-LOAD-HOOK" in p for p in probs):
+        print(f"SELF-TEST FAIL (E3 after-load absent): expected drift, got {probs}")
         failures += 1
 
     # Case E2 — `:initial-events` must NOT trip the retired-framing patterns
     # (regression pin for the EP-0027 false positive). "the surgical update …
     # does not rerun any `:initial-events`" is correct re-frame2 semantics: the
-    # `:?init(?:-fn)?` prefix must match `:init` / `:init-fn` only as a complete
+    # `:?init(?:-fn)?` token must match `:init` / `:init-fn` only as a COMPLETE
     # token, never as the `:init` prefix of the longer `:initial-events` keyword.
-    initial_events_clean = (
-        "This explicit `dispatch-sync` is the reset boundary: it re-seeds the "
-        "demo state on every hot reload (the surgical update in step 2 does not "
-        "rerun any `:initial-events`). Some apps instead seed lazily.\n"
-    )
-    probs = find_hot_reload_drift(("entry-namespace.md", initial_events_clean))
-    if probs:
-        print(f"SELF-TEST FAIL (E2 :initial-events false positive): unexpected {probs}")
-        failures += 1
+    # Both polarities are pinned, because the affirmative `re-runs` patterns
+    # (HOT_RELOAD_RERUN) reach shapes the pre-inversion arm never matched.
+    for label, initial_events_clean in [
+        ("negated",
+         "`frame-root` REUSES the live frame, so the surgical update in step 2 "
+         "does not rerun any `:initial-events`.\n"),
+        ("affirmative",
+         "`frame-root` runs the `:initial-events` seed once, at frame creation; "
+         "a browser refresh re-runs it because the reload creates a fresh "
+         "frame.\n"),
+    ]:
+        probs = find_hot_reload_drift(("entry-namespace.md", initial_events_clean))
+        if probs:
+            print(f"SELF-TEST FAIL (E2 :initial-events false positive / {label}): "
+                  f"unexpected {probs}")
+            failures += 1
 
     # Case F — adapter-key clean: current names + the front-porch sentence.
     good_adapter = (
