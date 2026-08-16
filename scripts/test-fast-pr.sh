@@ -993,7 +993,7 @@ run "test-lane bijection self-test" "python scripts/check_test_lane_bijection.py
 run "test-lane bijection (rf2-4hc9p)" "python scripts/check_test_lane_bijection.py" \
   python "$spine_root/scripts/check_test_lane_bijection.py" --repo-root "$spine_root"
 
-# WORKFLOW YAML WELL-FORMEDNESS (rf2-cb7hs) — placed AHEAD of the three gates
+# WORKFLOW YAML WELL-FORMEDNESS (rf2-cb7hs) — placed AHEAD of all four gates
 # below that read `.github/workflows/`, deliberately.
 #
 # Every one of those is a hand-rolled line reader, and over a file PyYAML
@@ -1004,8 +1004,10 @@ run "test-lane bijection (rf2-4hc9p)" "python scripts/check_test_lane_bijection.
 # mapping".  `check_gate_scheduling` cannot see the class at all — it strips
 # comments by design (rf2-6ckzl) — and `actionlint` appears nowhere in the
 # tracked tree, so before this line NOTHING at any tier asserted that a workflow
-# even parsed.  Validating the file before three gates parse it by hand is the
-# ordering that makes their greens mean something.
+# even parsed.  Validating the file before four gates parse it by hand is the
+# ordering that makes their greens mean something.  (All four sit below this
+# line: the two roster/gap pairs immediately following, then
+# `check_ci_reproduce_commands` and `check_gate_scheduling` further down.)
 #
 # NOT A MIRROR OF A CI JOB.  Every other line in this always-on block pairs with
 # a required check; this one has no CI counterpart, and that absence IS the
@@ -1034,12 +1036,12 @@ if python -c "import yaml" >/dev/null 2>&1; then
   run "workflow YAML self-test" "python scripts/check_workflow_yaml.py --self-test --verbose" \
     python "$spine_root/scripts/check_workflow_yaml.py" --self-test --verbose
 
-  run "workflow YAML well-formed (rf2-cb7hs)" "python scripts/check_workflow_yaml.py --verbose" \
+  run "workflow YAML well-formed (rf2-cb7hs)" "python scripts/check_workflow_yaml.py" \
     python "$spine_root/scripts/check_workflow_yaml.py" --repo-root "$spine_root"
 else
   printf '\n    NOT CHECKED: workflow YAML — PyYAML is not importable on this\n'
   printf '      interpreter, so nothing read .github/workflows/ this run.  This is\n'
-  printf '      NOT a pass: the three gates below parse those files by hand and\n'
+  printf '      NOT a pass: the four gates below parse those files by hand and\n'
   printf '      return 0 over a file no YAML parser accepts.  Left with NO local\n'
   printf '      gate: every file under .github/workflows/.  Install it\n'
   printf '      (pip install -r requirements.txt pulls PyYAML in through mkdocs).\n'
