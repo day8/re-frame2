@@ -847,6 +847,13 @@ The surfaces that bring a re-frame2 process up and take it down. The one-line bo
   ```clojure
   (rf/current-adapter)   ;; => :rf.adapter/reagent   (nil when no adapter is installed)
   ```
+- **On Hicasso**: there is no `:rf.adapter/hicasso`, and its absence is not a gap.
+  Hicasso is a view layer rather than a substrate — it owns Hiccup interpretation and
+  the render boundary, while the reactive container comes from an adapter the
+  application installs itself. So a Hicasso application answers with the adapter it
+  booted on, usually `:rf.adapter/uix`, and that answer is the true one: the question
+  this fn asks is *which substrate*, and Hicasso is not one. See
+  [Hicasso needs a substrate adapter](../core/hicasso/00-installation.md#hicasso-needs-a-substrate-adapter).
 
 ### `current-adapter-spec`
 
