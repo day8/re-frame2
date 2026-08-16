@@ -42,11 +42,12 @@
 
   ## Arm counts
 
-  4, 5, 7 and 8 — `direct_return_clock`'s, `amp_merge_clock`'s before and
-  after `rf2-z143r`'s ladder, and the eighth arm `rf2-v5oto` wants. The
-  fault is invariant to all of them, which is the same arithmetic that
-  settles `rf2-6ta5r`'s arm-count question: the schedule length does not
-  move it.
+  4, 5, 7, 8 and 9 — `direct_return_clock`'s, `amp_merge_clock`'s before
+  `rf2-z143r`'s ladder and after it, the count `lane/observe!`'s own
+  docstring prices the fault at, and `amp_merge_clock`'s again once
+  `rf2-v5oto`'s two clean-pair arms land. The fault is invariant to all
+  of them, which is the same arithmetic that settles `rf2-6ta5r`'s
+  arm-count question: the schedule length does not move it.
 
   ## The second thing this file replays: HOW WARM the arm was (rf2-ydqzt)
 
@@ -74,9 +75,9 @@
 ;; ---------------------------------------------------------------------------
 
 (def ^:private arm-counts
-  "Every arm count this lane's page-mount harnesses run at, plus the one
-  `rf2-v5oto` proposes."
-  [4 5 7 8])
+  "Every arm count this lane's page-mount harnesses run at, including the
+  nine `rf2-v5oto` takes `amp_merge_clock` to."
+  [4 5 7 8 9])
 
 (defn- replay
   "Run `lane/rounds!` over `n` arms with a stub that records the true

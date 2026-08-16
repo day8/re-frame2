@@ -69,6 +69,20 @@
                  five spelled-out keys replaced by one `:&`. Nothing else
                  differs between the two, which is what makes the pair a
                  price for `merge-caller` and for nothing else.
+    :helper-lean RUNG (1) AGAIN, AS A CLEAN PAIR (rf2-v5oto). `:helper`
+                 with the `:class` passenger taken out: no call site
+                 carries a `:class` key, and the title's extra class
+                 rides the TAG exactly as `:expanded` has it. Its
+                 attribute map is `:expanded`'s key for key and in
+                 `:expanded`'s order, so `:helper-lean`/`:expanded`
+                 differ only by the wrapper.
+    :no-dissoc-lean
+                 RUNG (3) AGAIN, AS A CLEAN PAIR (rf2-v5oto).
+                 `:no-dissoc` with the same passenger taken out: the
+                 three classless call sites drop `:class nil`, so every
+                 field's merged attribute map holds exactly what
+                 `:merged`'s holds. `:merged`/`:no-dissoc-lean` differ
+                 only by the `:k`/`:busy?` round trip.
 
   ## The decomposition ladder (rf2-z143r)
 
@@ -129,18 +143,74 @@
       SUM is, and it is passenger-free.
 
       **The passenger is not small, and the reason is a cliff rather
-      than a key.** With the nil class the merged attribute map holds
-      NINE entries on all four fields; without it, eight on three of
-      them — and `cljs.core/PersistentArrayMap` promotes to a
-      `PersistentHashMap` at exactly the ninth. So on 300 of the page's
-      400 fields the two arms are not one map entry apart but one map
-      REPRESENTATION apart, and no reading of rung (1) or rung (3) alone
-      should be quoted as the wrapper's or the round trip's price.
+      than a key.** `cljs.core/PersistentArrayMap`'s
+      `HASHMAP-THRESHOLD` is 8 and its `-assoc` promotes to a
+      `PersistentHashMap` on the entry that would make nine; the
+      compiler's `array-map-threshold` is the same 8, so a nine-key map
+      LITERAL is emitted straight as a `PersistentHashMap`. Both halves
+      matter here, because `merge-caller` builds the merged map by
+      `merge`ing the four owned entries onto the caller's remainder.
+      Against `:merged` — nine entries on the title, eight on the other
+      three — the nil class puts `:no-dissoc` a map REPRESENTATION
+      apart on 300 of the page's 400 fields. Against `:expanded` it is
+      all 400: `:expanded` carries no `:class` key at ALL, its four
+      literals are eight entries each, and `:helper`'s are nine each.
+      No reading of rung (1) or rung (3) alone should be quoted as the
+      wrapper's or the round trip's price.
 
-  So the ladder answers TWO questions and not three: rung (2) is the
+  So the three rungs answer TWO questions and not three: rung (2) is the
   CODEC'S share and is clean, and rungs (1) + (3) summed are the
-  AUTHOR'S share and are clean. Splitting the author's share into its
-  wrapper and its round trip needs an arm this ladder does not have.
+  AUTHOR'S share and are clean. That sum is the quantity a reader of
+  this ladder actually wants, and the record used to make them add two
+  printed vectors to get it — so it is a key of its own now, `:author`,
+  term by term and round by round over values already in the record.
+
+  ## Splitting the author's share — the clean pairs (rf2-v5oto)
+
+  A sum is not a split. `:helper-lean` and `:no-dissoc-lean` are the two
+  arms that make each half a pair differing by ONE thing whose two
+  members sit on the SAME SIDE of the array-map cliff on every one of
+  the 400 fields.
+
+    (1') THE AUTHOR'S WRAPPER, CLEANLY — `:helper-lean` / `:expanded`.
+         The helper writes the eight keys `:expanded` writes, in
+         `:expanded`'s order, and no ninth; the title's
+         `form-control-lg` rides the TAG in both arms. Both are a
+         `PersistentArrayMap` on all four fields, and what is left
+         between them is a remainder map built at the call site, a
+         function call, and the field key arriving as an argument rather
+         than as a literal. This rung also sheds the SECOND passenger
+         named above: the title's class reaches the emitted class slot
+         by the same route in both arms, so `fold-shorthand!` takes it
+         by identity in both and HD-023(c″)'s shorthand fold is no
+         longer inside the rung.
+
+         The lean arm spends TWO helpers to do it — `field-lean-lg` is
+         `field-lean` with one extra class on the tag and nothing else —
+         because the alternative is a branch inside one helper, and a
+         per-field branch is a passenger in the very rung this arm
+         exists to clean. Two functions cost the call site nothing: each
+         site still writes one map and makes one call.
+
+    (3') THE AUTHOR'S ROUND TRIP, CLEANLY — `:merged` /
+         `:no-dissoc-lean`. Dropping `:class nil` from the three
+         classless call sites makes each remainder map exactly the map
+         `:merged`'s helper hands to `:&` after its `dissoc` — same
+         keys, same order — so both arms hold nine entries on the title
+         and eight on the other three. What is left between them is
+         `:merged`'s call sites putting `:k` and `:busy?` INTO the
+         caller map and its helper taking them back out.
+
+  **THE TWO CLEAN RUNGS ARE NOT A CHAIN, and their sum is not
+  `:author`.** Each is a pair against a frozen arm and nothing joins
+  `:helper-lean` to `:no-dissoc-lean` in one step, so the record carries
+  `:split-residual` — `:author` minus (1') minus (3') — precisely so a
+  reader who subtracts is told the answer is NOT zero by construction.
+  It reduces to `(:helper-lean − :helper) − (:no-dissoc-lean −
+  :no-dissoc)`: the `:class` passenger costs a different amount on the
+  spelled-keys path than on the `:&` path, and the title's class reaches
+  the slot through the tag in (1') but through `:&` in (3'). A residual
+  with contents, not a check.
 
   ## The control is adjudicated STRICTLY, and per round (rf2-egdaq)
 
@@ -312,7 +382,15 @@
 ;; where the expanded arm spells the composition itself. The fairness gate
 ;; is what proves the two land on the same string.
 
-(defn- field
+;; EVERY FIELD HELPER ON THIS PAGE IS PUBLIC, and only so that
+;; `amp_merge_arms_cljs_test` can call the arms' OWN code rather than keep
+;; a second copy of it — the second-authority shape this lane refuses
+;; everywhere else. In ClojureScript `defn-` is `(defn ^:private …)` and
+;; `:private` is analyzer metadata alone: the emitted function is the same
+;; function, so no arm's behaviour, allocation or timing moves. The
+;; frozen arms' bodies are otherwise untouched.
+
+(defn field
   [draft errors id {:keys [k busy?] :as attrs}]
   [:fieldset.form-group
    [:input.form-control {:&        (dissoc attrs :k :busy?)
@@ -366,7 +444,7 @@
 ;; too. It costs one map entry and one `class-names` call that `:merged`
 ;; does not pay, and the docstring's rung (3) says which way that leans.
 
-(defn- field-explicit
+(defn field-explicit
   "RUNG 1's helper. Explicit arguments, no `:&`, no `dissoc` — the five
   forwarded attributes are read off the remainder map and written as
   ordinary keys, so the codec meets a plain attribute map and
@@ -389,7 +467,7 @@
                          :on-input    [:amp/edit id k ::h/value]}]
    (when-some [e (get errors k)] [:div.error-messages e])])
 
-(defn- field-no-dissoc
+(defn field-no-dissoc
   "RUNG 2's helper. `field-explicit` with its five spelled-out keys
   replaced by one `:&`, and nothing else changed. No `dissoc`: the field
   key and the busy flag arrive as arguments, so the remainder map is
@@ -455,6 +533,120 @@
                        :placeholder "Enter tags (comma-separated)"
                        :data-testid "editor-tags"})]))
 
+;; ---------------------------------------------------------------------------
+;; THE TWO CLEAN PAIRS — the same page a fifth and a sixth way (rf2-v5oto)
+;; ---------------------------------------------------------------------------
+;;
+;; Each of these is differenced against ONE FROZEN ARM, so what matters
+;; about each is what it shares with that partner rather than with its
+;; sibling here. `:helper-lean` holds `:expanded`'s eight attribute keys
+;; in `:expanded`'s order and carries the title's class on the TAG the way
+;; `:expanded` does. `:no-dissoc-lean` holds `:merged`'s remainder maps
+;; key for key and in their order — which is `:no-dissoc`'s call sites
+;; with `:class nil` gone from the three fields that have no class, the
+;; only edit either arm makes to the rung it repairs.
+;;
+;; Neither pair crosses the array-map cliff on any of the 400 fields, and
+;; that is the whole point of them: the ladder's rungs (1) and (3) each
+;; compare an eight-entry map against a nine-entry one, which is a
+;; `PersistentArrayMap` against a `PersistentHashMap`.
+
+(defn field-lean
+  "RUNG (1')'s helper. `field-explicit` with no `:class` key at all —
+  eight keys, `:expanded`'s eight, written in `:expanded`'s order — so
+  the codec meets an attribute map of the same size, the same shape and
+  the same representation the frozen arm hands it.
+
+  The two rebindings (`typ`, `nm`) are `field-explicit`'s and are there
+  for its reason: `type` and `name` are `cljs.core` fns."
+  [draft errors id k busy? {typ :type nm :name
+                            :keys [placeholder data-testid]}]
+  [:fieldset.form-group
+   [:input.form-control {:type        typ
+                         :name        nm
+                         :placeholder placeholder
+                         :data-testid data-testid
+                         :value       (get draft k)
+                         :disabled    busy?
+                         :on-blur     [:amp/blur id k]
+                         :on-input    [:amp/edit id k ::h/value]}]
+   (when-some [e (get errors k)] [:div.error-messages e])])
+
+(defn field-lean-lg
+  "[[field-lean]] with `form-control-lg` on the TAG and nothing else
+  changed — the title field's helper, and the reason no call site in this
+  arm needs a `:class` key.
+
+  A SECOND FUNCTION RATHER THAN A BRANCH, deliberately. One helper taking
+  an `lg?` flag would run a per-field test `:expanded` does not run, and
+  rung (1') exists to be free of exactly that class of passenger. The
+  call site pays the same either way — one map, one call — so the branch
+  would buy nothing and cost a term."
+  [draft errors id k busy? {typ :type nm :name
+                            :keys [placeholder data-testid]}]
+  [:fieldset.form-group
+   [:input.form-control.form-control-lg {:type        typ
+                                         :name        nm
+                                         :placeholder placeholder
+                                         :data-testid data-testid
+                                         :value       (get draft k)
+                                         :disabled    busy?
+                                         :on-blur     [:amp/blur id k]
+                                         :on-input    [:amp/edit id k ::h/value]}]
+   (when-some [e (get errors k)] [:div.error-messages e])])
+
+(defn lean-body
+  [{:keys [id]}]
+  (let [draft  (h/sub [:amp/draft id])
+        errors (h/sub [:amp/errors id])
+        busy?  (:busy? draft)]
+    [:fieldset
+     (field-lean-lg draft errors id :title busy?
+                    {:type "text" :name "title" :placeholder "Article Title"
+                     :data-testid "editor-title"})
+     (field-lean draft errors id :description busy?
+                 {:type "text" :name "description"
+                  :placeholder "What's this article about?"
+                  :data-testid "editor-description"})
+     (field-lean draft errors id :body busy?
+                 {:type "text" :name "body"
+                  :placeholder "Write your article (in markdown)"
+                  :data-testid "editor-body"})
+     (field-lean draft errors id :tagList busy?
+                 {:type "text" :name "tags"
+                  :placeholder "Enter tags (comma-separated)"
+                  :data-testid "editor-tags"})]))
+
+(defn no-dissoc-lean-body
+  "RUNG (3')'s page: [[field-no-dissoc]] — `:no-dissoc`'s own helper,
+  reused rather than re-spelled — over `:merged`'s remainder maps.
+
+  Each map here is what `:merged`'s `(dissoc attrs :k :busy?)` answers,
+  key for key and in the order `dissoc` leaves them: `:class` first on
+  the title, absent everywhere else. So the only thing this arm and
+  `:merged` do differently is where `:k` and `:busy?` travel."
+  [{:keys [id]}]
+  (let [draft  (h/sub [:amp/draft id])
+        errors (h/sub [:amp/errors id])
+        busy?  (:busy? draft)]
+    [:fieldset
+     (field-no-dissoc draft errors id :title busy?
+                      {:class "form-control-lg"
+                       :type "text" :name "title" :placeholder "Article Title"
+                       :data-testid "editor-title"})
+     (field-no-dissoc draft errors id :description busy?
+                      {:type "text" :name "description"
+                       :placeholder "What's this article about?"
+                       :data-testid "editor-description"})
+     (field-no-dissoc draft errors id :body busy?
+                      {:type "text" :name "body"
+                       :placeholder "Write your article (in markdown)"
+                       :data-testid "editor-body"})
+     (field-no-dissoc draft errors id :tagList busy?
+                      {:type "text" :name "tags"
+                       :placeholder "Enter tags (comma-separated)"
+                       :data-testid "editor-tags"})]))
+
 (defn floor-body
   "The crossing carrying nothing. A boundary is reached through a hiccup
   vector whatever its body answers, so the floor is the crossing and not
@@ -462,12 +654,14 @@
   [_]
   nil)
 
-(h/defview expanded-arm   [props] (expanded-body props))
-(h/defview expanded-arm-b [props] (expanded-body props))
-(h/defview merged-arm     [props] (merged-body props))
-(h/defview explicit-arm   [props] (explicit-body props))
-(h/defview no-dissoc-arm  [props] (no-dissoc-body props))
-(h/defview floor-arm      [props] (floor-body props))
+(h/defview expanded-arm       [props] (expanded-body props))
+(h/defview expanded-arm-b     [props] (expanded-body props))
+(h/defview merged-arm         [props] (merged-body props))
+(h/defview explicit-arm       [props] (explicit-body props))
+(h/defview no-dissoc-arm      [props] (no-dissoc-body props))
+(h/defview lean-arm           [props] (lean-body props))
+(h/defview no-dissoc-lean-arm [props] (no-dissoc-lean-body props))
+(h/defview floor-arm          [props] (floor-body props))
 
 ;; ---------------------------------------------------------------------------
 ;; The page — identical for every arm but the body
@@ -515,7 +709,15 @@
    {:id :helper :k 1 :elements page-elements
     :mount (mount-page explicit-arm) :unmount unmount-page}
    {:id :no-dissoc :k 1 :elements page-elements
-    :mount (mount-page no-dissoc-arm) :unmount unmount-page}])
+    :mount (mount-page no-dissoc-arm) :unmount unmount-page}
+   ;; THE TWO CLEAN PAIRS' arms, appended for the same reason (rf2-v5oto):
+   ;; every entry above keeps its position, so no arm the published rows
+   ;; or the ladder's rungs are read off changes slot. Neither is
+   ;; `:parity-exempt?` — both build the judged page.
+   {:id :helper-lean :k 1 :elements page-elements
+    :mount (mount-page lean-arm) :unmount unmount-page}
+   {:id :no-dissoc-lean :k 1 :elements page-elements
+    :mount (mount-page no-dissoc-lean-arm) :unmount unmount-page}])
 
 (defn- arm-named [id] (first (filter #(= id (:id %)) arms)))
 
@@ -544,14 +746,17 @@
   THE ARM COUNT IS NOT THE LEVER, and this settles it for `rf2-v5oto`.
   `run.cjs` names `fewer arms per round` as one of the three moves, and
   `rf2-z143r` taking the schedule from five arms to seven is the lead the
-  bead was filed on. The schedule arithmetic answers it: at n = 5, 7 and 8
-  every arm still banks 30 samples per run, every arm's phase strata are
-  still rounds 1-2 against rounds 4-5 at the same prior-execution counts,
-  and the null's true predecessor distribution keeps its kind
-  (`:expanded` 20, `:merged` 10). The null's POSITION did not move when
-  the ladder landed. Arm count buys wall-clock per round and a different
-  set of neighbours; it does not touch the axis the null failed on. So the
-  ladder stays whole and `rf2-v5oto`'s eighth arm is not blocked by this.
+  bead was filed on. The schedule arithmetic answers it: replaying
+  [[lane/rounds!]] against `order-guard/slot-order` at n = 5, 7, 8 and 9
+  on the sampling that failed, every arm still banks 30 samples per run,
+  every arm's phase strata are still rounds 1-2 against rounds 4-5 at the
+  same prior-execution counts, and the null's true predecessor
+  distribution is `{:expanded 20, :merged 10}` at every one of the four.
+  The null's POSITION did not move when the ladder landed. Arm count buys
+  wall-clock per round and a different set of neighbours; it does not
+  touch the axis the null failed on. So the ladder stays whole, and
+  `rf2-v5oto`'s two clean-pair arms — the eighth and the ninth — are not
+  blocked by this either.
 
   WHAT IS LEFT IS WARM-UP, and three is below the step the lane itself
   records: `lane.cljs`'s live reproduction read one control `10.32 10.26
@@ -686,6 +891,26 @@
                  p50s)]
     (assoc (lane/summarise vs) :per-round vs)))
 
+(defn- ns-combine
+  "Combine two or more [[ns-terms]] records with `f`, term by term and
+  round by round, and summarise the result the way [[ns-terms]]
+  summarises its own — over the combined vector, so `{:min :max :p50}`
+  matches the printed `:per-round` exactly rather than nearly.
+
+  EXACT ARITHMETIC OVER VALUES ALREADY IN THE RECORD. No arm is read a
+  second time and no estimator is re-run; a reader with the printed
+  vectors can reproduce every key this builds with a pencil.
+
+  Two callers, both of them quantities a reader was previously left to
+  compute: the AUTHOR'S passenger-free share, which is the sum of two
+  rungs that are individually uninterpretable, and the clean pairs'
+  residual, which is a difference of two such sums."
+  [f & terms]
+  (let [vs (apply mapv
+                  (fn [& xs] (lane/round4 (apply f xs)))
+                  (map :per-round terms))]
+    (assoc (lane/summarise vs) :per-round vs)))
+
 (defn- ladder-rung
   "One rung: the ratio of two arms over the floor-normalised per-round
   ratios, and the same pair's raw per-round difference in nanoseconds per
@@ -697,6 +922,31 @@
    :standing  standing
    :ratio     (lane/ratio-between ratios a b)
    :ns-per-site (ns-terms p50s a b)})
+
+(defn- derived-ns
+  "A ladder entry with no arm pair behind it: `:ns-per-site` built by
+  [[ns-combine]] from entries already in the record, and `:derived-from`
+  naming them so the row can be checked rather than trusted."
+  [standing from ns]
+  {:standing standing :derived-from from :ns-per-site ns})
+
+(defn- log-rung!
+  "One printed ladder row: the ns/field summary, the ratio when the row
+  has an arm pair behind it, and every per-round vector it carries. A
+  derived row has no ratio — a ratio of a SUM of differences is not a
+  ratio of anything — and prints without one rather than with a made-up
+  one."
+  [label {:keys [ratio ns-per-site]}]
+  (js/console.log
+    (str ";;   " label ": " (fmt (:p50 ns-per-site) 1) " ns/field ["
+         (fmt (:min ns-per-site) 1) " - " (fmt (:max ns-per-site) 1) "]"
+         (when ratio
+           (str "  ratio " (fmt (:mean ratio) 4)
+                " [" (fmt (:min ratio) 4) " - " (fmt (:max ratio) 4) "]"
+                (when (:straddles-1? ratio) "  <- ratio STRADDLES 1.0")))))
+  (js/console.log (str ";;     ns per-round:    " (pr-str (:per-round ns-per-site))))
+  (when ratio
+    (js/console.log (str ";;     ratio per-round: " (pr-str (:per-round ratio))))))
 
 (defn- measurement-method []
   (str "a SAMPLE is " boundaries " boundaries mounted into a fresh container "
@@ -715,7 +965,13 @@
        "and :no-dissoc are the DECOMPOSITION LADDER's two rungs (rf2-z143r), "
        "placed between :expanded and :merged so each step changes exactly one "
        "thing; they are judged by the fairness gate with the other three and are "
-       "differenced, never published as a figure of their own. Arms "
+       "differenced, never published as a figure of their own. :helper-lean and "
+       ":no-dissoc-lean are rf2-v5oto's CLEAN PAIRS — the same two author-side "
+       "steps, each taken against a frozen arm, with the :class key that put "
+       "rungs (1) and (3) on the far side of cljs.core/PersistentArrayMap's "
+       "eight-entry HASHMAP-THRESHOLD from their partners removed, so no pair's "
+       "two members differ in map REPRESENTATION on any field; they are "
+       "differenced too and never published alone. Arms "
        "interleaved at the SAMPLE level under the lane's rotating AND REFLECTING "
        "schedule, so no arm always follows the same neighbour; " rounds
        " rounds of " (:warmup sampling) " warm-up + " (:samples sampling)
@@ -795,19 +1051,50 @@
                 ;; rungs sum to `:whole` term by term and there is no
                 ;; residual to report; `:standing` is what the reader
                 ;; came for.
-                ladder   {:whole      (ladder-rung ratios p50s :merged :expanded
-                                                   :author-and-codec)
-                          :wrapper    (ladder-rung ratios p50s :helper :expanded
-                                                   :authors-code)
-                          :merge      (ladder-rung ratios p50s :no-dissoc :helper
-                                                   :codecs-code)
-                          :round-trip (ladder-rung ratios p50s :merged :no-dissoc
-                                                   :authors-code)}
+                rung     (fn [a b standing] (ladder-rung ratios p50s a b standing))
+                whole    (rung :merged :expanded :author-and-codec)
+                wrapper  (rung :helper :expanded :authors-code)
+                merge-r  (rung :no-dissoc :helper :codecs-code)
+                trip     (rung :merged :no-dissoc :authors-code)
+                ;; THE CLEAN PAIRS (rf2-v5oto). Each is one author-side
+                ;; step against a FROZEN arm, with the `:class` passenger
+                ;; that put rungs (1) and (3) a map REPRESENTATION apart
+                ;; taken out. They are two pairs and not a chain, so
+                ;; their total is compared with the derived `:author`
+                ;; sum rather than assumed equal to it.
+                wrap-c   (rung :helper-lean :expanded :authors-code)
+                trip-c   (rung :merged :no-dissoc-lean :authors-code)
+                author   (ns-combine + (:ns-per-site wrapper) (:ns-per-site trip))
+                author-c (ns-combine + (:ns-per-site wrap-c) (:ns-per-site trip-c))
+                ladder   {:whole            whole
+                          :wrapper          wrapper
+                          :merge            merge-r
+                          :round-trip       trip
+                          ;; The quantity rungs (1) and (3) only imply:
+                          ;; passenger-free by cancellation, and the one
+                          ;; author-side figure the three-rung ladder is
+                          ;; entitled to quote.
+                          :author           (derived-ns :authors-code
+                                                        [:wrapper :round-trip]
+                                                        author)
+                          :wrapper-clean    wrap-c
+                          :round-trip-clean trip-c
+                          :author-clean     (derived-ns :authors-code
+                                                        [:wrapper-clean :round-trip-clean]
+                                                        author-c)
+                          ;; NOT ZERO BY CONSTRUCTION, unlike
+                          ;; `:ladder-sum-residual` below. The flag is in
+                          ;; the record so a reader who subtracts is told
+                          ;; so by the run rather than by a docstring.
+                          :split-residual   (assoc (derived-ns :authors-code
+                                                               [:author :author-clean]
+                                                               (ns-combine - author author-c))
+                                                   :zero-by-construction? false)}
                 sum-check (mapv (fn [w r m t] (lane/round4 (- w (+ r m t))))
-                                (:per-round (:ns-per-site (:whole ladder)))
-                                (:per-round (:ns-per-site (:wrapper ladder)))
-                                (:per-round (:ns-per-site (:merge ladder)))
-                                (:per-round (:ns-per-site (:round-trip ladder))))
+                                (:per-round (:ns-per-site whole))
+                                (:per-round (:ns-per-site wrapper))
+                                (:per-round (:ns-per-site merge-r))
+                                (:per-round (:ns-per-site trip)))
                 tv       (lane/tally-value tally)]
             (lane/assert-teardown-clean! "the measured rounds")
             (lane/record! :amp-merge-clock
@@ -873,19 +1160,31 @@
             (doseq [[k label] [[:whole      "WHOLE      merged/expanded    (author + codec)"]
                                [:wrapper    "(1) wrapper   helper/expanded    AUTHOR'S code"]
                                [:merge      "(2) merge     no-dissoc/helper   CODEC'S code"]
-                               [:round-trip "(3) roundtrip merged/no-dissoc   AUTHOR'S code"]]]
-              (let [{:keys [ratio ns-per-site]} (get ladder k)]
-                (js/console.log
-                  (str ";;   " label ": " (fmt (:p50 ns-per-site) 1) " ns/field ["
-                       (fmt (:min ns-per-site) 1) " - " (fmt (:max ns-per-site) 1)
-                       "]  ratio " (fmt (:mean ratio) 4)
-                       " [" (fmt (:min ratio) 4) " - " (fmt (:max ratio) 4) "]"
-                       (when (:straddles-1? ratio) "  <- ratio STRADDLES 1.0")))
-                (js/console.log (str ";;     ns per-round:    " (pr-str (:per-round ns-per-site))))
-                (js/console.log (str ";;     ratio per-round: " (pr-str (:per-round ratio))))))
+                               [:round-trip "(3) roundtrip merged/no-dissoc   AUTHOR'S code"]
+                               ;; The derived key. (1) and (3) each carry the
+                               ;; `:class` passenger with opposite signs, so
+                               ;; only their sum is interpretable — and until
+                               ;; now only a reader with a pencil had it.
+                               [:author     "(1)+(3)  AUTHOR'S share, passenger-free (derived)"]]]
+              (log-rung! label (get ladder k)))
             (js/console.log
               (str ";;   ladder sum residual (ns/field, ZERO BY CONSTRUCTION — the rungs "
                    "are a chain): " (pr-str sum-check)))
+            ;; THE AUTHOR'S SHARE, SPLIT (rf2-v5oto). Two pairs, each one
+            ;; step against a frozen arm, neither crossing the array-map
+            ;; cliff on any field — so unlike (1) and (3) each is
+            ;; separately interpretable.
+            (js/console.log ";; ---- THE AUTHOR'S SHARE, SPLIT (rf2-v5oto) ----")
+            (doseq [[k label] [[:wrapper-clean    "(1') wrapper   helper-lean/expanded    AUTHOR'S code"]
+                               [:round-trip-clean "(3') roundtrip merged/no-dissoc-lean   AUTHOR'S code"]
+                               [:author-clean     "(1')+(3') AUTHOR'S share, split total"]]]
+              (log-rung! label (get ladder k)))
+            (log-rung!
+              (str "split residual (1)+(3) - (1')-(3') — NOT zero by construction; "
+                   "the `:class` key prices differently on the spelled-keys path than "
+                   "on the `:&` path, and the title's class rides the TAG in (1') but "
+                   "`:&` in (3')")
+              (:split-residual ladder))
             (js/console.log (str ";;   writes: " (:unverified tv) " unverified of "
                                  (:writes tv)))
             (when (pos? (:unverified tv))
