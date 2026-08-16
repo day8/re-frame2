@@ -553,8 +553,130 @@ two ends do not separate warm-up from anything else that decayed over the same
 run, and no second cause was measured or excluded. Repairing it is the arm's
 job and the guard names the moves — more warm-up, fewer arms per round, a
 longer measured window — which is a rig change with its own bead (`rf2-h904p`)
-rather than a tolerance this page may widen. S8's strict verdict waits on that
-repair and a fresh window.
+rather than a tolerance this page may widen. S8's strict verdict waited on that
+repair and a fresh window; both have now happened, and the rest of this section
+is that window.
+
+**The repair landed (`rf2-h904p`, PR #8371) and the fresh window was taken on
+2026-08-16: THREE runs, and all three are REPORTABLE (`rf2-6zc2q`).** The arm
+now runs the lane's page-mount sampling, `{:warmup 8 :samples 12}` in place of
+`{:warmup 3 :samples 6}`. **`boundaries` did not move**, so the subject is the
+same 200-boundary mount this row has always published. The count of three was
+settled before the first run started, and all three are recorded here whatever
+each returned: no stopping rule existed that a good answer could have
+triggered. Each ran alone, sequentially, on P-DEV-1, with `\System\Processor Queue
+Length` sampled **on its own** across eight readings immediately before and
+eight immediately after: `0` on every reading of all six brackets but one, a
+single `1` in the bracket taken after run B. **No sample was taken inside any
+measured window** — a sample taken there reads the benchmark's own load — so
+nothing here claims the box was quiet *within* a run beyond that bracketing.
+
+**Every gate the instrument owns passed in every run.** The fairness gate
+agreed at `601` elements two ways and was proven able to answer false, three
+times over; `0` of `1,500` measured mounts failed their own read-back; and
+`run.cjs` exited `0` on all three. The three runs are lettered A, B and C here,
+because `run 1` and `run 2` on this page already name the 2026-08-13 pair.
+
+| | run A | run B | run C |
+|---|---|---|---|
+| arm-order guard | `reportable` | `reportable` | `reportable` |
+| strict control, per-round `:ctl-2x`/`:hiccup` | `[1.9020, 2.0556, 2.0000, 2.1136, 2.0000]` | `[2.1522, 2.0256, 2.0000, 1.9302, 2.0789]` | `[2.1628, 1.9024, 1.9459, 1.8636, 1.9730]` |
+| escape, per-round `:direct`/`:hiccup` | `[0.6863, 0.8333, 0.8333, 0.9091, 0.7568]` | `[0.7391, 0.8205, 0.7895, 0.9302, 0.8421]` | `[0.8372, 0.7317, 0.8108, 0.8182, 0.7838]` |
+| escape, the mean of those five | `0.8038x` `[0.6863–0.9091]` | `0.8243x` `[0.7391–0.9302]` | `0.7963x` `[0.7317–0.8372]` |
+| absolute `p50` ms, floor / hiccup / direct / ctl-2x | `0.2500` / `1.8500` / `1.5000` / `3.7000` | `0.2500` / `1.9500` / `1.6000` / `3.9500` | `0.2500` / `2.0500` / `1.5000` / `3.9000` |
+
+**S8 now carries the strict per-round control verdict it has never had.** All
+fifteen rounds sit inside the `[1.500–2.500]` band with `:outside` empty in each
+run; the round furthest under the `2.00x` prediction reads `1.8636` (`6.8%`
+under) and the round furthest over reads `2.1628` (`8.1%` over). That verdict is
+about **these three runs on the re-tuned arm** and about nothing else — run 1 of
+2026-08-13 still cannot be re-adjudicated, because its per-round ratios were
+never kept.
+
+**The PHASE strata, all four arms, all three runs.** They are printed because
+they are the reading this window was opened for, and they would have been
+printed on a refusal too. The separation column is the guard's own
+`FIRST-THIRD`-over-`LAST-THIRD` ratio where it printed one, and the same
+division of the printed medians where the contrast passed inside tolerance and
+the guard printed no ratio.
+
+| Run | Arm | FIRST-THIRD `p50` ms | LAST-THIRD `p50` ms | Separation | Guard |
+|---|---|---|---|---|---|
+| A | `floor` | `0.3000` `[0.1000–0.5000]` | `0.3000` `[0.1000–0.6000]` | `1.0000x` | within 10% |
+| A | `hiccup` | `2.2000` `[1.7000–3.9000]` | `1.9500` `[1.7000–4.4000]` | `1.1282x` | ranges overlap |
+| A | `direct` | `1.5500` `[1.3000–13.1000]` | `1.5000` `[1.3000–2.4000]` | `1.0333x` | within 10% |
+| A | `ctl-2x` | `4.3000` `[3.5000–6.5000]` | `3.7500` `[3.5000–8.6000]` | `1.1467x` | ranges overlap |
+| B | `floor` | `0.3000` `[0.1000–0.4000]` | `0.3000` `[0.1000–0.5000]` | `1.0000x` | within 10% |
+| B | `hiccup` | `2.2000` `[1.7000–3.8000]` | `2.0000` `[1.8000–4.3000]` | `1.1000x` | within 10% |
+| B | `direct` | `1.6000` `[1.5000–7.1000]` | `1.6000` `[1.4000–4.4000]` | `1.0000x` | within 10% |
+| B | `ctl-2x` | `4.6500` `[3.8000–7.4000]` | `4.0000` `[3.7000–9.7000]` | `1.1625x` | ranges overlap |
+| C | `floor` | `0.3000` `[0.2000–0.5000]` | `0.2000` `[0.1000–0.4000]` | `1.5000x` | ranges overlap |
+| C | `hiccup` | `2.1000` `[1.8000–4.6000]` | `1.9500` `[1.7000–6.8000]` | `1.0769x` | within 10% |
+| C | `direct` | `1.6500` `[1.4000–6.3000]` | `1.5000` `[1.3000–4.5000]` | `1.1000x` | within 10% |
+| C | `ctl-2x` | `4.4500` `[3.6000–11.8000]` | `3.8000` `[3.4000–8.0000]` | `1.1711x` | ranges overlap |
+
+Two cells want a note. **`run C`'s `floor` reads `1.5000x` apart, and that is one
+tick of the clock rather than a drift**: `0.2000` against `0.3000 ms` is exactly
+one of Chrome's `100 µs` `performance.now()` quanta on a leg that sits two to
+three quanta above zero. It does not reach the escape either way — the escape
+divides one floor-normalised ratio by another taken in the same round, so the
+floor cancels exactly, which is the same arithmetic that keeps it out of the
+control. And **`run B`'s `hiccup` and `run C`'s `direct` both sit exactly ON the
+tolerance**: the printed medians divide to `1.1000x`, and the guard's test is a
+strict `> 10%`, so the raw doubles placed both inside. Neither is quoted here as
+comfortably clean.
+
+**The warm-up hypothesis is SUPPORTED and NOT CONFIRMED, and those are two
+statements.** What supports it: the specific refusal did not recur — `:hiccup`,
+the arm that refused disjoint at `1.2105x`, now reads `1.1282x`, `1.1000x` and
+`1.0769x` with overlapping ranges — and the median separation fell on every one
+of the three page-mounting arms, `:hiccup` from `1.2105x`, `:ctl-2x` from
+`1.2338x` to `1.1467x`/`1.1625x`/`1.1711x`, `:direct` from `1.2000x` to
+`1.0333x`/`1.0000x`/`1.1000x`. What stops it being confirmed, in three parts.
+**The effect is not gone**: `:ctl-2x` exceeds the guard's `10%` tolerance in all
+three runs and passes only because its two ranges overlap, so `reportable` here
+is not the same sentence as *no phase effect*. **The re-tune moved two knobs at
+once**: samples per round went `6` to `12` as well, so each phase third now
+holds `20` samples rather than `10`, and a min–max range drawn from twice as
+many samples is wider by construction — which makes the guard's DISJOINTNESS
+half easier to pass for a reason that has nothing to do with drift. That
+confound does not reach the median half, since a `p50` over `20` draws estimates
+the same centre as one over `10`, and it is the medians quoted above that fell.
+**And it is three runs against one**, taken on a different day, with the box
+read quiet only at each run's two ends. No window has varied warm-up with
+measured-sample count held, and this one cannot separate them.
+
+**The run-level `:prewarm` that `lane/rounds!` describes is NOT triggered.** Its
+stated trigger is a window whose guard refuses on `:phase` at `:warmup 8` with
+the first-third stratum dominated by round one. No run here refused, so the
+trigger did not fire and nothing on this page asks for that rung.
+
+**What this window licenses as a figure, named exactly.** Pooled over the
+fifteen per-round ratios of runs A, B and C, the escape reads **`0.8081x`,
+observed range `[0.6863–0.9302]` — `19.2%` of mount time recovered, `[7.0%–
+31.4%]`**. `0.8081x` is the **arithmetic mean of those fifteen per-round ratios,
+each of them a ratio between that round's floor-normalised within-round
+medians** — it is not a median at run level and it is not the ratio of the
+absolute `p50`s tabled above, which is a different quantity. The range is an
+**observed range, not a confidence interval**, exactly as the published row's is.
+
+**This does not settle C8's first disjunct either.** The three run-level means
+recover `19.62%`, `17.57%` and `20.37%` — they **straddle the `20%` line**, two
+below and one above — and the pooled range straddles it far more widely. `S8`
+stays `UNRESOLVED` against C8 whichever figure the row carries, for the same
+reason §9.2 gives.
+
+**Whether `0.7418x` moves is a ruling, and this window does not take it.** The
+case for moving: these three runs are the only readings of this arm that carry a
+strict per-round control verdict *and* a reportable arm-order guard, and the
+published figure carries neither and can never be given the first. The case
+against: the two are **not the same measurement** — `0.7418x` was taken at
+`{:warmup 3 :samples 6}` and the re-tune was expected to make run 1 incomparable
+to whatever the file read next — so replacing one with the other is a change of
+basis and not a correction, and it moves the headline **away** from C8's line
+rather than toward it, which is the direction that most deserves a decider.
+Until that ruling, the row above stands as published, on run 1's own basis, and
+this window is the record beside it.
 
 ### The §6 user-visible budgets
 
