@@ -106,8 +106,8 @@ A `:require … :as ui` severs the donor name from every use site below it, whic
 `spec/004C-Roots-and-Mount.md` could carry `ui.test` on 9 lines, `ui/mount`-family calls on 8 and
 bare `v/…` on 8 — one section *titled* `ui.test/render` — while returning zero for patterns 1–3.
 But the aliases are generic English, and run repo-wide they match live code overwhelmingly:
-`\bui\.test\b` hits 63 files, most of them the Story tool's own live `story.ui.test-mode`
-namespace, and `v/…` hits 80-odd files including live hicasso bench apps, an Xray test,
+`\bui\.test\b` hits **64 files**, of which **34 are the Story tool's own live `story.ui.test-mode`
+namespace**, and `v/…` hits **85 files** including live hicasso bench apps, an Xray test,
 `re-frame.routing`, `mkdocs.yml` and three binary PNGs. **The alias spelling is only meaningful
 file-locally**: establish first that a given file binds the alias to a donor namespace, then read
 its bare uses. There is no repo-wide form of this check, and a sweeper who invents one will
