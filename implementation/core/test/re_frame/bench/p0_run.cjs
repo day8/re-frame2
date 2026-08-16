@@ -1716,6 +1716,121 @@ function allocSiteWitness(siteLegs, prime = ALLOC_PRIME_WRITES) {
   };
 }
 
+// ---------------------------------------------------------------------------
+// THE INTRA-LEG RECLAMATION GATE (rf2-4ctls) — the falls gate's own rule, at
+// the stride the by-site mode already opens
+// ---------------------------------------------------------------------------
+//
+// THE GAP, MEASURED RATHER THAN REASONED ABOUT. rf2-ojehu's by-site window took
+// 72 floor-arm windows on a quiet box across six runs. TWENTY-FOUR of them carry
+// at least one NEGATIVE site step — a reclamation inside a single leg.
+// Twenty-one are already refused by the falls gate. THREE have `falls` = 0, so
+// the falls gate saw nothing at all, and TWO of those three ALSO CERTIFIED at τ:
+//
+//   s3-c6-page  round 0 uix-subs     leg 3: dispatch +199,980 B,
+//     drain -178,496 B, leg total +21,484 B — falls 0, CERTIFIED
+//   s3-c6-page  round 2 uix-subs     leg 4: dispatch +305,392 B,
+//     drain -285,292 B, leg total +20,100 B — falls 0, CERTIFIED
+//   s3-c24-page round 0 reagent-subs leg 2: dispatch +279,024 B,
+//     drain -259,996 B, leg total +19,028 B — falls 0, refused on another leg
+//
+// (Those leg numbers are the WINDOW's, counting the prime as leg 1, which is how
+// the measurement record quotes them. The refusals below number the MEASURED
+// cohort from 1, exactly as the leg tolerance's do, so each is one lower.)
+//
+// NEITHER EXISTING GATE IS DEFECTIVE ON ITS OWN TERMS, and that is what decides
+// the shape of the repair. The falls gate walks the COLLAPSED stride-2 stream,
+// where the leg is ONE step: a reclamation bracketed by a larger allocation
+// inside that step turns nothing negative, so nothing falls. The leg tolerance
+// is the gate written for exactly that blind side — this file says so directly
+// above `allocSteps` — and it passes these because the leg's NET sits inside τ
+// of the cohort median, at +1,330 B and +2,008 B against medians of 20,154 B
+// and 18,092 B. So this is a gap BETWEEN two gates rather than a bug in either,
+// and TIGHTENING EITHER ONE WOULD BE THE WRONG SHAPE: it would retro-reject
+// legitimate windows to catch a fault neither gate is looking at.
+//
+// WHAT IT COSTS. A certified window asserts its measured legs are repetitions of
+// ONE work unit. A leg carrying a 285 KB collect-and-reallocate is not the same
+// work unit as its siblings, and the window under-reads its true allocation by
+// at least the reclaimed amount — the same failure mode the leg tolerance exists
+// to catch, arriving through the seam the tolerance cannot see, on a window that
+// looks clean by every published figure.
+//
+// SO THIS IS A THIRD GATE, READING WHAT IS ALREADY MEASURED. The by-site stream
+// SEES the reclamation — that is the whole of rf2-ojehu's finding — and
+// `siteLegs` has been on the window record since rf2-rs8q6 without adjudicating
+// anything. The rule is the falls gate's own, unaltered, applied one stride
+// finer:
+//
+//     REFUSE the window if any MEASURED site step is negative.
+//
+// Nothing in the work unit removes bytes; the collector does. That is the same
+// observation the falls gate rests on and the same one the leg tolerance's "a
+// leg BELOW its cohort" branch rests on, so no new premise is introduced and no
+// threshold is invented — there is nothing here to calibrate, because the test
+// is a SIGN.
+//
+// WHY THIS IS NOT A WIDENING, which is the fence this row holds every gate to.
+// It can only ever ADD refusals: `allocIntraLegRefusals` returns a list and
+// `allocWindowVerdict` unions it into the window's own. No window refused today
+// is admitted tomorrow, at any τ, on any page.
+//
+// AND τ IS UNTOUCHED, in either direction. rf2-e9wr established that no honest
+// calibration exists on the arms' data and rf2-rs8q6 repeats the fence. Nothing
+// here is a reason to move it, and this gate does not read it.
+//
+// WHY THE CERTIFICATE STILL NEVER SEES A BY-SITE STREAM. rf2-rs8q6's fence is
+// load-bearing and it STANDS: `allocSteps` is handed the COLLAPSED stride-2
+// stream and is not touched by this bead, so `rise`, `falls`, `maxStep`, `legs`,
+// `legMedian` and `legWorstDeviation` are byte-identical on every window at
+// every stride, and every one of that bead's pins stands unedited. Handing the
+// mid samples to `allocSteps` was the other available repair and it is REFUSED
+// for exactly that reason: it would split one step into two and move three
+// PUBLISHED quantities to catch a fault a separate list catches while moving
+// none.
+//
+// INERT AT THE SHIPPED STRIDE, BY CONSTRUCTION rather than by a switch.
+// `allocSiteSplit` returns an EMPTY `siteLegs` at stride 2, so there is no site
+// step to be negative and this returns `[]`. Every row ever published was taken
+// at stride 2, so no published figure and no published verdict moves.
+//
+// WHAT IT DOES NOT CLOSE, stated because a gate that oversells itself is worse
+// than none. A reclamation bracketed inside ONE SITE — collected and
+// re-allocated between the same two readings — is invisible here for the reason
+// it is invisible to the falls gate one stride up, and reaching it needs a seam
+// `p0-heap/alloc-window!` deliberately does not cut. This gate MOVES the blind
+// spot from the leg to the site; it does not remove it. The leg tolerance still
+// runs underneath, and a masked site that costs the leg more than τ·m is taken
+// there.
+//
+// THE PRIME IS OUT OF IT, on `allocSiteWitness`'s rule and clamped the same way.
+// The prime leg is in no published figure and in no certificate, so a collection
+// inside it refuses nothing — and a collection BETWEEN the prime and the
+// measured region lands in the boundary gap, which `allocSteps` already walks on
+// the collapsed stream.
+function allocIntraLegRefusals(siteLegs, prime = ALLOC_PRIME_WRITES) {
+  const p = Math.max(0, Math.min(prime, siteLegs.length));
+  const measured = siteLegs.slice(p);
+  const out = [];
+  for (const [k, l] of measured.entries()) {
+    for (const s of ALLOC_SITE_NAMES) {
+      if (l[s] >= 0) continue;
+      out.push(
+        `leg ${k + 1} of ${measured.length} reclaimed ${-l[s]} B inside its ${s} site ` +
+          `(${ALLOC_SITE_NAMES.map((n) => `${n} ${l[n] > 0 ? '+' : ''}${l[n]}`).join(', ')}; ` +
+          `leg total ${l.leg > 0 ? '+' : ''}${l.leg} B): a collection ran INSIDE this leg and a ` +
+          'larger allocation in the same leg bracketed it, so the collapsed step never turned ' +
+          'negative and the falls gate saw nothing, while the leg tolerance reads only the NET. ' +
+          'The window under-reads its true allocation by at least the reclaimed amount with both ' +
+          'the other gates silent, and under-reading is the direction that manufactures ' +
+          "HD-002's flat-at-zero. DO NOT WIDEN A GATE TO ADMIT IT: this is a THIRD gate and it " +
+          'refuses only what the other two cannot see'
+      );
+    }
+  }
+  return out;
+}
+
 // Rising and falling steps, accumulated separately, from one window's raw
 // samples — AND the leg cohort the certificate is read off.
 //
@@ -1807,6 +1922,32 @@ function allocSteps(samples, tolerance = ALLOC_LEG_TOLERANCE) {
   };
 }
 
+// THE WINDOW'S VERDICT — the two window gates' refusals, named apart and
+// unioned (rf2-4ctls). Pure, for `allocSteps`'s reason: the pin can DRIVE it
+// rather than read the source and hope.
+//
+// `refusals` and `certified` keep their meanings exactly — the union, and "none
+// of them", which is the one verdict shape this row has carried across the
+// preflight and the window gate since rf2-2rtt6.142, so `allocRefusedWindows`
+// and the summary read what they always read. `legRefusals` and
+// `intraLegRefusals` are the two gates' own lists, kept apart so the EXIT can
+// name WHICH gate fired: a failure claiming a leg strayed past the tolerance
+// when what happened was an intra-leg collection would send an operator to the
+// wrong instrument, and to the one constant this row may not touch.
+//
+// OFF THE MODE `siteLegs` IS EMPTY, so this is the identity on `steps`: the same
+// `certified`, the same `refusals`, and every published figure passed through.
+function allocWindowVerdict(steps, siteLegs = [], prime = ALLOC_PRIME_WRITES) {
+  const intraLegRefusals = allocIntraLegRefusals(siteLegs, prime);
+  return {
+    ...steps,
+    legRefusals: steps.refusals,
+    intraLegRefusals,
+    refusals: [...steps.refusals, ...intraLegRefusals],
+    certified: steps.certified && intraLegRefusals.length === 0,
+  };
+}
+
 // The witness over a whole collected row, as a PURE FUNCTION of it — the
 // same shape and for the same reason as `ladderStructuralFailures` below: it
 // needs neither a release build nor a Chromium to adjudicate, so it can be
@@ -1820,12 +1961,20 @@ function allocSteps(samples, tolerance = ALLOC_LEG_TOLERANCE) {
 //
 // EVERY REFUSED WINDOW IS NAMED WITH ITS REASON, on every round, because a
 // count of refusals tells an operator nothing about which leg misbehaved.
-function allocRefusedWindows(row) {
+//
+// `field` READS ONE GATE'S OWN LIST (rf2-4ctls), and the default is the union a
+// window was refused on. It exists so the EXIT can attribute a refusal to the
+// gate that made it — `legRefusals` for the leg tolerance, `intraLegRefusals`
+// for the intra-leg reclamation gate — while the SUMMARY goes on printing every
+// reason together, which is what a reader of a refused window wants. The guard
+// is the reason list rather than `certified` so that a named sub-list is read
+// correctly; for the union the two are the same test, since `certified` is
+// exactly "no refusals".
+function allocRefusedWindows(row, field = 'refusals') {
   const out = [];
   for (const r of row.perRound || []) {
     for (const [key, a] of Object.entries(r.arms || {})) {
-      if (a.certified) continue;
-      for (const reason of a.refusals || []) out.push(`round ${r.round} ${key}: ${reason}`);
+      for (const reason of a[field] || []) out.push(`round ${r.round} ${key}: ${reason}`);
     }
   }
   return out;
@@ -2008,10 +2157,16 @@ async function allocRow(chromium) {
       const site = allocSiteSplit(w.samples, w.sites);
       const { primeLegs, measured } = allocPrimeSplit(site.collapsed);
       const s = allocSteps(measured);
+      // AND THE THIRD GATE (rf2-4ctls), which reads the site legs the mode has
+      // already measured and adjudicates nothing `allocSteps` adjudicates. The
+      // identity off the mode, where there are no site legs to be negative.
+      // ONE WINDOW SHAPE, NOT TWO: the controls take this exactly as they take
+      // the prime, so a control refuses for the same reasons an arm does.
+      const verdict = allocWindowVerdict(s, site.siteLegs);
       return {
         kind,
         d,
-        ...s,
+        ...verdict,
         primeLegs,
         primeExcess: primeLegs.length ? primeLegs[0] - s.legMedian : null,
         perIter: s.rise / ALLOC_WRITES,
@@ -2112,6 +2267,12 @@ async function allocRow(chromium) {
         const site = allocSiteSplit(win.samples, win.sites);
         const { primeLegs, measured } = allocPrimeSplit(site.collapsed);
         const s = allocSteps(measured);
+        // AND THE THIRD GATE (rf2-4ctls), at the arm window exactly as at the
+        // control window above. It reads `site.siteLegs` — already measured,
+        // never adjudicated until now — and unions its refusals into the
+        // window's. `allocSteps` is handed the collapsed stream still, so
+        // `rise`, `falls` and `maxStep` are the same numbers on the same code.
+        const verdict = allocWindowVerdict(s, site.siteLegs);
         // THE WRITE READ-BACK, and the row exits on it. At R reads of a
         // page whose cells were all written to `v`, a ladder boundary's
         // text is `R·v`; the floor has no subscription and cannot move.
@@ -2133,7 +2294,7 @@ async function allocRow(chromium) {
           reads: R,
           boundaries: B,
           text: win.text,
-          ...s,
+          ...verdict,
           // THE PRIME LEG, RECORDED RATHER THAN DISCARDED (rf2-oiy1). It is
           // in no published quantity and in no certificate, and it is the
           // term that made every floor window uncertifiable, so the record
@@ -2236,7 +2397,9 @@ async function allocRow(chromium) {
       'in-page performance.memory.usedJSHeapSize sampled at every leg boundary, ' +
       'rising steps accumulated separately from falling ones; --enable-precise-memory-info. ' +
       'A falling step is a collection this counter SAW; a leg that deviates from its cohort ' +
-      'median by more than the leg tolerance is a work unit that is not one, and both refuse',
+      'median by more than the leg tolerance is a work unit that is not one; and under the ' +
+      'by-site stride a NEGATIVE SITE STEP is a collection inside one leg that neither of the ' +
+      'other two can see. All three refuse',
     fallThresholdB: ALLOC_FALL_THRESHOLD_B,
     legTolerance: ALLOC_LEG_TOLERANCE,
     verification: { unverified, detail: unverifiedDetail },
@@ -2274,7 +2437,13 @@ function allocSiteReport(row) {
     ';;   A leg is exactly `dispatch + drain`, over the same outer pair of readings the shipped'
   );
   out.push(
-    ';;   stride takes — so the certificate above is unchanged, and these figures adjudicate nothing.'
+    ';;   stride takes — so `rise`, `falls` and `maxStep` above are unchanged, and no median or'
+  );
+  out.push(
+    ';;   attribution below adjudicates anything. ONE THING HERE DOES (rf2-4ctls): a NEGATIVE site'
+  );
+  out.push(
+    ';;   step is a collection inside a leg, and it refuses the window through the intra-leg gate.'
   );
   out.push(
     ';;   EVERY FIGURE HERE CARRIES ONE EXTRA SAMPLER READ PER LEG. It is a constant per leg, so it'
@@ -2516,6 +2685,31 @@ function summariseAlloc(row, refused) {
   // that fault, which is the direction that flatters a candidate whose
   // predicted answer is zero.
   row.fallsInMeasuredWindows = falls;
+
+  // THE FALLS GATE'S OTHER BLIND SIDE, NOW READ (rf2-4ctls). A collection inside
+  // ONE LEG, bracketed by a larger allocation in the same leg, turns no step
+  // negative on the collapsed stream — so the line above reports 0 — and leaves
+  // the leg's NET inside τ, so the certificate below reports clean. The by-site
+  // stride sees it directly, and this counts what it saw.
+  //
+  // PRINTED ONLY UNDER THE MODE, on `allocSiteReport`'s rule: off it there are
+  // no site legs, and a line reading "0 intra-leg reclamations" would claim the
+  // instrument looked when it could not. Every published row is a stride-2 row,
+  // so nothing above or below moves on one.
+  const intraLegReasons = allocRefusedWindows(row, 'intraLegRefusals');
+  row.intraLegRefusalReasons = intraLegReasons.length;
+  if (row.bySite) {
+    const intraWindows = row.perRound.reduce(
+      (a, r) => a + Object.values(r.arms).filter((x) => (x.intraLegRefusals || []).length).length,
+      0
+    );
+    console.log(
+      `;;   intra-leg reclamations: ${intraLegReasons.length} negative site step` +
+        `${intraLegReasons.length === 1 ? '' : 's'} across ${intraWindows} of ${wins} windows ` +
+        '(a collection INSIDE a leg, which turns no step negative on the collapsed stream and ' +
+        'leaves the leg NET inside τ — invisible to both the other gates, and REFUSED here)'
+    );
+  }
 
   // THE OBSERVED-COLLECTION WITNESS (rf2-2rtt6.140), which is the fall gate's
   // blind side and a SECOND exit, not a softening of the first. A collection
@@ -3201,6 +3395,14 @@ module.exports = {
   ALLOC_BY_SITE,
   ALLOC_SITES,
   ALLOC_SITE_NAMES,
+  // The intra-leg reclamation gate (rf2-4ctls), exported on the same rule: both
+  // halves are pure, so the pin can REPLAY the three windows rf2-ojehu measured
+  // through the real gate rather than assert that it would refuse them. The
+  // property that matters most — that `allocSteps` is untouched and every
+  // published figure is byte-identical — is likewise something a pin can drive
+  // by running both functions over one window and comparing.
+  allocIntraLegRefusals,
+  allocWindowVerdict,
   // The measurement surface (rf2-gxrr), exported so the structural pin can
   // DRIVE it rather than read its source: the tables as values, the plan
   // filter as a pure function, and the two resolved selections so the env
@@ -3384,14 +3586,38 @@ if (require.main === module) (async () => {
       // OWN legs — W repetitions of one work unit — and refuses the window
       // where one of them does not look like the others. It is additional to
       // the falling-step gate and replaces none of it.
-      if (refusedWindows.length > 0) {
+      //
+      // THE TWO GATES ARE NAMED APART IN THE EXIT (rf2-4ctls), because a
+      // failure line is what an operator repairs against and the two send them
+      // to different places: one to the arm, one to the collector's schedule.
+      // The summary above still prints every reason together.
+      const legRefused = allocRefusedWindows(out.alloc, 'legRefusals');
+      if (legRefused.length > 0) {
         failures.push(
-          `alloc: ${refusedWindows.length} windows have a work leg that deviates from its own ` +
+          `alloc: ${legRefused.length} windows have a work leg that deviates from its own ` +
             'cohort median by more than the leg tolerance. A leg BELOW its cohort is a leg ' +
             'something removed bytes from and nothing in the work unit removes bytes; a leg ' +
             'ABOVE it is a window whose ONE WORK UNIT premise failed. Either way the window ' +
             "under-reads by an unknown amount, and under-reading manufactures HD-002's " +
-            `flat-at-zero. DO NOT WIDEN THE TOLERANCE. First: ${refusedWindows[0]}`
+            `flat-at-zero. DO NOT WIDEN THE TOLERANCE. First: ${legRefused[0]}`
+        );
+      }
+      // AND THE SEAM BETWEEN THEM (rf2-4ctls). rf2-ojehu measured 72 arm
+      // windows and found 24 carrying a reclamation INSIDE one leg; three were
+      // invisible to the falls gate and two of those certified at τ. The falls
+      // gate is defined on the collapsed stream, where such a leg is one
+      // non-negative step; the leg tolerance reads that leg's NET, which sits
+      // inside τ. Neither is defective — the fault lives in the gap, and this
+      // reads the by-site stream that already saw it. REPAIR NOTHING BY
+      // WIDENING: this gate only ever adds refusals, and τ is not its dial.
+      const intraRefused = allocRefusedWindows(out.alloc, 'intraLegRefusals');
+      if (intraRefused.length > 0) {
+        failures.push(
+          `alloc: ${intraRefused.length} intra-leg reclamations — a collection ran INSIDE a ` +
+            'measured leg and a larger allocation in the same leg bracketed it, so no step fell ' +
+            'and the leg NET stayed inside τ. The window under-reads by at least the reclaimed ' +
+            'amount with both other gates silent, which is exactly the direction that ' +
+            `manufactures HD-002's flat-at-zero. First: ${intraRefused[0]}`
         );
       }
     }
