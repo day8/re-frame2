@@ -1020,7 +1020,7 @@
           user-effects   (atom 0)
           captured-ticks (atom [])
           gap-observation (atom nil)
-          original-hook  (late-bind/get-fn :ui/on-frame-destroyed!)]
+          original-hook  (late-bind/get-fn :machines/teardown-on-frame-destroy!)]
       (rf/make-frame {:id frame-id})
       (rf/reg-fx :destroy-claim/effect
         (fn [_ _] (swap! user-effects inc)))
@@ -1049,13 +1049,13 @@
       (is (= 2 (count (:queue @(:router (frame/frame frame-id)))))
           "both events are queued before destroy starts")
 
-      ;; `:ui/on-frame-destroyed!` runs after claim-frame-destroy! has returned
+      ;; `:machines/teardown-on-frame-destroy!` runs after claim-frame-destroy! has returned
       ;; (and therefore after the cold lock release) but before
       ;; mark-frame-destroyed!. Its FIFO executor barrier forces the captured
       ;; drain to finish inside that exact claim -> lifecycle-dead window.
       (try
         (late-bind/set-fn!
-          :ui/on-frame-destroyed!
+          :machines/teardown-on-frame-destroy!
           (fn [id]
             (when original-hook
               (original-hook id))
@@ -1077,7 +1077,7 @@
                          :queued     (count (:queue @(:router record)))})))))
         (rf/destroy-frame! frame-id)
         (finally
-          (late-bind/set-fn! :ui/on-frame-destroyed! original-hook)))
+          (late-bind/set-fn! :machines/teardown-on-frame-destroy! original-hook)))
 
       (is (= 0 @parent-runs)
           "queued handlers are no-op as soon as this incarnation's destroy is claimed")
@@ -1099,7 +1099,7 @@
           captured-ticks  (atom [])
           traces          (atom [])
           gap-observation (atom nil)
-          original-hook   (late-bind/get-fn :ui/on-frame-destroyed!)]
+          original-hook   (late-bind/get-fn :machines/teardown-on-frame-destroy!)]
       (rf/make-frame {:id frame-id})
       (rf/reg-fx :destroy-claim/post-claim-effect
         (fn [_ _] (swap! user-effects inc)))
@@ -1126,7 +1126,7 @@
 
       (try
         (late-bind/set-fn!
-          :ui/on-frame-destroyed!
+          :machines/teardown-on-frame-destroy!
           (fn [id]
             (when original-hook
               (original-hook id))
@@ -1188,7 +1188,7 @@
                          :queued     (count (:queue @(:router record)))})))))
         (rf/destroy-frame! frame-id)
         (finally
-          (late-bind/set-fn! :ui/on-frame-destroyed! original-hook)
+          (late-bind/set-fn! :machines/teardown-on-frame-destroy! original-hook)
           (rf/unregister-listener! :trace ::post-claim-combined-count)))
 
       (is (zero? @parent-runs)

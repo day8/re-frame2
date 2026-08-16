@@ -1335,8 +1335,8 @@
         than executes it. The intentional `:on-destroy` event uses a separate,
         token-scoped internal cascade; ordinary drains have no exemption.
     (b) The frame record still exists but `:destroyed?` is flipped
-        (post-step-5 of `destroy-frame!`, before step-10 dissoc), OR
-    (c) The frame record is absent from the `frames` atom (post-step-10
+        (post-step-4 of `destroy-frame!`, before step-9 dissoc), OR
+    (c) The frame record is absent from the `frames` atom (post-step-9
         of `destroy-frame!` — the dissoc step has run).
 
   The claim test is INCARNATION-SCOPED: a stale destroy marker for incarnation A
@@ -1355,7 +1355,7 @@
         (let [token (:token (get @destroying-frames id))]
           (and (some? token)
                (identical? token (:drain-lock f)))))
-    ;; Absent from the atom — destroy-frame!'s step 10 ran, OR the id
+    ;; Absent from the atom — destroy-frame!'s step 9 ran, OR the id
     ;; was never registered. The drain-loop caller only consults this
     ;; while a pass is already in flight, so the latter case cannot
     ;; arise from that seam.
@@ -1367,20 +1367,20 @@
   destroyed / dissoc'd. False for a live, not-being-destroyed frame — including
   a FRESH same-id incarnation created after a prior destroy fully completed.
 
-  The linearization read the compiled-view ViewCell commit consults so a cell
-  that acquires handles + enrols while a frame is being torn down does not
-  publish ownership onto a dying frame (rf2-vxgfnd.61). `destroying-frames` is
-  populated at the TOP of `destroy-frame!` — BEFORE the `:ui/on-frame-destroyed!`
-  sweep snapshots the live cells — and cleared only in `destroy-frame!`'s
-  terminal `finally`, AFTER `mark-frame-destroyed!` flips liveness and
-  `dissoc-frame!` forgets the record. So `frame-closing?` is CONTINUOUSLY true
-  across the entire teardown window (the in-flight-but-not-yet-flipped sub-window
-  the destroyed?/absent test alone MISSES). A commit that enrols into the
-  live-cell registry and THEN reads this predicate therefore linearizes the
-  sweep's victim SELECTION against the frame's CLOSURE: if its enrolment was too
-  late for the sweep's snapshot, the frame was necessarily already in
-  `destroying-frames` when the commit read it, so it observes the close and joins
-  the teardown instead of stranding `:connected`. Keyed by the bare frame-id.
+  The linearization read a substrate's cell-commit path consults so a cell that
+  acquires handles + enrols while a frame is being torn down does not publish
+  ownership onto a dying frame (rf2-vxgfnd.61). `destroying-frames` is populated
+  at the TOP of `destroy-frame!` — BEFORE any teardown step observes the live
+  cells — and cleared only in `destroy-frame!`'s terminal `finally`, AFTER
+  `mark-frame-destroyed!` flips liveness and `dissoc-frame!` forgets the record.
+  So `frame-closing?` is CONTINUOUSLY true across the entire teardown window (the
+  in-flight-but-not-yet-flipped sub-window the destroyed?/absent test alone
+  MISSES). A commit that enrols into a live-cell registry and THEN reads this
+  predicate therefore linearizes its own enrolment against the frame's CLOSURE:
+  if the enrolment was too late for a teardown sweep to see, the frame was
+  necessarily already in `destroying-frames` when the commit read it, so it
+  observes the close and joins the teardown instead of stranding `:connected`.
+  Keyed by the bare frame-id.
 
   BARE-ID: this predicate cannot distinguish WHICH incarnation is closing. In the
   JVM window where an old incarnation A's marker is still set (post-`dissoc-frame!`,
@@ -1406,7 +1406,7 @@
   by identity.
 
   This is what closes rf2-vxgfnd.88's reciprocal Failure-2 (rf2-vxgfnd.94): in the
-  JVM window between `destroy-frame!`'s step-10 `dissoc-frame!` and its terminal
+  JVM window between `destroy-frame!`'s step-9 `dissoc-frame!` and its terminal
   `finally`, incarnation A's marker is still set while a fresh same-id incarnation
   B is already live under the reused id. A ViewCell commit that ACQUIRED B (its
   captured token is B's) reads false here (B's token ≠ A's marker token), so B's
@@ -4133,7 +4133,7 @@
 
   Both snapshots are captured BEFORE the frame is removed and passed
   explicitly so the epoch surface (which fires AFTER `dissoc-frame!`,
-  step 10) does not have to read a container that is already gone — reading it
+  step 9) does not have to read a container that is already gone — reading it
   there would yield nil-`:db-before` / nil-`:db-after` records.
 
   `committed-at` is the destroying event's causal `:rf/time-ms`
@@ -4144,7 +4144,7 @@
 
   `owner-token` is the destroyed frame's stable incarnation identity. The epoch
   artefact uses it to compare-clean only this incarnation's id-keyed state if a
-  fresh same-id frame has already published between registry dissoc and step 11.
+  fresh same-id frame has already published between registry dissoc and step 10.
 
   `terminal-evidence` is the bundle `snapshot-epoch-terminal-evidence!` captured
   BEFORE dissoc (rf2-vxgfnd.151) — the epoch surface publishes A's terminal
@@ -4195,7 +4195,7 @@
                                       the shared per-id transaction reservation,
                                       cut the ordinary queue, and publish the
                                       cutoff before lifecycle-dead. The
-                                      reservation lasts through step 10, then is
+                                      reservation lasts through step 9, then is
                                       released for the fresh-incarnation
                                       post-dissoc window.
     2. fire-on-destroy-event!       — run user :on-destroy and its same-frame
@@ -4218,28 +4218,11 @@
                                       Falls back to minimal HTTP-abort +
                                       trace when the machines artefact is
                                       absent.
-    4. :ui/on-frame-destroyed!      — detach the compiled-view
-                                      (day8/re-frame2-ui) observers: a bounded
-                                      victim set transitions to :dead (03 §4) —
-                                      every currently-connected ViewCell whose
-                                      retained subscription targets name this
-                                      frame PLUS every still-
-                                      disconnected but React-retained
-                                      root-owned ViewCell whose last published
-                                      site values name it (an Activity-hidden
-                                      cell holds no live observers yet must
-                                      still be reaped). The union is deduped +
-                                      incarnation-scoped; each releases its
-                                      handles against the still-live sub-cache,
-                                      so a later read/probe follows the
-                                      dead-cell lifecycle rather than throwing
-                                      :rf.error/frame-destroyed. No-op when
-                                      the artefact is absent (rf2-vxgfnd.42).
-    5. mark-frame-destroyed!        — CAS-flip :lifecycle :destroyed? only
+    4. mark-frame-destroyed!        — CAS-flip :lifecycle :destroyed? only
                                       while the claimed incarnation token still
                                       matches, under that incarnation's
                                       :drain-lock.
-    6. reactive-state disposal      — dispose every cached reaction via the
+    5. reactive-state disposal      — dispose every cached reaction via the
                                       sub-cache-owned
                                       `:subs.cache/dispose-all-for-
                                       frame-destroy!` hook, so each
@@ -4248,7 +4231,7 @@
                                       :frame-destroy`; then dispose the app-db/
                                       runtime-db partition projections whose
                                       source watches the physical container.
-    7. cleanup hooks (best-effort, no-op when artefact absent):
+    6. cleanup hooks (best-effort, no-op when artefact absent):
          :elision/clear-warning-cache!      — reset schema-first elision
                                               warning cache.
          :ssr/on-frame-destroyed            — clear SSR side-channel
@@ -4289,21 +4272,21 @@
                                               eviction is lazy and so never
                                               fires for a per-request id
                                               (rf2-uejlj).
-    8. emit-frame-destroyed-trace!  — emit :frame/destroyed AFTER every
+    7. emit-frame-destroyed-trace!  — emit :frame/destroyed AFTER every
                                       feature cleanup hook has completed.
-    8a. snapshot-epoch-terminal-    — bind A's terminal :halted-destroy
+    7a. snapshot-epoch-terminal-    — bind A's terminal :halted-destroy
         evidence!                     evidence (its epoch record + the
                                       listener/silencing snapshot) via the
                                       :epoch/snapshot-frame-destroyed hook
                                       while A still SOLELY owns its id-keyed
-                                      epoch stores — i.e. BEFORE the step-10
+                                      epoch stores — i.e. BEFORE the step-9
                                       dissoc, after which a same-id successor
                                       B can be constructed and claim (drop)
                                       those stores. The bundle is bound
-                                      lexically here and published by step 11
+                                      lexically here and published by step 10
                                       regardless of whether A still owns the
                                       stores when it fires (rf2-vxgfnd.151).
-                                      Taken BEFORE the step-9 ring release so a
+                                      Taken BEFORE the step-8 ring release so a
                                       snapshot-hook failure's ordinary-delivery
                                       warning rides A's ring and is cleared by
                                       that release instead of recreating an
@@ -4312,18 +4295,18 @@
                                       Spec 009 channels and swallowed; a nil
                                       bundle (no epoch layer / debug disabled)
                                       publishes nothing.
-    9. trace-policy release         — clear the per-frame trace ring and the
+    8. trace-policy release         — clear the per-frame trace ring and the
                                       frame-no-emit flag after the destroyed
                                       trace has flowed.
-    10. dissoc-frame!               — remove from the `frames` atom. This IS
+    9. dissoc-frame!                — remove from the `frames` atom. This IS
                                       the whole forget: the `frames` registry
                                       is the ONE store a seated frame lives in
                                       (rf2-h1vqa4 — no registrar row exists).
-    11. notify-epoch-listeners!     — fire the epoch hook so tools see
+    10. notify-epoch-listeners!     — fire the epoch hook so tools see
                                       :rf.epoch.cb/silenced-on-frame-destroy.
                                       This is the PUBLISH half of the epoch
                                       destroy contract: it ships the terminal
-                                      evidence step 8a bound pre-dissoc,
+                                      evidence step 7a bound pre-dissoc,
                                       whether or not a same-id successor now
                                       owns the id-keyed stores. It threads the
                                       pre-run
@@ -4416,14 +4399,14 @@
       ;; re-entrant guard + `frame-closing?` rely on.
       ;; Capture the DESTROY-TIME frame-state value AFTER the exact-incarnation
       ;; claim / ordinary-queue cutoff and BEFORE cleanup or lifecycle mutation.
-      ;; After `mark-frame-destroyed!` (step 5) flips :destroyed?,
-      ;; `frame-state-value` returns nil; after `dissoc-frame!` (step 10)
+      ;; After `mark-frame-destroyed!` (step 4) flips :destroyed?,
+      ;; `frame-state-value` returns nil; after `dissoc-frame!` (step 9)
       ;; the container is gone entirely. Reading it here yields the state
       ;; the partial run left the frame in at the moment destroy was
       ;; requested — the `:frame-state-after` slot the `:halted-destroy`
       ;; epoch record carries. The pre-run `:frame-state-before` rides the
       ;; router-bound `*run-frame-state-before*` dynamic var (nil outside a
-      ;; drain). Both are passed to `notify-epoch-listeners!` (step 11): the
+      ;; drain). Both are passed to `notify-epoch-listeners!` (step 10): the
       ;; whole frame-state, both partitions.
       (let [transaction-owner (::destroy-transaction-owner f)
             run-fs-before *run-frame-state-before*
@@ -4472,20 +4455,6 @@
         ;; teardown continues so the frame is fully torn down exactly once.
         (safe-teardown-step! :frame/notify-machine-destruction!
                              (fn [] (notify-machine-destruction! id)))
-        ;; Detach the compiled-view (day8/re-frame2-ui) observers BEFORE the
-        ;; liveness flip / sub-cache teardown. The hook sweeps a bounded victim
-        ;; set to :dead (03 §4 dead-cell lifecycle): every currently-connected
-        ;; ViewCell whose retained subscription targets name this frame
-        ;; PLUS every still-disconnected but
-        ;; React-retained root-owned ViewCell whose last published site values
-        ;; name it (a hidden cell holds no live observers yet must still be
-        ;; reaped) — deduped + incarnation-scoped. Each releases its handles
-        ;; against the still-live sub-cache instead of being left live to throw
-        ;; :rf.error/frame-destroyed off the observation port on its next read.
-        ;; Symmetric with the machine cascade above (observers torn down against
-        ;; a live container). No-op when the re-frame2-ui artefact is absent
-        ;; (the hook is unbound) — rf2-vxgfnd.42.
-        (safe-call-hook! :ui/on-frame-destroyed! id)
         ;; Flip the liveness bit under the frame's OWN `:drain-lock` (the ONE
         ;; frame-owned lifecycle gate, via the same `call-serialized-with-drain!`
         ;; the flows lifecycle ops use) so a concurrent cold `reg-flow` / flow
@@ -4542,7 +4511,7 @@
         ;; per-request frame churn grows the flow registry unboundedly.
         ;; This hook does NOT scrub the frame's flow-output elision marks:
         ;; those live in the runtime-db partition INSIDE the
-        ;; `:frame-state` container, which `dissoc-frame!` (step 10 below)
+        ;; `:frame-state` container, which `dissoc-frame!` (step 9 below)
         ;; drops wholesale with the frame record — a per-flow scrub here
         ;; would be redundant work over about-to-be-GC'd state, and a reused
         ;; frame-id gets a fresh empty container so no stale flow-sourced
@@ -4600,20 +4569,6 @@
         ;; invert the load order); the hook is bound at boot since fx ships in
         ;; every canonical build.
         (safe-call-hook! :fx/on-frame-destroyed! id)
-        ;; Invalidate the Freehand root-ownership ledger. The interpreted mount
-        ;; surface (re-frame.freehand.root) keeps a frame-id-keyed ownership row
-        ;; the same shape every sibling side table above keeps, but it is
-        ;; incarnation-scoped: a row owns the frame only while its recorded handle
-        ;; token is the live incarnation's. This hook carries the DYING
-        ;; incarnation's token (`expected-incarnation-token`) so the ledger can
-        ;; compare-clean ONLY the row whose handle names it — tombstone that row
-        ;; and warn if live roots still reference it — leaving a same-id successor
-        ;; row untouched, exactly the epoch layer's compare-clean discipline
-        ;; (step 11). No-op when the day8/re-frame2 freehand artefact is absent
-        ;; (the hook is unbound). The frame is still keyed here (dissoc is step 10
-        ;; below), and the frame value is already marked :destroyed?, so the
-        ;; carried token is the only way to name the dying incarnation.
-        (safe-call-hook! :freehand/on-frame-destroyed! id expected-incarnation-token)
         ;; Drop the Hicasso frame-ops row. That substrate memoises one row per
         ;; frame — the `capture-frame` bundle plus the ambient dispatch closure
         ;; over it, both pinned to the incarnation that minted them — and its
@@ -4623,7 +4578,7 @@
         ;; successor — `re-frame.hicasso.server/render` mints a fresh gensym per
         ;; request, so a long-lived SSR process retained one bundle per request
         ;; served (rf2-uejlj). Keyed and unconditional, needing no incarnation
-        ;; token: a same-id successor is constructable only after the step-10
+        ;; token: a same-id successor is constructable only after the step-9
         ;; dissoc, so every row standing here is a dead incarnation's. Pure
         ;; RETENTION — the substrate's safety argument is that lazy replacement
         ;; and is untouched by this. No-op when the day8/re-frame2-hicasso
