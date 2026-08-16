@@ -19,8 +19,8 @@ sit at the end of the flow and render whatever arrives — a **window** onto the
 application, not the room itself.
 
 After the live qty cell the **pure pipeline is complete**. Form-2/3, multi-frame
-targeting, and the substrate boundary live under Advanced — open them only when a
-need appears.
+targeting, the substrate boundary, and re-frame2's own view layer live under
+Advanced — open them only when a need appears.
 
 ??? info "For JavaScript developers"
 
@@ -514,8 +514,23 @@ that survives any async hop. [Frames](frames.md) is that pattern's home.
     Handlers, subs, and app-db never name a rendering library. The adapter
     (`(rf/init! reagent-adapter/adapter)`) is where hiccup becomes pixels.
     Port substrates and only `init!` plus view notation change —
-    [Use UIx or reagent-slim](how-to/use-uix-or-slim.md). A more radical,
-    pre-alpha option is [Hicasso](hicasso/index.md), re-frame2's own native
-    view layer — markup stays inspectable Hiccup data, subscriptions read as
-    plain values wherever a view needs them, handlers stay event vectors, and a
-    hot boundary can drop to a native React tier without moving its call site.
+    [Use UIx or reagent-slim](how-to/use-uix-or-slim.md).
+
+??? note "Hicasso: a second way to write a view"
+
+    This page has taught `reg-view`, and `reg-view` is the view API of the Core
+    track. [Hicasso](hicasso/index.md) is re-frame2's own view layer, and it
+    offers a different one — `h/defview` in place of `reg-view`, with markup
+    that stays inspectable Hiccup data, subscriptions that read as plain values
+    wherever a body needs them, handlers that stay event vectors, and a hot
+    boundary that can drop to a native React tier without moving its call site.
+    An application authors its views one way or the other; the choice is not
+    made per view.
+
+    What does not change is everything else on this page. Events, app-db,
+    subscriptions and the purity rule are identical under both, which is why the
+    notation is the last thing this track teaches rather than the first. Note
+    that Hicasso is **not** a substrate and does not belong in the fold above:
+    it still renders through an adapter, and a Hicasso application calls `init!`
+    with Reagent or UIx exactly as described there. It is pre-alpha, and its
+    guide is a draft.
