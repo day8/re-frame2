@@ -9,7 +9,9 @@ is removed from production builds.
 
 ## Diagnose an interaction
 
-1. Load Xray through the development preload.
+1. Load Xray through the development preload. [Xray's installation
+   chapter](../../xray/01-installation.md) carries the dependency coordinate,
+   the host element, and the preload namespace.
 2. Reproduce the click, keystroke, or update.
 3. Select the view occurrence that ran.
 4. Read its cause, fan-out, and attribution.
