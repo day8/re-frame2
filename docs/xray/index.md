@@ -17,7 +17,7 @@ Xray's main UI is built around that fact:
 - The tab strip chooses which lens you want.
 - The detail panel shows that lens for the focused epoch.
 
-When you click a row in the event spine, every tab rebinds to that same epoch. `Epoch`, `app-db`, `Views`, `Trace`, `Machine`, and `Routes` stop disagreeing because they are all projections of the same record.
+When you click a row in the event spine, every tab rebinds to that same epoch. `Epoch`, `app-db`, `Views`, `Trace`, `Machine`, `Routes`, `Resources`, `Graph`, `Frames`, and `Hicasso` stop disagreeing because they are all projections of the same record.
 
 ## Two Modes
 
@@ -34,7 +34,7 @@ Static mode drops the event spine and browses registered things: machines, route
 Start by installing Xray, then run one small debugging session on the standard-epochs testbed or your own app. The rest of the tutorial is organized around the questions you will naturally ask once the panel is open.
 
 - [1. Installation](01-installation.md) shows the dev dependency, host element, preload, and launch controls.
-- [2. Panel tour](02-panel-tour.md) teaches the shell, the event spine, Dynamic mode, Static mode, and the six daily tabs.
+- [2. Panel tour](02-panel-tour.md) teaches the shell, the event spine, Dynamic mode, Static mode, and the ten Dynamic tabs.
 - [3. Time-travel scrubbing](03-time-travel.md) shows LIVE versus RETRO focus and how to inspect past epochs without losing your place.
 - [4. Trace stream](04-trace-stream.md) explains when to use the friendly Epoch lens and when to drop to raw trace rows.
 - [5. Click-to-source](05-click-to-source.md) connects rendered DOM and Xray rows back to editor locations.
@@ -43,6 +43,7 @@ Start by installing Xray, then run one small debugging session on the standard-e
 - [8. Machine inspector](08-machine-inspector.md) covers the event-coupled machine lens and the Static machine browser.
 - [9. App-DB diff](09-app-db-diff.md) teaches the changed-slices-first app-db view.
 - [10. Derivation graph](10-derivation-graph.md) draws subscriptions, flows, resources, routes, and machines as one dependency graph — "where does this value come from?" — with static/live modes and the off-box redaction boundary.
+- [11. The Hicasso tab](11-hicasso-tab.md) reads Hicasso's view layer through six views over one evidence take — mounted boundaries, read attribution, intents, why, the hot-boundary advisor, and one dispatch walked from event to paint.
 
 ## What Xray Is Not
 

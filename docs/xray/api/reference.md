@@ -22,7 +22,7 @@ The canonical facade. The day-to-day require for host integrations: mount contro
 | `target-frame` | `(target-frame)` → keyword \| nil | Read the currently-selected inspected-host frame, or `nil` when none is selected (never defaulted to `:rf/default`). One-shot read; not reactive. |
 | `set-target-frame!` | `(set-target-frame! frame-id)` → nil | Set the inspected-host frame Xray targets. `nil` resets to the **unselected** state (not `:rf/default`). |
 | `focus!` | `(focus! command)` → map | Host-facing focus handoff. Story and other hosts use it to focus a panel, epoch, cascade row, app-db path, or source target without rebuilding Xray's diagnostic UI. |
-| `valid-focus-panels` | set value | Canonical focusable panel ids: `#{:epoch :app-db :views :trace :machines :routes}`. |
+| `valid-focus-panels` | set value | Canonical focusable panel ids — one per live Dynamic L4 tab: `#{:epoch :app-db :views :trace :machines :routing :resources :derivation-graph :module-view :hicasso}`. The id is the internal registry key, not the visible label: `:routing` renders as "Routes", `:derivation-graph` as "Graph", `:module-view` as "Frames". A host that prefers the display noun may pass `:routes`, which normalises to `:routing`. |
 | `load-theme` | `(load-theme css-string)` → nil | Programmatic theme override. Installs or replaces a host CSS block; `nil` or blank clears the override. |
 | `configure!` | `(configure! opts)` → nil | Top-level config — re-exported from `config`. See [Configuration keys](config-keys.md). |
 | `set-auto-open!` | `(set-auto-open! bool)` → nil | Re-exported from `config`. Whether the preload auto-opens. |
@@ -152,7 +152,9 @@ Once `core.cljs` has loaded, the same six fns are reachable under `window.day8.r
 
 ## Panel reg-views (composed by the shell)
 
-Six Dynamic tab panels ship in `day8.re-frame2-xray.panels.*`. Hosts normally mount the full shell through `open!`, `open-overlay!`, or `popout!`; advanced tool surfaces can mount a focused panel through the panel facade when they are deliberately composing Xray-owned diagnostics.
+Ten Dynamic tab panels ship in `day8.re-frame2-xray.panels.*`. Hosts normally mount the full shell through `open!`, `open-overlay!`, or `popout!`; advanced tool surfaces can mount a focused panel through the panel facade when they are deliberately composing Xray-owned diagnostics.
+
+Seven of the ten carry a standalone `mount-<panel>!` facade:
 
 | Panel | Namespace | Surface |
 |---|---|---|
@@ -162,6 +164,17 @@ Six Dynamic tab panels ship in `day8.re-frame2-xray.panels.*`. Hosts normally mo
 | Trace | `day8.re-frame2-xray.panels.trace` | `Panel` reg-view |
 | Machine Inspector | `day8.re-frame2-xray.panels.machine-inspector` | `Panel` reg-view |
 | Routing | `day8.re-frame2-xray.panels.routing` | `Panel` reg-view |
+| Resources | `day8.re-frame2-xray.panels.resources` | `Panel` reg-view |
+
+The remaining three are **L4-only registry tabs** — registered for the tab strip and focusable through `focus!`, but shell-internal and not independently mountable into a host's own layout:
+
+| Panel | Namespace | Surface |
+|---|---|---|
+| Graph (derivation graph) | `day8.re-frame2-xray.panels.derivation-graph` | `Panel` reg-view, registry only |
+| Frames (module view) | `day8.re-frame2-xray.panels.module-view` | `Panel` reg-view, registry only |
+| Hicasso | `day8.re-frame2-xray.panels.hicasso` | `Panel` reg-view, registry only |
+
+Focusability and mountability are separate axes: every one of the ten is in `valid-focus-panels`, and only the first seven have a mount facade. See [11. The Hicasso tab](../11-hicasso-tab.md) for what the Hicasso panel shows.
 
 Five parallel Static-mode panels browse the registrar rather than the event spine:
 
