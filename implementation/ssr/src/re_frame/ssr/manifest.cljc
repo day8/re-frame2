@@ -722,7 +722,7 @@
 
      Identity is then read from the CONTENT (`:root-id`), never from the
      element. `nil` means \"no manifest here\" — the caller decides what
-     that means (`ui/hydrate-root` fails loud with
+     that means (a hydrate-root door fails loud with
      `:rf.error/root-manifest-invalid` `{:missing :manifest}`; a
      client-only mount never asks)."
      [container]

@@ -188,7 +188,7 @@
 
 (deftest an-adoption-tier-root-form-ships-no-render-hash
   (testing "rf2-q1b96: the `[<component> {props}]` root shape — what a
-            compiled `re-frame.ui`, native UIx, or Freehand root can only ever
+            native UIx or Hicasso root can only ever
             be — carries no hash on either channel. This is the trap the bead
             was filed for: nothing serves such a root through ssr-ring today,
             so the first server arm that does must not re-create the fail-open

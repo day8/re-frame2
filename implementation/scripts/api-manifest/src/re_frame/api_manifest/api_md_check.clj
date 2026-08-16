@@ -174,7 +174,7 @@
   "True when a heading CODE SPAN NAMES a re-frame2 namespace, as opposed to an
    ordinary API name, keyword, or other code a heading may carry. A namespace is
    DOTTED — two or more `.`-separated lowercase identifier segments
-   (`re-frame.ui`, `re-frame.freehand`, `re-frame.freehand.test`). That shape
+   (`re-frame.hicasso`, `re-frame.hicasso.test`, `re-frame.adapter.uix`). That shape
    distinguishes it from a bare API-name span (`reg-sub`, `dispatch-*`,
    `reg-flow` / `clear-flow`), a keyword span (`:rf.http/managed` — rejected by
    its leading `:` and its `/`), or a wildcard (`dispatch-*` — rejected by the
@@ -186,8 +186,7 @@
 
 (defn- section-heading-namespace
   "The owning namespace a Markdown SECTION HEADING names in a back-tick code
-   span — ``## Compiled views — `re-frame.ui` `` -> \"re-frame.ui\",
-   ``## Freehand views — `re-frame.freehand` `` -> \"re-frame.freehand\" — or nil
+   span — ``## Hicasso views — `re-frame.hicasso` `` -> \"re-frame.hicasso\" — or nil
    for a non-heading line, a heading with no code span, or a heading whose code
    span(s) name NO namespace (`## Registration`, ``### `reg-sub` input modes``).
 
@@ -204,10 +203,10 @@
    `reg-flow` / `clear-flow`, none of which name a namespace (rf2-etj5i).
 
    A BARE var-row is attributed to the namespace of the SECTION it sits under,
-   never to its bare name alone: a bare root verb is a `re-frame.ui` verb only
-   inside the `re-frame.ui` section, so a bare Freehand row (the natural spelling
-   once a section header already scopes the table) can no longer be
-   mis-attributed to `re-frame.ui` (rf2-etj5i)."
+   never to its bare name alone: a bare root verb belongs to a namespace only
+   inside that namespace's section, so a bare row from a SIBLING section (the
+   natural spelling once a section header already scopes the table) can no longer
+   be mis-attributed to the first section (rf2-etj5i)."
   [line]
   (when (str/starts-with? (str/triml line) "#")
     (some (fn [[_ span]] (when (namespace-shaped? span) span))
@@ -245,7 +244,7 @@
    heading at the SAME-OR-SHALLOWER level is a sibling/ancestor and CLEARS the
    namespace (a new sibling section owns no inherited namespace). Without this, an
    intervening namespace-less child heading dropped `section-ns` to nil and a bare
-   Freehand root verb under it was silently re-attributed to `re-frame.ui`.
+   root verb under it was silently re-attributed to the preceding section.
 
    A row whose `M/Fn` cell is NOT a recognised var-kind marker (`var-kind-
    marker?` — e.g. the marker drifted to an unknown spelling like `Macro`) is

@@ -3230,9 +3230,8 @@
 
 ;; ---- native-root hydration-mismatch adoption reporter (rf2-qfz65) --------
 ;;
-;; A native UIx root is a React-ELEMENT root: neither the hiccup
-;; :render-tree-fn hash channel nor the compiled-tier ui/hydrate-root adoption
-;; reporter covers it, so before rf2-qfz65 the spine's make-render hydrate branch
+;; A native UIx root is a React-ELEMENT root: the hiccup
+;; :render-tree-fn hash channel does not cover it, so before rf2-qfz65 the spine's make-render hydrate branch
 ;; called hydrateRoot with NO options and a hydration MISMATCH was SILENT (React
 ;; warn-and-replace recovered the DOM but the framework emitted nothing). The
 ;; spine now installs a composed onRecoverableError on the hydrate path that

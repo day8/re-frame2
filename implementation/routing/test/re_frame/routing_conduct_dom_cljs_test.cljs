@@ -38,7 +38,7 @@
   **Prefetch.** All three positions of the closed intent class
   (`re-frame.routing.link/prefetch-intent-keys` — `:on-mouse-enter` /
   `:on-focus` / `:on-touch-start`) are driven with REAL DOM events in
-  `re-frame.ui.route-link-dom-cljs-test` (rf2-2n3p, PR #8017), which also
+  the retired compiled tier's route-link DOM suite (rf2-2n3p, PR #8017), which also
   carries an assertion that reds the moment the class grows. Rebuilding
   that here would add a second copy of a covered proof and a second thing
   to keep in step with the law.

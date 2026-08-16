@@ -6,7 +6,7 @@
   whole-roster structural gate (`classify`), the address-only selection
   (`extract-address`), and the closed `:rf/route-address` predicate
   (`valid-address?`) — plus the consumption proof that `route-url` and
-  `link-model` (rf/route-link + v/route-link) resolve their address through
+  `link-model` (`rf/route-link` and a view artefact's route-link) resolve their address through
   this ONE definition. Per Spec 012 §The extraction law and Spec-Schemas
   §`:rf/route-address`."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]

@@ -19,13 +19,12 @@
  * is run. Widening the shared runner would have put three browser launches
  * behind every adapter smoke to serve one caller. The reagent-slim and
  * tenant-switcher testbeds set the precedent for a surface that carries its
- * own orchestrator, and `run-ui-g8.cjs` sets it for a correctness gate that
- * drives more than one engine.
+ * own orchestrator.
  *
  * ## The three engines, and why each is mandatory
  *
  * Chromium is where every controlled-input claim in this repo was
- * previously witnessed — `run-ui-g8.cjs` adds WebKit for re-frame.ui, and
+ * previously witnessed, and
  * `bench/hicasso/ime_run.cjs` states its own scope as Chromium-only because
  * `Input.imeSetComposition` is a CDP method. Nothing had ever driven
  * Hicasso's element-path converge outside Chromium, and the mechanism is

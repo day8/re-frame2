@@ -972,15 +972,6 @@ function assertPositiveControlComplete(artefacts = ARTEFACTS, controls = POSITIV
 //              never isolated from the counter bundle).
 //   ssr-ring — JVM-only ring server adapter (all .clj; no CLJS runtime body can
 //              reach a production client bundle).
-// `ui` needs no entry here at all. Discovery is publishability-driven and
-// re-frame.ui declares no :clein/build — it is never published (rf2-a32r7) — so
-// it is not discovered as a required browser-optional runtime and carries no
-// coverage obligation. It keeps its generic ARTEFACTS entry regardless (sentinel
-// rf.error/ui-tree-malformed; positive control onModule 'ui'): the artefact loop
-// scans every entry, and re-frame.ui is a browser-capable substrate the adapters
-// do NOT depend on, so its client kernel must still stay absent from the
-// no-feature counter bundle.
-//
 // Keyed by exact implementation-relative PATH (both entries are flat, so path
 // == leaf today) so the exclusion is applied against the authority's relPath.
 const NON_BROWSER_OPTIONAL = new Set(['core', 'ssr-ring']);

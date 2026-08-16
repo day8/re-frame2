@@ -1,8 +1,8 @@
 (ns re-frame.ssr-emitter-reinit-lifecycle-jvm-test
   "rf2-vxgfnd.204 — the JVM SSR emitter lifecycle expectation, the host twin of
-  the CLJS `re-frame.ui.ssr-reinit-lifecycle-cljs-test`.
+  the CLJS lifecycle suite the retired compiled tier carried.
 
-  On the JVM the `re-frame.ui/adapter` IS the plain-atom adapter (`(assoc
+  On the JVM a compiled-view adapter IS the plain-atom adapter (`(assoc
   plain-atom/adapter :kind :rf.adapter/ui)`), and its `:render-to-string` reads
   plain-atom's `hiccup-emitter` atom. That atom is armed once by `re-frame.ssr`
   ns-load and, crucially, plain-atom's `dispose-adapter!` is a NO-OP — it does

@@ -32,9 +32,8 @@
  * testbed landed green at PR time, caught only by the Xray FULL feature gate
  * (nightly). Twelve non-tenant top-level builds sat behind that hole
  * (`tenant-switcher` is the thirteenth and already has the
- * `tenant_switcher_smoke` gate; `:testbeds/freehand-views` and
- * `:testbeds/panel-gallery` live under `tools/xray/testbeds/` and are the
- * fourteenth and fifteenth). Adding the prefix here was the cheapest of the
+ * `tenant_switcher_smoke` gate; `:testbeds/panel-gallery` lives under
+ * `tools/xray/testbeds/` and is the fourteenth). Adding the prefix here was the cheapest of the
  * three lanes weighed on the bead: a pure `shadow-cljs compile` in a job
  * that already exists, sharing that job's compilation cache, buying no
  * browser execution nobody asked for.

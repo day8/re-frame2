@@ -1,7 +1,7 @@
 (ns re-frame.route-link-seam-cljs-test
   "The substrate-neutral link seam (rf2-vxgfnd.95.5) — `link/link-model` +
-  `link/activate-link!`. These are the two routing-owned late-bound hooks the
-  compiled `re-frame.ui/route-link` defview consumes so the ui artefact
+  `link/activate-link!`. These are the two routing-owned late-bound hooks a
+  view artefact's own route-link consumes so that artefact
   reimplements NONE of the routing link law.
 
   `link-model` (pure) is asserted for href synthesis, dispatch-payload shape,

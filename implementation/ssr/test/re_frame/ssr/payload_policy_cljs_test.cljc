@@ -567,7 +567,7 @@
    ;; rf2-2rtt6.91 — `:string`, NOT `[:maybe :string]`. Spec-Schemas types the
    ;; slot `{:optional true} :string`, so a present-and-nil `:rf/render-hash`
    ;; is not a legal spelling of absence: an ADOPTION-TIER root (compiled
-   ;; `re-frame.ui`, native UIx, Freehand) carries no hash at either end and
+   ;; native UIx, Hicasso) carries no hash at either end and
    ;; needs the key OMITTED. A `[:maybe :string]` slot admitted the forbidden
    ;; shape, so this schema could not prove the contract it calls canonical.
    [:rf/render-hash     {:optional true} :string]
@@ -621,8 +621,8 @@
 ;; paths, so the adoption-tier contract belongs here and not only at the one
 ;; Hicasso caller that exercises it today. Per Spec 011 §Hydration-mismatch
 ;; detection the hash channel is the HICCUP tier's: a hiccup-tier host hands a
-;; real hash and it rides the wire, while a compiled `re-frame.ui`, native UIx
-;; or Freehand root verifies by React adoption and hands nil. Nil must leave
+;; real hash and it rides the wire, while a native UIx
+;; or Hicasso root verifies by React adoption and hands nil. Nil must leave
 ;; the key ABSENT — a present-and-nil key is a degenerate value wearing the
 ;; shape of evidence, and the `:string` slot does not admit it.
 

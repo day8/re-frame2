@@ -32,8 +32,8 @@
     late-bound seams routing publishes for exactly this consumer class —
     `:routing/link-model` here at render, `:routing/activate-link!` in
     the lowered closure ([[re-frame.bench.hicasso.front.intent]]). This
-    file restates NO routing law: `rf/route-link`, `ui/route-link`,
-    Freehand's `v/route-link` and this one all run the same two
+    file restates NO routing law: `rf/route-link` and this one both run
+    the same two
     definitions, and the packaging graph stays
     `hicasso -> core late-bind <- routing` (Conventions §Packaging).
   - **From Freehand (taken): render-time capture and render-time

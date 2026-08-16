@@ -1513,8 +1513,8 @@
   (frame, frame-epoch, registry-epoch) triple can TIE across a same-id
   destroy+recreate: `frame/dissoc-frame!` restarts the commit epoch, so a
   fresh incarnation B can present the EXACT epochs a destroyed incarnation A
-  did. Without the token, a COMMIT-FREE consumer (a Tier-1 `ui.test/render`
-  outside any ViewCell) would receive A's memoized parent for B — and there is
+  did. Without the token, a COMMIT-FREE consumer (a Tier-1 headless render
+  outside any observing cell) would receive A's memoized parent for B — and there is
   no commit step 5 to correct a commit-free read. The memo remains an ECONOMY
   for a COMMITTING reader, but its tag is itself incarnation-complete so the
   commit-free path is correct on its own (rf2-vxgfnd.160)."

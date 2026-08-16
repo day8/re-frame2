@@ -207,7 +207,7 @@
 
    The `:cljs-only` rows the probe normally reconciles are the surfaces the
    JVM generator CANNOT introspect. A `.cljc` namespace the generator DOES
-   own on the JVM (`re-frame.freehand.test`, say — its structural surface
+   own on the JVM (a test surface whose structural half
    runs headless on the JVM, so it lives in the generator's `jvm-namespaces`
    and its rows are curated under `:classification`, not `:cljs-only`) still
    needs its reader-conditional CLJS surface reconciled, so neither host can
@@ -219,8 +219,8 @@
 
    The sidecar's `:jvm-only-classification` set is SUBTRACTED. A `.cljc`
    namespace can carry a var defined under `#?(:clj …)` with no ClojureScript
-   arm at all — `re-frame.freehand/check` reads a source file, so a browser
-   runtime has nothing for it to do and the verb is honestly ABSENT rather
+   arm at all — a verb that reads a source file, say, has nothing for a browser
+   runtime to do and is honestly ABSENT rather
    than present-and-throwing. Its `:classification` row is real (the JVM
    generator introspects it), and reconciling that row against a CLJS surface
    that will never carry it would report permanent staleness for a var that
@@ -277,8 +277,7 @@
 
 (defmacro emit-signature-contract
   "Expand to the sidecar's signature authority map under `sidecar-key`
-   (a keyword literal) — any host-aware signature block, e.g.
-   `:freehand-test-signatures`, all of the
+   (a keyword literal) — any host-aware signature block, all of the
    same `{:namespace :vars {var {:kind :clj #{..} :cljs #{..}}}}` shape and
    reconciled by the same `cljs-probe/signature-problems`. Read from
    `spec/api-manifest-metadata.edn` at macro-expansion time, so — like the

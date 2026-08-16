@@ -222,8 +222,7 @@
   lowering, loud on every malformed form. The
   click LAW is not restated here: the lowered closure hands the event to
   routing's own `:routing/activate-link!` late-bound seam — the same one
-  decision `rf/route-link`, `ui/route-link` and Freehand's `v/route-link`
-  all run — so caller-veto-first, modifier-click deferral, native-anchor
+  decision `rf/route-link` runs — so caller-veto-first, modifier-click deferral, native-anchor
   deferral and `preventDefault`-then-dispatch stay routing's law, stated
   once. A hook that vanished between render and click (dev hot-reload of
   the routing artefact) degrades to native navigation — the browser

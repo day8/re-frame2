@@ -504,13 +504,11 @@ for (const relPath of Object.keys(DEDICATED_ISOLATION_GATES)) {
   assert(rt && rt.via === 'dedicated' && rt.relPath.startsWith('adapters/'),
     `${relPath}: must be discovered under adapters/ and covered by its validated dedicated gate`);
 }
-// rf2-a32r7 — ui is NOT publishable (re-frame.ui is donor-only and is never
-// published), so it is not discovered as a required browser-optional runtime and
-// carries no coverage obligation here. Its ARTEFACTS entry stays: the gate's own
-// loop scans every entry, so the sentinel check that keeps re-frame.ui bodies out
-// of the no-feature counter bundle still runs, and its positive control still
-// proves the sentinel is real. Coverage is what publication compels; scanning an
-// in-tree browser-capable runtime is free and remains worth doing.
+// rf2-a32r7 — `ui` was never publishable, so it was never discovered as a
+// required browser-optional runtime. The artefact itself is now RETIRED and the
+// directory is gone, so this assertion is vacuous rather than load-bearing; it is
+// kept only until somebody decides whether the retired-path guard is worth
+// generalising.
 assert(!realCoverage.required.some((rt) => rt.relPath === 'ui'),
   'ui must NOT be in the required browser-optional set — it declares no :clein/build (rf2-a32r7)');
 

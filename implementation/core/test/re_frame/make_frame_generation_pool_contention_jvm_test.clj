@@ -320,8 +320,8 @@
           "and still names the live source store"))))
 
 ;; ---------------------------------------------------------------------------
-;; 4. AN OUTER PREFLIGHT'S RESERVATION IS ADOPTED, NOT NESTED. re-frame.ui's
-;;    `execute-frame-plans!` claims its whole plan set up front and hands each id
+;; 4. AN OUTER PREFLIGHT'S RESERVATION IS ADOPTED, NOT NESTED. A multi-id
+;;    preflight claims its whole plan set up front and hands each id
 ;;    to `make-frame` in turn. `make-frame` must recognise that it is already
 ;;    inside an exact reservation for the id and neither re-claim it (which
 ;;    would collide with its own caller) nor release it early. A hand-off

@@ -138,7 +138,7 @@
    prevent, so an unreadable tree must be loud rather than green."
   [^java.io.File root]
   (when-not (.isDirectory root)
-    (throw (ex-info (str "Freehand source root not found: " (.getPath root)
+    (throw (ex-info (str "Source root not found: " (.getPath root)
                          " — the roster-completeness gate cannot run, and must "
                          "not pass by default. Run the generator from "
                          "implementation/scripts/api-manifest/.")
