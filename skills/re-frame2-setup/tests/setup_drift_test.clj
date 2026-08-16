@@ -1009,16 +1009,62 @@
                "the UIx core.cljs. The frame-local schema attach "
                "must run at boot on every substrate, matching the generator's "
                "_uix/core.cljs (rf2-3fc89f)."))
-      ;; …and it must run BEFORE the frame-root mount (the attach names
-      ;; :rf/default explicitly, so it precedes frame creation; the frame's
-      ;; :initial-events seed is then validated from its first write).
-      (is (re-find #"\(schema/register-schema!\)[^\n]*(?:\n[^\n]*){0,6}?frame-root\s+\{:id\s+:rf/default[\s\S]{0,80}?:initial-events\s+\[\[:counter/initialise\]\]"
+      ;; …and it must run BEFORE the mount (the attach names :rf/default
+      ;; explicitly, so it precedes frame creation; the frame's :initial-events
+      ;; seed is then validated from its first write).
+      ;;
+      ;; Since rf2-ms6r8 the entry ns is TWO fns — the boot ceremony in `init`,
+      ;; and a `^:dev/after-load mount!` carrying the frame-root, which is what
+      ;; shadow re-runs on a hot reload (`:init-fn` is NOT re-run; see the
+      ;; hot-reload lock below). So the ordering can no longer be read off the
+      ;; adjacency of `register-schema!` and `frame-root` — they are in
+      ;; different fns, and the frame-root now appears EARLIER in the file. The
+      ;; invariant is unchanged and is asserted where it actually lives: inside
+      ;; `init`, the schema attach precedes the `(mount!)` call.
+      (is (re-find #"\(schema/register-schema!\)[^\n]*(?:\n[^\n]*){0,3}?\(mount!\)"
                    body)
           (str "entry-namespace.md's substrate boot no longer attaches the schema "
-               "BEFORE the frame-root ENSURE mount. The explicit-frame "
-               "register-schema! must precede the mount so the "
+               "BEFORE the mount. The explicit-frame "
+               "register-schema! must precede the (mount!) call in `init` so the "
                ":counter/initialise seed is validated from its first write "
                "(rf2-3fc89f lineage; frame-root migration).")))))
+
+;; ---------------------------------------------------------------------------
+;; Lock 14b — the substrate entry ns carries the ^:dev/after-load re-render hook
+;; that gives the author hot reload (rf2-ms6r8, measured under rf2-r0kk7 /
+;; PR #8400).
+;;
+;; shadow's :browser target calls the module :init-fn ONCE, at bundle load, and
+;; does NOT re-run it after a hot reload — it loads the new code and calls the
+;; build's ^:dev/after-load hooks. With none configured it logs "reloading code
+;; but no :after-load hooks are configured!" and the page keeps painting the OLD
+;; view (measured unchanged for 90s on a real generated scaffold). This skill
+;; taught the opposite for both substrates, so an author following it built an
+;; app with no working inner loop.
+;;
+;; The prose wording is guarded repo-side by
+;; scripts/check_skill_setup_counter_drift.py; this lock guards the SHAPE of the
+;; copyable UIx code — the hook must exist, and it must be the fn that mounts,
+;; not a decoration on something that never renders.
+;; ---------------------------------------------------------------------------
+
+(deftest uix-core-carries-after-load-render-hook
+  (testing "entry-namespace.md's UIx core.cljs re-renders from a ^:dev/after-load hook"
+    (let [body @entry-namespace-md]
+      (is (re-find #"\(defn\s+\^:dev/after-load\s+mount!" body)
+          (str "entry-namespace.md's UIx core.cljs no longer defines "
+               "`(defn ^:dev/after-load mount! ...)`. shadow does NOT re-run the "
+               "module :init-fn after a hot reload — without this hook the "
+               "scaffolded app compiles, reloads, and never repaints "
+               "(rf2-ms6r8)."))
+      ;; The hook must be the fn that actually renders: the frame-root ENSURE
+      ;; mount has to sit inside `mount!`, not back in `init`.
+      (is (re-find #"\(defn\s+\^:dev/after-load\s+mount!(?:[\s\S]{0,600}?)frame-root\s+\{:id\s+:rf/default[\s\S]{0,120}?:initial-events\s+\[\[:counter/initialise\]\]"
+                   body)
+          (str "entry-namespace.md's `^:dev/after-load mount!` no longer "
+               "contains the frame-root ENSURE mount. The hook must be what "
+               "re-renders — a hook that does not mount leaves the reload just "
+               "as dead as no hook at all (rf2-ms6r8).")))))
 
 ;; ---------------------------------------------------------------------------
 ;; Lock 15 — the UIx route ships NO Xray (rf2-hki2j; rf2-p6f6u lineage).
