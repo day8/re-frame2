@@ -84,7 +84,7 @@ Use it as the body of `src/your_app/core.cljs`. When it mounts and clicks work, 
 
 ;; -- Mount -----------------------------------------------------------------
 
-;; Namespace load does no DOM work — the root is created lazily inside init.
+;; Namespace load does no DOM work — the root is created lazily inside mount!.
 (defonce react-root (atom nil))
 
 ;; `mount!` is the browser half: create the root once, then render the tree.
