@@ -42,7 +42,8 @@
          day8/re-frame2-machines {:local/root "../../implementation/machines"}
 
          ;; The Hicasso tab reads the Hicasso TOOL-TIER door
-         ;; (`re-frame.hicasso.tool` — rf2-hic-023) for its four views.
+         ;; (`re-frame.hicasso.tool` — rf2-hic-023) for the four evidence
+         ;; envelopes its six views project.
          ;; The dependency points THIS way only: Hicasso never depends on
          ;; Xray, and production applications never pull Xray
          ;; (bundle-isolation contract), so the hicasso artefact reaches

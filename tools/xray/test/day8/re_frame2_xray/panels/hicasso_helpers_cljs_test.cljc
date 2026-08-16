@@ -13,9 +13,9 @@
      schema this build cannot parse* have unrelated remedies, and a reader
      who cannot tell them apart is back where the schema found them. The
      third empty — *the roster came back empty* — is not one fact but
-     four, one per view, and the audit of #7789 found the mounted census's
-     verdict being read out under Intents where it was false. Each view
-     therefore answers for its own scope.
+     one per view (six today), and the audit of #7789 found the mounted
+     census's verdict being read out under Intents where it was false.
+     Each view therefore answers for its own scope.
 
   Everything else here is the row projections, which are ordinary."
   (:require #?(:clj  [clojure.test :refer [deftest is testing]]

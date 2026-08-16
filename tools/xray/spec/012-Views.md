@@ -59,7 +59,7 @@ separate tab.
 
 ---
 
-The Views tab (tab 3 of 7 in the 4-layer chrome — see
+The Views tab (tab 3 of 10 in the 4-layer chrome — see
 [`018-Event-Spine.md`](018-Event-Spine.md) §5) is the answer to two of
 the five canonical questions:
 

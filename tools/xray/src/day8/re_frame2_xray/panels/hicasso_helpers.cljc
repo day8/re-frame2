@@ -30,12 +30,12 @@
   | `:idle`     | Hicasso answered with an empty roster — and what THAT means is per view, see [[empty-copy]] |
   | `:live`     | there are rows |
 
-  The third row used to carry one sentence for all four views, and that
+  The third row used to carry one sentence for every view, and that
   sentence was written for the mounted census: *nothing is mounted, a
   clean bill of health*. Under Intents the same words claimed a capped
-  window proved nothing had been dispatched. Four scopes need four
-  sentences ([[empty-copy]]) — an empty roster is a different fact in
-  each, with a different remedy."
+  window proved nothing had been dispatched. Each view needs its own
+  sentence ([[empty-copy]], one entry per [[sub-modes]] view) — an empty
+  roster is a different fact in each, with a different remedy."
   (:require [clojure.string :as string]))
 
 ;; ---------------------------------------------------------------------------
@@ -259,10 +259,12 @@
 
 (def empty-copy
   "What an EMPTY roster means — PER VIEW, because it is a different fact
-  in each of the four.
+  in each of the six.
 
   The four reads have four scopes, and one shared sentence about an empty
-  one can be true of at most a single scope. It was written for the
+  one can be true of at most a single scope. Advisor and Causal add two
+  more: both follow the mounted census, and each says what its own
+  absence does and does not prove. It was written for the
   mounted census (where the entry cache really is authoritative) and then
   shown under Intents, where an empty roster means a capped window and
   proves nothing about what was dispatched, and under Reads, where it is
@@ -552,7 +554,7 @@
     "reads-nothing"))
 
 ;; ---------------------------------------------------------------------------
-;; The four view projections
+;; The six view projections
 ;; ---------------------------------------------------------------------------
 
 (def sub-modes

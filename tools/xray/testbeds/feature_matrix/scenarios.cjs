@@ -22,9 +22,9 @@ const {
 // (10s for the host counter, then 5s waits) that assumes a booted document.
 const NAV_TIMEOUT_MS = Number(process.env.XRAY_FEATURE_GATE_TIMEOUT_MS || 45000);
 
-// The 4-layer chrome's L3 tab bar exposes the 9 LIVE Dynamic tabs:
+// The 4-layer chrome's L3 tab bar exposes the 10 LIVE Dynamic tabs:
 // epoch / app-db / views / trace / machines / routing / resources /
-// derivation-graph / module-view (spec/018 §5 §The 9 tabs;
+// derivation-graph / module-view / hicasso (spec/018 §5 §The 10 tabs;
 // spec/007-UX-IA.md §L3). The Epoch panel is the canonical
 // "what happened in this epoch" surface; issues surface inline in the
 // Epoch panel + the L2 event-row pink-wash + the always-on issues
@@ -58,8 +58,9 @@ const PANEL_HANDOFFS = [
   // demand-trigger surface. L4-only registry tab. Its root view always
   // renders the `rf-xray-module-view` testid (panels/module_view.cljs).
   ['module-view', 'rf-xray-module-view'],
-  // The :hicasso tab (rf2-hic-023) — four views over the Hicasso evidence
-  // surface. L4-only registry tab. Its root view always renders the
+  // The :hicasso tab (rf2-hic-023) — six views over the Hicasso evidence
+  // surface, the last two (rf2-hic-037) derivations over the same four
+  // evidence envelopes. L4-only registry tab. Its root view always renders the
   // `rf-xray-hicasso` testid (panels/hicasso.cljs); the counter testbed is
   // not a Hicasso application, so the panel renders its honest
   // `rf-xray-hicasso-absent` state ("no Hicasso evidence on this host")
@@ -233,10 +234,11 @@ async function openXray(page) {
 }
 
 // The L3 tab bar's tabs expose `data-testid="rf-xray-tab-<id>"` for the
-// 9 LIVE Dynamic panels (epoch / app-db / views / trace / machines /
-// routing / resources / derivation-graph / module-view — spec/018 §5
-// §The 9 tabs; Resources per Spec 016 §Xray and AI tooling; Graph +
-// Modules per EP-0014 / EP-0013).
+// 10 LIVE Dynamic panels (epoch / app-db / views / trace / machines /
+// routing / resources / derivation-graph / module-view / hicasso —
+// spec/018 §5 §The 10 tabs; Resources per Spec 016 §Xray and AI
+// tooling; Graph + Modules per EP-0014 / EP-0013; Hicasso per
+// rf2-hic-023).
 async function clickTab(page, id, canvasTestId) {
   await page.locator(`[data-testid="rf-xray-tab-${id}"]`).click();
   await expectVisible(page.locator(`[data-testid="${canvasTestId}"]`), 5000);

@@ -285,12 +285,12 @@ own testid with its own prose.
 | `:mismatch` | `rf-xray-hicasso-mismatch` | Hicasso answered, stamping a schema/producer this build was not taught |
 | `:idle` | per view, below | Hicasso answered with an EMPTY roster — which is a different fact in each view |
 
-**The empty roster is four facts, not one.** The original single sentence —
-*nothing is mounted, the one empty that is a clean bill of health* — was
-written for the mounted census and then shown under all four views, where it
-told a reader that a capped intent window proved nothing had been dispatched
-(audit #7789). A confident wrong answer is worse than a visible gap, so each
-view answers for its own scope:
+**The empty roster is six facts, not one — one per view.** The original single
+sentence — *nothing is mounted, the one empty that is a clean bill of health* —
+was written for the mounted census and then shown under all four views the tab
+had at the time, where it told a reader that a capped intent window proved
+nothing had been dispatched (audit #7789). A confident wrong answer is worse
+than a visible gap, so each view answers for its own scope:
 
 | View | testid | What an empty roster means there |
 |---|---|---|
@@ -298,6 +298,8 @@ view answers for its own scope:
 | Reads | `rf-xray-hicasso-empty-attribution` | no cell is held; compatible with mounted boundaries that read nothing |
 | Intents | `rf-xray-hicasso-empty-intents` | the retained window is empty — a CAP, which cannot say whether anything was dispatched |
 | Why | `rf-xray-hicasso-empty-explain` | there is no mounted boundary to explain; it follows the census and inherits its qualifications |
+| Advisor | `rf-xray-hicasso-empty-advisor` | there is no boundary to rank; it follows the census, and is not a verdict that nothing is hot — it says nothing about lowering, React or layout, which this tab never measures |
+| Causal | `rf-xray-hicasso-empty-causal` | there is no slice to draw: a slice needs a mounted boundary AND a retained dispatch, and this is the first of the two missing |
 
 Each view's loss and remedy render whether or not there are rows. A view that
 showed its qualifications only when it had something to qualify would drop
@@ -499,8 +501,8 @@ Adding it moved six governance pins, each of which fails the build on drift:
 |---|---|---|
 | `re-frame.hicasso.evidence-schema-cljs-test` | node | every shape in which a projection would claim more than it knows is refused, each with a positive control |
 | `re-frame.hicasso.tool-reads-cljs-test` | node (reactive substrate) | the four reads over real committed boundaries; the seeded-value privacy witness for a return value AND for a query argument; two frames sharing a sub id with asymmetric windows; the dispatch-ordered, fragment-merged intent stream; determinism; the production-nil arm |
-| `…panels.hicasso-helpers-cljs-test` | node + JVM | the five absences and the empties are pairwise distinct — including the four per-view empties; labels and testids are built from the projected key; a row key carries the WHOLE projected identity, so two frames' boundaries over one query do not collide; two query variants do not collapse; the key is INJECTIVE as a property over a generated space of 9261 identities, 10162 boundary keys and 441 intent rows, with a non-vacuity control that the space still defeats a lossy slug; the superseded v1 stamp is refused rather than mis-parsed; the schema pin; row projections |
-| `…panels.hicasso-cljs-test` | node (reactive substrate) | the four views answer on a running app; `:rf.xray.hicasso/data` INVALIDATES and RECOMPUTES on a real `:rf.xray/trace-buffer` tick with no cache clear, against a held reaction proved stale first — the SUBSCRIPTION's half of liveness, the panel's half being the browser row below; the loss states render under distinct testids, driven between two real window states; a sensitive query argument reaches neither the page nor a testid; the Reads and Why rows carry the frame on the page and in the testid; each view renders its own empty; both the superseded and an unknown stamp render the mismatch; the seam reshapes nothing |
+| `…panels.hicasso-helpers-cljs-test` | node + JVM | the five absences and the empties are pairwise distinct — including the per-view empties, counted against the LIVE `sub-modes` list (six today) rather than a literal, so a seventh view cannot be added carrying a sixth view's sentence; labels and testids are built from the projected key; a row key carries the WHOLE projected identity, so two frames' boundaries over one query do not collide; two query variants do not collapse; the key is INJECTIVE as a property over a generated space of 9261 identities, 10162 boundary keys and 441 intent rows, with a non-vacuity control that the space still defeats a lossy slug; the superseded v1 stamp is refused rather than mis-parsed; the schema pin; row projections |
+| `…panels.hicasso-cljs-test` | node (reactive substrate) | the four EVIDENCE views answer on a running app (Advisor and Causal are the derived pair, and have their own suites per [`028-Hicasso-Advisor.md`](028-Hicasso-Advisor.md)); `:rf.xray.hicasso/data` INVALIDATES and RECOMPUTES on a real `:rf.xray/trace-buffer` tick with no cache clear, against a held reaction proved stale first — the SUBSCRIPTION's half of liveness, the panel's half being the browser row below; the loss states render under distinct testids, driven between two real window states; a sensitive query argument reaches neither the page nor a testid; the Reads and Why rows carry the frame on the page and in the testid; each view renders its own empty; both the superseded and an unknown stamp render the mismatch; the seam reshapes nothing |
 | `…panels.hicasso-live-panel-dom-cljs-test` | browser (real React DOM) | the RUNNING panel is live: one `Panel` mounted into a real `reagent.dom.client` root, inside the shell's own `[frame-provider {:frame :rf/xray}]`, picks up a newly-mounted boundary on a trace tick and commits the row to the DOM. Nothing calls `Panel` a second time; a drained render queue proves the panel stale across the mount first; the `<section>` node afterwards is the one it started with, so the roster arrived by reconciliation and not by a remount |
 | `frame_singleton_guard_test` | JVM (source text) | the sub-strip dispatches through the `reg-view`-injected frame-bound `dispatch`, never a bare global one |
 | `feature_matrix/scenarios.cjs` | browser | the tab reaches a real panel root in the shell sweep |

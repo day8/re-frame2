@@ -8,9 +8,11 @@
   `subscribe` closure React calls, which is why this is answerable in
   Node), then renders the panel's hiccup over the projection those
   boundaries produced. Nothing is stubbed between the runtime and the
-  screen: the acceptance is that the four views ANSWER on a running app,
-  and a suite built on hand-written envelopes would demonstrate only that
-  the renderer can render.
+  screen: the acceptance is that the four EVIDENCE views ANSWER on a
+  running app, and a suite built on hand-written envelopes would
+  demonstrate only that the renderer can render. The tab ships six views;
+  the derived pair — Advisor and Causal — has its own suites
+  (`hicasso_advisor_cljs_test.cljc`, `hicasso_causal_cljs_test.cljs`).
 
   The pure algebra has its own suite (`hicasso_helpers_cljs_test.cljc`);
   what is asserted here is the part that needs the runtime.
@@ -215,10 +217,12 @@
 
 (deftest an-empty-roster-says-something-different-in-each-view
   ;; AUDIT #7789, CORRECTNESS 3, on the page. One `:idle` note — "nothing is
-  ;; mounted, a clean bill of health" — rendered under all four views. Under
+  ;; mounted, a clean bill of health" — rendered under every view. Under
   ;; Intents it told the reader a CAPPED window proved nothing had been
-  ;; dispatched. The four empties are now four testids and four sentences,
-  ;; and this drives the real panel to prove it.
+  ;; dispatched. Each view now has its own testid and its own sentence —
+  ;; six of them, one per `sub-modes` entry, which the pure-algebra suite
+  ;; counts against the live list. This row drives the REAL PANEL over the
+  ;; four evidence views to prove the sentences reach the page.
   (setup!)
   (let [by-view (into {} (map (fn [v] [v (show! v)])) [:mounted :attribution
                                                        :intents :explain])]
@@ -300,7 +304,7 @@
     (release)))
 
 ;; ---------------------------------------------------------------------------
-;; THE FOUR VIEWS ANSWER, ON A RUNNING APP
+;; THE FOUR EVIDENCE VIEWS ANSWER, ON A RUNNING APP
 ;; ---------------------------------------------------------------------------
 
 (deftest the-mounted-view-answers-which-boundaries-are-mounted
