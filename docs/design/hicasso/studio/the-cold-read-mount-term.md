@@ -442,6 +442,113 @@ and settled between samples behind a residue equality gate that never fired):
 > one of its original terms still does not resolve, and a decomposition with
 > an unresolved term is not one.
 
+> **THE THREE-NULL WINDOW RAN, AND THE `+0.022` OFFSET DID NOT REPRODUCE**
+> (`rf2-lo7uy`, 2026-08-17, base `3be82b04bc` on `origin/main`; instrument
+> blob `c220a8c23c`, `:advanced`, Playwright HeadlessChrome 147.0.7727.15).
+> Three runs — the count fixed before run 1 started, so no stopping rule could
+> end the series on a convenient answer — `exit 0` on each, both arm-order
+> guards reportable on each, the phase-A positive control passing on each, the
+> phase-B residue gate never firing. **Nothing refused.** The window shape is
+> unchanged again: 32 frames, 8 × (2 + 8) = 64 kept samples per arm, grid
+> 0.0015625 ms/commit. Eleven arms rather than nine, because PR #8384 appended
+> two more nulls *before* the window opened and took no measurement itself, so
+> this is a new series and its absolutes are not arm-by-arm comparable with the
+> nine-arm runs above.
+>
+> **What the window was for.** One null is one pair of slots, so `rf2-3l6hf`'s
+> `c-null` could say the offset's SIZE and not its CAUSE. `c-null-twin` sits at
+> slot 9, on `c-local`'s kept-sample position footprint EXACTLY; `c-null-curve`
+> sits at slot 10, sharing `c-local`'s mean position on a different footprint;
+> `c-null` stays at slot 2 where the published window had it. All three are
+> `c-local` again through the same `mk-local`, so all three deltas have a true
+> cost of exactly zero and differ in nothing but slot.
+>
+> **The estimator, named as computed.** Every run-level figure below is a
+> difference of two **pooled medians**, each over an arm's 64 kept samples
+> divided by the 32-frame window — the mean of the 32nd and 33rd *order
+> statistics*, not an arithmetic mean of the samples. Where a figure is the
+> arithmetic mean of the three run-level deltas, or a within-round median, it
+> is called that.
+>
+> | null (`c-local −` the arm) | slot | footprint | run 1 | run 2 | run 3 | range |
+> |---|---|---|---|---|---|---|
+> | `c-null`, displaced in mean and shape | 2 | `[0 0 2 4 5 6 7 9]` | +0.0109 | −0.0188 | +0.0313 | 0.0501 |
+> | **`c-null-twin`, `c-local`'s footprint exactly** | 9 | `[1 3 4 5 6 7 8 10]` | **−0.0031** | **+0.0047** | **−0.0047** | **0.0094** |
+> | `c-null-curve`, same mean, other shape | 10 | `[2 3 4 5 6 7 8 9]` | −0.0281 | −0.0250 | +0.0203 | 0.0484 |
+>
+> **THE OFFSET WAS NOT THERE TO BE DIAGNOSED.** On the same arm pair, both arms
+> at the slots the predecessor published them at, this series read `+0.0109 /
+> −0.0188 / +0.0313` — sign-changing, spanning 32 grid steps. The predecessor
+> read `+0.0234 / +0.0219 / +0.0234`, spanning one. The stable positive offset
+> whose cause this bead exists to establish did not appear on `c-null`, on the
+> twin, or on the curve. **So its cause is still not established**, and the
+> honest reading is narrower than either outcome the bead anticipated: a
+> `+0.022` offset stable to one grid step is not a reproducible property of
+> this instrument across a change of layout.
+>
+> **One positive finding, with its caveats attached.** The twin is the only one
+> of the eight deltas whose run-level range is small — `0.0094` against
+> `0.0360`–`0.0515` for the other seven, which include both other nulls. The
+> raw pooled medians say why: `c-local` read `0.5922 / 0.5875 / 0.6406` and the
+> twin `0.5953 / 0.5828 / 0.6453`, rising together by `+0.0531` and `+0.0625`
+> between runs 2 and 3, while `c-null` moved `+0.0031` and the curve `+0.0078`
+> across the same transition. Arms sharing a position footprint co-moved; arms
+> not sharing one did not. That is a position-linked component in the
+> instrument's **run-level** error. But it rests on **one** of the two
+> transitions three runs afford; there is **no second null pair** to corroborate
+> it, because `c-local`'s footprint is shared only with the twin and every other
+> footprint-sharing pair puts two *different workloads* together; and it is
+> **absent at round granularity**, where the within-round p50 deltas' standard
+> deviations are `0.0415` (twin), `0.0447` (`c-null`) and `0.0460` (curve) over
+> the window's 24 rounds — ratios of 1.08 and 1.11, so position control removes
+> essentially nothing from the round-to-round scatter.
+>
+> **The window also found a limit in its own rig, and did not repair it.**
+> `c-null-curve`'s job is to cancel a *linear* drift by matching `c-local`'s
+> mean position. That cancellation is exact for an arithmetic mean and only
+> first-order true for the median this instrument actually reports: two arms
+> sharing a footprint exactly have identical pooled mixtures and therefore
+> identical medians for any drift whatever, but two arms sharing only the mean
+> differ at second order in a term carrying the *variance* of the position
+> multiset — 7.25 for `c-local` against 5.25 for the curve. **So a non-zero
+> curve reading does not establish curvature, and this window concludes nothing
+> about whether the drift is linear.** It is recorded rather than fixed:
+> `n` feeds `lane/slot-order`, so touching the roster moves every published
+> footprint and starts a third series.
+>
+> **What is NOT concluded.** Not that the offset is fixed or was an artefact of
+> nine arms. Not that any candidate is its cause — it was not observed. Not any
+> separation of a residual arm-position effect from a within-sweep thermal or
+> cache drift: the twin cancels **any** function of sweep position whatever its
+> physical cause, so both fall on the same side of it. Not any bound on any
+> term — no null was subtracted from any term, and both prohibitions carried
+> from `rf2-3l6hf` stand. Not any restatement of the terms above; the five
+> ablation figures this series recorded are its own and supersede nothing.
+>
+> **The box.** Processor Queue Length (`\System\Processor Queue Length`) was
+> sampled on its own, five samples at 1 s, immediately before the window and
+> between every pair of runs on a 24-core host: `0,0,0,0,0` at 00:42:46,
+> `0,0,0,0,1` at 00:45:40, `0,0,0,0,0` at 00:47:05, `0,0,0,0,0` at 00:48:32
+> (all +10:00). A second counter, `% Processor Utility`, was read in the same
+> brackets and never exceeded 32.3% including the sampler's own cost — two
+> sources rather than one, because a headline utilisation figure can be wrong
+> by a wide margin while the queue length says whether anything is actually
+> waiting for a core. **Nothing was sampled inside a run**, so the quietness
+> claim is a bracketing claim and nothing stronger. No open PRs and no other
+> worker were in flight.
+>
+> Raw driver output for all three runs is committed beside the instrument at
+> `implementation/hicasso/test/re_frame/bench/hicasso/data/readprofile-lo7uy/`
+> (`run1.txt`, `run2.txt`, `run3.txt`), verbatim except for the one
+> `shadow-cljs - config:` banner line per file, whose absolute path is replaced
+> by `<worktree>` and marked inline as redacted — the portability gate refuses
+> a tracked personal home path. No figure, guard verdict or exit line was
+> touched, and the line counts are unchanged. That directory's `README.md`
+> states the redaction and carries the full tables.
+>
+> **`rf2-07rnj` stays blocked.** It is blocked on the offset's cause being
+> established, and this window did not establish it.
+
 Micro table, over the page's own roster (ns/op): `subscribe-once` 5,284;
 `compute-sub` 1,170; the raw handler invoke 227; `registrar/lookup` 67;
 `frame-state-value` 266; the `call-with-frame-resolution` wrap 206; the
