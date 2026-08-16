@@ -198,7 +198,7 @@ ordinary dynamic child position is handed to React with nothing recorded at the
 site, so the escapes a manifest can list are a strict subset of the escapes that
 exist. The normative statement — and the open design question a real containment
 would have to answer — is
-[004D §The document head is host-owned](../004D-Freehand-Compiled-Grammar.md#the-document-head-is-host-owned).
+[011-SSR §Head/meta contract](../011-SSR.md#headmeta-contract).
 What *does* survive is the JVM's absence: the **JVM tree has no such route** —
 `:raw` raises `:rf.error/jvm-host-op` — so a server-rendered head still comes
 only from `reg-head` / `active-head`.

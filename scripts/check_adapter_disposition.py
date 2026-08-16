@@ -81,10 +81,10 @@ from pathlib import Path
 ACTIVE_AUTHORITIES = (
     "docs/EP/EP-0030-the-compiled-view-substrate-program.md",
     "spec/004-Views.md",
-    # The donor-era compiled-view contract moved here by EP-0036's ownership cut;
-    # it is where the adapter-disposition prose actually lives now, so BOTH the
-    # common Freehand Spec 004 and the compiled-tier 004D stay on the roster.
-    "spec/004D-Freehand-Compiled-Grammar.md",
+    # `spec/004D-Freehand-Compiled-Grammar.md` was on this roster until rf2-0yp7w.11
+    # deleted it with its artefact (`day8/re-frame2-ui`, removed by the R2b/R3b cuts).
+    # The adapter-disposition prose it carried is gone with it; spec/004-Views.md
+    # remains the Spec-tier authority the roster scans.
     "skills/re-frame2-implementor/references/phase-2-impl-order.md",
     "implementation/README.md",
     "implementation/adapters/reagent/README.md",

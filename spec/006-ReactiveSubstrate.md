@@ -687,7 +687,7 @@ The exemption is principled: a Fragment has no DOM element to annotate, and a `[
 
 ### Form-2 handling
 
-When a registered view's render-fn returns a fn (Reagent's Form-2 closure shape per [Spec 004D §Removed forms — normative absences](004D-Freehand-Compiled-Grammar.md#removed-forms--normative-absences)), the adapter wraps the returned fn so the inner-fn's hiccup output is annotated on the next call. Annotation lands on the eventual rendered DOM root, not on the outer fn (which is not a DOM element).
+When a registered view's render-fn returns a fn (Reagent's Form-2 closure shape), the adapter wraps the returned fn so the inner-fn's hiccup output is annotated on the next call. Annotation lands on the eventual rendered DOM root, not on the outer fn (which is not a DOM element).
 
 ### Cross-host
 
@@ -2192,7 +2192,7 @@ recompute republishes an identical bundle rather than churning it.
 
 Neither mode changes these semantics. The interpreted tier records the reads a committed render
 actually made — exact for that generation, not a static upper bound for the program; the
-compiled tier additionally proves a finite set of possible read sites (Spec 004D). What `v/sub`
+compiled tier additionally proves a finite set of possible read sites. What `v/sub`
 *means* — a render-owned, stabilized, same-thread reactive read — is one sentence in both.
 
 ## What happens when a sub references an unknown sub

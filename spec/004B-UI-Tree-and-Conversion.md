@@ -2,9 +2,7 @@
 
 > Status: v1-required. The public ABI for Freehand's structural render tree and
 > the DOM conversion table every emitter consumes — the tree/conversion half of
-> Spec 004D's portability law. [004D-Freehand-Compiled-Grammar.md](004D-Freehand-Compiled-Grammar.md) §The JVM
-> structural subset and §Template grammar reference this contract; it is never
-> restated there. Consumers: the structural render surface's return value (per
+> the portability law. Consumers: the structural render surface's return value (per
 > [008](008-Testing.md), where the surface is conventionally aliased `t`), tree
 > traversal (ordinary Clojure — `(tree-seq map? :children tree)`),
 > parity/fingerprints (per [008](008-Testing.md) and [011](011-SSR.md)), and the
@@ -163,12 +161,12 @@ read surface. Text is therefore not a *queryable node*: selectors never match it
   sample stored string tags; keywords are pinned here so the selector grammar's tag-kw
   match (`:button` matches `:tag :button`) and hiccup authoring stay one vocabulary; the
   serialiser stringifies. Foreign components never appear (no JVM execution — they sit
-  under `client-only` — see [004D §Interop and boundaries](004D-Freehand-Compiled-Grammar.md#interop-and-boundaries)).
+  under `client-only`).
 - **`:ns`** — `:svg` or `:mathml`, per the namespace context rules in the conversion
   table. **MUST be absent for HTML** — the canonical form has exactly one
   representation per node (fingerprint stability), so `:ns :html` is never written.
 - **`:attrs`** — the **author-space** attribute map. Keys are the prop keywords per the
-  pinned DOM spelling ([004D §Template grammar](004D-Freehand-Compiled-Grammar.md#template-grammar): hyphenated lowercase — `:tab-index`, `:aria-hidden`,
+  pinned DOM spelling (hyphenated lowercase — `:tab-index`, `:aria-hidden`,
   `:data-priority`, `:view-box`), with `.class#id` sugar already merged into
   `:class`/`:id`. Values are normalized to **semantic form** (§Attr value normalization
   below). Final DOM *name* conversion (`tabindex`, `for`, `viewBox`, `className`) is the
@@ -328,7 +326,7 @@ template — whose head is a view **descriptor** in the documented `{:fallback
 [broken-page {}]}` spelling — into a slot the schema says holds data. Nothing is lost:
 the option is required, so its presence proves nothing.
 
-`:v/render-fn` is the compiled render-slot member ([004D §Compiled render slots](004D-Freehand-Compiled-Grammar.md#compiled-render-slots--render-fn-and-slot)):
+`:v/render-fn` is the compiled render-slot member:
 a `v/render-fn` value carried as a component-call-site prop is recorded on that
 view-boundary's `:props` as `{:rf.ui/opaque :v/render-fn}`. The render-fn's *rendered
 output* is **not** a marker — a `v/slot` invocation produces the ordinary child
@@ -378,7 +376,7 @@ normalization `N`, steps 1–2).
 |---|---|---|---|
 | `:rf.ui/tree-version` | required gate | root node only | the schema-version integer (**1** for this document); validated first, then removed from `N`'s output |
 | `:rf.ui/property-props` | **semantic** | custom-element element nodes | the set of `:attrs` keys classified as **properties** per the RULED `v/custom-element` declaration; **consumed** at conversion (the serialiser and `N` omit those props from markup — step 5) and only then removed from the output. Required whenever a property-only classification exists; **removing it changes semantics** — the props would leak back into the attribute space |
-| `:rf.ui/presence` | diagnostic | the fragment node a presence boundary renders as | `{:phase :present :timeout-ms n}` — the presence metadata exposed structurally per [004D §The JVM structural subset](004D-Freehand-Compiled-Grammar.md#the-jvm-structural-subset); phase is always `:present` on the JVM |
+| `:rf.ui/presence` | diagnostic | the fragment node a presence boundary renders as | `{:phase :present :timeout-ms n}` — the presence metadata exposed structurally; phase is always `:present` on the JVM |
 | `:rf.ui/boundary` | diagnostic | the fragment node wrapping a deterministic fallback | `:client-only` (the structural "fallbacks" evidence; `:portal` reserved for the wave-2 row) |
 | `:rf.ui/top-layer` | diagnostic | the element node a DOM top-layer desired-state property is declared on | `{:popover-open? bool}` or `{:modal-open? bool}` — the desired state per [004 §The DOM top layer](004-Views.md#the-dom-top-layer), recorded as a FACT and never as a claim that anything was promoted; a structural host has no top layer, and the property is vocabulary rather than an attribute, so it never appears in `:attrs` |
 
@@ -473,7 +471,7 @@ Intent assertion, respelled to this contract:
 ## Semantic normalization `N` — the parity/fingerprint input
 
 `N(tree)` produces the **semantic-node tree** — the exact input to normalized
-structural equivalence ([004D §The portability law and the template AST](004D-Freehand-Compiled-Grammar.md#the-portability-law-and-the-template-ast))
+structural equivalence
 and to the render fingerprint. Pinned, in order:
 
 1. **Remove** every `:rf.ui/*` reserved key from the output (version, presence,
@@ -509,7 +507,7 @@ and to the render fingerprint. Pinned, in order:
    and escaping-free semantic space — escaping is a serialisation concern the
    comparator normalizes away ).
 7. **Carry trusted-HTML nodes as opaque raw-markup leaves**, compared verbatim (both
-   emitters treat `v/html` identically — [004D §Interop and boundaries](004D-Freehand-Compiled-Grammar.md#interop-and-boundaries)).
+   emitters treat `v/html` identically).
 
 The semantic node is `{:ns … :tag … :attrs {final-name → serialised-value} :children
 […]}` with attribute maps order-insensitive and child vectors order-significant.
@@ -573,7 +571,7 @@ unexercised — Stage 1 confirms.
 | `:value` on `:textarea` | serialises as the element's **text child**, not an attribute **[S1-CONFIRM]** |
 | `:value` on `:select` | serialises as `selected` on the matching `:option`(s) **[S1-CONFIRM]** |
 | `dangerouslySetInnerHTML` | does not exist in this grammar — `v/html` is the one trusted-markup spelling, and it is a node variant, not a prop. A trusted-markup (`:html`) child **beneath `<textarea>`** is rejected at the SSR seam through `:rf.error/ui-tree-malformed` (react-dom/server 19.2 rejects `dangerouslySetInnerHTML` on a textarea — its content is `value`/`defaultValue` or a text child). The seam validates the **effective** child stream — a `:html` leaf spliced in through a transparent fragment or view boundary is caught at its actual path, not only an immediate child; the compiler rejects the source shape as `:rf.ui.compile/html-in-textarea` (rf2-ib4fd) |
-| `:ref` | absent from the JVM tree entirely ([004D §The JVM structural subset](004D-Freehand-Compiled-Grammar.md#the-jvm-structural-subset): refs absent). The **interpreted** walk has no ref machinery at all — a ref is a commit-phase host hook — so it refuses `:ref` in an attribute map rather than carrying it as an ordinary attribute the structural tree shows and React silently consumes as a reserved prop. Refs arrive with the host-lifecycle slice. In **compiled** mode `:ref` is the one accepted spelling of that reserved slot — the analyzer routes it through the ref contract — so an alias (`:x/ref`) is refused there on the same one-spelling-per-name law, rather than reaching React's ref slot as an ordinary attribute around the contract |
+| `:ref` | absent from the JVM tree entirely (refs absent). The **interpreted** walk has no ref machinery at all — a ref is a commit-phase host hook — so it refuses `:ref` in an attribute map rather than carrying it as an ordinary attribute the structural tree shows and React silently consumes as a reserved prop. Refs arrive with the host-lifecycle slice. In **compiled** mode `:ref` is the one accepted spelling of that reserved slot — the analyzer routes it through the ref contract — so an alias (`:x/ref`) is refused there on the same one-spelling-per-name law, rather than reaching React's ref slot as an ordinary attribute around the contract |
 
 ### `:style`
 
@@ -664,7 +662,7 @@ rf2-0spji, rf2-ib4fd).
 
 ### Custom elements (per the RULED grammar)
 
-Per [Spec 004D §Template grammar](004D-Freehand-Compiled-Grammar.md#template-grammar)'s RULED `v/custom-element`
+Per the RULED `v/custom-element`
 grammar (restated here as consumer): a declared `(v/custom-element tag {:properties #{…}})`
 name compiles to the camelCase JS **property** (`:help-text` → `helpText`) on the
 client; undeclared names are attributes; undeclared elements default to
@@ -681,9 +679,7 @@ legitimately name a property in the `on-*` family, so a DECLARED `:on-detail` is
 property on every lowering path — in `:attrs`, named by `:rf.ui/property-props`, omitted
 from server markup, set as `onDetail` in the browser — while an undeclared one is a
 native event on every lowering path. What admits a property is the NAME being declared,
-never the prefix and never the element merely carrying a declaration somewhere; see
-[004D §The declaration outranks handler position](004D-Freehand-Compiled-Grammar.md#the-declaration-outranks-handler-position),
-which owns the rule.
+never the prefix and never the element merely carrying a declaration somewhere.
 
 ## The SSR consumption boundary
 
@@ -911,13 +907,12 @@ encoding, and the manifest field that carries it are Spec 011's (§Normalization
 ## Ripples
 
 - Tree traversal is ordinary Clojure — `(tree-seq map? :children tree)` and a
-  `(:view-id %)` / `(:tag %)` predicate. (The former 004D `t/find`/`find-all`
+  `(:view-id %)` / `(:tag %)` predicate. (The former `t/find`/`find-all`
   selector grammar is retired, rf2-n7jtp; a `:view-id` predicate matches the
   view-boundary node, so fragment-rooted and nil-rooted views stay matchable.)
 - `guide/08-testing.md` — the intent assertion reads
   `(-> (some #(when (= :button (:tag %)) %) (tree-seq map? :children tree)) t/attrs :on-click)`
   (owned by the guide pass, not this fold-in).
-- [004D §The JVM structural subset](004D-Freehand-Compiled-Grammar.md#the-jvm-structural-subset) and
-  [008 §The `ui.test` contract](008-Testing.md#the-uitest-contract--headless-testing-for-compiled-views)
-  point at this contract; the 009 catalogue gains rows for
+- [008 §The `ui.test` contract](008-Testing.md#the-uitest-contract--headless-testing-for-compiled-views)
+  points at this contract; the 009 catalogue gains rows for
   `:rf.error/ui-tree-malformed` and `:rf.error/ssr-ui-tree-version-unsupported`.
