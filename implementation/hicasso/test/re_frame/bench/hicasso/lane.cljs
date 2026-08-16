@@ -612,11 +612,12 @@
   many rounds follow, while at `{:warmup 8 :samples 12}` over five rounds
   the run's last third sits at 72–99 prior executions (32–44 at
   `{:warmup 3 :samples 6}`). Round one is the only round that needs
-  warming, and rounds two to five each pay `warmup` mounts that warm
+  warming; every round after it pays a full `warmup` block that warms
   nothing.
 
   SO RAISING `warmup` IS A BLUNT LEVER — it buys round one's pre-warm at
-  five times its cost — and the targeted repair is a run-level `:prewarm`
+  `rounds` times its cost, which on these clocks is five — and the
+  targeted repair is a run-level `:prewarm`
   that runs the arms P times, discarded, before the first round, leaving
   `warmup` as a small per-round settling allowance. **It is not built**,
   because the knob sufficed: rf2-h904p raised the two clocks to `8`, which
