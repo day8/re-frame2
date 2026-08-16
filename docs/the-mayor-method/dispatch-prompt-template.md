@@ -654,12 +654,21 @@ improvised. Point at the settled wording rather than restating it, and **scope t
 shortening it** — dropping the sanction along with the parts that do not apply is the same failure by a
 shorter road.
 
-**Detaching a long gate is CORRECT; ending the turn afterwards is the defect.** Where a harness hard-kills a
-foreground command well below what the full gate needs, "foreground, to completion" is not on offer however
-the brief is worded. Foreground a gate that fits inside the ceiling; **detach one that does not, then poll
-both its log and its exit-code file in a bounded loop, within the same turn.** Poll both, because they answer
-different questions: the log shows progress, while the exit file carries the verdict and appears only once the
-run is actually over.
+**But first, check whether the gate is COMPOUND — a script that chains two phases often splits into two runs
+that each fit.** This is strictly better than detaching, because it keeps every verdict in the foreground and
+removes the strand risk rather than managing it. A worker here met a build-and-run script that measured past
+the ceiling and ran each half as its own foreground call: both finished well inside it, nothing was killed,
+and no cache was left corrupt by an orphan. The same day, two workers detached the whole thing instead; both
+died at the cap, and one left a build cache so damaged that the next attempt failed with twenty-two cascading
+errors naming files it had never touched. **Read what the script actually runs before deciding it cannot be
+foregrounded.**
+
+**Where it genuinely does not split, detaching is CORRECT; ending the turn afterwards is the defect.** Where a
+harness hard-kills a foreground command well below what the full gate needs, "foreground, to completion" is not
+on offer however the brief is worded. Foreground a gate that fits inside the ceiling; **detach one that does
+not, then poll both its log and its exit-code file in a bounded loop, within the same turn.** Poll both, because
+they answer different questions: the log shows progress, while the exit file carries the verdict and appears
+only once the run is actually over.
 
 What strands a worker is ending the turn instead, waiting for a completion notification — it does not always
 arrive, and a turn that has ended has nothing left to wake. The worker then reports "standing by" through idle
