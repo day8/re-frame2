@@ -993,6 +993,59 @@ run "test-lane bijection self-test" "python scripts/check_test_lane_bijection.py
 run "test-lane bijection (rf2-4hc9p)" "python scripts/check_test_lane_bijection.py" \
   python "$spine_root/scripts/check_test_lane_bijection.py" --repo-root "$spine_root"
 
+# WORKFLOW YAML WELL-FORMEDNESS (rf2-cb7hs) — placed AHEAD of the three gates
+# below that read `.github/workflows/`, deliberately.
+#
+# Every one of those is a hand-rolled line reader, and over a file PyYAML
+# refuses they all come back GREEN.  Measured at tip 959c34204a with an
+# unmatched quote planted on line 1 of test.yml: `check_jvm_lane_rosters`,
+# `check_fast_pr_gap`, `check_ci_reproduce_commands` and `check_gate_scheduling`
+# each exited 0 over a file `yaml.safe_load` rejects with "while parsing a block
+# mapping".  `check_gate_scheduling` cannot see the class at all — it strips
+# comments by design (rf2-6ckzl) — and `actionlint` appears nowhere in the
+# tracked tree, so before this line NOTHING at any tier asserted that a workflow
+# even parsed.  Validating the file before three gates parse it by hand is the
+# ordering that makes their greens mean something.
+#
+# NOT A MIRROR OF A CI JOB.  Every other line in this always-on block pairs with
+# a required check; this one has no CI counterpart, and that absence IS the
+# bead.  Nor is it a safety gate: a workflow that fails to parse does not run,
+# so the PR's rollup comes back SHORT of the required band and the merge
+# criterion refuses it.  What it buys is the ROUND TRIP — a local error naming
+# the file and the line, instead of a push, a CI wait, and a confusing partial
+# rollup.  Always-on because `.github/workflows/**` is owned by no tier of this
+# spine (a workflow-only diff reaches the classifier's `mark_all` or falls to
+# the unknown-surface fallback, and neither decides anything here), and because
+# it is ~0.05s over eleven files, which cannot grow with the tree.
+#
+# DELIBERATELY NOT actionlint, and not schema validation of the Actions grammar
+# — no job wiring, no `needs:` graph, no `if:` conditions.  One question, in
+# milliseconds: is the file YAML?
+#
+# PyYAML is probed rather than assumed.  It is not a direct entry in
+# requirements.txt; it arrives as a dependency of mkdocs, so a checkout that
+# never installed the docs toolchain has no parser.  Absent, this is a LOUD SKIP
+# with the gap named — the same treatment `mkdocs --strict` and the pinned
+# clj-kondo get below, and for the same reason: a gate that reports success
+# without having examined anything is the failure mode this spine exists to
+# avoid.  Self-test first (proves it fires on four distinct break shapes and
+# stays green on a valid workflow), then the live sweep.
+if python -c "import yaml" >/dev/null 2>&1; then
+  run "workflow YAML self-test" "python scripts/check_workflow_yaml.py --self-test --verbose" \
+    python "$spine_root/scripts/check_workflow_yaml.py" --self-test --verbose
+
+  run "workflow YAML well-formed (rf2-cb7hs)" "python scripts/check_workflow_yaml.py --verbose" \
+    python "$spine_root/scripts/check_workflow_yaml.py" --repo-root "$spine_root"
+else
+  printf '\n    NOT CHECKED: workflow YAML — PyYAML is not importable on this\n'
+  printf '      interpreter, so nothing read .github/workflows/ this run.  This is\n'
+  printf '      NOT a pass: the three gates below parse those files by hand and\n'
+  printf '      return 0 over a file no YAML parser accepts.  Left with NO local\n'
+  printf '      gate: every file under .github/workflows/.  Install it\n'
+  printf '      (pip install -r requirements.txt pulls PyYAML in through mkdocs).\n'
+  note_skipped "workflow YAML well-formedness — PyYAML unimportable, so no local lane parsed .github/workflows/ this run (rf2-cb7hs)"
+fi
+
 # JVM roster <-> CI required-job bijection (rf2-as6bg).  The gate above READS
 # the two JVM rosters to discover the JVM lanes, so an artefact missing from a
 # roster is not a violation to it — it is simply not a lane.  That blind spot
