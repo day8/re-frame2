@@ -13,10 +13,13 @@ and accessibility. Numbered pages run from
 [`22-accessibility`](22-accessibility.md), and the sidebar carries that order —
 each chapter leans only on what came before it.
 
-Three lookup surfaces follow the chapters. The [API
+Five lookup surfaces follow the chapters. The [API
 reference](api-reference.md) carries every public name with the signature it
-ships with; the [Cookbook](cookbook.md) carries whole recipes you can copy; and
-[Troubleshooting](troubleshooting.md) starts from a symptom or a complaint id.
+ships with; the [Cookbook](cookbook.md) carries whole recipes you can copy;
+[Troubleshooting](troubleshooting.md) starts from a symptom or a complaint id;
+[The escape ladder](escape-ladder.md) gives the criteria for going outside the
+interpreted model and what each rung costs; and the [Glossary](glossary.md)
+defines the Hicasso-specific terms the chapters use.
 
 ## Prerequisites
 
