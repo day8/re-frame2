@@ -175,11 +175,16 @@ A fresh worktree off `origin/main` at `7304e825c9`, with a real `npm ci` (**101*
 commit and not to "the landed tree"** — the mistake §2 now carries a correction for. The trunk moved
 under this section while it was being written, to `c2654846cf`; `git diff --stat 7304e825c9..c2654846cf
 -- implementation docs` is **empty**, so nothing in the interval reaches a surface any family here
-measures, and the anchor is what lets a reader check that rather than take it. **Every family was run one at a time and
-never in parallel** — two heavyweight suites on this machine have wedged rather than failed, each
-holding several gigabytes, and neither reported anything. Two other workers' heavy runs were live on
-the box throughout and were left alone. Each exit code is the runner's own, captured by an `echo $?`
-on the same command line as the redirect, never a status reported about the run by something else.
+measures, and the anchor is what lets a reader check that rather than take it.
+
+**Every family was run one at a time and never in parallel.** On a saturated box two heavyweight suites
+here have once *wedged* rather than failed, each holding several gigabytes, and neither returned or
+reported anything — a failure mode no naming discipline touches, because it is contention for the
+machine. Two other workers' heavy runs were live alongside these and were left alone; both were
+accruing CPU, which is what distinguishes a slow run from a wedged one.
+
+Each exit code is the runner's own, captured by an `echo $?` on the same command line as the redirect,
+never a status reported about the run by something else.
 
 ### 6.3 The runs, with captured exit codes
 
@@ -204,7 +209,7 @@ at `652:21`, `653:26`, `658:26` and `666:26` — and all four are the same expre
 `(.-server (n/marker …))`. They are recorded here because the *production* version of exactly this
 shape was a real defect once (`rf2-9zz0y`: four `:infer-warning`s on `(.. el -style -anchorName)` sat
 in `impl/overlay.cljs` until someone read them off a browser build by hand). **This is not that**: the
-`:advanced` lane in the row below compiled **0 warnings**, so the shape is not reaching a build where
+`:advanced` elision lane in the table above compiled **0 warnings**, so the shape reaches no build where
 property renaming could make the assertion lie. Filed as `rf2-wqalj` rather than fixed here — a
 recertification records what the gates said, and this gate said green.
 
