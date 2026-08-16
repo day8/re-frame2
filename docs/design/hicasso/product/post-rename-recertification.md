@@ -30,11 +30,12 @@ recertification that smoothed it into symmetry would be recording a fault as a f
 ## 2. The sweep is NOT complete, so nothing here certifies it as complete
 
 `rf2-hic-090` depends on `rf2-hic-066`, and `rf2-hic-066` is closed — but it closed having deliberately
-**stopped** on part of its own surface. Two remainders are live:
+**stopped** on part of its own surface. Two remainders were opened, and **exactly one of them is still
+live** — the second was discharged on 2026-08-15 and its row says so:
 
 | Remainder | Where it stands | Why it blocks certification |
 |---|---|---|
-| Naming-ledger **row 18** — retire `hframe` | Ruled by the operator (2026-08-11); **still unexecuted at 2026-08-15**. The seam it retires in favour of is `rf2-t32wg`, **open and awaiting an operator spec ruling** — zero-arity `rf/capture-frame` refuses inside a Hicasso body, and admitting it contradicts two normative sentences in `spec/002-Frames.md`. | **142 `hframe` occurrences across 40 files** stay put by `rf2-t32wg`'s own instruction — re-measured 2026-08-15 by line count of `git grep -o -h -E '\bhframe\b' -- . ':(exclude).beads'` (the row first recorded 152/39, on a differently-scoped count). That is the ledger's header rule working, not drift — and it means the public surface is not final. |
+| Naming-ledger **row 18** — retire `hframe` | Ruled by the operator (2026-08-11); **still unexecuted at 2026-08-15**. The seam it retires in favour of is `rf2-t32wg`, **open and awaiting an operator spec ruling** — zero-arity `rf/capture-frame` refuses inside a Hicasso body, and admitting it contradicts two normative sentences in `spec/002-Frames.md`. | **142 `hframe` occurrences across 40 files at `f167edd4bc`** stay put by `rf2-t32wg`'s own instruction — the count is anchored to that commit rather than to "the landed tree", because writing it down moved it: on the head this page landed as, the same command reads **143/40**, and it reads 143/40 again at `7304e825c9` ([§6](#6-the-re-run-2026-08-16-after-the-donor-retire)). Measured by line count of `git grep -o -h -E '\bhframe\b' -- . ':(exclude).beads'` (the row first recorded 152/39, on a differently-scoped count). That is the ledger's header rule working, not drift — and it means the public surface is not final. |
 | Four `:recovery` keywords still spelling `h-fn` — **DISCHARGED 2026-08-15** | `rf2-15bqc`'s **PR #8311 merged at 08:23:16Z**. `grep -rn 'h-fn' implementation/hicasso/src/` returns nothing. | This remainder was the *source-coordinate / error-shape* family's blocker, and it is gone: family 4 was re-run against the landed tree in §5 below. |
 
 **No score on any checkpoint page was recomputed by this bead, and no
@@ -143,3 +144,93 @@ tree as it stands, which is what the bead asked for. It does **not** certify the
 and 142 `hframe` occurrences stay put by that bead's own instruction. Family 5 remains a correction to
 the bead's premise rather than a gap — the distributional `C1` row was deliberately never made a PR
 gate, and that reading is unchanged.
+
+## 6. The re-run, 2026-08-16, after the donor retire
+
+§5 is dated history: it ran at `f167edd4bc`, and that tree no longer exists. This section is the
+re-run against `7304e825c9`, and it is here because something larger than a rename landed in between.
+**A rename moves spellings; a retire moves the population every one of these families measures**, so
+the case for re-running is stronger now than the one the bead was written on.
+
+### 6.1 What moved under the record
+
+| What landed | Where it is on this base | Size, re-derivable |
+|---|---|---|
+| `implementation/ui` deleted | `ef3131f4a2`, an ancestor of `7304e825c9` | **231** files under `implementation/ui/`, of 305 in the commit |
+| `implementation/freehand` deleted | `c951808b47`, an ancestor of `7304e825c9` | **376** files under `implementation/freehand/`, of 431 in the commit |
+| the required-check set shrank | `.github/workflows/test.yml`, between `6ae7b5b0b1` (`ef3131f4a2^`) and `7304e825c9` | **11** job ids removed, 86 → 75 |
+
+Both deletion commits reached `main` through PR **#8322**, merged `2026-08-16T03:29:41Z`. `git ls-files`
+returns **0** under each path on this base, so the absence is landed rather than a tree mid-surgery.
+The eleven jobs are `cljs-freehand-evidence-elision`, `cljs-freehand-reachability`,
+`cljs-ui-facade-isolation`, `cljs-ui-g1`, `cljs-ui-g8`, `cljs-ui-g13`, `jvm-freehand`,
+`jvm-freehand-prod-gate`, `jvm-ui`, `ui-scaffold-smoke` and `ui-smoke`; `lint.yml`, `docs.yml` and
+`expensive-tests.yml` lost none over the same range. **Eleven, counted at the file — a dispatch note
+put it at twelve, and the recount is the point of writing the command down beside the figure.**
+
+### 6.2 Method
+
+A fresh worktree off `origin/main` at `7304e825c9`, with a real `npm ci` (**101** top-level entries by
+`ls | wc -l`) rather than a junction into another checkout. **Every family was run one at a time and
+never in parallel** — two heavyweight suites on this machine have wedged rather than failed, each
+holding several gigabytes, and neither reported anything. Two other workers' heavy runs were live on
+the box throughout and were left alone. Each exit code is the runner's own, captured by an `echo $?`
+on the same command line as the redirect, never a status reported about the run by something else.
+
+### 6.3 The runs, with captured exit codes
+
+| Family | Command | Captured exit | What it reported, at `7304e825c9` |
+|---|---|---|---|
+| 1 — bundle isolation / rent sentinels (bundle half) | `npm run build:hicasso-release` | `0` | Release build **162 files / 107 compiled / 0 warnings / 22.62s**. Production erasure: self-test OK, **5 sentinels absent, 3 positive controls present**. Bundle isolation: self-test OK, **8 sentinels absent, 4 positive controls present**. |
+| 1 — (source half) | `implementation/hicasso/scripts/check_optional_module_reachability.py` (`--self-test`, then live) | `0`, `0` | motion, overlay, native, forms and server all unreachable from the public door; UIx required by no `src/` namespace and named by no production coordinate. |
+| 2, 3, 4 — source half | `npm run test:cljs` | `0` | Compile **1985 files / 1984 compiled / 0 warnings / 114.67s**, then **11771 tests / 59589 assertions, 0 failures, 0 errors**. Carries `three_way_parity_cljs_test`, `error_shape_cljs_test` and the two `expansion_probe` consumers. |
+| 2, 3 — browser arm | `npm run test:browser` | `0` | Compile **1075 files / 1074 compiled / 4 warnings / 71.71s**, then **1015 tests / 5724 assertions, 0 failures, 0 errors**. The four warnings are read below. |
+| — the hicasso invariant block | `npm run test:hicasso-invariants` | `0` | 8 gates, each with its self-test: freeze 1 frozen row; **budget ledger 49 rows — 31 MET, 5 BREACH, 3 UNRESOLVED, 10 UNPINNED**, the same tally §4 recorded, so the retire moved no budget row; complaint catalogue 77 live; facade inventory 16 door names over 43 rows, `h/hframe` still on the door at `HS-43`; guide samples 217 fenced blocks over 29 pages. |
+
+### 6.4 The two figures that moved, and what moved them
+
+**`test:cljs` fell from 13944 tests / 70239 assertions to 11771 / 59589.** That is not a regression and
+not a partial run — it is the donor suites leaving the tree, and it is the single clearest reading that
+these gates were measuring the *new* population rather than a cached one. A re-run that reproduced §5's
+count would have been the finding.
+
+**The `hframe` census reads 143 across 40 files at `7304e825c9`**, by the same command §2 displays, and
+`rg 14.1.1` agrees at 143/40 independently. At `f167edd4bc` the same command reads **142/40** — so §2's
+figure was right about its own commit and wrong as a statement about "the landed tree", which is why
+§2 now carries the commit beside the number. **The retire did not touch the census**: 143 before and
+after, because `hframe` never lived in the donor trees.
+
+### 6.5 The sabotage control, and why this family
+
+**A certification pass has one characteristic failure: a gate that returns green because it ran over
+nothing.** So one family was deliberately broken and required to notice.
+
+Family 1's source half was chosen because its red is *self-locating* — it prints the path of the file
+it read — which makes it the one gate here that proves both properties at once: that it fires, and
+that it fired on **this** worktree rather than a sibling's. The heavy gates answer the second question
+a different way, by printing their `shadow-cljs.edn` root on line 1.
+
+| Step | Content hash | Result |
+|---|---|---|
+| baseline `src/re_frame/hicasso.cljc` | `4bc4160cc47d9f9976ee321e0760ec48f99a5c28` | identical to the committed object at `7304e825c9` |
+| plant: one `:require` of `re-frame.hicasso.motion` added to the door's `ns` form | `91ef67b83f86f685105fcd7c3b7f55e8c40ce3d9` | hash changed, so the patch was **applied** and not a silent no-op |
+| gate re-run under the plant | — | **exit `1`** — *"`re-frame.hicasso` requires `re-frame.hicasso.motion`, which belongs to the OPTIONAL `motion` module"* |
+| restore | `4bc4160cc47d9f9976ee321e0760ec48f99a5c28` | **hash-matches the committed object** — verified by content hash, not by reading a diff |
+
+The other families carry their own weaker version of the same control, and it is worth naming because
+it is easy to mistake for decoration: `check_production_erasure.cjs` and `check_bundle_isolation.cjs`
+each assert **positive controls present** as well as sentinels absent. A gate reading an empty or
+missing bundle would fail to find its positive controls, so "3 present" and "4 present" are that
+family's evidence that it ran over something.
+
+### 6.6 What this still does not certify
+
+The certification stays **partial**, and one thing about the partiality has changed since §5.
+
+- **Naming-ledger row 18 is still unexecuted**, and `rf2-t32wg` — the seam it waits on — is no longer
+  merely open: it is **deferred to 2026-09-16**. The horizon now has a date, which is an improvement in
+  the record and no change at all in what is certified. `h/hframe` is still on the door at `HS-43`,
+  and the facade-inventory gate above confirms it on this base.
+- **Family 5 still does not exist**, and §4's correction is unchanged rather than merely un-rechecked:
+  `budgets.md`'s ledger row `C1` reads `UNPINNED` with instrument `— (none)`, repointed to `rf2-85og2`,
+  which is open and sitting in the measurement lane. There is no pinned regression gate to re-run.
