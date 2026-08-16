@@ -7,11 +7,7 @@
 > semantic model — the **interpreted** mode is the paved path, and the **compiled**
 > mode is the hot tier selected by `{:compiled true}` on the same declaration.
 > Every clause here holds in both modes unless the clause says otherwise. The
-> finite, versioned `:re-frame.freehand/v1` compiled grammar — its analyzer, its two
-> emitters, and the static evidence they produce — is owned by
-> [004D-Freehand-Compiled-Grammar](004D-Freehand-Compiled-Grammar.md), referenced
-> here and never restated. The public namespace is `re-frame.freehand`,
-> conventionally aliased `v`.
+> public namespace is `re-frame.freehand`, conventionally aliased `v`.
 >
 > **This document is incomplete, and stays that way.**
 > [EP-0036](../docs/EP/EP-0036-the-freehand-view-substrate-programme.md) cut the
@@ -22,9 +18,7 @@
 > code is not removed, `implementation/freehand/` ships, and every clause written
 > below describes behaviour that is live. Several semantic headings below carry no
 > body; each is marked **Not authored here**. For those surfaces the description of
-> record is the Freehand design record (`docs/design/freehand/`), and the donor-era
-> shipped behaviour stays described by the Spec that shipped it — chiefly
-> [004D-Freehand-Compiled-Grammar](004D-Freehand-Compiled-Grammar.md). The
+> record is the Freehand design record (`docs/design/freehand/`). The
 > single-owner rule still binds: no surface is authored anywhere but under its own
 > heading here, and none may leave two owners standing.
 
@@ -58,8 +52,7 @@ frame and one props map to a semantic tree. The pattern-level commitments:
 
 These are the seven laws ratified by
 [EP-0036 §Governing laws](../docs/EP/EP-0036-the-freehand-view-substrate-programme.md#governing-laws).
-They bind every section of this Spec and every clause of
-[004D](004D-Freehand-Compiled-Grammar.md). Nothing in the substrate ships a second
+They bind every section of this Spec. Nothing in the substrate ships a second
 answer beside one of them.
 
 1. **One declaration.** Every mounted boundary is a vector-called `v/defview`; plain
@@ -90,7 +83,6 @@ the contract.
 | Surface | Owner |
 |---|---|
 | Declaration, authoring, call convention, props/children/keys, common semantics, the host boundary | **this Spec** |
-| The finite `:re-frame.freehand/v1` compiled grammar, its analyzer, both emitters, static manifests and elision, the compiled checker | [004D-Freehand-Compiled-Grammar](004D-Freehand-Compiled-Grammar.md) |
 | The semantic UI tree ABI and the one DOM conversion table both emitters consume | [004B-UI-Tree-and-Conversion](004B-UI-Tree-and-Conversion.md) |
 | Root identity, the Root Descriptor, mount, hydration, and teardown | [004C-Roots-and-Mount](004C-Roots-and-Mount.md) |
 | Frame creation, identity, lifecycle, and preflight | [002-Frames](002-Frames.md) |
@@ -270,15 +262,13 @@ descriptor exactly as it mounts an interpreted one. A compiled parent mounts a
 statically named interpreted descriptor through one emitted interpreted-child
 boundary; dynamic head selection belongs inside that interpreted child, never in
 compiled markup. The analyzer recognises the shared descriptor as an internal
-view, never as a foreign component. The grammar of that seam is
-[004D](004D-Freehand-Compiled-Grammar.md).
+view, never as a foreign component.
 
 A crossing is invisible in the output. All four pairings of parent mode and
 child mode over one body MUST yield one structural tree, and a caller MUST NOT
 be able to tell from a mount which mode the mounted declaration selected. What a
 crossing does change is what the parent can claim: a compiled parent's manifest
-marks each child boundary with the mode it crosses into
-([004D](004D-Freehand-Compiled-Grammar.md#manifests-mark-the-crossing)).
+marks each child boundary with the mode it crosses into.
 
 #### The `v/markup` boundary
 
@@ -378,9 +368,7 @@ reusable library views and wherever a report claims generated coverage. Where
 one is declared it CLOSES the props map to the keys it names, identically in
 both modes — the modes differ in when a breach is reported, never in which props
 are legal. `:key` is outside the schema, and children policy is descriptor
-metadata rather than a schema slot. The schema's grammar, its explicit open
-escape, validation timing, elision and generation dependencies are owned by
-[Spec 004D §Props schemas](004D-Freehand-Compiled-Grammar.md#props-schemas).
+metadata rather than a schema slot.
 
 ### Vector-head classification
 
@@ -424,8 +412,7 @@ hot-reload contract.
 ### Selecting the compiled mode
 
 **Not authored here.** This heading covers the `{:compiled true}` selection, the
-checker-first workflow that precedes it, and the interpreted↔compiled crossing rules;
-the grammar itself is [004D](004D-Freehand-Compiled-Grammar.md).
+checker-first workflow that precedes it, and the interpreted↔compiled crossing rules.
 
 ## Common semantics
 
@@ -2815,8 +2802,7 @@ A Freehand implementation MUST NOT provide:
   neutral hook/ref/effect/portal surface; React-owned protocols live behind explicit
   host boundaries.
 - **Contract ownership is a migration, not a new family.** Freehand extends the
-  existing canonical Specs; there is no `spec/0XX-Freehand` family, and the compiled
-  grammar's home is fixed at [004D](004D-Freehand-Compiled-Grammar.md).
+  existing canonical Specs; there is no `spec/0XX-Freehand` family.
 - **The donor was to be deleted at a gate, not a date.** `re-frame.ui` is
   donor-only and unpublished. With EP-0036 withdrawn that gate never opened: the
   standalone artifact stays in the tree, and no removal is scheduled.
@@ -2828,8 +2814,6 @@ release gates are
 
 ## Cross-references
 
-- [004D-Freehand-Compiled-Grammar](004D-Freehand-Compiled-Grammar.md) — the compiled
-  tier: the finite grammar, the analyzer, both emitters, manifests and elision.
 - [004B-UI-Tree-and-Conversion](004B-UI-Tree-and-Conversion.md) — the semantic tree
   ABI and the DOM conversion table.
 - [004C-Roots-and-Mount](004C-Roots-and-Mount.md) — root identity, the Root

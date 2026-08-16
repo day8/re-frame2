@@ -1032,7 +1032,6 @@ These surfaces are **removed or renamed** — not part of the public projection 
 - [000-Vision.md](000-Vision.md) — principles and design decisions
 - [002-Frames.md](002-Frames.md) — frames, dispatch envelope, drain semantics, overrides, machine foundations
 - [004-Views.md](004-Views.md) — the common Freehand view contract: declaration, authoring, semantics, host boundary
-- [004D-Freehand-Compiled-Grammar.md](004D-Freehand-Compiled-Grammar.md) — the compiled-tier grammar: view registration, hiccup forms, the template AST, both emitters
 - [005-StateMachines.md](005-StateMachines.md) — machine library design (post-v1)
 - [007-Stories.md](007-Stories.md) — story/variant/workspace library design (post-v1)
 - [008-Testing.md](008-Testing.md) — testing API and patterns
