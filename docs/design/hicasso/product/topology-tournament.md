@@ -596,6 +596,12 @@ Dispositions, one per cell class, with no cell left open:
 
 ### 2.8 What was NOT concluded
 
+**This section closes the CENSUS window and the two control windows, which is
+the state Part 2 reached before a clock driver existed.** The clock table was
+instrumented later and run as its own window; that run is
+[§2.9](#29-the-clock-table--the-window-rf2-w01c), and where it changes one of
+the statements below it says so there rather than editing the record here.
+
 - **No clock figure at all**, for any arm, operation or row count. The ratios
   in §2.6's table are the CONTROL's, and a refused control publishes nothing —
   including itself as a finding about the arms.
@@ -611,3 +617,57 @@ Dispositions, one per cell class, with no cell left open:
 - **No package figure.** Everything here is arm-1.
 - **No chunk-width result.** `k = 25` was a stated setting; nothing here is
   evidence about it, and §1.1's refusal to derive one stands.
+
+---
+
+### 2.9 The clock table — the window (`rf2-w01c`)
+
+`topo/clock_app.cljs` landed as the driver §2.6 said did not exist. This
+section is the window that ran it. It is written in the order it happened: the
+plan first, committed before the driver was invoked, then what the runs
+returned.
+
+#### 2.9.1 The plan, fixed before the first run
+
+Committed as its own commit, ahead of the first invocation, so that no stopping
+rule can be chosen after seeing an answer. Nothing below was decided later.
+
+- **Three runs.** Not "until they agree" and not "until one is clean". All
+  three are taken whatever the first two say.
+- **A RUN is an invocation that reaches the page and returns a verdict** —
+  exit 0, 1 or 2. Its result is recorded whichever of the three it is.
+- **A RIG FAULT is an invocation that never reaches the page** — a build
+  failure, a missing dependency, a port already held. It is reported and it
+  does **not** consume one of the three, because it measured nothing.
+- **Nothing is tuned between runs.** Not the sampling, not `batch-k`, not the
+  band, not the arms. §1.7 forbids adding an instrument, a rung or an estimator
+  mid-series and that binds this window as it bound the last one.
+- **Runs are serial.** One at a time, never two, and nothing else is run beside
+  them.
+- **The controls arbitrate, not the operator.** A refused control withholds the
+  cells for that arm under §1.5, and the refusal is the result.
+
+#### 2.9.2 The box, read before the first run and never inside one
+
+Counters read standalone. Sampling them alongside the benchmark would measure
+the sampler, so the claim made here is about the bracket and not about
+within-run quietness.
+
+| counter | reading |
+|---|---|
+| `\System\Processor Queue Length` | **0.00** on all 5 samples |
+| `\Processor(_Total)\% Processor Time` | 11.99 / 11.48 / 7.83 / 6.36 / 5.98 |
+| `Win32_Processor.LoadPercentage` (second source) | 31 |
+| logical processors | 24 |
+| physical memory | 64 GB (`Win32_PhysicalMemory` sum); 63.4 GB usable |
+| OS | Windows 11 Home 10.0.26200 |
+
+**The two CPU sources disagree and the queue length is preferred**, because it
+is the counter that reports whether anything is *waiting* for a core rather
+than estimating how busy one was. No `node`, `java`, `shadow-cljs` or
+`clojure` process was running. A browser session was open with idle background
+tabs; its processes carry large *cumulative* CPU totals, which is process age
+and not current load.
+
+**§2.6 records this box as 24 threads / 32 GB.** It reads 64 GB here from two
+sources. The discrepancy is recorded and nothing is concluded from it.
