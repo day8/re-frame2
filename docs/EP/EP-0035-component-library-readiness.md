@@ -5,6 +5,19 @@ Type: standards-track
 Created: 2026-07-16
 Resolution: accepted 2026-07-16 (directed); final 2026-07-20
 
+> **Historical record — 2026-08-16.** This EP's programme
+> ([EP-0030](EP-0030-the-compiled-view-substrate-program.md)) was absorbed into
+> Freehand, and Freehand
+> ([EP-0036](EP-0036-the-freehand-view-substrate-programme.md)) was **withdrawn**
+> on 2026-07-30. Both donor substrates were then **removed from the tree** on
+> 2026-08-16 under the operator ruling recorded as `rf2-0yp7w` —
+> `implementation/ui/` and `implementation/freehand/` return nothing from
+> `git ls-files`, and `spec/004D-Freehand-Compiled-Grammar.md`, named in
+> §References below, went with them. The EP is kept as the record of the donor
+> programme and no work is in flight under it: the re-com port this package
+> prepared for was never begun, and the readiness contracts below shipped into a
+> substrate that no longer exists.
+
 ## Abstract
 
 re-com is the first and most important consumer test for `re-frame.ui`; the
