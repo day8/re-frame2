@@ -13,8 +13,8 @@ ordinary handlers.
     `day8/re-frame2-hicasso` is **not published**, and there is no date at
     which it will be. It lives in the re-frame2 monorepo, so today you resolve
     it — and `day8/re-frame2` with it — from a checkout using `:local/root`.
-    Treat the snippet below as the shape of the dependency, not as a
-    coordinate you can paste into a fresh project.
+    The snippet below resolves against a clone on your own disk, and becomes
+    an ordinary Maven coordinate the day Hicasso publishes.
 
 `:local/root` is relative to *your* `deps.edn`, so clone the monorepo **beside**
 your project directory — the convention the rest of the docs use:
@@ -55,13 +55,13 @@ npm install
 ```
 
 Both npm lines earn their place. **Pin React**: Hicasso needs 18 or newer — it
-mounts through `createRoot` and reads `useId` for `:identifier-prefix` — and
-19.2 is what the reference implementation runs and what this chapter is checked
-against, whereas a bare `npm install react react-dom` resolves to whatever is
-current that day. **And keep `shadow-cljs` in `devDependencies`** even though
-the JVM dependency above is what compiles: the npm package is where the
-`process` shim React's CommonJS build asks for comes from, and without it the
-build stops at `The required JS dependency "process" is not available`.
+mounts through `createRoot`, and `:identifier-prefix` sets what `useId` answers
+— and 19.2 is what the reference implementation runs and what this chapter is
+checked against, whereas a bare `npm install react react-dom` resolves to
+whatever is current that day. **And keep `shadow-cljs` in `devDependencies`**
+even though the JVM dependency above is what compiles: the npm package is where
+the `process` shim React's CommonJS build asks for comes from, and without it
+the build stops at `The required JS dependency "process" is not available`.
 
 Hicasso interprets Hiccup at runtime, so it needs no compiler hook, macro
 allow-list, or build flag. A normal shadow-cljs browser build is enough:
@@ -122,7 +122,7 @@ ns and pass its `adapter` Var, e.g. (rf/init! reagent/adapter).
 
 *Which* adapter is your choice, and it is the only line that changes between
 substrates — see [Use UIx or reagent-slim](../how-to/use-uix-or-slim.md) for the
-three and their coordinates. This guide passes `uix-adapter/adapter` throughout,
+three and their coordinates. This guide's recipes pass `uix-adapter/adapter`,
 because that is what Hicasso's own test lane and witnesses run on. It buys
 plumbing, not notation: you write Hicasso views either way and never call the
 adapter yourself. The headless plain-atom adapter is not a substitute for a
