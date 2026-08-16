@@ -433,8 +433,9 @@
 ;;
 ;; Keyed by the bare frame-id. Each value carries the DESTROYING incarnation's
 ;; token (its `:drain-lock`, captured while still live):
-;; `{id {:token drain-lock}}`. The bare id is what `frame-closing?` consults;
-;; the token is what the duplicate guard and
+;; `{id {:token drain-lock}}`. The bare id is what the re-entrancy guard above
+;; consults — "is a destroy for this id in flight at all"; the token is what
+;; the duplicate guard and
 ;; `frame-incarnation-closing?` consults so a stale close marker of an
 ;; already-torn-down incarnation A cannot be mistaken for a fresh same-id
 ;; REPLACEMENT incarnation B being in-flight. A new B claim REPLACES A's stale
@@ -1361,46 +1362,20 @@
     ;; arise from that seam.
     true))
 
-(defn frame-closing?
-  "True when `id` is anywhere in its CLOSE lifecycle: a `destroy-frame!` for it
-  is IN FLIGHT (its teardown recipe is running) OR the frame is already
-  destroyed / dissoc'd. False for a live, not-being-destroyed frame — including
-  a FRESH same-id incarnation created after a prior destroy fully completed.
-
-  The linearization read a substrate's cell-commit path consults so a cell that
-  acquires handles + enrols while a frame is being torn down does not publish
-  ownership onto a dying frame (rf2-vxgfnd.61). `destroying-frames` is populated
-  at the TOP of `destroy-frame!` — BEFORE any teardown step observes the live
-  cells — and cleared only in `destroy-frame!`'s terminal `finally`, AFTER
-  `mark-frame-destroyed!` flips liveness and `dissoc-frame!` forgets the record.
-  So `frame-closing?` is CONTINUOUSLY true across the entire teardown window (the
-  in-flight-but-not-yet-flipped sub-window the destroyed?/absent test alone
-  MISSES). A commit that enrols into a live-cell registry and THEN reads this
-  predicate therefore linearizes its own enrolment against the frame's CLOSURE:
-  if the enrolment was too late for a teardown sweep to see, the frame was
-  necessarily already in `destroying-frames` when the commit read it, so it
-  observes the close and joins the teardown instead of stranding `:connected`.
-  Keyed by the bare frame-id.
-
-  BARE-ID: this predicate cannot distinguish WHICH incarnation is closing. In the
-  JVM window where an old incarnation A's marker is still set (post-`dissoc-frame!`,
-  pre-`finally`) while a fresh same-id REPLACEMENT incarnation B is already live,
-  this reads true for the id — which would wrongly tear down a cell that owns B.
-  A commit that must resolve against the EXACT incarnation it acquired consults the
-  incarnation-scoped `frame-incarnation-closing?` instead (rf2-vxgfnd.94)."
-  [id]
-  (or (contains? @destroying-frames id)
-      (frame-disposed-for-drain? id)))
-
 (defn frame-incarnation-closing?
   "True when `id`'s in-flight `destroy-frame!` is tearing down EXACTLY the
   incarnation identified by `token` (its `:drain-lock` — see
   `frame-incarnation-token`), false otherwise.
 
-  The incarnation-scoped counterpart to `frame-closing?`: where `frame-closing?`
-  answers 'is this id anywhere in its close lifecycle' by BARE id,
-  `frame-incarnation-closing?` answers 'is the destroy that is in flight for this
-  id the one destroying the incarnation I acquired'. `destroying-frames` records
+  The close-lifecycle read, and deliberately the only one: it answers 'is the
+  destroy that is in flight for this id the one destroying the incarnation I
+  acquired'. There is no bare-id counterpart asking merely 'is this id anywhere
+  in its close lifecycle', because Spec 002's destroy recipe linearizes on the
+  EXACT-incarnation claim and states that a stale claim for incarnation A does
+  not fence a fresh same-id incarnation B — a bare-id answer contradicts that
+  invariant in exactly the post-dissoc window described below. Callers outside
+  this namespace acquire a token first (`frame-incarnation-token`) and ask this.
+  `destroying-frames` records
   `{id {:token destroying-incarnation-token}}`, so this
   compares the caller's acquire-time token against the token the marker carries
   by identity.
@@ -4396,7 +4371,7 @@
       ;; this teardown apart from a fresh same-id replacement that goes live
       ;; under the reused id before this destroy's `finally` clears the marker
       ;; (rf2-vxgfnd.94). `contains?`/keys keep the bare-id semantics the
-      ;; re-entrant guard + `frame-closing?` rely on.
+      ;; re-entrant guard relies on.
       ;; Capture the DESTROY-TIME frame-state value AFTER the exact-incarnation
       ;; claim / ordinary-queue cutoff and BEFORE cleanup or lifecycle mutation.
       ;; After `mark-frame-destroyed!` (step 4) flips :destroyed?,
