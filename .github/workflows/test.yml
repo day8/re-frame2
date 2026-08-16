@@ -1039,9 +1039,14 @@ jobs:
           python-version: '3.12'
 
       # Self-test first, then the live round trip — the order every other
-      # pure-Python contract in this workflow uses. The self-test drives each of
-      # the eight rules red in turn, so a green live run below is a verdict
-      # rather than a checker that has quietly stopped firing.
+      # pure-Python contract in this workflow uses. The self-test drives each
+      # rule red in turn, so a green live run below is a verdict rather than a
+      # checker that has quietly stopped firing. HOW MANY rules is not written
+      # here on purpose (rf2-nuhru), the same call `hicasso-budget-ledger`
+      # below makes for the same reason: nothing links a count in this file to
+      # the rule list in that one, so this sentence read "eight" through the
+      # arrival of R9 and then R10. The self-test names its own cases as it
+      # runs.
       - name: Self-test the complaint-catalogue round trip
         run: python implementation/hicasso/scripts/check_complaint_catalogue.py --self-test
 
