@@ -87,23 +87,35 @@ Use it as the body of `src/your_app/core.cljs`. When it mounts and clicks work, 
 ;; Namespace load does no DOM work — the root is created lazily inside init.
 (defonce react-root (atom nil))
 
-;; shadow-cljs's :browser target re-runs :init-fn (init) after EACH hot
-;; reload, so init IS the re-render path — no separate ^:dev/after-load hook.
-(defn ^:export init []
-  (rf/init! reagent-adapter/adapter)             ;; install the Reagent adapter (no frame yet)
-  (register-schema!)                              ;; attach the frame-local schema (names :rf/default explicitly)
+;; `mount!` is the browser half: create the root once, then render the tree.
+;; THE ^:dev/after-load HOOK IS WHAT MAKES HOT RELOAD WORK. shadow's :browser
+;; target does NOT re-run the module :init-fn after a reload — it loads the new
+;; code and calls the ^:dev/after-load hooks. With none configured it logs
+;; "reloading code but no :after-load hooks are configured!" and the page keeps
+;; painting the OLD view, however long you wait.
+;;
+;; frame-root's {:id …} ENSURE shape creates :rf/default the first time
+;; (running the :initial-events seed synchronously, so the initial render
+;; sees the seeded app-db) and REUSES the live frame WITHOUT re-seeding
+;; on every later render — so a reload leaves your app-db exactly as you
+;; left it.
+(defn ^:dev/after-load mount! []
   (when-let [el (and (exists? js/document)
                      (js/document.getElementById "app"))]
     (when-not @react-root
       (reset! react-root (rdc/create-root el)))
-    ;; frame-root's {:id …} ENSURE shape creates :rf/default the first time
-    ;; (running the :initial-events seed synchronously, so the initial render
-    ;; sees the seeded app-db) and REUSES the live frame WITHOUT re-seeding
-    ;; on every later mount — hot reload is a no-op for your state.
     (rdc/render @react-root
                 [rf/frame-root {:id             :rf/default
                                 :initial-events [[:counter/initialise]]}
                  [counter-app]])))
+
+;; Called ONCE by shadow-cljs (:init-fn in shadow-cljs.edn) when the bundle
+;; loads. One-time boot ceremony only — `mount!` above owns the browser side
+;; and is the fn a hot reload re-runs.
+(defn ^:export init []
+  (rf/init! reagent-adapter/adapter)             ;; install the Reagent adapter (no frame yet)
+  (register-schema!)                              ;; attach the frame-local schema (names :rf/default explicitly)
+  (mount!))
 ```
 
 That's the entire greenfield app. ~35 lines of substance, every re-frame2 primitive exercised once — including the typed-at-boundaries schema attach the generator ships.
@@ -143,10 +155,10 @@ One subscription, `[:counter/value]`, reads `(:counter/value db)`. Views deref i
 
 ### Mount
 
-`defonce` guards `react-root` against hot-reload. `init` runs three steps in order — `rf/init!` → `(register-schema!)` → `rdc/render` wrapped in `frame-root`'s `{:id … :initial-events …}` ENSURE shape — fully detailed in [`entry-namespace.md` §Order of operations](entry-namespace.md). Two counter-specific facts:
+`defonce` guards `react-root` against hot-reload. The mount is split across two fns — `init` runs the one-time boot ceremony (`rf/init!` → `(register-schema!)` → `(mount!)`), and `mount!` carries the `^:dev/after-load` metadata that makes it the fn shadow-cljs re-runs after each reload. Both are fully detailed in [`entry-namespace.md` §Order of operations](entry-namespace.md). Two counter-specific facts:
 
-- **Step 2 attaches the schema before the mount** (explicit `{:frame :rf/default}` target — §Schema), and `frame-root` runs the `:initial-events` seed synchronously at frame creation, so the initial render sees `{:counter/value 0}` already validated.
-- **The `dispatch-sync` seed re-seeds this counter on every hot reload** (the reset boundary — see entry-namespace.md), so a save mid-demo resets the count to `0` rather than leaving it where you'd clicked.
+- **The schema is attached before the mount** (explicit `{:frame :rf/default}` target — §Schema), and `frame-root` runs the `:initial-events` seed synchronously at frame creation, so the initial render sees `{:counter/value 0}` already validated.
+- **A hot reload leaves your count where you clicked it.** `mount!` re-renders into the retained root, and `frame-root` reuses the live `:rf/default` frame without re-running `:initial-events` — so a save mid-demo repaints the edited view over the state you had. Reload the browser tab to seed a fresh counter.
 
 ## Verifying it works
 
