@@ -5,7 +5,7 @@ runtime concerns** — SSR, Machines, Routes, Managed-Effects — without
 fragmenting the chrome: the 20-cell idiom matrix renders *inside* the
 existing Dynamic tabs (no idiom-area spawns its own tab). This is distinct
 from the cohesive-sub-domain rule, under which a few runtime sub-domains
-DID earn their own Dynamic tab (Routing · Resources · Graph · Modules) —
+DID earn their own Dynamic tab (Routing · Resources · Graph · Frames) —
 see [`000-Vision.md`](000-Vision.md) §The tab inventory. Distils [the
 2026-05-18 cross-cutting design
 findings](#findings-anchor) into a normative reading: **5 visual idioms ×
@@ -48,7 +48,7 @@ that make them hard to debug from code alone:
 
 **The strategic move:** Xray's Dynamic tab chrome (cohesive sub-domains
 earn their own L4 lens — Routing per rf2-nrbs9, then Resources / Graph /
-Modules per EP-0016 / EP-0014 / EP-0013; the Issues tab was removed per
+Frames per EP-0016 / EP-0014 / EP-0013; the Issues tab was removed per
 rf2-gbz39 Option (c), issues surfacing inline + via the event-row
 pink-wash + the always-on issues ribbon signal) does NOT need a new tab
 *per cross-cutting idiom*. The four idiom-areas (SSR · Machines · Routes ·
@@ -726,7 +726,7 @@ features (see §2 for the full catalogue).
 
 The matrix's 20 cross-cutting-idiom features land in the existing Dynamic
 tabs + 3 popovers, with NO idiom-area spawning its own tab (the
-cohesive-sub-domain tabs Routing / Resources / Graph / Modules are a
+cohesive-sub-domain tabs Routing / Resources / Graph / Frames are a
 separate axis — see §0). The placement is uniform across areas:
 
 | Tab | Cross-cutting growth |
@@ -928,7 +928,7 @@ clause), the findings carry the discussion that locked the opinion.
   questions, the audience, the "where Xray fits" diagram.
 - [`018-Event-Spine.md`](018-Event-Spine.md) — the 4-layer chrome
   contract; the spine sub; the 9-tab Dynamic inventory (Routing added per
-  rf2-nrbs9; Resources / Graph / Modules added per EP-0016 / EP-0014 /
+  rf2-nrbs9; Resources / Graph / Frames added per EP-0016 / EP-0014 /
   EP-0013; Issues tab removed per rf2-gbz39 Option (c)); the popover
   invocation contract.
 - [`003-Machine-Inspector.md`](003-Machine-Inspector.md) — the Machines

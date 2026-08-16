@@ -5,7 +5,7 @@
   Each facade enumerated by `panel-enum` can be mounted without the
   surrounding 4-layer shell or sibling panels. The shell and tests use
   this seam, and development hosts may use it for focused embeds. Graph
-  and Modules are L4-only tabs and are not part of the standalone mount
+  and Frames are L4-only tabs and are not part of the standalone mount
   inventory.
 
   **Status: internal-but-stable, not a host-facing v1.0 embed

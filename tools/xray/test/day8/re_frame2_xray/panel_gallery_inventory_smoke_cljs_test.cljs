@@ -137,7 +137,7 @@
 ;;
 ;; The panel-gallery is the visual-design harness for the six CORE L4
 ;; lenses. The three cohesive-sub-domain / runtime-structure tabs added
-;; later (Resources · Graph · Modules) are INTENTIONALLY not galleried —
+;; later (Resources · Graph · Frames) are INTENTIONALLY not galleried —
 ;; their shipped-surface + focusability coverage lives in the
 ;; feature-matrix browser sweep (PANEL_HANDOFFS walks all nine live tabs)
 ;; + their own per-panel CLJS unit tests. This test locks that split:

@@ -19,7 +19,7 @@
 
   Four cohesive-sub-domain / runtime-structure tabs beyond the six
   core lenses — **Resources** (`:resources`, EP-0016),
-  **Graph** (`:derivation-graph`, EP-0014), **Modules**
+  **Graph** (`:derivation-graph`, EP-0014), **Frames**
   (`:module-view`, EP-0013) and **Hicasso** (`:hicasso`, rf2-hic-023) —
   are deliberately NOT galleried here. They
   are visual *design* surfaces whose shipped-surface + focusability
@@ -45,7 +45,7 @@
   Per `tools/xray/spec/018-Event-Spine.md` the chrome is four stacked
   layers — top ribbon + event list + tab bar + detail panel — with
   nine L4 tabs (Issues folded inline; this gallery covers the six core
-  lenses and intentionally excludes Resources / Graph / Modules — see
+  lenses and intentionally excludes Resources / Graph / Frames — see
   the exclusions note above). Time Travel is folded into the spine.
 
   ## Per-variant frame isolation
