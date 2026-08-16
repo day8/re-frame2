@@ -124,8 +124,16 @@
   call. A key no adapter on this host ever publishes therefore misses both
   slots on every call: two atom derefs and two hash-map misses, once per key
   of the read set, which is 141 calls per boundary commit in this arm's own
-  loop. rf2-19usn carries that cost where it is paid in shipping code and is
-  the reason this delta is not zero.
+  loop. **That multiplier is the arm's and must not travel with the number.**
+  `c-local` mints a fresh cell every iteration, so this arm genuinely runs the
+  cold path 141 times per window; shipping code pays the same per-call cost
+  once per NEW-OR-REWIRED cell (`collector.cljs:947` on a cells-map miss,
+  `:967` on a post-invalidation rewire) and once per observation-handle
+  acquire (`observation.cljc:2160`), while a steady-state commit reaches
+  `:968` — push a reader — and stops. Neither is per commit. rf2-19usn priced
+  the mechanism at that real frequency and closed won't-fix; the per-call
+  number is what makes this delta non-zero, and the every-commit reading of it
+  is what audit #8328 had to retract once already (rf2-ml3kt).
 
   It measures accordingly. Over rf2-07rnj's three runs the arm read
   0.0422 / 0.0484 / 0.0562 ms/commit — one sign on every run, and LARGER than
