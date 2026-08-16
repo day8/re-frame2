@@ -113,8 +113,27 @@ The runtime delivers entries to `PerformanceObserver` and browser DevTools but
 does not retain them for later polling. A subsequent `getEntriesByType` call
 may find nothing even though the live observer saw the entries.
 
+**`h/defview` boundaries are bracketed**, so your Hicasso views do appear in the
+stream. Each emits `rf:render:<view-id>`, where the id is the
+`"<namespace>/<name>"` of the declaration — the same string React DevTools shows
+as `displayName`, so a measure name and a DevTools node are one identifier. A
+typical entry reads `rf:render:app.todo/todo-row`. This holds for frame-fed
+boundaries too, and does not vary by adapter: Hicasso is the view substrate
+rather than a layer over one.
+
+The bracket sits on the boundary and nowhere else. A plain function inlined into
+a body is not a boundary and gets no measure of its own; its cost lands inside
+the enclosing boundary's entry.
+
 A view that bails out emits no measure because its body did not run.
-Development StrictMode emits twice when the body runs twice.
+Development StrictMode emits twice when the body runs twice. When the runtime
+re-runs a body internally to settle its reads, the bracket still emits once —
+the count is render passes React actually performed, and the duration is the
+wall-clock it actually paid, not a total inflated by an internal retry.
+
+A throwing body still emits, because the bracket is a `try`/`finally`. An
+`rf:render:` entry is evidence that a render was attempted, not that it
+completed.
 
 ## Keep an escape only when it earns its cost
 
