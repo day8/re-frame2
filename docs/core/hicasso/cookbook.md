@@ -42,7 +42,18 @@ Everything below assumes a mounted root, so start here.
   nil)
 ```
 
-Three things about this shape are load-bearing.
+Four things about this shape are load-bearing.
+
+**`rf/init!` comes first, and it is not optional.** Hicasso is a view layer, not
+a [substrate](../glossary.md#substrate): the reactive container app-db lives in
+comes from an [adapter](../glossary.md#adapter), and nothing installs one for
+you. `h/mount!` ensures its frame, creating a frame asks the adapter for a state
+container, and a mount that beats `init!` throws
+`:rf.error/no-adapter-installed`. `re-frame.adapter.uix` is its own artefact —
+[Installation](00-installation.md#add-the-dependencies) declares the
+`day8/re-frame2-uix` coordinate it comes from alongside Hicasso's, and
+[Use UIx or reagent-slim](../how-to/use-uix-or-slim.md) covers the other two
+substrates.
 
 **Keep the handle.** `h/render!`, `h/unmount!` and every teardown path take it,
 and a reload hook that calls `h/mount!` a second time would `createRoot` again —
