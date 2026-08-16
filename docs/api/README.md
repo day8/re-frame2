@@ -4,12 +4,11 @@ This is the **complete public API reference** for the manifest-tracked namespace
 the ClojureScript implementation of re-frame2 — one page per public namespace, with
 the boundary of "manifest-tracked" set out under **Completeness** below. The one
 public surface that falls outside it is the Hicasso view layer, which keeps its own
-reference: [Hicasso API reference](../core/hicasso/api-reference.md).
-Entries use a consistent shape: **Kind**,
-**Signature**, **Description** (contract, including error ids where they are part of
-the surface), and an **Example** where a call is worth showing. The Example is
-optional — many contract-only surfaces (compile-time template forms, symbol-resolution
-vars) carry no runnable call — so its absence is not a gap.
+reference: [Hicasso API reference](../core/hicasso/api-reference.md). Entries use a
+consistent shape: **Kind**, **Signature**, **Description** (contract, including error
+ids where they are part of the surface), and an **Example** where a call is worth
+showing. The Example is optional — many contract-only surfaces (compile-time template
+forms, symbol-resolution vars) carry no runnable call — so its absence is not a gap.
 
 For the mental model, start with the [Core guide](../core/introduction.md). This
 corpus is deliberately terse: it states *what* you may call, not *why* the design
