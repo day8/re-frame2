@@ -12,7 +12,9 @@ rest; eleven sibling forks stand in exactly the same relation to their package
 namespaces and carry no such paragraph, which is the ambiguity this page answers once
 instead of twelve times.
 
-220 tracked files, of which 46 are measurement records under `data/`.
+The tree is large and still grows, so no file count is quoted here — one would be stale
+within the week. The durable facts are the twelve donors named below and the single
+digest-pinned row among them.
 
 ## What is live here
 
