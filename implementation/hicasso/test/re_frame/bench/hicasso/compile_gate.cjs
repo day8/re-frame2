@@ -167,6 +167,74 @@
 // exists to catch. The optional-module entry source added here reads no
 // directory at all — it resolves entirely from the roster.
 //
+// ## …and the TWO RE-HOMED CORE INSTRUMENTS, whose own gate was deleted (rf2-peorl)
+//
+// The fourth entry source is not a lane member either, and like the optional
+// modules it is here because this is now the only warnings-fatal compile that
+// can reach it.
+//
+// `re-frame.bench.read-attribution-cljs` and `re-frame.bench.write-attribution`
+// are the CLJS allocation instruments under `core/test/re_frame/bench/`. They
+// were two rows of a nineteen-row roster in
+// `freehand/test/re_frame/freehand/bench/compile_gate.cjs` — rf2-cfqk's gate,
+// run by `npm run test:bspine-compile` as a step of the required `cljs` job.
+// That gate's whole implementation lived inside `implementation/freehand/`, so
+// PR #8322 retired it along with the tree. The seventeen `re-frame.freehand.
+// bench.*` B-spine arms went with it CORRECTLY — they are gone. These two did
+// not: they are still tracked, still uncovered by anything else, and between
+// that merge and this row they had no compile gate at all.
+//
+// UNCOVERED, MEASURED rather than assumed (2026-08-16, at the tip this landed
+// on). Neither namespace is named `*-cljs-test` or `*-dom-cljs-test`, so
+// `:node-test` and `:browser-test` do not select them; and nothing anywhere in
+// the tree `:require`s either one — `git grep -F` over both namespace symbols
+// returns their own `ns` forms, one prose mention in `order_guard.cljc`'s
+// docstring and one in a design page, and nothing else. The reachability their
+// coverage would have to arrive through does not exist. (Positive control on
+// the same search: `re-frame.bench.p0-app`, rostered four rows above, is found
+// in this file, its own source, `p0_run.cjs` and three documents.)
+//
+// A BROWSER MODULE IS THE RIGHT HOST, and the contrary claim on record is the
+// one that was tested and lost. rf2-cfqk predicted that compiling these two
+// into a `:browser` module would be "a category error", because both are Node
+// instruments whose drive commands rode `:ui-bench`, a `:node-script` build.
+// rf2-bl0j's worker then measured it from a cleared cache and recorded the
+// result in the gate this row replaces:
+//
+//     shadow-cljs compile freehand-release  (`:browser`)     0 warnings
+//     shadow-cljs compile ui-bench          (`:node-script`) 4 warnings
+//
+// All four were `:infer-warning`s, all four in
+// `implementation/core/src/re_frame/substrate/spine.cljs` — PRODUCTION source
+// on these rows' transitive closure, at `(.-props out)` and its siblings, where
+// `out` is a DOM element. Closure's browser externs make that inference
+// succeed and a `:node-script` build has none, so a warnings-fatal gate on the
+// Node lane is RED ON ARRIVAL over source these rows do not own. The category
+// error was in the other direction, and `:hicasso-bench` is `:target :browser`
+// with `:infer-externs :auto` — the same shape `:freehand-release` had.
+//
+// What that leaves is what a compile gate can honestly claim anyway: the
+// classes closed here — a deleted def, a renamed require, a dropped arity, an
+// undeclared var — are resolved by the ClojureScript ANALYSER, which does not
+// vary by `:target`. Compiling a Node instrument in a browser module proves it
+// still BUILDS. It never proved, and was never asked to prove, that it still
+// runs under Node.
+//
+// NO NEW SCRIPT AND NO WORKFLOW EDIT, which is why this is two roster rows
+// rather than a re-built gate. `npm run test:hicasso-compile` is already a step
+// of the required `cljs` job, so the coverage is restored by the same edit that
+// states it; a fresh npm script would have needed a `.github/workflows/**` step
+// to satisfy `scripts/check_gate_scheduling.py`, which is a hot-zone edit and a
+// sequenced dispatch for a gate that already exists.
+//
+// THIS IS THE THIRD ENTRY SOURCE THE RETIREMENT NOTE ABOVE APPLIES TO. If this
+// directory is ever retired these two rows must MOVE, exactly as the optional
+// modules must — they are core's instruments, not the lane's, and they are here
+// only because this is where a warnings-fatal browser compile still runs. That
+// they arrived by outliving their own gate is the argument, not a counter to
+// it: a roster row is cheap to move and impossible to lose silently, which is
+// the property the deleted gate did not have.
+//
 // ## `:advanced` — MEASURED, and why there is no nightly release gate
 //
 // This block used to say that an "externs-inference fault" was invisible to a
@@ -301,6 +369,28 @@ const OUTSIDE_LANE_ENTRIES = [
   },
 ];
 
+/**
+ * The two core attribution instruments RE-HOMED here when their own gate was
+ * deleted with `implementation/freehand/` — see the rf2-peorl section of the
+ * header for why a browser module is the measured-correct host and why this is
+ * two rows rather than a rebuilt gate. Same three fields and the same
+ * both-halves check as the roster above; a SEPARATE constant because these are
+ * not lane members, and folding them into `OUTSIDE_LANE_ENTRIES` would make
+ * that roster's one-line description untrue.
+ */
+const REHOMED_BENCH_ENTRIES = [
+  {
+    ns: 're-frame.bench.read-attribution-cljs',
+    file: 'core/test/re_frame/bench/read_attribution_cljs.cljs',
+    why: "the READ path priced on the host re-frame2 ships to — read_attribution.clj's CLJS counterpart, arm for arm",
+  },
+  {
+    ns: 're-frame.bench.write-attribution',
+    file: 'core/test/re_frame/bench/write_attribution.cljs',
+    why: "where the bytes of a NARROW WRITE go — the decomposition of B8's 457,181-byte write leg",
+  },
+];
+
 // rf2-okhdf. The optional modules' roster, and the flag that makes it answer.
 // It is the SAME file that forbids anything outside a module from requiring
 // it; see this file's header for why the list is read rather than restated.
@@ -423,16 +513,20 @@ function laneNamespaces() {
 }
 
 /**
- * The roster, verified. A row whose file has moved, been renamed or been
+ * A stated roster, verified. A row whose file has moved, been renamed or been
  * deleted — or whose file no longer declares the namespace claimed for it — is
  * a FAILURE, not a skip, for the reason the header gives: a stated list can
  * only be honest if saying something untrue stops the gate.
+ *
+ * `rows` and `impl` are parameters so both rosters share one verifier and
+ * `compile_gate.test.cjs` can watch each refusal fire against a fixture tree
+ * without breaking a real one.
  */
-function outsideLaneEntries() {
+function verifyRoster(rows, impl = IMPL) {
   const namespaces = [];
   const broken = [];
-  for (const row of OUTSIDE_LANE_ENTRIES) {
-    const full = path.join(IMPL, row.file);
+  for (const row of rows) {
+    const full = path.join(impl, row.file);
     if (!fs.existsSync(full)) {
       broken.push(`${row.file} — no such file (roster claims ${row.ns})`);
       continue;
@@ -452,7 +546,11 @@ function outsideLaneEntries() {
 if (require.main === module) {
   const listOnly = process.argv.slice(2).includes('--list');
   const { namespaces: walked, unreadable } = laneNamespaces();
-  const { namespaces: outside, broken } = outsideLaneEntries();
+  const outsideRoster = verifyRoster(OUTSIDE_LANE_ENTRIES);
+  const rehomedRoster = verifyRoster(REHOMED_BENCH_ENTRIES);
+  const outside = outsideRoster.namespaces;
+  const rehomed = rehomedRoster.namespaces;
+  const broken = [...outsideRoster.broken, ...rehomedRoster.broken];
   const modules = optionalModuleNamespaces();
 
   if (!modules.ok) {
@@ -493,7 +591,9 @@ if (require.main === module) {
     process.exit(1);
   }
 
-  const namespaces = [...new Set([...walked, ...outside, ...modules.namespaces])].sort();
+  const namespaces = [
+    ...new Set([...walked, ...outside, ...rehomed, ...modules.namespaces]),
+  ].sort();
 
   if (listOnly) {
     for (const ns of namespaces) console.log(ns);
@@ -509,7 +609,8 @@ if (require.main === module) {
   console.error(
     `[${TAG}] compiling all ${namespaces.length} namespaces ` +
       `(${walked.length} walked from ${LANE_DIR}, ${outside.length} rostered ` +
-      `from outside it, ${modules.namespaces.length} optional-module namespaces ` +
+      `from outside it, ${rehomed.length} re-homed core attribution instruments ` +
+      `(rf2-peorl), ${modules.namespaces.length} optional-module namespaces ` +
       `read from ${MODULE_ROSTER}) -> ${OUT_DIR}`,
   );
 
@@ -524,7 +625,8 @@ if (require.main === module) {
 
   console.error(
     `[${TAG}] ok — ${namespaces.length} namespaces compiled with zero warnings ` +
-      `(including ${modules.namespaces.length} optional-module namespaces no other ` +
+      `(including ${modules.namespaces.length} optional-module namespaces and ` +
+      `${rehomed.length} re-homed core attribution instruments no other ` +
       `warnings-fatal compile reaches)`,
   );
 }
@@ -533,7 +635,7 @@ module.exports = {
   laneSourceFiles,
   namespaceOf,
   laneNamespaces,
-  outsideLaneEntries,
+  verifyRoster,
   decideModuleNamespaces,
   optionalModuleNamespaces,
   MIN_NAMESPACES,
@@ -541,4 +643,5 @@ module.exports = {
   MODULE_ROSTER,
   MODULE_ROSTER_FLAG,
   OUTSIDE_LANE_ENTRIES,
+  REHOMED_BENCH_ENTRIES,
 };
