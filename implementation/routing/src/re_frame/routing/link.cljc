@@ -28,17 +28,14 @@
   §Route-plan prefetch names. Held here, beside `prefetch-intent-value`, for the
   same reason `address/link-behavior-keys` is held in `address`: it is a closed
   key class of routing's law, and a link surface that writes its own copy can
-  drift from it silently — a `v/route-link` would lack a trigger `rf/route-link`
-  installs, with nothing failing to say so.
+  drift from it silently — a view artefact's route-link would lack a trigger
+  `rf/route-link` installs, with nothing failing to say so.
 
-  Routing's own `prefetch-intent-attrs` maps over it; the Freehand
-  `v/route-link` descriptor reaches it as the `:routing/prefetch-intent-keys`
-  late-bound seam, the same way it already reaches `prefetch-payload` — so the
-  durable view substrate no longer states the class for itself. ONE exception
-  remains, and it is explicitly temporary: the donor `re-frame.ui/route-link`
-  still writes the three positions out literally, and that copy goes when the
-  donor arm does (rf2-drpa3.57). Until then a position added here reaches
-  `rf/route-link` and `v/route-link` and misses `ui/route-link`.
+  Routing's own `prefetch-intent-attrs` maps over it; a view artefact's
+  route-link reaches it as the `:routing/prefetch-intent-keys`
+  late-bound seam, the same way it already reaches `prefetch-payload` — so no
+  view substrate states the class for itself, and a position added here reaches
+  every link surface at once.
 
   Order carries no meaning — the positions are independent, and each warms the
   same destination — but it is stable, so the attrs a render emits are too."
@@ -149,8 +146,8 @@
 (defn prefetch-payload
   "The `[:rf.route/prefetch {address}]` dispatch vector for a link whose props
   request `:prefetch :intent`, or nil when the link does not opt in. PURE, both
-  hosts — the routing calculation a compiled `ui/route-link` / Freehand
-  `v/route-link` consumes through the `:routing/prefetch-payload` seam so it
+  hosts — the routing calculation a view artefact's route-link
+  consumes through the `:routing/prefetch-payload` seam so it
   reimplements none of the prefetch law. The address is selected through the ONE
   shared extractor (`address/extract-address`), so it is byte-identical to the
   link's own destination (path `:params` + `:query`); `:fragment` is omitted — a
@@ -271,15 +268,15 @@
    (defn activate-link!
      "THE router-attributed click decision for a route-link anchor, in ONE
      place: `rf/route-link`'s own `:on-click` (`route-link-render`, below) and
-     the compiled `ui/route-link` both run this body, so neither surface states
+     a view artefact's route-link both run this body, so neither surface states
      the click law for itself. Also PUBLISHED as the `:routing/activate-link!`
-     late-bound seam, which is how the optional re-frame.ui artefact reaches it
+     late-bound seam, which is how an optional view artefact reaches it
      without statically requiring routing.
 
      `e` is the native click event; `on-click` is the caller-supplied
      `:on-click` (or nil); `render-frame` is the render-time-captured frame id;
      `payload` and `native?` come from `url-requested-payload` /
-     `native-anchor?` (`link-model` bundles both for the ui side).
+     `native-anchor?` (`link-model` bundles both for the view side).
 
      Runs the caller `:on-click` first; then, unless the anchor is native (new
      tab / download), the caller already prevented the default, or the click is
@@ -415,13 +412,14 @@
 ;; ---------------------------------------------------------------------------
 ;; The substrate-neutral late-bound link seam (rf2-vxgfnd.95.5)
 ;;
-;; The compiled `re-frame.ui/route-link` defview is an ORDINARY compiled view in
-;; the OPTIONAL re-frame.ui artefact. It must not statically require routing
+;; A view artefact's own route-link is an ORDINARY view in an OPTIONAL
+;; artefact. It must not statically require routing
 ;; (the packaging-independence rule, Conventions §Packaging) yet must render an
 ;; anchor whose href, dispatch payload, and click law are the SAME ones this
 ;; namespace already owns for `rf/route-link`. Two late-bound `:routing/*` hooks
 ;; publish that calculation behind a small substrate-neutral seam routing owns
-;; and ui consumes — so ui reimplements NONE of the routing link law and neither
+;; and the view artefact consumes — so the view reimplements NONE of the routing
+;; link law and neither
 ;; artefact statically requires the other (`ui -> core late-bind <- routing`).
 ;;
 ;;   `link-model`     — PURE, both hosts. The whole routing calculation for one
@@ -502,8 +500,8 @@
    (defn prefetch-on-intent!
      "The `:routing/prefetch-on-intent!` seam (CLJS only). Dispatch a prefetch
      `payload` (the `[:rf.route/prefetch {address}]` vector from `prefetch-
-     payload`, or nil) on credible user intent — a compiled `ui/route-link` /
-     Freehand `v/route-link` binds it to `:on-mouse-enter` / `:on-focus` /
+     payload`, or nil) on credible user intent — a view artefact's route-link
+     binds it to `:on-mouse-enter` / `:on-focus` /
      `:on-touch-start`, so the anchor warms the destination the same way
      `rf/route-link` does. Runs the caller-supplied intent handler FIRST
      (compose, not replace), then dispatches to the render-time-captured

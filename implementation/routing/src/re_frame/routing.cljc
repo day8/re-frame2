@@ -496,16 +496,17 @@
 #?(:cljs (late-bind/set-fn! :routing/route-link route-link)
    :clj  (late-bind/set-fn! :routing/route-link route-link-render-ssr))
 
-;; The substrate-neutral link seam consumed by the compiled `re-frame.ui/route-link`
-;; defview (rf2-vxgfnd.95.5). `link-model` is PURE and published on BOTH hosts (the
-;; JVM/SSR shell needs the path-form href + native? too); `activate-link!` is the
-;; CLJS-only click op (SSR has no DOM click to intercept). ui reaches these through
-;; the late-bind directory without a static require on routing.
+;; The substrate-neutral link seam consumed by an optional view artefact's own
+;; route-link (rf2-vxgfnd.95.5). `link-model` is PURE and published on BOTH hosts
+;; (the JVM/SSR shell needs the path-form href + native? too); `activate-link!` is
+;; the CLJS-only click op (SSR has no DOM click to intercept). A view artefact
+;; reaches these through the late-bind directory without a static require on
+;; routing.
 (late-bind/set-fn! :routing/link-model link/link-model)
 #?(:cljs (late-bind/set-fn! :routing/activate-link! link/activate-link!))
 
-;; EP-0037 R3 — the substrate-neutral prefetch seam the compiled `ui/route-link`
-;; and Freehand `v/route-link` descriptors consume so they wire `:prefetch
+;; EP-0037 R3 — the substrate-neutral prefetch seam a view artefact's own
+;; route-link consumes so it wires `:prefetch
 ;; :intent` through routing's law without reimplementing it. `prefetch-payload`
 ;; is PURE and published on BOTH hosts (a descriptor computes the payload at
 ;; render, JVM shell included, though only the CLJS anchor binds the intent

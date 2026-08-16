@@ -69,9 +69,8 @@
 (defn provider-element
   "Build a React element for the frame-context Provider with `frame-kw`
   as its value and `children` as its child elements. Substrate-agnostic
-  — the Reagent adapters (via `:>` interop), the UIx adapter (via
-  `$`), and Freehand's provider component all wrap their element idiom
-  around this primitive, as does the donor re-frame.ui substrate's in-tree.
+  — the Reagent adapters (via `:>` interop) and the UIx adapter (via
+  `$`) both wrap their element idiom around this primitive.
 
   Returns a raw React element so callers don't pay for an extra
   reagent.core/as-element walk."
@@ -95,13 +94,11 @@
   positional args, not a single array child.
 
   Shared by `re-frame.substrate.spine/build-frame-provider-element` (the
-  scope-only `frame-provider` core), `re-frame.views.frame-boundary`'s
+  scope-only `frame-provider` core) and `re-frame.views.frame-boundary`'s
   `frame-root-fc` / `frame-root-react-element` (the ENSURE `frame-root`
-  cores), and `re-frame.freehand.substrate`'s `:register-context-provider`
-  component so the four published element builders normalise children one
+  cores), so every published element builder normalises children one
   identical way — `(apply provider-element frame-kw (normalize-children
-  children))`. The donor `re-frame.ui.substrate` component is a fifth caller
-  in-tree, on the same path."
+  children))`."
   [children]
   (cond
     (nil? children)        nil
@@ -305,9 +302,9 @@
   frame-context. Two callers source `v` differently but classify it
   identically:
 
-    - the public `useContext` RETURN — the renderer-agnostic hook path the
-      compiled-view ViewCell takes (`re-frame.ui.viewcell/use-frame-context!`,
-      rf2-2rzx0); and
+    - the public `useContext` RETURN and the class-component `.-context`
+      read — the renderer-agnostic paths Hicasso's boundary, overlay and
+      presence seams take (rf2-2rzx0); and
     - a direct `_currentValue` slot read — the substrate-portable reader path
       ([[function-component-current-frame]] below).
 

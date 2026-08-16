@@ -36,9 +36,9 @@
   the existing `(when interop/debug-enabled? ...)` envelope, so the whole
   seam DCEs under `:advanced` + `goog.DEBUG=false`.  The Context construction
   is behind that SAME compile-time gate: production initializes this var to
-  nil and performs no `React.createContext` call.  That matters now the
-  first-party compiled ViewCell requires this carriage namespace — merely
-  loading re-frame.ui must not leave a production provider/context residue.
+  nil and performs no `React.createContext` call.  That matters because
+  merely loading a view artefact that requires this carriage namespace must
+  not leave a production provider/context residue.
 
   ## Honesty boundary
 

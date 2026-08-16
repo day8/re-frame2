@@ -395,7 +395,7 @@ egress to trace / epochs / SSR (rf2-1hncp2)."})
 
   `:strategy-type` reuses `re-frame.error/diag-value-summary`'s `:type` axis —
   the established EP-0015-safe diagnostic vocabulary, already read this way at
-  other framework surfaces (e.g. `re-frame.ui.rules`) — rather than inventing a
+  other framework surfaces — rather than inventing a
   scroll-local one. Only `:type` is taken: the summary's `:keys` leg returns
   EVERY top-level map key unbounded and reproduces key content, so it is not
   itself a bound.

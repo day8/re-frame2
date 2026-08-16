@@ -685,8 +685,8 @@
                       ;; nothing but this call supplies one. It runs BEFORE
                       ;; `add-watch` so activation's own first recompute cannot
                       ;; fan a priming change at this watcher. Total and
-                      ;; idempotent: the React-hook spine (UIx / Helix /
-                      ;; re-frame.ui / Freehand) is push-based from birth and
+                      ;; idempotent: the React-hook spine (UIx) is
+                      ;; push-based from birth and
                       ;; publishes no hook, so the routed chain-bottom returns
                       ;; nil; plain-atom / JVM derived values have no capture
                       ;; step. A throw here lands on the same

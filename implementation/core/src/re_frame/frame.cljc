@@ -218,7 +218,7 @@
 ;; the pre-dissoc portion of destruction. Values are opaque owner maps compared
 ;; ONLY by identity; their data fields are diagnostics, never authority. A claim
 ;; always names a SET of ids and installs all of them in one CAS, which is the
-;; unchanged primitive the later re-frame.ui multi-plan preflight consumes.
+;; unchanged primitive a multi-id plan preflight consumes.
 ;;
 ;; There is deliberately no queue or generation counter. A conflicting claim
 ;; fails promptly on both hosts, avoiding callback-waits-for-contender deadlocks
@@ -289,8 +289,8 @@
 
   Returns the opaque identity-compared owner token. If any id is already owned,
   throws `:rf.error/frame-construction-in-progress` and claims NONE. The set
-  shape and all-or-nothing CAS are the narrow core seam reserved for the later
-  re-frame.ui multi-plan preflight; ordinary core construction claims a
+  shape and all-or-nothing CAS are the narrow core seam reserved for a
+  multi-id plan preflight; ordinary core construction claims a
   singleton. INTERNAL — not part of the public frame API."
   ([frame-ids]
    (claim-frame-construction! frame-ids :preflight))
@@ -335,7 +335,7 @@
 
   The permission is consumed at engine entry, before any adapter callback. A
   nested public `make-frame` therefore sees no permission and loses normally.
-  This is the narrow future re-frame.ui preflight → core hand-off seam; it is
+  This is the narrow preflight → core hand-off seam; it is
   intentionally not blanket same-owner re-entrancy. INTERNAL."
   [owner id f]
   (when-not (owner-holds-frame-id? owner id)
@@ -382,8 +382,8 @@
   caller that writes first and enters the engine second has already mutated
   process-global state by the time the engine rejects it.
 
-  An outer preflight that already reserved `id` and handed it off (re-frame.ui's
-  multi-plan `execute-frame-plans!`) is ADOPTED as-is: nothing is claimed and
+  An outer preflight that already reserved `id` and handed it off is ADOPTED
+  as-is: nothing is claimed and
   nothing is released, so its window and its release point are unchanged, and
   `f`'s writes fall inside the reservation it is already holding. A hand-off
   that has already been SPENT is not adoption — the nested public entry claims
@@ -3527,11 +3527,11 @@
 
   It lives in CORE because it closes over no view state whatever — only
   `*run-frame-state-before*` and the frame accessors above — so every substrate
-  whose synchronous flush can publish a render phase reaches THIS one fn:
-  `re-frame.ui.substrate/flush-render!` and `ui.test/flush!` on the compiled-view
-  substrate, `re-frame.freehand.substrate/flush-render!` on Freehand. One guard,
-  not one copy per substrate, and Freehand acquires it without requiring anything
-  from `re-frame.ui` (rf2-87ouj). Contrast the convergence bound, which cannot be
+  whose synchronous flush can publish a render phase reaches THIS one fn
+  without requiring anything from another view artefact (rf2-87ouj). One guard,
+  not one copy per substrate. No in-repo substrate calls it today — both callers
+  went with the retired donor view artefacts, and the guard stayed because the
+  law is core's rather than theirs. Contrast the convergence bound, which cannot be
   shared this way: each substrate's `converge-flush!` closes over that substrate's
   OWN cell registry, so there the two implementations are deliberately independent
   and the `:where` slot disambiguates them (rf2-jew4k).

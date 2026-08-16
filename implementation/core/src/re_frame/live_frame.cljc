@@ -657,9 +657,9 @@
 ;; first `swap!`; a winning attempt cannot be interleaved with any other
 ;; attempt on the same id, so the row it restores is still the row it
 ;; displaced. `frame/call-with-frame-construction-claim!` ADOPTS an outer
-;; preflight's existing reservation (re-frame.ui's multi-plan
-;; `execute-frame-plans!` claims its whole plan set up front and hands each id
-;; off), so that path keeps one reservation for its whole run rather than
+;; preflight's existing reservation (a multi-id preflight claims its whole plan
+;; set up front and hands each id off), so that path keeps one reservation for
+;; its whole run rather than
 ;; nesting a second.
 ;;
 ;; What the reservation does NOT do is fence READERS: a reprojection takes no

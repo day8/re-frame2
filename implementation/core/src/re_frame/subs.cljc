@@ -44,11 +44,11 @@
             [re-frame.source-coords :as source-coords]
             [re-frame.subs.cache :as subs-cache]
             [re-frame.subs.memo :as subs-memo]
-            ;; The ONE shared Story-override schema-validation primitive
-            ;; (rf2-vxgfnd.21) — reused verbatim by the compiled-view path
-            ;; (`re-frame.ui.reactive`) so both tiers reject a schema-invalid
-            ;; override identically. Reached ONLY inside the CLJS
-            ;; `interop/debug-enabled?` gate below, so it DCEs in production.
+            ;; The ONE Story-override schema-validation primitive
+            ;; (rf2-vxgfnd.21), so a schema-invalid override is rejected here
+            ;; rather than through a second mechanism. Reached ONLY inside the
+            ;; CLJS `interop/debug-enabled?` gate below, so it DCEs in
+            ;; production.
             [re-frame.subs.override-schema :as override-schema]
             [re-frame.trace :as trace
              #?@(:cljs [:include-macros true])]

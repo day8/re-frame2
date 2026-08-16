@@ -110,7 +110,7 @@
   inside the app-db `reset!`).
 
   Idempotent and total: adapters whose derived values are already push-based
-  (the React-hook spine: UIx, Helix, re-frame.ui, Freehand) publish no hook
+  (the React-hook spine: UIx) publish no hook
   and the call is a no-op; the ratom impls no-op on an already-activated
   reaction and on any container that is not one of their derived values."
   [derived]
