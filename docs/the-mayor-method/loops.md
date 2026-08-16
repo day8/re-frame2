@@ -267,10 +267,12 @@ that is blocking nothing is its own gold-plating.
 
 ### After each merge
 
-Pull the trunk **naming remote and branch** — the bare form silently no-ops when an
-automated push races it — then **verify the tree, not the message**: compare the local
-head against the remote head. A pull printed `Updating <old>..<new>` twice in one
-session here while the head had not moved at all.
+**Fetch the trunk, then fast-forward onto the remote-tracking ref** — two commands rather
+than a pull, chained so that a failed fetch cannot be followed by a merge against a stale
+ref. Name remote and branch on the fetch; the bare form silently no-ops when an automated
+push races it. Then **verify the tree, not the message**: compare the local head against
+the remote head. A pull printed `Updating <old>..<new>` twice in one session here while
+the head had not moved at all.
 
 If they disagree, **read both again before believing it.** Any automation that writes
 to the trunk after a merge can land between the two reads, so a perfectly synchronised
@@ -280,12 +282,28 @@ four times in one session and was never real.
 Read the *fetch's* own exit code for the same reason. A failed fetch and a subsequent
 "Already up to date" print into the same buffer, and the reassuring line is the lie.
 
-**An aborted pull has causes with different remedies, and the message says which.**
+**Do not collapse that pair back into a pull.** A pull picks its merge target out of a
+scratch file that any concurrent git process in the same checkout can rewrite, and the
+checkout most exposed is the shared one every agent reaches into to add a worktree or read
+the trunk. A captured target does not fail honestly. Measured here: in one arrangement it
+silently fast-forwarded the trunk **onto a feature branch**; in another it aborted wearing
+the divergence message below, on a tree that was clean and zero commits ahead, where that
+message's remedy is inert. **A failure that borrows another cause's message cannot be
+discriminated by message text**, so the repair is to retire the command that reads the
+shared file, not to add a third case to the list. A remote-tracking ref cannot be captured
+that way: it is written atomically, and every concurrent fetcher sets it to the same trunk
+head or a newer one, both of which still fast-forward. Expect the exposure to **grow with
+fleet size** — dispatching immediately after merging is exactly what puts the concurrent
+fetches and the fast-forward in the same seconds.
+
+**An aborted fast-forward has two causes with different remedies, and the message says
+which** — and it says which only because the pair above no longer reads the shared file.
+Both reproduce unchanged under the fetch-and-merge pair, so the change costs nothing here.
 Naming remote and branch cures the silent no-op but neither abort, so read the text
 before reaching for a familiar fix:
 
 * **"Local changes would be overwritten"** — uncommitted tracker state. Checkpoint it
-  first, *then* clear, *then* pull. Clearing before checkpointing reverts whatever the
+  first, *then* clear, *then* retry. Clearing before checkpointing reverts whatever the
   tracker just recorded.
 * **"Not possible to fast-forward"** — genuine divergence, usually your own checkpoint
   against commits that landed while you made it. Rebase, then **push**: the rebase
@@ -293,14 +311,6 @@ before reaching for a familiar fix:
   pass until it lands. **That intermediate state is expected, not a second failure.**
   Both obvious reflexes are wrong — repeating the pull stays ahead, and forcing equality
   discards the very checkpoint the drill exists to protect.
-* **"Cannot fast-forward to multiple branches"** — a *shared-state* race, and neither
-  remedy above touches it. Linked worktrees share one `.git`, and therefore one
-  fetch-head file. Concurrent workers fetching in their own worktrees leave a multi-ref
-  fetch-head, and your pull reads theirs. The discriminator is the divergence count: zero
-  ahead means a clean fast-forward is available, so this is contention, not divergence.
-  Bypass the shared file by merging the remote-tracking ref instead. **Expect this to
-  grow with fleet size**, and note that dispatching immediately after merging is what puts
-  the fetches and the pull in the same seconds.
 * **A truncated abort, or a ref-level race** — re-fetch and re-read. Do not reach for
   any remedy above.
 
