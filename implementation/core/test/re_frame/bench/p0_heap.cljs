@@ -1018,6 +1018,22 @@
 (defonce ^:private alloc-sink (volatile! 0.0))
 (defonce ^:private alloc-samples (volatile! nil))
 
+;; ## SAMPLES PER ITERATION — the BY-SITE stride (rf2-rs8q6)
+;;
+;; 2 is the shipped window and every published figure was taken under it:
+;; one reading before the work unit and one after, so a leg is ONE step and
+;; the work unit is opaque. 3 opens the unit at its only seam — see
+;; [[alloc-window!]] — and is a DIAGNOSTIC MODE the driver arms with
+;; `P0_ALLOC_BY_SITE=1`. It is off by default and no published row takes it.
+;;
+;; It lives beside the buffer because it SIZES the buffer, and a stride that
+;; disagreed with the allocation would write off the end of a
+;; `Float64Array` — which does not throw in JavaScript, it silently drops
+;; the store, and the row would read a zero leg it could not distinguish
+;; from a collection. [[alloc-prepare!]] is the one place both are set, so
+;; they cannot drift.
+(defonce ^:private alloc-sites (volatile! 2))
+
 ;; The written value, MONOTONE FOR THE LIFE OF THE PAGE rather than
 ;; restarting at 1 in every window.
 ;;
@@ -1057,12 +1073,23 @@
   clean `FixedDoubleArray` of `d` unboxed 8-byte slots, so the copy costs
   a **predicted 8d bytes**. That prediction is the whole point of a
   control — a figure the instrument has to hit, not one it gets to
-  report."
-  [d n]
-  (vreset! alloc-template (when (pos? d) (.fill (js/Array. d) 0.5)))
-  (vreset! alloc-sink 0.0)
-  (vreset! alloc-samples (js/Float64Array. (+ 1 (* 2 (long n)))))
-  nil)
+  report.
+
+  `sites` is the samples-per-iteration stride and is the ONE place it is
+  set (rf2-rs8q6). Anything but 3 is 2, which is the shipped window, so a
+  caller that passes nothing — every caller before this bead — gets
+  today's buffer to the byte. The buffer is sized from the same number
+  [[alloc-window!]] indexes with, because a stride the buffer was not
+  sized for writes past the end of a `Float64Array`, which does not throw
+  and is indistinguishable afterwards from a leg that allocated nothing."
+  ([d n] (alloc-prepare! d n 2))
+  ([d n sites]
+   (let [k (if (= 3 sites) 3 2)]
+     (vreset! alloc-template (when (pos? d) (.fill (js/Array. d) 0.5)))
+     (vreset! alloc-sink 0.0)
+     (vreset! alloc-sites k)
+     (vreset! alloc-samples (js/Float64Array. (+ 1 (* k (long n))))))
+   nil))
 
 (defn- alloc-control!
   "One control allocation: a `.slice` of the template, dropped on the next
@@ -1108,30 +1135,86 @@
   `useSyncExternalStore` spine needs to commit in this window — the same
   split `p0-arms/subs-bulk-arm` makes, so the write is like-for-like.
 
+  ## THE BY-SITE STRIDE — opening the work unit at its one seam (rf2-rs8q6)
+
+  At the shipped stride of 2 a leg is ONE step and the work unit is
+  opaque: the row can say a leg allocated 19,256 B and cannot say what
+  did. `rf2-rs8q6` measured a leg dispersion that is a function of the
+  ROUND INDEX in six of six independent browser launches, and identifying
+  a mechanism from a single opaque number is not possible in principle.
+
+  The work unit has exactly two statements that allocate and exactly one
+  seam between them, and both are visible in the `write?` branch below:
+
+    site 1  DISPATCH — `write-page!`/`write-all!`, which is a
+            `dispatch-sync` through the event pipeline and the signal
+            graph, plus whatever render the substrate schedules or runs
+            synchronously inside it.
+    site 2  DRAIN    — the `flushSync`, which is React's commit (or
+            Reagent's own synchronous flush).
+
+  At stride 3 the counter is read AT THAT SEAM, so leg `k` decomposes as
+  `dispatch_k + drain_k`, exactly and by construction — the outer pair is
+  the same pair the stride-2 window reads, so the leg total is unchanged
+  arithmetic over unchanged readings.
+
+  **There is no third seam that does not change what the arm measures.**
+  Splitting inside `dispatch-sync` would mean instrumenting re-frame's own
+  pipeline from a bench fixture, and an arm carrying instrumentation is
+  not the arm whose figures are published. Two sites is what the work unit
+  affords, and it is the split that separates the framework's write from
+  the substrate's commit — which is the distinction every question on this
+  row turns on.
+
+  **What it costs, stated.** One more `mem` read per leg, inside the
+  measured region. It is a property read on a host object and the driver's
+  `idle` window — driven at the SAME stride — is what prices it, exactly
+  as it prices the two reads already there. It is a CONSTANT per leg, so
+  it shifts every leg by the same amount and can neither create nor
+  destroy the dispersion this mode exists to attribute. Absolute leg
+  magnitudes taken at stride 3 are therefore not comparable, byte for
+  byte, with those taken at stride 2, and the driver refuses to publish
+  under it.
+
   Nothing here collects, logs, or crosses CDP. The driver collects before
   the window and reads the counter on both sides of it, and those two
   readings are what the in-page rising-step sum is checked against."
   [n kind drain]
   (let [n       (long n)
         ^js buf @alloc-samples
+        k       (long @alloc-sites)
+        site?   (= 3 k)
         all?    (= kind "write-all")
         write?  (or (= kind "write") all?)
         ctl?    (= kind "control")
-        reagent? (= drain "reagent")]
+        reagent? (= drain "reagent")
+        tick0   @alloc-tick]
     (aset buf 0 (mem))
     (dotimes [i n]
-      (aset buf (inc (* 2 i)) (mem))
-      (cond
-        write? (do (vswap! alloc-tick inc)
-                   (if all?
-                     (arms/write-all! @alloc-tick)
-                     (arms/write-page! @alloc-tick))
-                   (if reagent?
-                     (react-dom/flushSync (fn [] (r/flush)))
-                     (react-dom/flushSync (fn [] nil))))
-        ctl?   (alloc-control!)
-        :else  nil)
-      (aset buf (+ 2 (* 2 i)) (mem)))
+      (let [base (* k i)]
+        (aset buf (inc base) (mem))
+        (cond
+          write? (do (vswap! alloc-tick inc)
+                     (if all?
+                       (arms/write-all! @alloc-tick)
+                       (arms/write-page! @alloc-tick))
+                     ;; THE SEAM. At stride 2 this is a test of a boolean
+                     ;; local and nothing else — the same class of branch
+                     ;; as the `reagent?` test immediately below it, which
+                     ;; has always sat inside the measured region.
+                     (when site? (aset buf (+ 2 base) (mem)))
+                     (if reagent?
+                       (react-dom/flushSync (fn [] (r/flush)))
+                       (react-dom/flushSync (fn [] nil))))
+          ;; The controls have no seam of their own, and that is what makes
+          ;; them the control for this mode: the mid sample is taken with
+          ;; NOTHING between it and the leg's opening reading, so site 1 of
+          ;; an idle leg is one sampler read's own footprint and nothing
+          ;; else. That is the constant the arms' site figures carry.
+          ctl?   (do (when site? (aset buf (+ 2 base) (mem)))
+                     (alloc-control!))
+          :else  (when site? (aset buf (+ 2 base) (mem))))
+        (aset buf (+ k base) (mem))))
     ;; The read-back, OUTSIDE the window: the text of one boundary, which
     ;; at R reads of a page written to `v` is `(str (* R v))`. A row whose
     ;; writes never reached the page is the cheapest row in any table, and
@@ -1142,6 +1225,18 @@
       #js {:samples (js/Array.from buf)
            :n       n
            :kind    kind
+           ;; THE STRIDE RIDES BACK WITH THE SAMPLES (rf2-rs8q6). The
+           ;; driver decodes the stream by it rather than by the switch it
+           ;; believes it set, so a stride that failed to reach the page
+           ;; is a decode against the wrong shape rather than a silent
+           ;; misreading of a well-formed one.
+           :sites   k
+           ;; The tick at the window's OPEN, beside the tick at its close.
+           ;; `alloc-tick` is monotone for the life of the page, so this
+           ;; pair is what places a window in the page's own work-unit
+           ;; sequence — and "where in that sequence" is the only thing a
+           ;; round index is.
+           :tick0   tick0
            :tick    @alloc-tick
            :text    (when cell (.-textContent cell))})))
 
@@ -1293,7 +1388,7 @@
              ;; trip — the whole method is that nothing collects and
              ;; nothing else runs between two readings of the counter —
              ;; and the driver owns everything on either side of it.
-             :allocPrepare   (fn [d n] (alloc-prepare! d n))
+             :allocPrepare   (fn [d n sites] (alloc-prepare! d n sites))
              :allocWindow    (fn [n kind drain] (alloc-window! n kind drain))
              :boundariesPerRoot #js {:list rows-per-root :grid per-root}})
   nil)

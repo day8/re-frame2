@@ -61,6 +61,11 @@ const {
   ALLOC_PLAN_SHAPES,
   allocPlanArms,
   summariseAlloc,
+  allocSiteSplit,
+  allocSiteWitness,
+  allocSiteReport,
+  ALLOC_SITES,
+  ALLOC_SITE_NAMES,
 } = require('./p0_run.cjs');
 
 const tests = [];
@@ -533,15 +538,17 @@ test('the tolerance is CALIBRATED, pinned, and has no dial on it', () => {
   );
   // And the driver reads the module constant at every measurement site: the
   // `tolerance` parameter exists for the τ sweep below and for nothing else.
-  // Both sites split the prime off first (rf2-oiy1) and then adjudicate the
-  // MEASURED region — one adjudicator, one τ, two windows.
-  has(
-    /const \{ primeLegs, measured \} = allocPrimeSplit\(w\.samples\);/,
-    'the control windows split the prime off'
-  );
-  has(
-    /const \{ primeLegs, measured \} = allocPrimeSplit\(win\.samples\);/,
-    'and so do the arm windows'
+  // Both sites COLLAPSE the by-site stream first (rf2-rs8q6) — which is the
+  // identity off the diagnostic mode — then split the prime off (rf2-oiy1) and
+  // adjudicate the MEASURED region. One adjudicator, one τ, two windows.
+  has(/const site = allocSiteSplit\(w\.samples, w\.sites\);/, 'the control window collapses first');
+  has(/const site = allocSiteSplit\(win\.samples, win\.sites\);/, 'and so does the arm window');
+  assert.strictEqual(
+    (SRC.match(/const \{ primeLegs, measured \} = allocPrimeSplit\(site\.collapsed\);/g) || [])
+      .length,
+    2,
+    'and both then split the prime off the COLLAPSED stream, which is the stream the shipped ' +
+      'stride would have filled'
   );
   has(/const s = allocSteps\(measured\);/, 'and what is adjudicated is the measured region');
   lacks(
@@ -805,10 +812,30 @@ test('the prime is CONFIGURED IN ONE PLACE and the divisor is not it', () => {
   // And the window is driven at the full count at every site, warm-ups
   // included — a warm-up smaller than the window is the defect the warm-up
   // pass exists to avoid.
+  // THE CALL SHAPE MOVED, SO THIS PIN MOVED WITH IT (rf2-rs8q6). `allocPrepare`
+  // gained a stride argument, and the old literal `allocPrepare(dd, n)` would
+  // have matched nothing from that day on — a `lacks` that matches nothing
+  // passes, silently, for ever. Anchored on the argument ARRAY instead, which
+  // is where the count it is about actually lives.
   lacks(
-    /allocPrepare\(dd?, n\), \[[^\]]*ALLOC_WRITES\]/,
+    /allocPrepare\([^)]*\),\s*\[[^\]]*\bALLOC_WRITES\b/,
     'no sample buffer is sized for the measured writes alone'
   );
+  // And the positive half, counted, so it bites in both directions: EVERY
+  // `allocPrepare` in the driver sizes for the window count AND states the
+  // stride, because a buffer sized for one stride and indexed at another
+  // writes past the end of a `Float64Array` — which does not throw, it drops
+  // the store, and the leg reads zero.
+  const prepares = SRC.match(/window\.P0H\.allocPrepare\([^)]*\),\s*\[[^\]]*\]/g) || [];
+  assert.strictEqual(
+    prepares.length,
+    3,
+    `every allocPrepare call site is accounted for: ${JSON.stringify(prepares)}`
+  );
+  for (const p of prepares) {
+    assert.match(p, /ALLOC_WINDOW_WRITES/, `sized for the window it drives: ${p}`);
+    assert.match(p, /ALLOC_SITES/, `and the stride is stated at the same call: ${p}`);
+  }
   has(/\[ALLOC_WINDOW_WRITES, drain, ALLOC_WRITE_SPEC\.kind\]/, 'the window drives the full count');
   // NO DIAL. The prime decides what a window MEANS, so it is a constant for
   // `ALLOC_LEG_TOLERANCE`'s reason: a knob on it is a knob on the certificate.
@@ -849,6 +876,290 @@ test('the prime is CLAMPED, so a short stream cannot read off the end', () => {
   // — which is what lets every `allocSteps` pin above stand unedited.
   const raw = stream([1000, 1000]);
   assert.deepStrictEqual(allocPrimeSplit(raw, 0), { primeLegs: [], measured: raw });
+});
+
+// ===========================================================================
+// THE BY-SITE INSTRUMENT — rf2-rs8q6
+// ===========================================================================
+//
+// WHAT IT IS FOR. rf2-e9wr measured 72 floor-arm windows and found the leg
+// dispersion to be a function of the ROUND INDEX — round 2 (n=11) at
+// 2.66%–20.37% with none below 2.66%, round 3 (n=11) at 0.00%–0.19% with all
+// at or below 0.19% — holding in each of six independent browser launches
+// separately. The excesses are positive legs against a byte-identical cohort
+// with zero falling steps, so they are allocation by the page's own heap.
+//
+// WHY THE SHIPPED STRIDE CANNOT IDENTIFY IT, as a matter of shape. A leg is
+// ONE step: read before the unit, read after, everything between is a single
+// number. "Which part of the work unit allocates" is not recoverable from a
+// scalar per leg, however the scalars are analysed. The mode opens the unit at
+// its one seam and the pins below are what say it did so without moving
+// anything the row publishes.
+//
+// HERMETIC, exactly as the prime's pins are. `siteStream` builds the stride-3
+// buffer `p0-heap/alloc-window!` would have filled from stated per-site
+// allocations, so every case here is a fixture rather than something that has
+// to be provoked out of a browser.
+
+// `[s0, pre0, mid0, post0, pre1, mid1, post1, ...]` — the stride-3 shape, from
+// `[dispatch, drain]` pairs. Same base heap as `stream`, so a collapsed
+// stride-3 stream is directly comparable with the stride-2 one built from the
+// same leg totals.
+function siteStream(pairs) {
+  let h = 10000000;
+  const out = [h];
+  for (const [d, f] of pairs) {
+    out.push(h);
+    h += d;
+    out.push(h);
+    h += f;
+    out.push(h);
+  }
+  return out;
+}
+
+// One window in the shape rf2-e9wr actually measured: the B = 4 floor window
+// quoted on rf2-oiy1 — six alike legs of 19,256 B with a 26,044 B prime — with
+// ONE leg carrying the median recurring excess the bead reports (+2,640 B), and
+// with each of the two terms placed at a stated site.
+const siteWindow = ({ primeAt, excessAt, excess = 2640, primeExcess = 6788 }) => {
+  const base = { dispatch: 1200, drain: 18056 };
+  const at = (site, extra) => [
+    base.dispatch + (site === 'dispatch' ? extra : 0),
+    base.drain + (site === 'drain' ? extra : 0),
+  ];
+  return siteStream([
+    at(primeAt, primeExcess),
+    at(null, 0),
+    at(null, 0),
+    at(excessAt, excess),
+    at(null, 0),
+    at(null, 0),
+    at(null, 0),
+  ]);
+};
+
+test('THE COLLAPSE IS THE IDENTITY AT THE SHIPPED STRIDE — every gate above stands unedited', () => {
+  // This is the property that lets the whole mode be additive. Off it, the
+  // driver runs the pre-bead path through a function that returns what it was
+  // given, and `collapsed` is the SAME ARRAY rather than a copy of it: nothing
+  // is rebuilt, so nothing can be rebuilt differently.
+  const s = stream([19256, 19256, 19256]);
+  const split = allocSiteSplit(s, 2);
+  assert.deepStrictEqual(split, { sites: 2, collapsed: s, siteLegs: [] });
+  assert.strictEqual(split.collapsed, s, 'the shipped stream is passed through, not reconstructed');
+  // And anything that is not the by-site stride is the shipped one. A mode
+  // armed with a typo must fall back to the instrument that publishes, never
+  // to a third shape nothing decodes.
+  for (const k of [0, 1, 4, undefined, null, '3']) {
+    assert.strictEqual(allocSiteSplit(s, k).sites, 2, `stride ${JSON.stringify(k)} is not the seam`);
+  }
+});
+
+test('THE COLLAPSED STREAM IS THE ONE THE SHIPPED WINDOW WOULD HAVE FILLED', () => {
+  // The claim the whole mode rests on, driven rather than argued: decoding a
+  // stride-3 window and dropping its mid samples yields, sample for sample,
+  // the stride-2 stream the same work would have produced — so `allocSteps`
+  // computes the certificate, the falls gate and every published figure over
+  // the same shape by the same code.
+  const raw = siteWindow({ primeAt: 'dispatch', excessAt: 'drain' });
+  const { sites, collapsed, siteLegs } = allocSiteSplit(raw, 3);
+  assert.strictEqual(sites, 3);
+  assert.deepStrictEqual(
+    collapsed,
+    stream([26044, 19256, 19256, 21896, 19256, 19256, 19256]),
+    'the collapsed stream is the stride-2 stream of the same legs'
+  );
+  // Every reading in it is a reading actually taken — nothing is averaged,
+  // folded or synthesised.
+  for (const x of collapsed) assert.ok(raw.includes(x), `${x} is a sample the window really took`);
+  // And the gate reads what it would have read.
+  const { primeLegs, measured } = allocPrimeSplit(collapsed, 1);
+  assert.deepStrictEqual(primeLegs, [26044]);
+  const s = allocSteps(measured);
+  assert.deepStrictEqual(s.legs, [19256, 19256, 21896, 19256, 19256, 19256]);
+  assert.strictEqual(s.legMedian, 19256);
+  assert.strictEqual(s.falls, 0);
+  // A LEG IS ITS SITES, EXACTLY. Not approximately and not up to a rounding:
+  // the outer pair is the same pair, so the decomposition is a subtraction
+  // identity rather than a model.
+  assert.strictEqual(siteLegs.length, 7);
+  for (const l of siteLegs) {
+    assert.strictEqual(l.dispatch + l.drain, l.leg, JSON.stringify(l));
+  }
+  assert.deepStrictEqual(siteLegs[3], { dispatch: 1200, drain: 20696, leg: 21896 });
+});
+
+test('THE ATTRIBUTION NAMES THE SITE — in both directions, so a swap cannot pass', () => {
+  // The mechanism question, and the one thing this instrument exists to
+  // answer. A fixture whose recurring excess is entirely in the DRAIN must be
+  // attributed to the drain, and the mirror fixture to the dispatch. Testing
+  // one direction alone would admit an attribution that names the other site
+  // every time.
+  for (const site of ALLOC_SITE_NAMES) {
+    const other = ALLOC_SITE_NAMES.find((s) => s !== site);
+    const { siteLegs } = allocSiteSplit(
+      siteWindow({ primeAt: 'dispatch', excessAt: site }),
+      3
+    );
+    const w = allocSiteWitness(siteLegs, 1);
+    assert.strictEqual(w.dominant, site, `the window's dispersion is in the ${site}`);
+    assert.strictEqual(w.legs[2].site, site, 'and so is the deviant leg`s own');
+    assert.strictEqual(w.legs[2].by[site], 2640, 'by the whole of the excess');
+    assert.strictEqual(w.legs[2].by[other], 0, `and none of it in the ${other}`);
+    assert.strictEqual(w.legs[2].deviation, 2640, 'which is the leg deviation the gate sees');
+    // The cohort's own medians are the alike legs', not the deviant one's.
+    assert.strictEqual(w.medians.dispatch, 1200);
+    assert.strictEqual(w.medians.drain, 18056);
+    assert.strictEqual(w.medians.leg, 19256);
+  }
+});
+
+test('THE PRIME IS OUT OF THE BY-SITE COHORT TOO, and its excess is placed', () => {
+  // rf2-oiy1 removed the first-leg term from the measured region; a by-site
+  // cohort that included the prime would have that term sitting back inside
+  // its own medians and every site figure would be wrong by a share of it.
+  const { siteLegs } = allocSiteSplit(siteWindow({ primeAt: 'dispatch', excessAt: 'drain' }), 3);
+  const w = allocSiteWitness(siteLegs, 1);
+  assert.deepStrictEqual(w.primeSites, [{ dispatch: 7988, drain: 18056, leg: 26044 }]);
+  assert.strictEqual(w.legs.length, 6, 'the prime is not one of the six measured legs');
+  assert.deepStrictEqual(w.primeExcessBySite, { dispatch: 6788, drain: 0 });
+  assert.strictEqual(w.primeSite, 'dispatch');
+  // Clamped like `allocPrimeSplit`, and for the same reason.
+  const short = allocSiteWitness(siteLegs.slice(0, 1), 1);
+  assert.deepStrictEqual(short.legs, []);
+  assert.strictEqual(short.primeSite, null, 'nothing to compare against is not a site');
+  assert.strictEqual(short.sameSite, null);
+});
+
+test('THE SAME-TERM HYPOTHESIS IS ANSWERABLE, and answers three ways', () => {
+  // The bead's "exclude this first": the recurring excesses (+476 to +7,456 B,
+  // median 2,640) overlap the prime excess's own scale (median 6,864), which
+  // would suggest THE SAME TERM RECURRING rather than a distinct one.
+  //
+  // SITES DISAGREEING SETTLES IT — one term cannot be in two places.
+  const apart = allocSiteWitness(
+    allocSiteSplit(siteWindow({ primeAt: 'dispatch', excessAt: 'drain' }), 3).siteLegs,
+    1
+  );
+  assert.strictEqual(apart.primeSite, 'dispatch');
+  assert.strictEqual(apart.dominant, 'drain');
+  assert.strictEqual(apart.sameSite, false, 'two sites is two terms');
+
+  // SITES AGREEING NARROWS IT and does not settle it — a site is two
+  // statements wide and two terms can live in one. The magnitudes are what is
+  // read next, which is why they are reported beside the verdict.
+  const together = allocSiteWitness(
+    allocSiteSplit(siteWindow({ primeAt: 'drain', excessAt: 'drain' }), 3).siteLegs,
+    1
+  );
+  assert.strictEqual(together.sameSite, true);
+  assert.deepStrictEqual(together.primeExcessBySite, { dispatch: 0, drain: 6788 });
+  assert.strictEqual(together.legs[2].by.drain, 2640, 'and the two magnitudes are 2.6x apart');
+
+  // NO DISPERSION IS `null`, NOT `false`. A round-3 window whose legs are
+  // byte-identical has no excess to place, and reporting "the sites disagree"
+  // about a window with nothing in it would be the instrument inventing a
+  // finding. This is the case eleven of rf2-e9wr's round-3 windows are in.
+  const flat = allocSiteWitness(
+    allocSiteSplit(
+      siteStream([[7988, 18056], ...Array.from({ length: 6 }, () => [1200, 18056])]),
+      3
+    ).siteLegs,
+    1
+  );
+  assert.strictEqual(flat.dominant, null, 'byte-identical legs have no site to name');
+  assert.strictEqual(flat.sameSite, null, 'and no verdict to give');
+  assert.deepStrictEqual(flat.totals, { dispatch: 0, drain: 0 });
+  assert.strictEqual(flat.primeSite, 'dispatch', 'while the prime excess is still placed');
+});
+
+test('THE MODE IS OFF BY DEFAULT, AND τ IS UNTOUCHED BY IT', () => {
+  // Driven in a fresh process through the same env surface an operator
+  // configures, for `constUnderEnv`'s reason: configuration is read once, at
+  // require.
+  assert.strictEqual(constUnderEnv('ALLOC_BY_SITE', { P0_ALLOC_BY_SITE: '' }), false);
+  assert.strictEqual(constUnderEnv('ALLOC_SITES', { P0_ALLOC_BY_SITE: '' }), 2);
+  assert.strictEqual(ALLOC_SITES, 2, 'and this process is running the shipped stride');
+  assert.strictEqual(constUnderEnv('ALLOC_SITES', { P0_ALLOC_BY_SITE: '1' }), 3);
+  // Anything that is not the switch is off — a diagnostic that turned itself
+  // on for `P0_ALLOC_BY_SITE=0` would take every published row with it.
+  for (const v of ['0', 'yes', 'true', '3', ' 1']) {
+    assert.strictEqual(constUnderEnv('ALLOC_SITES', { P0_ALLOC_BY_SITE: v }), 2, `P0_ALLOC_BY_SITE=${v}`);
+  }
+  // AND IT IS NOT A DIAL ON THE GATE. rf2-e9wr established that no honest τ
+  // calibration exists on the arms' data in either direction; an instrument
+  // that answered the round-index question by moving τ would be answering a
+  // different question. Every constant the certificate is read off is
+  // identical with the mode armed.
+  for (const c of ['ALLOC_LEG_TOLERANCE', 'ALLOC_FALL_THRESHOLD_B', 'ALLOC_MIN_WRITES',
+                   'ALLOC_PRIME_WRITES', 'ALLOC_WINDOW_WRITES']) {
+    assert.strictEqual(
+      constUnderEnv(c, { P0_ALLOC_BY_SITE: '1' }),
+      constUnderEnv(c, { P0_ALLOC_BY_SITE: '' }),
+      `${c} must not move when the diagnostic is armed`
+    );
+  }
+});
+
+test('THE CERTIFICATE NEVER SEES A BY-SITE STREAM, and the stride is the PAGE`S', () => {
+  // The collapse happens FIRST, at both window sites, and what is adjudicated
+  // is the collapsed stream. A mid-leg sample reaching `allocSteps` would
+  // split one step into two and change `rise`, `falls` and `maxStep` — all
+  // published — for a diagnostic's convenience.
+  has(/const site = allocSiteSplit\(w\.samples, w\.sites\);/, 'the control window collapses first');
+  has(/const site = allocSiteSplit\(win\.samples, win\.sites\);/, 'and so does the arm window');
+  assert.strictEqual(
+    (SRC.match(/allocPrimeSplit\(site\.collapsed\)/g) || []).length,
+    2,
+    'both window sites hand the collapsed stream to the prime split'
+  );
+  lacks(
+    /allocPrimeSplit\((?:w|win)\.samples\)/,
+    'neither site adjudicates the raw stream any more'
+  );
+  // THE STRIDE IS READ OFF THE DATA, not off the switch the driver believes it
+  // set. A page serving an older build would fill a stride-2 buffer and hand
+  // back a well-formed stream; decoding it against the driver's own constant
+  // would read site figures out of readings that are not at a seam.
+  lacks(
+    /allocSiteSplit\((?:w|win)\.samples, ALLOC_SITES\)/,
+    'the driver decodes by the stride the page reported'
+  );
+  has(/if \(probe\.sites !== ALLOC_SITES\)/, 'and the two are made to agree before anything is measured');
+});
+
+test('THE REPORT RUNS — the mode is not merely defined', () => {
+  // "The mode is defined" and "the mode runs" are different claims, and this
+  // file already makes that point about `summariseAlloc`. Drive a collected
+  // row through the reporter and read what an operator would have seen.
+  const witnessOf = (spec) => {
+    const { siteLegs } = allocSiteSplit(siteWindow(spec), 3);
+    return { sites: 3, siteLegs, siteWitness: allocSiteWitness(siteLegs, 1) };
+  };
+  const row = {
+    bySite: true,
+    sites: 3,
+    siteNames: ALLOC_SITE_NAMES,
+    perRound: [
+      {
+        round: 1,
+        controls: { idle: witnessOf({ primeAt: 'dispatch', excessAt: null, excess: 0 }) },
+        arms: { 'hicasso|floor': { ...witnessOf({ primeAt: 'dispatch', excessAt: 'drain' }), tick0: 22, tick: 29 } },
+      },
+    ],
+  };
+  const lines = allocSiteReport(row);
+  assert.ok(lines.length > 0, 'the mode armed must print something');
+  const text = lines.join('\n');
+  assert.match(text, /dispatch/, 'the site names appear');
+  assert.match(text, /hicasso\|floor/, 'and the window is named');
+  assert.match(text, /22–29/, 'with the tick range that places it in the page`s work-unit sequence');
+  assert.match(text, /AGREE in 0 of 1/, 'and the hypothesis is answered on the data');
+  // OFF THE MODE IT IS SILENT, so a published run's summary is unchanged to
+  // the byte.
+  assert.deepStrictEqual(allocSiteReport({ ...row, bySite: false }), []);
+  assert.deepStrictEqual(allocSiteReport({ bySite: false, perRound: [] }), []);
 });
 
 // --- the row-level witness the driver actually exits on --------------------

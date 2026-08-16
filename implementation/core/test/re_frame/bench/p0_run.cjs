@@ -1308,6 +1308,78 @@ const ALLOC_PRIME_WRITES = 1;
 // published quantity is per MEASURED write and the prime is not one.
 const ALLOC_WINDOW_WRITES = ALLOC_WRITES + ALLOC_PRIME_WRITES;
 
+// ---------------------------------------------------------------------------
+// THE BY-SITE MODE — attributing a leg's bytes to a site in the work unit
+// (rf2-rs8q6)
+// ---------------------------------------------------------------------------
+//
+// THE OBSERVATION IT EXISTS FOR. rf2-e9wr's window measured 72 floor-arm
+// windows and found the relative dispersion of a window's MEASURED work legs
+// to be a function of the ROUND INDEX — not of the page, the write or the
+// substrate. Restricting to windows with no observed collection: round 2
+// (n=11) reads 2.66%–20.37% with none below 2.66%, and round 3 (n=11) reads
+// 0.00%–0.19% with all at or below 0.19%. That holds in each of six
+// independent browser launches separately, so machine load cannot be it, and
+// the excesses are POSITIVE legs against a byte-identical cohort with zero
+// falling steps — allocation by the page's own heap rather than a collector
+// artefact or another process.
+//
+// WHY THE SHIPPED INSTRUMENT CANNOT IDENTIFY IT, as a matter of shape rather
+// than of effort. At the shipped stride a leg is ONE step: the counter is read
+// before the work unit and after it, and everything between is one number. A
+// mechanism is a claim about WHICH PART of the work unit allocates, and no
+// analysis of a scalar per leg can answer it. The bead says so — "identifying
+// the mechanism needs an instrument a measurement window may not build
+// mid-window" — and this is that instrument.
+//
+// WHAT IT DOES. `P0_ALLOC_BY_SITE=1` drives the window at a stride of 3: one
+// extra counter reading at the work unit's ONE seam, between the
+// `dispatch-sync` and the `flushSync` drain. Leg `k` then decomposes as
+// `dispatch_k + drain_k`, exactly, by construction, over the same outer pair
+// the shipped window reads.
+//
+// WHAT IT DELIBERATELY DOES NOT DO, and each is a rule this row already holds:
+//
+//   - IT IS OFF BY DEFAULT AND PUBLISHES NOTHING. Every row taken without the
+//     switch is byte-identical to today, and `allocSiteSplit` below is the
+//     identity on a stride-2 stream — which is what lets every `allocSteps`
+//     and `allocPrimeSplit` pin stand unedited, exactly as rf2-oiy1's split
+//     did.
+//   - IT DOES NOT TOUCH τ. `ALLOC_LEG_TOLERANCE` is unmoved, in either
+//     direction. rf2-e9wr established that no honest calibration exists on
+//     the arms' data, and an instrument that answered the question by
+//     widening the gate would be answering a different one.
+//   - IT DOES NOT ADJUDICATE. The certificate is read off the COLLAPSED
+//     stride-2 stream, so `allocSteps` never sees a by-site stream and the
+//     gate is the same gate. A mid-leg sample would otherwise split one
+//     step into two and change `rise`, `falls` and `maxStep` — published
+//     quantities — for a diagnostic's convenience.
+//
+// WHAT IT COSTS, STATED. One more `mem` read per leg inside the measured
+// region. The `idle` control is driven at the SAME stride and prices it: an
+// idle leg's two site figures are one sampler read's own footprint and
+// nothing else. Being a constant per leg it can neither create nor destroy
+// dispersion, which is the quantity under investigation — but it does mean
+// absolute leg magnitudes at stride 3 are not comparable byte for byte with
+// those at stride 2, and the falsifiable form of that claim is that the
+// idle control's leg difference between the two strides accounts for the
+// whole of the arms'. A window can check it; this bead builds it.
+const ALLOC_BY_SITE = process.env.P0_ALLOC_BY_SITE === '1';
+
+// Samples per iteration. 2 is the shipped window and the page defaults to it;
+// 3 opens the seam. Sent to `allocPrepare`, which SIZES THE BUFFER from it —
+// one number, one place, so the stride the page indexes with and the stride
+// the buffer was sized for cannot disagree.
+const ALLOC_SITES = ALLOC_BY_SITE ? 3 : 2;
+
+// The site names, in the order the work unit runs them, as ONE spelling the
+// driver, the summary and the pins all read. `dispatch` is the `dispatch-sync`
+// through the event pipeline and the signal graph; `drain` is the `flushSync`
+// commit. There is no third: see `p0-heap/alloc-window!` for why a finer split
+// would mean instrumenting re-frame from inside the arm, and an arm carrying
+// instrumentation is not the arm whose figures are published.
+const ALLOC_SITE_NAMES = ['dispatch', 'drain'];
+
 // The sizing, as a PURE FUNCTION of the config — the same shape and for the
 // same reason as `allocSteps` and `allocRefusedWindows`: it needs neither a
 // release build nor a Chromium, so it is pinned on every PR by
@@ -1504,6 +1576,144 @@ function allocPrimeSplit(samples, prime = ALLOC_PRIME_WRITES) {
   const primeLegs = [];
   for (let k = 0; k < p; k++) primeLegs.push(samples[2 * k + 2] - samples[2 * k + 1]);
   return { primeLegs, measured: samples.slice(2 * p) };
+}
+
+// The BY-SITE decomposition of one window's raw samples (rf2-rs8q6). Pure, for
+// `allocPrimeSplit`'s reason: the pin can DRIVE it rather than read the source
+// and hope.
+//
+// TWO ANSWERS OUT OF ONE STREAM, and the first is why every gate below stands
+// unedited:
+//
+//   `collapsed` — `[s0, pre0, post0, pre1, post1, ...]`, WHICH IS THE STREAM
+//     THE SHIPPED WINDOW WOULD HAVE FILLED from the same work. Every reading
+//     in it is a reading actually taken; the mid samples are dropped, not
+//     averaged, folded or synthesised. This is what `allocPrimeSplit` and
+//     `allocSteps` are handed, so the certificate, the falls gate and every
+//     published figure are computed by the same code over the same shape as
+//     on a run that never armed the mode.
+//   `siteLegs` — one `{dispatch, drain, leg}` per work unit, where
+//     `dispatch + drain === leg` exactly, and `leg` is the same subtraction
+//     the collapsed stream yields.
+//
+// AT STRIDE 2 IT IS THE IDENTITY: `collapsed` is the argument itself and
+// `siteLegs` is empty. A driver that never arms the mode is running the
+// pre-bead path through one function that returns what it was given, and the
+// pins drive that rather than asserting it.
+//
+// `sites` is a parameter and the driver passes the constant, exactly as
+// `allocPrimeSplit`'s `prime` is — but the DRIVER passes the stride the PAGE
+// reported rather than the one it configured, so a switch that failed to reach
+// the page decodes against the wrong shape and is caught, instead of silently
+// misreading a well-formed stream of the other stride.
+function allocSiteSplit(samples, sites = ALLOC_SITES) {
+  if (sites !== 3) return { sites: 2, collapsed: samples, siteLegs: [] };
+  const w = Math.max(0, Math.floor((samples.length - 1) / 3));
+  const collapsed = samples.length ? [samples[0]] : [];
+  const siteLegs = [];
+  for (let i = 0; i < w; i++) {
+    const pre = samples[3 * i + 1];
+    const mid = samples[3 * i + 2];
+    const post = samples[3 * i + 3];
+    collapsed.push(pre, post);
+    siteLegs.push({ dispatch: mid - pre, drain: post - mid, leg: post - pre });
+  }
+  return { sites: 3, collapsed, siteLegs };
+}
+
+// Which site a set of per-site figures sits in — the one whose magnitude is
+// largest, and `null` when they are all zero, because a window with no
+// deviation has no site to attribute it to and naming one would be the
+// instrument answering a question nobody asked.
+function allocDominantSite(bySite) {
+  let owner = null;
+  let best = 0;
+  for (const s of ALLOC_SITE_NAMES) {
+    if (Math.abs(bySite[s]) > Math.abs(best)) {
+      best = bySite[s];
+      owner = s;
+    }
+  }
+  return owner;
+}
+
+// THE WITNESS THE BEAD ASKS FOR (rf2-rs8q6): the arm work unit's allocation by
+// site, and where the excess sits.
+//
+// It is handed the whole window's site legs and splits the prime off itself,
+// on `allocPrimeSplit`'s rule and clamped the same way — the prime is one work
+// unit and the cohort is the rest, and a by-site cohort that included the
+// prime would have the term rf2-oiy1 removed sitting back inside its medians.
+//
+// WHAT IT ANSWERS, and this is the whole point of the mode:
+//
+//   `dominant`  — which site the MEASURED legs' dispersion is in. This is the
+//     mechanism question. `dispatch` says the term is in the event pipeline
+//     and the signal graph; `drain` says it is in React's commit.
+//   `primeSite` and `primeExcessBySite` — the same decomposition of the PRIME
+//     leg's excess over the measured cohort.
+//   `sameSite` — whether those two agree. THIS IS THE HYPOTHESIS THE BEAD
+//     NAMES AS THE ONE TO EXCLUDE FIRST: the recurring excesses (+476 to
+//     +7,456 B, median 2,640 B) overlap the prime excess's own scale (median
+//     6,864 B), which would suggest THE SAME TERM RECURRING rather than a
+//     distinct one.
+//
+// WHAT IT DOES NOT CLAIM. `sameSite` is agreement about a SITE, and a site is
+// two statements wide. Two different terms can live in one site, so agreement
+// is necessary for the same-term reading and not sufficient for it —
+// DISAGREEMENT SETTLES THE HYPOTHESIS, agreement narrows it. The magnitudes
+// are reported beside it for that reason: the prime excess's own spread is
+// tight (p25 6,800, p75 6,888 — an interquartile width of 88 B, 1.3% of its
+// median), so a recurring term of the same identity has a magnitude to hit,
+// and the summary prints both rather than collapsing them to a verdict.
+function allocSiteWitness(siteLegs, prime = ALLOC_PRIME_WRITES) {
+  const p = Math.max(0, Math.min(prime, siteLegs.length));
+  const primeSites = siteLegs.slice(0, p);
+  const measured = siteLegs.slice(p);
+  if (!measured.length) {
+    return {
+      sites: ALLOC_SITE_NAMES,
+      primeSites,
+      medians: null,
+      legs: [],
+      totals: null,
+      dominant: null,
+      primeExcessBySite: null,
+      primeSite: null,
+      sameSite: null,
+    };
+  }
+
+  const medians = { leg: median(measured.map((l) => l.leg)) };
+  for (const s of ALLOC_SITE_NAMES) medians[s] = median(measured.map((l) => l[s]));
+
+  const totals = Object.fromEntries(ALLOC_SITE_NAMES.map((s) => [s, 0]));
+  const legs = measured.map((l, k) => {
+    const by = {};
+    for (const s of ALLOC_SITE_NAMES) {
+      by[s] = l[s] - medians[s];
+      totals[s] += Math.abs(by[s]);
+    }
+    return { leg: k + 1, deviation: l.leg - medians.leg, by, site: allocDominantSite(by) };
+  });
+
+  const dominant = allocDominantSite(totals);
+  const primeExcessBySite = p
+    ? Object.fromEntries(ALLOC_SITE_NAMES.map((s) => [s, primeSites[0][s] - medians[s]]))
+    : null;
+  const primeSite = primeExcessBySite ? allocDominantSite(primeExcessBySite) : null;
+
+  return {
+    sites: ALLOC_SITE_NAMES,
+    primeSites,
+    medians,
+    legs,
+    totals,
+    dominant,
+    primeExcessBySite,
+    primeSite,
+    sameSite: dominant && primeSite ? dominant === primeSite : null,
+  };
 }
 
 // Rising and falling steps, accumulated separately, from one window's raw
@@ -1730,11 +1940,30 @@ async function allocRow(chromium) {
   // Without `--enable-precise-memory-info` Chrome quantises the in-page
   // counter to 100 KB buckets and every figure here would be noise. A
   // quantised counter is not a small error; it is a different instrument.
-  await page.evaluate(([d, n]) => window.P0H.allocPrepare(d, n), [ALLOC_D, ALLOC_WINDOW_WRITES]);
+  await page.evaluate(
+    ([d, n, s]) => window.P0H.allocPrepare(d, n, s),
+    [ALLOC_D, ALLOC_WINDOW_WRITES, ALLOC_SITES]
+  );
   const probe = await page.evaluate(
     (n) => window.P0H.allocWindow(n, 'control', 'react'),
     ALLOC_WINDOW_WRITES
   );
+  // THE STRIDE, PROVED RATHER THAN TRUSTED, on the same probe and for the same
+  // reason as the flag above (rf2-rs8q6). A page that ignored the third
+  // argument — an older build served out of a stale cache is the way that
+  // happens — would fill a stride-2 buffer and hand back a well-formed stream
+  // the driver would then decode against a stride of 3, reading site figures
+  // out of readings that are not at a seam. The page reports the stride it
+  // used; this is where the two are made to agree, once, before anything is
+  // measured.
+  if (probe.sites !== ALLOC_SITES) {
+    await browser.close();
+    throw new Error(
+      `the page filled its window at a stride of ${probe.sites} where the driver asked for ` +
+        `${ALLOC_SITES} (P0_ALLOC_BY_SITE=${ALLOC_BY_SITE ? '1' : 'unset'}): nothing decoded from ` +
+        'these samples would mean what it says'
+    );
+  }
   const rounded = probe.samples.filter((x) => x % 100000 === 0).length;
   const precise = rounded < probe.samples.length;
   if (!precise) {
@@ -1755,7 +1984,10 @@ async function allocRow(chromium) {
 
     // --- the three controls, in situ, before this round's arms ----------
     const controlOf = async (kind, d) => {
-      await page.evaluate(([dd, n]) => window.P0H.allocPrepare(dd, n), [d, ALLOC_WINDOW_WRITES]);
+      await page.evaluate(
+        ([dd, n, s]) => window.P0H.allocPrepare(dd, n, s),
+        [d, ALLOC_WINDOW_WRITES, ALLOC_SITES]
+      );
       await gc();
       const pre = await read();
       const w = await page.evaluate(
@@ -1769,7 +2001,12 @@ async function allocRow(chromium) {
       // deviation at <= 1% against the arms' 26-46% — so priming them changes
       // no control figure, and a control taken under a different window shape
       // from the arms would not be one.
-      const { primeLegs, measured } = allocPrimeSplit(w.samples);
+      // THE COLLAPSE COMES FIRST AND THE STRIDE IS THE PAGE'S (rf2-rs8q6).
+      // Off the mode this is the identity and the two lines below are the
+      // pre-bead ones; on it, the certificate is still read off the stride-2
+      // stream, and the site figures ride alongside as a diagnostic.
+      const site = allocSiteSplit(w.samples, w.sites);
+      const { primeLegs, measured } = allocPrimeSplit(site.collapsed);
       const s = allocSteps(measured);
       return {
         kind,
@@ -1779,6 +2016,12 @@ async function allocRow(chromium) {
         primeExcess: primeLegs.length ? primeLegs[0] - s.legMedian : null,
         perIter: s.rise / ALLOC_WRITES,
         cdpBracket: post.cdp - pre.cdp,
+        // THE CONTROL IS THE MODE'S OWN CONTROL. An idle leg's two site
+        // figures are one sampler read's footprint and nothing else, which
+        // is the constant sitting inside every arm site figure below.
+        sites: site.sites,
+        siteLegs: site.siteLegs,
+        siteWitness: site.siteLegs.length ? allocSiteWitness(site.siteLegs) : null,
       };
     };
     const idle = await controlOf('idle', 0);
@@ -1845,7 +2088,10 @@ async function allocRow(chromium) {
         // window's prime leg is. The warm-ups are what stop the arm's own
         // cold-start from reaching the window at all, and that job is theirs
         // still.
-        await page.evaluate(([dd, n]) => window.P0H.allocPrepare(dd, n), [0, ALLOC_WINDOW_WRITES]);
+        await page.evaluate(
+          ([dd, n, s]) => window.P0H.allocPrepare(dd, n, s),
+          [0, ALLOC_WINDOW_WRITES, ALLOC_SITES]
+        );
         for (let w = 0; w < ALLOC_WARMUPS; w++) {
           await page.evaluate(
             ([n, d, k]) => window.P0H.allocWindow(n, k, d),
@@ -1860,7 +2106,11 @@ async function allocRow(chromium) {
         );
         const post = await read();
         await page.evaluate(() => window.P0H.release());
-        const { primeLegs, measured } = allocPrimeSplit(win.samples);
+        // THE COLLAPSE COMES FIRST AND THE STRIDE IS THE PAGE'S (rf2-rs8q6),
+        // exactly as at the control site above. Off the mode `collapsed` IS
+        // `win.samples` and the line below it is the pre-bead one.
+        const site = allocSiteSplit(win.samples, win.sites);
+        const { primeLegs, measured } = allocPrimeSplit(site.collapsed);
         const s = allocSteps(measured);
         // THE WRITE READ-BACK, and the row exits on it. At R reads of a
         // page whose cells were all written to `v`, a ladder boundary's
@@ -1893,6 +2143,21 @@ async function allocRow(chromium) {
           perWrite: s.rise / ALLOC_WRITES,
           perBoundaryPerWrite: s.rise / ALLOC_WRITES / B,
           cdpBracket: post.cdp - pre.cdp,
+          // BY SITE, AND ACROSS THE ROUND SEQUENCE (rf2-rs8q6). `siteLegs` is
+          // the raw decomposition and `siteWitness` is where the excess sits;
+          // both are `null`/empty off the mode, so the record's shape is
+          // unchanged for every published run.
+          sites: site.sites,
+          siteLegs: site.siteLegs,
+          siteWitness: site.siteLegs.length ? allocSiteWitness(site.siteLegs) : null,
+          // WHERE THIS WINDOW SITS IN THE PAGE'S OWN WORK-UNIT SEQUENCE.
+          // `alloc-tick` is monotone for the life of the page — the warm-ups
+          // advance it too — so this pair is what a round index actually IS,
+          // stated in the quantity the arm's own write is parameterised by.
+          // A round-indexed effect is an effect indexed by these numbers, and
+          // no analysis could reach for them while they were not recorded.
+          tick0: win.tick0,
+          tick: win.tick,
         };
       }
     }
@@ -1948,6 +2213,13 @@ async function allocRow(chromium) {
     // many actually ran.
     primeWrites: ALLOC_PRIME_WRITES,
     windowWrites: ALLOC_WINDOW_WRITES,
+    // WHETHER THIS ROW WAS TAKEN BY SITE (rf2-rs8q6), on criterion 6's rule
+    // that a reader of any row can tell FROM THE ROW how it was taken. Site
+    // figures carry one extra sampler read per leg, so a leg magnitude here is
+    // not comparable byte for byte with one from a row where this reads 2.
+    bySite: ALLOC_BY_SITE,
+    sites: ALLOC_SITES,
+    siteNames: ALLOC_SITE_NAMES,
     warmups: ALLOC_WARMUPS,
     rounds: ALLOC_ROUNDS,
     preciseMemory: precise,
@@ -1971,6 +2243,130 @@ async function allocRow(chromium) {
     perRound: rounds,
     allocFits: fits,
   };
+}
+
+// THE BY-SITE REPORT (rf2-rs8q6), as LINES rather than as `console.log` calls,
+// for the reason this file already gives about `summariseAlloc`: "the mode is
+// defined" and "the mode runs" are different claims, and a pin that can only
+// read the source can only check the first. Returning the lines lets the pin
+// DRIVE a collected row through the reporter and read what an operator would
+// have seen.
+//
+// EMPTY OFF THE MODE, so a published run's summary is unchanged to the byte.
+function allocSiteReport(row) {
+  const out = [];
+  if (!row.bySite) return out;
+
+  const windows = (row.perRound || []).flatMap((r) =>
+    Object.entries(r.arms || {}).map(([key, a]) => ({ round: r.round, key, a }))
+  );
+  const idles = (row.perRound || [])
+    .map((r) => (r.controls || {}).idle)
+    .filter((c) => c && c.siteWitness);
+
+  out.push(';;');
+  out.push(
+    ';;   BY SITE (rf2-rs8q6) — the arm work unit opened at its ONE seam, across the round sequence.'
+  );
+  out.push(';;     dispatch = the dispatch-sync through the event pipeline and the signal graph');
+  out.push(';;     drain    = the flushSync commit that follows it');
+  out.push(
+    ';;   A leg is exactly `dispatch + drain`, over the same outer pair of readings the shipped'
+  );
+  out.push(
+    ';;   stride takes — so the certificate above is unchanged, and these figures adjudicate nothing.'
+  );
+  out.push(
+    ';;   EVERY FIGURE HERE CARRIES ONE EXTRA SAMPLER READ PER LEG. It is a constant per leg, so it'
+  );
+  out.push(
+    ';;   can neither create nor destroy dispersion, but no magnitude below is comparable byte for'
+  );
+  out.push(';;   byte with one taken at a stride of 2. The idle control is what prices it:');
+
+  if (idles.length) {
+    for (const s of row.siteNames) {
+      const xs = idles.map((c) => c.siteWitness.medians[s]);
+      out.push(
+        `;;     idle ${s.padEnd(8)} ${n0(median(xs))} B per leg, median over ${xs.length} idle windows ` +
+          `[${n0(Math.min(...xs))}–${n0(Math.max(...xs))}]`
+      );
+    }
+  } else {
+    out.push(';;     no idle control window carried a site split to price it with.');
+  }
+
+  if (!windows.length) {
+    out.push(';;   no arm window was measured, so there is nothing to attribute.');
+    return out;
+  }
+
+  // --- where each window's dispersion sits ---------------------------------
+  out.push(';;');
+  out.push(
+    ';;   round  window                                  ticks        legMed  dispMed  drainMed  worst-dev site'
+  );
+  for (const { round, key, a } of windows) {
+    const w = a.siteWitness;
+    if (!w || !w.medians) continue;
+    const worst = w.legs.reduce((m, l) => (Math.abs(l.deviation) > Math.abs(m.deviation) ? l : m));
+    out.push(
+      `;;   ${String(round).padEnd(6)} ${key.slice(0, 40).padEnd(40)} ` +
+        `${String(a.tick0 ?? '—').padStart(6)}–${String(a.tick ?? '—').padEnd(6)} ` +
+        `${n0(w.medians.leg).padStart(7)} ${n0(w.medians.dispatch).padStart(8)} ` +
+        `${n0(w.medians.drain).padStart(9)}  ${String(w.dominant || 'none — the legs are alike')}`
+    );
+    if (worst.deviation !== 0) {
+      out.push(
+        `;;          worst leg ${worst.leg}: ${worst.deviation > 0 ? '+' : ''}${n0(worst.deviation)} B = ` +
+          row.siteNames.map((s) => `${s} ${worst.by[s] > 0 ? '+' : ''}${n0(worst.by[s])}`).join(' + ')
+      );
+    }
+  }
+
+  // --- the hypothesis the bead names as the one to exclude first -----------
+  out.push(';;');
+  out.push(
+    ';;   THE SAME-TERM HYPOTHESIS (the bead\'s "exclude this first"): the recurring excesses overlap'
+  );
+  out.push(
+    ';;   the PRIME excess\'s own scale, which would suggest the same term recurring rather than a'
+  );
+  out.push(';;   distinct one. Sites disagreeing SETTLES it; sites agreeing narrows it.');
+  out.push(
+    ';;   round  window                                  prime disp  prime drain  prime sits in  measured sits in'
+  );
+  let agree = 0;
+  let judged = 0;
+  for (const { round, key, a } of windows) {
+    const w = a.siteWitness;
+    if (!w || !w.primeExcessBySite) continue;
+    if (typeof w.sameSite === 'boolean') {
+      judged++;
+      if (w.sameSite) agree++;
+    }
+    out.push(
+      `;;   ${String(round).padEnd(6)} ${key.slice(0, 40).padEnd(40)} ` +
+        `${n0(w.primeExcessBySite.dispatch).padStart(10)} ${n0(w.primeExcessBySite.drain).padStart(12)}  ` +
+        `${String(w.primeSite || '—').padEnd(14)} ${String(w.dominant || '— (no dispersion to place)')}`
+    );
+  }
+  out.push(
+    judged
+      ? `;;   the two sites AGREE in ${agree} of ${judged} windows that had a dispersion to place.`
+      : ';;   no window had both a prime excess and a measured dispersion, so the hypothesis is untested here.'
+  );
+  out.push(
+    ';;   A site is two statements wide, so agreement is necessary for the same-term reading and not'
+  );
+  out.push(
+    ';;   sufficient: read the magnitudes beside it. The prime excess is TIGHT across windows (p25'
+  );
+  out.push(
+    ';;   6,800, p75 6,888 B on rf2-e9wr\'s 72 windows), so a recurring term of the same identity has'
+  );
+  out.push(';;   a magnitude to hit and not merely a site to share.');
+  return out;
 }
 
 function summariseAlloc(row, refused) {
@@ -2186,6 +2582,10 @@ function summariseAlloc(row, refused) {
   } else {
     console.log(';;   no window carried a prime leg to report.');
   }
+
+  // THE BY-SITE REPORT (rf2-rs8q6). Empty off the mode, so nothing above or
+  // below moves on a published run.
+  for (const line of allocSiteReport(row)) console.log(line);
 
   console.log(
     `;;   windows refused: ${refusedCount} of ${wins}, ${refused.length} refusal reason` +
@@ -2789,6 +3189,18 @@ module.exports = {
   ALLOC_PRIME_WRITES,
   ALLOC_WRITES,
   ALLOC_WINDOW_WRITES,
+  // The by-site instrument (rf2-rs8q6), exported on the same rule as the prime
+  // split above: the decomposition, the attribution and the reporter are all
+  // pure, so the pins DRIVE them rather than read the source and hope. The two
+  // constants come too, because the mode's most important property — that it
+  // is OFF and the row is byte-identical without it — is a claim about the
+  // resolved constants and can only be pinned from outside the process.
+  allocSiteSplit,
+  allocSiteWitness,
+  allocSiteReport,
+  ALLOC_BY_SITE,
+  ALLOC_SITES,
+  ALLOC_SITE_NAMES,
   // The measurement surface (rf2-gxrr), exported so the structural pin can
   // DRIVE it rather than read its source: the tables as values, the plan
   // filter as a pure function, and the two resolved selections so the env
