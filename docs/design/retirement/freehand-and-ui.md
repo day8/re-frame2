@@ -7,6 +7,11 @@ in what order it must fall, and what proves the build never breaks between steps
 
 Filed under `rf2-0yp7w` phase 1. Census re-taken at `85a70687e4` on 2026-08-15 15:34 AUSEST.
 
+This page is the *plan*, and its subject is the two trees that go. The one-page record of
+what became of all three donor view surfaces — including the Hicasso bench tree, which is
+kept as evidence and is no part of this plan — is [`donor-surfaces.md`](donor-surfaces.md)
+(`rf2-hic-062`).
+
 ## Why this page is not in `docs/design/freehand/`
 
 The obvious home is the withdrawn programme's own design tree — but that tree is one of the things

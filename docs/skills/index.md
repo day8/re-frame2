@@ -1,10 +1,10 @@
 # Skills
 
-> Ten Claude Code skills that travel with the re-frame2 repo — for authoring code, maintaining views on the retired `re-frame.ui` compiled-view substrate, critiquing existing code, bootstrapping a project, migrating from v1, rewriting Reagent views into Hicasso, building a new re-frame2 implementation, touring the Xray devtools panel, pair-programming with a running app, and running a retrospective on a pairing session.
+> Nine Claude Code skills that travel with the re-frame2 repo — for authoring code, critiquing existing code, bootstrapping a project, migrating from v1, rewriting Reagent views into Hicasso, building a new re-frame2 implementation, touring the Xray devtools panel, pair-programming with a running app, and running a retrospective on a pairing session.
 
 A **skill** is a small package of agent-shaped instructions plus optional scripts and reference leaves. When you load a skill into Claude Code (or any other Anthropic-skill-compatible agent), the model picks up its system prompt and its operating contract — so the same conversation that was *"help me write a re-frame2 event handler"* becomes a focused interaction that knows the canonical shapes, the cardinal rules, and where the depth lives.
 
-re-frame2 ships ten skills plus a shared protocol layer (`skills/shared/`), colocated under [`skills/`](https://github.com/day8/re-frame2/tree/main/skills) in this repo. Each skill is self-contained: its own `SKILL.md`, its own `references/` leaves, its own packaging metadata.
+re-frame2 ships nine skills plus a shared protocol layer (`skills/shared/`), colocated under [`skills/`](https://github.com/day8/re-frame2/tree/main/skills) in this repo. Each skill is self-contained: its own `SKILL.md`, its own `references/` leaves, its own packaging metadata.
 
 ## How to load a skill
 
@@ -19,7 +19,7 @@ It is idempotent and refuses to clobber a non-link copy without `--force`/`-Forc
 
 The repo's [`SKILL-REDIRECT.md`](https://github.com/day8/re-frame2/blob/main/SKILL-REDIRECT.md) is the deep-dive index for the **spec-consuming** skills — they point at it for spec-corpus depth and EP rationale. (Two skills route their deep-dives elsewhere: `re-frame2-xray` cites its own `tools/xray/spec/*` tree, and `re-frame2-improver` routes to `skills/re-frame2/patterns/` + `spec/`.)
 
-## The ten skills
+## The nine skills
 
 | Skill | Pitch |
 |---|---|
