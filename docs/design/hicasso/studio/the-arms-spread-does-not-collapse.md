@@ -29,7 +29,7 @@ leaves (c) standing — τ stays a declared placeholder at 0.25.**
   72 windows** — but its leg dispersion stays one to three orders of magnitude
   wider than the controls'.
 - **The prime itself is confirmed and reproduced.** The first-leg excess reads a
-  median **6,864 B over 68 windows** here against the **6,966 B** median
+  median **6,864 B over all 72 arm windows** here against the **6,966 B** median
   published over 336 windows pre-prime — agreement to 1.5% — and it is now
   outside every measured cohort.
 - **The controls reproduce exactly.** Worst relative leg deviation **0.99%**,
@@ -105,10 +105,16 @@ this counter, which is the one claim the whole row rests on.
 a prime — sampled, reported, excluded from the cohort and from every published
 figure. Two independent checks say it did what it claimed:
 
-| quantity | published, pre-prime (336 windows) | measured here (68 windows) |
+| quantity | published, pre-prime (336 windows) | measured here (72 windows) |
 |---|---|---|
-| first-leg excess over the cohort median | median 6,966 B (p25 6,856, p75 8,056) | median 6,864 B (min 5,418, max 10,604) |
+| first-leg excess over the cohort median | median 6,966 B (p25 6,856, p75 8,056) | median **6,864 B** (p25 6,800, p75 6,888) |
 | controls' own first-leg excess | — | **0 B in all 18 windows** |
+
+Both columns are untrimmed over their whole arm population, so the quartiles
+compare like for like. This window's tails are wider than the published ones at
+the extremes (min −51,684 B, max 360,500 B against 3,441 B and 28,448 B), which
+is the loaded box showing up exactly where the section above says it does — in
+four windows, none of which enters any figure below.
 
 The controls reading exactly zero is the bead's diagnosis made visible: the
 control work unit is a dropped `.slice()` and has no first-write re-allocation

@@ -1127,7 +1127,7 @@ const ALLOC_FALL_THRESHOLD_B = 600000;
 //   controls' work unit — a dropped `.slice` — structurally cannot have.
 //
 //   POST-PRIME, 2026-08-16, on the instrument rf2-oiy1 repaired. The repair
-//   holds: the first-leg term reproduces at a median 6,864 B over 68 windows
+//   holds: the first-leg term reproduces at a median 6,864 B over 72 windows
 //   and now sits outside every cohort, and the floor arm — which refused 6 of
 //   6 at every page under both writes — certifies in 41 of 72 windows at this
 //   placeholder. BUT THE ARMS' SPREAD DID NOT COLLAPSE toward the controls',
