@@ -358,7 +358,7 @@ The view layer is **substrate-agnostic**. The shared dataflow — frames, subscr
   (reg-view sym docstring [args] body+)
   (reg-view ^{:rf/id :explicit/id} sym [args] body+)
   ```
-- **Description**: The `defn`-shape view registration — the app-facing lane. It auto-defs the symbol, auto-derives the id from `(keyword *ns* sym)`, and auto-injects `dispatch` / `subscribe` as lexical bindings. It rejects non-defn-shape bodies at macroexpand. In all shapes the symbol is `def`-ed, so sibling code can write `[my-view item]`. Render an app-facing view by **Var reference** or `(rf/view id)`. Bare keyword-tagged hiccup `[:my-view "args"]` is rejected (see Spec 004D §Resolved decisions).
+- **Description**: The `defn`-shape view registration — the app-facing lane. It auto-defs the symbol, auto-derives the id from `(keyword *ns* sym)`, and auto-injects `dispatch` / `subscribe` as lexical bindings. It rejects non-defn-shape bodies at macroexpand. In all shapes the symbol is `def`-ed, so sibling code can write `[my-view item]`. Render an app-facing view by **Var reference** or `(rf/view id)`. Bare keyword-tagged hiccup `[:my-view "args"]` is rejected.
 - **Example**:
   ```clojure
   (rf/reg-view counter-buttons []
@@ -842,7 +842,7 @@ The surfaces that bring a re-frame2 process up and take it down. The one-line bo
   ```clojure
   (current-adapter) → discriminator keyword
   ```
-- **Description**: Which substrate is installed. Answers `:rf.adapter/freehand` / `:rf.adapter/reagent` / `:rf.adapter/reagent-slim` / `:rf.adapter/uix` / `:rf.adapter/plain-atom` / `:rf.adapter/ssr` / `:custom` — or `nil` when no adapter is installed. (`:rf.adapter/ui` is also reserved, but only donor in-tree code can produce it.) For predicate / branch code.
+- **Description**: Which substrate is installed. Answers `:rf.adapter/reagent` / `:rf.adapter/reagent-slim` / `:rf.adapter/uix` / `:rf.adapter/plain-atom` / `:rf.adapter/ssr` / `:custom` — or `nil` when no adapter is installed. (`:rf.adapter/ui` and `:rf.adapter/freehand` stay reserved and are never recycled, but the two donor view substrates were removed on 2026-08-16 and nothing produces either value now.) For predicate / branch code.
 - **Example**:
   ```clojure
   (rf/current-adapter)   ;; => :rf.adapter/reagent   (nil when no adapter is installed)

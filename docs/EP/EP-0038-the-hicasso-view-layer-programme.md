@@ -445,6 +445,31 @@ record written by `rf2-2rtt6.144`: `docs/design/hicasso/decisions.md` HD-029,
 `product/decision-brief.md`, `production-server-arm.md`. This addendum answers
 `rf2-k6bv`.
 
+### Addendum, 2026-08-16 — the donor trees are deleted, and the measurement lane moved with them
+
+Wave 3's HD-018 deletion executed on 2026-08-16 (`rf2-0yp7w`, PR #8322):
+`implementation/ui/` and `implementation/freehand/` return nothing from
+`git ls-files`, and `re-frame.freehand` and `re-frame.ui` are no longer public
+surfaces. Two rules above read against that, and this is what they resolve to
+rather than a rewrite of the frozen text:
+
+- **§Sequencing law's bench carve-out** names
+  `implementation/freehand/test/.../bench/` as the programme's measurement
+  apparatus. That lane moved to `implementation/hicasso/test/re_frame/bench/hicasso/`
+  ahead of the cut and is kept as evidence, so every
+  `implementation/freehand/test/…/bench/hicasso/…` path cited above reads
+  against the same tree at its new root.
+- **§Backwards Compatibility's freeze** — *"the Freehand and re-frame.ui trees
+  are frozen except the bench/test measurement lane"* — was a wave-0..2 rule.
+  The P2 "go" discharged it: the trees are gone, not frozen.
+
+§Graduation's other go-condition is **not** discharged, and should not be read
+as a plan in flight. `spec/004D` was ruled DELETED rather than re-aimed at
+Hicasso (`rf2-0yp7w.11`), precisely so donor-era normative text is not laundered
+into Hicasso's contract, and the disposition of `spec/004`, `spec/004C` and the
+S3/S4/S5 conformance profiles is an open operator question (`rf2-h89ri`). This
+EP therefore stays `accepted`.
+
 ## Open Issues
 
 1. The donor-gate ruling (delegated advisory; expected days after P0 publishes).

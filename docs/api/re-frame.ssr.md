@@ -51,7 +51,7 @@ The `re-frame.core` facade re-exports a curated set of render and head primitive
   (emit-ui-tree tree)
   (emit-ui-tree tree opts) → HTML string
   ```
-- **Description**: Serialises an **already-rendered** version-1 structural tree to a string. Where `render-to-string` consumes hiccup and renders it, this seam consumes the value `re-frame.ui.tree/render` already produced, and calls nothing: no view is invoked, no subscription is resolved, no frame is bound. Every dynamic value is already a literal in the tree. Pure, JVM-runnable, and deterministic to the byte.
+- **Description**: Serialises an **already-rendered** version-1 structural tree to a string. Where `render-to-string` consumes hiccup and renders it, this seam consumes a tree some other producer has already emitted — the version-1 tree ABI of [Spec 004B](../../spec/004B-UI-Tree-and-Conversion.md), which outlived the donor substrate that first emitted it — and calls nothing: no view is invoked, no subscription is resolved, no frame is bound. Every dynamic value is already a literal in the tree. Pure, JVM-runnable, and deterministic to the byte.
   - It emits the markup for one root's tree only. Manifests, payloads, root identity, and the HTTP response belong to the SSR artefact's other surfaces.
   - `opts` keys (all optional):
     - `:doctype?` — prefixes `<!DOCTYPE html>`.
