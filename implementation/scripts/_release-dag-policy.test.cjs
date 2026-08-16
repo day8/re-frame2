@@ -207,8 +207,12 @@ test('every workflow in .github/workflows/ parses into an object model', () => {
     .filter((n) => n.endsWith('.yml') || n.endsWith('.yaml'))
     .sort();
   // Guard the false-green trap: an empty listing would vacuously pass. The floor
-  // was 13 until rf2-0yp7w.6 deleted freehand-bench.yml with the tree it benched.
-  assert.ok(files.length >= 12, `expected >= 12 workflow files, found ${files.length}`);
+  // was 13 until rf2-0yp7w.6 deleted freehand-bench.yml with the tree it benched,
+  // then 12 until the same cut deleted freehand-conformance.yml with the corpus it
+  // proved (the R5 residual, transferred onto rf2-0yp7w.6 by the #8362 audit).
+  // COLLAPSE INSURANCE, not a roster: it moves only with a deletion in the same
+  // diff, and never upward by accident.
+  assert.ok(files.length >= 11, `expected >= 11 workflow files, found ${files.length}`);
   for (const file of files) {
     const model = parseWorkflowYaml(fs.readFileSync(path.join(WORKFLOW_DIR, file), 'utf8'));
     assert.ok(
