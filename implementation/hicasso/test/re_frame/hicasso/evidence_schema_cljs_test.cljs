@@ -242,7 +242,7 @@
         "an unseeing basis must also BE a basis"))
   (testing "no :static-proof — this producer interprets and can never prove statically"
     (is (not (contains? evidence/basis-kinds :static-proof))))
-  (testing "the four reads are the four views"
+  (testing "the four reads back the first four Xray views"
     (is (= #{:mounted-boundaries :read-attribution :intents :explain-render}
            (set (keys evidence/reads))))))
 

@@ -19,7 +19,8 @@ description: >
  from in Xray", "Xray Resources tab", "Xray Frames tab", "Xray
  module-view", "what images/frames are installed in Xray", "which image
  loaded this frame", "how does this frame resolve its registrations",
- and similar.
+ "Xray Hicasso tab", "which Hicasso boundaries are mounted", "what reads
+ this subscription", "why did this boundary re-render", and similar.
  **Do not use** for: driving Xray
  programmatically from a live REPL (that's `re-frame2-pair`), authoring
  the host app (`re-frame2`), bootstrapping a new project
@@ -67,9 +68,10 @@ This skill answers three questions, and only three:
  (10 Dynamic event-spine + 5 Static registry-browse). In `:order`, with
  mnemonics `e a v t m r s g u h`: **Epoch · app-db · Views · Trace ·
  Machine · Routes · Resources · Graph · Frames · Hicasso** — the last of
- which is the Hicasso view substrate's evidence lens (mounted boundaries,
- read attribution, the intent stream, and explain-render, each naming what
- it cannot know rather than showing an empty list).
+ which is the Hicasso view substrate's evidence lens: six views (Mounted ·
+ Reads · Intents · Why · Advisor · Causal) over four evidence envelopes
+ taken in one turn, each naming what it cannot know rather than showing an
+ empty list.
 3. **What's the chrome around the tabs for?** — time-travel inspect /
  `Reset`-rewind, the filter pills, the command palette, the Settings popup.
 
@@ -117,11 +119,11 @@ the `Cmd/Ctrl+Shift+M` chord:
  event list · L3 tab bar · L4 detail). *Most* tabs are a *lens on the one
  focused event* — pick an event in the L2 list and they rebind ("what
  happened in **this** epoch?") — but Dynamic names the shell mode, **not** a
- guarantee that every panel is focused-epoch data: **Graph** and **Frames**
- are Dynamic-shell browse surfaces that read the process-global registry /
- the observed frame and do **not** rebind when you pick an epoch (see the
- **scope matrix** below). 9 tabs (core 6 + cross-feature Resources + Graph +
- Frames).
+ guarantee that every panel is focused-epoch data: **Graph**, **Frames** and
+ **Hicasso** are Dynamic-shell browse surfaces that read the process-global
+ registry / the observed frame / the live Hicasso runtime and do **not**
+ rebind when you pick an epoch (see the **scope matrix** below). 10 tabs
+ (core 6 + cross-feature Resources + Graph + Frames + Hicasso).
 - **Static** — event-INDEPENDENT browse of what's *registered* (3-layer
  chrome, no L2 spine). Static is **mixed-scope**: the definition catalogues
  (events / subs / routes / interceptors / machine definitions) are
@@ -203,15 +205,16 @@ mode answers it* — Dynamic (one dispatch) or Static (the whole registry)
 — then route to the tab. For per-tab layout, iconography, stripe tokens,
 and "open it when…" depth see [`references/panels.md`](references/panels.md).
 
-### Dynamic mode — the event-spine shell (9 tabs)
+### Dynamic mode — the event-spine shell (10 tabs)
 
-The L3 tab bar holds **9 tabs**, left-to-right (mnemonics `e a v t m r s g
-u`): **Epoch · app-db · Views · Trace · Machine · Routes · Resources ·
-Graph · Frames** — the core 6 spine lenses (spec/018 §5 + spec/021 §9.1)
-plus the cross-feature Resources / Graph / Frames. *Most* answer "what
-happened in **this** epoch?"; the exceptions are **Graph** and **Frames**,
-which read the process-global registry / observed frame and do **not**
-rebind to the focused epoch (see the scope matrix below). Cross-epoch signal
+The L3 tab bar holds **10 tabs**, left-to-right (mnemonics `e a v t m r s g
+u h`): **Epoch · app-db · Views · Trace · Machine · Routes · Resources ·
+Graph · Frames · Hicasso** — the core 6 spine lenses (spec/018 §5 +
+spec/021 §9.1) plus the cross-feature Resources / Graph / Frames / Hicasso.
+*Most* answer "what happened in **this** epoch?"; the exceptions are
+**Graph**, **Frames** and **Hicasso**, which read the process-global
+registry / observed frame / live Hicasso runtime and do **not** rebind to
+the focused epoch (see the scope matrix below). Cross-epoch signal
 lives on the L2 timeline (badges + stripes); no Dynamic tab shows a
 cross-epoch *aggregate*. There is **no Issues tab** (see *Where issues
 surface now* below).
@@ -225,17 +228,19 @@ authority axes:
 |---|---|---|
 | **Focused epoch** — the event-spine lenses | Epoch · app-db · Views · Trace · Machine · Routes | rebinds them to that epoch's captured cascade |
 | **Observed frame** — live frame state, not the epoch | **Graph** (Realized projection) · Resources (live instances) | does nothing; they follow the **L1 frame picker** |
-| **Process-global / registry-wide** | **Graph** (Declared projection) · **Frames** · Resources (static registry) | does nothing; identical for every epoch (and the global catalogues read the same in every frame) |
+| **Process-global / registry-wide** | **Graph** (Declared projection) · **Frames** · **Hicasso** · Resources (static registry) | does nothing; identical for every epoch (and the global catalogues read the same in every frame) |
 
-**Graph and Frames are the Dynamic-shell exceptions.** Graph reads the
-process-global registrar (Declared projection) or the observed frame's
+**Graph, Frames and Hicasso are the Dynamic-shell exceptions.** Graph reads
+the process-global registrar (Declared projection) or the observed frame's
 runtime-db (Realized projection); **Frames** enumerates the process-global
-live-frame registry (the EP-0023 `image -> frame` model) and does not
-compose off the focused epoch. Resources is a mix — a process-global
-resource registry plus the observed frame's live cache/ledger; the
-per-epoch mutation- and scope-resolution evidence it also surfaces is drawn
-from the trace stream. So "select an epoch and Graph/Frames update" is
-**false** — only the six focused-epoch lenses rebind.
+live-frame registry (the EP-0023 `image -> frame` model); **Hicasso** takes
+the live Hicasso evidence door across every frame, re-taken on each trace
+tick. None of the three composes off the focused epoch. Resources is a mix —
+a process-global resource registry plus the observed frame's live
+cache/ledger; the per-epoch mutation- and scope-resolution evidence it also
+surfaces is drawn from the trace stream. So "select an epoch and
+Graph/Frames/Hicasso update" is **false** — only the six focused-epoch
+lenses rebind.
 
 Each row below is the one-line purpose + when-to-open; **depth for every
 tab lives in [`references/panels.md`](references/panels.md)** under the
@@ -252,6 +257,7 @@ matching § heading.
 | **Resources** | `s` · cross-feature | The declarative server-state lens (Spec 016) — static resource registry, per-frame live instances (state · owners · freshness), the in-flight work ledger, the scope-resolution timeline, and the EP-0016 mutation-completion evidence (`:reply-to` continuations · descriptor-level scoped-invalidation). **Read-only**, redaction-aware; decoupled (no `:require` on the resources artefact). Depth: panels.md §Resources. | "Where's my server state, what owns it, is it stale?" / "What's in flight?" / "Did my mutation's `:reply-to` fire and invalidate the right scopes?" |
 | **Graph** | `g` · cross-feature (violet) | Xray's UI over the **EP-0014 derivation/process graph** — every declared fact + process across all five families (subscriptions, flows, resources, routes, machines) as one node-and-edge graph over the frame fold. **Reads the process-global registrar (Declared) or the observed frame (Realized), not the focused epoch.** A per-panel **Declared ↔ Realized** projection toggle (a Graph-local control, **NOT** the L1 Dynamic/Static mode pill — Graph is always a Dynamic tab) flips registration-derived vs observed. Depth (incl. the authority-axis + internal-accessor caveats): panels.md §Graph. | "Where does this value come from / when is it evaluated / where does it live / who owns it?" — across families |
 | **Frames** *(internal id `:module-view` · `:order 9`)* | `u` · cross-feature | Xray's UI over the EP-0023 **`image -> frame`** model — each live frame as an execution context carrying its resolved image (`[kind id]` descriptors) + how it resolves `(kind id)` lookups. **Registry-wide, not epoch-coupled** — enumerates the process-global live-frame registry; picking an epoch does not rebind it. L4-only registry tab (focusable, **no** standalone `mount-*!` facade — there is no `mount-module-view!`). Depth: panels.md §Frames. | "What frames exist, and which image loaded each?" / "How does this frame resolve its registrations?" |
+| **Hicasso** *(`:order 10`)* | `h` · cross-feature | The evidence lens for **Hicasso**, re-frame2's re-frame-native view layer — a sub-strip of **six views** over one versioned, adapter-neutral schema: **Mounted** (which boundaries are mounted, over which frames) · **Reads** (which boundaries read each subscription) · **Intents** (what was dispatched, in order, in the retained window) · **Why** (which reads changed, and what that can and cannot prove) · **Advisor** (which boundary is hot and the smallest route that addresses it) · **Causal** (one dispatch walked link by link, every missing link named). The first four read the four evidence envelopes; Advisor and Causal are derivations over that **same one-turn take**. Every view states its own scope, basis, completeness and loss, and renders an absence as a **named loss state**, never an empty list — a host not running Hicasso shows the honest no-evidence state, which is distinct from *running with nothing mounted*. **Not epoch-coupled** — re-taken on each trace tick. L4-only registry tab (focusable, **no** standalone `mount-*!` facade). Depth: panels.md §Hicasso. | "Which boundaries are mounted, and what do they read?" / "Why did this boundary re-render?" / "Which boundary is hot?" |
 
 #### Where issues surface now (no Issues tab)
 

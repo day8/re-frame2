@@ -15,8 +15,8 @@ chrome / palette tokens / density in
 declaratively via `reg-l4-tab!` `:order`, rendered by `shell.cljs`
 (Dynamic) / `static/shell.cljs` (Static). Live Dynamic `:order` values:
 Epoch `-1` · app-db `1` · Views `2` · Trace `3` · Machine `4` · Routes `6`
-· Resources `7` · Graph `8` · Frames `9` — nine in all (`:order 5`
-unallocated). The authoritative inventory (`focus.cljc`'s `valid-panels`
+· Resources `7` · Graph `8` · Frames `9` · Hicasso `10` — ten in all
+(`:order 5` unallocated). The authoritative inventory (`focus.cljc`'s `valid-panels`
 def) + the build-time cross-check that guards it live in
 [`../evals/README.md` §Keeping the tab inventory in sync](../evals/README.md).
 
@@ -30,8 +30,9 @@ Static tabs in §Static mode — registry browse. One binding constraint to
 restate: **no cross-epoch L4 panels** — no Dynamic L4 tab shows an
 *aggregate across epochs*; aggregate signal lives on L2 badges only (§021
 §1.2 — binding). That is distinct from data *scope*: most Dynamic tabs are
-focused-epoch lenses, but **Graph** and **Frames** are Dynamic-shell browse
-surfaces scoped to the process-global registry / observed frame, not the
+focused-epoch lenses, but **Graph**, **Frames** and **Hicasso** are
+Dynamic-shell browse surfaces scoped to the process-global registry /
+observed frame / live Hicasso runtime, not the
 focused epoch (see §Scope model below). There is **no Issues tab** — issues
 surface inline (see §Issues — not a Dynamic tab below).
 
@@ -76,17 +77,19 @@ focused-epoch data. Each Dynamic tab reads one of three scopes:
 |---|---|---|
 | **Focused epoch** — event-spine lenses | Epoch · app-db · Views · Trace · Machine · Routes | rebinds them to that epoch's captured cascade |
 | **Observed frame** — live frame state | **Graph** (Realized projection) · Resources (live instances) | does nothing; they follow the **L1 frame picker** |
-| **Process-global / registry-wide** | **Graph** (Declared projection) · **Frames** · Resources (static registry) | does nothing; identical for every epoch (global catalogues read the same in every frame) |
+| **Process-global / registry-wide** | **Graph** (Declared projection) · **Frames** · **Hicasso** · Resources (static registry) | does nothing; identical for every epoch (global catalogues read the same in every frame) |
 
-**Graph and Frames are the Dynamic-shell exceptions** — they sit in the
-Dynamic chrome but do not compose off the focused epoch:
+**Graph, Frames and Hicasso are the Dynamic-shell exceptions** — they sit in
+the Dynamic chrome but do not compose off the focused epoch:
 `derivation_graph.cljs` scopes by projection mode (Declared = the
 process-global registrar over `xray-contributors`; Realized =
-`live-derivation-graph` for the observed `:rf.xray/target-frame`), and
+`live-derivation-graph` for the observed `:rf.xray/target-frame`),
 `module_view.cljs` enumerates the process-global live-frame registry
-(`re-frame.live-frame`) directly, not the focused epoch. What IS binding is
-that no Dynamic L4 tab shows a *cross-epoch aggregate*; cross-epoch signal
-lives on L2 badges.
+(`re-frame.live-frame`) directly, and `hicasso.cljs`'s
+`:rf.xray.hicasso/data` takes the live evidence door across every frame off
+a `:rf.xray/trace-buffer` tick — none of them off the focused epoch. What IS
+binding is that no Dynamic L4 tab shows a *cross-epoch aggregate*;
+cross-epoch signal lives on L2 badges.
 
 ### Inspection vs Rewind
 
@@ -108,8 +111,9 @@ Resources · Graph · Frames · Hicasso.** First six are core spine lenses
 lenses, each self-registered through `reg-l4-tab!` (`panels/resources.cljs`,
 `panels/derivation_graph.cljs`, `panels/module_view.cljs`,
 `panels/hicasso.cljs`). **Hicasso** is the evidence lens for the Hicasso
-view substrate — four sub-views over one versioned adapter-neutral schema
-(Mounted boundaries · Reads attribution · the Intents stream · Why), each
+view substrate — six sub-views over one versioned adapter-neutral schema
+(Mounted boundaries · Reads attribution · the Intents stream · Why ·
+Advisor · Causal), each
 stating its own scope, basis, completeness and loss, and each rendering an
 absence as a named loss state rather than as an empty list. A host that is
 not running Hicasso shows the honest no-evidence state, which is distinct
@@ -660,6 +664,69 @@ implementation at
 [`panels/module_view.cljs`](../../../tools/xray/src/day8/re_frame2_xray/panels/module_view.cljs)
 + [`panels/image_view_helpers.cljc`](../../../tools/xray/src/day8/re_frame2_xray/panels/image_view_helpers.cljc)
 + [`panels/image_view_reads.cljs`](../../../tools/xray/src/day8/re_frame2_xray/panels/image_view_reads.cljs).
+
+### Hicasso — cross-feature · mnem `h` · `:order 10`
+
+Question: **What is Hicasso actually doing — which boundaries are mounted,
+what do they read, and why did one re-render?** The evidence lens for
+**Hicasso**, re-frame2's re-frame-native view layer, consuming the
+adapter-neutral evidence surface `re-frame.hicasso.tool` publishes.
+
+**Six views over four envelopes**, as a sub-strip inside the tab:
+
+| View | Mnem | The question it answers |
+|---|---|---|
+| **Mounted** | `m` | which boundaries are mounted, over which frames |
+| **Reads** | `r` | which boundaries read each subscription |
+| **Intents** | `i` | what was dispatched, in order, inside the retained window |
+| **Why** | `w` | which reads changed, and what that can and cannot prove |
+| **Advisor** | `a` | which boundary is hot, what owns the pressure, and the smallest route that addresses it |
+| **Causal** | `c` | one dispatch, walked link by link from event to paint, with every missing link named |
+
+The first four each read one envelope (`:mounted-boundaries` ·
+`:read-attribution` · `:intents` · `:explain-render`). **Advisor and Causal
+read no envelope of their own** — they are derivations over the *same*
+one-turn take, which is why they are sub-views here rather than tabs of
+their own: a second tab would take a second turn, and a mount landing
+between the two would give a ranking about a census the slice no longer
+agrees with. So "four" and "six" are both right, about different things —
+**four envelopes, six views**.
+
+**Every view states its own scope, basis, completeness and loss.**
+`:complete?` means completeness *for the stated scope* and nothing on its
+own; `:loss` is `nil` or names a reason plus a `:dropped` count that may
+itself be the explicit `:unknown`. An absence renders as a **named loss
+state with its own sentence and testid**, never as an empty list — the
+empty roster is six facts, not one, because "nothing is mounted" is a clean
+bill of health while "the retained intent window is empty" is a *cap* that
+proves nothing about what was dispatched. A host **not running Hicasso**
+shows the honest no-evidence state, which is distinct from *running with
+nothing mounted*.
+
+**No read carries application data** — a boundary's identity is its read
+set, and subscription arguments and return values never reach the page or a
+testid.
+
+**Not epoch-coupled.** `:rf.xray.hicasso/data` recomputes off a
+`:rf.xray/trace-buffer` tick, taking all four envelopes in one turn;
+picking an epoch in L2 does not rebind it.
+
+> **`:hicasso` is an L4-only registry tab — no standalone mount facade.**
+> Like Graph and Frames it registers through `reg-l4-tab!` but is **not** in
+> `panel-enum`: focusable via `focus!` / the command palette, not
+> independently mountable.
+
+**Read-only** — the tab observes and dispatches nothing into the host.
+
+**Open when:** "which boundaries are mounted?", "what reads
+`:cart/items`?", "why did this boundary re-render?", "which boundary is
+hot?", "walk this dispatch from event to paint".
+
+Spec: [`027-Hicasso-Evidence.md`](../../../tools/xray/spec/027-Hicasso-Evidence.md)
++ [`028-Hicasso-Advisor.md`](../../../tools/xray/spec/028-Hicasso-Advisor.md);
+implementation at
+[`panels/hicasso.cljs`](../../../tools/xray/src/day8/re_frame2_xray/panels/hicasso.cljs)
++ [`panels/hicasso_helpers.cljc`](../../../tools/xray/src/day8/re_frame2_xray/panels/hicasso_helpers.cljc).
 
 ### Issues — not a Dynamic tab
 

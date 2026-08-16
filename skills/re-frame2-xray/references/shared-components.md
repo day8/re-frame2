@@ -87,10 +87,12 @@ signal, colour is never alone):
 | Resources | `s` | — | (family-tinted rows; no single stripe) |
 | Graph | `g` | — | `:magenta` (violet — the algebra lens) |
 | Frames *(internal id `:module-view`)* | `u` | — | (family-tinted rows; no single stripe) |
+| Hicasso | `h` | — | (per-view rows; no single stripe) |
 
-Nine Dynamic tabs (Epoch is `:order -1`, the leftmost / default-landing
-slot; **Resources** `:order 7`, **Graph** `:order 8`, and **Frames**
-`:order 9` are the three cross-feature lenses, each self-registered
+Ten Dynamic tabs (Epoch is `:order -1`, the leftmost / default-landing
+slot; **Resources** `:order 7`, **Graph** `:order 8`, **Frames**
+`:order 9` and **Hicasso** `:order 10` are the four cross-feature lenses,
+each self-registered
 through `reg-l4-tab!`). There is **no Issues tab** and **no Event tab** —
 the Epoch tab is the "what happened" surface (issues detail:
 [`panels.md` §Issues](panels.md)).
