@@ -1175,20 +1175,29 @@ jobs:
   # instance of the shape above and the cleanest case of the four.
   #
   # `implementation/hicasso/scripts/check_guide_samples.py` reads TWO input
-  # families (measured at the script, not assumed — `GUIDE_DIR` L121 and
-  # `SOURCE_ROOTS` L128-131):
+  # families, named at the script by `GUIDE_DIR` and `SOURCE_ROOTS`:
   #
-  #   docs/core/hicasso/**                        the 25 guide pages whose 188
-  #                                               fenced blocks it pins
+  #   docs/core/hicasso/**                          the guide pages whose fenced
+  #                                                 blocks it pins
   #   implementation/hicasso/src, .../test_kit/src  the sources it resolves the
-  #                                               34 hicasso verb use-sites against
+  #                                                 hicasso verb use-sites against
+  #
+  # BY SYMBOL AND WITHOUT COUNTS, ON PURPOSE (rf2-badrf). This block used to
+  # cite line numbers for both symbols and integers for pages, blocks and use-
+  # sites, over the words "measured at the script, not assumed" — and every one
+  # of the five had rotted before the PR that noticed, sending a reader who
+  # trusted the phrase to a line in the middle of the divergence ledger. A
+  # symbol survives an edit above it where a line number does not, and the
+  # counts are not needed here at all: the live run below PRINTS how many pages,
+  # blocks and use-sites it covered, which is the one place they cannot go
+  # stale.
   #
   # It is chained into `npm run test:hicasso-invariants`, whose only hosted
   # invocation is a step of the `cljs` job under
   # `needs.detect_changed_surfaces.outputs.cljs_node_test == 'true'`. ONLY THE
   # SECOND FAMILY ARMS THAT OUTPUT. The guide tree arms NOTHING AT ALL —
   # `.github/scripts/report-changed-surfaces.sh docs/core/hicasso/00-installation.md`
-  # returns ALL THIRTY-TWO outputs false, exit 0 — so a guide-only PR, which is
+  # returns EVERY ONE of its outputs false, exit 0 — so a guide-only PR, which is
   # precisely the edit this gate exists to police and by far the commonest one
   # against a documentation tree, runs the check NOWHERE. It would then next
   # redden on somebody else's source PR, over a block they did not write.
