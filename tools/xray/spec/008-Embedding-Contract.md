@@ -195,7 +195,7 @@ panel/beat/path is [the new surface]."
 
 ```clojure
 {:frame       <frame-id>   ; the HOST frame Xray should observe (optional)
- :panel       <tab-id>     ; which L4 tab to surface (one of the 6 below)
+ :panel       <tab-id>     ; which L4 tab to surface (one of the 10 below)
  :epoch-id    <epoch-id>   ; settling epoch to pin the spine to
  :dispatch-id <id>         ; cascade root to pin the spine to
  :path        [<k> ...]    ; app-db path to highlight in the App-db panel
@@ -215,15 +215,18 @@ ever drift):
 
 ```
 #{:epoch :app-db :views :trace :machines :routing
-  :resources :derivation-graph :module-view}
+  :resources :derivation-graph :module-view :hicasso}
 ```
 
-(Nine tabs — all nine Dynamic L4 tabs are focusable. The registry id for
+(Ten tabs — all ten Dynamic L4 tabs are focusable. The registry id for
 the Routes tab is `:routing` (it RENDERS as "Routes"); a host that prefers
 the visible display-noun can pass `:routes`, normalised to `:routing` via
 `focus/panel-aliases`. `:derivation-graph` renders as "Graph" and
-`:module-view` as "Modules". The `:issues` tab was removed per rf2-gbz39 —
-issues now surface inline in the Epoch panel + the L2 event-row pink-wash +
+`:module-view` as "Frames". Focusability and mountability are separate
+axes: all ten are focusable, and the three L4-only registry tabs — Graph,
+Frames and Hicasso — have no standalone `mount-*!` facade. The `:issues`
+tab was removed per rf2-gbz39 — issues now surface inline in the Epoch
+panel + the L2 event-row pink-wash +
 the always-on issues ribbon signal, so `:issues` is no longer a focusable
 panel. A host that validates a focus command against `:issues` gets
 `{:ok? false :reason :unknown-panel}` from `focus!`.)

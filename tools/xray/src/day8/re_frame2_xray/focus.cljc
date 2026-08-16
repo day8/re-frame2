@@ -112,11 +112,11 @@
   `panel-registry/reg-l4-tab!`:
 
       Epoch · app-db · Views · Trace · Machines · Routing · Resources ·
-      Graph (derivation-graph) · Modules (module-view) · Hicasso
+      Graph (derivation-graph) · Frames (module-view) · Hicasso
 
   Internal registry ids (`:views` renders as \"Views\", `:routing`
   renders as \"Routes\", `:derivation-graph` as \"Graph\",
-  `:module-view` as \"Modules\") — the id is not a user contract, the
+  `:module-view` as \"Frames\") — the id is not a user contract, the
   label is. Host callers who prefer the display-noun spelling can pass
   `:routes` (normalised to `:routing` via `panel-aliases`).
 
