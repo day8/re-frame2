@@ -181,6 +181,14 @@
   with its range and beside the null arm's, which is the same arithmetic
   over a difference known to be zero.
 
+  **Both carry their per-round vector** (rf2-j7o9w). They did not, and the
+  null was the single figure this instrument kept no round-by-round record
+  of — so `rf2-adld3`, whose whole window turned on the null, had to
+  reconstruct it from the ladder's rungs before it could state a
+  resolution bound. Every ns/field row now comes through the one
+  summariser [[ns-terms]], so nothing here needs a sibling row to be
+  re-adjudicated.
+
   Owner: rf2-pqyxz. Witness: `front/census_article_editor_cljs_test`'s
   ported RealWorld article-editor fieldset (HD-023, *Demonstrated, not
   asserted*), scaled to [[boundaries]] boundaries because a page of one
@@ -643,24 +651,36 @@
 
 (defn- fmt [x n] (.toFixed (double x) n))
 
-(defn- per-element-ns
-  "The per-round difference of two arms' raw p50 mount times, in
-  nanoseconds per `:&` site. Raw and not floor-normalised, deliberately:
-  the two terms are measured in the SAME round, so an additive drift
-  differences out, and dividing by the floor would rescale a difference by
-  a quantity that has nothing to do with it."
-  [p50s a b]
-  (lane/summarise
-    (mapv (fn [r] (/ (* 1e6 (- (get r a) (get r b))) amp-sites)) p50s)))
-
 (defn- ns-terms
-  "The same arithmetic as [[per-element-ns]], with the PER-ROUND vector
-  kept beside the summary.
+  "The per-round difference of two arms' raw p50 mount times, in
+  nanoseconds per `:&` site — the PER-ROUND VECTOR, and the summary over
+  it. Every ns/field row this file prints comes through here.
 
-  It is kept because a ladder that prints only its summaries cannot be
-  re-adjudicated without being re-run, and this instrument has already
-  had one window re-taken for exactly that. `per-element-ns` is left
-  alone so the two published rows keep the shape they were published in."
+  Raw and not floor-normalised, deliberately: the two terms are measured
+  in the SAME round, so an additive drift differences out, and dividing by
+  the floor would rescale a difference by a quantity that has nothing to
+  do with it.
+
+  ## THE VECTOR IS THE POINT, and this file has already paid for the
+  ## version that kept only the summary (rf2-j7o9w)
+
+  A second summariser used to serve the two published rows and answered
+  `{:n :min :max :p50}` and nothing else — so the NULL, the quantity every
+  resolution claim this instrument makes rests on, was the ONE quantity it
+  did not retain round by round. `rf2-adld3`'s window recovered the null's
+  five values anyway, by arithmetic over the ladder's rungs: each round's
+  `:expanded` median falls out of a rung's own per-round ns and ratio, and
+  the null's difference follows. The recovery was exact and checked against
+  the rig's own printed `{min max p50}` in all three runs. **That it was
+  NEEDED is the defect**, and it needed a SIBLING ROW to be possible at
+  all — an instrument should not be re-adjudicable only by way of a
+  neighbour that happens to keep better records. One summariser now, so
+  the effect, the null and the four rungs are all re-adjudicable from what
+  the run printed.
+
+  The summary is taken over the ROUNDED vector rather than beside it, so a
+  reader can check `{:min :max :p50}` against the printed `:per-round` and
+  get an exact match instead of a near one."
   [p50s a b]
   (let [vs (mapv (fn [r] (lane/round4 (/ (* 1e6 (- (get r a) (get r b))) amp-sites)))
                  p50s)]
@@ -760,8 +780,8 @@
                                arms)
                 effect   (lane/ratio-between ratios :merged :expanded)
                 null     (lane/ratio-between ratios :expanded-b :expanded)
-                eff-ns   (per-element-ns p50s :merged :expanded)
-                null-ns  (per-element-ns p50s :expanded-b :expanded)
+                eff-ns   (ns-terms p50s :merged :expanded)
+                null-ns  (ns-terms p50s :expanded-b :expanded)
                 gv       (lane/guard! samples "amp-merge clock arms (in-page ms)")
                 ;; THE POSITIVE CONTROL, per round and strictly (rf2-egdaq).
                 ;; `:ctl-2x` is `:expanded`'s own operation performed twice
@@ -839,9 +859,11 @@
             (js/console.log
               (str ";;   PER-ELEMENT effect: " (fmt (:p50 eff-ns) 1) " ns/:& site ["
                    (fmt (:min eff-ns) 1) " - " (fmt (:max eff-ns) 1) "]"))
+            (js/console.log (str ";;     ns per-round: " (pr-str (:per-round eff-ns))))
             (js/console.log
               (str ";;   PER-ELEMENT null:   " (fmt (:p50 null-ns) 1) " ns/site ["
                    (fmt (:min null-ns) 1) " - " (fmt (:max null-ns) 1) "]"))
+            (js/console.log (str ";;     ns per-round: " (pr-str (:per-round null-ns))))
             (js/console.log (str ";;   control (" (name (:rule ctl)) ", ctl-2x/expanded): "
                                  (:why ctl)))
             (js/console.log (str ";;   control per-round: " (pr-str (:per-round ctl))))

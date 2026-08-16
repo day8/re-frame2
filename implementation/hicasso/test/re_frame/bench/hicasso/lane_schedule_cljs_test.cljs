@@ -46,7 +46,26 @@
   after `rf2-z143r`'s ladder, and the eighth arm `rf2-v5oto` wants. The
   fault is invariant to all of them, which is the same arithmetic that
   settles `rf2-6ta5r`'s arm-count question: the schedule length does not
-  move it."
+  move it.
+
+  ## The second thing this file replays: HOW WARM the arm was (rf2-ydqzt)
+
+  `order-guard` strata a banked sample by its `:predecessor` and by its
+  `:phase`, and the two need different facts about the same schedule. The
+  deftests above are the predecessor's. The last two are the phase's:
+  warm-up is charged PER ROUND while the ramp `:phase` exists to catch is
+  RUN-LEVEL, and `rounds!`'s own docstring now quotes the prior-execution
+  span that follows from it. A quoted number nothing checks is the class of
+  claim this directory exists to refuse, so both samplings the lane's
+  page-mount clocks have run are replayed and the span is asserted.
+
+  Those two deftests are also what a future `:prewarm` has to walk past.
+  The bead that priced this asymmetry declined to build one — the knob
+  sufficed, and rf2-adld3's window on the warmed rig came back reportable
+  on phase — so what is recorded here is a REFUSAL and its arithmetic. A
+  change that moves the warm-up out of the round loop turns these red,
+  which is the point: it should not be possible to land the mechanism and
+  leave the reasoning that declined it standing."
   (:require [cljs.test :refer-macros [deftest is testing]]
             [re-frame.bench.hicasso.lane :as lane]))
 
@@ -174,3 +193,88 @@
             (str n " arms: one reading map per round"))
         (is (every? (fn [m] (every? (fn [[_ xs]] (= samples (count xs))) m)) readings)
             (str n " arms: every arm contributes `samples` readings to every round"))))))
+
+;; ---------------------------------------------------------------------------
+;; What the per-round warm-up charge actually buys (rf2-ydqzt)
+;; ---------------------------------------------------------------------------
+
+(def ^:private samplings
+  "Both samplings the lane's page-mount clocks have run, each with the span
+  of PRIOR EXECUTIONS OF ITS OWN ARM that the run's last third sits at.
+
+  `lane/rounds!`'s docstring quotes both spans as the reason a run-level
+  pre-warm was declined; these are the same two numbers, checked. The
+  file-level [[sampling]] above stays pinned at the pair the predecessor
+  fault was found under — that fault is invariant to the numbers and this
+  one is entirely about them."
+  [{:sampling {:warmup 3 :samples 6}  :last-third [32 44]}
+   {:sampling {:warmup 8 :samples 12} :last-third [72 99]}])
+
+(defn- prior-executions
+  "Every banked sample, tagged with how many times ITS OWN ARM had already
+  run in this run.
+
+  Counted off the true execution recording, warm-up included, and not
+  re-derived from `slot-order` — the same reason [[replay]] gives: a
+  re-derivation is a second copy of the rule under test and would agree
+  with a broken one."
+  [{:keys [samples truth]}]
+  (let [before (:out (reduce (fn [{:keys [seen out]} nm]
+                               {:seen (update seen nm (fnil inc 0))
+                                :out  (conj out (get seen nm 0))})
+                             {:seen {} :out []}
+                             truth))]
+    (mapv (fn [{:keys [arm value position]}]
+            {:arm arm :position position :prior (nth before value)})
+          samples)))
+
+(deftest warm-up-is-charged-in-every-round-and-not-once-per-run
+  (testing "The mechanism, asserted directly. `rounds!` spends `warmup`
+           discarded executions per arm inside EVERY round, so at five
+           rounds four fifths of the run's whole warm-up spend falls in
+           rounds that were already warm. This is not a defect — it is the
+           shape a run-level `:prewarm` would change — and it is asserted
+           so that changing it cannot leave `rounds!`'s recorded reasoning
+           standing."
+    (doseq [{:keys [sampling]} samplings
+            n                  arm-counts]
+      (let [{:keys [warmup samples]} sampling
+            {truth :truth samps :samples} (replay n sampling rounds)
+            banked   (set (map :value samps))
+            per-round (partition (* n (+ warmup samples)) (range (count truth)))]
+        (is (= rounds (count per-round))
+            (str n " arms " (pr-str sampling) ": the run is `rounds` blocks of executions"))
+        (doseq [[r idxs] (map-indexed vector per-round)]
+          (is (= (* n warmup) (count (remove banked idxs)))
+              (str n " arms " (pr-str sampling) ": round " (inc r)
+                   " discards `warmup` executions of every arm")))
+        (is (= (* n warmup (dec rounds))
+               (- (count (remove banked (range (count truth)))) (* n warmup)))
+            (str n " arms " (pr-str sampling)
+                 ": every round after the first pays a full warm-up block"))))))
+
+(deftest the-ramp-the-phase-factor-catches-is-run-level-not-round-level
+  (testing "The consequence, and the two numbers `rounds!` quotes. The
+           FIRST measured sample of a run has had exactly `warmup` prior
+           executions of its arm however many rounds follow — round one's
+           warm-up is the only warm-up in front of it — while the run's
+           last third sits an order of magnitude higher. Per-round warm-up
+           does not close that gap and cannot: it restarts, and the ramp
+           does not."
+    (doseq [{:keys [sampling last-third]} samplings
+            n                             arm-counts]
+      (let [{:keys [warmup samples]} sampling
+            by-pos (vec (sort-by :position (prior-executions (replay n sampling rounds))))
+            total  (count by-pos)
+            third  (quot total 3)
+            priors (mapv :prior (subvec by-pos (- total third)))]
+        (is (= (* n samples rounds) total)
+            (str n " arms " (pr-str sampling) ": every banked sample is accounted for"))
+        (is (= warmup (:prior (first by-pos)))
+            (str n " arms " (pr-str sampling)
+                 ": the run's first measured sample is warmed by round one's warm-up "
+                 "and by nothing else"))
+        (is (= last-third [(apply min priors) (apply max priors)])
+            (str n " arms " (pr-str sampling)
+                 ": the run's last third sits at " (pr-str last-third)
+                 " prior executions of its own arm"))))))

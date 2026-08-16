@@ -598,7 +598,37 @@
   disjoint by construction and the guard refuses a contamination that is
   really just the witness table.
 
-  Answers `{:readings [{id [ms …]} …] :samples [guard-samples]}`."
+  Answers `{:readings [{id [ms …]} …] :samples [guard-samples]}`.
+
+  ## WARM-UP IS CHARGED PER ROUND, AND THE RAMP IT GUARDS IS RUN-LEVEL
+
+  Known, priced, and deliberately NOT repaired (rf2-ydqzt). `warmup`
+  discarded samples are spent per arm inside EVERY round, but the ramp
+  [[collect!]]'s `:position` exists to expose does not restart at a round
+  boundary — that is [[sample-collector]]'s own reason for counting
+  position across the whole run. Replaying this loop against
+  [[slot-order]] prices the asymmetry exactly: the FIRST measured sample
+  of a run has had exactly `warmup` prior executions of its arm however
+  many rounds follow, while at `{:warmup 8 :samples 12}` over five rounds
+  the run's last third sits at 72–99 prior executions (32–44 at
+  `{:warmup 3 :samples 6}`). Round one is the only round that needs
+  warming, and rounds two to five each pay `warmup` mounts that warm
+  nothing.
+
+  SO RAISING `warmup` IS A BLUNT LEVER — it buys round one's pre-warm at
+  five times its cost — and the targeted repair is a run-level `:prewarm`
+  that runs the arms P times, discarded, before the first round, leaving
+  `warmup` as a small per-round settling allowance. **It is not built**,
+  because the knob sufficed: rf2-h904p raised the two clocks to `8`, which
+  puts the +27% step this lane records after a site's sixth execution
+  inside the warm-up, and rf2-adld3's three-run window on that warmed rig
+  then returned REPORTABLE on every arm by predecessor AND by phase, with
+  the null it was opened on inside ±7.9% of 1.0 across fifteen rounds.
+
+  WHAT WOULD WARRANT BUILDING IT: a window whose guard refuses on `:phase`
+  at `:warmup 8` with the first-third stratum dominated by round one. Ten
+  bench apps ride this loop and every one of them would inherit the new
+  schedule, so the trigger is stated here rather than left to judgement."
   ([arms sampling rounds measure-one!]
    (rounds! arms sampling rounds measure-one! (fn [arm] (name (:id arm)))))
   ([arms {:keys [warmup samples] :as _sampling} rounds measure-one! label]
