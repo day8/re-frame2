@@ -59,7 +59,7 @@
   So [[forget-frame-ops!]] is ALSO wired to frame destruction now, through
   core's `:hicasso/on-frame-destroyed!` late-bind hook — the door
   `re-frame.freehand` releases its own frame-keyed ownership ledger
-  through, one line above this one in `destroy-frame!`'s step 7, and the
+  through, one line above this one in `destroy-frame!`'s step 6, and the
   shape `re-frame.ui` takes earlier in the same recipe. It changes nothing
   above: a row a destroyed incarnation left behind was already unreachable
   by every branch of [[frame-row]], so dropping it earlier is hygiene and

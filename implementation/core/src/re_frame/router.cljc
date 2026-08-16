@@ -3494,7 +3494,7 @@
   Per rf2-9neiq: this seam NO LONGER commits the `:halted-destroy` epoch
   record. That record is owned by a single site — the epoch destroy hook
   (`re-frame.epoch.listeners/on-frame-destroyed!`), invoked synchronously
-  from `frame/destroy-frame!` (step 11) the instant the handler destroyed
+  from `frame/destroy-frame!` (step 10) the instant the handler destroyed
   its own frame. That site carries the run's harvested buffer AND the
   pre-run / destroy-time frame-state snapshots (threaded via
   `frame/*run-frame-state-before*` + the destroy-time container read), so it

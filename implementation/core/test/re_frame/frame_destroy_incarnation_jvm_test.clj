@@ -133,17 +133,17 @@
   (let [cleanup-runs (atom 0)
         claimed      (CountDownLatch. 1)
         release      (CountDownLatch. 1)
-        original     (late-bind/get-fn :ui/on-frame-destroyed!)]
+        original     (late-bind/get-fn :machines/teardown-on-frame-destroy!)]
     (rf/reg-event :destroy/duplicate-cleanup
       (fn [_ _]
         (swap! cleanup-runs inc)
         {}))
     (try
-      ;; The UI hook is after claim publication and before lifecycle-dead
-      ;; publication. Hold the winning destroy there while a second thread
-      ;; attempts the same incarnation's destroy.
+      ;; The machines teardown hook is after claim publication and before
+      ;; lifecycle-dead publication. Hold the winning destroy there while a
+      ;; second thread attempts the same incarnation's destroy.
       (late-bind/set-fn!
-        :ui/on-frame-destroyed!
+        :machines/teardown-on-frame-destroy!
         (fn [id]
           (when original (original id))
           (when (= :destroy/duplicate id)
@@ -160,7 +160,7 @@
             "the winning destroy preserves the nil return contract"))
       (finally
         (.countDown release)
-        (late-bind/set-fn! :ui/on-frame-destroyed! original)))
+        (late-bind/set-fn! :machines/teardown-on-frame-destroy! original)))
     (is (= 1 @cleanup-runs)
         "the user cleanup event runs exactly once")
     (is (nil? (frame/frame :destroy/duplicate))
@@ -181,7 +181,7 @@
         cleanup-runs    (atom 0)
         b-observer      ::replacement-b-observer
         original-epoch  (late-bind/get-fn :epoch/on-frame-destroyed)
-        original-ui     (late-bind/get-fn :ui/on-frame-destroyed!)]
+        original-machines     (late-bind/get-fn :machines/teardown-on-frame-destroy!)]
     (rf/make-frame {:id id})
     (try
       (late-bind/set-fn!
@@ -195,11 +195,11 @@
           (when original-epoch
             (apply original-epoch args))))
       (late-bind/set-fn!
-        :ui/on-frame-destroyed!
+        :machines/teardown-on-frame-destroy!
         (fn [frame-id]
-          (when original-ui (original-ui frame-id))
-          ;; The UI hook is after claim publication and before B's lifecycle
-          ;; flip. Hold every B teardown attempt here: an erroneously-authorised
+          (when original-machines (original-machines frame-id))
+          ;; The machines teardown hook is after claim publication and before B's
+          ;; lifecycle flip. Hold every B teardown attempt here: an erroneously-authorised
           ;; duplicate will block, making A-finally marker erasure observable.
           (when (and (= id frame-id) @b-installed?)
             (.countDown b-claimed)
@@ -232,7 +232,7 @@
                 "fresh B replaces A's stale marker and claims its own destroy")
 
             ;; B's cleanup event and drain check legitimately mutate/clear
-            ;; epoch state before the UI hook pause. Install the remaining
+            ;; epoch state before the teardown-hook pause. Install the remaining
             ;; B-owned fixtures only after that pause, then use B's resulting
             ;; newest epoch as the preservation anchor. Nothing in A's stale
             ;; step-11 cleanup may alter any of these four id-keyed stores.
@@ -276,7 +276,7 @@
         (.countDown release-b)
         (epoch-state/drop-listener! b-observer)
         (late-bind/set-fn! :epoch/on-frame-destroyed original-epoch)
-        (late-bind/set-fn! :ui/on-frame-destroyed! original-ui)))))
+        (late-bind/set-fn! :machines/teardown-on-frame-destroy! original-machines)))))
 
 (deftest destroyed-incarnation-cannot-commit-its-returned-tail-into-replacement
   ;; A handler destroys its own incarnation and pauses after the registry
@@ -917,10 +917,10 @@
   ;; rf2-vxgfnd.289 — the integrated full-destroy peer to the epoch-seam unit
   ;; `epoch-test/terminal-publish-noops-on-nil-bundle-no-fabrication` and the
   ;; ring-residue pin `snapshot-hook-failure-leaves-no-residual-ring` above. A
-  ;; throwing PRE-dissoc `:epoch/snapshot-frame-destroyed` (step 8a) MUST NOT
+  ;; throwing PRE-dissoc `:epoch/snapshot-frame-destroyed` (step 7a) MUST NOT
   ;; abort teardown. The recipe walks straight on:
   ;;
-  ;;   (1) the POST-dissoc publish hook (`:epoch/on-frame-destroyed`, step 11)
+  ;;   (1) the POST-dissoc publish hook (`:epoch/on-frame-destroyed`, step 10)
   ;;       STILL RUNS — the snapshot/publish split (rf2-vxgfnd.151/.246) threads
   ;;       the (now nil) bundle through to the publish regardless of outcome;
   ;;   (2) exactly ONE bounded always-on `:rf.error/frame-teardown-failed`
@@ -980,7 +980,7 @@
 
       ;; (1) The post-dissoc publish still ran despite the failed snapshot.
       (is (= 1 @publish-calls)
-          "the post-dissoc :epoch/on-frame-destroyed publish (step 11) still
+          "the post-dissoc :epoch/on-frame-destroyed publish (step 10) still
            fires after the pre-dissoc snapshot (step 8a) threw")
 
       ;; (2) Exactly one bounded always-on report, naming the snapshot hook.
@@ -1643,7 +1643,7 @@
         corpus         (atom [])
         traces         (atom [])
         frame-routes   (atom 0)
-        original-ui    (late-bind/get-fn :ui/on-frame-destroyed!)
+        original-machines    (late-bind/get-fn :machines/teardown-on-frame-destroy!)
         original-epoch (late-bind/get-fn :epoch/on-frame-destroyed)
         original-route (late-bind/get-fn :observability/route-error-record)]
     (rf/make-frame {:id id})
@@ -1663,9 +1663,9 @@
           (swap! traces conj event))))
     (try
       (late-bind/set-fn!
-        :ui/on-frame-destroyed!
+        :machines/teardown-on-frame-destroy!
         (fn [frame-id]
-          (when original-ui (original-ui frame-id))
+          (when original-machines (original-machines frame-id))
           (when (= id frame-id)
             (if @b-installed?
               (do
@@ -1740,7 +1740,7 @@
         (.countDown release-b)
         (rf/unregister-listener! :errors ::teardown-overlap-corpus)
         (rf/unregister-listener! :trace ::teardown-overlap-traces)
-        (late-bind/set-fn! :ui/on-frame-destroyed! original-ui)
+        (late-bind/set-fn! :machines/teardown-on-frame-destroy! original-machines)
         (late-bind/set-fn! :epoch/on-frame-destroyed original-epoch)
         (late-bind/set-fn! :observability/route-error-record original-route)))))
 

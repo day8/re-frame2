@@ -707,7 +707,7 @@ exact-token teardown cascade described below is the sole executable exception.
    construction owner makes destroy a prompt idempotent no-op; construction rollback on
    the owning host thread joins its own reservation. A stale claim for incarnation A does
    not fence a fresh same-id incarnation B. Teardown releases its reservation immediately
-   after step 10's exact dissoc, before step 11, preserving the supported successor window.
+   after step 9's exact dissoc, before step 10, preserving the supported successor window.
 2. **Run the user `:on-destroy` cleanup cascade** (if configured) — seed a private,
    token-scoped router and drain the seed plus its synchronous same-frame descendants to
    fixed point while the frame remains lifecycle-live. Ordinary pre-claim work and
@@ -719,32 +719,24 @@ exact-token teardown cascade described below is the sole executable exception.
    in reverse-creation order, run each `:exit` cascade against the live container, apply
    the unified teardown projection, unregister per-actor handlers, and emit
    `:rf.machine.lifecycle/destroyed` with `:reason :parent-frame-destroyed`.
-4. **Compiled-view observer teardown** via `:ui/on-frame-destroyed!` — when
-   `day8/re-frame2-ui` is present, transition the bounded victim set to dead and release
-   their handles while the sub-cache is still live: every currently-connected ViewCell whose
-   retained subscription targets name this frame, PLUS every still-disconnected but
-   React-retained root-owned ViewCell whose last published site values (retained
-   subscription targets) name it.
-5. **Publish lifecycle-dead.** CAS-flip `:destroyed?` only while the claimed incarnation
+4. **Publish lifecycle-dead.** CAS-flip `:destroyed?` only while the claimed incarnation
    token still matches. From this point public dispatch recovers as a no-op, public
    subscribe recovers to `nil`, and both emit the production-survivable
    `:rf.error/frame-destroyed` diagnostic described above.
-6. **Dispose reactive state.** Dispose the sub-cache first, then the app-db/runtime-db
+5. **Dispose reactive state.** Dispose the sub-cache first, then the app-db/runtime-db
    partition projections whose source watches the cache reactions used.
-7. **Run auxiliary cleanup hooks**, in order: elision warning cache; SSR side-channels;
+6. **Run auxiliary cleanup hooks**, in order: elision warning cache; SSR side-channels;
    machine `:after` timers; schemas; flows; routing host caches and URL ownership;
    Resources work handles; plain managed HTTP; `:dispatch-later` host timers; and the
-   Freehand interpreted-mount root-ownership ledger (`:freehand/on-frame-destroyed!`,
-   carrying the dying incarnation token so it compare-cleans only the row whose handle
-   names it — the same discipline step 11's epoch hook uses).
-8. **Emit `:rf.frame/destroyed`.** Every application/feature cleanup hook has completed.
+   Hicasso substrate's memoised frame-ops row (`:hicasso/on-frame-destroyed!`).
+7. **Emit `:rf.frame/destroyed`.** Every application/feature cleanup hook has completed.
    Lifecycle-dead is already published, so public metadata lookup does not resolve the
    frame; the trace is self-contained and carries the dying frame id in `:tags :frame`.
-9. **Release trace policy state.** Clear the per-frame trace ring and frame-no-emit flag
+8. **Release trace policy state.** Clear the per-frame trace ring and frame-no-emit flag
    after the destroyed trace has flowed.
-10. **Dissoc the frame from the one frames registry.** This is the whole forget; frames
-    have no second registrar row to unregister.
-11. **Notify epoch listeners** — fire `:rf.epoch.cb/silenced-on-frame-destroy` after the
+9. **Dissoc the frame from the one frames registry.** This is the whole forget; frames
+   have no second registrar row to unregister.
+10. **Notify epoch listeners** — fire `:rf.epoch.cb/silenced-on-frame-destroy` after the
     live frame has vanished so tools silence their per-frame event buffers in one pass.
     This is the PUBLISH half of the epoch destroy contract: it ships the terminal
     evidence the pre-dissoc snapshot (below) bound. The internal hook carries the
@@ -752,23 +744,23 @@ exact-token teardown cascade described below is the sole executable exception.
     incarnation has already published epoch state, stale cleanup is a no-op for the
     replacement.
 
-Steps 3, 4, 7, 9, and 11's optional/per-artefact calls are **best-effort**: an unbound
+Steps 3, 6, 8, and 10's optional/per-artefact calls are **best-effort**: an unbound
 hook silently no-ops and the rest of the recipe continues. The relative order between
 registered hooks does not change.
 
 **The epoch layer's terminal evidence is snapshotted before the dissoc — a step in its
-own right.** Between step 8 and step 9 — before the trace-ring release, and before the
-step-10 registry dissoc — `destroy-frame!` invokes `snapshot-terminal-destroy-evidence!`
+own right.** Between step 7 and step 8 — before the trace-ring release, and before the
+step-9 registry dissoc — `destroy-frame!` invokes `snapshot-terminal-destroy-evidence!`
 (the `:epoch/snapshot-frame-destroyed` hook). It binds the dying incarnation's terminal
 `:halted-destroy` evidence (the partial epoch record plus the listener/silencing snapshot)
 while that incarnation still **solely** owns its id-keyed epoch stores. A same-id successor
 is constructable only *after* the dissoc, so it can never claim — and thereby drop — those
-stores out from under the snapshot; step 11 then publishes the bound evidence whether or
+stores out from under the snapshot; step 10 then publishes the bound evidence whether or
 not the incarnation still owns the stores when it fires, and that split is exactly what
 keeps a paused predecessor's terminal facts intact once a replacement claims the id. The
 snapshot is best-effort like the numbered hooks above: a throw is caught, recorded on both
 Spec 009 channels, and teardown continues; a nil bundle (no epoch layer, or debug disabled)
-publishes nothing — step 11 fabricates no evidence the snapshot did not bind. It runs before
+publishes nothing — step 10 fabricates no evidence the snapshot did not bind. It runs before
 the trace-ring release so a snapshot-hook failure's ordinary-delivery warning rides the
 incarnation's ring and is cleared by that release rather than recreating an already-freed
 one.
@@ -795,10 +787,10 @@ work is still discarded.
 
 The per-artefact destroy hooks above carry **two distinct verb forms**, and the distinction is **semantic, not stylistic** — they name two different kinds of work, so an artefact may legitimately publish both (the machines artefact does):
 
-- **`<feature>/on-frame-destroyed!`** — a **destroyed-frame cleanup callback**. It drops host-transient side-table entries keyed to the now-gone frame (timer registries, nav/scroll caches, validator caches, SSR side-channels). These callbacks run in step 7's auxiliary-cleanup pass against an already-marked-`:destroyed?` frame and are pure side-table bookkeeping.
-- **`<feature>/teardown-on-frame-destroy!`** — an **artefact-owned teardown recipe** with lifecycle/registrar-consistency invariants rather than a simple side-table sweep. Its exact position follows what the recipe needs: machines run in step 3 before lifecycle-dead because their reverse-order `:exit` cascades require the live container; flows run in step 7 after lifecycle-dead and release the destroyed frame's slot in the **sole per-frame flow store** (`{frame-id {flow-id flow-map}}`) — together with that frame's `last-inputs` dirty-check and pending-vacation caches — without executing a live-frame cascade.
+- **`<feature>/on-frame-destroyed!`** — a **destroyed-frame cleanup callback**. It drops host-transient side-table entries keyed to the now-gone frame (timer registries, nav/scroll caches, validator caches, SSR side-channels). These callbacks run in step 6's auxiliary-cleanup pass against an already-marked-`:destroyed?` frame and are pure side-table bookkeeping.
+- **`<feature>/teardown-on-frame-destroy!`** — an **artefact-owned teardown recipe** with lifecycle/registrar-consistency invariants rather than a simple side-table sweep. Its exact position follows what the recipe needs: machines run in step 3 before lifecycle-dead because their reverse-order `:exit` cascades require the live container; flows run in step 6 after lifecycle-dead and release the destroyed frame's slot in the **sole per-frame flow store** (`{frame-id {flow-id flow-map}}`) — together with that frame's `last-inputs` dirty-check and pending-vacation caches — without executing a live-frame cascade.
 
-So **machines publishes both**: `:machines/teardown-on-frame-destroy!` (step 3) runs the actor `:exit` cascade and unregisters per-actor handlers; `:machines/on-frame-destroyed!` (step 7) cancels the per-frame `:after` timer registry and epoch counters. The two names are distinct teardown kinds. Flows' step-7 `:flows/teardown-on-frame-destroy!` uses the recipe verb because it releases the destroyed frame's authoritative flow-store slot in coordinated lockstep with that frame's dirty-check and pending-vacation caches — leaving every sibling frame's slot untouched (the `:flow` registrar kind is reserved-empty, so there is no cross-frame registrar re-point) — even though it runs after lifecycle-dead; schemas / routing / SSR / resources use the callback verb because their cleanup is side-table-only.
+So **machines publishes both**: `:machines/teardown-on-frame-destroy!` (step 3) runs the actor `:exit` cascade and unregisters per-actor handlers; `:machines/on-frame-destroyed!` (step 6) cancels the per-frame `:after` timer registry and epoch counters. The two names are distinct teardown kinds. Flows' step-6 `:flows/teardown-on-frame-destroy!` uses the recipe verb because it releases the destroyed frame's authoritative flow-store slot in coordinated lockstep with that frame's dirty-check and pending-vacation caches — leaving every sibling frame's slot untouched (the `:flow` registrar kind is reserved-empty, so there is no cross-frame registrar re-point) — even though it runs after lifecycle-dead; schemas / routing / SSR / resources use the callback verb because their cleanup is side-table-only.
 
 **`:on-destroy` handler throw semantics — trace-and-continue.** A throw from the user-supplied `:on-destroy` event handler (or any handler in its dispatch drain) MUST NOT abort teardown. The runtime catches the throw, emits a `:rf.error/on-destroy-handler-exception` error trace (`:tags` `{:frame <id> :rf.event/v <on-destroy-event-vector> :exception <ex> :where :fire-on-destroy-event!}`, `:op-type :error`), and continues with every downstream teardown step — machine cascade, sub-cache disposal, cleanup hooks, `:rf.frame/destroyed` emission, registry dissoc, registrar unregister, epoch notification. A frame that began destruction MUST end fully destroyed; throw-propagation was never a "abort teardown" signal (a half-torn-down frame leaks reactions and registrar entries and is the worse failure mode by far). User code that needs to react to the exception consumes the error trace; user code that wants to *prevent* destruction must guard the caller of `destroy-frame!`, not throw from inside `:on-destroy`.
 

@@ -457,7 +457,8 @@
 ;; NOT leave the frame live + half-torn-down (rf2-jt47s0)
 ;; ---------------------------------------------------------------------------
 ;; `destroy-frame!` step 1 (`fire-on-destroy-event!`) has its own catch and
-;; every step from `:ui/on-frame-destroyed!` onward rides `safe-call-hook!`, but
+;; every late-bound cleanup step from the liveness flip onward rides
+;; `safe-call-hook!`, but
 ;; step 2 — `notify-machine-destruction!` (the `:machines/teardown-on-frame-
 ;; destroy!` hook call, its fallback `:rf.machine.lifecycle/destroyed` trace
 ;; emits, and the trace-listener fan-out) — was UNGUARDED. A throwing
