@@ -24,13 +24,13 @@ once after cloning, and re-run with `--force` once to retire any stale copy
 a previous copy-install left behind.
 
 The docs-site landing page mirrors this index at
-[`docs/skills/index.md`](../docs/skills/index.md) — same ten skills,
+[`docs/skills/index.md`](../docs/skills/index.md) — same nine skills,
 hosted on the mkdocs site (it carries the human-facing decision flow;
 edit routing here first).
 
 ## Current skills
 
-re-frame2 ships **ten** skills plus a shared protocol layer
+re-frame2 ships **nine** skills plus a shared protocol layer
 ([`shared/`](shared) — see §Layout convention), grouped by
 the situation they cover:
 
