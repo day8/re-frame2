@@ -1175,9 +1175,10 @@ def r6_unreadable_discard(corp: dict[str, list[dict]]) -> list[str]:
 
 ROSTER = {
     "00-installation.md": [
-        (1, "54792899937f"), (2, "4d3af42a62ba"), (3, "af13cef73d9f"),
-        (4, "34a2229c1f65"), (5, "5f9f8f55cfab"), (6, "e273338344de"),
-        (7, "caa27172a376"), (8, "daeb4bc56afc"), (9, "d85146b3bb90"),
+        (1, "82b96c1dfead"), (2, "4d3af42a62ba"), (3, "af13cef73d9f"),
+        (4, "34a2229c1f65"), (5, "2d389a8f20ce"), (6, "0bfa30966c57"),
+        (7, "5f9f8f55cfab"), (8, "e273338344de"), (9, "caa27172a376"),
+        (10, "daeb4bc56afc"), (11, "d85146b3bb90"),
     ],
     "01-getting-started.md": [
         (1, "dc6634f5c3ae"), (2, "603c4568fa1d"),
