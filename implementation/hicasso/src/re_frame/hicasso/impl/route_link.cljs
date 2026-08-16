@@ -32,8 +32,8 @@
     late-bound seams routing publishes for exactly this consumer class —
     `:routing/link-model` here at render, `:routing/activate-link!` in
     the lowered closure ([[re-frame.hicasso.impl.intent]]). This
-    file restates NO routing law: `rf/route-link`, `ui/route-link`,
-    Freehand's `v/route-link` and this one all run the same two
+    file restates NO routing law: `rf/route-link` and this one both run
+    the same two
     definitions, and the packaging graph stays
     `hicasso -> core late-bind <- routing` (Conventions §Packaging).
   - **From Freehand (taken): render-time capture and render-time
@@ -53,7 +53,7 @@
     body-level click interceptor — ambient behaviour no vector carries is
     exactly what the in-band school exists to avoid.**)**
   - **Declined for v0: the `:prefetch :intent` trio.** Routing publishes
-    it and Freehand consumes it; the census counts no prefetch site, and
+    it and the prototype consumed it; the census counts no prefetch site, and
     the opt-in is sugar over an event a Hicasso author can already spell
     (`:on-mouse-enter [:rf.route/prefetch {…}]`). A tier-1 roster takes
     the tier-1 surface. **Declined means REFUSED, not ignored** — see

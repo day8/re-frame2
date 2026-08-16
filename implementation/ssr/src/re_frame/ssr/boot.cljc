@@ -212,12 +212,11 @@
                      `re-frame.substrate.spine/make-render`). Hydrating via
                      `uix.dom/hydrate-root` directly bypasses it.
 
-                   • **Compiled view — Freehand.** Compiled views also emit
-                     React elements, so likewise NO `:render-tree-fn`: call
-                     `ssr/hydrate!` without one, then hydrate the substrate's
-                     own root (`v/hydrate-root`), which verifies by the same
-                     React-native adoption. Freehand is in-tree /
-                     pre-publication.
+                   • **React-element root — HICASSO.** A Hicasso root hands
+                     React an element rather than a hashable data tree, so
+                     likewise NO `:render-tree-fn`: call `ssr/hydrate!` without
+                     one, then hydrate the root through `h/hydrate!`, which
+                     verifies by the same React-native adoption.
 
                  React-native adoption reports the divergences React itself
                  recovers from — text content, or a missing / extra / wrong-type
@@ -225,12 +224,6 @@
                  catch attribute-only drift, and it carries no `:hard-error`
                  escalation, because React has already patched the DOM by the
                  time the callback fires.
-
-                 The in-tree `re-frame.ui` donor substrate (whose counterpart
-                 emitter is `re-frame.ui.runtime/emit-hydration-mismatch!`) is
-                 DONOR-ONLY code being absorbed into Freehand —
-                 `day8/re-frame2-ui` is not a Maven coordinate and never will
-                 be, so `ui/hydrate-root` is not a boot available to you.
 
   Opts:
 

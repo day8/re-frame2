@@ -248,7 +248,7 @@
   brand-based** — which is what Spec 011 asks for (\"two tiers, keyed by
   render-tree representation, not by adapter brand\"). The server cannot
   see which substrate will hydrate its markup, and it does not need to: an
-  adoption-tier root (compiled `re-frame.ui`, native UIx, Freehand) can
+  adoption-tier root (a native UIx root, a Hicasso root) can
   only ever hand the server the unresolved form, because the tree is walked
   inside React and no data tree describing the page ever exists on this
   side. Asking instead whether a hashable data tree is PRESENT answers the
@@ -258,8 +258,8 @@
   The hiccup tier is bound by the same rule and is the reason it must be a
   silent omission rather than a thrown error: `[(rf/view :app/root)]` is
   structurally identical to an adoption-tier root, so nothing here can tell
-  a Reagent host that meant to opt in from a Freehand host that must carry
-  nothing. A hiccup-tier host keeps the channel by handing over a root that
+  a Reagent host that meant to opt in from an adoption-tier host that must
+  carry nothing. A hiccup-tier host keeps the channel by handing over a root that
   RESOLVES — `(fn [] ((rf/view :app/root)))` — which is also the only
   spelling symmetric with the documented client `:render-tree-fn
   #((rf/view :app/root))`. See `resolve-root-view`."

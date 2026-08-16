@@ -56,8 +56,8 @@
   that [004C §7] reserved (\"a referenced payload id already installed
   with a different **content** digest ... carries its own content-`:digest`
   slot when server rendering lands: the same error id, a distinct conflict
-  trigger\"). Its sibling — the plan-`:config-fingerprint` arm — already
-  ships in `re-frame.ui.frames`. One error id, two triggers.
+  trigger\"). Its sibling — the plan-`:config-fingerprint` arm — went with
+  the retired compiled-view artefact, so this is the arm that remains.
 
   ## Why a digest rather than payload equality
 

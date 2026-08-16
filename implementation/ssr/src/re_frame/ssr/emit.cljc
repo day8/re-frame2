@@ -755,8 +755,8 @@
 
 ;; rf2-vxgfnd.204 — retain the current SSR emitter durably so a substrate
 ;; adapter can RE-ARM its render-to-string slot at EVERY install, not only the
-;; one-time ns-load publications above. The React-shaped adapters (re-frame.ui,
-;; UIx) clear their per-generation `emitter-cell` on `dispose-adapter!`
+;; one-time ns-load publications above. The React-shaped adapter (UIx)
+;; clears its per-generation `emitter-cell` on `dispose-adapter!`
 ;; (spine `dispose-active-roots-and-caches!`), so a public destroy → re-init
 ;; cycle — or an SSR-loaded-before-adapter load order, where the chain lookup
 ;; above finds no adapter yet — would otherwise leave `render-to-string`

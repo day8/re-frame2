@@ -4,8 +4,8 @@
 
   ## Why a shared reader
 
-  Several macros inline a committed file: the Freehand conformance
-  fixtures, the api-manifest sidecar. Inlining at macro-expansion time by
+  A macro inlines a committed file — today the api-manifest
+  sidecar. Inlining at macro-expansion time by
   itself HIDES that file from the build — a compile that caches the
   expanding namespace has no edge back to the bytes it froze, so a
   DATA-ONLY edit leaves the cached namespace asserting the previous

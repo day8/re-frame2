@@ -13,8 +13,8 @@
 
   ## Provenance — this package is the prototype, MOVED
 
-  The runtime was measured as `re-frame.bench.hicasso.{front,arm1}.*` in
-  `implementation/freehand/test/re_frame/bench/hicasso/`. rf2-hic-001
+  The runtime was measured as `re-frame.bench.hicasso.{front,arm1}.*`, now
+  at `implementation/hicasso/test/re_frame/bench/hicasso/`. rf2-hic-001
   copied it here **mechanically**: namespaces renamed, nothing else. The
   bench tree still stands, still runs, and is pinned file-by-file by
   `frozen-sources.edn` beside this source root, so \"the package is the

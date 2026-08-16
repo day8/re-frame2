@@ -57,10 +57,9 @@
   process built to be long-lived.
 
   So [[forget-frame-ops!]] is ALSO wired to frame destruction now, through
-  core's `:hicasso/on-frame-destroyed!` late-bind hook — the door
-  `re-frame.freehand` releases its own frame-keyed ownership ledger
-  through, one line above this one in `destroy-frame!`'s step 6, and the
-  shape `re-frame.ui` takes earlier in the same recipe. It changes nothing
+  core's `:hicasso/on-frame-destroyed!` late-bind hook — the same shape
+  every other artefact releases its frame-keyed bookkeeping through in
+  `destroy-frame!`'s step 7. It changes nothing
   above: a row a destroyed incarnation left behind was already unreachable
   by every branch of [[frame-row]], so dropping it earlier is hygiene and
   never safety.
@@ -160,7 +159,7 @@
 (defn- on-frame-destroyed!
   "Core's step-7 destroy hook — drop the destroyed frame's row.
 
-  UNCONDITIONAL by key, and unlike Freehand's sibling hook it needs no
+  UNCONDITIONAL by key, and unlike the prototype's sibling hook it needs no
   incarnation token to be safe about it: a same-id successor is constructable
   only AFTER `dissoc-frame!` (step 10) and this fires at step 7, so whatever
   row stands under `frame-kw` here belongs to an incarnation that is already

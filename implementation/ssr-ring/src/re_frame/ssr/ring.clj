@@ -124,7 +124,7 @@
                       for every application, so the handler emits no
                       `data-rf-render-hash` and no payload `:rf/render-hash`
                       for it. That is the shape an ADOPTION-TIER root
-                      (compiled `re-frame.ui`, native UIx, Freehand) can only
+                      (a native UIx root, a Hicasso root) can only
                       ever be, and Spec 011 §Hydration-mismatch detection
                       requires it to carry none. A hiccup-tier host that
                       wants the channel passes the resolving form — the only
