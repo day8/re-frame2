@@ -1402,6 +1402,11 @@ test('THE SUMMARY REPORTS IT — the gate runs, and an operator can see it did',
   // it could not.
   const off = allocSummaryFor('floor', FLOOR_ARMS());
   assert.doesNotMatch(off.out, /intra-leg reclamation/, 'silent at the shipped stride');
+  assert.strictEqual(
+    off.row.intraLegRefusalReasons,
+    undefined,
+    'and the RECORD gains no field either — a 0 there would claim the instrument looked'
+  );
 });
 
 // --- the row-level witness the driver actually exits on --------------------

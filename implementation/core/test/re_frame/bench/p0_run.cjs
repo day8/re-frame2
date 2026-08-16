@@ -2692,13 +2692,14 @@ function summariseAlloc(row, refused) {
   // the leg's NET inside τ, so the certificate below reports clean. The by-site
   // stride sees it directly, and this counts what it saw.
   //
-  // PRINTED ONLY UNDER THE MODE, on `allocSiteReport`'s rule: off it there are
-  // no site legs, and a line reading "0 intra-leg reclamations" would claim the
-  // instrument looked when it could not. Every published row is a stride-2 row,
-  // so nothing above or below moves on one.
-  const intraLegReasons = allocRefusedWindows(row, 'intraLegRefusals');
-  row.intraLegRefusalReasons = intraLegReasons.length;
+  // RECORDED AND PRINTED ONLY UNDER THE MODE, on `allocSiteReport`'s rule and
+  // `siteWitness`'s: off it there are no site legs, so a 0 here — in the line
+  // or in the record — would claim the instrument looked when it could not.
+  // Every published row is a stride-2 row, so neither the summary nor the raw
+  // record's shape moves on one.
   if (row.bySite) {
+    const intraLegReasons = allocRefusedWindows(row, 'intraLegRefusals');
+    row.intraLegRefusalReasons = intraLegReasons.length;
     const intraWindows = row.perRound.reduce(
       (a, r) => a + Object.values(r.arms).filter((x) => (x.intraLegRefusals || []).length).length,
       0
