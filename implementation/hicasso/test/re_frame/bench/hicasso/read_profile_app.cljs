@@ -94,6 +94,8 @@
   | `commit`    | [[frames-per-window]] frames x `rt/commit-boundary!` on the harvested entry | the shipping commit half |
   | `c-local`   | faithful copy: cell mint + subscribe + activation + baseline deref + watch + dispose hook + map insert + reader membership | the ablation baseline, validated against `commit` |
   | `c-null`    | `c-local` with NOTHING ablated — the same `C-FULL` mode, under a second id | THE NEGATIVE CONTROL: `c-local - c-null` has a true cost of exactly zero, so what it reads is the instrument's own error and nothing else (rf2-3l6hf) |
+  | `c-null-twin` | `c-local` again, at the slot whose kept-sample POSITION FOOTPRINT is `c-local`'s own | the POSITION null: any cost that is a function of sweep position cancels term by term between these two arms, so what it reads is error position cannot explain (rf2-lo7uy) |
+  | `c-null-curve` | `c-local` again, at a slot sharing `c-local`'s MEAN position on a different footprint | the CURVATURE null: a linear position drift cancels here too, a curved one does not (rf2-lo7uy) |
   | `c-noactivate` | `c-local` minus `interop/activate-derived-value!` | ON THIS HOST the uncached hook resolution, a real term (rf2-tcffa); the substrate's capture run under a ratom host (rf2-lzpfj) |
   | `c-nowatch` | `c-local` minus add-watch + the disposal hook     | the watch wiring |
   | `c-nosub`   | `c-local` with `compute-sub` in place of subscribe + deref | the reaction build + cache insert (the compute is kept, priced by the swap) |
@@ -150,9 +152,9 @@
   neither a symmetric error band nor any bound on the term, and the
   `< 0.006 ms/commit` figure once floated for reader membership is withdrawn.
 
-  ## The measured null, which is what arbitrates
+  ## The measured nulls, which are what arbitrate
 
-  **[[c-null]] is the negative control this instrument lacked** (rf2-3l6hf).
+  **`c-null` is the negative control this instrument lacked** (rf2-3l6hf).
   It is `c-local` again — the same `C-FULL` mode, the same work, a second id —
   so `c-local - c-null` has a true cost of EXACTLY ZERO by construction, and
   every millisecond it reads is the estimator's own error at this shape, on
@@ -180,6 +182,74 @@
   node and recomputes nothing, without it that deref runs the body raw. One
   computation either way, so `c-local - c-noactivate` is the capture
   BOOKKEEPING and not a second evaluation of the sub.
+
+  ## Three nulls, because one null cannot say what it is measuring
+
+  rf2-3l6hf's window read that null at **+0.0234 / +0.0219 / +0.0234
+  ms/commit** — three runs of a quantity whose true value is exactly zero,
+  every reading within one grid step of the others. The offset is real and
+  it is stable, and its CAUSE was left open between a residual arm-position
+  effect, within-sweep thermal or cache drift, and the pooled median's own
+  behaviour on a right-tailed arm. One null cannot separate those, because
+  one null is one pair of slots (rf2-lo7uy).
+
+  **An arm's SLOT is a measured property of it, not a presentation
+  detail.** [[rounds-async!]] visits the arms in [[lane/slot-order]]'s
+  order, which rotates by the sample index and reflects on odd ones — and
+  it is handed the SAMPLE index, not the round, so every round runs the
+  identical schedule. An arm therefore occupies the same multiset of sweep
+  positions in every round of every run, and no number of rounds averages a
+  positional bias away. That is worth saying beside a null which repeated to
+  within a grid step across three runs: a random error would not, and a
+  fixed positional bias would.
+
+  [[slot-footprint]] computes that multiset from [[lane/slot-order]] itself
+  rather than restating its arithmetic. At the eleven arms this roster now
+  carries and this window's `2 + 8` sampling it reads:
+
+      slot  1  c-local       [1 3 4 5 6 7 8 10]   mean 5.500
+      slot  2  c-null        [0 0 2 4 5 6 7  9]   mean 4.125
+      slot  9  c-null-twin   [1 3 4 5 6 7 8 10]   mean 5.500
+      slot 10  c-null-curve  [2 3 4 5 6 7 8  9]   mean 5.500
+
+  So the three nulls ask three DIFFERENT questions of the same zero:
+
+  - `c-null` sits on a footprint displaced from `c-local`'s in both its
+    mean and its shape. It is the pair the published +0.022 was measured
+    on, and it is left exactly where it was so the two windows can be read
+    against each other.
+  - `c-null-twin` sits on `c-local`'s footprint EXACTLY. Whatever the
+    within-sweep cost curve is — linear, a first-slot warm-up, anything at
+    all that is a function of position — it cancels term by term between
+    these two arms. What this one reads is error that position cannot
+    explain.
+  - `c-null-curve` shares `c-local`'s MEAN position on a different
+    footprint, so a linear drift cancels here and a curved one does not.
+
+  **What each outcome would license.** Three nulls reading alike puts the
+  offset somewhere other than sweep position — the estimator, or drift on a
+  clock the schedule does not touch. `c-null` offset with the twin at zero
+  puts it on position. The twin at zero and the curve away from it puts it
+  on position AND says the drift is not linear. The window decides; this
+  file only makes the question askable, and takes no window itself.
+
+  **Two things the extra nulls still do not license**, both held over from
+  rf2-3l6hf. Do NOT subtract a null from a published term and call the term
+  corrected: `c-null` calibrates slot 1 against slot 2 while reader
+  membership differences slot 1 against slot 6, and the correction would
+  assume the very positional model that is under test. And do NOT read any
+  null as a bound on anything — it is a measured property of the ESTIMATOR,
+  not of a cost.
+
+  **The existing arms are untouched, and the arm COUNT is not.** The two
+  nulls are APPENDED, so every arm the published series quotes keeps its
+  slot — `commit` 0, `c-local` 1, `c-null` 2, through `b-build` 8 — and
+  every subject, mode, frame, [[frames-per-window]], [[b-rounds]] and
+  [[b-sampling]] is exactly what it was. What cannot be held fixed is `n`,
+  which is an input to [[lane/slot-order]]: eleven arms is a different sweep
+  and therefore a new series, the same way nine arms was a new series
+  against the eight-arm runs before it. Absolutes are not arm-by-arm
+  comparable across that line, and no reading here is.
 
   Owner bead: rf2-6c237. Driver: `run.cjs` with
   HICASSO_INIT_FN=re-frame.bench.hicasso.read-profile-app/-main."
@@ -625,32 +695,78 @@
       (dotimes [i n]
         (subs/unsubscribe frame-id (aget roster i))))))
 
-(defn- phase-b-arms
+(def phase-b-arm-ids
+  "The phase-B roster IN SLOT ORDER — **the vector index IS the arm's
+  slot**, and a slot is a measured property of the arm (see the namespace
+  docstring's three-nulls section, rf2-lo7uy).
+
+  ONE authority. `-main` reported from a second copy of this list until
+  rf2-lo7uy, and a second copy is the shape where an arm gets sampled,
+  torn down and residue-gated on every sample and then never appears in a
+  row — invisible, because the missing arm is missing from the output that
+  would have shown it. [[phase-b-arms]] refuses to answer a roster that
+  disagrees with this one.
+
+  **The two nulls are appended and nothing is reordered**, so every slot
+  rf2-3l6hf's published window quotes is the slot it quoted."
+  [:commit :c-local :c-null :c-noactivate :c-nowatch
+   :c-nosub :c-noreaders :c-nomap :b-build :c-null-twin :c-null-curve])
+
+(def null-arm-ids
+  "Every arm whose delta against `c-local` has a TRUE COST OF EXACTLY ZERO
+  by construction — each is `c-local` again, the same `C-FULL` mode
+  through the same constructor under another id, differing from it in
+  nothing but its slot.
+
+  Three rather than one because one null is one pair of slots and so
+  cannot say whether the offset it reads is positional (rf2-lo7uy)."
+  [:c-null :c-null-twin :c-null-curve])
+
+(def ^:private delta-arm-ids
+  "The arms quoted and recorded as `c-local - arm`: every arm but the
+  shipping reference it is validated against, the base itself, and
+  `b-build`, which is not an ablation of `c-local` at all. Derived from
+  [[phase-b-arm-ids]] so a new arm cannot be sampled and then silently
+  dropped from the per-round record."
+  (into [] (remove #{:commit :c-local :b-build}) phase-b-arm-ids))
+
+(defn phase-b-arms
   "`entries` is {frame-id entry}; `sets` is {frame-id read-set};
-  `fss` is {frame-id frame-state-value} — read at setup, outside windows."
+  `fss` is {frame-id frame-state-value} — read at setup, outside windows.
+
+  Public so a witness can read the roster it BUILDS rather than the roster
+  it declares: every `:run` here is a closure, so the arms can be
+  constructed without a frame, a clock or a window."
   [entries sets fss ^js roster]
   (let [mk-local (fn [mode]
                    (fn []
                      (mapv (fn [f] (commit-local! mode f (get sets f) (get fss f)))
-                           commit-frames)))]
-    [{:id :commit
-      :run (fn []
-             (mapv (fn [f] (rt/commit-boundary! (get entries f) (fn [] nil)))
-                   commit-frames))}
-     {:id :c-local   :run (mk-local C-FULL)}
-     ;; The negative control: C-FULL again, so `c-local - c-null` has a
-     ;; true cost of exactly zero and reads the estimator's own error
-     ;; (rf2-3l6hf). It is built from the same `mk-local` as `c-local`
-     ;; rather than transcribed beside it, because a null whose code path
-     ;; could drift from the arm it nulls is not one.
-     {:id :c-null    :run (mk-local C-FULL)}
-     {:id :c-noactivate :run (mk-local C-NOACTIVATE)}
-     {:id :c-nowatch :run (mk-local C-NOWATCH)}
-     {:id :c-nosub   :run (mk-local C-NOSUB)}
-     {:id :c-noreaders :run (mk-local C-NOREADERS)}
-     {:id :c-nomap   :run (mk-local C-NOMAP)}
-     {:id :b-build
-      :run (fn [] (mapv (fn [f] (build-only! f roster)) commit-frames))}]))
+                           commit-frames)))
+        ;; Every null is built from the same `mk-local` as `c-local` rather
+        ;; than transcribed beside it, because a null whose code path could
+        ;; drift from the arm it nulls is not one (rf2-3l6hf).
+        arms [{:id :commit
+               :run (fn []
+                      (mapv (fn [f] (rt/commit-boundary! (get entries f) (fn [] nil)))
+                            commit-frames))}
+              {:id :c-local   :run (mk-local C-FULL)}
+              {:id :c-null    :run (mk-local C-FULL)}
+              {:id :c-noactivate :run (mk-local C-NOACTIVATE)}
+              {:id :c-nowatch :run (mk-local C-NOWATCH)}
+              {:id :c-nosub   :run (mk-local C-NOSUB)}
+              {:id :c-noreaders :run (mk-local C-NOREADERS)}
+              {:id :c-nomap   :run (mk-local C-NOMAP)}
+              {:id :b-build
+               :run (fn [] (mapv (fn [f] (build-only! f roster)) commit-frames))}
+              ;; The two slot nulls, APPENDED so no existing arm moves.
+              {:id :c-null-twin  :run (mk-local C-FULL)}
+              {:id :c-null-curve :run (mk-local C-FULL)}]]
+    (when-not (= phase-b-arm-ids (mapv :id arms))
+      (throw (ex-info (str "phase-B roster disagrees with `phase-b-arm-ids` — built "
+                           (pr-str (mapv :id arms)) ", declared "
+                           (pr-str phase-b-arm-ids))
+                      {:built (mapv :id arms) :declared phase-b-arm-ids})))
+    arms))
 
 (def ^:private b-sampling
   "The stability half of the rf2-3l6hf widening — see
@@ -674,6 +790,56 @@
   `read-profile-baseline-cljs-test` was written to avoid."
   []
   {:rounds b-rounds :sampling b-sampling :frames frames-per-window})
+
+;; ---------------------------------------------------------------------------
+;; Where an arm actually sits in the sweep (rf2-lo7uy)
+;; ---------------------------------------------------------------------------
+
+(defn slot-positions
+  "The sweep POSITIONS `slot` occupies across ONE round's KEPT samples,
+  with `n` arms under [[lane/slot-order]] and this `sampling`.
+
+  Read OUT of the schedule, never restated: the positions come from
+  `lane/slot-order` itself, which takes them from the order guard, so a
+  change to the plan moves these numbers instead of leaving them behind
+  as a second authority nothing holds in step.
+
+  Warm-up samples are excluded because the row is, and the row is what
+  carries the offset — [[rounds-async!]] runs every sample and collects
+  from `s >= warmup`. **The schedule does not vary by round**: it is
+  indexed by the sample, so this multiset is the arm's footprint in every
+  round of every run, and rounds cannot average a positional bias out of
+  it."
+  [n slot {:keys [warmup samples]}]
+  (into []
+        (map (fn [s]
+               (let [order (lane/slot-order n s)]
+                 (first (keep-indexed (fn [pos j] (when (= j slot) pos)) order)))))
+        (range warmup (+ warmup samples))))
+
+(defn slot-footprint
+  "`{:positions <sorted> :mean-position <ms-weight>}` for one slot.
+
+  The MEAN is what a linear within-sweep drift would price; the sorted
+  MULTISET is what any drift at all would, which is why both are kept.
+  Two arms sharing a footprint cancel every position-driven cost between
+  them exactly, whatever shape that cost has."
+  [n slot sampling]
+  (let [ps (slot-positions n slot sampling)]
+    {:positions     (vec (sort ps))
+     :mean-position (/ (reduce + ps) (count ps))}))
+
+(defn phase-b-slot-plan
+  "Every phase-B arm with its slot and its kept-sample position
+  footprint, in slot order — recorded into the transcript so a published
+  window carries the layout it was taken on and can be adjudicated
+  without anyone re-deriving the schedule by hand (rf2-lo7uy)."
+  ([] (phase-b-slot-plan phase-b-arm-ids (:sampling (phase-b-shape))))
+  ([arm-ids sampling]
+   (let [n (count arm-ids)]
+     (mapv (fn [slot id]
+             (assoc (slot-footprint n slot sampling) :id id :slot slot))
+           (range n) arm-ids))))
 
 (def clock-clamp-ms
   "The quantum of [[lane/now-ms]] on this host: Chrome clamps
@@ -985,7 +1151,8 @@
                                                         b-sampling b-rounds baseline))))
                               (.then
                                 (fn [{:keys [readings samples]}]
-                                  (let [ids  [:commit :c-local :c-null :c-noactivate :c-nowatch :c-nosub :c-noreaders :c-nomap :b-build]
+                                  (let [ids  phase-b-arm-ids
+                                        plan (phase-b-slot-plan)
                                         rows (arm-rows ids readings frames-per-window)
                                         p50s (per-round-p50s ids readings frames-per-window)
                                         gv-b (lane/guard! samples "read-profile phase B (in-page ms, diagnostic)")]
@@ -995,11 +1162,16 @@
                                                                                    (update :p50 lane/round4))])) rows))
                                     (lane/record! :read-profile-commit-per-round p50s)
                                     (lane/record! :read-profile-commit-per-round-deltas
-                                                  (per-round-deltas p50s :c-local
-                                                                    [:c-null :c-noactivate :c-nowatch
-                                                                     :c-nosub :c-noreaders :c-nomap]))
+                                                  (per-round-deltas p50s :c-local delta-arm-ids))
+                                    (lane/record! :read-profile-slot-plan
+                                                  (mapv #(update % :mean-position lane/round4) plan))
                                     (js/console.log ";; ==== READ PROFILE, PHASE B — THE COMMIT HALF (ms per 141-key boundary commit) ====")
                                     (js/console.log (phase-b-design-line b-rounds b-sampling frames-per-window))
+                                    (js/console.log ";;   slot plan (each arm's kept-sample sweep positions — the schedule is indexed by SAMPLE, so this footprint repeats identically every round; rf2-lo7uy):")
+                                    (doseq [{:keys [id slot positions mean-position]} plan]
+                                      (js/console.log (str ";;     slot " slot " " (name id)
+                                                           ": " (pr-str positions)
+                                                           "  mean " (fmt mean-position 3))))
                                     (doseq [id ids]
                                       (js/console.log (arm-line id (get rows id))))
                                     (js/console.log ";; ==== PHASE B DELTAS (c-local minus ablation; floors) ====")
@@ -1008,6 +1180,11 @@
                                       (js/console.log (str ";;   copy fidelity: c-local/commit = " (fmt (/ clocal commit') 4)))
                                       (js/console.log (delta-line "NULL CONTROL (c-local - c-null)" clocal (:p50 (get rows :c-null))))
                                       (js/console.log ";;     ^ true cost EXACTLY ZERO by construction — both arms are C-FULL. What it reads is this instrument's own error at this shape, and it is what the terms below are adjudicated against (rf2-3l6hf). It bounds no term's cost: a delta inside this spread is a term the window cannot SEE, which leaves its size open in both directions")
+                                      (js/console.log ";;     ^ slot 1 against slot 2, on footprints that differ in BOTH mean position and shape. The two nulls below hold that zero and move the SLOT, which is what makes the offset's cause readable rather than only its size (rf2-lo7uy)")
+                                      (js/console.log (delta-line "NULL CONTROL, position TWIN (c-local - c-null-twin)" clocal (:p50 (get rows :c-null-twin))))
+                                      (js/console.log ";;     ^ same zero, and this arm's kept-sample position footprint IS c-local's, so ANY cost that is a function of sweep position cancels term by term. A reading here is error sweep position cannot explain; a reading of zero here beside a non-zero c-null puts the offset ON position")
+                                      (js/console.log (delta-line "NULL CONTROL, equal MEAN position (c-local - c-null-curve)" clocal (:p50 (get rows :c-null-curve))))
+                                      (js/console.log ";;     ^ same zero, c-local's MEAN position on a DIFFERENT footprint: a linear within-sweep drift cancels here, a curved one does not. Read the three nulls together — alike means the offset is not positional; c-null alone means it is; c-null and this one means it is and is not linear")
                                       (js/console.log (delta-line "activation-capture (c-local - c-noactivate)" clocal (:p50 (get rows :c-noactivate))))
                                       (js/console.log ";;     ^ a REAL term here, NOT a floor and not an arbiter: nothing activates on this UIx host, but the hook key is never published and so never cached, and this prices that lookup (rf2-tcffa, rf2-19usn). The capture itself is real only under the ratom family (rf2-lzpfj)")
                                       (js/console.log (delta-line "watch-wiring (c-local - c-nowatch)" clocal (:p50 (get rows :c-nowatch))))
