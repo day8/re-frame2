@@ -590,8 +590,19 @@ the worker to look there first.
 ## Quality gates — which gate
 
 Every editing dispatch runs the project's pre-checkin gate before opening a change, and lists what ran in a
-change-body section headed **exactly** `## Quality gates` with pass and fail counts. A verbatim heading is a
-contract for automated audits.
+change-body section headed **exactly** `## Quality gates` with pass and fail counts. **The readers are the
+mayor's merge sweep and the merged-PR audits — both of them agents, and no machinery whatever.** An earlier
+version of this line called the verbatim heading a contract for automated audits, and no such audit exists: a
+fixed-string search for `Quality gates` across the tracked tree returns this file, the two mayor command
+files, the tracker export, one design page, and two test docstrings that point a reader at a PR's own section
+— no script, no workflow, no audit tool. The search was controlled by matching that same fixed string inside
+`docs/the-mayor-method/`, so the zero is a real absence and not a wrong pattern. **Exactly** stays regardless,
+because it is what lets a reader jump to the section in a long change body rather than read the whole thing.
+What the false justification cost is measured: PR #8376 headed its section `## Gates — captured exit codes`
+and carried every fact the rule asks for, and the mayor hand-edited the missing word into it seven seconds
+before merging it on 2026-08-16. **A heading that does not conform is a note to the worker and nothing more.**
+It is never grounds to edit somebody else's change body, and never a merge blocker — the five clauses are the
+merge criterion, and this is not among them.
 
 - **Gate the transitive surface, not just the file you changed.** A public-surface change breaks its
   *consumers*, not itself. Gate every artefact reachable from the diff through import edges.
