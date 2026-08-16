@@ -19,9 +19,11 @@ is removed from production builds.
 !!! warning "The Xray guide does not yet document the Hicasso tab"
 
     Steps 3 and 4 — and the read topology, advisor, and explain-render sections
-    below — all live in one place: Xray's **Hicasso** tab, which appears
-    alongside Epoch, app-db, Views, Trace, Machine, and Routes whenever the
-    inspected app is running Hicasso. It carries six views: **Mounted** (which
+    below — all live in one place: Xray's **Hicasso** tab, which sits alongside
+    Epoch, app-db, Views, Trace, Machine, and Routes in Dynamic mode. The tab is
+    always present; when the inspected app is not running Hicasso it says so in
+    those words, rather than showing you an empty table to interpret. It carries
+    six views: **Mounted** (which
     boundaries are mounted, over which frames), **Reads** (which boundaries read
     each subscription), **Intents** (what was dispatched, in order, inside the
     retained window), **Why** (which reads changed, and what that can and cannot
