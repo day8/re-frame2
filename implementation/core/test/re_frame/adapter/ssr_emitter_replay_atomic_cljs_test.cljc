@@ -28,7 +28,7 @@
   `install-adapter!` lifecycle seam independently of any one substrate's real
   emitter wiring; the real-adapter end-to-end coverage (custom override survives
   a real ui-adapter install) lives in
-  `re-frame.ui.ssr-reinit-lifecycle-cljs-test`."
+  the retired compiled tier's own lifecycle suite."
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [re-frame.late-bind :as late-bind]

@@ -46,7 +46,7 @@
 
   This EXISTENCE-only rule is the `reconcile` fn's — it covers the
   `:cljs-only` ADAPTER/Xray surfaces, which bind fn-valued value-defs the
-  analyzer cannot tell from a plain `:var`. The re-frame.ui.test host-signature
+  analyzer cannot tell from a plain `:var`. The host-signature
   reconciler below (`signature-problems`) DOES reconcile `:kind` (rf2-d7sso):
   that surface is real `defn`s + `defmacro`s (no value-defs), so the analyzer
   classifies it reliably, and the sidecar's declared kind is VALIDATED against
@@ -115,10 +115,10 @@
   (every? empty? (vals result)))
 
 ;; ---------------------------------------------------------------------------
-;; Host-arity reconciliation (rf2-5bcdi — the CLJS lane of the ui.test
-;; host-arity guard; the JVM lane lives in api-md-check).
+;; Host-arity reconciliation (rf2-5bcdi — the CLJS lane of the host-arity
+;; guard; the JVM lane lives in api-md-check).
 ;;
-;; The manifest carries name + :kind but NO arity, so a re-frame.ui.test
+;; The manifest carries name + :kind but NO arity, so a test-surface
 ;; FUNCTION can reshape a supported arity and stay green — and its contract is
 ;; host-specific (`flush!` is 0-arity on the JVM, 0/1-arity on CLJS). This
 ;; reconciles the live CLJS analyzer arities against the `:cljs` half of the
@@ -143,7 +143,7 @@
    `:fn`→`:macro` reddens this lane instead of silently skipping the entry.
    Arity checks are then selected by the AUTHORITATIVE live kind:
 
-     - FUNCTIONS are arity-checked against `:cljs` (a re-frame.ui.test function
+     - FUNCTIONS are arity-checked against `:cljs` (a function
        can carry a host-specific runtime arity, so a CLJS-only reshape goes RED
        here; the reader-conditional `:clj`/`:cljs` difference is represented
        intentionally, never forced equal). A function the analyzer surfaces no

@@ -145,15 +145,15 @@
 (deftest every-link-surface-validates-the-prefetch-value-on-both-hosts
   ;; `href-attrs` is private but is reached through both `rf/route-link` render
   ;; halves; `route-link-render-ssr` is the JVM half and is public, so the SSR
-  ;; shell is exercised directly here. `link-model` is the one calculation the
-  ;; compiled `ui/route-link` runs on both hosts.
+  ;; shell is exercised directly here. `link-model` is the one calculation a
+  ;; view artefact's route-link runs on both hosts.
   (testing "the rf/route-link SSR shell rejects it (it used to render the anchor
             with the bad value merely stripped)"
     (is (= :rf.error/route-link-bad-prefetch
            (:rf.error/id (bad-prefetch-ex-data
                            #(link/route-link-render-ssr %)
                            {:to :route/article :prefetch :render})))))
-  (testing "the ui/route-link model rejects it on the JVM too — the arm that
+  (testing "the link model rejects it on the JVM too — the arm that
             never called prefetch-payload server-side"
     (is (= :rf.error/route-link-bad-prefetch
            (:rf.error/id (bad-prefetch-ex-data

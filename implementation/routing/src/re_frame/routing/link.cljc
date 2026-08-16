@@ -65,8 +65,8 @@
   `(cond-> props warm? (assoc :prefetch :intent))`.)
 
   Called from every link calculation that runs on BOTH hosts — `href-attrs` for
-  `rf/route-link` (CLJS render + SSR shell), `link-model` for the compiled
-  `ui/route-link` (likewise), and `prefetch-payload` itself — so the surfaces
+  `rf/route-link` (CLJS render + SSR shell), `link-model` for a view
+  artefact's own route-link (likewise), and `prefetch-payload` itself — so the surfaces
   Spec 012 declares behaviourally identical agree, server-side included, and no
   surface can reach DOM emission having stripped an invalid value unexamined."
   [props]
@@ -168,7 +168,7 @@
 (defn- url-requested-payload
   "The `[:rf.route/url-requested {…}]` dispatch vector a link click carries —
   the ONE definition, run by `rf/route-link` (`route-link-render`) and by the
-  `link-model` seam the compiled `ui/route-link` consumes, so the navigation
+  `link-model` seam a view artefact's route-link consumes, so the navigation
   identity the two surfaces dispatch cannot drift.
 
   `address` is the EXTRACTED address (`address/extract-address`), never a
@@ -317,7 +317,7 @@
      `:class`, `:title`, `:id`, `:aria-label`).
 
      The click is handed to `activate-link!` and the payload to
-     `url-requested-payload`, the two definitions the compiled `ui/route-link`
+     `url-requested-payload`, the two definitions a view artefact's route-link
      also runs — so this render fn states no part of the click law or the
      dispatch shape for itself, and the two link surfaces Spec 012 declares
      behaviourally identical are identical by construction rather than by
@@ -432,11 +432,10 @@
 ;;                      to the captured render frame with `:source :router`).
 ;;                      DEFINED ABOVE, beside the click predicates it reads,
 ;;                      because `rf/route-link`'s own `:on-click` calls it too —
-;;                      it is the shared click law first and a ui seam second.
+;;                      it is the shared click law first and a view seam second.
 ;;
-;; The ui side captures its render frame (its compiled `(ui/frame)` bundle's
-;; `:frame` id) and threads it through both hooks; it owns nothing but the
-;; anchor's markup + passthrough attrs.
+;; The view side captures its render frame and threads it through both hooks;
+;; it owns nothing but the anchor's markup + passthrough attrs.
 
 (defn link-model
   "The `:routing/link-model` seam (PURE, both hosts). Given a link `target`
@@ -467,8 +466,8 @@
   ;; outside the address class) — the same side `route-link-render` reads, so
   ;; the two surfaces classify a native anchor identically by construction.
   ;;
-  ;; EP-0037 R3: `link-model` is the one link calculation the compiled
-  ;; `ui/route-link` runs on BOTH hosts, so the `:prefetch` value is validated
+  ;; EP-0037 R3: `link-model` is the one link calculation a view artefact's
+  ;; route-link runs on BOTH hosts, so the `:prefetch` value is validated
   ;; here too. Its `prefetch-payload` call is CLJS-only (the JVM/SSR shell
   ;; installs no intent handlers), which left the server render accepting an
   ;; unsupported mode the client rejected.

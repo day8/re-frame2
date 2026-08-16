@@ -822,7 +822,7 @@
 ;; registries (`[:event id]` vs `[:sub id]`). The pre-fix resolution probed
 ;; `[:sub]` then `[:event]`, so a `:dispatch` frame-destroyed whose id ALSO
 ;; named a subscription was attributed to the WRONG realm (the subscription's
-;; coord). The UI frame-bundle stale-op seam (`re-frame.ui.frames`) stamps the
+;; coord). The captured-frame stale-op seam stamps the
 ;; exact failing `:op` onto the always-on record; `error-emit/error-source-coord`
 ;; now pivots on it — `:dispatch` / `:dispatch-sync` → the EVENT coord,
 ;; `:subscribe` → the SUBSCRIPTION coord, `:capture` → NEITHER. The `:op` is a
@@ -843,9 +843,9 @@
   {:ns 're-frame.on-error-cljs-test.collide-subs :file "collide_subs.cljc" :line 22})
 
 (defn- xgkgx-frame-destroyed-records
-  "Fire a frame-destroyed record shaped EXACTLY like the UI frame-bundle's
-  stale-op seam (`re-frame.ui.frames/emit-and-throw-frame-destroyed!` →
-  `emit-error-both!` with `{:op op}` in the trailing record-attrs) and return
+  "Fire a frame-destroyed record shaped EXACTLY like the captured-frame
+  stale-op seam (`emit-error-both!` with `{:op op}` in the trailing
+  record-attrs) and return
   the vector of always-on records the listener saw. Exactly ONE record per emit
   pins the one-record-per-runtime-error law across the arms."
   [op id]

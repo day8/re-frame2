@@ -37,7 +37,7 @@
       composition through one door. Nothing proved that five doors produce the
       same branch AND the same resource identity set. `every-door-plans-the-
       same-branch-and-the-same-reads` does.
-    * `rf/route-link`'s CLJS intent arm (row 7). `v/route-link` and Freehand
+    * `rf/route-link`'s CLJS intent arm (row 7). The retired view artefacts
       have real-DOM intent tests; `rf/route-link`'s composed
       `:on-mouse-enter` had none.
     * prefetch's ABSENCE list (row 7): no guard, no `:on-match`, no scroll/URL
@@ -724,7 +724,7 @@
 #?(:cljs
    (deftest the-real-anchor-intent-handler-composes-and-dispatches
      (testing "row 7's `BOTH link surfaces` clause for `rf/route-link`. The
-               compiled `v/route-link` and the Freehand descriptor have real-DOM
+               retired view artefacts' descriptors had real-DOM
                intent tests; `rf/route-link`'s own composed handler had none. The
                handler must run the caller's `:on-mouse-enter` FIRST and then
                enqueue EXACTLY ONE prefetch payload, stamped `:source :router`,

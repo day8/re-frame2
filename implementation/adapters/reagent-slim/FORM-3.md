@@ -625,12 +625,12 @@ event handler triggered by whatever changes the data, not in the view at all.
 | Mount-time app-state side effect | Frame `:initial-events` |
 | DOM element handle for an event handler | `:ref` callback on Form-1 |
 | React to data changes | Subscription inside Form-1 |
-| Error boundary | **`ui/error-boundary`** when error-only reporting fits; otherwise **Form-3** with `:component-did-catch` (see the MIG-17 table below) |
+| Error boundary | **`h/error-boundary`** when error-only reporting fits; otherwise **Form-3** with `:component-did-catch` (see the MIG-17 table below) |
 | Pre-commit DOM measurement | **Form-3** with `:get-snapshot-before-update` |
 
 Form-3 is the right tool for imperative DOM library integration and for the
 pre-commit snapshot protocol (`:get-snapshot-before-update`), which has no
-native door. Error boundaries do have one: route them to `ui/error-boundary`
+native door. Error boundaries do have one: route them to `h/error-boundary`
 when its contract fits, and keep `:component-did-catch` only when it does not
 (the MIG-17 table draws that line). For everything else, prefer the re-frame2
 idioms.
@@ -639,30 +639,30 @@ idioms.
 
 reagent-slim keeps Form-3, so on the slim adapter these components run as-is —
 the table above is for teams staying on the class shape. But when a team
-migrates a Reagent Form-3 *off* the class shape to **native re-frame.ui**
-(`ui/defview`), the generic "host work becomes an `effect`" advice does not
-cover every lifecycle role safely: an update hook needs explicit dependency
-semantics, the snapshot protocol is a paired pre-/post-commit dance with no
-passive-effect translation, and an error boundary has its own shipped form.
+migrates a Reagent Form-3 *off* the class shape to **Hicasso**
+(`h/defview`), the generic "host work becomes a ref" advice does not
+cover every lifecycle role safely: an update hook has no native answer at all,
+the snapshot protocol is a paired pre-/post-commit dance with no native
+translation, and an error boundary has its own shipped form.
 This is the MIG-17 decision (skill: `reagent-migration`,
 [`catalog-judgment.md`](../../../skills/reagent-migration/references/catalog-judgment.md)
 §MIG-17). It routes each role, and holds honestly the two that have **no**
 native equivalent and stay on reagent-slim Form-3 — which is exactly why the
 7-key cap keeps their keys.
 
-| Reagent Form-3 lifecycle | Phase & frequency | Native re-frame.ui target (MIG-17) |
+| Reagent Form-3 lifecycle | Phase & frequency | Hicasso target (MIG-17) |
 |---|---|---|
-| `:reagent-render` | every render | The `defview` render body — extract it as the view, and the other migration rules apply to that body. |
-| `:component-did-mount` | after the first commit, before paint (dev StrictMode may replay mount → unmount → mount) | **Deferrable host work** (wire a listener, focus a node, attach a self-sizing chart) → `(effect :connect …)`. **Measure or mutate the DOM before paint** (read geometry to place a popover, size a viewport) → `ui/ref` + `re-frame.ui.react/use-layout-effect` — the measure-before-paint door; a passive `effect` fires *after* paint and would measure a frame late and flicker. **Domain work** ("mark viewed", "load on mount") → a route or domain **event** through the dataflow — there is deliberately no `:on-mount` primitive. |
-| `:component-did-update` | after every commit but the first, per update | Route by **intent** — the native effect does not skip the first commit the way this hook does. **Re-feed an imperative library on a prop change** (finalize the old view, embed the new) → one dependency-keyed `(effect [deps…] …)` with a matching cleanup, folding the mount + update + unmount work together: it runs after commit on the **initial** mount too, then whenever a dep changes (compared by `rf=` — keep deps narrow), which is what a library wrapper wants anyway. **Measure or mutate the DOM before paint on an update** (re-place a popover after its anchor moves) → the dependency-keyed `use-layout-effect`, not the passive `effect`. If the body genuinely **must** skip the first commit, guard it with a first-render ref or keep Form-3 — don't fake it by dropping the mount case. If the hook exists **only** to read changed data and re-render, the data is a **subscription** and the view is Form-1 (§6.3) — the lifecycle disappears. |
-| `:get-snapshot-before-update` + `:component-did-update` (paired) | measure the previous DOM pre-commit → restore post-commit | **No native passive-effect or hook equivalent — stays on reagent-slim Form-3.** `use-layout-effect` runs *after* React has mutated the DOM, so it cannot read the pre-mutation geometry; the pre-commit half of the protocol has no native door. This paired protocol (scroll restoration, §5) is exactly why the cap keeps `:get-snapshot-before-update`. |
-| `:component-will-unmount` | just before unmount (dev StrictMode replays connect → disconnect → connect) | **Host teardown** (dispose the chart, remove the exact listener you added) → the `(effect :connect …)` **cleanup** — the effect body's trailing `(fn [] …)`, which must be **symmetric and replay-safe**: it releases the exact resource its matching setup acquired, so a balanced pair (add-then-remove a listener, increment-then-decrement a counter, push-then-pop) stays correct as React replays setup → cleanup → setup at each disconnect. What corrupts state is an *unpaired* teardown, not a balanced one — blanket idempotency is not required. **Domain work** (release an owned resource, mark a draft abandoned) **re-homes OUT of the view**: the causal *end* events that end the resource's life release it. There is **no dispatch-at-unmount** — a committed dispatcher fails loud from a disconnecting view (the **leaked-listener law**, `:rf.error/dispatch-disconnected`), and an `effect` cleanup is not a place to smuggle it in. |
-| `:component-did-catch` | on a descendant render/lifecycle throw | The shipped **`ui/error-boundary`** `{:fallback :reset-key :on-error}` when **error-only reporting** is enough: `:fallback` renders with `:error` (the stateful fallback), `:on-error` dispatches a domain event **after** the failing commit, and changing `:reset-key` (compared `rf=`) clears the caught error (retry). The one thing it drops is React's second callback arg — the `info`/`componentStack`; reagent-slim Form-3's `:component-did-catch (this error info)` still hands you that. So if you need the component stack (grouped crash logging, error fingerprinting), or the native contract otherwise does not fit, the view **stays on reagent-slim Form-3** (`:component-did-catch` + a local `r/atom`, §4) or is redesigned. React catches only render/lifecycle throws below the boundary — not event-handler or async errors, which keep their typed paths. |
+| `:reagent-render` | every render | The `h/defview` render body — extract it as the view, and the other migration rules apply to that body. |
+| `:component-did-mount` | after the first commit, before paint (dev StrictMode may replay mount → unmount → mount) | **Host / DOM work** (focus a node, wire a listener) → a **callback `:ref`** — React's own callback ref, a function at `:ref` called with the node at commit, whose return value is the detach cleanup. It must be a stable top-level `def`; an inline `(fn [n] …)` is a fresh identity every render and re-runs the work on every commit. **Anything with its own hook-shaped lifecycle** (a chart, an editor) → `re-frame.hicasso.native/defcomponent`, where ordinary React hooks are legal because you own the source and its call order. **Domain work** ("mark viewed", "load on mount") → the frame's `:initial-events` at `make-frame` (MIG-15), a route's entry cascade, or an ordinary event — there is deliberately no `:on-mount` primitive. |
+| `:component-did-update` | after every commit but the first, per update | **No native answer — stays on reagent-slim Form-3, or is redesigned** (skill: `reagent-migration`, [`catalog-reject.md`](../../../skills/reagent-migration/references/catalog-reject.md) MIG-36). If the hook exists **only** to read changed data and re-render, the data is a **subscription** and the view is Form-1 (§6.3) — the lifecycle disappears. |
+| `:get-snapshot-before-update` + `:component-did-update` (paired) | measure the previous DOM pre-commit → restore post-commit | **No native equivalent — stays on reagent-slim Form-3.** A ref's attach runs *after* React has mutated the DOM, so it cannot read the pre-mutation geometry; the pre-commit half of the protocol has no native door. This paired protocol (scroll restoration, §5) is exactly why the cap keeps `:get-snapshot-before-update`. |
+| `:component-will-unmount` | just before unmount (dev StrictMode replays attach → detach → attach) | **Host teardown** (dispose the chart, remove the exact listener you added) → the callback ref's **returned cleanup**, which must be **symmetric and replay-safe**: it releases the exact resource its matching attach acquired, so a balanced pair (add-then-remove a listener, increment-then-decrement a counter, push-then-pop) stays correct as React replays attach → detach → attach. What corrupts state is an *unpaired* teardown, not a balanced one — blanket idempotency is not required. **Domain work** (release an owned resource, mark a draft abandoned) **re-homes OUT of the view**: the causal *end* events that end the resource's life release it. There is **no dispatch-at-unmount**, and a ref cleanup is not a place to smuggle one in. |
+| `:component-did-catch` | on a descendant render/lifecycle throw | The shipped **`h/error-boundary`** `{:fallback :reset-key :on-error}` when **error-only reporting** is enough: `:fallback` is hiccup or a `(fn [error] hiccup)`, `:on-error` fires once per caught failure, and changing `:reset-key` (compared `=`) clears the caught error and re-mounts the children — the retry is the caller's to schedule. The one thing it drops is React's second callback arg — the `info`/`componentStack`; reagent-slim Form-3's `:component-did-catch (this error info)` still hands you that. So if you need the component stack (grouped crash logging, error fingerprinting), or the closed prop roster otherwise does not fit, the view **stays on reagent-slim Form-3** (`:component-did-catch` + a local `r/atom`, §4) or is redesigned. React catches only render/lifecycle throws below the boundary — not event-handler or async errors, which keep their typed paths. |
 
 Every row preserves the phase, frequency, and dependency semantics of the hook
-it replaces. The two "stays on reagent-slim Form-3" rows are the honest holds:
-the snapshot protocol and (when `ui/error-boundary` does not fit) the error
-boundary have no faithful native passive-effect translation, so the class shape
+it replaces. The three "stays on reagent-slim Form-3" rows are the honest holds:
+the update hook, the snapshot protocol, and (when `h/error-boundary` does not
+fit) the error boundary have no faithful native translation, so the class shape
 is the answer, not a lossy rewrite.
 
 ---

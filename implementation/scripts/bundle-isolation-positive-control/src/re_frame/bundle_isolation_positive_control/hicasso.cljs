@@ -19,8 +19,7 @@
   ;;
   ;; `impl.codec` rather than the public door: the sentinels live in that
   ;; namespace's function bodies, and naming the exact fns is what keeps the
-  ;; control honest under DCE. Same shape as the sibling `ui` control, which
-  ;; references `re-frame.ui.runtime` for the same reason.
+  ;; control honest under DCE.
   (:require [re-frame.hicasso.impl.codec :as codec]))
 
 (defn ^:export run []

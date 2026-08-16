@@ -10,8 +10,8 @@
 
   ## The screen, and the diff this file exists to make honest
 
-  The predecessor's own guide worked example, verbatim
-  (`docs/core/freehand/host/presence.md`) — a fading toast, with the
+  The predecessor's own guide worked example, verbatim (that guide retired
+  with its substrate) — a fading toast, with the
   a11y obligation its Accessibility section spells out:
 
       (v/defview toast-card [{:keys [toast]}]

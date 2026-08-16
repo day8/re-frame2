@@ -39,11 +39,11 @@
 
   `safe-form` / `pr-form` were `re-frame.ssr.diagnostic` when this file was
   written; they now live in `re-frame.error`, in core, because the THIRD
-  site of the same defect is `re-frame.ui.semantic` and `re-frame.ui` /
-  `re-frame.ssr` are SIBLING artefacts — both depend on core, neither may
-  `:require` the other. The helper's own unit rows stay here (this is where
-  the contract was established); the ui call sites are pinned by the
-  sibling `re-frame.ui.semantic-cycle-cljs-test`."
+  site of the same defect sat in a SIBLING artefact of `re-frame.ssr` — both
+  depend on core, neither may
+  `:require` the other, so the shared helper can only live beneath them. The
+  helper's own unit rows stay here: this is where the contract was
+  established."
   (:require ["react" :as react]
             [clojure.string :as str]
             [cljs.test :refer-macros [deftest is testing]]

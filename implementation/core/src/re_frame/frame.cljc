@@ -3013,8 +3013,8 @@
 
 (defn- throw-frame-id-taken!
   "Throw the typed `:rf.error/frame-id-taken` collision (rf2-vxgfnd.76) — the
-  create-exclusive (`:rf.frame/must-create?`) primitive `ui.test` rests its
-  fresh-isolated-frame contract on. Raised when an exclusive construction for
+  create-exclusive (`:rf.frame/must-create?`) primitive a fresh-isolated-frame
+  test contract rests on. Raised when an exclusive construction for
   `id` meets an already-live FINAL frame under the same id. Same-id overlap with
   an in-flight transaction instead fails earlier as
   `:rf.error/frame-construction-in-progress`; in exclusive mode a pre-existing
@@ -3090,7 +3090,7 @@
         ;; decide throws typed `:rf.error/frame-id-taken` instead of the ordinary
         ;; fall-through to a surgical re-registration. An in-flight same-id
         ;; transaction is the distinct `:rf.error/frame-construction-in-progress`.
-        ;; `ui.test` consumes exclusive mode to
+        ;; A test harness consumes exclusive mode to
         ;; keep plan frames FRESH + isolated (adopt/refresh become collisions).
         ;; A construction-only reserved key: read here, stripped from `config`
         ;; below so it never lands in the stored `:config` or a lifecycle trace.
@@ -3323,7 +3323,7 @@
               ;; LOST the create: `try-install-new-frame!` returned nil — nothing
               ;; was installed.
               (if must-create?
-                ;; Exclusive mode (ui.test): a taken id is a hard COLLISION, not
+                ;; Exclusive mode: a taken id is a hard COLLISION, not
                 ;; an adoption — throw the typed error (nothing was installed).
                 (throw-frame-id-taken! id)
                 ;; Ordinary construction: fall through to a RE-registration on the
