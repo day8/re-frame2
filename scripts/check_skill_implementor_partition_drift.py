@@ -70,13 +70,17 @@ user-facing implementor docs and asserts:
      still pass.
   7. **Frame-root lifecycle — two realizations kept present and distinct**
      (rf2-vxgfnd.278). The merged frame-root/frame-provider split corrected the
-     synthesis but left the implementor guide universalizing the *legacy*
+     synthesis but left the implementor guide universalizing the React
      adapters' commit-owned two-pass `useLayoutEffect` ENSURE as THE frame-root
-     lifecycle. The compiled `re-frame.ui` substrate runs ENSURE at **host
-     preflight** — before React/JVM render (#5711) — a DIFFERENT lifecycle:
-     scope-only emitted component, evidence-only commit reporting,
-     `:mount-incomplete` on an aborted host attempt, a surgical `:refresh` (not
-     the legacy reconfigured error) on a same-owner config change. This rule is a
+     lifecycle. A **root door** runs ENSURE at **host preflight** — an ordinary
+     function call before `createRoot`, never a component and never at render —
+     a DIFFERENT lifecycle: no component creating a frame at render,
+     evidence-only commit reporting (`:committed` set at the host-commit
+     boundary and never by plan execution), `:mount-incomplete` on an aborted
+     host attempt, a surgical `:refresh` (not the React-adapter reconfigured
+     error) on a same-owner config change. That contract is owned normatively by
+     `spec/004C-Roots-and-Mount.md` §7.1 and realized in-tree by
+     `re-frame.hicasso`'s root door. This rule is a
      positive-PRESENCE scan (not the per-line denylist above): it fails if either
      realization disappears or collapses into the other, if a Spec-002 frame-root
      / frame-provider heading link goes missing OR no longer resolves to a real
@@ -417,7 +421,7 @@ FRAME_PROVIDER_ANCHOR = "#frame-provider--the-scope-only-component-cljs-referenc
 # Retiring an arm is a deliberate second edit — delete its row here, and record
 # that the contract it held is henceforth unguarded.
 LIFECYCLE_ARM_SOURCES: dict[str, tuple[str, ...]] = {
-    "L1-compiled-realization": ("phase2",),
+    "L1-preflight-realization": ("phase2",),
     "L2-react-adapters": ("phase2",),
     "L4-spec002-links-present": ("phase2",),
     "L4-spec002-links-resolve": ("phase2", "spec002"),
@@ -440,6 +444,28 @@ LIFECYCLE_ARM_SOURCES: dict[str, tuple[str, ...]] = {
 # other honest fix and it has no target. The remaining arms are unaffected: they
 # read the SKILL's prose, `spec/Conventions.md` and `spec/002-Frames.md`, whose
 # re-pointing is rf2-0yp7w.9's (R6) prose sweep and not this delete's.
+#
+# L1 WAS RE-POINTED, NOT RETIRED — and one of its three pinned tokens was
+# REPLACED rather than dropped. L1 reads the SKILL's prose, and the lifecycle it
+# asserts still has a normative owner: `spec/004C-Roots-and-Mount.md` §7.1 states
+# the plan-phase/host-phase split, the `:fresh`/`:live`/`:found-live` provenance
+# table, the settlement matrix, and `:committed` / `:mount-incomplete` /
+# `:preflight-attempt-failed` as PUBLISHED install-record fields. So L5's grounds
+# (contract dissolved, nothing left to read) never applied here — what was dead
+# was the ADDRESS, not the contract.
+#
+#   RETIRED TOKEN   `execute-frame-plans!`
+#   REPLACED BY     `:committed`
+#
+# `execute-frame-plans!` named the DELETED compiled executor's entry point, a
+# function that exists nowhere in the tree, and it pinned the guide to a worked
+# example whose files were removed. Its clause in the arm's own contract —
+# evidence-only commit reporting, i.e. a commit is recorded only at the host
+# boundary and never by plan execution — is NOT unguarded: it moved to
+# `:committed`, whose owner is 004C §7.1 ("Set ONLY at the client's host-commit
+# boundary ... never by plan execution"). The other two tokens keep their
+# subjects unchanged and simply gained a live address. Nothing here is a status
+# claim about which substrates ship — that is `check_adapter_disposition.py`'s.
 
 
 def lifecycle_arms_run(texts: dict[str, str | None]) -> set[str]:
@@ -510,22 +536,28 @@ def lifecycle_realization_problems(
     problems: list[str] = []
 
     if phase2 is not None:
-        # L1 — compiled `re-frame.ui` realization present + timing distinct.
+        # L1 — root-door preflight realization present + timing distinct.
         for token, label in (
-            ("execute-frame-plans!", "the compiled preflight call `execute-frame-plans!`"),
             (
                 "host preflight, never render",
-                'the compiled ENSURE-timing statement ("host preflight, never render")',
+                'the preflight ENSURE-timing statement ("host preflight, never render")',
             ),
-            (":mount-incomplete", "the compiled aborted-attempt evidence `:mount-incomplete`"),
+            (
+                ":committed",
+                "the evidence-only commit field `:committed` (set at the host-commit "
+                "boundary, never by plan execution)",
+            ),
+            (":mount-incomplete", "the aborted-attempt evidence `:mount-incomplete`"),
         ):
             if token not in phase2:
                 problems.append(
                     "LIFECYCLE-COMPILED-COLLAPSED: phase-2-impl-order.md is missing "
-                    f"{label} — the compiled `re-frame.ui` frame-root realization "
-                    "must not disappear or collapse into the legacy one (ENSURE at "
-                    "host preflight, scope-only emit, evidence-only commit, "
-                    "`:mount-incomplete` on abort, `:refresh` on same-owner reconfig)."
+                    f"{label} — the root-door preflight frame-root realization must "
+                    "not disappear or collapse into the commit-owned React-adapter "
+                    "one (ENSURE at host preflight before `createRoot`, no component "
+                    "creating a frame at render, evidence-only commit, "
+                    "`:mount-incomplete` on abort, `:refresh` on same-owner reconfig). "
+                    "Its normative owner is spec/004C-Roots-and-Mount.md §7.1."
                 )
         # L2 — `[REACT-ADAPTERS]` React-adapter realization present + distinct.
         for token, label in (
@@ -873,8 +905,9 @@ def _self_test() -> int:
     # problems() reads whole-file text (not per-line), so exercise it with in-
     # memory good/bad content variants.
     good_phase2 = (
-        "runs them through `re-frame.ui.frames/execute-frame-plans!` before "
-        "`createRoot`. ENSURE is host preflight, never render (#5711). An aborted "
+        "the root door ENSUREs its frame before `createRoot`, and `:committed` is "
+        "set only at the host-commit boundary. ENSURE is host preflight, never "
+        "render. An aborted "
         "host attempt may leave `:mount-incomplete`. **`[REACT-ADAPTERS]` Reagent "
         "/ reagent-slim / UIx** — ENSURE runs only from a client `useLayoutEffect`, and a "
         "mounted reconfiguration fails loud with `:rf.error/frame-root-reconfigured`. "
@@ -920,12 +953,16 @@ def _self_test() -> int:
 
     expect_lifecycle({}, dirty=False, label="G0 both realizations + links + source present")
     expect_lifecycle(
-        {"phase2": good_phase2.replace("execute-frame-plans!", "some-other-fn")},
-        dirty=True, label="G1 compiled preflight call removed",
+        {"phase2": good_phase2.replace(":committed", ":some-other-flag")},
+        dirty=True, label="G1 evidence-only commit field removed",
     )
     expect_lifecycle(
         {"phase2": good_phase2.replace("host preflight, never render", "runs in a layout effect")},
-        dirty=True, label="G2 compiled timing collapsed into legacy",
+        dirty=True, label="G2 preflight timing collapsed into the React adapters'",
+    )
+    expect_lifecycle(
+        {"phase2": good_phase2.replace(":mount-incomplete", ":some-other-flag")},
+        dirty=True, label="G2b aborted-attempt evidence removed",
     )
     expect_lifecycle(
         {"phase2": good_phase2.replace(":rf.error/frame-root-reconfigured", "some refresh")},
@@ -995,7 +1032,7 @@ def _self_test() -> int:
         label="L4 spec002 gone — anchors still checked PRESENT but never RESOLVED",
     )
     expect_arm_not_run(
-        {"phase2": None}, arm="L1-compiled-realization",
+        {"phase2": None}, arm="L1-preflight-realization",
         label="L5 phase2 gone — the guide realization arms stop running",
     )
     # Every source present ⇒ every declared arm runs, and no floor fires.
