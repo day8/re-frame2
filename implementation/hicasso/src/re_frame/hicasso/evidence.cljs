@@ -221,7 +221,9 @@
 
   Closed, and stamped on every envelope as `:read`, so a consumer holding
   an envelope out of context still knows which question it answers. The
-  four are the four Xray views."
+  four back the first four Xray views one-for-one; the tab's other two,
+  Advisor and Causal, are derivations over these same four envelopes and
+  read nothing of their own."
   {:mounted-boundaries
    "which boundaries hold live read edges right now, over which frames"
 

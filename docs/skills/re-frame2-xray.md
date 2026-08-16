@@ -16,8 +16,8 @@ The skill answers three questions:
 
 Xray runs in one of two modes, flipped by the L1 mode pill or `Cmd/Ctrl+Shift+M`:
 
-- **Dynamic** — the event-coupled spine (4-layer chrome). Every tab is a lens on the *one focused event*. 9 tabs: **Epoch · app-db · Views · Trace · Machine · Routes · Resources · Graph · Modules** (mnemonics `e a v t m r s g u`) — the core six plus the cross-feature **Resources** (declarative server-state), **Graph** (Xray's UI over the EP-0014 derivation/process graph), and **Modules** (its EP-0023 `image → frame → event stream` lens — which image loaded which frame, and the frame's resolved generation) lenses. There is **no Issues tab** — issues surface inline (in the Epoch cascade, the L2 event-row pink-wash, and the always-on issues-ribbon signal).
-- **Static** — event-INDEPENDENT registry browse (3-layer chrome, no spine). Every tab is a catalogue of what's *registered* in the picked frame — its resolved generation's registrations (the registrar is frame-owned). 5 tabs: **Machines · Routes · Schemas · Flows · Interceptors**.
+- **Dynamic** — the event-coupled spine (4-layer chrome). 10 tabs: **Epoch · app-db · Views · Trace · Machine · Routes · Resources · Graph · Frames · Hicasso** (mnemonics `e a v t m r s g u h`) — the core six spine lenses plus the cross-feature **Resources** (declarative server-state), **Graph** (Xray's UI over the EP-0014 derivation/process graph), **Frames** (its EP-0023 `image → frame` lens — which image loaded which frame, and how that frame resolves its registrations) and **Hicasso** (the evidence lens for Hicasso, re-frame2's re-frame-native view layer — six views over four evidence envelopes taken in one turn). Dynamic names the *shell*, not a uniform data scope: most tabs are lenses on the one focused event, but Graph, Frames and Hicasso are browse surfaces that do **not** rebind when you pick an epoch. There is **no Issues tab** — issues surface inline (in the Epoch cascade, the L2 event-row pink-wash, and the always-on issues-ribbon signal).
+- **Static** — event-INDEPENDENT registry browse (3-layer chrome, no spine). Every tab is a catalogue of what's *registered*. Mixed-scope: the definition catalogues are **process-global** — the registrar is shared across every frame (Spec 002 §Frame addressing) — while the L1 frame picker scopes only the per-frame *live* projections each tab adds. 5 tabs: **Machines · Routes · Schemas · Flows · Interceptors**.
 
 When the user wants to inspect a single dispatch, that's Dynamic; when they want to browse the whole registry, that's Static.
 
@@ -34,7 +34,7 @@ Four hotkey families have keydown listeners installed:
 
 ## When to reach for it
 
-Load this skill when the user wants to *read* the Xray panel — "open Xray", "where is X in Xray", "which Xray tab shows…", "Xray Static mode", "browse registered machines/routes/schemas in Xray", "Ctrl+Shift+C", "Xray popout", "Xray machine inspector", "Xray Modules tab", "which images loaded which frames in Xray".
+Load this skill when the user wants to *read* the Xray panel — "open Xray", "where is X in Xray", "which Xray tab shows…", "Xray Static mode", "browse registered machines/routes/schemas in Xray", "Ctrl+Shift+C", "Xray popout", "Xray machine inspector", "Xray Frames tab", "which images loaded which frames in Xray", "Xray Hicasso tab", "why did this boundary re-render".
 
 Do **not** use this skill for:
 
