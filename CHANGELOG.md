@@ -68,7 +68,7 @@ The dependency coordinate is now `day8/re-frame2`, and v1 and v2 cannot share a 
 
 ### What this release does not promise
 
-**No compiled-view substrate, under any coordinate.** The compiled-view work is not published in this release. There is no `day8/re-frame2-ui` on Clojars and there never will be — `re-frame.ui` is retired and awaiting removal from the tree, as is `re-frame.freehand`. re-frame2's re-frame-native view layer is **Hicasso** (`day8/re-frame2-hicasso`, listed above); everything else goes through an adapter.
+**No compiled-view substrate, under any coordinate.** The compiled-view work is not published in this release. There is no `day8/re-frame2-ui` on Clojars and there never will be — `re-frame.ui` is retired and has been removed from the tree, as has `re-frame.freehand`. re-frame2's re-frame-native view layer is **Hicasso** (`day8/re-frame2-hicasso`, listed above); everything else goes through an adapter.
 
 **No devtools panel on the UIx scaffold.** Xray mounts through the ratom-family substrates, so the Reagent scaffold wires it in and the UIx scaffold deliberately does not. An honest absence beats a panel that fails to mount.
 

@@ -33,7 +33,6 @@ Rewriting views into Hicasso is a **separate, optional second step, and it is a 
 - The re-frame **v1 → v2** migration (events / subs / `app-db` / effects / boot) — that is the [`re-frame-migration`](../re-frame-migration) skill, which *completes* the move to re-frame2 on its own.
 - Writing new re-frame2 code — that is the [`re-frame2`](../re-frame2) skill.
 - Greenfield setup — [`re-frame2-setup`](../re-frame2-setup).
-- Maintaining existing `day8/re-frame2-ui` views — [`re-frame2-ui`](../re-frame2-ui), a retired substrate in maintenance only.
 - Live-runtime inspection — [`re-frame2-pair`](../re-frame2-pair).
 - The **dataflow layer** — the skill rewrites the *view tier* only; where a view forces a `reg-sub`/event change, it *names* it for the author, it does not make it.
 - The interactive visual confirmation — booting the app and eyeballing the render — that is the programmer's. (The skill *does* run the project's own noninteractive compile/test gates as it goes.)

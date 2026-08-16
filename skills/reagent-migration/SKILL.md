@@ -21,8 +21,7 @@ description: >
   `@(subscribe …)` in a view).
   **Do not use** for: the re-frame v1→v2 events/subs/db migration
   (`re-frame-migration`), writing new re-frame2 code (`re-frame2`),
-  greenfield setup (`re-frame2-setup`), maintaining existing
-  `day8/re-frame2-ui` views (`re-frame2-ui`), or live-runtime inspection
+  greenfield setup (`re-frame2-setup`), or live-runtime inspection
   (`re-frame2-pair`). See `skills/README.md` §Skill routing for the map.
 allowed-tools:
   - Bash(rg *)

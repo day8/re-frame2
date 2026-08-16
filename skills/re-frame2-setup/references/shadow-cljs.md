@@ -5,7 +5,6 @@ The minimal `shadow-cljs.edn` build for a greenfield re-frame2 Reagent single-pa
 ## Contents
 
 - The day-one `shadow-cljs.edn`
-- If you add the retired `re-frame.ui` substrate: one required top-level setting
 - The `index.html` that loads the bundle
 - `:devtools` block (the Xray preload + hot reload)
 - `.gitignore` — what the build generates
@@ -45,29 +44,6 @@ Five things matter for re-frame2:
 The template also ships a second `:test {:target :node-test ...}` build under `:builds` — out of scope here (this skill stops at "the counter mounts"), but present in the scaffold if you compare.
 
 The build id (`:app` above) is the name for `shadow-cljs watch <build-id>`; `:app` is convention.
-
-## If you add the retired `re-frame.ui` substrate: one required top-level setting
-
-`day8/re-frame2-ui` — the compiled-view substrate — is **not** in the day-one set, and the build above is complete without it. It is also **retired and awaiting removal**, so a greenfield project has no reason to reach for it: pick an adapter (the day-one Reagent set above, or UIx). The section below is here only for a project that already has it.
-
-It is the one artefact whose arrival is more than a coordinate: adding it to `deps.edn` obliges you to add one setting to `shadow-cljs.edn` in the same change.
-
-<!-- rf2:shadow-ui-contract -->
-
-```clojure
-{:build-defaults {:build-hooks [(re-frame.ui.compiler.build-hook/hook)]}}
-```
-
-It goes at the **top level**, beside `:dev-http` — not inside a build. `:build-defaults` applies the hook to every configured build, so one declaration covers the whole project.
-
-Two things to know:
-
-- **Only add it once `day8/re-frame2-ui` is actually on the classpath.** The hook form names a namespace that ships inside that artefact, so configuring it without the dependency fails the build on an unresolvable `re-frame.ui.compiler.build-hook`. This is not a setting to add speculatively to a project that has no compiled views.
-- **No cache blocker any more.** Earlier versions also required `:cache-blockers #{re-frame.ui}`; that install tax was removed because the build hook now harvests re-frame.ui's registries from cache-durable analyzer data, so a warm daemon reuses Shadow's disk cache. If you are updating an older project, delete the `:cache-blockers` line.
-
-With the hook missing the app throws on namespace load rather than running with no registries to resolve its compiled views against.
-
-**The block above is not a copy anyone has to keep in step by hand.** It is held against this repository's own `implementation/shadow-cljs.edn` — the configuration re-frame2 itself builds with — by the drift gate in `implementation/ui/test/re_frame/ui/shadow_config_contract_jvm_test.clj`, which compares the settings as data and reds if either side moves. The real build config is the source of truth; this block is pinned to it.
 
 ## The `index.html` that loads the bundle
 
