@@ -171,7 +171,11 @@ put it at twelve, and the recount is the point of writing the command down besid
 ### 6.2 Method
 
 A fresh worktree off `origin/main` at `7304e825c9`, with a real `npm ci` (**101** top-level entries by
-`ls | wc -l`) rather than a junction into another checkout. **Every family was run one at a time and
+`ls | wc -l`) rather than a junction into another checkout. **Every figure below is anchored to that
+commit and not to "the landed tree"** — the mistake §2 now carries a correction for. The trunk moved
+under this section while it was being written, to `c2654846cf`; `git diff --stat 7304e825c9..c2654846cf
+-- implementation docs` is **empty**, so nothing in the interval reaches a surface any family here
+measures, and the anchor is what lets a reader check that rather than take it. **Every family was run one at a time and
 never in parallel** — two heavyweight suites on this machine have wedged rather than failed, each
 holding several gigabytes, and neither reported anything. Two other workers' heavy runs were live on
 the box throughout and were left alone. Each exit code is the runner's own, captured by an `echo $?`
