@@ -603,16 +603,12 @@ The same handler runs **on the server during SSR** (no `:platforms` exclusion) �
 | Form | Behaviour |
 |---|---|
 | `[rf/route-link {:to :route/cart} "Cart"]` | Renders `<a href="...">` and intercepts plain primary-button clicks itself — its registered view body (per [§Standard runtime events](#standard-runtime-events)) calls `.preventDefault` and dispatches `:rf.route/url-requested`. The dispatch **carries the frame address captured at render time** (per [EP-0002 carried-invariant](002-Frames.md) — the render-time scope — a `with-frame`, or a `frame-provider` (SCOPE) / `frame-root` (ENSURE) boundary — has unwound by the time the click fires, so the click closure pins the rendering frame just as a `capture-frame` does for view bodies; resolving the frame ambiently at click time would raise `:rf.error/no-frame-context` or route to the wrong frame). Modifier keys (cmd-click, middle-click, shift-click) defer to the browser; the link follows the `href` natively. |
-| `[ui/route-link {:to :route/cart} "Cart"]` | The **compiled-view counterpart** (Spec 004, artefact `day8/re-frame2-ui`) — an ORDINARY compiled `defview`, same public shape and behaviour. It renders the same real `<a href="...">`, applies the SAME click law, and carries the SAME render-time-captured frame address on the `:rf.route/url-requested` dispatch. The routing calculation and the click law are NOT reimplemented in the ui artefact: routing publishes them behind a substrate-neutral late-bound seam — `:routing/link-model` (pure, both hosts: strategy-encoded href + dispatch payload + native-anchor detection) and `:routing/activate-link!` (the CLJS click op) — and `re-frame.ui` consumes them through core's late-bind registry, so neither optional artefact statically requires the other (`ui -> core late-bind <- routing`). Absent the routing artefact, rendering it fails loud with `:rf.error/routing-artefact-missing`. |
-| `[v/route-link {:to :route/cart} "Cart"]` | The **Freehand descriptor** (Spec 004, artefact `day8/re-frame2-freehand`) — an ORDINARY `v/defview`, same public shape and behaviour, and not a compiler form. It renders the same real `<a href="...">`, applies the SAME click law, and carries the SAME render-time-captured frame address on the `:rf.route/url-requested` dispatch. It reimplements none of it: routing publishes the calculation and the click decision behind the same substrate-neutral late-bound seam described in the row above, and Freehand consumes them through core's late-bind registry (`freehand -> core late-bind <- routing`), so neither optional artefact statically requires the other. Absent the routing artefact, rendering it fails loud with `:rf.error/routing-artefact-missing` at RENDER — before any anchor exists — rather than emitting a dead link. See [§The Freehand route-link descriptor](#the-freehand-route-link-descriptor). |
 | `[:a {:href "..."} ...]` (plain anchor in user view code) | Browser-native navigation. The runtime does **not** intercept; clicking causes a full page load if the URL is on the same origin and an external navigation otherwise. Apps that want SPA-style interception on plain anchors install it at the **host adapter** layer (a top-level `click` listener on the document that consults `match-url`); the runtime's contract stops at `route-link` plus `:rf.route/url-requested`. |
 
-`rf/route-link` (the stock-Reagent registered view at `:route/link`, below),
-`ui/route-link` (the compiled `defview`) and `v/route-link` (the Freehand
-descriptor) are behaviourally identical and share this law. `rf/route-link` is
-frozen into the compatibility/interop tier; `v/route-link` is the view-substrate
-surface. Migrating a routed Reagent app is a mechanical head-rename, because the
-href and the click law are the same law in every spelling — only the substrate
+`rf/route-link` is the stock-Reagent registered view at `:route/link`, below. A
+view substrate that ships its own spelling of it is behaviourally identical and
+shares this law: migrating a routed Reagent app is a mechanical head-rename,
+because the href and the click law are the same law in every spelling — only the substrate
 differs.
 
 **`:prefetch :intent` — the opt-in warm-mode trigger.** A link accepts one
@@ -824,7 +820,7 @@ edit keys          #{:query :query-merge :fragment}
 link behavior keys #{:on-click :prefetch}
 ```
 
-`:on-click` is a **behaviour** key, not a passthrough DOM attribute: it is the imperative pre-navigation seam, replaced by the framework's own click closure on the interactive host and **dropped** on the SSR path — a serialized document has no click to intercept and must not carry a host closure ([§The Freehand route-link descriptor](#the-freehand-route-link-descriptor)). Leaving it on the props map would let a caller's closure reach the server-rendered `<a>`.
+`:on-click` is a **behaviour** key, not a passthrough DOM attribute: it is the imperative pre-navigation seam, replaced by the framework's own click closure on the interactive host and **dropped** on the SSR path — a serialized document has no click to intercept and must not carry a host closure. Leaving it on the props map would let a caller's closure reach the server-rendered `<a>`.
 
 Key **presence** selects the request branch *before* any validation:
 
@@ -1161,99 +1157,6 @@ An external classification emits `:rf.route/external-url-requested` (carrying `:
 The view exposes three behavioural seams: passthrough attributes (`:class`, `:title`, `:id`, `:aria-label`, …) flow through to the `<a>`; a caller-supplied `:on-click` runs before the framework's interception and can pre-empt it by calling `.preventDefault`; and modifier-key clicks defer to the browser so middle-click / cmd-click / shift-click keep their native open-in-new-tab affordances. `route-url` is the single point where the URL is synthesised, so route-rename and route-shape changes flow into every `route-link` site without per-link edits.
 
 **Native-anchor attributes are never intercepted.** A passthrough attribute whose semantics require the browser to handle the click — a `target` other than `_self` (`_blank` / `_parent` / `_top` / a named frame), or `download` — defers to the browser even on a plain left-click, the same as a modifier-key click. SPA interception would convert a `{:target "_blank"}` link into same-document navigation and a `{:download …}` link into a no-op navigation, silently breaking the native anchor contract the DOM attributes advertise. The framework treats these attributes as a fourth defer-to-browser seam alongside modifier/middle clicks and caller `.preventDefault`: the link still renders as a real `<a href=…>` with the attributes, and the click is left for the browser. Authors who want SPA interception omit those attributes (or set `:target "_self"`).
-
-#### The Freehand route-link descriptor
-
-`v/route-link` is the view-substrate spelling of the law above. It is **ordinary
-framework view code** — a `v/defview` holding the same descriptor an application
-view holds (uncallable in the same way, per
-[004 §A declared view cannot be called](004-Views.md#a-declared-view-cannot-be-called)),
-taking the same one props map, lowered by the same emitters. There is no route-link intrinsic, and there is no second routing
-contract: this section is the whole of what the view adds, and everything it
-does with a URL or a click is the routing law already stated above.
-
-```clojure
-[v/route-link {:to :article :params {:slug slug} :class "title"}
- title]
-```
-
-The view's control keys are `:to` / `:params` / `:query` / `:fragment`,
-`:on-click` and `:prefetch`. **`:to` is required**; `:params` / `:query` /
-`:fragment` feed both the href and the dispatch payload. Every other key is an HTML attribute and
-reaches the `<a>` untouched, so `:class`, `:title`, `:aria-label`, `:target` and
-`:download` work without the view enumerating the attribute space. The
-framework-owned `:href` wins over a caller-supplied one; no route key ever leaks
-onto the element.
-
-**The anchor is real.** The rendered element is an `<a>` carrying the route's
-strategy-encoded href, because everything a link is expected to do outside a
-plain left click is the browser's, not the framework's: copy-link,
-open-in-new-tab, keyboard activation, the status-bar preview, a reader with
-JavaScript disabled, and a crawler. A link that intercepts a click but has no
-`href` is not a link.
-
-**The frame is captured at render, not at click.** A click fires long after the
-render-time frame scope has unwound, so resolving the frame ambiently at click
-time would raise `:rf.error/no-frame-context` or route to the wrong frame. The
-capture happens at render — and so does its failure: a link rendered outside any
-frame scope fails at the render site, with the render stack, rather than at a
-detached click.
-
-**Native behaviour is not overridden.** A modifier click, an auxiliary-button
-click, a `:download` anchor and a `:target` other than `_self` are left to the
-browser exactly as they are for `rf/route-link`. This is the seam that decides
-whether a link feels native, and it is not one an application should have to
-re-derive per link — which is the reason the framework supplies this view at all.
-
-**A caller `:on-click` runs first and may veto.** It is invoked before the
-navigation decision, exactly once, sees an event nothing has prevented yet, and
-if it prevents the default the framework stands down and the caller owns the
-outcome.
-
-**`:on-click` is the imperative pre-navigation seam, and its accepted grammar is
-closed.** A plain function, a `v/handler`, or nothing — and anything else is
-rejected AT RENDER with `:rf.error/view-bad-event` and the recovery
-`:use-a-plain-fn-or-v-handler`. The narrowing is the contract, not an omission.
-Freehand teaches `:on-click [:app/event …]` as ordinary intent data everywhere
-else, so the reason it cannot mean that here has to be stated rather than
-discovered: a route click already produces the ONE routing intent
-(`:rf.route/url-requested`) and everything that follows from it, so a second
-intent site on the same click would be one user action yielding two semantic
-events. An application reaction belongs behind the routing event or its
-transition. What is genuinely needed here is the other thing — imperative work
-that runs before the decision and can stop it (`.preventDefault`, a confirm
-dialog, an analytics ping) — which is exactly `v/handler`'s declared role, and a
-bare function is its unceremonious spelling. A `v/handler` is unwrapped to the
-function it carries before routing sees it: a roster callback is deliberately
-not `IFn`, so fencing without translating would have left the declared
-imperative form as the one thing that did not work here. The check runs on both
-hosts, so a form the browser would misuse is refused by the server render too.
-
-**`:prefetch :intent` makes the three intent positions framework-owned, and the
-same closed grammar governs them.** An opted-in link installs its own
-`:on-mouse-enter` / `:on-focus` / `:on-touch-start` handlers and runs the
-caller's first — and composing that way means the framework has to be able to
-CALL what it found, so those three positions accept exactly what `:on-click`
-accepts (a plain function, a `v/handler`, or nothing), anything else rejected at
-render on both hosts with the same `:rf.error/view-bad-event` and
-`:use-a-plain-fn-or-v-handler`. The narrowing is **conditional on the opt-in**:
-every other link leaves all three as ordinary open Freehand event positions, so
-hover intent spelled as event data (`:on-mouse-enter [:app/hovered]`) keeps
-working everywhere else. An author who wants an application event on hover *and*
-a warm-up keeps the position as it is and dispatches `:rf.route/prefetch`
-themselves — the link opt is sugar over that event.
-
-**The server shell is the same anchor without the handler.** The JVM render
-emits the path-form href and no click handler — a serialized document has no
-click to intercept and must not carry a host closure — and the hydrated client
-re-encodes through the frame's URL strategy, per
-[§SSR ignores strategies](#ssr-ignores-strategies).
-
-**Without the routing artefact it fails loud, at render.** Routing is optional,
-so `v/route-link` resolves the seam before it builds anything; an unpublished
-hook raises `:rf.error/routing-artefact-missing`, naming the view and the link's
-`:to`. It never renders a half-formed anchor, and never a silently dead one. A
-plain `[:a]` remains available for intentional browser-native navigation.
 
 ## Scroll restoration
 
@@ -2065,7 +1968,7 @@ CLJS whole-program optimisation plus gzip pushes the single-bundle wall much fur
 
 Per [§Per-route data loading](#per-route-data-loading) a route's `:resources` plan runs on **activation**, so without a pre-navigation surface the click pays the load — hovering a link could not warm the destination, and the competitive gap against React Router (`<Link prefetch>`) and TanStack Router (`preload` / intent) stayed open. The decision was **where** the verb belongs, because the cache machinery was already there: [016 §Active owners and causes](016-Resources.md#active-owners-and-causes) supports ownerless, cause-only `ensure` entries (the focus/reconnect scans use exactly that shape) and unowned entries are GC-eligible. App-space hover-`ensure` already worked *per resource*, but it forced every link site to re-derive the destination's params / `:when` / scope precedence — the exact duplication the plan machinery exists to prevent. So the verb ships at **route-plan level**.
 
-**Shipped in EP-0037 R3.** The normative contract is [§Route-plan prefetch — warm-mode intent preload](#route-plan-prefetch--warm-mode-intent-preload): a public `[:rf.route/prefetch {address}]` event that runs the destination's effective resource plan in warm mode — every ensure **ownerless** under cause `[:route-prefetch <route-id>]`, `:blocking?` **inert**, `:on-match` and guards **not run**, one `:rf.route/prefetched` summary trace, and a later activation reusing the warmed work through ordinary dedupe. The paired link opt is `:prefetch :intent` ([§Linking from views](#linking-from-views--plain-anchor-semantics), and [§The Freehand route-link descriptor](#the-freehand-route-link-descriptor) for the intent-position grammar), which binds the three intent positions and is stripped before DOM emission. The non-goals fence recorded in the normative section still holds: no global default, render or viewport mode, hover-delay option, separate preload cache, or prefetch-stale clock, and raw URLs, external links, and route-driven code chunks are not prefetched.
+**Shipped in EP-0037 R3.** The normative contract is [§Route-plan prefetch — warm-mode intent preload](#route-plan-prefetch--warm-mode-intent-preload): a public `[:rf.route/prefetch {address}]` event that runs the destination's effective resource plan in warm mode — every ensure **ownerless** under cause `[:route-prefetch <route-id>]`, `:blocking?` **inert**, `:on-match` and guards **not run**, one `:rf.route/prefetched` summary trace, and a later activation reusing the warmed work through ordinary dedupe. The paired link opt is `:prefetch :intent` ([§Linking from views](#linking-from-views--plain-anchor-semantics)), which binds the three intent positions and is stripped before DOM emission. The non-goals fence recorded in the normative section still holds: no global default, render or viewport mode, hover-delay option, separate preload cache, or prefetch-stale clock, and raw URLs, external links, and route-driven code chunks are not prefetched.
 
 ### `:rf.route.nav-token/*` trace-operation namespace
 
