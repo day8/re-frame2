@@ -231,7 +231,13 @@ reproduced §5's counts would have been the finding.**
 `rg 14.1.1` agrees at 143/40 independently. At `f167edd4bc` the same command reads **142/40** — so §2's
 figure was right about its own commit and wrong as a statement about "the landed tree", which is why
 §2 now carries the commit beside the number. **The retire did not touch the census**: 143 before and
-after, because `hframe` never lived in the donor trees.
+after, because the retired trees never carried the token.
+
+**Re-derive that figure at the commit it names, never at `HEAD`.** This section adds occurrences of the
+token while recording the count of it, exactly as the section §2 corrects did — the number at this
+page's own landed head is therefore *higher*, and correctly so. That is not a defect to fix by chasing
+the count; it is why the count is anchored. **A census stated of "the landed tree" invalidates itself
+the moment it is written down. A census stated of a commit does not.**
 
 ### 6.5 The sabotage control, and why this family
 
