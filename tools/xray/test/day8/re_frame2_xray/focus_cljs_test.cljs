@@ -232,7 +232,7 @@
 
 (deftest focus-shipped-l4-tabs-select-real-panels
   (testing "rf2-1sddi6 / rf2-7ed9ms acceptance — every shipped Dynamic
-            tab id (incl. the L4-only Graph + Modules tabs) is focusable
+            tab id (incl. the L4-only Graph + Frames tabs) is focusable
             and resolves to an installed panel, never the unknown-tab stub"
     (setup-xray-frame!)
     (doseq [panel [:resources :derivation-graph :module-view]]

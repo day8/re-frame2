@@ -54,9 +54,11 @@ const PANEL_HANDOFFS = [
   // graph.cljs); on the counter testbed it renders the silent state under
   // the same root.
   ['derivation-graph', 'rf-xray-derivation-graph'],
-  // The :module-view tab (EP-0013) — the (realm, frame) address space +
-  // demand-trigger surface. L4-only registry tab. Its root view always
-  // renders the `rf-xray-module-view` testid (panels/module_view.cljs).
+  // The :module-view tab — labelled `Frames` — the EP-0023 image -> frame
+  // public model: each live image-loaded frame as an execution context
+  // carrying its resolved image's [kind id] descriptors. L4-only registry
+  // tab. Its root view always renders the `rf-xray-module-view` testid
+  // (panels/module_view.cljs).
   ['module-view', 'rf-xray-module-view'],
   // The :hicasso tab (rf2-hic-023) — six views over the Hicasso evidence
   // surface, the last two (rf2-hic-037) derivations over the same four
@@ -237,7 +239,7 @@ async function openXray(page) {
 // 10 LIVE Dynamic panels (epoch / app-db / views / trace / machines /
 // routing / resources / derivation-graph / module-view / hicasso —
 // spec/018 §5 §The 10 tabs; Resources per Spec 016 §Xray and AI
-// tooling; Graph + Modules per EP-0014 / EP-0013; Hicasso per
+// tooling; Graph + Frames per EP-0014 / EP-0013; Hicasso per
 // rf2-hic-023).
 async function clickTab(page, id, canvasTestId) {
   await page.locator(`[data-testid="rf-xray-tab-${id}"]`).click();

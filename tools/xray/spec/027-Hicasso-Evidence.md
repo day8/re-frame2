@@ -482,7 +482,7 @@ correct and is not a mechanical fix.
 `hicasso/install!` registers `:rf.xray.hicasso/set-view`,
 `:rf.xray.hicasso/view`, `:rf.xray.hicasso/data` and the L4 tab entry. The tab
 is **L4-only** — no standalone `mount-*!` facade, so it is deliberately absent
-from `panel-enum`, following the Graph and Modules precedent.
+from `panel-enum`, following the Graph and Frames precedent.
 
 Adding it moved six governance pins, each of which fails the build on drift:
 
@@ -516,7 +516,7 @@ staged-surface browser coverage, and it is a decision rather than an unfilled
 gap. It is not the whole of the tab's browser coverage, though: liveness has a
 browser row of its own, three paragraphs down.
 
-**The tab is one of four on the same footing.** Resources, Graph, Modules and
+**The tab is one of four on the same footing.** Resources, Graph, Frames and
 Hicasso are documented exclusions from the panel gallery, with their coverage
 ruled to be the feature-matrix shipped-surface sweep plus their own per-panel
 CLJS unit tests (`panel_gallery/core.cljs` §Intentional gallery exclusions).

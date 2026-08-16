@@ -90,7 +90,7 @@ the five-region layout + `ChromeRibbon` / `EventsRibbon` / `EventList`):
 │ view   │ :form/submit    │ 12:30:09.456   │  1.8 ms                      │
 ╞═════════════════════════════════════════════════════════════════════════╡   L2/L3 seam — drag ↕ to resize
 ├─────────────────────────────────────────────────────────────────────────┤
-│ [Epoch] app-db Views Trace Machine Routes Resources Graph Modules Hicasso│              L3 — 10 tabs
+│ [Epoch] app-db Views Trace Machine Routes Resources Graph Frames Hicasso │              L3 — 10 tabs
 ├─────────────────────────────────────────────────────────────────────────┤
 │ — Epoch tab content for the focused event —                             │   L4 — fills the rest
 └─────────────────────────────────────────────────────────────────────────┘
@@ -122,13 +122,13 @@ The four layers, top to bottom:
    `panel-registry/reg-l4-tab!` `:order` fixes (the Figma export fixed the
    first six; the cohesive-sub-domain tabs were appended after), updated post
    rf2-5gl5r + rf2-gbz39 (Issues tab removed per Option (c)) + EP-0016 /
-   EP-0014 / EP-0013 (Resources / Graph / Modules added):
+   EP-0014 / EP-0013 (Resources / Graph / Frames added):
    **Epoch · app-db · Views · Trace · Machine · Routes · Resources · Graph ·
-   Modules**. Letter mnemonics: `e` `a` `v` `t` `m` `r` `s` `g` `u`. (The
+   Frames**. Letter mnemonics: `e` `a` `v` `t` `m` `r` `s` `g` `u`. (The
    original Figma export listed Event/Handler at
    `:order 0`; rf2-5gl5r retired that panel in favour of the Epoch panel at
    `:order -1` — same letter mnemonic `e`, same leftmost position. **Graph**
-   and **Modules** are L4-only registry tabs — focusable but with no standalone
+   and **Frames** are L4-only registry tabs — focusable but with no standalone
    `mount-*!` facade.) Each tab
    renders its **label only** (no `◉`/`○` glyph — Figma
    design rf2-ad7zx); the **active tab fills with the single `accent`** (GitHub blue) + white
@@ -2127,16 +2127,16 @@ in `shell.cljs`) `case`-dispatches between the two on `[:rf.xray/mode]`.
 
 **Tab inventory rule.** Tab inventories are mode-keyed and not shared.
 Dynamic ships 10 tabs (Epoch / App DB / Views / Trace / Machines /
-Routing / Resources / Graph / Modules / Hicasso — see
+Routing / Resources / Graph / Frames / Hicasso — see
 [`021-Dynamic-Panel-Designs.md`](./021-Dynamic-Panel-Designs.md)
 for the per-panel content designs + [`018-Event-Spine.md`](./018-Event-Spine.md)
 §The 10 tabs for the live registry ids; the Event/Handler tab was retired
 by rf2-5gl5r when the Epoch panel reached parity; the Issues tab was
 removed by rf2-gbz39 per Mike's Option (c) ruling — issues surface
 inline in the Epoch panel + the L2 event-row pink-wash + the always-on
-issues ribbon signal. Resources / Graph / Modules / Hicasso are the
+issues ribbon signal. Resources / Graph / Frames / Hicasso are the
 cohesive-sub-domain L4 lenses added per EP-0016 / EP-0014 / EP-0013 /
-rf2-hic-023; Graph + Modules + Hicasso are L4-only registry tabs with no
+rf2-hic-023; Graph + Frames + Hicasso are L4-only registry tabs with no
 standalone `mount-*!` facade). Static ships 5 tabs (Machines /
 Routes / Schemas / Flows / Interceptors — see §Sub-tab inventory
 above). New tabs MUST declare which mode(s) they belong to; tab-id
@@ -2199,5 +2199,5 @@ this rule.
   that previously occupied §2 of this doc; rf2-gbz39 removed the
   Issues tab — issues now surface inline in the Epoch panel + the
   L2 event-row pink-wash + the issues ribbon; the Resources / Graph /
-  Modules lenses were added per EP-0016 / EP-0014 / EP-0013); the
+  Frames lenses were added per EP-0016 / EP-0014 / EP-0013); the
   per-panel companion to the Mode bifurcation rule above.
