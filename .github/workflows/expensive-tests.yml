@@ -156,7 +156,7 @@ jobs:
       # `:node-test-perf-nightly` selects `-emit-nightly-test$`, which the
       # consolidated `:node-test` build's `cljs-test$` does not match, so the
       # two `*_emit_nightly_test.cljs` namespaces (core's
-      # performance_emit_nightly_test, freehand's
+      # performance_emit_nightly_test, and the hicasso bench tree's
       # render_measure_emit_nightly_test) run in this lane ALONE — and the lane
       # ran nowhere. `check_test_lane_bijection.py` could not see it: the lane
       # has a selector and the selector reaches files, so the bijection holds.
@@ -244,9 +244,12 @@ jobs:
       #                              ACCEPTED EXPOSURE: a cross-surface break
       #                              of the caret/composition or HMR contracts
       #                              sits on main until a PR touches
-      #                              `implementation/hicasso/**`,
-      #                              `implementation/ui/**`, `core` runtime or
-      #                              the build-config trio. Reconsider when
+      #                              `implementation/hicasso/**`, the gates'
+      #                              own launchers, or the build-config trio
+      #                              (the `implementation/ui/**` arm named
+      #                              here retired with that tree, rf2-0yp7w.6,
+      #                              which NARROWS the surface that catches
+      #                              such a break). Reconsider when
       #                              this job needs Firefox or WebKit for some
       #                              other reason and the marginal cost is a
       #                              step rather than an install.
