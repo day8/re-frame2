@@ -434,6 +434,7 @@ nav:
     - "8. Machine inspector": xray/08-machine-inspector.md
     - "9. App-DB diff": xray/09-app-db-diff.md
     - "10. Derivation graph": xray/10-derivation-graph.md
+    - "11. The Hicasso tab": xray/11-hicasso-tab.md
     - "API reference":
       # Sub-section label IS its overview (navigation.indexes, rf2-qgpkm).
       - xray/api/index.md
