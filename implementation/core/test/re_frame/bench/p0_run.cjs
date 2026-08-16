@@ -1116,14 +1116,45 @@ const ALLOC_FALL_THRESHOLD_B = 600000;
 // to a stated multiple of the observed worst deviation, records the observed
 // figure and the margin here, and this line stops saying PLACEHOLDER.
 //
-// V3 HAS NOT RUN — rf2-2rtt6.140 criterion 5 freezes every allocation window
-// until V1-V4 are green — so the figure below is a conservative stand-in and
-// no window may be published on it. Conservative in the direction that
-// matters: τ is a tolerance, so a SMALLER τ refuses MORE, and 0.25 refuses
-// strictly more than any larger value V3 might land on. Nothing in the
-// pinned probes depends on it: their offending legs read exactly zero
-// against a strictly positive median, so they refuse for every τ < 1, and
-// that property is itself a test.
+// V3 HAS NOW RUN TWICE AND τ IS STILL NOT PINNED (rf2-e9wr). The placeholder
+// line above stands, and what keeps it standing is a measured result rather
+// than a pending one.
+//
+//   PRE-PRIME, 2026-08-14 (PR #8152). The controls' worst relative leg
+//   deviation is 0.99%, 11 of 12 windows exactly 0.00%. V3's rule applied to
+//   that lands τ near 0.02 - 0.05, and no arm certified there: the arms then
+//   carried a fixed ~7 KB FIRST-LEG excess in 336 of 336 windows, which the
+//   controls' work unit — a dropped `.slice` — structurally cannot have.
+//
+//   POST-PRIME, 2026-08-16, on the instrument rf2-oiy1 repaired. The repair
+//   holds: the first-leg term reproduces at a median 6,864 B over 68 windows
+//   and now sits outside every cohort, and the floor arm — which refused 6 of
+//   6 at every page under both writes — certifies in 41 of 72 windows at this
+//   placeholder. BUT THE ARMS' SPREAD DID NOT COLLAPSE toward the controls',
+//   and that collapse was the whole of the prediction. Across the 47 floor-arm
+//   windows with no observed collection the worst relative leg deviation runs
+//   0.00% - 1,835.79%; discarding the five six-figure excursions leaves 42
+//   windows at 0.00% - 38.91%, median 2.69%. Controls taken on the same
+//   instrument in the same session read 0.99% worst, 17 of 18 exactly 0.00%.
+//   And the arms' clean windows are not ONE population: in all six runs, all
+//   11 round-3 windows with no collection read <= 0.19% while all 11 round-2
+//   windows read 2.66% - 20.37%, so τ calibrated on the arms' own data moves
+//   by two orders of magnitude with the round it is read at.
+//
+// SO THE WITNESS IS REPORTED UNUSABLE AS SPECIFIED, which is what V3 itself
+// instructs for exactly this case: report the spread rather than picking a τ
+// to suit. Taken at face value the arms' clean windows admit no τ below 1 at
+// all; reaching 38.91% instead needs a cleanliness rule the arms have no
+// prediction to supply, and the τ ≈ 0.8 that would follow makes the 2τ
+// certificate below vacuous.
+//
+// 0.25 IS THEREFORE NOT THE CONSERVATIVE STAND-IN THIS COMMENT USED TO CLAIM.
+// That claim assumed V3 would land ABOVE 0.25; it landed below, so 0.25 is 5x
+// to 12x MORE permissive than the controls license and tighter than anything
+// the arms' own spread would. It is a DECLARED PLACEHOLDER, unchanged, and no
+// window is published on it. Nothing in the pinned probes depends on it: their
+// offending legs read exactly zero against a strictly positive median, so they
+// refuse for every τ < 1, and that property is itself a test.
 const ALLOC_LEG_TOLERANCE = 0.25;
 
 // ---------------------------------------------------------------------------
