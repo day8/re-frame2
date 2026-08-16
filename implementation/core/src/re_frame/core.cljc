@@ -1276,9 +1276,9 @@
 ;; capture (`capture-frame`'s 1-arity lock-to-id form used from outside any scope,
 ;; a not-yet-mounted id, or a derived-read value carrying no token) nothing is
 ;; pinned and the op stays address-directed — the documented dynamic-id
-;; semantics. This is the async-safe, recover-but-emit sibling of the SYNCHRONOUS
-;; throwing incarnation fence `re-frame.ui.frames/mint-frame-ops` already wraps
-;; the `(frame)` accessor bundle in (dispatch AND subscribe).
+;; semantics. This is the async-safe, RECOVER-BUT-EMIT form of the incarnation
+;; fence: where a synchronous fence throws on a superseded incarnation, this one
+;; emits `:rf.error/frame-destroyed` and drops the op.
 
 (defn- capture-target-incarnation
   "The EXACT incarnation token (`:drain-lock`) pinning the capture TARGET's live
@@ -1352,8 +1352,8 @@
   reaction against a same-id successor (which would read the successor's app-db
   and cache a reaction in its sub-cache). Otherwise delegate to `subscribe-thunk`
   (the live read, which itself applies the dev-only `:rf.trace/call-site`
-  wrapper). The async-safe, recover-but-emit sibling of the SYNCHRONOUS throwing
-  `re-frame.ui.frames/fence-subscribe`; reuses the dispatch fence's emit seam,
+  wrapper). The subscribe half of the async-safe, recover-but-emit incarnation
+  fence — the dispatch half is above; reuses the dispatch fence's emit seam,
   passing `subscribe-call-site` as the `:rf.trace/call-site` so the drop is
   attributed to the subscribe coord, and the `:subscribe` operation realm
   (rf2-7xlvt) so the frame-destroyed source-coord resolves under `[:sub id]`
@@ -2799,11 +2799,11 @@
   destroy-adapter!     adapter/dispose-adapter!)
 
 (def ^{:doc "Return the discriminator keyword identifying the installed
-  adapter, or `nil` if none. One of `:rf.adapter/freehand`,
+  adapter, or `nil` if none. One of
   `:rf.adapter/reagent`, `:rf.adapter/reagent-slim`, `:rf.adapter/uix`,
-  `:rf.adapter/plain-atom`, `:rf.adapter/ssr`, `:rf.adapter/ui` (donor
-  in-tree code only), or `:custom` for user-supplied adapters that didn't
-  pick a canonical kind. Per Spec 006 §Adapter introspection."}
+  `:rf.adapter/plain-atom`, `:rf.adapter/ssr`, or `:custom` for
+  user-supplied adapters that didn't pick a canonical kind.
+  Per Spec 006 §Adapter introspection."}
   current-adapter      adapter/current-adapter)
 
 (def ^{:doc "Return the installed adapter spec map, or `nil` if none.

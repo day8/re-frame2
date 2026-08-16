@@ -1,27 +1,25 @@
 (ns re-frame.subs.override-schema
-  "The ONE Story `:sub-overrides` schema-validation primitive, shared by
-  BOTH override tiers (rf2-vxgfnd.21).
+  "The ONE Story `:sub-overrides` schema-validation primitive
+  (rf2-vxgfnd.21).
 
   A Story render's lowest-fidelity rung pins a view into an
   `:error`/`:loading`/`:empty` state by naming subscription query-vectors
   and the values they should surface (`tools/story/spec/017-Testing-Story.md`
   §View-state subscription overrides). An override whose value VIOLATES the
   target sub's own declared output `:schema` is exactly the 'pin a state the
-  real derivation could never produce' anti-pattern — so BOTH the
-  Reagent-family `subscribe` path (`re-frame.subs`) and the compiled-view
-  path (`re-frame.ui.reactive`) validate a HIT the SAME way Spec 010 §step 6
+  real derivation could never produce' anti-pattern — so the `subscribe`
+  path (`re-frame.subs`) validates a HIT the SAME way Spec 010 §step 6
   validates a `:sub-return`: through the registered validator reached via the
   `:schemas/validate-with-registered-fn` late-bind hook (NOT a second
   validation mechanism, NO tools dependency), emit
   `:rf.error/schema-validation-failure` with the `:where :sub-override`
   discriminator, and recover-to-nil (mirroring `:sub-return`'s
-  `:replaced-with-default`). Both tiers thus reject an impossible override
-  identically — the honesty gap the compiled path used to leave open.
+  `:replaced-with-default`). An impossible override is rejected wherever it
+  is consulted, never only in the fast path.
 
-  This primitive is HOST-AGNOSTIC (`.cljc`): the compiled path's explicit
-  JVM `ui.test/render {:sub-overrides …}` door runs it headlessly on the JVM
-  (`interop/debug-enabled?` is true there), while both tiers gate the whole
-  consult behind `interop/debug-enabled?` so it DCEs under `:advanced` +
+  This primitive is HOST-AGNOSTIC (`.cljc`) so a headless JVM render reaches
+  it too (`interop/debug-enabled?` is true there), while the consult itself
+  is gated behind `interop/debug-enabled?` so it DCEs under `:advanced` +
   `goog.DEBUG=false`. It is reached ONLY from those gated consults, so no
   production build retains it (its containing `(when interop/debug-enabled?
   …)` blocks fold away, dropping the last reference)."

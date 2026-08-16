@@ -30,8 +30,8 @@
       props map) reaches `:rf/route-address` validation.
 
   Consumed by `:rf.route/navigate` (`navigate.cljc`), `route-url`
-  (`registry.cljc`), and `rf/route-link` / `v/route-link` (`link.cljc`) so
-  the four public surfaces share ONE definition of what an address is and
+  (`registry.cljc`), and `rf/route-link` (`link.cljc`) so
+  the public surfaces share ONE definition of what an address is and
   which keys are policy / edit / behaviour.
 
   Internal namespace; the public facade is `re-frame.routing`."

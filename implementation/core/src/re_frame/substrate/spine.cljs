@@ -556,10 +556,10 @@
   (js-obj))
 
 (defn- rf=
-  "The compiled-view substrate's frozen per-slot MOVEMENT law, spelled
+  "The frozen per-slot MOVEMENT law, spelled
   spine-local for the React-hook derived-value fan-out gate: `Object.is(a,b)
-  OR (= a b)` — the CLJS branch of `re-frame.ui.eq/rf=`. Kept core-local (a
-  transcription, NOT a `:require`) so core does not depend on the UI artefact,
+  OR (= a b)`. Kept core-local (a transcription, NOT a `:require`) so core
+  depends on no view artefact,
   exactly as the observation port keeps its own `node-value=` spelling (Spec
   006). The load-bearing consequence for rf2-vxgfnd.203: `##NaN` is STABLE
   (`Object.is(##NaN, ##NaN)` is true), so a derived value that stays NaN across
@@ -568,7 +568,7 @@
   out on a no-move. (`-0.0`/`+0.0` still compare EQUAL via the `=` branch, as
   the ruled law and the prior `not=` gate both give — no behaviour change
   there; NaN→NaN is the sole pair this gate now treats differently.) One frozen
-  relation across the direct adapter, the observation port, and the ViewCell
+  relation across the direct adapter, the observation port, and the view
   layer, so the three fan-out boundaries agree on cardinality."
   [a b]
   (or ^boolean (js/Object.is a b)
@@ -589,10 +589,9 @@
   + `re-frame.subs`, `source-containers` is a vector) so the recompute
   closure pays no per-tick `count`.
 
-  Single source of truth: the Freehand, Reagent, reagent-slim, and UIx
+  Single source of truth: the Reagent, reagent-slim and UIx
   adapters all build their recompute closure through this fn — one
-  implementation, four adapters, zero drift (the donor re-frame.ui substrate
-  rides the same path in-tree, making five closures in this repo). The
+  implementation, three adapters, zero drift. The
   arity-spec lifted
   into the spine matches the `make-dispose-adapter!` shape
   (rf2-jcjul); sourced from the rf2-fzrav perf-sweep findings."
@@ -1006,9 +1005,8 @@
 ;;
 ;; A native UIx root is a React-ELEMENT root: it has no hashable client
 ;; render-tree (ruling out the hiccup `:render-tree-fn` / `verify-hydration!`
-;; channel — that is for substrates whose view returns a hiccup data tree), and
-;; it is not a compiled `re-frame.ui` root (ruling out that tier's
-;; `ui/hydrate-root` adoption reporter, rf2-6z1i2). Left alone, `make-render`'s
+;; channel — that is for substrates whose view returns a hiccup data tree).
+;; Left alone, `make-render`'s
 ;; hydrate branch calls `hydrateRoot` with NO root options, so a hydration
 ;; MISMATCH is SILENT: React's built-in warn-and-replace recovers the DOM but
 ;; the framework emits no `:rf.ssr/hydration-mismatch` (Spec 011 §Hydration-
@@ -1034,11 +1032,10 @@
 ;; `#js {:adopting true}` flag, read by the reporter and cleared on the hydration
 ;; commit by the `adoption-window-closer` mounted into the hydrating tree. Once
 ;; the window closes the reporter still DELEGATES to the host / React-default
-;; handler but no longer emits the framework trace. This mirrors the compiled
-;; tier's `adoption-ref` (there `re-frame.ui.runtime/PhaseFlipper` clears it on
-;; the `:server` commit); a native React-element root has no `:server`->`:client`
-;; phase flip, so a dedicated closer component shuts the window on the first
-;; (hydration) commit instead.
+;; handler but no longer emits the framework trace. A tier with a
+;; `:server`->`:client` phase flip can clear the window on the `:server` commit;
+;; a native React-element root has no such flip, so a dedicated closer component
+;; shuts the window on the first (hydration) commit instead.
 ;;
 ;; CANONICAL ENTRY. This shared React-hook render path is the ONLY native mount
 ;; route that installs the reporter, so it is the canonical native UIx
@@ -1053,8 +1050,7 @@
   authored NO callback but we installed a wrapper for the native-tier
   hydration-mismatch diagnostic (rf2-qfz65): once a wrapper is set React no
   longer runs its own default, so we replicate it — `globalThis.reportError`
-  when present, else `console.error`. Mirrors the compiled tier's
-  `re-frame.ui.client/report-recoverable-default!`."
+  when present, else `console.error`."
   [error]
   (if (fn? (.-reportError js/globalThis))
     (js/reportError error)
@@ -1066,13 +1062,12 @@
   ;; hiccup and compiled tiers emit, tier-discriminated by `:where` (the spine
   ;; hydrate site), carrying the recoverable `:error` message and `:recovery`
   ;; `:warned-and-replaced` (React's own recovery). NO `:root-id` (a native
-  ;; React-element root carries no `re-frame.ui` root-id) and NO hash (there is
+  ;; React-element root carries no root-id) and NO hash (there is
   ;; no native-tier structural hash to report).
   ;;
   ;; Rides the diagnostic channel via `re-frame.trace/emit!`; the
   ;; `interop/debug-enabled?` gate DCEs the whole call under `:advanced` +
-  ;; `goog.DEBUG=false` (Spec 009 §Production builds), exactly like the compiled
-  ;; tier's `re-frame.ui.runtime/emit-hydration-mismatch!` and `emit-phase-flip!`.
+  ;; `goog.DEBUG=false` (Spec 009 §Production builds).
   ;; It is NOT an event and mints no epoch — it fires from a React root-error
   ;; callback, outside any dispatch/handler scope.
   [error]
@@ -1496,10 +1491,9 @@
   still gets disposed and cleared. Per-entry throws are swallowed.
 
   Used by every React-shaped adapter's `dispose-adapter!` — wired into
-  the `make-dispose-adapter!` factory for the first-party re-frame.ui
-  adapter plus UIx, and called directly from the Reagent /
-  reagent-slim adapters' dispose paths. Centralising the walk here is
-  the rf2-jcjul lockstep: one implementation, five adapters, zero drift.
+  the `make-dispose-adapter!` factory for UIx, and called directly from the
+  Reagent / reagent-slim adapters' dispose paths. Centralising the walk here is
+  the rf2-jcjul lockstep: one implementation, three adapters, zero drift.
 
   The one-arg form is the adapter-cleanup path: `dispose-reaction!` is the
   exact claimed generation's substrate disposer, captured before terminal
@@ -3147,7 +3141,7 @@
      ;; this via substrate-adapter/route-hook!.
      :after-render-hook           after-render-hook}))
 
-;; ---- React-hook adapter assembly (re-frame.ui + UIx) --------------
+;; ---- React-hook adapter assembly (UIx) ----------------------------
 ;;
 ;; rf2-ee38b.1 / rf2-ee38b.13 / rf2-ee38b.14. `make-react-spine` already
 ;; eliminated the substrate LOGIC drift (one factory, N adapters). The
@@ -3197,8 +3191,7 @@
 ;;     elided via `interop/debug-enabled?` per Spec 009 §Production builds.
 
 (defn make-react-adapter
-  "Assemble a React-hook adapter (Freehand's observation adapter or UIx —
-  and, in-tree, the donor re-frame.ui substrate) from a
+  "Assemble a React-hook adapter (UIx) from a
   `make-react-spine` result map plus the substrate's config:
 
       :kind           — the adapter's `:kind` discriminator keyword
@@ -3225,8 +3218,8 @@
   evaluates `(make-react-adapter spine-fns {:kind :rf.adapter/uix
   :frame-provider …})` at load), exactly as the hand-written wiring did.
 
-  Single source of truth (rf2-ee38b.1): Freehand and UIx both call this with
-  the same shape (as does the donor re-frame.ui substrate in-tree) — the
+  Single source of truth (rf2-ee38b.1): every React-hook adapter calls this
+  with the same shape — the
   only inputs are their already-substrate-specific
   `spine-fns` map, `:kind`, and native `:frame-provider`. The former
   hand-copied route-hook block + chained installs (byte-identical across
@@ -3296,7 +3289,7 @@
 ;; different reactive-atom impl (stock `reagent.*` vs the `reagent2.*`
 ;; rewrite). `make-ratom-spine` factors the shared container quartet,
 ;; React-root renderer, and dispose body exactly as `make-react-spine`
-;; factors the React-hook family (re-frame.ui / UIx) — one
+;; factors the React-hook family (UIx) — one
 ;; implementation, two adapters, zero drift.
 ;;
 ;; CRITICAL — slim bundle isolation (IMPL-SPEC §1.8 / the

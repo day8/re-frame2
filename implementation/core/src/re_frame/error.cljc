@@ -426,7 +426,7 @@
 ;; which is strictly worse to diagnose.
 ;;
 ;; IT LIVES IN CORE BECAUSE ITS CONSUMERS ARE SIBLINGS. `re-frame.ssr` and
-;; `re-frame.ui` are sibling artefacts — both depend on core, neither may
+;; `re-frame.hicasso` are sibling artefacts — both depend on core, neither may
 ;; `:require` the other — so a helper serving both can only live beneath
 ;; them. Every consumer already `:require`s this namespace, so the shared
 ;; home costs no new dependency edge anywhere, and it sits beside

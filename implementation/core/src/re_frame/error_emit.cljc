@@ -113,9 +113,10 @@
 ;;     categories such as `:rf.error/no-such-handler` carry no exception at
 ;;     all, so it would synthesise an `Error` whose stack points at the
 ;;     reporting site rather than at the cause. (The two in-repo
-;;     `reportError` sites — `freehand/root.cljs`, `substrate/spine.cljs` —
-;;     preserve React's OWN default for uncaught / recoverable React
-;;     callback errors. Different situation; untouched by this.)
+;;     `reportError` sites — `substrate/spine.cljs` and
+;;     `hicasso/impl/mount.cljs` — preserve React's OWN default for
+;;     uncaught / recoverable React callback errors. Different situation;
+;;     untouched by this.)
 ;;
 ;;   * ONLY while the listener registry is EMPTY. Registering ANY `:errors`
 ;;     listener (`rf/register-listener! :errors …` →
@@ -195,9 +196,9 @@
 ;;
 ;; `:rf.error/frame-destroyed` is the one shared category — fired with an
 ;; EVENT id (a dispatch / dispatch-sync into a destroyed frame) AND with a
-;; SUB id (a subscribe into a destroyed frame), and also from the UI
-;; frame-bundle's stale-op seam (`re-frame.ui.frames`) for a `:dispatch` /
-;; `:dispatch-sync` / `:subscribe` / `:capture` op against a dead
+;; SUB id (a subscribe into a destroyed frame), and also from the
+;; captured-frame stale-op seam for a `:dispatch` / `:dispatch-sync` /
+;; `:subscribe` / `:capture` op against a dead
 ;; incarnation. The category keyword ALONE CANNOT name the realm: an
 ;; event-id and a sub-id may legitimately SHARE a keyword — they live in
 ;; SEPARATE registries (`[:event id]` vs `[:sub id]`), so a bare
@@ -427,14 +428,16 @@
   The trailing `route-frame?` (default true) gates ONLY the EP-0015
   frame-owned observability sink route below — the corpus-wide listener
   fan-out (axis 1's off-box source of truth) ALWAYS fires regardless.
-  `re-frame.ui.frames`' `emit-and-throw-frame-destroyed!` passes false for a
-  KNOWN-DEAD-incarnation `(frame)`-bundle emission: the captured bare frame id
+  A caller passes false for a KNOWN-DEAD-incarnation `(frame)`-bundle
+  emission: the captured bare frame id
   no longer names the incarnation the failure belongs to, so resolving it to a
   live same-id SUCCESSOR would deliver a dead incarnation's failure into the
   successor's own `:observability :errors` sink. This is the event-centric
   mirror of the union-path `route-frame?` seam rf2-vxgfnd.118 added for the
   post-dissoc teardown report. Every ordinary live / address-directed caller
-  keeps the default, so normal frame-owned routing is untouched."
+  keeps the default, so normal frame-owned routing is untouched — and no
+  in-repo caller passes false today, the one that did having gone with the
+  retired view artefact's frame-bundle stale-op seam."
   ([error-kw event event-id frame-id exception elapsed-ms time]
    (dispatch-on-error! error-kw event event-id frame-id exception elapsed-ms time nil true))
   ([error-kw event event-id frame-id exception elapsed-ms time attrs]
