@@ -11,6 +11,18 @@
 > Spec ruled the combination — confirm before the surface hardens; not an open hole.
 > Discharged entries are struck from the register below as their stage lands.
 
+> **The two named doors are gone; this contract is not (rf2-0yp7w, 2026-08-16).** Both
+> substrates this document was written against — the compiled `re-frame.ui` macro door and
+> the interpreted Freehand door — were removed. What they realised outlived them, and is
+> live in two places you can check: the `:rf.root/*` descriptor/manifest family this Spec
+> owns is emitted by `implementation/ssr/src/re_frame/ssr/manifest.cljc`, and the
+> ENSURE-at-host-preflight lifecycle of [§Preflight runs before React](#preflight-runs-before-react)
+> is realised by `re-frame.hicasso` — `implementation/hicasso/src/re_frame/hicasso/impl/mount.cljs`'s
+> `root!` calls `ensure-frame!` before `createRoot`. Where a door is named below it is named
+> as the historical realisation, never as a surface to build on. **What is NOT yet ruled is
+> this document's own disposition** — whether it is rewritten around the live substrate,
+> kept as a record, or retired: see rf2-h89ri.
+
 ## 1. Root identity — required, host-authored, derivable
 
 **Every root has a `root-id`. It is REQUIRED identity** — the root descriptor, the root
@@ -193,11 +205,14 @@ the mechanism adds no production bytes or runtime work.
 
 ## 3. The mount grammar and the host signature set
 
-This section states the contract on the **re-frame.ui door** — the compiled substrate,
-whose mount entry points are macros over literal root forms. The interpreted **Freehand
-door** realises the same grammar and identity model through ordinary runtime functions
-(`v/mount`, `v/hydrate-root`, `v/unmount!`); its paved-path spelling is **The Freehand
-paved path** below, and it ships no `create-root` and no `render!`.
+This section states the mount grammar and identity model as the two donor doors realised
+it: the **compiled `re-frame.ui` door**, whose mount entry points were macros over literal
+root forms, and the **interpreted Freehand door**, which realised the same grammar through
+ordinary runtime functions (`v/mount`, `v/hydrate-root`, `v/unmount!`) and shipped no
+`create-root` and no `render!`. **Both doors were removed on 2026-08-16 (rf2-0yp7w); the
+grammar and the identity model below are the contract, not the doors.** Its live in-tree
+realisation is the interpreted shape of **[§The interpreted paved path](#the-interpreted-paved-path)**
+below — see the banner at the head of this document.
 
 **The literal mount grammar:**
 
@@ -250,7 +265,7 @@ derive from**, so its identity set is `:root-id` / `:identifier-prefix` only; su
 - **Every root-form-accepting entry point requires the literal root form at the call
   site** — `mount`, `render!`, `hydrate-root`, `render-static`, and `ui.test/render`
   (§8) alike; the same compile error rejects runtime-assembled vectors everywhere.
-- **Verb kinds on the re-frame.ui door (ratified, shipped S1).** On this door, `mount`,
+- **Verb kinds on the two removed doors (ratified, shipped S1; recorded here as the roster each door carried).** On the compiled door, `mount`,
   `create-root`, `render!`, and `hydrate-root` are **macros**; `unmount!` is a plain
   **function**. The four macros must
   see their argument shape at compile time — `mount`/`render!`/`hydrate-root` keep the
@@ -263,12 +278,12 @@ derive from**, so its identity set is `:root-id` / `:identifier-prefix` only; su
   compile-time contract is locked by the frozen roster: an unauthored `create-root`
   identity is `:rf.ui.compile/missing-root-id`, and an out-of-grammar opt (a stray
   `:disambiguator` among them) is `:rf.ui.compile/bad-root-opts`. The interpreted
-  **Freehand door** ships a different roster: `v/mount`, `v/hydrate-root` and `v/unmount!`
-  are ordinary runtime **functions** — documented as `Fn` — it publishes no `create-root`
-  and no `render!`, and its one macro is `render-static`, the only Freehand verb whose
-  site the build indexes (§7, Layer 1). A Freehand client mount carries a live runtime,
+  **Freehand door** carried a different roster: `v/mount`, `v/hydrate-root` and `v/unmount!`
+  were ordinary runtime **functions** — documented as `Fn` — it published no `create-root`
+  and no `render!`, and its one macro was `render-static`, the only interpreted verb whose
+  site the build indexed (§7, Layer 1). An interpreted client mount carries a live runtime,
   so its duplicate-, container- and prefix-detection is the runtime claim-before-render
-  of Layer 3 (§7), not a build-time index.
+  of Layer 3 (§7), not a build-time index — and THAT half is live, realised in-tree today.
 - Frame preflight (ENSURE + `:initial-events` drain, exactly once, before React) runs
   before the first `render!` on a Root and before `hydrate-root`'s hydration. **This
   compiled host-root sequencing — preflight completing before `createRoot`/`render!`
@@ -374,17 +389,20 @@ All ids below follow the one-catalogue `:rf.error/*` scheme (Spec 009 rows land 
 their stage); each carries a data map naming both parties with
 source coordinates in dev.
 
-**Layer 1 — build time (S1).** On the **re-frame.ui macro door**, the compiler indexes
-every `mount`/`render!`/`hydrate-root`/`render-static` macro site's statically resolved
-root-id. On the interpreted **Freehand door** only `render-static` reaches this layer —
-its `mount`/`hydrate-root` are runtime functions with no build-time site to index, and
-`render-static` alone has no client runtime, so it has no Layer 3. Layer 1 therefore
+**Layer 1 — build time (S1).** This layer belonged to a **macro door**: the compiler
+indexed every `mount`/`render!`/`hydrate-root`/`render-static` macro site's statically
+resolved root-id. Both donor doors were removed on 2026-08-16 (rf2-0yp7w), so **no shipped
+substrate reaches Layer 1 today** — Layers 2 and 3 below carry the whole of duplicate and
+conflict detection for a runtime-function mount. On the interpreted door only
+`render-static` had ever reached this layer — its `mount`/`hydrate-root` were runtime
+functions with no build-time site to index, and `render-static` alone had no client
+runtime, so it had no Layer 3. Layer 1 therefore
 catches only the **cross-namespace, build-visible** class of render-static duplicate — a
 same-namespace re-registration is REPLACED (watch/HMR tolerance, so a same-namespace
 double-`render-static` passes Layer 1), and independently rendered fragments one build
-never sees together are the **response-local Layer 2** registry's to catch (below). A
-Freehand client mount, by contrast, is caught at Layer 3's
-claim-before-render (below). Either way, two indexed sites with equal root-ids
+never sees together are the **response-local Layer 2** registry's to catch (below). An
+interpreted client mount, by contrast, is caught at Layer 3's
+claim-before-render (below) — the live path. Either way, two indexed sites with equal root-ids
 **reachable from one entry point's module closure** =
 build error `:rf.error/duplicate-root-id` (build tier), data
 `{:root-id … :provenance [:derived :derived] :sites [coord coord]}` with the didactic
@@ -644,14 +662,21 @@ registry never spans two `render` calls. Tier-3 `with-root` mounts participate i
 real per-document registry of the jsdom/browser document, and its total teardown
 unregisters (a leaked registration failing a later mount is a test-harness bug, fixture-pinned).
 
-## The Freehand paved path
+## The interpreted paved path
 
-The interpreted Freehand substrate realises this contract under Freehand
-names, through its single public door (`re-frame.freehand`, conventionally
-aliased `v`). The mount grammar and the identity model above are unchanged —
-this section adds the paved-path spelling and the two guarantees the
-interpreted one-root mount ships first, and nothing here restates the
-numbered contract it points into.
+An interpreted substrate realises this contract through a single public door of
+ordinary runtime functions. The mount grammar and the identity model above are
+unchanged — this section adds the paved-path spelling and the two guarantees the
+interpreted one-root mount ships first, and nothing here restates the numbered
+contract it points into.
+
+The door this section was written against (`re-frame.freehand`, conventionally
+aliased `v`) was removed on 2026-08-16 (rf2-0yp7w), **and the lifecycle below was
+not.** It is realised in-tree today by `re-frame.hicasso`, whose
+`implementation/hicasso/src/re_frame/hicasso/impl/mount.cljs` `root!` calls
+`ensure-frame!` — frame ENSURE plus the `:initial-events` drain — **before**
+`react-dom/client`'s `createRoot`, which is exactly the ordering
+[§Preflight runs before React](#preflight-runs-before-react) below requires.
 
 ### The minimal one-root mount
 
@@ -784,7 +809,7 @@ the old occurrence's slots.
 
 In the interpreted mode the skeleton is not a function of the body at all. An
 interpreted body is unrestricted Clojure that produces markup and calls no
-host hooks; every hook a Freehand boundary owns belongs to its atomic shell,
+host hooks; every hook an interpreted boundary owns belongs to its atomic shell,
 in a fixed order. **So every interpreted body edit is compatible, however
 large.** What moves the skeleton is a change of *lowering* — the compiled tier
 renders through its own shell, and its capability-elision verdict omits the
@@ -800,7 +825,7 @@ The publication seam carries a **body revision**, and it advances when a new
 body is published — not when an unchanged tree is walked again. A render that
 began against the previous body and reaches its commit afterwards is stale at
 that revision and publishes nothing: no dependencies, no event sites, no
-evidence (see [006 §The Freehand atomic shell](006-ReactiveSubstrate.md)). The
+evidence (see [006 §The atomic shell](006-ReactiveSubstrate.md#the-atomic-shell)). The
 host simply renders again at the new body.
 
 ### Several roots on one page
