@@ -6,6 +6,11 @@ throughout the guide: [`h/defview`](glossary.md#defview) for a view,
 [`h/sub`](glossary.md#hsub) for a subscription read, and event vectors for
 ordinary handlers.
 
+There is no Hicasso variant of the re-frame2 app template — it scaffolds
+`:reagent` and `:uix`, and neither emits Hicasso views. Build by hand from this
+chapter instead: it names every file a Hicasso project needs, and the result
+boots.
+
 ## Add the dependencies
 
 !!! warning "Pre-alpha: no Clojars coordinate"
