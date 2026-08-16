@@ -185,14 +185,38 @@ on the same command line as the redirect, never a status reported about the run 
 | 1 — (source half) | `implementation/hicasso/scripts/check_optional_module_reachability.py` (`--self-test`, then live) | `0`, `0` | motion, overlay, native, forms and server all unreachable from the public door; UIx required by no `src/` namespace and named by no production coordinate. |
 | 2, 3, 4 — source half | `npm run test:cljs` | `0` | Compile **1985 files / 1984 compiled / 0 warnings / 114.67s**, then **11771 tests / 59589 assertions, 0 failures, 0 errors**. Carries `three_way_parity_cljs_test`, `error_shape_cljs_test` and the two `expansion_probe` consumers. |
 | 2, 3 — browser arm | `npm run test:browser` | `0` | Compile **1075 files / 1074 compiled / 4 warnings / 71.71s**, then **1015 tests / 5724 assertions, 0 failures, 0 errors**. The four warnings are read below. |
+| 2 — SSR JVM arm | `cd implementation/ssr && clojure -M:test` | `0` | **599 tests / 2925 assertions, 0 failures, 0 errors**. |
+| 4 — elision arm | `npm run test:browser-prod-elision` | `0` | Release build **312 files / 252 compiled / 0 warnings / 41.89s**. **No `defview`/`defhost` source coordinate in the `:advanced` bundle, positive control present**; then **92 tests / 295 assertions, 0 failures, 0 errors**. |
 | — the hicasso invariant block | `npm run test:hicasso-invariants` | `0` | 8 gates, each with its self-test: freeze 1 frozen row; **budget ledger 49 rows — 31 MET, 5 BREACH, 3 UNRESOLVED, 10 UNPINNED**, the same tally §4 recorded, so the retire moved no budget row; complaint catalogue 77 live; facade inventory 16 door names over 43 rows, `h/hframe` still on the door at `HS-43`; guide samples 217 fenced blocks over 29 pages. |
 
-### 6.4 The two figures that moved, and what moved them
+**Verdict: the four runnable families are green at `7304e825c9`, and family 5 still does not exist.**
+That is the same shape of answer §4 and §5 returned, reached on a tree 607 files smaller. Nothing was
+filed in [`correction-ledger.md`](correction-ledger.md), because a ledger row records a **red**, and
+there was none to record — every captured exit above is the runner's own `0`.
 
-**`test:cljs` fell from 13944 tests / 70239 assertions to 11771 / 59589.** That is not a regression and
-not a partial run — it is the donor suites leaving the tree, and it is the single clearest reading that
-these gates were measuring the *new* population rather than a cached one. A re-run that reproduced §5's
-count would have been the finding.
+**The browser lane's four warnings, read rather than counted.** All four are `:infer-warning`, all four
+are in one **test** file — `implementation/hicasso/test/re_frame/hicasso/native_ssr_dom_cljs_test.cljs`
+at `652:21`, `653:26`, `658:26` and `666:26` — and all four are the same expression shape,
+`(.-server (n/marker …))`. They are recorded here because the *production* version of exactly this
+shape was a real defect once (`rf2-9zz0y`: four `:infer-warning`s on `(.. el -style -anchorName)` sat
+in `impl/overlay.cljs` until someone read them off a browser build by hand). **This is not that**: the
+`:advanced` lane in the row below compiled **0 warnings**, so the shape is not reaching a build where
+property renaming could make the assertion lie. Filed as `rf2-wqalj` rather than fixed here — a
+recertification records what the gates said, and this gate said green.
+
+### 6.4 Every figure that moved, and what moved it
+
+**Every suite got smaller, and each drop is accounted for at a commit.** These are not regressions and
+not partial runs — they are the donor suites leaving the tree, and collectively they are the clearest
+reading that these gates measured the *new* population rather than a cached one. **A re-run that
+reproduced §5's counts would have been the finding.**
+
+| Arm | §5, at `f167edd4bc` | §6, at `7304e825c9` | What accounts for the difference |
+|---|---|---|---|
+| `test:cljs` | 13944 tests / 70239 assertions | **11771 / 59589** | the `ui` and `freehand` node suites, deleted by `ef3131f4a2` and `c951808b47` |
+| `test:browser` | 1552 / 9850 | **1015 / 5724** | the same two deletions, browser lane |
+| SSR JVM | 618 / 2971 | **599 / 2925** | `ef3131f4a2` deleted `implementation/ssr/test/re_frame/ssr/render_static_jvm_test.clj` (450 lines) — it is the **only** commit to touch `implementation/ssr/test` in the interval, so the 19-test drop has exactly one candidate cause and it is a deletion |
+| `test:browser-prod-elision` | 129 / 547 | **92 / 295** | the same, elision lane |
 
 **The `hframe` census reads 143 across 40 files at `7304e825c9`**, by the same command §2 displays, and
 `rg 14.1.1` agrees at 143/40 independently. At `f167edd4bc` the same command reads **142/40** — so §2's
