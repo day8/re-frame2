@@ -12,7 +12,7 @@ than any marker and needs no argument re-run here. What this page does is record
 three in one place, with the authority for each, so nobody re-derives the scope a fourth
 time.
 
-Measured on `origin/main` at `a724be0d6d`, 2026-08-16 15:06 AUSEST.
+Measured on `origin/main` at `83029f9a63`, 2026-08-16 15:31 AUSEST.
 
 ## The three surfaces
 
@@ -20,7 +20,7 @@ Measured on `origin/main` at `a724be0d6d`, 2026-08-16 15:06 AUSEST.
 |---|---|---|---|
 | `implementation/ui/` (`re-frame.ui`, the compiled-view substrate) | **REMOVE** — executed | Operator ruling, Mike 2026-08-14 (`rf2-0yp7w`); plan at [`freehand-and-ui.md`](freehand-and-ui.md) | Gone. `git ls-files implementation/ui` returns **0** |
 | `implementation/freehand/` (`re-frame.freehand`) | **REMOVE** — executed | Same ruling and plan | Gone. `git ls-files implementation/freehand` returns **0** |
-| `implementation/hicasso/test/re_frame/bench/hicasso/` (the frozen Hicasso bench tree) | **KEEP AS EVIDENCE** | `implementation/hicasso/frozen-sources.edn` and `rf2-0xgk`; tree marker at the tree's own [`README.md`](../../../implementation/hicasso/test/re_frame/bench/hicasso/README.md) | Present — 220 tracked files at the stamped commit, before this change adds its marker — and actively worked |
+| `implementation/hicasso/test/re_frame/bench/hicasso/` (the frozen Hicasso bench tree) | **KEEP AS EVIDENCE** | `implementation/hicasso/frozen-sources.edn` and `rf2-0xgk`; tree marker at the tree's own [`README.md`](../../../implementation/hicasso/test/re_frame/bench/hicasso/README.md) | Present — 221 tracked files at the stamped commit, before this change adds its marker — and actively worked |
 
 ### `re-frame.ui` and Freehand — removed, not archived
 
@@ -35,8 +35,8 @@ a search with a wrong pathspec answer in the same voice:
 
 ```
 git ls-files implementation/ui implementation/freehand | wc -l   ->   0
-git ls-files implementation/hicasso                    | wc -l   -> 458   (positive control)
-git ls-files implementation/adapters/uix              | wc -l   ->  16   (positive control)
+git ls-files implementation/hicasso                    | wc -l   -> 459   (positive control)
+git ls-files implementation/adapters/uix               | wc -l   ->  16   (positive control)
 ```
 
 The second control matters for a second reason. `re-frame2-ui` is a **prefix of
