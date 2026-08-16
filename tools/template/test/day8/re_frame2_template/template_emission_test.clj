@@ -1083,14 +1083,127 @@
           (is (.contains core "defonce")
               "the React root is held in a defonce atom so it is retained across
                hot reloads (one root owns the container)")
-          (is (re-find #"(?s)\(if\s+@react-root" core)
-              "init GUARDS on the retained root: a hot-reload rerun re-renders
-               into the same root rather than re-hydrating or creating a second
-               root (rf2-w1k3i)")
-          (is (re-find #"(?s)\(if\s+@react-root[\s\S]*?\(rdc/render\s+@react-root[\s\S]*?ssr/hydrate!" core)
-              "the retained-root rerun path re-renders into @react-root and does
-               NOT re-run ssr/hydrate! — a rerun must not re-seed the server
-               slice over live interactive state (rf2-w1k3i)"))
+          ;; -- the hot-reload path is a ^:dev/after-load hook, and it is the
+          ;;    ONLY thing a reload re-runs. shadow's :browser target does NOT
+          ;;    re-invoke the module :init-fn after a reload (measured on
+          ;;    shadow-cljs 3.4.10, rf2-r0kk7), so a scaffold whose re-render
+          ;;    lives inside `init` never repaints an edited view. --
+          (is (re-find #"\^:dev/after-load\s+render!" core)
+              "core.cljc carries a ^:dev/after-load render! hook — WITHOUT it
+               shadow loads the new code, logs \"reloading code but no
+               :after-load hooks are configured!\" and the page keeps painting
+               the OLD view (rf2-r0kk7)")
+          (is (re-find #"(?s)\^:dev/after-load\s+render!\s*\[\][\s\S]{0,400}?\(rdc/render\s+root" core)
+              "the after-load hook re-renders into the RETAINED root rather than
+               creating a second one (rf2-w1k3i / rf2-r0kk7)")
+          (is (not (re-find #"(?s)\^:dev/after-load\s+render!\s*\[\][\s\S]*?ssr/hydrate!\b[\s\S]*?\^:export\s+init" core))
+              "the after-load hook does NOT re-run ssr/hydrate! — a reload must
+               not re-seed the server slice over live interactive state
+               (rf2-w1k3i)")
+          (is (re-find #"(?s)\^:export\s+init[\s\S]*?ssr/hydrate!" core)
+              "the one-time boot ceremony (frame -> schema -> hydrate -> root)
+               stays in the :init-fn entry point (rf2-w1k3i)"))
+        (finally
+          (delete-recursively tmp))))))
+
+;; --- the hot-reload hook ---------------------------------------------------
+;;
+;; MEASURED on shadow-cljs 3.4.10 (rf2-r0kk7): a `:browser` build whose only
+;; entry point is a module `:init-fn` does NOT re-render after a hot reload.
+;; shadow compiles the change, pushes the module and evaluates it — the console
+;; even says `load JS … views.cljs` — and then logs
+;;
+;;   shadow-cljs: reloading code but no :after-load hooks are configured!
+;;
+;; while `#app` goes on painting the OLD view, indefinitely. The `:init-fn` is
+;; called ONCE, when the bundle loads; nothing re-invokes it. So EVERY emitted
+;; entry namespace must carry a `^:dev/after-load` hook that re-renders, and
+;; `init` must delegate to it rather than owning the render itself.
+;;
+;; This is the gate that was missing when the defect shipped: nothing anywhere
+;; asserted a hot reload reached the browser, and three documentation sites
+;; stated the opposite of what shadow does. The prose greps below are as
+;; load-bearing as the code ones — the next reader "corrects" a template back to
+;; whatever its own comments claim.
+
+(deftest entry-namespace-carries-after-load-hook-test
+  (testing "every emitted entry namespace carries a ^:dev/after-load re-render
+            hook, because shadow does NOT re-run the module :init-fn after a
+            hot reload (rf2-r0kk7)"
+    ;; `hook` is the ^:dev/after-load fn. `renders` is the call its body must
+    ;; make — the thing that actually repaints. `render-entry` is the fn BOTH
+    ;; the first load and the reload go through, so the two paths cannot drift
+    ;; apart: `mount!` on the plain scaffolds, and on the Story scaffold (whose
+    ;; hook additionally reinstalls its hash listener) the router's
+    ;; `on-hash-change!`.
+    (doseq [[label opts rel hook renders render-entry]
+            [["reagent" {:substrate :reagent}
+              "src/acme/my_app/core.cljs" "mount!" "rdc/render" "mount!"]
+             ["uix" {:substrate :uix}
+              "src/acme/my_app/core.cljs" "mount!" "uix-dom/render-root" "mount!"]
+             ["reagent+story" {:substrate      :reagent
+                               :include-story? true}
+              "src/acme/my_app/core.cljs" "reload!" "on-hash-change!" "on-hash-change!"]]]
+      (let [tmp (tmp-dir "rf2-emission-after-load-")]
+        (try
+          (let [proj (run-template-opts! tmp "acme/my-app" opts)
+                core (slurp (io/file proj rel))
+                ;; The hook's own body: from its header to the next top-level
+                ;; `(def`, so a later fn's render call cannot satisfy this.
+                hook-body (when-let [i (.indexOf core (str "^:dev/after-load " hook))]
+                            (when-not (neg? i)
+                              (let [rest- (subs core i)
+                                    j     (.indexOf rest- "\n(def")]
+                                (if (neg? j) rest- (subs rest- 0 j)))))]
+            (is (re-find (re-pattern (str "\\^:dev/after-load\\s+" hook)) core)
+                (str label ": core.cljs must define `^:dev/after-load " hook
+                     "` — shadow's :browser target does NOT re-invoke the "
+                     "module :init-fn after a hot reload, so without this hook "
+                     "an edited view never repaints (rf2-r0kk7)"))
+            (is (and hook-body (.contains hook-body renders))
+                (str label ": the `^:dev/after-load " hook "` body must call `"
+                     renders "` — the hook is what repaints an edited view"))
+            (is (re-find (re-pattern (str "\\^:export\\s+init[\\s\\S]*?\\("
+                                          render-entry "\\)")) core)
+                (str label ": `init` must call `" render-entry "` so the first "
+                     "load and every reload go through the same render path"))
+            (is (.contains core "defonce")
+                (str label ": the React root is held in a defonce cell so one "
+                     "root owns #app across reloads")))
+          (finally
+            (delete-recursively tmp)))))))
+
+(deftest hot-reload-prose-is-accurate-test
+  (testing "the emitted shadow-cljs.edn + README do NOT claim shadow re-runs the
+            module :init-fn after a hot reload — measured false on shadow-cljs
+            3.4.10 (rf2-r0kk7)"
+    (let [tmp (tmp-dir "rf2-emission-hot-reload-prose-")]
+      (try
+        (let [proj   (run-template! tmp "acme/my-app" :reagent)
+              shadow (slurp (io/file proj "shadow-cljs.edn"))
+              readme (slurp (io/file proj "README.md"))
+              norm   #(string/replace % #"\s+" " ")]
+          (doseq [[name text] [["shadow-cljs.edn" (norm shadow)]
+                               ["README.md" (norm readme)]]]
+            (is (not (re-find #"(?i)re-runs? the module :init-fn after" text))
+                (str name " must NOT claim shadow re-runs the module :init-fn "
+                     "after a hot reload — it does not (rf2-r0kk7)"))
+            (is (not (re-find #"(?i)no :?after-load hook (?:is )?(?:needed|required)" text))
+                (str name " must NOT claim an :after-load hook is unnecessary — "
+                     "the hook is the ONLY thing that repaints an edited view "
+                     "(rf2-r0kk7)"))
+            (is (not (re-find #"(?i)re-invokes? [^.]{0,40}\.core/init" text))
+                (str name " must NOT claim a reload re-invokes core/init — "
+                     "shadow calls the :init-fn once, at bundle load "
+                     "(rf2-r0kk7)")))
+          ;; Positively require the corrected teaching, so the section cannot be
+          ;; emptied instead of fixed.
+          (is (.contains readme "^:dev/after-load")
+              "README §Hot reload must name the ^:dev/after-load hook as what
+               re-renders edited views (rf2-r0kk7)")
+          (is (.contains shadow "^:dev/after-load")
+              "shadow-cljs.edn's :init-fn comment must point at the
+               ^:dev/after-load hook (rf2-r0kk7)"))
         (finally
           (delete-recursively tmp))))))
 

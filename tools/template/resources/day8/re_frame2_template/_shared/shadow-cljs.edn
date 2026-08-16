@@ -19,8 +19,12 @@
   {:target     :browser
    :output-dir "resources/public/js"
    :asset-path "/js"
-   ;; shadow's :browser target re-runs the module :init-fn after each
-   ;; hot reload by default — no :after-load hook needed.
+   ;; shadow calls the module :init-fn ONCE, when the bundle loads. It does
+   ;; NOT re-run it after a hot reload — a reload loads the new code and then
+   ;; calls the build's ^:dev/after-load hooks. core.cljs therefore carries
+   ;; one — the fn that re-renders the edited views into the retained React
+   ;; root. Without it shadow logs "reloading code but no :after-load hooks
+   ;; are configured!" and the page keeps showing the OLD view.
    :modules    {:main {:init-fn {{namespace}}.core/init}}{{xray-preload}}}
 
   :test
