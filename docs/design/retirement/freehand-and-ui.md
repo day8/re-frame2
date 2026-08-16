@@ -66,6 +66,65 @@ file, a testbed, `examples/`, `spec/conformance/`, a lint fixture, a probe or a 
 | (b) test, fixture, example or testbed that dies with the tree | **180** | removed with the tree, or repointed where it tests something generic |
 | (c) prose to re-point or delete | **237** | spec, docs, skills, READMEs, and source comments |
 
+### The census patterns, and the way each one lies (rf2-g633h)
+
+The three patterns above — `freehand`, `re-frame.ui`, `re-frame2-ui` — are what R1–R6 were
+dispatched against, and each successive sweep found the same thing: **a pattern that names the
+donor cannot see a citer that does not.** Three further spellings were discovered one at a time,
+always by a worker reading a file rather than by a grep. They are collected here so R6's tail and
+any later residue sweep can start from six rather than rediscover them individually. Re-measured on
+this branch at `origin/main` HEAD, `.beads/issues.jsonl` excluded throughout because `bd` rewrites
+it in every checkout.
+
+| # | Pattern | Measured here | What it misses, or falsely claims |
+|---|---|---|---|
+| 1 | `freehand` | (see table above) | nothing structural; the reliable one |
+| 2 | `re-frame.ui` | (see table above) | the alias spellings, rows 5–6 |
+| 3 | `re-frame2-ui` as a raw substring | **106 hits / 52 files** | **60% noise** — see below |
+| 4 | `004D` | **41 hits / 19 files** | conflates two unrelated documents — see below |
+| 5 | a bare namespace alias (`ui/mount`, `ui.test`) | 25 hits in `spec/004C` alone | unusable repo-wide — see below |
+| 6 | a bare view alias (`v/…`) | 148 hits in `spec/004-Views.md` alone | unusable repo-wide — see below |
+
+**Pattern 3 is 60% noise, and the noise is all first-class supported surface.** Matched as a raw
+substring, `re-frame2-ui` matches `re-frame2-uix` — the Maven coordinate of the live UIx adapter.
+Of the 106 raw hits, **64 across 34 files are `re-frame2-uix`**, every one naming a supported
+adapter rather than a donor; word-boundaried (`re-frame2-ui` not followed by `x`) the honest figure
+is **42 hits across 26 files**. A sweeper running the raw form reads the UIx adapter's own
+coordinate as residue, in `implementation/deps.edn`, three published `docs/core/` pages and the
+setup skill among others. **Word-boundary this pattern or do not run it.**
+
+**Pattern 4 matches two unrelated retirements, and attributing it to one of them is wrong.** Two
+different specs were called 004D at different times: `spec/004D-UI-Test-Selectors.md`, deleted by
+`37fc6c6f80` when rf2-n7jtp minimised `ui.test` to its six-name surface, and
+`spec/004D-Freehand-Compiled-Grammar.md`, deleted by `0042a14fe2` under rf2-0yp7w.11. The hits in
+`spec/009-Instrumentation.md` and the opening of `docs/EP/EP-0034` are the **selector** grammar,
+not the compiled-view grammar, so a sweep that repoints every `004D` at the Freehand disposition
+mis-states what happened to them. Read each hit before classifying it.
+
+**Patterns 5 and 6 do not survive contact with a repo-wide grep, and that is the whole finding.**
+A `:require … :as ui` severs the donor name from every use site below it, which is why
+`spec/004C-Roots-and-Mount.md` could carry `ui.test` on 9 lines, `ui/mount`-family calls on 8 and
+bare `v/…` on 8 — one section *titled* `ui.test/render` — while returning zero for patterns 1–3.
+But the aliases are generic English, and run repo-wide they match live code overwhelmingly:
+`\bui\.test\b` hits 63 files, most of them the Story tool's own live `story.ui.test-mode`
+namespace, and `v/…` hits 80-odd files including live hicasso bench apps, an Xray test,
+`re-frame.routing`, `mkdocs.yml` and three binary PNGs. **The alias spelling is only meaningful
+file-locally**: establish first that a given file binds the alias to a donor namespace, then read
+its bare uses. There is no repo-wide form of this check, and a sweeper who invents one will
+generate hundreds of false rows against supported surface.
+
+**Where rows 5–6 bite, measured rather than assumed.** They are real in `spec/` and absent from
+`docs/`: the alias census over `docs/` returned a delta of two raw files and **zero** genuine rows,
+both false positives on `:ui/local-theme`, an app-authored coeffect keyword. Measure per tree
+before generalising.
+
+**Every count above is a claim, and the grep that checks it is a different claim.** Each figure
+here was taken with `git grep` over tracked files, which is authoritative on this repo where plain
+`grep` has returned false empties; each pattern was run once against something it should find
+before its zero was believed. The two `004D` mentions that must **stay** are the note in
+`scripts/check_adapter_disposition.py` recording the removal and the synthetic heading string in
+`api_md_check_test.clj`, which reads no spec file.
+
 ## The epic's central premise is false, and I re-verified it independently
 
 The epic states that `implementation/core/src` and `implementation/ssr/src` carry live runtime
@@ -233,11 +292,17 @@ every build id it touched, in the foreground, to completion. R5 additionally run
 **R0** is small: `TESTING.md`'s stage table plus the paragraph that traces stage 2 to HD-018.
 
 **R1** is the largest prose job and the one with a real deadline, because R5 waits on it.
-`004-Views.md` alone carries 49 ids behind 17 links. **It raises one question this survey will not
-answer on Mike's behalf:** `spec/004D-Freehand-Compiled-Grammar.md` is named for the thing being
-retired. Does 004D die, or is it renamed and re-aimed at hicasso's grammar? That is a spec-shape
-decision, not a mechanical unpointing, and R1 should stop at the unpointing and surface the
-question rather than guess.
+`004-Views.md` alone carries 49 ids behind 17 links. **It raised one question this survey would not
+answer on Mike's behalf, and that question has since been ruled:**
+`spec/004D-Freehand-Compiled-Grammar.md` was named for the thing being retired, so did 004D die, or
+was it renamed and re-aimed at hicasso's grammar? **Ruled DELETED, and not re-aimed** (rf2-0yp7w.11,
+executed by `0042a14fe2`), precisely so that donor-era normative text is not laundered into
+hicasso's; a hicasso-native grammar spec is left as a separate later judgement, and the Form-1/2/3
+grammar is deliberately homeless in the meantime. R1 was therefore right to stop at the unpointing.
+For the citations that recur while re-pointing: `spec/API.md`'s `reg-view*` row names Reagent
+Form-3 / `create-class` explicitly, `spec/002-Frames.md` states the plain-fn-cannot-read-context
+rule verbatim, and `spec/001-Registration.md`'s table files `reg-view` / `reg-view*` to 004-Views
+and API. Everything else de-addresses — keep the rule, drop the pointer — or is cut.
 
 **R2a** removes the six `implementation/ssr/test` files that require `re-frame.ui` — re-pointing
 `ui_tree.cljc`'s provenance docstrings as it goes — plus the `re-frame.ui` arm of
@@ -316,8 +381,14 @@ Freehand as the substrate hicasso replaced — those are hicasso's record, not F
 ### What remains to be broken down
 
 R6's 237 files will not fit one worker and should be split by sub-surface when it is dispatched —
-spec is one toucher, everything else parallelises. R1 may need splitting if the 004D question comes
-back as "rename and re-aim" rather than "delete". Nothing else here should need further division.
+spec is one toucher, everything else parallelises. **The R1 contingency is discharged**: it was to
+split R1 if the 004D question came back as "rename and re-aim", and it came back as "delete"
+(rf2-0yp7w.11, recorded above). Nothing else here should need further division.
+
+What R6's sub-workers do still need is the six-pattern list in
+[§The census patterns](#the-census-patterns-and-the-way-each-one-lies-rf2-g633h) rather than the
+three the epic was written against, because a sweep run on three patterns reports a surface clean
+while three more spellings of the same name stand on it.
 
 ## What bears on Xray
 
