@@ -16,33 +16,70 @@ ordinary handlers.
     Treat the snippet below as the shape of the dependency, not as a
     coordinate you can paste into a fresh project.
 
-Add the Hicasso artifact and a [substrate
+`:local/root` is relative to *your* `deps.edn`, so clone the monorepo **beside**
+your project directory — the convention the rest of the docs use:
+
+```bash
+cd ..                                             # the folder holding your project
+git clone https://github.com/day8/re-frame2.git
+cd my-app
+```
+
+Then add the Hicasso artifact and a [substrate
 adapter](#hicasso-needs-a-substrate-adapter) to `deps.edn`:
 
 ```clojure
 ;; deps.edn — resolved from a re-frame2 checkout beside your project
-{:deps {day8/re-frame2-hicasso {:local/root "../re-frame2/implementation/hicasso"}
-        day8/re-frame2-uix     {:local/root "../re-frame2/implementation/adapters/uix"}}}
+{:paths ["src"]
+ :deps  {day8/re-frame2-hicasso {:local/root "../re-frame2/implementation/hicasso"}
+         day8/re-frame2-uix     {:local/root "../re-frame2/implementation/adapters/uix"}}
+
+ ;; shadow-cljs reads its classpath from this file, so the compiler is a
+ ;; dependency here as well as an npm package below.
+ :aliases
+ {:shadow {:extra-deps {thheller/shadow-cljs {:mvn/version "3.4.10"}}}}}
 ```
 
-The artifact brings `day8/re-frame2` with it. Install React from npm:
+The Hicasso artifact brings `day8/re-frame2` with it. React and the shadow-cljs
+launcher come from npm:
+
+```json
+{
+  "dependencies":    {"react": "19.2.0", "react-dom": "19.2.0"},
+  "devDependencies": {"shadow-cljs": "3.4.10"}
+}
+```
 
 ```bash
-npm install react react-dom
+npm install
 ```
+
+Both npm lines earn their place. **Pin React**: Hicasso needs 18 or newer — it
+mounts through `createRoot` and reads `useId` for `:identifier-prefix` — and
+19.2 is what the reference implementation runs and what this chapter is checked
+against, whereas a bare `npm install react react-dom` resolves to whatever is
+current that day. **And keep `shadow-cljs` in `devDependencies`** even though
+the JVM dependency above is what compiles: the npm package is where the
+`process` shim React's CommonJS build asks for comes from, and without it the
+build stops at `The required JS dependency "process" is not available`.
 
 Hicasso interprets Hiccup at runtime, so it needs no compiler hook, macro
 allow-list, or build flag. A normal shadow-cljs browser build is enough:
 
 ```clojure
 ;; shadow-cljs.edn
-{:deps     true
+{:deps     {:aliases [:shadow]}
  :dev-http {8080 "public"}
  :builds   {:app {:target     :browser
                   :output-dir "public/js"
                   :asset-path "/js"
-                  :modules    {:main {:entries [counter.core]}}}}}
+                  :modules    {:main {:init-fn counter.core/init}}}}}
 ```
+
+`{:deps {:aliases [:shadow]}}` is what puts the compiler on the classpath. A
+bare `{:deps true}` reads `deps.edn` without the alias, finds no
+`thheller/shadow-cljs` there, and dies before it compiles anything:
+`Could not locate shadow/cljs/devtools/cli`.
 
 ```html
 <!-- public/index.html -->
@@ -96,11 +133,13 @@ it notifies nothing.
 
 A production application normally separates registrations and views into
 several namespaces. This complete example keeps them together so the boot
-sequence is visible:
+sequence is visible — adapter first, then the root, inside the one `init` the
+build calls:
 
 ```clojure
 (ns counter.core
   (:require [re-frame.core :as rf]
+            [re-frame.adapter.uix :as uix-adapter]
             [re-frame.hicasso :as h]))
 
 (rf/reg-event :counter/initialise
@@ -120,15 +159,28 @@ sequence is visible:
    [:h1 "Clicked " (h/sub [:counter/count]) " times"]
    [:button {:on-click [:counter/increment]} "Click me"]])
 
-(defonce root
-  (h/mount! (js/document.getElementById "app")
-            {:frame          :rf/default
-             :initial-events [[:counter/initialise]]}
-            [counter]))
+(defonce !root (atom nil))
 
 (defn ^:dev/after-load rerender! []
-  (h/render! root [counter]))
+  (when-some [root @!root]
+    (h/render! root [counter])))
+
+(defn ^:export init []
+  (rf/init! uix-adapter/adapter)
+  (reset! !root
+          (h/mount! (js/document.getElementById "app")
+                    {:frame          :rf/default
+                     :initial-events [[:counter/initialise]]}
+                    [counter]))
+  nil)
 ```
+
+`init` is the build's `:init-fn`, wired in `shadow-cljs.edn` above. Namespace
+load registers handlers and defines views and touches no DOM, so a test host, a
+Story tool, or another namespace can require this one for its registrations
+alone — the rule [Boot and mount an
+app](../how-to/boot-and-mount-an-app.md#no-dom-work-at-namespace-load) states
+for every substrate.
 
 Start the build and open the page:
 
@@ -187,16 +239,21 @@ The first root creates and seeds the frame. A later root that names the same
 frame joins its current state and does not replay `:initial-events`:
 
 ```clojure
-(defonce app-root
-  (h/mount! (js/document.getElementById "app")
-            {:frame          :app/main
-             :initial-events [[:app/initialise]]}
-            [main-screen]))
+(defonce !app-root (atom nil))
+(defonce !status-root (atom nil))
 
-(defonce status-root
-  (h/mount! (js/document.getElementById "status")
-            {:frame :app/main}
-            [connection-badge]))
+(defn ^:export init []
+  (rf/init! uix-adapter/adapter)
+  (reset! !app-root
+          (h/mount! (js/document.getElementById "app")
+                    {:frame          :app/main
+                     :initial-events [[:app/initialise]]}
+                    [main-screen]))
+  (reset! !status-root
+          (h/mount! (js/document.getElementById "status")
+                    {:frame :app/main}
+                    [connection-badge]))
+  nil)
 ```
 
 Both roots read the same app-db and dispatch into the same queue. Seed from the
@@ -219,6 +276,12 @@ same view code but must not share state.
 The `^:dev/after-load` hook calls `h/render!` with the redefined view. The root,
 frame, app-db, and subscriptions survive, so changing the view does not reset
 the counter or leak registrations.
+
+Boot and re-render are two functions rather than one because shadow calls
+`:init-fn` **once**, when the module loads, and not again after a reload — a
+build whose only entry point is `:init-fn` logs `reloading code but no
+:after-load hooks are configured!` and leaves the page showing the old view.
+Mount in `init`; re-render in the hook.
 
 Hot reload also means a changed initialisation handler does not re-seed an
 already live frame. Reload the page, destroy the frame, or dispatch an explicit
