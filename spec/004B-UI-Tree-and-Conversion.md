@@ -1,6 +1,6 @@
 # Spec 004B — The UI structural tree and DOM conversion contract
 
-> Status: v1-required. The public ABI for Freehand's structural render tree and
+> Status: v1-required. The public ABI for a substrate's structural render tree and
 > the DOM conversion table every emitter consumes — the tree/conversion half of
 > the portability law. Consumers: the structural render surface's return value (per
 > [008](008-Testing.md), where the surface is conventionally aliased `t`), tree
@@ -22,7 +22,11 @@ private: the public contract is this tree plus the conversion table, not the AST
 
 ## Two modes, two emitters, one tree
 
-Freehand has two execution modes over one semantic model — an **interpreted**
+> **The producers this section describes were removed on 2026-08-16 (rf2-0yp7w).** The
+> tree ABI below outlives them as the input contract of `re-frame.ssr/emit-ui-tree`
+> (§The SSR consumption boundary), which is why this document stands.
+
+The donor substrate had two execution modes over one semantic model — an **interpreted**
 paved path and a **compiled** hot tier selected by `{:compiled true}` on the same
 declaration — and two emitters: a **React** emitter for the browser and a
 **structural** emitter that answers the tree this contract describes. The two
@@ -737,9 +741,8 @@ shapes.
 This section's two functions sit at very different points of S5 (`rf2-vxgfnd.97`). The
 **emit seam has shipped**: `re-frame.ssr/emit-ui-tree` is the JVM's tree→HTML path
 (rf2-3omxp), and its version gate raises the now-catalogued
-`:rf.error/ssr-ui-tree-version-unsupported`. Where the repo names `emit-ui-tree` —
-`re-frame.ui.compiler.root`'s compile-error message, the guide's pipeline sentence — it
-points at *this contract*, and a reader who greps the name now finds the function that
+`:rf.error/ssr-ui-tree-version-unsupported`. Where the repo names `emit-ui-tree` it
+points at *this contract*, and a reader who greps the name finds the function that
 meets it. That contract is final.
 
 The **fingerprint half is a deferred, non-binding candidate — not an owed function**.
