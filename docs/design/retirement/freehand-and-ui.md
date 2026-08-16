@@ -287,6 +287,16 @@ dropping the validator earlier would disarm a gate whose subject still stands.
 arms trimmed out of the classifier and its mirror. See `TESTING.md` § "Retirement order for the
 Freehand CI lanes", stages 2 and 3.
 
+**The R5 residual landed with R3b on 2026-08-16, exactly where the coupling put it.** The remaining
+**115** files of `spec/conformance/freehand/`, `.github/workflows/freehand-conformance.yml` and
+`scripts/check_freehand_conformance_index.py` were deleted in the same commit as
+`implementation/freehand/`, together with the corpus's three classifier arms (the fixtures root, the
+index, and the measured `README.md` exclusion) and their mirror tests. Both retirement conditions
+were re-measured immediately before the cut rather than inherited: external `FH-*` citations under
+`spec/` outside the corpus read **0** against a positive control of **366** ids inside it, and
+`check_doc_slugs.py` and `check_readme_links.py` both exited 0 afterwards. R5's own bead
+(rf2-0yp7w.8) closes as absorbed rather than being dispatched as a second corpus deletion.
+
 **R6** is the remaining ~237 prose files: `docs/design/freehand/`, the `docs/api` pages, `docs/skills`,
 `skills/re-frame2-ui/` entire, `mkdocs.yml`'s nav, the root `README.md`/`CHANGELOG.md`/`AGENTS.md`/
 `CLAUDE.md` mentions, `spec/Conventions.md`'s Freehand section and `:rf.adapter/*` row,

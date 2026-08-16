@@ -35,7 +35,8 @@
 #
 # THIS WORKFLOW IS IN NO RETIREMENT STAGE, and that is a measured conclusion
 # rather than an omission. It was audited alongside `freehand-bench.yml` and
-# `freehand-conformance.yml`, whose staged retirement order lives in
+# `freehand-conformance.yml` (both since deleted), whose staged retirement
+# order lives in
 # `TESTING.md` § "Retirement order for the Freehand CI lanes"; all three jobs
 # here enforce live recorded rules over the whole tracked tree, so none of them
 # is retirable at any stage. The audit reached this file only because the

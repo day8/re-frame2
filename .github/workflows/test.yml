@@ -1389,11 +1389,10 @@ jobs:
     #
     # NEARLY all of `spec/*`, not wholesale, and the difference matters
     # to anyone reasoning from this comment: `spec/API.md` is caught
-    # FIRST by an earlier arm that sets `cljs_node_test` only, and
-    # `spec/conformance/freehand/README.md` is a measured exclusion held
-    # deliberately ahead of the catch-all (two files until rf2-0yp7w.8
-    # deleted `donor-inventory.md`). The rest of `docs/` still arms
-    # nothing.
+    # FIRST by an earlier arm that sets `cljs_node_test` only. The rest
+    # of `docs/` still arms nothing. (A measured exclusion for
+    # `spec/conformance/freehand/README.md` was a second escape held ahead
+    # of the catch-all until rf2-0yp7w.6 deleted that corpus.)
     #
     # The classifier is the roster and it moves, so measure the path
     # rather than trust this paragraph:

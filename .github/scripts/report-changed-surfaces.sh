@@ -1271,83 +1271,6 @@ else
         cljs_browser=true
         cljs_prod=true
         ;;
-      spec/conformance/freehand/fixtures/*|spec/conformance/freehand/conformance-index.md)
-        # rf2-drpa3.66 — false-green fix, the Freehand-corpus counterpart of
-        # the shared spec/conformance/fixtures/* case above.
-        #
-        # Every fixture under this root is a LIVE INPUT to both Freehand host
-        # suites: implementation/freehand/test/re_frame/freehand/conformance.cljc
-        # reads it at MACRO-EXPANSION time and inlines the value, so the JVM
-        # `:test` alias (the required `jvm-freehand` job, gated on
-        # implementation_jvm) and the consolidated `:node-test` build (the
-        # `cljs` job, gated on cljs_node_test) assert against the same bytes.
-        # rf2-drpa3.58 armed those two outputs for implementation/freehand/**
-        # but not for the corpus the suites consume, so a fixture-only PR left
-        # every output false and BOTH newly-required host jobs SKIPPED —
-        # accepted unexplained by `all-required-passed`.
-        #
-        # The always-on freehand-conformance.yml is not a substitute:
-        # check_freehand_conformance_index.py verifies that an active index row
-        # NAMES AN EXISTING FIXTURE, not that the fixture's contract VALUES hold.
-        # Flipping FH-CALL-001's `:predicates :view?` from true to false keeps
-        # the path, the `:fh/id` and the index relationship intact — valid EDN,
-        # green index check — while descriptor_cljs_test.cljc fails on both
-        # hosts once actually run. Arming the two host outputs is what makes it
-        # run.
-        #
-        # Scoped exactly like the implementation/freehand/* case, which is why
-        # rf2-drpa3.70's browser widening lands on both together. This corpus
-        # is a live input to the MOUNTED tests too: FH-STRUCT-007 is the DOM
-        # table react_mount_dom_cljs_test.cljs reads back off `document`, and
-        # FH-ROUTELINK-001..003 drive route_link_native_dom_cljs_test.cljs. A
-        # fixture edit can therefore change mounted output, so it must schedule
-        # the browser lane. The arm stays the whole fixtures root rather than a
-        # family prefix: two unrelated families already feed browser tests, and
-        # a prefix list would rot silently on the third.
-        #
-        # rf2-49upn — conformance-index.md joins the fixtures here, because the
-        # index is the CLAIM the fixtures are evidence for and the two are one
-        # ledger. The census in check_freehand_conformance_index.py proves the
-        # STATIC half of a row: that an assertion under
-        # implementation/freehand/test/ REACHES the row's fixture, from a lane
-        # that serves every (mode, host) cell the row's applicability names.
-        # The DYNAMIC half — that the assertion PASSES — is the lane exit
-        # codes, which the census cannot see from where it runs.
-        #
-        # freehand-conformance.yml carries the census, is deliberately
-        # unfiltered, and is Python-only. So before this arm an index-only PR
-        # got the census green with jvm-freehand, `cljs` and cljs-browser all
-        # SKIPPED: the row's claim certified on a commit where nothing executed
-        # it. That is the shape the #6907 merged-PR audit flagged ("freehand-
-        # conformance passed, while JVM freehand, CLJS node, and browser lanes
-        # were all skipped"). Widening an applicability cell — `common jvm` to
-        # `interpreted browser`, say — is exactly an index-only edit, and it is
-        # the edit that most needs the lanes it newly claims.
-        #
-        # The marginal CI cost is ~zero on the common path: a row lands with
-        # its proof, and a proof lives under implementation/freehand/test/** or
-        # under the fixtures root, both of which already arm these same three
-        # outputs. The lanes are added only on an index-only PR — precisely the
-        # false-green shape. Binding is at COMMIT granularity, held by
-        # `all-required-passed`, not by one job re-running three required lanes.
-        #
-        # Only the index. The one sibling document left under this root stays
-        # off: README.md is the document that DEFINES the addressing scheme —
-        # it speaks in illustrative ids and is excluded from the census's own
-        # citation scan for that reason. It was TWO siblings until rf2-0yp7w.8
-        # deleted donor-inventory.md with its checker.
-        #
-        # Still NOT cljs_prod / bundle_isolation — no bundle those two gates
-        # measure requires Freehand (the `elision-probe` pair and the examples
-        # set respectively). Widen both cases together when that changes.
-        # rf2-xwa4n — Freehand's own `:advanced` pair (`:freehand-release` +
-        # control) is covered by freehand_evidence_elision instead, and these
-        # fixtures are not among that probe's primary inputs.
-        implementation_jvm=true
-        cljs_node_test=true
-        cljs_browser=true
-        ;;
-
       # ─── PROSE THAT A test.yml SUITE PINS (rf2-61ar) ──────────────────────
       #
       # THE HOLE. A docs/spec-only diff classified to NOTHING: measured on
@@ -1464,29 +1387,6 @@ else
         # exactly one is armed.
         implementation_jvm=true
         ;;
-      spec/conformance/freehand/README.md)
-        # A MEASURED EXCLUSION, held ahead of the `spec/*` catch-all below so
-        # the catch-all cannot silently reverse it.
-        #
-        # rf2-49upn read this file's consumers and found none reachable from a
-        # lane: README.md DEFINES the conformance addressing scheme — it speaks
-        # in illustrative ids and is excluded from the census's own citation
-        # scan for exactly that reason — so it cannot change what a lane
-        # proves.
-        #
-        # It was TWO files until rf2-0yp7w.8. donor-inventory.md sat here on
-        # the same measurement (rf2-lrtwj: its checker read that one file and
-        # nothing else, so it could not observe a source change at all), and
-        # the retirement deleted the archive and the checker together.
-        #
-        # `spec/*` below is a POLICY default for spec prose nobody has
-        # measured. This one has been measured, and the frozen mirror pins the
-        # result. A general default does not get to overturn a specific
-        # measurement, so the walk stops here. The empty `:` arm is the same
-        # device the story-feature-load launcher case uses further up for the
-        # same purpose.
-        :
-        ;;
       spec/Spec-Schemas.md)
         # The widest single miss in the roster, and the only prose file in the
         # repo that arms a CLJS output.
@@ -1507,8 +1407,9 @@ else
         # extracted from this Markdown at COMPILE TIME and inlined into the
         # consolidated `:node-test` build. Editing the def form here changes
         # what the `cljs` job compiles and asserts, not merely what a JVM suite
-        # slurps — the same macro-expansion-time reasoning the
-        # `spec/conformance/freehand/fixtures/*` arm above is built on.
+        # slurps. (The Freehand corpus arm was the other case built on this
+        # same macro-expansion-time reasoning; it retired with the tree that
+        # read it — rf2-0yp7w.6.)
         #
         # Must precede the `spec/*` catch-all below: a POSIX `case` takes the
         # FIRST match, and the catch-all does not set `cljs_node_test`.
@@ -1536,12 +1437,17 @@ else
         # It is a CATCH-ALL, so its POSITION is load-bearing twice over. A
         # POSIX `case` takes the first match and `*` spans `/`, so this arm
         # would swallow every narrower `spec/` case if it preceded them. The
-        # four that must stay ahead of it, and do:
+        # three that must stay ahead of it, and do:
         #   spec/api-manifest{,-metadata}.edn + spec/API.md  (cljs_node_test)
-        #   spec/conformance/S{3,4,5}-view-conformance-profile.md
         #   spec/conformance/fixtures/*
-        #   spec/conformance/freehand/fixtures/* + conformance-index.md
         #   spec/Spec-Schemas.md                             (immediately above)
+        # Two more used to sit here. The Freehand corpus arm
+        # (spec/conformance/freehand/fixtures/* + conformance-index.md) retired
+        # with the tree that read it, and the S{3,4,5}-view-conformance-profile
+        # arm retired with the jvm-ui job whose drift guards it armed — both
+        # rf2-0yp7w. The profile docs themselves survive and now fall to this
+        # catch-all, which arms implementation_jvm: over-classification, the
+        # safe direction.
         # A new narrower `spec/` arm goes ABOVE this one or it is dead code.
         implementation_jvm=true
         ;;

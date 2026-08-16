@@ -194,8 +194,6 @@
                 ;; consumers reach that reader through the one namespace
                 ;; above, never directly.
                 ;;
-                ;;   conformance/freehand/fixtures/*.edn — inlined by
-                ;;     `re-frame.freehand.conformance/fixture`.
                 ;;   api-manifest-metadata.edn — inlined by
                 ;;     `re-frame.api-manifest.cljs-publics`.
                 ;;

@@ -244,7 +244,6 @@
     :rf.error/observation-port-version-mismatch
     :rf.error/observation-retry-exhausted
     :rf.error/observation-on-change-failed
-    :rf.error/frame-preflight-evidence-mismatch
     ;; rf2-2hkfy: the closed-vocabulary `:rf.nav/scroll` strategy rejection
     ;; graduated `always-on` in the Spec 009 catalogue. rf2-px26m made the
     ;; handler's default branch loud, but through `trace/emit-error!` ALONE —
@@ -263,17 +262,6 @@
     ;; (`re-frame.routing-scroll-always-on-elision-prod-test`) pins the real
     ;; emit site under `goog.DEBUG=false`.
     :rf.error/unsupported-scroll-strategy
-    ;; rf2-drpa3.35 (EP-0036 F4e): a Freehand `v/error-boundary` CONTAINED a
-    ;; render-class failure and promoted at most ONE record per failure
-    ;; generation onto the always-on axis, so an off-box shipper sees a
-    ;; contained render failure under `goog.DEBUG=false`. A NON-EVENT union
-    ;; record (the safe summary + the opaque exception + a capped host stack;
-    ;; NO app-db or event-history capture, per D019) fanned through the
-    ;; `error-emit/dispatch-error-record!` helper — the frame-teardown-report
-    ;; sibling — so this leg drives it through the `record-categories` branch
-    ;; below. The emit SITE lives in `re-frame.freehand.errors`; the
-    ;; JVM companion keeps the literal == the catalogue's always-on set.
-    :rf.error/view-render-failed
     ;; rf2-6jqa8 / rf2-rprfg: the three `:rf.server/safe-redirect` rejections
     ;; graduated `always-on` in the Spec 009 catalogue. The five-step gate was
     ;; always production-real and always REJECTED correctly under
@@ -377,10 +365,6 @@
     ;; fact, not a dispatched-event failure, so it rides the same non-event
     ;; union-record helper as its `malformed-hydration-payload` sibling.
     :rf.error/root-boot-failed
-    ;; rf2-drpa3.35 (EP-0036 F4e): a contained Freehand render failure is a
-    ;; render-lifecycle fact, not a dispatched-event failure, so its private
-    ;; frame egress rides the same non-event union-record helper.
-    :rf.error/view-render-failed
     ;; rf2-6jqa8 / rf2-rprfg: a rejected safe-redirect is an fx-time policy
     ;; rejection, not a dispatched-event failure, so all three ride the same
     ;; non-event union-record helper (`dispatch-error-record!`) the SSR
