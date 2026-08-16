@@ -5830,8 +5830,23 @@ function fixtureRoundsTask(over) {
       const out = `${r.stdout}${r.stderr}`;
       assert.strictEqual(r.status, 4, `the program must exit 4 on raw evidence lost after eligibility — got ${r.status}: ${out.slice(-1500)}`);
       assert.match(out, /RAW EVIDENCE LOST AFTER ELIGIBILITY/, 'the loss is announced where the interval would have printed');
-      assert.match(out, /run1\.json: row M1, pair `hicasso \/ uix-subs`/, 'the exit roster names the file and the pair');
-      assert.match(out, /run1\.json: row M1, pair `hicasso \/ reagent-subs`/, 'both hicasso pairs of the blanked segment');
+      // THE ROSTER ASSERTIONS CARRY THE ROSTER INTO THEIR OWN FAILURE MESSAGE.
+      // The exit-code assertion above already prints the output's tail when it
+      // fails and these two did not, so a CI-only failure here reported that
+      // the roster was wrong and never what the roster actually SAID — which
+      // is a bisect nobody can run from the log, and one was run from this
+      // line on 2026-08-16 without ever seeing the string that failed to
+      // match. THE REGEXES AND THE CORPUS ARE UNCHANGED: this widens what a
+      // FAILURE reports, never what a PASS accepts. A negative control that
+      // cannot say what it saw is still a negative control, but it costs a
+      // worker a day to read.
+      const ri = out.indexOf(';; EXIT 4');
+      const sawRoster =
+        ri >= 0
+          ? `roster as printed:\n${out.slice(ri, ri + 2000)}`
+          : `NO ";; EXIT 4" BLOCK IN THE OUTPUT — tail was:\n${out.slice(-2000)}`;
+      assert.match(out, /run1\.json: row M1, pair `hicasso \/ uix-subs`/, `the exit roster names the file and the pair — ${sawRoster}`);
+      assert.match(out, /run1\.json: row M1, pair `hicasso \/ reagent-subs`/, `both hicasso pairs of the blanked segment — ${sawRoster}`);
       // THE AUDIT'S OWN SENTENCE, scoped to the row it demonstrated on: the M1
       // block must not publish "an interval over 7 reportable run(s)" where 8
       // cleared the gates. (`narrow` legitimately pools 7 of 8 on this
