@@ -260,13 +260,14 @@ Each row is "new in re-frame2 → new tooling story Xray tells."
 
 ## The tab inventory
 
-The legacy 16-panel sidebar is dead. Xray ships a **9-tab Dynamic detail
+The legacy 16-panel sidebar is dead. Xray ships a **10-tab Dynamic detail
 panel** (Layer 3 of the 4-layer chrome). Each tab is one projection of the
 focused event; selection in the L2 event list rebinds every tab. Cross-cutting
 concerns extend each tab — and where a sub-domain grows cohesive enough it
 earns its own lens tab (Mike's cohesive-sub-domain rule, 2026-05-18): Routing
-(rf2-nrbs9), Resources (EP-0016), Graph (EP-0014), and Modules (EP-0013) each
-landed as their own Dynamic L4 tab rather than overloading App-db.
+(rf2-nrbs9), Resources (EP-0016), Graph (EP-0014), Frames (EP-0023), and
+Hicasso (rf2-hic-023) each landed as their own Dynamic L4 tab rather than
+overloading App-db.
 
 **The Issues tab was removed per rf2-gbz39 (Mike RULED Option (c),
 2026-05-31).** Issues used to get a dedicated tab carrying a session-wide
@@ -278,7 +279,7 @@ epoch has an issue — rf2-b8guz), and via the always-on issues ribbon signal
 (the auto-open-on-error watcher — the cross-epoch "something is wrong" cue
 that Mike kept under (c)).
 
-(The chrome surface measures in 9 Dynamic L3 tabs; the underlying
+(The chrome surface measures in 10 Dynamic L3 tabs; the underlying
 **panel-component inventory** totals mountable panels across four
 tiers — see [`007-UX-IA.md`](007-UX-IA.md) §Mountable panel contract
 and [`016-Auxiliary-Panels.md`](016-Auxiliary-Panels.md)
@@ -301,7 +302,7 @@ cohesive sub-domains earn their own lens tab rather than overloading App-db.
 | 7 | **Resources** | `s` | The declarative-server-state lens (Spec 016 §Xray + AI tooling) — for the focused event: the resource registry · live instances · in-flight work · invalidations · the route→resource graph. The cohesive-sub-domain L4 tab for managed server state (EP-0016). Read-only. | [`024-Resources-Panel.md`](024-Resources-Panel.md) + framework [`spec/016-Resources.md`](../../../spec/016-Resources.md) |
 | 8 | **Graph** | `g` | The unified derivation / process graph across every algebra-view family for the focused cascade (EP-0014, rf2-9ett2d). An **L4-only registry tab** — `reg-l4-tab!` only, no standalone `mount-*!` facade (it is shell-internal, focusable but not independently mountable). | [`025-Derivation-Graph-Panel.md`](025-Derivation-Graph-Panel.md) |
 | 9 | **Frames** | `u` | The EP-0023 **`image -> frame`** PUBLIC model: each live image-loaded frame as an execution context carrying its resolved image's `[kind id]` descriptors with per-descriptor provenance (rf2-32siq3.12); the same `(kind id)` resolves differently in frames running different images. A process not using image-loaded frames shows the honest no-image caption. (The retired EP-0013 realm / app-value / module substrate this tab once also surfaced — the (realm, frame) REALMS section and the per-module MODULES section — was **deleted in full**; there is no `re-frame.realm` namespace.) An **L4-only registry tab** — `reg-l4-tab!` only, no standalone `mount-*!` facade. | [`026-Module-View-Panel.md`](026-Module-View-Panel.md) |
-| 10 | **Hicasso** | `h` | Four views over the adapter-neutral Hicasso evidence surface (rf2-hic-023): **Mounted** boundaries and their frames · **Reads** attribution (sub → boundary, with fan-out) · the **Intents** stream folded from Spec 009's retained window · **Why**, which separates what the cells' epoch stamps PROVE from the causal link that cannot be made. Every envelope states schema, producer, scope, basis, completeness and loss, and unknown is never rendered as an empty list: the three empties (no Hicasso here / an unparseable schema / running with nothing mounted) and the five absences (`unknown` · `opaque` · `host-opaque` · `cap` · `uncorrelated`) each get their own testid and their own sentence. An **L4-only registry tab** — `reg-l4-tab!` only, no standalone `mount-*!` facade. | [`027-Hicasso-Evidence.md`](027-Hicasso-Evidence.md) |
+| 10 | **Hicasso** | `h` | Six views over the adapter-neutral Hicasso evidence surface (rf2-hic-023): **Mounted** boundaries and their frames · **Reads** attribution (sub → boundary, with fan-out) · the **Intents** stream folded from Spec 009's retained window · **Why**, which separates what the cells' epoch stamps PROVE from the causal link that cannot be made · **Advisor**, which ranks the mounted census, classifies what owns the pressure, and refuses the routes its evidence cannot support · **Causal**, which walks one dispatch link by link from event to paint and names every link it cannot evidence (rf2-hic-037). The last two are derivations over the same four envelopes as the first four, taken in one turn, which is why they are sub-views of this tab rather than tabs of their own. Every envelope states schema, producer, scope, basis, completeness and loss, and unknown is never rendered as an empty list: the three empties (no Hicasso here / an unparseable schema / running with nothing mounted) and the five absences (`unknown` · `opaque` · `host-opaque` · `cap` · `uncorrelated`) each get their own testid and their own sentence. An **L4-only registry tab** — `reg-l4-tab!` only, no standalone `mount-*!` facade. | [`027-Hicasso-Evidence.md`](027-Hicasso-Evidence.md) |
 
 The former **Issues** tab (`i`) — JS exceptions + schema violations +
 sensitive-data warnings + hydration mismatches + perf-budget overruns + app

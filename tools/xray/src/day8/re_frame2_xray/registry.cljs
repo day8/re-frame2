@@ -1304,9 +1304,11 @@
     ;; descriptors. Read-only: enumerating live frames + reading sealed
     ;; generations pins nothing, dispatches nothing.
     (module-view/install!)
-    ;; Hicasso tab — Dynamic L4 tab: four views over the adapter-neutral
+    ;; Hicasso tab — Dynamic L4 tab: six views over the adapter-neutral
     ;; Hicasso evidence surface (`re-frame.hicasso.tool`) — mounted
-    ;; boundaries, read attribution, the intent stream, and explain-render.
+    ;; boundaries, read attribution, the intent stream, and explain-render,
+    ;; plus the advisor and the causal slice (rf2-hic-037), which are
+    ;; derivations over those same four envelopes taken in one turn.
     ;; A pure reader like the Freehand door above it: the Hicasso tier has
     ;; no registry and no ownership plane, so there is nothing to acquire,
     ;; nothing to release and nothing another tool can lock us out of.

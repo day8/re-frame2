@@ -495,7 +495,7 @@
 ;; the surrounding Xray instance's frame. A bare global `rf/dispatch` would
 ;; fire after render unwinds, when the ambient frame is gone, and leak to
 ;; `:rf/default` — the click would silently switch some other shell's
-;; sub-view, or none. This is the tab's only dispatch: the four views read.
+;; sub-view, or none. This is the tab's only dispatch: the six views read.
 (defn- sub-strip
   [dispatch selected]
   (into [:div {:data-testid (str "rf-xray-" panel-id "-sub-strip")
@@ -512,12 +512,14 @@
            label])))
 
 (rf/reg-view Panel
-  "The Hicasso tab: a sub-strip over four views of one evidence surface.
+  "The Hicasso tab: a sub-strip over six views of one evidence surface.
 
   Every view derefs `:rf.xray.hicasso/data`, which takes all four
   envelopes in one turn — the four rosters are projections of ONE runtime
   state, and reading them across two turns would let a mount land between
-  the census and the edges."
+  the census and the edges. Six views over four envelopes because Advisor
+  and Causal are derivations over the same take rather than reads of their
+  own: the four are the rosters, the six are the projections of them."
   []
   (let [selected (hh/normalise-sub-mode @(rf/subscribe [:rf.xray.hicasso/view]))
         {:keys [envelopes] :as data} @(rf/subscribe [:rf.xray.hicasso/data])
