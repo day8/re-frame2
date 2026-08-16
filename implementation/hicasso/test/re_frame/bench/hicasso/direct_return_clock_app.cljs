@@ -249,10 +249,13 @@
   `:warmup 3` a step of that shape lands INSIDE the measured samples and
   splits round one, which is the contrast the guard reported; at
   `:warmup 8` it lands inside the warm-up and no measured sample straddles
-  it. `{:warmup 8 :samples 12}` is also what every other full-page-mount
-  harness on this instrument already runs — `coldmount_app`,
-  `p0_converge_app` and `p0_reagent_app` between them — so this arm stops
-  being the lane's outlier rather than acquiring a figure of its own.
+  it. `{:warmup 8 :samples 12}` is also what every other harness riding
+  [[lane/mount-batch!]] already runs. That set is checkable and small —
+  `(lane/mount-batch!` has five call sites on this lane, this file,
+  `amp_merge_clock_app`, `coldmount_app`, `p0_converge_app` and
+  `p0_reagent_app` — and the last three all sample at 8/12, so the two
+  clocks were the lane's only batched-mount outliers. This arm stops
+  being one rather than acquiring a figure of its own.
 
   WHAT WAS DELIBERATELY NOT MOVED. Not the guard's tolerance, which is not
   the arm's to move. Not [[boundaries]]: lengthening the flushSync window

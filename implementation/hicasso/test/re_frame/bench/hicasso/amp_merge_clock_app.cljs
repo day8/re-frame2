@@ -550,8 +550,12 @@
   10.26 10.26 10.33 10.28` and then `8.12` for ever, a +27% step falling
   after the SIXTH execution of the site. `{:warmup 8 :samples 12}` puts
   that step inside the warm-up, doubles each phase stratum to n = 20, and
-  is what `coldmount_app`, `p0_converge_app` and `p0_reagent_app` — every
-  other full-page-mount harness on this instrument — already run.
+  is what every other harness riding [[lane/mount-batch!]] already runs.
+  That set is checkable and small — `(lane/mount-batch!` has five call
+  sites on this lane, this file, `direct_return_clock_app`,
+  `coldmount_app`, `p0_converge_app` and `p0_reagent_app` — and the last
+  three all sample at 8/12, so the two clocks were the lane's only
+  batched-mount outliers.
 
   WHAT THIS DOES NOT CLAIM. That warm-up PRODUCED the 1.4737. One round of
   five, no second window, and a box bracketed quiet at its two ends but
