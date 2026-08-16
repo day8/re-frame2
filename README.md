@@ -159,8 +159,8 @@ docs/
 examples/                      Worked examples organised by concept — core/ fundamentals,
                                capabilities/ (one framework subsystem per folder), patterns/
                                composition recipes, real-apps/ (RealWorld et al.), substrates/
-                               (the same apps on other substrates — UIx, reagent-slim),
-                               ui/ (re-frame.ui variants). Test-free.
+                               (the same apps on other substrates — UIx, reagent-slim).
+                               Test-free.
 testbeds/                      Shared framework-behavior testbed surfaces (consumed by Xray + Story
                                + MCP servers). Bundle-isolated from production builds.
   deliberate_throw/            4 :rf.error/* trigger sites (handler / fx / flow / machine)
@@ -180,10 +180,7 @@ implementation/                CLJS reference implementation — per-artefact su
                                jar with its own deps.edn, on the top-level shadow-cljs classpath.
   core/                        day8/re-frame2 — registry, drain, fx, dispatch, subscribe,
                                frame-provider, trace, source-coords, substrate, elision
-  freehand/                    re-frame.freehand — RETIRED, awaiting removal.
-                               In-tree only; never published
-  ui/                          re-frame.ui, the compiled-view substrate — RETIRED, awaiting
-                               removal. In-tree only; never published
+  hicasso/                     day8/re-frame2-hicasso — Hicasso, the re-frame-native view layer
   adapters/
     reagent/                   day8/re-frame2-reagent — the Reagent adapter (browser default)
     reagent-slim/              day8/reagent-slim — slim Reagent fork (reagent2.core); same view
