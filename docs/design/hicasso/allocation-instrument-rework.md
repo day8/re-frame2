@@ -476,6 +476,29 @@ controls'. V3 records the floor's leg spread at each of V1's three pages beside
 the controls'. If the floor cannot pass τ, that is a finding about the floor's
 measurability at small B, not a reason to widen τ.
 
+**OUTCOME — V3 has run twice and τ is NOT pinned** (`rf2-e9wr`, 2026-08-16,
+producing commit `2cf87aed5e`; results at [the arms' spread does not
+collapse](studio/the-arms-spread-does-not-collapse.md)). The first run
+(2026-08-14) measured the controls at a worst relative leg deviation of
+**0.99%**, which by the rule above lands τ near **0.02 – 0.05** — a value that
+refused every arm on the rig, because the arms then carried a fixed ≈ 7 KB
+first-leg excess the controls' work unit structurally cannot have. The second
+run took the same two witnesses again on the instrument `rf2-oiy1` primed at
+`ecd4f6e7f3`, where that first-leg term is excluded from every cohort. The term
+is gone from the cohorts and the floor arm now certifies in 41 of 72 windows —
+but **the arms' spread did not collapse toward the controls'**, which was the
+whole prediction. It is wide (0.00% – 38.91% over the 42 collection-free
+windows once five six-figure excursions are set aside) and it is not one
+population: every collection-free round-3 window read ≤ 0.19% while every
+round-2 window read 2.66% – 20.37%, in all six runs.
+
+So **this witness is reported unusable as specified**, on the sentence above
+that anticipates it. τ stays the declared placeholder at 0.25, which is *more*
+permissive than the controls license rather than conservative as `p0_run.cjs`'s
+header used to claim. What would pin it is a corroboration rule for arm windows
+— the thing the arms have no 8 B/double prediction to supply — and that is a
+question about the witness's design, not about τ's value.
+
 ### Validity witness V4 — the pinned probes
 
 Hermetic, no browser, in `p0_ladder_structural.test.cjs` beside the existing
