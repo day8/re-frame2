@@ -41,19 +41,22 @@ alias in `deps.edn`:
 ```
 
 Then select that alias in the build, beside the one that puts the compiler on the
-classpath:
+classpath — shadow-cljs reads its classpath from `deps.edn`, so an alias that is
+not named here is not on it:
 
 ```clojure
 ;; shadow-cljs.edn
-{:deps   {:aliases [:shadow :test]}
- :builds {:test {:target    :node-test
-                 :output-to "out/node-tests.js"}}}
+{:deps {:aliases [:shadow :test]}}
 ```
 
 The path is relative to *your* `deps.edn`, exactly as the artifact coordinates
-above are. L3 additionally reaches for Testing Library, which is an npm package
-rather than a classpath entry: `npm install --save-dev @testing-library/dom`, and
-`@testing-library/user-event` as well if your tests drive real interactions.
+above are. Which build target the tests then run under is a choice per level, and
+the ladder below is the guide to it: L0–L2 are browser-free and need no DOM, while
+L3 mounts real React and L4 wants real engines.
+
+Testing Library is the one further thing L3 reaches for, and it is an npm package
+rather than a classpath entry: `npm install --save-dev @testing-library/dom`, plus
+`@testing-library/user-event` if your tests drive real interactions.
 
 ## The testing ladder
 
