@@ -16,24 +16,13 @@ is removed from production builds.
 3. Open Xray's **Hicasso** tab and select the view occurrence that ran.
 4. Read its cause, fan-out, and attribution.
 
-!!! warning "The Xray guide does not yet document the Hicasso tab"
-
-    Steps 3 and 4 — and the read topology, advisor, and explain-render sections
-    below — all live in one place: Xray's **Hicasso** tab, which sits alongside
-    Epoch, app-db, Views, Trace, Machine, and Routes in Dynamic mode. The tab is
-    always present; when the inspected app is not running Hicasso it says so in
-    those words, rather than showing you an empty table to interpret. It carries
-    six views: **Mounted** (which boundaries are mounted, over which frames),
-    **Reads** (which boundaries read each subscription), **Intents** (what was
-    dispatched, in order, inside the retained window), **Why** (which reads
-    changed, and what that can and cannot prove), **Advisor**, and **Causal**.
-
-    The tab ships, but the [Xray guide](../../xray/index.md) describes none of
-    it — its panel tour still enumerates six tabs, and the Hicasso tab is the
-    seventh. So this chapter is the only prose description of it anywhere, which
-    is why the sections below are written out rather than linked. Closing that
-    gap is tracked as `rf2-3bwos`; until it lands, there is nothing in the Xray
-    corpus to link to.
+Steps 3 and 4 — and the read topology, advisor, and explain-render sections
+below — all happen in one place: Xray's **Hicasso** tab, in Dynamic mode. [11.
+The Hicasso tab](../../xray/11-hicasso-tab.md) is its reference chapter: what
+each of its views asks, how to read an empty one, and why the advisor refuses to
+recommend a native route. This chapter covers the same ground from the
+application side — which cause you are looking at, which pressure owns it, and
+what to change.
 
 An **epoch** is one event pipeline run, from dispatch through its state commit.
 Xray organises its evidence around epochs.
