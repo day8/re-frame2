@@ -4056,9 +4056,9 @@ jobs:
       #     tokens) over 4 staged surfaces, compiling 4 testbed bundles
       #     instead of 12 — ~80s warm (rf2-ano54).
       #   - Story :play-script CI-as-test gate (rf2-3qcxk): drives the
-      #     live Story shell over the single counter-with-stories
-      #     testbed and runs every variant's :play-script. This is the
-      #     gate that renders the assertion-strip, so the rf2-5lw9w
+      #     live Story shell over the runner's own testbed roster and
+      #     runs every variant's :play-script. This is the gate that
+      #     renders the assertion-strip, so the rf2-5lw9w
       #     assertion-strip :key fix stays covered on the PR critical
       #     path.
       #
@@ -4074,9 +4074,17 @@ jobs:
       # `:play-script` slot doubles as an automated regression test.
       # The runner discovers them via `re-frame.story.play.ci-runner`,
       # drives each through the live shell, and reports a structured
-      # pass/fail row per variant. Kept on the PR critical path: it is a
-      # single-testbed compile and is the live render path that exercises
-      # the assertion-strip (rf2-5lw9w).
+      # pass/fail row per variant. Kept on the PR critical path: it
+      # compiles the runner's own testbed roster, and it is the live
+      # render path that exercises the assertion-strip (rf2-5lw9w).
+      # WHICH testbeds, and how many, is deliberately not written here
+      # (rf2-1s53x) — the same call `hicasso-complaint-catalogue` above
+      # makes about its rule count, for the same reason. `TESTBEDS` in
+      # examples/scripts/serve-and-run-story-play-scripts.cjs is the
+      # roster and nothing links a count in this file to that list, so
+      # this sentence read "a single-testbed compile" straight through
+      # the roster growing a second entry under rf2-kttom. The runner
+      # names each entry as it drives it.
       - name: Run Story :play-script CI-as-test gate
         if: needs.detect_changed_surfaces.outputs.story_xray_browser == 'true'
         run: npm run test:story-play-scripts
