@@ -227,7 +227,9 @@
 // to satisfy `scripts/check_gate_scheduling.py`, which is a hot-zone edit and a
 // sequenced dispatch for a gate that already exists.
 //
-// THIS IS THE THIRD ENTRY SOURCE THE RETIREMENT NOTE ABOVE APPLIES TO. If this
+// THIS IS THE SECOND ENTRY SOURCE THE RETIREMENT NOTE ABOVE APPLIES TO — that
+// note calls the optional modules "the ONE entry source here that is not
+// lane-scoped", and as of this row there are two. If this
 // directory is ever retired these two rows must MOVE, exactly as the optional
 // modules must — they are core's instruments, not the lane's, and they are here
 // only because this is where a warnings-fatal browser compile still runs. That
