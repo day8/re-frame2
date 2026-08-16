@@ -4798,91 +4798,18 @@ test('hicasso-complaint-catalogue is UNCONDITIONAL and runs both modes (rf2-hic-
 // ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
-// rf2-drpa3.70 — the React surfaces and the browser lane.
+// rf2-drpa3.70 — the browser lane is gated AND required.
 //
-// F1c shipped an interpreted React emitter whose real claim is what a BROWSER
-// does with its output, and two `*-dom-cljs-test` namespaces that mount
-// through `react-dom/client` to prove it. Those files already ride the
-// `:browser-test` build (freehand/src + freehand/test are on :source-paths;
-// the build's `-dom-cljs-test$` regex selects them) — but `cljs-browser` is
-// surface-gated, so a Freehand-only PR skipped the only lane that can execute
-// them.
-//
-// The `cljs` job is not a substitute. The `:node-test` regex matches the very
-// same files, where they find no DOM and self-skip. Green, and worth nothing.
+// The original subject was Freehand's interpreted React emitter and its two
+// mounted `*-dom-cljs-test` namespaces, which rode `:browser-test` while
+// `cljs-browser` stayed surface-gated — so a Freehand-only PR skipped the only
+// lane that could execute them. That subject retired with the tree
+// (rf2-0yp7w.6), but the INVARIANT it established did not: arming an output
+// helps only if the lane it arms is still gated on that output and still
+// reachable from the single required context. The mounted hicasso DOM
+// witnesses now ride `:browser-test` on exactly that basis, so the two pins
+// below stay.
 // ---------------------------------------------------------------------------
-
-// rf2-drpa3.66 — the fixture corpus is the OTHER half of the Freehand surface.
-//
-// conformance.cljc reads spec/conformance/freehand/fixtures/*.edn at
-// MACRO-EXPANSION time and inlines the value, so both host suites assert
-// against those exact bytes. rf2-drpa3.58 armed implementation/freehand/** but
-// not the corpus it consumes: a fixture-only PR classified as nothing and BOTH
-// newly-required host jobs skipped, unexplained, past `all-required-passed`.
-//
-// The always-on conformance-index check is not a substitute — it verifies that
-// an active row NAMES AN EXISTING FIXTURE, never the fixture's contract VALUES.
-// A mutation that preserves the path and the `:fh/id` (e.g. flipping
-// FH-CALL-001's `:predicates :view?`) keeps that check green and reds
-// descriptor_cljs_test.cljc on both hosts — but only if the hosts RUN.
-
-test('freehand conformance fixtures arm both host suites (rf2-drpa3.66)', () => {
-  // Every fixture the corpus ships today, by conformance family.
-  for (const file of [
-    'spec/conformance/freehand/fixtures/fh-call-001.edn',
-    'spec/conformance/freehand/fixtures/fh-props-003.edn',
-    'spec/conformance/freehand/fixtures/fh-event-001.edn',
-    'spec/conformance/freehand/fixtures/fh-struct-007.edn',
-  ]) {
-    const result = classify(file);
-    assert.equal(
-      result.implementation_jvm,
-      'true',
-      `${file} must arm implementation_jvm or the required jvm-freehand job SKIPS on a fixture-only PR`,
-    );
-    assert.equal(
-      result.cljs_node_test,
-      'true',
-      `${file} must arm cljs_node_test — the :node-test build inlines this fixture too`,
-    );
-  }
-});
-
-test('the freehand fixture arm is ROOT matching, not an enumeration (rf2-drpa3.66)', () => {
-  // Same rot argument as the artefact-root test above: a POSIX `case` glob's
-  // `*` spans `/`, so the whole corpus root is covered at any depth. These
-  // paths do not exist yet — they are the shapes the corpus takes if the
-  // fixtures gain per-family subdirectories — pinned so a future narrowing of
-  // the case reds HERE rather than silently skipping two required jobs.
-  for (const file of [
-    'spec/conformance/freehand/fixtures/props/fh-props-004.edn',
-    'spec/conformance/freehand/fixtures/call/deeply/nested/fh-call-999.edn',
-  ]) {
-    const result = classify(file);
-    assert.equal(
-      result.implementation_jvm,
-      'true',
-      `future nested fixture must arm implementation_jvm: ${file}`,
-    );
-    assert.equal(
-      result.cljs_node_test,
-      'true',
-      `future nested fixture must arm cljs_node_test: ${file}`,
-    );
-  }
-});
-
-test('freehand fixtures stay OFF the heavy gates, like the artefact (rf2-drpa3.66)', () => {
-  // Scope guard. The fixtures feed exactly the suites the artefact case arms
-  // and nothing else, so this arm must not drift wider than
-  // implementation/freehand/* — widen both together or neither. cljs_browser
-  // left this list under rf2-drpa3.70, on both cases at once: FH-STRUCT-007
-  // and FH-ROUTELINK-001..003 are read by the mounted-DOM tests.
-  const result = classify('spec/conformance/freehand/fixtures/fh-call-001.edn');
-  for (const key of ['cljs_prod', 'bundle_isolation']) {
-    assert.equal(result[key], 'false', `freehand fixtures must not arm ${key}`);
-  }
-});
 
 test('cljs-browser is job-gated on cljs_browser and is REQUIRED (rf2-drpa3.70)', () => {
   // Arming the output only helps if the lane it arms is still surface-gated on
@@ -4901,63 +4828,14 @@ test('cljs-browser is job-gated on cljs_browser and is REQUIRED (rf2-drpa3.70)',
 });
 
 // ---------------------------------------------------------------------------
-// rf2-49upn — the conformance INDEX joins its fixtures on the arm.
-//
-// scripts/check_freehand_conformance_index.py proves the STATIC half of every
-// active row: an assertion under implementation/freehand/test/ reaches the
-// row's fixture, from a lane serving every (mode, host) cell the row claims.
-// The DYNAMIC half — that the assertion PASSES — is the lane exit codes, which
-// the census cannot see. freehand-conformance.yml is unfiltered and
-// Python-only, so an index-only PR used to certify the claim on a commit where
-// jvm-freehand, `cljs` and cljs-browser were all SKIPPED (the shape the #6907
-// merged-PR audit flagged). Arming the index binds the two halves to one
-// commit under `all-required-passed`.
-//
-// Both directions are pinned: the index arms the three lanes, its two sibling
-// documents under the same root do not.
-// ---------------------------------------------------------------------------
-
-test('the freehand conformance INDEX arms the lanes that execute its rows (rf2-49upn)', () => {
-  const result = classify('spec/conformance/freehand/conformance-index.md');
-  assert.equal(
-    result.implementation_jvm,
-    'true',
-    'the index must arm implementation_jvm — the jvm lane serves every `jvm` and `ssr` cell a row can claim',
-  );
-  assert.equal(
-    result.cljs_node_test,
-    'true',
-    'the index must arm cljs_node_test — the node lane serves the structural tier of the `browser` column',
-  );
-  assert.equal(
-    result.cljs_browser,
-    'true',
-    'the index must arm cljs_browser — the Chromium lane serves the mounted tier and every qualified `host:<name>` cell',
-  );
-});
-
-test('freehand conformance PROSE is not the index — no over-broadening (rf2-drpa3.66, rf2-49upn)', () => {
-  // The route is the fixtures root plus the index, NOT
-  // spec/conformance/freehand/**. README.md is the document that DEFINES the
-  // addressing scheme: it speaks in illustrative ids and is excluded from the
-  // census's own citation scan for that reason, so it cannot change what a
-  // lane proves and does not pay for three lanes. It was TWO files until
-  // rf2-0yp7w.8 deleted donor-inventory.md with check_donor_inventory.py.
-  for (const file of [
-    'spec/conformance/freehand/README.md',
-  ]) {
-    const result = classify(file);
-    assert.equal(result.implementation_jvm, 'false', `${file} must not arm implementation_jvm`);
-    assert.equal(result.cljs_node_test, 'false', `${file} must not arm cljs_node_test`);
-    assert.equal(result.cljs_browser, 'false', `${file} must not arm cljs_browser`);
-  }
-});
-
-test('the index arm reaches its lanes through REQUIRED jobs (rf2-49upn)', () => {
+test('the node lane reaches its jobs through REQUIRED jobs (rf2-49upn)', () => {
   // Arming an output binds nothing unless the lane it arms is still gated on
   // that output AND still reachable from the single required context. The
-  // The sibling pin below covers cljs-browser; `cljs` is the node lane, and
-  // this is the other leg of the same tripod.
+  // sibling pin above covers cljs-browser; `cljs` is the node lane, and this
+  // is the other leg of the same tripod. (Named for the freehand conformance
+  // INDEX arm that first needed it; that arm retired with the corpus in
+  // rf2-0yp7w.6, but every other armed output still depends on these two
+  // facts, so the pin outlives its original caller.)
   const workflow = fs.readFileSync(WORKFLOW, 'utf8');
   assert.match(
     jobBlock(workflow, 'cljs'),
@@ -4972,15 +4850,6 @@ test('the index arm reaches its lanes through REQUIRED jobs (rf2-49upn)', () => 
       `aggregator must list ${job} in needs: — otherwise the census's claim rides an advisory lane`,
     );
   }
-});
-
-test('the standalone freehand-artefact workflow is gone (one owner, not two) (rf2-drpa3.58)', () => {
-  assert.equal(
-    fs.existsSync(path.join(WORKFLOW_DIR, 'freehand-artefact.yml')),
-    false,
-    'freehand-artefact.yml must not coexist with the folded-in jvm-freehand job: ' +
-      'two half-owners of one lane drift, and the standalone copy can never be required',
-  );
 });
 
 // ---------------------------------------------------------------------------
@@ -5228,8 +5097,6 @@ test('the spec/* catch-all does not shadow the narrower spec arms (rf2-61ar)', (
   assert.equal(classify('spec/api-manifest.edn').cljs_node_test, 'true');
   assert.equal(classify('spec/conformance/fixtures/dispatch.edn').cljs_browser, 'true',
     'the shared conformance corpus keeps all four outputs (rf2-qmiiz)');
-  assert.equal(classify('spec/conformance/freehand/conformance-index.md').cljs_browser, 'true',
-    'the freehand ledger keeps its three lanes (rf2-49upn)');
 });
 
 test('the prose arms reach lanes that are still gated on implementation_jvm (rf2-61ar)', () => {

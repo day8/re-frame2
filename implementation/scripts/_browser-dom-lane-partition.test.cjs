@@ -27,8 +27,9 @@
  * A bench that silently stops running is worse than a slow lane, so the
  * relationship is asserted rather than commented.
  *
- * DERIVED, NEVER RESTATED (the rf2-k41ph posture, matching
- * `scripts/check_freehand_conformance_index.py`): both patterns are read out of
+ * DERIVED, NEVER RESTATED (the rf2-k41ph posture, which
+ * `scripts/check_freehand_conformance_index.py` also held until it retired
+ * with the Freehand corpus): both patterns are read out of
  * `shadow-cljs.edn`, and the namespaces out of the `(ns ...)` forms of the
  * files themselves. A copy of either would be a second authority with nothing
  * holding it in step with the first.

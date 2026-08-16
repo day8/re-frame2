@@ -106,7 +106,7 @@
 
 (defn slurp-resource
   "Return the text of the committed `spec/` data file at `path` (relative
-  to that root, e.g. `conformance/freehand/fixtures/fh-props-001.edn`),
+  to that root, e.g. `conformance/fixtures/after-hierarchy.edn`),
   read in the macro-expansion environment `env`.
 
   Under a ClojureScript compile — `&env` carries the compiling `:ns` —

@@ -1216,8 +1216,19 @@
   worked example, applied here — pairs it with no alias table and no code
   change; the row's Tags cell was completed alongside it (see
   `tags-column-schema-validation-failure-row-is-paired-and-mutation-proven`
-  below) so the newly-live pairing does not immediately red."
-  94)
+  below) so the newly-live pairing does not immediately red.
+
+  Lowered 94 → 93 by rf2-0yp7w.4 (the re-frame.ui cut), and the removal is in
+  this same diff: the `:rf.warning/cross-frame-carried-op` catalogue row in
+  spec/009 retired to `n/a (retired)` because its ONLY emitter was the compiled
+  `re-frame.ui` view substrate deleted here — verified by `git grep` over
+  implementation/, tools/ and examples/ returning zero surviving references.
+  A retired row claims no Tags schema, so the single pairing it held is gone.
+  The canonical `CrossFrameCarriedOpTags` schema itself SURVIVES in
+  spec/Spec-Schemas.md (it is a member of a larger record schema there); this
+  integer records the pairing the diff reaches, not the schema roster, so it
+  moves by exactly one."
+  93)
 
 (def ^:private tags-column-shrink-only-baseline
   "SHRINK-ONLY. The rows that still red when the arm is armed — pre-existing
