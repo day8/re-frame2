@@ -1,7 +1,11 @@
 # The re-frame2 API
 
-This is the **complete public API reference** for the ClojureScript implementation of
-re-frame2. One page per public namespace. Entries use a consistent shape: **Kind**,
+This is the **complete public API reference** for the manifest-tracked namespaces of
+the ClojureScript implementation of re-frame2 — one page per public namespace, with
+the boundary of "manifest-tracked" set out under **Completeness** below. The one
+public surface that falls outside it is the Hicasso view layer, which keeps its own
+reference: [Hicasso API reference](../core/hicasso/api-reference.md).
+Entries use a consistent shape: **Kind**,
 **Signature**, **Description** (contract, including error ids where they are part of
 the surface), and an **Example** where a call is worth showing. The Example is
 optional — many contract-only surfaces (compile-time template forms, symbol-resolution
@@ -18,6 +22,7 @@ chose it.
 | Day-to-day app API | [`re-frame.core`](re-frame.core.md) (the facade) |
 | Optional capabilities | machines, routing, resources, flows, schemas, HTTP, SSR |
 | Substrate adapters | `re-frame.adapter.{reagent,uix}` — first-class and permanent |
+| The Hicasso view layer | [Hicasso API reference](../core/hicasso/api-reference.md) — a separate corpus, not a page here |
 | Tests | [`re-frame.test-support`](re-frame.test-support.md), [`re-frame.test-helpers`](re-frame.test-helpers.md) |
 | Production timing | [`re-frame.performance`](re-frame.performance.md) |
 
@@ -41,6 +46,17 @@ no page — or an eligible var with no member heading (`### \`var\``, or a
 `#### \`var\`` facade-pointer entry on the owning/facade page) — turns the CI check
 red. A member heading may be written bare (`### \`sub\``) or namespace-qualified
 (`### \`re-frame.machines/machine-transition\``).
+
+**Where Hicasso sits.** `re-frame.hicasso` and its optional modules carry no
+api-manifest rows, so the enforcement above neither demands a page here nor notices
+their absence. That is deliberate rather than an oversight: the view layer is
+pre-alpha, its surface is still moving, and it documents itself in
+[its own API reference](../core/hicasso/api-reference.md) alongside the guide that
+teaches it. Read this corpus for the pipeline — events, app-db, subscriptions,
+effects, the optional capabilities and the substrate adapters — and read the Hicasso
+reference for `h/defview`, `h/sub`, `h/mount!` and the rest of the authoring model.
+The two do not overlap: a Hicasso application uses both, because Hicasso replaces the
+view notation and nothing else.
 
 ## Namespaces
 
@@ -92,6 +108,8 @@ red. A member heading may be written bare (`### \`sub\``) or namespace-qualified
 ## Related corpora
 
 - [Core guide](../core/introduction.md) — progressive teaching
+- [Hicasso API reference](../core/hicasso/api-reference.md) — the view layer's own
+  corpus, outside the api-manifest
 - [spec/API.md](../../spec/API.md) — normative var catalogue with tiers (projection of
   the api-manifest)
 - Feature guides under Machines, Resources, Routing, SSR, Async tabs
