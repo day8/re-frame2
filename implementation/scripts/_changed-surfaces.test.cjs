@@ -117,6 +117,36 @@ test('Xray feature_matrix testbed .cljs changes trigger story_xray_browser', () 
   assert.equal(result.story_xray_browser, 'true');
 });
 
+// rf2-kttom — the `.html` hole. The browser runners COPY each testbed's
+// hand-written index.html into the served output dir and navigate to it
+// (`stageTestbedHtml` in serve-and-run-story-play-scripts.cjs and its
+// feature-load sibling), so the served document is a testbed SOURCE file:
+// break its `<script src>` or its `#app` node and every play in that deck
+// fails. It was not in the runtime-extension predicate, so an HTML-only
+// regression classified as no-surface and skipped the browser gate.
+test('Story testbed .html changes trigger story_xray_browser (the runner serves it — rf2-kttom)', () => {
+  const exemplar = 'tools/story/testbeds/hicasso_counter/index.html';
+  assert.ok(
+    fs.existsSync(path.join(REPO_ROOT, exemplar)),
+    `${exemplar} must exist — this row's whole claim is "a real served testbed document"`,
+  );
+  assert.equal(classify(exemplar).story_xray_browser, 'true');
+});
+
+test('Xray testbed .html changes trigger story_xray_browser (rf2-kttom)', () => {
+  const result = classify('tools/xray/testbeds/feature_matrix/index.html');
+  assert.equal(result.story_xray_browser, 'true');
+});
+
+// The predicate widened by ONE extension and only under the two testbed /
+// src trees. An .html elsewhere under tools/story — the spec tree, say —
+// is still inert, which is what keeps the widening a fix rather than a
+// blanket arm.
+test('Story spec-tree .html changes do NOT trigger story_xray_browser (rf2-kttom)', () => {
+  const result = classify('tools/story/spec/diagrams/overview.html');
+  assert.equal(result.story_xray_browser, 'false');
+});
+
 test('Story spec-only .md changes do NOT trigger story_xray_browser (rf2-k9ekz)', () => {
   const result = classify('tools/story/spec/Spec.md');
   assert.equal(result.story_xray_browser, 'false');

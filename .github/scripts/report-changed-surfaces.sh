@@ -263,11 +263,24 @@ mark_all() {
 # story-feature-load + xray-feature-gate Playwright runners (their
 # variant graph IS what the gate exercises), so a runtime-extension
 # change there does fire the gate.
+#
+# rf2-kttom — `.html` is on the list, and its absence was a real hole.
+# The browser runners do not merely compile a testbed: each one COPIES the
+# testbed's hand-written `index.html` into the served output dir and then
+# navigates a browser to it (`stageTestbedHtml` in
+# examples/scripts/serve-and-run-story-play-scripts.cjs and its
+# feature-load sibling; the `:dev-http` roots in
+# implementation/shadow-cljs.edn resolve the same file). So the served
+# document IS a testbed source file — break its `<script src>`, its
+# `#app` node or its charset and every play in that deck fails — yet an
+# HTML-only change used to classify as no-surface and skip the gate
+# entirely. It is a runtime path by the same test as the others: change
+# it and the browser sees something different.
 is_story_xray_runtime_path() {
   case "$1" in
     tools/story/src/*|tools/xray/src/*|tools/story/testbeds/*|tools/xray/testbeds/*)
       case "$1" in
-        *.cljs|*.cljc|*.js|*.cjs|*.css|*.scss)
+        *.cljs|*.cljc|*.js|*.cjs|*.css|*.scss|*.html)
           return 0 ;;
         *)
           return 1 ;;

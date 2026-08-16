@@ -19,9 +19,21 @@ body independent from the renderer:
    :substrates #{:reagent}})
 ```
 
-Today, the tutorial and scaffolded Story path are Reagent-focused. The broader
-contract leaves room for UIx as adapter coverage matures. The design
-reason is still worth understanding now: a variant should describe a state and
+The tutorial and the scaffolded path are Reagent-focused because that is where
+most readers start, but the substrate set is not a Reagent set. A member of
+`:substrates` names which registered render fn embeds the subject — the
+authoring layer — and not which adapter `rf/init!` installed. `:hicasso` is
+the member that makes the difference visible, since Hicasso ships no adapter
+of its own: a deck declaring `:substrates #{:hicasso}` runs in a
+Reagent-hosted shell, resolves its own frame through React context, and
+responds to writes into it. There is a worked one at
+`tools/story/testbeds/hicasso_counter/`, and it rides the same PR-path play
+gate every Reagent deck does.
+
+Story installs the `:reagent` render fn itself and leaves `:uix` and
+`:hicasso` to the host application, because each one's only dependency is
+the host's — five lines at boot, and Story core never names them. The design
+reason is still worth understanding: a variant should describe a state and
 behaviour, not smuggle a renderer-specific render function into the artifact.
 
 When a substrate cannot render a variant, Story should say that. This is the

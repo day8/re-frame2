@@ -2,14 +2,35 @@
 /*
  * Story `:play-script` CI-as-test runner.
  *
- * Compiles the counter-with-stories Story testbed, serves it, opens
- * the Story shell in Playwright, enumerates every registered variant
+ * Compiles every testbed in the ROSTER below, serves them, opens each
+ * one's Story shell in Playwright, enumerates every registered variant
  * whose body carries a non-empty `:play-script` or `:plays` slot (via
  * the `window.__rf2_story_ci` global installed by
  * `re-frame.story.play.ci-runner/install-ci-hooks!`), navigates the
  * shell to each variant, waits for each play's terminal status (`:pass`,
  * `:fail`, or `:cannot-run`), and prints a per-play report. `:cannot-run` is
  * terminal but never expected, so it produces a failed row without a timeout.
+ *
+ * The roster (rf2-kttom)
+ * ----------------------
+ * This runner drove ONE hardcoded testbed until the Hicasso deck landed.
+ * `TESTBEDS` is now the list, modelled on the roster/clean/compile/stage
+ * loop the sibling `serve-and-run-story-feature-load-tests.cjs` already
+ * keeps. Each entry owns its build id, HTML source, output dir, base path
+ * AND ITS OWN NON-VACUITY FLOOR — the floors differ on purpose:
+ *
+ *   counter-with-stories  four rows, both sides. It owns proof of THIS
+ *                         RUNNER's pass/fail semantics, so its seeded
+ *                         expected-fail fixtures must stay discovered.
+ *   hicasso-counter       one row, pass side only. It owns proof that a
+ *                         view authored on the NATIVE substrate paints
+ *                         and responds inside Story. Manufacturing a
+ *                         failing hicasso variant would test the runner
+ *                         twice without strengthening that claim, and
+ *                         requiring four rows would pad the deck.
+ *
+ * Each testbed is served under its own base path and boots its own shell,
+ * so one deck's variants can never satisfy another's floor.
  *
  * Multi-play
  * ----------
@@ -75,22 +96,6 @@ const FAILURE_REPORT_PATH = path.join(
   FAILURE_REPORT_DIR,
   'failure-report.json',
 );
-const TESTBED_BUILD = 'examples/counter-with-stories';
-const TESTBED_DIR_NAME = 'counter-with-stories';
-const TESTBED_HTML = path.join(
-  REPO_ROOT,
-  'tools',
-  'story',
-  'testbeds',
-  'counter_with_stories',
-  'index.html',
-);
-const TESTBED_OUT = path.join(OUT_ROOT, TESTBED_DIR_NAME);
-// Path-only (no hash) so we can compose `?variant=...#/stories` URLs
-// per the share-link convention — query params MUST come BEFORE the
-// hash route or `window.location.search` will be empty and the share
-// hydrator will skip the variant select.
-const TESTBED_BASE = `/${TESTBED_DIR_NAME}/`;
 const STORY_FRAGMENT = '#/stories';
 const READY_TIMEOUT_MS = 30000;
 const TERMINAL_TIMEOUT_MS = Number(
@@ -151,21 +156,24 @@ function log(line) {
   process.stdout.write(`${line}\n`);
 }
 
-// Clean-stage boundary (rf2-bf4vdy): remove + recreate the testbed's output
+// Clean-stage boundary (rf2-bf4vdy): remove + recreate each testbed's output
 // dir BEFORE shadow-cljs compiles into it, so every served file is produced
 // from the current source this run — no stale file from a previous run can
 // satisfy a browser request the current testbed no longer produces. Cleans
-// only this one dir (not the shared OUT_ROOT); the helper path-guards the
-// target to live strictly under OUT_ROOT.
-function cleanTestbedOutDir() {
-  cleanStageDirs([TESTBED_OUT], OUT_ROOT);
+// only the roster's own dirs (not the shared OUT_ROOT); the helper
+// path-guards every target to live strictly under OUT_ROOT.
+function cleanTestbedOutDirs() {
+  cleanStageDirs(TESTBEDS.map((t) => t.outDir), OUT_ROOT);
 }
 
-function compileTestbed() {
+function compileTestbeds() {
   // Spawn the resolved shadow-cljs JS entry-point under THIS node binary,
   // shell-free (rf2-y9o5e3). Quiet-on-success: capture output and surface
-  // it only on failure (or under RF2_VERBOSE_TESTS).
-  const args = [shadowCljsRunner(), 'compile', TESTBED_BUILD];
+  // it only on failure (or under RF2_VERBOSE_TESTS). ONE invocation for the
+  // whole roster — shadow-cljs compiles the builds against a single JVM, so
+  // the second testbed costs a fraction of the first.
+  const builds = TESTBEDS.map((t) => t.build);
+  const args = [shadowCljsRunner(), 'compile', ...builds];
   const result = spawnSync(process.execPath, args, {
     cwd: IMPL_ROOT,
     encoding: 'utf8',
@@ -175,19 +183,21 @@ function compileTestbed() {
     process.stdout.write(output);
   }
   if (result.status !== 0) {
-    console.error(`> shadow-cljs compile ${TESTBED_BUILD}`);
+    console.error(`> shadow-cljs compile ${builds.join(' ')}`);
     throw new Error(`shadow-cljs compile failed (exit ${result.status})`);
   }
 }
 
 function stageTestbedHtml() {
-  if (!fs.existsSync(TESTBED_OUT)) {
-    throw new Error(`Build output dir missing: ${TESTBED_OUT}`);
+  for (const testbed of TESTBEDS) {
+    if (!fs.existsSync(testbed.outDir)) {
+      throw new Error(`Build output dir missing: ${testbed.outDir}`);
+    }
+    if (!fs.existsSync(testbed.htmlSrc)) {
+      throw new Error(`HTML source missing: ${testbed.htmlSrc}`);
+    }
+    fs.copyFileSync(testbed.htmlSrc, path.join(testbed.outDir, 'index.html'));
   }
-  if (!fs.existsSync(TESTBED_HTML)) {
-    throw new Error(`HTML source missing: ${TESTBED_HTML}`);
-  }
-  fs.copyFileSync(TESTBED_HTML, path.join(TESTBED_OUT, 'index.html'));
 }
 
 /**
@@ -225,12 +235,12 @@ function variantIdToParam(idStr) {
  * shape (`?variant=story.foo/bar#/stories`). The query is placed BEFORE the
  * hash route because shell hydration reads `window.location.search`.
  */
-async function navigateToVariant(page, baseUrl, variantId) {
+async function navigateToVariant(page, baseUrl, basePath, variantId) {
   const variantStr = variantIdToParam(variantId);
   // Share-link convention: search params BEFORE the hash route, so
   // `window.location.search` carries `?variant=...` and the share
   // hydrator picks it up on shell mount.
-  const target = `${baseUrl}${TESTBED_BASE}?variant=${encodeURIComponent(variantStr)}${STORY_FRAGMENT}`;
+  const target = `${baseUrl}${basePath}?variant=${encodeURIComponent(variantStr)}${STORY_FRAGMENT}`;
   // Always full-load (not reload) — each variant gets a fresh shell
   // mount so the auto-run fires deterministically without inheriting
   // previous run-state.
@@ -356,8 +366,8 @@ async function discoverVariants(page) {
   });
 }
 
-async function bootShell(page, baseUrl) {
-  await navigate(page, `${baseUrl}${TESTBED_BASE}${STORY_FRAGMENT}`, {
+async function bootShell(page, baseUrl, basePath) {
+  await navigate(page, `${baseUrl}${basePath}${STORY_FRAGMENT}`, {
     timeoutMs: NAV_TIMEOUT_MS,
   });
   await page.evaluate(() => {
@@ -392,8 +402,13 @@ function summariseResults(results) {
     const tag = r.matched ? 'OK  ' : 'MISS';
     const actual = (r.runState && r.runState.status) || 'no-state';
     const playLabel = r.playKey ? `[${r.playKey}]` : '';
+    // The testbed prefix is what makes a row attributable once the roster
+    // holds more than one deck: two testbeds may legitimately register
+    // variants under similar ids, and a bare row would not say which shell
+    // produced it.
+    const bed = r.testbed ? `${r.testbed}  ` : '';
     lines.push(
-      `${tag} ${r.variantId}${playLabel}  expected=${r.expected} actual=${actual}  steps=${r.runState ? r.runState.total : '?'}`,
+      `${tag} ${bed}${r.variantId}${playLabel}  expected=${r.expected} actual=${actual}  steps=${r.runState ? r.runState.total : '?'}`,
     );
     if (!r.matched) {
       // The CLJS `project-state` serialises `:passed?` as the literal
@@ -451,6 +466,7 @@ function writeFailureReport(failures, allResults, browserMessages, pageErrors = 
     uncaughtPageErrors: pageErrors.length,
     pageErrors: pageErrors.slice(-40),
     failures: failures.map((r) => ({
+      testbed: r.testbed || null,
       variantId: r.variantId,
       playKey: r.playKey || null,
       expected: r.expected,
@@ -514,6 +530,57 @@ function computeExitCode({ failures, pageErrors }) {
 // only one side of the contract is still a trust hole.
 const MIN_PLAY_ROWS = 4;
 
+// rf2-kttom — THE ROSTER.
+//
+// One entry per Story testbed this gate drives. `vacuity` is the entry's
+// own non-vacuity floor, and the two floors differ because the two
+// testbeds prove different things (see this file's header). Nothing about
+// the counter entry changed: it keeps `MIN_PLAY_ROWS` and both sides.
+const TESTBEDS = [
+  {
+    label: 'counter-with-stories',
+    build: 'examples/counter-with-stories',
+    dirName: 'counter-with-stories',
+    htmlSrc: path.join(
+      REPO_ROOT, 'tools', 'story', 'testbeds', 'counter_with_stories', 'index.html',
+    ),
+    outDir: path.join(OUT_ROOT, 'counter-with-stories'),
+    vacuity: {
+      minRows: MIN_PLAY_ROWS,
+      requireBothSides: true,
+      seededBy:
+        'the counter-with-stories testbed seeds eight rows across six ' +
+        'variants (stories.cljs §`:script` CI fixtures), both sides included',
+    },
+  },
+  {
+    label: 'hicasso-counter',
+    build: 'examples/hicasso-counter',
+    dirName: 'hicasso-counter',
+    htmlSrc: path.join(
+      REPO_ROOT, 'tools', 'story', 'testbeds', 'hicasso_counter', 'index.html',
+    ),
+    outDir: path.join(OUT_ROOT, 'hicasso-counter'),
+    vacuity: {
+      minRows: 1,
+      requireBothSides: false,
+      seededBy:
+        'the hicasso-counter deck seeds ONE meaningful play — mount the ' +
+        'boundary, click it, assert the resulting DOM and frame state ' +
+        '(rf2-kttom). Zero rows means the :hicasso registration, the view ' +
+        'alias, or the deck has drifted',
+    },
+  },
+];
+
+// Path-only (no hash) so we can compose `?variant=...#/stories` URLs per
+// the share-link convention — query params MUST come BEFORE the hash route
+// or `window.location.search` will be empty and the share hydrator will
+// skip the variant select.
+function basePathFor(testbed) {
+  return `/${testbed.dirName}/`;
+}
+
 /**
  * rf2-54xbp: NON-VACUOUS guard over the discovered play-script rows.
  *
@@ -529,24 +596,37 @@ const MIN_PLAY_ROWS = 4;
  *
  * The invariant is deliberately stronger than `rows.length > 0`:
  *
- *   1. At least `MIN_PLAY_ROWS` discovered rows (the seeded fixtures
- *      produce eight; a near-empty set is a drift signal, not success).
+ *   1. At least `minRows` discovered rows (default `MIN_PLAY_ROWS`; the
+ *      counter's seeded fixtures produce eight, and a near-empty set is a
+ *      drift signal, not success).
  *   2. At least one EXPECTED-PASS row AND at least one EXPECTED-FAIL row,
  *      so a drift that strips the expected-fail fixtures — leaving the
  *      runner's failure path uncovered — also trips, even if the floor
  *      is otherwise met.
+ *
+ * rf2-kttom made BOTH halves per-testbed, because a roster of decks that
+ * prove different things cannot share one floor. `requireBothSides` is the
+ * second half's switch and it defaults TRUE, so the counter entry — and
+ * any caller that passes no opts, including every existing unit case —
+ * keeps exactly the invariant rf2-54xbp wrote. A deck opts OUT only by
+ * saying so in the roster, and only where it has a reason: the hicasso
+ * deck's job is to prove the native substrate paints, not to re-prove the
+ * runner's failure path, which the counter already holds under continuous
+ * coverage. `minRows` still applies on the pass side, so an opted-out deck
+ * that discovers ZERO rows is still a loud red.
  *
  * Pure (rows in → verdict out) so it is unit-testable without a browser:
  * a simulated empty / under-floor / one-sided discovery must yield
  * `{ ok: false }` with a clear diagnostic.
  *
  * @param {Array} rows discovered ci-rows (each `{ 'variant-id', 'play-key', ... }`)
- * @param {{ minRows?: number }} [opts]
+ * @param {{ minRows?: number, requireBothSides?: boolean, seededBy?: string }} [opts]
  * @returns {{ ok: boolean, diagnostic: (string|null), rowCount: number,
  *             passRows: number, failRows: number }}
  */
 function checkRowsNonVacuous(rows, opts = {}) {
   const minRows = opts.minRows == null ? MIN_PLAY_ROWS : opts.minRows;
+  const requireBothSides = opts.requireBothSides !== false;
   const list = Array.isArray(rows) ? rows : [];
   let passRows = 0;
   let failRows = 0;
@@ -581,13 +661,15 @@ function checkRowsNonVacuous(rows, opts = {}) {
       failRows,
       diagnostic:
         `Only ${rowCount} :play-script / :plays row(s) discovered — below ` +
-        `the non-vacuous floor of ${minRows}. The counter-with-stories ` +
-        `testbed seeds eight rows across six variants; a near-empty set is ` +
+        `the non-vacuous floor of ${minRows}. ${
+          opts.seededBy ||
+          'the counter-with-stories testbed seeds eight rows across six variants'
+        }; a near-empty set is ` +
         `a discovery/registration/lowering drift signal, not success. ` +
         `Refusing to pass a vacuous gate (rf2-54xbp).`,
     };
   }
-  if (passRows === 0 || failRows === 0) {
+  if (requireBothSides && (passRows === 0 || failRows === 0)) {
     return {
       ok: false,
       rowCount,
@@ -600,6 +682,23 @@ function checkRowsNonVacuous(rows, opts = {}) {
         `counter-with-stories testbed seeds both (e.g. .../passing and ` +
         `.../failing); a one-sided discovery means the failure path is no ` +
         `longer under coverage. Refusing to pass a one-sided gate (rf2-54xbp).`,
+    };
+  }
+  if (!requireBothSides && passRows === 0) {
+    // The opt-out drops the EXPECTED-FAIL requirement and only that. A deck
+    // whose every discovered row is an expected-fail has no successful play
+    // at all, which for an opted-out entry is the whole of what it was
+    // rostered to prove — so it is still a red (rf2-kttom).
+    return {
+      ok: false,
+      rowCount,
+      passRows,
+      failRows,
+      diagnostic:
+        `Discovered ${rowCount} row(s) and NONE of them is expected-pass. ` +
+        `This entry waives the expected-fail requirement, not the pass one: ` +
+        `${opts.seededBy || 'its floor is at least one successful play'}. ` +
+        `Refusing to pass a gate with no successful play (rf2-kttom).`,
     };
   }
   return { ok: true, rowCount, passRows, failRows, diagnostic: null };
@@ -619,7 +718,20 @@ function groupRowsByVariant(rows) {
   return grouped;
 }
 
-async function runAllVariants(browser, baseUrl) {
+/**
+ * Drive ONE roster entry: boot its shell, discover its rows, guard them
+ * against ITS floor, and run every play.
+ *
+ * Returns `{ results, browserMessages, pageErrors }` for the caller to
+ * aggregate; the verdict is computed once, over the whole roster, so a red
+ * from either testbed reds the gate and neither can mask the other.
+ *
+ * Each entry gets its OWN browser context, which is what keeps the decks
+ * independent: localStorage (the Story shell's help-dialog prime and its
+ * shell state) and any in-page globals are per-context, so one testbed's
+ * shell can neither hydrate from nor leak into the next one's.
+ */
+async function runTestbed(browser, baseUrl, testbed) {
   const context = await browser.newContext();
   const page = await context.newPage();
   const browserMessages = [];
@@ -640,11 +752,17 @@ async function runAllVariants(browser, baseUrl) {
     browserMessages.push(message);
   });
 
+  const basePath = basePathFor(testbed);
+
   try {
-    await bootShell(page, baseUrl);
+    log('');
+    log(`--- ${testbed.label} (${testbed.build}) at ${basePath} ---`);
+    await bootShell(page, baseUrl, basePath);
     const discovery = await discoverVariants(page);
     if (discovery.error || !Array.isArray(discovery.variants)) {
-      throw new Error(`variant discovery failed: ${discovery.error || JSON.stringify(discovery)}`);
+      throw new Error(
+        `${testbed.label}: variant discovery failed: ${discovery.error || JSON.stringify(discovery)}`,
+      );
     }
     const variants = discovery.variants;
     // Prefer the per-play `rows` enumeration; fall back to the
@@ -654,7 +772,7 @@ async function runAllVariants(browser, baseUrl) {
         ? discovery.context.rows
         : variants.map((vid) => ({ 'variant-id': vid, 'play-key': null, name: null }));
     log(
-      `Discovered ${variants.length} variant(s) with :play-script / :plays — ${rows.length} play row(s) total`,
+      `${testbed.label}: discovered ${variants.length} variant(s) with :play-script / :plays — ${rows.length} play row(s)`,
     );
     if (VERBOSE) {
       for (const r of rows) {
@@ -670,11 +788,15 @@ async function runAllVariants(browser, baseUrl) {
     // rows is a discovery/registration/lowering regression, NOT "nothing
     // to assert". Fail closed with a clear diagnostic, mirroring the
     // adjacent static gates' vacuous-scan guards.
-    const vacuity = checkRowsNonVacuous(rows);
+    const vacuity = checkRowsNonVacuous(rows, testbed.vacuity);
     if (!vacuity.ok) {
       log('');
-      log(`Non-vacuous play-script guard FAILED: ${vacuity.diagnostic}`);
-      throw new Error(`vacuous play-script gate: ${vacuity.diagnostic}`);
+      log(
+        `Non-vacuous play-script guard FAILED for ${testbed.label}: ${vacuity.diagnostic}`,
+      );
+      throw new Error(
+        `vacuous play-script gate (${testbed.label}): ${vacuity.diagnostic}`,
+      );
     }
 
     const results = [];
@@ -682,11 +804,12 @@ async function runAllVariants(browser, baseUrl) {
     for (const [vid, variantRows] of grouped.entries()) {
       let navOk = true;
       try {
-        await navigateToVariant(page, baseUrl, vid);
+        await navigateToVariant(page, baseUrl, basePath, vid);
       } catch (err) {
         navOk = false;
         for (const row of variantRows) {
           results.push({
+            testbed: testbed.label,
             variantId: vid,
             playKey: row['play-key'],
             expected: expectedStatusFor(vid, row['play-key']),
@@ -715,6 +838,7 @@ async function runAllVariants(browser, baseUrl) {
           : await waitForTerminalState(page, vid);
         const actual = (runState && runState.status) || null;
         results.push({
+          testbed: testbed.label,
           variantId: vid,
           playKey,
           expected,
@@ -724,30 +848,53 @@ async function runAllVariants(browser, baseUrl) {
       }
     }
 
-    const { lines, failures } = summariseResults(results);
-    log(lines);
-    // rf2-wf5al(1): an uncaught browser `pageerror` is fatal even when
-    // every play row matched its expected status — otherwise a runtime
-    // regression (shell/hydration/dispatch exception) false-greens the
-    // gate behind a clean play-status summary.
-    if (pageErrors.length > 0) {
-      log('');
-      log(
-        `Detected ${pageErrors.length} uncaught browser pageerror(s) — failing the gate (rf2-wf5al).`,
-      );
-    }
-    const gateFailed = failures.length > 0 || pageErrors.length > 0;
-    if (gateFailed && browserMessages.length > 0) {
-      log('--- browser diagnostics ---');
-      for (const msg of browserMessages.slice(-40)) log(msg);
-    }
-    if (gateFailed) {
-      writeFailureReport(failures, results, browserMessages, pageErrors);
-    }
-    return computeExitCode({ failures, pageErrors });
+    return { results, browserMessages, pageErrors };
   } finally {
     await context.close();
   }
+}
+
+/**
+ * Drive the whole roster and compute the ONE verdict.
+ *
+ * Every testbed runs before the verdict is taken, so a red in the first
+ * does not hide what the second would have said — the summary names both,
+ * and a maintainer reading a failed CI log sees the full picture rather
+ * than the first casualty.
+ */
+async function runAllVariants(browser, baseUrl) {
+  const results = [];
+  const browserMessages = [];
+  const pageErrors = [];
+
+  for (const testbed of TESTBEDS) {
+    const run = await runTestbed(browser, baseUrl, testbed);
+    results.push(...run.results);
+    browserMessages.push(...run.browserMessages);
+    pageErrors.push(...run.pageErrors);
+  }
+
+  const { lines, failures } = summariseResults(results);
+  log(lines);
+  // rf2-wf5al(1): an uncaught browser `pageerror` is fatal even when
+  // every play row matched its expected status — otherwise a runtime
+  // regression (shell/hydration/dispatch exception) false-greens the
+  // gate behind a clean play-status summary.
+  if (pageErrors.length > 0) {
+    log('');
+    log(
+      `Detected ${pageErrors.length} uncaught browser pageerror(s) — failing the gate (rf2-wf5al).`,
+    );
+  }
+  const gateFailed = failures.length > 0 || pageErrors.length > 0;
+  if (gateFailed && browserMessages.length > 0) {
+    log('--- browser diagnostics ---');
+    for (const msg of browserMessages.slice(-40)) log(msg);
+  }
+  if (gateFailed) {
+    writeFailureReport(failures, results, browserMessages, pageErrors);
+  }
+  return computeExitCode({ failures, pageErrors });
 }
 
 async function main() {
@@ -757,8 +904,8 @@ async function main() {
   });
   const baseUrl = `http://127.0.0.1:${port}`;
 
-  cleanTestbedOutDir();
-  compileTestbed();
+  cleanTestbedOutDirs();
+  compileTestbeds();
   stageTestbedHtml();
 
   // Serve implementation/out/examples on loopback. The shared harness owns
@@ -828,4 +975,9 @@ module.exports = {
   // browser (symmetric with the computeExitCode unit coverage).
   checkRowsNonVacuous,
   MIN_PLAY_ROWS,
+  // rf2-kttom: the roster, exported so the script-policy gate can assert
+  // it names BOTH testbeds and that each entry carries its own floor —
+  // a deck silently dropped from the roster is a gate that stopped
+  // running without going red.
+  TESTBEDS,
 };
