@@ -649,13 +649,13 @@
   (testing "and both memo records still report their island's policy, so a
             tool reading the marker and the renderer reading the type
             cannot disagree"
-    (is (= "render" (.-server (n/marker memoised-render))))
-    (is (= "client-only" (.-server (n/marker memoised-client)))))
+    (is (= "render" (.-server ^js (n/marker memoised-render))))
+    (is (= "client-only" (.-server ^js (n/marker memoised-client)))))
 
   (testing "`n/lazy` is Client-only and it is not the inner island's to
             override — the server never sent the chunk, so no declaration
             can make bytes exist"
-    (is (= "client-only" (.-server (n/marker (n/lazy #(js/Promise.resolve render-island)))))))
+    (is (= "client-only" (.-server ^js (n/marker (n/lazy #(js/Promise.resolve render-island)))))))
 
   (testing "a gated island still carries the tier marker and its own
             display name, so every seam that recognises a native head
@@ -663,7 +663,7 @@
     (is (some? (n/marker plain-island)))
     (is (= "re-frame.hicasso.native-ssr-dom-cljs-test/plain-island"
            (.-displayName plain-island)))
-    (is (= "client-only" (.-server (n/marker plain-island))))))
+    (is (= "client-only" (.-server ^js (n/marker plain-island))))))
 
 (deftest the-intrinsic-forms-render-on-the-server-unconditionally
   (fresh!)
