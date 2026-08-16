@@ -1501,7 +1501,24 @@ cells independently.
 ```clojure
 (story/reg-variant :story.ui.button/all-substrates
   {:substrates #{:reagent :uix}})
+
+(story/reg-variant :story.ui.card/native
+  {:substrates #{:hicasso}})
 ```
+
+A member of `:substrates` names **which registered render fn embeds the
+subject** — the authoring layer — and not which adapter `rf/init!`
+installed. The two axes coincided while the members were `:reagent` and
+`:uix`; `:hicasso` separates them, because Hicasso ships no adapter of its
+own and a Hicasso deck runs perfectly well under a Reagent-hosted shell.
+
+Story installs `:reagent` itself and leaves `:uix` and `:hicasso` to the
+host, for the same reason in both cases: the render fn's one dependency
+is the application's, so registering it in Story core would put that
+dependency on every consumer's classpath. Five lines at boot are the whole
+of the `:hicasso` recipe, written out in
+`re-frame.story.ui.multi-substrate`'s namespace docstring and worked in
+`tools/story/testbeds/hicasso_counter/`.
 
 The multi-substrate pane (render shell) renders each substrate
 side-by-side. Substrate-specific failures render inline; see

@@ -59,6 +59,7 @@ const {
   isTerminalStatus,
   checkRowsNonVacuous,
   MIN_PLAY_ROWS,
+  TESTBEDS,
 } = require(PLAY_SCRIPTS_RUNNER);
 
 const { test, run } = createPolicyTestSuite('story-script-runners-policy');
@@ -271,17 +272,120 @@ test('checkRowsNonVacuous: seeded inventory shape (8 rows, 5 pass / 3 fail) → 
 
 // Pin the runtime call-site so a refactor can't drop the non-vacuous
 // guard back to the old "empty rows → 0 / nothing to assert" false-green.
+// The trailing `[,)]` admits rf2-kttom's per-testbed opts argument while
+// still refusing a call over anything but the discovered `rows`.
 test('play-scripts runner gates discovery on checkRowsNonVacuous (rf2-54xbp / rf2-ljyp9)', () => {
   const src = fs.readFileSync(PLAY_SCRIPTS_RUNNER, 'utf8');
   assert.match(
     src,
-    /checkRowsNonVacuous\(\s*rows\s*\)/,
-    'runAllVariants must call checkRowsNonVacuous(rows) over the discovered rows.',
+    /checkRowsNonVacuous\(\s*rows\s*[,)]/,
+    'runTestbed must call checkRowsNonVacuous(rows, …) over the discovered rows.',
   );
   assert.match(
     src,
     /if\s*\(\s*!\s*vacuity\.ok\s*\)/,
     'the runner must fail closed (throw) when the non-vacuous verdict is not ok.',
+  );
+});
+
+// ---- rf2-kttom: the roster, and the per-testbed floors ----
+//
+// The runner drove ONE hardcoded testbed until the Hicasso deck landed.
+// A deck silently dropped from the roster is a gate that stopped running
+// without ever going red, so the roster's membership is pinned here — and
+// so is the property that makes the two floors safe to differ: the opt-out
+// waives the EXPECTED-FAIL requirement and nothing else.
+
+test('the play-scripts roster names both Story testbeds (rf2-kttom)', () => {
+  const labels = TESTBEDS.map((t) => t.label);
+  assert.ok(
+    labels.includes('counter-with-stories'),
+    'the counter testbed must stay on the roster — it owns proof of the ' +
+      "runner's own pass/fail semantics.",
+  );
+  assert.ok(
+    labels.includes('hicasso-counter'),
+    'the hicasso testbed must be on the roster — it owns proof that a view ' +
+      'authored on the native substrate paints in Story (rf2-kttom).',
+  );
+  for (const t of TESTBEDS) {
+    assert.ok(t.build, `${t.label}: roster entry must carry a shadow-cljs build id`);
+    assert.ok(t.dirName, `${t.label}: roster entry must carry an output dir name`);
+    assert.ok(t.htmlSrc, `${t.label}: roster entry must carry an HTML source`);
+    assert.ok(t.outDir, `${t.label}: roster entry must carry an output dir`);
+    assert.ok(
+      t.vacuity && typeof t.vacuity.minRows === 'number',
+      `${t.label}: roster entry must carry its own non-vacuity floor`,
+    );
+  }
+});
+
+test("the counter entry's floor is UNCHANGED — four rows, both sides (rf2-kttom)", () => {
+  const counter = TESTBEDS.find((t) => t.label === 'counter-with-stories');
+  assert.equal(counter.vacuity.minRows, MIN_PLAY_ROWS);
+  assert.notEqual(
+    counter.vacuity.requireBothSides,
+    false,
+    'the counter entry must keep the both-sides invariant rf2-54xbp wrote.',
+  );
+});
+
+test('checkRowsNonVacuous: requireBothSides defaults TRUE, so no-opts callers keep the rf2-54xbp invariant', () => {
+  const oneSided = [
+    { 'variant-id': 'story.counter/a', 'play-key': null },
+    { 'variant-id': 'story.counter/b', 'play-key': null },
+    { 'variant-id': 'story.counter/c', 'play-key': null },
+    { 'variant-id': 'story.counter/d', 'play-key': null },
+  ];
+  assert.equal(checkRowsNonVacuous(oneSided).ok, false);
+  assert.equal(checkRowsNonVacuous(oneSided, {}).ok, false);
+  assert.equal(checkRowsNonVacuous(oneSided, { minRows: 4 }).ok, false);
+});
+
+test('checkRowsNonVacuous: an opted-out entry passes on ONE successful play (rf2-kttom)', () => {
+  const hicasso = TESTBEDS.find((t) => t.label === 'hicasso-counter');
+  const v = checkRowsNonVacuous(
+    [{ 'variant-id': 'story.hicasso-counter/tally', 'play-key': null }],
+    hicasso.vacuity,
+  );
+  assert.equal(v.ok, true);
+  assert.equal(v.passRows, 1);
+  assert.equal(v.failRows, 0);
+});
+
+test('checkRowsNonVacuous: an opted-out entry still fails CLOSED on zero rows (rf2-kttom)', () => {
+  const hicasso = TESTBEDS.find((t) => t.label === 'hicasso-counter');
+  const v = checkRowsNonVacuous([], hicasso.vacuity);
+  assert.equal(v.ok, false);
+  assert.match(v.diagnostic, /DRIFTED/);
+});
+
+test('checkRowsNonVacuous: the opt-out waives expected-fail ONLY — no successful play is still RED (rf2-kttom)', () => {
+  // Every discovered row classifies expected-fail. For an entry whose whole
+  // job is to prove one play succeeds, that is vacuous in the direction the
+  // opt-out does NOT cover.
+  const v = checkRowsNonVacuous(
+    [{ 'variant-id': 'story.hicasso-counter/failing-tally', 'play-key': null }],
+    { minRows: 1, requireBothSides: false },
+  );
+  assert.equal(v.ok, false);
+  assert.equal(v.passRows, 0);
+  assert.match(v.diagnostic, /no successful play/);
+});
+
+// Pin the per-testbed loop so a refactor cannot collapse the roster back
+// to a single hardcoded testbed while every assertion above still passes.
+test('play-scripts runner drives every roster entry (rf2-kttom)', () => {
+  const src = stripComments(fs.readFileSync(PLAY_SCRIPTS_RUNNER, 'utf8'));
+  assert.match(
+    src,
+    /for\s*\(\s*const\s+testbed\s+of\s+TESTBEDS\s*\)/,
+    'runAllVariants must iterate the whole TESTBEDS roster.',
+  );
+  assert.match(
+    src,
+    /runTestbed\(\s*browser\s*,\s*baseUrl\s*,\s*testbed\s*\)/,
+    'each roster entry must be driven through runTestbed(browser, baseUrl, testbed).',
   );
 });
 

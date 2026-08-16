@@ -572,7 +572,7 @@
                             "out/examples/managed-http"]
                   :handler re-frame.testbed.open-in-editor-server/handler}
             ;; --- Story showcases (rf2-xz4zn) -------------------------
-            ;; The four Story-enabled builds, on the 804x band (the Xray
+            ;; The Story-enabled builds, on the 804x band (the Xray
             ;; testbeds own 803x + 8765). Each is hash-routed: `/#/` is
             ;; the live app, `/#/stories` mounts the Story shell; the Xray
             ;; preload is wired (Ctrl+Shift+C). Same source-dir-first
@@ -587,6 +587,7 @@
             ;;   http://localhost:8041/#/stories  login showcase (rf2-p8v0q)
             ;;   http://localhost:8042/#/stories  counter (canonical minimal)
             ;;   http://localhost:8043/#/stories  login-form (5-state)
+            ;;   http://localhost:8045/#/stories  hicasso-counter (native substrate)
             8040 {:roots   ["../examples/patterns/nine_states"
                             "out/examples/nine-states-with-stories"]
                   :handler re-frame.testbed.open-in-editor-server/handler}
@@ -606,6 +607,15 @@
             ;; free slot in the example/story 804x band.
             8044 {:roots   ["../examples/capabilities/resources/linearlite"
                             "out/examples/linearlite"]
+                  :handler re-frame.testbed.open-in-editor-server/handler}
+            ;; rf2-kttom — the HICASSO Story testbed. Same hash-routed shape
+            ;; and source-dir-first cascade as the four Story builds above:
+            ;;   http://localhost:8045/#/        the live tally
+            ;;   http://localhost:8045/#/stories the deck, :substrates #{:hicasso}
+            ;; Port 8045 is the next free slot in the example/story 804x band
+            ;; (8040-8043 the Story-enabled four, 8044 linearlite).
+            8045 {:roots   ["../tools/story/testbeds/hicasso_counter"
+                            "out/examples/hicasso-counter"]
                   :handler re-frame.testbed.open-in-editor-server/handler}
             ;; --- Top-level testbeds (rf2-5e22yc) ---------------------
             ;; The 806x band for top-level testbeds/<surface>/ dev-http
@@ -1936,6 +1946,36 @@
    :modules          {:main {:init-fn login-form.core/run}}
    ;; rf2-qhhxp — re-frame2-pair.runtime preload added so pair-MCP can
    ;; probe this Story showcase's live runtime alongside Xray.
+   :devtools         {:preloads [re-frame2-pair.runtime
+                                 day8.re-frame2-xray.preload]}}
+
+  ;; Hicasso Story testbed (rf2-kttom) — Phase D of rf2-5czki, and the
+  ;; proof that a boundary authored on the NATIVE substrate paints in
+  ;; Story's canvas. Hash-routed like the four Story builds above: `#/`
+  ;; renders the live tally (a Reagent root carrying the boundary through
+  ;; `h/as-component`), `#/stories` mounts the shell over a deck declaring
+  ;; `:substrates #{:hicasso}`. Sources under
+  ;; tools/story/testbeds/hicasso_counter/, which resolves via the
+  ;; `../tools/story/testbeds` :source-paths entry near the top of this
+  ;; file; `re-frame.hicasso.*` resolves via the "hicasso/src" entry.
+  ;;
+  ;; The `:hicasso` substrate render fn is HOST-registered (rf2-2dbpd) —
+  ;; Story ships no installer for it, so `hicasso-counter.core/run` calls
+  ;; `story/register-substrate!` at boot. Bundle isolation is unaffected:
+  ;; this is a testbed build, and nothing under implementation/ requires
+  ;; anything under tools/.
+  :examples/hicasso-counter
+  {:target           :browser
+   :output-dir       "out/examples/hicasso-counter"
+   :asset-path       "."
+   ;; rf2-5dphw — build-env project-root for open-in-editor (see
+   ;; :examples/login-form above for the mechanism).
+   :compiler-options {:closure-defines
+                      {re-frame.testbed.config/checkout-root
+                       #shadow/env ["RF2_TESTBED_PROJECT_ROOT" ""]}}
+   :modules          {:main {:init-fn hicasso-counter.core/run}}
+   ;; rf2-qhhxp — pair-MCP + inline Xray, matching the sibling Story
+   ;; testbed builds.
    :devtools         {:preloads [re-frame2-pair.runtime
                                  day8.re-frame2-xray.preload]}}
 
