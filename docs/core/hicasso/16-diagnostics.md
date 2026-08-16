@@ -13,8 +13,26 @@ is removed from production builds.
    chapter](../../xray/01-installation.md) carries the dependency coordinate,
    the host element, and the preload namespace.
 2. Reproduce the click, keystroke, or update.
-3. Select the view occurrence that ran.
+3. Open Xray's **Hicasso** tab and select the view occurrence that ran.
 4. Read its cause, fan-out, and attribution.
+
+!!! warning "The Xray guide does not yet document the Hicasso tab"
+
+    Steps 3 and 4 — and the read topology, advisor, and explain-render sections
+    below — all live in one place: Xray's **Hicasso** tab, which appears
+    alongside Epoch, app-db, Views, Trace, Machine, and Routes whenever the
+    inspected app is running Hicasso. It carries six views: **Mounted** (which
+    boundaries are mounted, over which frames), **Reads** (which boundaries read
+    each subscription), **Intents** (what was dispatched, in order, inside the
+    retained window), **Why** (which reads changed, and what that can and cannot
+    prove), **Advisor**, and **Causal**.
+
+    The tab ships, but the [Xray guide](../../xray/index.md) describes none of
+    it — its panel tour still enumerates six tabs, and the Hicasso tab is the
+    seventh. So this chapter is the only prose description of it anywhere, which
+    is why the sections below are written out rather than linked. Closing that
+    gap is tracked as `rf2-3bwos`; until it lands, there is nothing in the Xray
+    corpus to link to.
 
 An **epoch** is one event pipeline run, from dispatch through its state commit.
 Xray organises its evidence around epochs.
@@ -62,8 +80,8 @@ When it cannot, it reports that limitation instead of guessing.
 
 ## Read topology and fan-out
 
-The standing view maps subscriptions to the currently committed views that
-read them. Four measurements usually identify the shape:
+The Hicasso tab's **Reads** view maps subscriptions to the currently committed
+views that read them. Four measurements usually identify the shape:
 
 | Measurement | What it reveals |
 | --- | --- |
@@ -86,8 +104,8 @@ windowed collection reads as described in
 
 ## Use attribution before choosing a fix
 
-The hot-view advisor ranks views by time, frequency, read churn, and fan-out.
-It first identifies where the time is going:
+The Hicasso tab's **Advisor** view ranks views by time, frequency, read churn,
+and fan-out. It first identifies where the time is going:
 
 | Pressure | Cost owner | Smallest credible fix |
 | --- | --- | --- |
@@ -97,12 +115,27 @@ It first identifies where the time is going:
 | React | Reconciliation, hooks, or vendor internals | Use a named native island or UIx component |
 | Layout and paint | Browser style, layout, and rendering | Reduce DOM, virtualise, or fix CSS; use browser tooling |
 
-The advisor recommends a native escape only when native code addresses the
-measured owner. If lowering is 4% of an interaction, a lowering escape cannot
-recover more than that 4%.
+Only the first two rows of that table are instrumented. The advisor measures
+computation from the retained subscription ring's elapsed times and derives
+topology from the cell table's fan-out and the entry cache's read orders.
+Hiccup lowering, React, and layout and paint it **names but cannot measure**,
+and it says so rather than ranking on a clock it does not have. That absence is
+a decision rather than a gap: Chrome clamps its timer to a 0.1 ms grain while a
+boundary body costs single-digit microseconds, so a ranking built on boundary
+self time would order noise; and commit, paint, and attempt outcome belong to
+React, which reports them as opaque every time.
 
-Xray recommends; it does not rewrite or promote code automatically. Any native
-escape must pass the benefit thresholds in [Performance](19-performance.md).
+One consequence is worth stating plainly, because it is the opposite of what a
+ranked list of durations suggests: **the advisor never recommends a native
+escape.** Not for the hottest boundary on the page. Every native rung addresses
+lowering, hooks, or reconciliation, and this evidence cannot say whether any of
+them owns the pressure — so recommending one would be an expensive,
+semantics-changing change made on evidence that cannot support it.
+
+Treat the last three rows as your own checklist instead, reached through React
+DevTools and browser performance tools. Xray recommends; it does not rewrite or
+promote code automatically, and any native escape must still pass the benefit
+thresholds in [Performance](19-performance.md).
 
 ## Incomplete evidence is reported explicitly
 
@@ -229,7 +262,11 @@ When the question is correctness rather than cause, write a test
 
 ### Explain-render envelope
 
-The panel, tests, and AI pair use the same versioned evidence envelope. A
+The Hicasso tab's **Why** view, tests, and an AI pair all read one versioned
+evidence envelope, produced by
+[`re-frame.hicasso.tool/explain-render`](api-reference.md#re-framehicassotool).
+Read it through the Why view; calling the reader yourself is for scripted
+diagnosis, and every read on that door answers `nil` in a release build. A
 representative occurrence:
 
 ```clojure
