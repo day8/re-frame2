@@ -1765,11 +1765,9 @@ deterministic in the structural tree on both hosts: the `data-component` scope,
 every emitted `data-part`, the variant class and the inline token are ordinary
 attributes a JVM or SSR test reads by equality, which is how a component's emitted
 address set is held to exactly its declared roster. The shipped evidence for both
-halves is the theming pilot —
-[`pilot_theming_cljs_test.cljc`](../implementation/freehand/test/re_frame/freehand/pilot_theming_cljs_test.cljc)
-structurally and
-[`pilot_theming_dom_cljs_test.cljs`](../implementation/freehand/test/re_frame/freehand/pilot_theming_dom_cljs_test.cljs)
-in a real browser.
+halves was the theming pilot (`pilot_theming_cljs_test.cljc` structurally and
+`pilot_theming_dom_cljs_test.cljs` in a real browser), which went with
+`implementation/freehand/` when the substrate was removed on 2026-08-16 (rf2-0yp7w).
 
 ### Framework-supplied views
 
