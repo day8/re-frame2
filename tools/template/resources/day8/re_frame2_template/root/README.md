@@ -24,13 +24,27 @@ file save) are fast.
 
 ## Hot reload
 
-`shadow-cljs watch` rebuilds on every file save and re-invokes
-`{{namespace}}.core/init` — shadow's `:browser` target re-runs the
-module's `:init-fn` automatically after each hot reload, so no
-`:after-load` hook is needed. Two distinct mechanisms combine to give
-you a clean reload:
+`shadow-cljs watch` rebuilds on every file save, pushes the new code into
+the running page, and then calls the build's `^:dev/after-load` hooks.
+`core.cljs` carries one — `mount!` (named `reload!` in the Story scaffold,
+where it also reinstalls the hash listener) — and **that hook is what
+re-renders your edited views**. shadow calls the module's `:init-fn`
+(`{{namespace}}.core/init`) exactly **once**, when the bundle first loads;
+it does *not* re-run it on a reload. Drop the hook and shadow says so in
+the browser console — *"reloading code but no `:after-load` hooks are
+configured!"* — while the page goes on painting the OLD view.
 
-1. **Namespace reload re-runs your registrations.** Reloading
+Three mechanisms combine to give you a clean reload:
+
+1. **The `^:dev/after-load` hook re-renders into the same root and the
+   same frame.** The React root lives in a `defonce` cell, so a reload
+   renders into the root that already owns `#app` instead of creating a
+   second one over a live DOM node. The `rf/frame-root` element finds
+   `:rf/default` already alive and REUSES it **without re-seeding**, so
+   your app-db is exactly as you left it: click the counter to 7, save a
+   view, and it still reads 7 with your edit on screen.
+
+2. **Namespace reload re-runs your registrations.** Reloading
    `events.cljs` / `subs.cljs` / `views.cljs` re-evaluates the
    `reg-event` / `reg-sub` / `reg-view` forms at the top level, so
    each handler / sub / view re-registers in place against the new
@@ -46,7 +60,7 @@ you a clean reload:
    add: the new `id` shows up live, but the old `id` stays registered
    until that refresh.)
 
-2. **`rf/init!` is safe to re-call but does NOT reset anything by
+3. **`rf/init!` runs once, in `init`, and does NOT reset anything by
    itself.** It is idempotent and installs the substrate adapter
    **only when none is already seated**. Per EP-0002 (Spec 002 §Frame
    target resolution) `init!` does **not** create the `:rf/default`
@@ -55,10 +69,8 @@ you a clean reload:
    element in `core.cljs` ENSURES `:rf/default` at mount — it creates
    the frame the first time (running the `:initial-events` seed
    synchronously) and REUSES the already-live frame **without
-   re-seeding** on every later mount. A second `init!` call (which
-   every hot reload makes) does **not** re-install the adapter, does
-   **not** snapshot the registrar, and does **not** touch app-db; the
-   re-rendered `frame-root` finds the frame already live and leaves
+   re-seeding** on every later mount. A reload never touches app-db;
+   the re-rendered `frame-root` finds the frame already live and leaves
    your state alone. So the reload is a no-op for your state.
 
 The thing that seeds the demo state is the `frame-root` element's

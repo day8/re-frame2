@@ -78,9 +78,27 @@
   (.addEventListener js/window "hashchange" on-hash-change!)
   (reset! hash-listener on-hash-change!))
 
+;; -- hot reload -----------------------------------------------------------
+;;
+;; `^:dev/after-load` is shadow-cljs's cue to re-run this after each successful
+;; reload. THIS HOOK IS WHAT MAKES HOT RELOAD WORK: shadow's `:browser` target
+;; does NOT re-run the module `:init-fn` after a reload — it loads the new code
+;; and calls the `^:dev/after-load` hooks, and with none configured it says so
+;; in the console ("reloading code but no :after-load hooks are configured!")
+;; and the page keeps rendering the OLD view.
+;;
+;; The hook reinstalls the listener (whose fn identity changed with the reload)
+;; and re-applies the current hash, which re-renders the live surface into the
+;; same root. `frame-root` reuses the already-live frame without re-seeding, so
+;; your app-db survives the save. See
+;; `docs/core/how-to/boot-and-mount-an-app.md` §Host listeners.
+(defn ^:dev/after-load reload! []
+  (install-hash-listener!)
+  (on-hash-change!))
+
 (defn ^:export init
-  "Called by shadow-cljs (see :init-fn in shadow-cljs.edn). Idempotent —
-   shadow's hot-reload pipeline re-invokes it on each rebuild."
+  "Called ONCE by shadow-cljs (see :init-fn in shadow-cljs.edn) when the
+   bundle loads. `reload!` above is what a hot reload re-runs."
   []
   (rf/init! reagent-adapter/adapter)
   ;; init! installs the adapter but does not create the app frame — the
