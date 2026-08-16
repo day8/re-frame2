@@ -1787,6 +1787,101 @@ Length` samples, eight each side, every one 0 — and never sampled inside the m
 window, where a sample reads the benchmark's own load and answers nothing. Nothing is
 claimed about within-run quietness beyond that bracketing.
 
+**THE NULL, RE-READ ON THE WARMED RIG — it holds, and the 1.4737 did not recur
+(`rf2-adld3`).** `rf2-6ta5r` was the EDIT half and deliberately took no window: it
+moved this instrument's sampling from `{:warmup 3 :samples 6}` to
+`{:warmup 8 :samples 12}` and left the seven arms untouched, settling the arm-count
+question with schedule arithmetic rather than by shrinking the ladder. This is the
+READ half, and it read the null first because that is the whole of what it was
+opened to do. **A separate window of three runs, pre-registered as three before any
+data was seen, all three reported, none selected and none discarded**, taken back to
+back at `e272390602fe` on the instrument exactly as `rf2-6ta5r` merged it, with no
+edit made inside the window.
+
+| run | NULL `:expanded-b`/`:expanded`, per round | mean | range | worst excursion |
+|---|---|---|---|---|
+| N1 | `1.0128 1.0253 1.0132 0.9540 1.0426` | 1.0096x | 0.9540 – 1.0426 | −4.6% |
+| N2 | `0.9551 1.0787 0.9756 1.0000 1.0206` | 1.0060x | 0.9551 – 1.0787 | +7.9% |
+| N3 | `1.0000 0.9722 1.0000 1.0143 1.0190` | 1.0011x | 0.9722 – 1.0190 | −2.8% |
+
+**Fifteen rounds, every one inside ±7.9% of 1.0 and fourteen of the fifteen inside
+±5%.** The reading this window was opened on — one round at **1.4737**, +47.4% on a
+quantity that is 1.0 by construction — did not recur. In `ns/field` the null's
+per-round readings are `[125 250 125 −500 500]`, `[−500 875 −250 0 250]` and
+`[0 −250 0 125 250]`: the largest error this instrument demonstrated on a difference
+known to be zero was **875 ns/field**, against the **4,500 ns/field** the
+`rf2-z143r` window's bad round implied.
+
+**What that licenses, and what it does not.** It licenses a resolution bound *for the
+warmed rig, in this window*: a two-arm per-round difference below about 875 ns/field
+is not distinguishable here from the instrument's own error. It does **not**
+retroactively rescue the `rf2-z143r` window above — that window ran the `3/6`
+sampling, which is a different instrument, and its own null failed; the disclaimer it
+wrote against itself stands exactly as published. And it does **not** establish that
+warm-up PRODUCED the 1.4737. The sampling change is the *named* difference between
+the two windows but it is not the only one — different day, different checkout,
+freshly installed dependencies — and nothing here separates them. Taking the earlier
+window's one-bad-round-in-five at face value as a rate, fifteen clean rounds would
+arrive with probability 0.8¹⁵ ≈ 3.5%; but that rate is estimated from a single event
+and its interval is far too wide for 3.5% to be read as a test. **The leading
+candidate survives and is not confirmed.**
+
+**The estimator, named as computed.** Every ratio above is `lane/ratio-between`'s
+`:mean` — the ARITHMETIC MEAN of five per-round ratios, each itself a ratio of the two
+arms' within-round MEDIAN (`p50` over twelve samples) mount times, each normalised
+against the floor measured in that same round. A mean over medians, not a median at
+run level. The `ns/field` vectors are per-round differences of those same within-round
+medians, ×10⁶/400.
+
+**The null's per-round `ns/field` vectors are DERIVED, because the rig cannot print
+them (`rf2-j7o9w`, filed not fixed).** `ns-terms` keeps `:per-round` beside its
+summary and feeds the ladder's four rungs, but the effect and the null go through
+`per-element-ns`, which keeps only `{:n :min :max :p50}` — so the null this window
+turns on is the one quantity not retained round by round. The rig is frozen inside a
+window, so that was filed rather than repaired. The vectors above are recovered
+exactly from what the rig did print: the whole rung's per-round `ns/field` and
+per-round ratio give each round's `:expanded` median as `ns/(2500·(r−1))`, and the
+null's difference is that times `(r_null−1)·2500`. All three recoveries were checked
+against the rig's own printed `{min max p50}` for the null and match in every one.
+
+**This window is not pooled with any above and re-prices nothing.** It was taken to
+read a control, and re-pricing an effect on a window taken for that is the move this
+lane refuses: the headline `25% of mount` and `2.4 µs per site` are untouched, as is
+the apportionment table. Its own figures are recorded for durability only, and whole.
+Effect `:merged`/`:expanded` per round — `[1.2308 1.2025 1.1842 1.3103 1.1702]`,
+`[1.1348 1.3258 1.2073 1.1489 1.2062]`, `[1.1948 1.1667 1.2143 1.2571 1.1810]`
+(run means 1.2196x, 1.2046x, 1.2028x). Rung (2), the CODEC'S share, `ns/field` —
+`[2250 1625 1750 1375 2000]`, `[2250 2875 1625 2125 2000]`,
+`[1500 1375 1625 1625 2250]`. Rung (1) — `[1125 625 1000 2000 500]`,
+`[500 750 1000 625 1000]`, `[875 875 750 625 1250]`. Rung (3) —
+`[−1125 −250 −1000 0 −500]`, `[−1250 0 −500 −1000 −500]`,
+`[−500 −750 −500 0 −1125]`.
+
+**One thing this window does settle on its own data, because both terms come out of
+the same runs.** All fifteen of rung (2)'s per-round readings lie between 1,375 and
+2,875 `ns/field`, and the largest excursion the null reached across those same fifteen
+rounds is 875 `ns/field`. The codec's term sits clear of the instrument's demonstrated
+error at every round, by a factor of 1.57 at the tightest point — a statement about
+this window's numbers and not a confidence interval. Rung (1) does not clear it: its
+smallest readings are 500 `ns/field`, inside the null's excursion. That is the same
+conclusion the apportionment above reached by a different route — the author's share
+is the term this instrument cannot resolve.
+
+**The gates.** In all three runs the fairness gate agreed five judged arms on one
+1,001-element page and was proven able to answer false (`:bytes` 83,214, identical
+across the three); the arm-order guard returned **reportable** on all seven arms, by
+predecessor and by phase; `lane/control-verdict-strict` put all five
+`:ctl-2x`/`:expanded` rounds inside the ±25% band with `:outside` empty —
+`[2.2692 1.9873 2.0789 2.1149 1.9149]`, `[1.9213 2.0899 2.0000 1.9574 2.0515]`,
+`[2.0390 2.0278 2.0000 2.3857 2.0000]`; and the read-back tally was **0 unverified of
+800** in each. Chromium 147.0.7727.15 under `:advanced` with `goog.DEBUG` false, 24
+hardware threads. `\System\Processor Queue Length` was sampled ONLY between runs —
+eight samples at each of four points, before N1 and after each run — and 31 of those
+32 read 0, the one reading of 1 landing in the bracket taken seconds after N1
+finished. **Nothing is claimed about within-run quietness beyond that bracketing**;
+the only other thing running alongside a measured window was a `test -f` poll of that
+run's own exit file at 15- to 60-second intervals.
+
 **Reopens** if a witness shows a merge the law cannot express without an escape.
 
 ## HD-024 — One callback form; the position selects the contract
