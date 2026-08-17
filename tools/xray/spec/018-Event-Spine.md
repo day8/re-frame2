@@ -16,7 +16,7 @@ Make the five canonical questions ([`000-Vision.md`](000-Vision.md) §Why it exi
 
 1. A **two-ribbon chrome** (rf2-4vp5j) — a chrome ribbon (`Event History` label + nav cluster + `+ filter` + frame view-scope + Dynamic/Static mode dropdown + settings/close) above an events ribbon (filter pills + hidden-by-filters count). The events ribbon is hidden by default and animates open only once the first filter exists (rf2-pjjwh). The focus-dimension feature (focus button / focus-chip / per-row focus gutter / out-of-focus dimming) and the `Clear Filters` button were RETIRED per rf2-pjjwh — they were not in the Figma surface; row click still SELECTS the cascade and drives every panel.
 2. An **event list** that is the orienting timeline + canonical scrubber.
-3. A **tab bar** of 9 surfaces (Epoch / App-db / Views / Trace / Machines / Routing / Resources / Graph / Frames — the Issues tab was removed per rf2-gbz39 Option (c); the Resources / Graph / Frames tabs are the cohesive-sub-domain L4 lenses added per EP-0016 / EP-0014 / EP-0013).
+3. A **tab bar** of 10 surfaces (Epoch / App-db / Views / Trace / Machines / Routing / Resources / Graph / Frames / Hicasso — the Issues tab was removed per rf2-gbz39 Option (c); the Resources / Graph / Frames tabs are the cohesive-sub-domain L4 lenses added per EP-0016 / EP-0014 / EP-0013, and Hicasso is the evidence lens added per rf2-hic-023).
 4. A **detail panel** whose content is always the current tab's projection of the focused event.
 
 Every selection event passes through a single spine sub — `:rf.xray/focus` — so every panel reading the spine rebinds atomically. No panel reads `(peek history)`; no panel carries its own `:selected-*-id` slot.
@@ -553,9 +553,9 @@ noise that flagged the Xray events-list as a problem.)
 ### Tab strip rendering
 
 ```
-┌──────────────────────────────────────────────────────────────────────────────────────────┐
-│ ◉Epoch ○App-db ○Views 8 ○Trace 47 ○Machines 1 ○Routing ○Resources ○Graph ○Frames         │
-└──────────────────────────────────────────────────────────────────────────────────────────┘
+┌───────────────────────────────────────────────────────────────────────────────────────────┐
+│ ◉Epoch ○App-db ○Views 8 ○Trace 47 ○Machines 1 ○Routing ○Resources ○Graph ○Frames ○Hicasso │
+└───────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
 - **Active:** `◉` gutter + 2px violet underline + `text-primary`.
@@ -1437,7 +1437,7 @@ Every consumer (event list, scrubber, issues ribbon signal, palette verbs) reads
 | # | Invariant | Enforcement |
 |---|---|---|
 | **I1** | **Frame picker excludes `:rf/xray`** from the inspectable-frame list by default. Internal frames (`:rf/xray`, future `:rf/re-frame2-pair`) are filtered out at the available-frames consumer in `frame_switcher.cljs` (the chrome-ribbon frame dropdown). | Settings popup (§9) carries a power-user toggle **"Show tool frames in picker"** under View → Power user (off by default; off in fresh installs; on only when a framework dev is debugging Xray itself). |
-| **I2** | **No Xray UI view reads from `:rf/xray` for data purposes.** Subscribes inside a Xray view that need host-app data MUST target the selected frame (`(rf/sub :the-sub :frame (sub :rf.xray/focus.frame))` form). Subscribes targeting Xray's own state (selection, mode, filters, settings) are fine but never appear in the inspected-data panels (Event/App-db/Views/Trace/Machines/Routing). | Code review + dev-time lint: a predicate added to `tools/xray/src/.../shell.cljs` mount path walks the registered sub graph and asserts no Xray-namespaced sub feeds an Event/App-db/Views/Trace/Machines/Routing render path. Throws useful error during dev mount; no-op in production. |
+| **I2** | **No Xray UI view reads from `:rf/xray` for data purposes.** Subscribes inside a Xray view that need host-app data MUST target the selected frame (`(rf/sub :the-sub :frame (sub :rf.xray/focus.frame))` form). Subscribes targeting Xray's own state (selection, mode, filters, settings) are fine but never appear in any inspected-data panel. | Code review + dev-time lint: a predicate added to `tools/xray/src/.../shell.cljs` mount path walks the registered sub graph and asserts no Xray-namespaced sub feeds an inspected-data panel's render path. Throws useful error during dev mount; no-op in production. |
 | **I3** | **Views panel render-attribution is scoped to the selected frame ONLY.** The frame's per-cascade render projection must filter component-render entries to those whose owning frame matches `:rf.xray/focus.frame`. Xray's own React subtrees must not bleed in even when both frames mount under the same `react-dom` root. | Implementation: render tracker tags each component-render with `:owning-frame` at capture time; Views panel reads `(filter #(= (:owning-frame %) frame) renders)`. |
 | **I4** | **Test gate — Xray-self-observation is disallowed by CI.** Feature test: drive a host app + Xray, trigger Xray-internal renders, assert the inspected frame's surfaces do NOT include any Xray-namespaced component. | Lives in `tools/xray/test/day8/re_frame2_xray/panels_e2e/multi_frame_isolation_e2e_cljs_test.cljs` (the focused-frame / cross-frame isolation gate) + `self_noise_cljs_test.cljc` (the `xray-internal-event?` / `collect-trace` drop logic that keeps Xray's own sub-reads + view-renders out of the inspected stream). Runs under `npm run test:cljs`. **Failure blocks merge.** |
 
