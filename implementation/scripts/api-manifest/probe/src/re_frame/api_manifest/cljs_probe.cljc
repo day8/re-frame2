@@ -46,25 +46,22 @@
 
   This EXISTENCE-only rule is the `reconcile` fn's — it covers the
   `:cljs-only` ADAPTER/Xray surfaces, which bind fn-valued value-defs the
-  analyzer cannot tell from a plain `:var`. The host-signature
-  reconciler below (`signature-problems`) DOES reconcile `:kind` (rf2-d7sso):
-  it is written for surfaces of real `defn`s + `defmacro`s (no value-defs), which
-  the analyzer classifies reliably, so the sidecar's declared kind is VALIDATED
-  against the live analyzer kind rather than trusted — closing the seam where the
-  JVM lane once ignored the sidecar kind while this lane trusted it to select
-  checks.
+  analyzer cannot tell from a plain `:var`.
 
-  NO SIDECAR BLOCK DRIVES `signature-problems` TODAY. It was written beside the
-  `:ui-test-signatures` block of the `re-frame.ui.test` surface, and that block
-  went with the retired donor view artefact (rf2-0yp7w.4). The reconciler itself
-  is host-agnostic and sidecar-key-agnostic — it takes `contract` and `surface`
-  as ARGUMENTS and reads no key — so it survives as the mechanism any future
-  host-aware signature block plugs into via `cljs-publics/emit-signature-contract`.
-  It is NOT silently passing in the meantime: eleven tests drive it directly on
-  synthetic fixtures, eight asserting a specific mutation goes RED and three
-  guarding against over-tightening. Its diagnostics no longer name the retired
-  namespace or key (rf2-k9rzr) — a real drift would have sent the reader looking
-  for both.
+  THERE IS NO HOST-SIGNATURE (kind/arity) RECONCILER HERE, and the sidecar
+  carries no signature authority for one to read. The lane that existed
+  (rf2-5bcdi / rf2-d7sso / rf2-qw31o) was written against the
+  `:ui-test-signatures` block of the `re-frame.ui.test` surface; that block went
+  with the retired donor view artefact (rf2-0yp7w.4), leaving a two-host
+  reconciler — this file's `signature-problems`/`signature-report`, its
+  `cljs-publics` arity-enumeration chain, and the JVM lane's
+  `ui-test-arity-problems` in `api-md-check` — that nothing but its own
+  synthetic fixtures ever called. Those fixtures proved the FUNCTION behaved on
+  invented data; they never made it part of the manifest gate, which is what
+  retaining it was being justified by. Removed rather than kept against a
+  hypothetical future block (rf2-k9rzr). If a real host-aware signature block is
+  ever added to `spec/api-manifest-metadata.edn`, reintroduce the reconciler
+  with it, driven by that block on both hosts.
 
   ## Why the adapters are `:fully-rowed` but the Xray mount surface is not
 
@@ -126,126 +123,6 @@
   "True when a `reconcile` result has no problems in any bucket."
   [result]
   (every? empty? (vals result)))
-
-;; ---------------------------------------------------------------------------
-;; Host-arity reconciliation (rf2-5bcdi — the CLJS lane of the host-arity
-;; guard; the JVM lane lives in api-md-check).
-;;
-;; The manifest carries name + :kind but NO arity, so a test-surface
-;; FUNCTION can reshape a supported arity and stay green — and its contract is
-;; host-specific (`flush!` is 0-arity on the JVM, 0/1-arity on CLJS). This
-;; reconciles the live CLJS analyzer arities against the `:cljs` half of the
-;; sidecar signature authority.
-;; ---------------------------------------------------------------------------
-
-(defn signature-problems
-  "Pure host-signature reconciler for the CLJS (:cljs) lane (rf2-5bcdi; made
-   KIND-AWARE + EXACT — rf2-d7sso). Reconciles the sidecar signature contract
-   against the live CLJS analyzer surface. Returns a sorted problems vector;
-   empty ⇒ in sync.
-
-   `contract` — the sidecar `:vars` map
-                `{var {:kind :fn|:macro :clj #{..} :cljs #{..}}}`.
-   `surface`  — `{var {:kind kw :arities (#{arity} | nil)}}` from
-                `cljs-publics/emit-ns-surface` — the live CLJS classification
-                (`:kind`) + host arities.
-
-   The sidecar's declared `:kind` is NOT trusted to SELECT checks (the
-   rf2-d7sso seam): it is RECONCILED against the live analyzer kind and a
-   disagreement is REJECTED (`:kind-mismatch`) — so a sidecar kind flipped
-   `:fn`→`:macro` reddens this lane instead of silently skipping the entry.
-   Arity checks are then selected by the AUTHORITATIVE live kind:
-
-     - FUNCTIONS are arity-checked against `:cljs` (a function
-       can carry a host-specific runtime arity, so a CLJS-only reshape goes RED
-       here; the reader-conditional `:clj`/`:cljs` difference is represented
-       intentionally, never forced equal). A function the analyzer surfaces no
-       arity for is itself drift (`:arity-unobserved`).
-     - MACROS are host-invariant (one `.cljc` definition expanded on both
-       hosts) — their call grammar is pinned once on the JVM lane, against the
-       live JVM `:arglists`, and the analyzer does not reliably surface macro
-       arglists so it is never treated as authority here. What IS checked is
-       that the sidecar's two halves AGREE: a macro's `:cljs` grammar must
-       EQUAL its `:clj` grammar (`:macro-host-variance`).
-
-   MACRO HOST-INVARIANCE (rf2-qw31o). The `:cljs` half of a macro row used to
-   be read by nothing at all: this lane skipped macros outright and the JVM
-   lane reads only `:clj`, so an arbitrary mutation to `render`'s or
-   `with-root`'s `:cljs` grammar stayed green on BOTH lanes — a duplicated
-   field carrying misleading contract authority. Requiring equality is what
-   gives the stored `:cljs` meaning: `:clj` is pinned to the live JVM macro
-   arglists on the other lane, so equality transitively pins `:cljs` to that
-   same live authority WITHOUT consulting the CLJS analyzer. Functions are
-   untouched — `flush!`'s 0-arity JVM vs 0/1-arity CLJS difference is real and
-   stays independently exact on each lane.
-
-   Names are reconciled exactly: a contract var the live surface does not
-   expose → `:var-absent`; a live blessed var with no contract entry →
-   `:uncontracted-var` (so a classified CLJS-only function with no host-arity
-   contract, or an omitted entry, goes RED)."
-  [contract surface]
-  (->>
-   (concat
-    (mapcat
-     (fn [[var {:keys [kind clj cljs]}]]
-       (if-let [{live-kind :kind live-arities :arities} (get surface var)]
-         (concat
-          (when (not= kind live-kind)
-            [{:kind :kind-mismatch :var var :declared kind :live-kind live-kind}])
-          ;; Both branches are selected by the AUTHORITATIVE live kind.
-          (when (= live-kind :fn)
-            (cond
-              (nil? live-arities)      [{:kind :arity-unobserved :var var :expected cljs}]
-              (not= cljs live-arities) [{:kind :arity-mismatch :var var :expected cljs :got live-arities}]))
-          (when (and (= live-kind :macro) (not= clj cljs))
-            [{:kind :macro-host-variance :var var :expected clj :got cljs}]))
-         [{:kind :var-absent :var var :expected cljs}]))
-     contract)
-    (keep (fn [[var _]]
-            (when-not (contains? contract var)
-              {:kind :uncontracted-var :var var}))
-          surface))
-   (sort-by :var)
-   vec))
-
-(defn signature-report
-  "Render a `signature-problems` seq to an actionable multi-line string — the
-   message the probe's failing signature assertion prints."
-  [problems]
-  (str/join
-   "\n"
-   (concat
-    ["CLJS host-signature DRIFT (rf2-5bcdi/rf2-d7sso): a public var's live CLJS"
-     "classification/arity no longer matches the signature contract its lane read"
-     "out of spec/api-manifest-metadata.edn (the block the caller passed to"
-     "`emit-signature-contract`). The sidecar's declared :kind is reconciled"
-     "against the live analyzer kind, so a stale/flipped kind is rejected here."
-     "Reshape the source or reconcile the contract until this is green. Problems:"]
-    (map (fn [{:keys [kind var expected got declared live-kind]}]
-           (case kind
-             :kind-mismatch
-             (str "    " var ": sidecar declares " (pr-str declared)
-                  " ; live CLJS analyzer is " (pr-str live-kind))
-             :arity-mismatch
-             (str "    " var ": live CLJS " (pr-str got)
-                  " ; contract :cljs " (pr-str expected))
-             :macro-host-variance
-             (str "    " var ": MACRO contract :clj " (pr-str expected)
-                  " but :cljs " (pr-str got)
-                  " — a macro is ONE .cljc defmacro expanded on both"
-                  " hosts, so its call grammar cannot differ by host. Set :cljs"
-                  " equal to :clj (" (pr-str expected) "); if the grammar really"
-                  " changed, change BOTH.")
-             :arity-unobserved
-             (str "    " var ": the analyzer surfaced NO arity (expected :cljs "
-                  (pr-str expected) ") — a function must be observable")
-             :var-absent
-             (str "    " var ": the contract names it but the live CLJS surface "
-                  "does not expose it")
-             :uncontracted-var
-             (str "    " var ": live CLJS public var with no signature-contract "
-                  "entry")))
-         problems))))
 
 (defn report
   "Render a `reconcile` result to an actionable multi-line string —
