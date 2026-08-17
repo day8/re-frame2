@@ -102,6 +102,19 @@ windows published records but no dataset. **That asymmetry is the whole reason
 this question can be interrogated at all**, and it is also the reason it cannot
 be answered completely — see [what was NOT concluded](#what-was-not-concluded).
 
+**What a retained `samples` array would have decided is concrete, and it is the
+question this page turns on.** The file stores the *derived* scalars — `rise`,
+`fall`, `falls`, `maxStep`, `endpoints`, `perWrite` — and not the `samples`
+array the legs are read off. Those scalars do not pin the legs: streams that
+reproduce every one of them exactly certify **0 of 12** under one arrangement
+and **12 of 12** under another
+(§[driving the shipped gate](#driving-the-shipped-gate-would-the-2026-08-08-windows-certify-today)).
+The artefact therefore permits the entire range of answers, and no reading of it
+can be better than conditional. A retained array would have settled it outright,
+for a few thousand lines of JSON per window. `rf2-erre5` carries that as a
+retention convention for future windows — a rig change, and so a change that
+belongs in its own window rather than inside a measurement one.
+
 Configuration, read off the file rather than off the prose that describes it:
 `roots` 4, `boundaries` 24, `writes` 6, `warmups` 3, `rounds` 6,
 `preciseMemory` true, `fallThresholdB` 600,000, generated
