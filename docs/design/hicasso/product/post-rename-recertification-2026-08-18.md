@@ -267,3 +267,24 @@ arms.
 
 **Family 5 has nothing to prove.** There is no gate to sabotage, which is the finding in
 [§4](#4-family-5--the-pinned-regression-gate) rather than a gap in this section.
+
+## 8. The trunk moved while this was written, and it does not reach here
+
+The parent page's §6.2 records the same check and it is worth keeping, because a record anchored to a
+commit is only useful if a reader can see how far the trunk has travelled past it.
+
+`origin/main` advanced **12** commits beyond `f5b1f1e94f` during this run. `git diff --name-only
+f5b1f1e94f..origin/main` names six paths and **not one of them is under `implementation/`** —
+`git diff --stat f5b1f1e94f..origin/main -- implementation` is empty. The six are `.beads/issues.jsonl`,
+`.github/workflows/test.yml`, `spec/009-Instrumentation.md` and three pages under
+`docs/design/hicasso/studio/`.
+
+**The workflow file is the one that would matter, and it is comment-only.**
+`git diff -U0 f5b1f1e94f..origin/main -- .github/workflows/test.yml`, filtered to lines that are not
+comments, returns **nothing**; the change is 8 insertions and 4 deletions, all inside one comment block.
+The job roster is unmoved. So the gate SET this page certifies against did not change either.
+
+This is a claim about a window that closed when the sentence was written, not a standing property. What
+generalises is the anchor: **every figure on this page is stated of `f5b1f1e94f`**, and a reader who
+needs to know whether it still describes the trunk can re-run the two commands above rather than take
+this paragraph's word for it.
