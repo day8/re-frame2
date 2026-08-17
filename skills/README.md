@@ -107,10 +107,12 @@ the situation they cover:
   **Xray**, the re-frame2 in-app devtools panel. Answers how to *launch*
   Xray (true-inline panel, pop-out, programmatic `init!`, wired hotkeys,
   the Dynamic ↔ Static mode toggle) and *which tab shows X* — across the
-  9 Dynamic event-spine tabs (Epoch (hero) / app-db / Views / Trace /
-  Machine / Routes / Resources / Graph / Modules — Graph being Xray's UI over the
-  EP-0014 derivation/process graph, and Modules its EP-0023
-  `image → frame → event stream` lens (which image loaded which frame, L4-only))
+  10 Dynamic event-spine tabs (Epoch (hero) / app-db / Views / Trace /
+  Machine / Routes / Resources / Graph / Frames / Hicasso — Graph being
+  Xray's UI over the EP-0014 derivation/process graph, Frames its EP-0023
+  `image → frame → event stream` lens (which image loaded which frame,
+  L4-only), and Hicasso the Hicasso view substrate's evidence lens — six
+  views over four evidence envelopes, L4-only)
   and the 5 Static registry-browse
   tabs (Machines / Routes / Schemas / Flows / Interceptors). There is no
   Issues tab — issues surface inline. Xray owns
