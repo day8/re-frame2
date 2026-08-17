@@ -894,9 +894,8 @@ has inspected none of their pages — never cite it as the gate for a change
 confined to one. Read that block rather than any prose list before citing
 `mkdocs build` for a path: it is the authority on what the build cannot see, it
 covers more than the design trees, and it grows. Two gates do cover the design
-trees:
-`scripts/check_doc_slugs.py` validates link targets and heading anchors across
-the whole corpus, design trees included, and `scripts/check_provenance_pins.py`
+trees: `scripts/check_doc_slugs.py` validates link targets and heading anchors
+across the whole corpus, design trees included, and `scripts/check_provenance_pins.py`
 runs on changed pages under `docs/design/hicasso/`. Nothing checks their
 tables, rendering, or nav, so verify those by hand and say so in the PR body.
 

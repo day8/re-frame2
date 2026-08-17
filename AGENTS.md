@@ -176,10 +176,11 @@ cannot see, and it holds more than the design trees: read `exclude_docs` in
 `mkdocs.yml` before nominating `mkdocs build` for any path, rather than trusting
 a list in prose. A prose list drifts, and this one already had, naming two of
 the six trees the block excluded (rf2-yxuta).
-`scripts/check_doc_slugs.py` does
-cover it: markdown link targets and heading anchors, in the fast-PR spine and —
-since rf2-v7fui — unconditionally in `test.yml`'s `verify-readme-links` job, so
-on every PR rather than only a docs-classified one. Its `--verbose` banner
+
+`scripts/check_doc_slugs.py` does cover the design trees: markdown link targets
+and heading anchors, in the fast-PR spine and — since rf2-v7fui —
+unconditionally in `test.yml`'s `verify-readme-links` job, so on every PR rather
+than only a docs-classified one. Its `--verbose` banner
 prints the per-root file counts it walked, which is the thing to read when you
 need to know what a green actually inspected.
 So does `scripts/check_provenance_pins.py`, on changed pages under
