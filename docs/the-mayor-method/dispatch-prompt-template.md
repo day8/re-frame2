@@ -624,7 +624,8 @@ A skipped gate needs a one-line reason in the change body. A silent skip fails r
 ## Quality gates — how a gate is run
 
 Paste this section verbatim too, on the same footing as the boundary block. The gate menu settles *which*
-gate runs; only this settles *how*.
+gate runs; only this settles *how*. **The paste begins at the next paragraph and runs to the end of the
+section** — starting at the first imperative instead drops the paragraphs that scope the block.
 
 **This section is scoped, and the axis is the NOMINATED GATE'S CAPABILITIES — not prose versus code.** Read each
 part against the gate the brief actually names. The wedge-recovery paragraph assumes a *heavyweight* gate, one
