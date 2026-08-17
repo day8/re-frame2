@@ -1383,6 +1383,106 @@ test('THE FENCE HOLDS — `allocSteps` is untouched and no published quantity mo
   );
 });
 
+// --- the record's RAW STREAM (rf2-erre5) ------------------------------------
+//
+// A window with a collection in the PRIME's GAP — the one step no recorded
+// scalar walks. `allocPrimeSplit` drops the leading `2·prime` samples, so
+// `pre0 − s0` is in neither `measured` nor `primeLegs`, and every gate, figure
+// and array the record carries is computed downstream of that drop.
+//
+// Otherwise it is the shape rf2-e9wr measured — a 26,044 B prime over six alike
+// 19,256 B legs — so the cohort is a real one rather than a contrived one.
+const PRIME_GAP_WINDOW = (() => {
+  const s0 = 10000000;
+  const gaps = [-50000, 128, 96, 160, 96, 128, 96];
+  const legs = [26044, 19256, 19256, 19256, 19256, 19256, 19256];
+  let h = s0;
+  const raw = [h];
+  for (let k = 0; k < legs.length; k++) {
+    h += gaps[k];
+    raw.push(h); // pre_k
+    h += legs[k];
+    raw.push(h); // post_k
+  }
+  return { raw, gaps, legs, s0 };
+})();
+
+test('THE RECORD RETAINS EACH WINDOW’S RAW STREAM, so a later estimator can be driven over a past run', () => {
+  // BOTH WINDOW SITES, and the PAGE's stream rather than any collapse of it —
+  // a record of the collapsed stream would drop a stride-3 run's mid samples,
+  // which is the half `siteLegs` exists to keep.
+  assert.strictEqual(
+    (SRC.match(/samples: win\.samples,/g) || []).length,
+    1,
+    'the arm window records the raw stream the page filled'
+  );
+  assert.strictEqual(
+    (SRC.match(/samples: w\.samples,/g) || []).length,
+    1,
+    'and so does the control window — one window shape, not two'
+  );
+
+  const { raw, legs, gaps } = PRIME_GAP_WINDOW;
+
+  // HALF ONE — THE SHAPE CLAIM. `samples` is what the driver's own three calls
+  // are handed, and `sites` beside it is the stride they decode against, so
+  // every array the record carries re-derives from the pair exactly.
+  const site = allocSiteSplit(raw, 2);
+  assert.deepStrictEqual(site.collapsed, raw, 'at the shipped stride the split is the identity');
+  const { primeLegs, measured } = allocPrimeSplit(site.collapsed);
+  const steps = allocSteps(measured);
+  assert.deepStrictEqual(primeLegs, legs.slice(0, ALLOC_PRIME_WRITES), 'the prime legs');
+  assert.deepStrictEqual(steps.legs, legs.slice(ALLOC_PRIME_WRITES), 'the measured legs');
+  assert.deepStrictEqual(steps.gaps, gaps.slice(ALLOC_PRIME_WRITES), 'the measured gaps');
+
+  // HALF TWO — WHAT IT ADDS OVER THE ARRAYS ALREADY RECORDED, which is the
+  // whole reason the field earns its bytes. A 50 KB collection ran inside this
+  // window and every recorded quantity reports a window that never fell...
+  assert.strictEqual(steps.falls, 0, 'the falls gate never walks the prime gap');
+  assert.strictEqual(steps.fall, 0, 'and nothing is netted there either');
+  assert.ok(!steps.gaps.includes(gaps[0]), 'nor is it among the measured gaps');
+  assert.ok(!primeLegs.includes(gaps[0]), 'nor among the prime legs, which are legs');
+  // ...and off `samples` it is one subtraction.
+  assert.strictEqual(raw[1] - raw[0], -50000, 'the prime gap, recoverable only from the stream');
+
+  // AND THE ABSOLUTE LEVEL. Every recorded quantity is a DIFFERENCE, so
+  // translating the whole stream moves not one of them — which is exactly why
+  // a record of them alone fixes the stream only up to that translation, and
+  // why a question about the level itself is not askable of such a record.
+  const shifted = raw.map((x) => x + 7654321);
+  const shiftedSteps = allocSteps(allocPrimeSplit(allocSiteSplit(shifted, 2).collapsed).measured);
+  for (const f of ['rise', 'fall', 'falls', 'maxStep', 'endpoints', 'legMedian']) {
+    assert.strictEqual(shiftedSteps[f], steps[f], `${f} cannot see the level`);
+  }
+  assert.deepStrictEqual(shiftedSteps.legs, steps.legs, 'nor can the legs');
+  assert.deepStrictEqual(shiftedSteps.gaps, steps.gaps, 'nor the gaps');
+  assert.notStrictEqual(shifted[0], raw[0], 'yet the two streams are different readings');
+
+  // AND THE FENCE. This is retention: no gate reads the field, and nothing
+  // hands it to `allocSteps` in place of the measured collapsed region.
+  lacks(/allocSteps\(win\.samples\)|allocSteps\(w\.samples\)/, 'the certificate is unmoved');
+});
+
+test('AN ALLOCATION WINDOW COMMITS ITS RAW RECORD — stated where the file is written', () => {
+  // rf2-erre5 part (1) is a CONVENTION, deliberately not a mechanism: nothing
+  // in this driver can tell whether an operator committed a file, and a gate
+  // that guessed would refuse every run that was not a published window. What
+  // it gets instead is a line the operator actually sees, at the moment the
+  // artefact exists, plus the reason beside the code that writes it.
+  has(
+    /an allocation window COMMITS this file beside its studio page/,
+    'the operator is told, on the run that produced the artefact'
+  );
+  has(
+    /data\/alloc-<bead>\//,
+    'and where it goes — the path rf2-2rtt6.138 used, which is the only one that exists'
+  );
+  // The env var that produces it is named in the usage banner. It was reachable
+  // only by reading the last twenty lines of a 3,800-line driver, which is a
+  // fair part of why three windows in a row published no dataset.
+  has(/P0_RAW_OUT=.*node \.\.\.\/p0_run\.cjs/, 'the banner names the switch');
+});
+
 test('THE GATE HAS NO DIAL, AND τ IS NOT IT', () => {
   // Every gate on this rig exists because something once passed that should
   // not have, so widening one to admit today's run retro-admits that failure.
