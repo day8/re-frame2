@@ -48,10 +48,23 @@
   `:cljs-only` ADAPTER/Xray surfaces, which bind fn-valued value-defs the
   analyzer cannot tell from a plain `:var`. The host-signature
   reconciler below (`signature-problems`) DOES reconcile `:kind` (rf2-d7sso):
-  that surface is real `defn`s + `defmacro`s (no value-defs), so the analyzer
-  classifies it reliably, and the sidecar's declared kind is VALIDATED against
-  the live analyzer kind rather than trusted — closing the seam where the JVM
-  lane once ignored the sidecar kind while this lane trusted it to select checks.
+  it is written for surfaces of real `defn`s + `defmacro`s (no value-defs), which
+  the analyzer classifies reliably, so the sidecar's declared kind is VALIDATED
+  against the live analyzer kind rather than trusted — closing the seam where the
+  JVM lane once ignored the sidecar kind while this lane trusted it to select
+  checks.
+
+  NO SIDECAR BLOCK DRIVES `signature-problems` TODAY. It was written beside the
+  `:ui-test-signatures` block of the `re-frame.ui.test` surface, and that block
+  went with the retired donor view artefact (rf2-0yp7w.4). The reconciler itself
+  is host-agnostic and sidecar-key-agnostic — it takes `contract` and `surface`
+  as ARGUMENTS and reads no key — so it survives as the mechanism any future
+  host-aware signature block plugs into via `cljs-publics/emit-signature-contract`.
+  It is NOT silently passing in the meantime: eleven tests drive it directly on
+  synthetic fixtures, eight asserting a specific mutation goes RED and three
+  guarding against over-tightening. Its diagnostics no longer name the retired
+  namespace or key (rf2-k9rzr) — a real drift would have sent the reader looking
+  for both.
 
   ## Why the adapters are `:fully-rowed` but the Xray mount surface is not
 
@@ -202,12 +215,12 @@
   (str/join
    "\n"
    (concat
-    ["CLJS ui.test host-signature DRIFT (rf2-5bcdi/rf2-d7sso): a re-frame.ui.test"
-     "public var's live CLJS classification/arity no longer matches the signature"
-     "contract in spec/api-manifest-metadata.edn (:ui-test-signatures). The"
-     "sidecar's declared :kind is reconciled against the live analyzer kind, so a"
-     "stale/flipped kind is rejected here. Reshape the source or reconcile the"
-     "contract until this is green. Problems:"]
+    ["CLJS host-signature DRIFT (rf2-5bcdi/rf2-d7sso): a public var's live CLJS"
+     "classification/arity no longer matches the signature contract its lane read"
+     "out of spec/api-manifest-metadata.edn (the block the caller passed to"
+     "`emit-signature-contract`). The sidecar's declared :kind is reconciled"
+     "against the live analyzer kind, so a stale/flipped kind is rejected here."
+     "Reshape the source or reconcile the contract until this is green. Problems:"]
     (map (fn [{:keys [kind var expected got declared live-kind]}]
            (case kind
              :kind-mismatch
@@ -219,7 +232,7 @@
              :macro-host-variance
              (str "    " var ": MACRO contract :clj " (pr-str expected)
                   " but :cljs " (pr-str got)
-                  " — a ui.test macro is ONE .cljc defmacro expanded on both"
+                  " — a macro is ONE .cljc defmacro expanded on both"
                   " hosts, so its call grammar cannot differ by host. Set :cljs"
                   " equal to :clj (" (pr-str expected) "); if the grammar really"
                   " changed, change BOTH.")
@@ -230,7 +243,7 @@
              (str "    " var ": the contract names it but the live CLJS surface "
                   "does not expose it")
              :uncontracted-var
-             (str "    " var ": live CLJS public var with no :ui-test-signatures "
+             (str "    " var ": live CLJS public var with no signature-contract "
                   "entry")))
          problems))))
 
