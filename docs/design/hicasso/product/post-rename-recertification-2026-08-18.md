@@ -116,13 +116,130 @@ throughout. That is a second, independent reason this row stays empty here.
 
 ## 5. Families 2, 3 and 4 — SSR bytes, macro parity, source coordinates
 
-NOT YET RUN AT THIS COMMIT. This section is filled in by a later commit on the same branch, and until
-then this page certifies families 1 and 5 and nothing else.
+These three families share their runners, which is why they share a section rather than one each. The
+parent page's §4 roster is where that mapping is established; it was re-checked at source here and it
+still holds — the witness namespaces `three_way_parity_cljs_test`, `error_shape_cljs_test`,
+`native_grammar_cljs_test` and `native_surface_cljs_test` are all present in the built node-test
+bundle, each found by a fixed-string search of `out/node-test.js`.
+
+Every composite `npm run` script below was split into its steps so that each verdict is its own
+foreground capture rather than one status standing for a chain.
+
+| Family | Command | Captured exit | What it reported, at `f5b1f1e94f` |
+|---|---|---|---|
+| 2, 3, 4 — node lane, compile | `node scripts/compile-node-test.cjs node-test out/node-test.js` | `0` | **1985 files, 1984 compiled, 0 warnings** |
+| 2, 3, 4 — node lane, run | `node out/node-test.js` | `0` | **11771 tests, 59589 assertions, 0 failures, 0 errors** |
+| 2, 3 — browser lane, compile | `npx shadow-cljs compile browser-test` | `0` | **1075 files, 1074 compiled, 0 warnings** |
+| 2, 3 — browser lane, run | `node scripts/serve-and-run-browser-tests.cjs` | `0` | **1015 tests, 5724 assertions, 0 failures, 0 errors** |
+| 2 — SSR JVM arm | `clojure -M:test` in `implementation/ssr` | `0` | **599 tests, 2925 assertions, 0 failures, 0 errors** |
+| 4 — elision arm, build | `npx shadow-cljs release browser-test-prod-elision` | `0` | **312 files, 252 compiled, 0 warnings**; bundle **1968527 bytes** |
+| 4 — elision arm, coordinate check | `node hicasso/scripts/check_source_coord_elision.cjs` | `0` | no `defview`/`defhost` source coordinate in the advanced bundle, **positive control present** |
+| 4 — elision arm, browser run | `node scripts/serve-and-run-browser-tests.cjs --root out/browser-test-prod-elision --port 8023 --duplicate-done-drift-unverifiable` | `0` | **92 tests, 295 assertions, 0 failures, 0 errors** |
+
+**Verdict: GREEN for families 2, 3 and 4.**
+
+### 5.1 The counts did not move, and that is this run's substantive finding
+
+§6.4 of the parent page recorded the opposite outcome and drew the right lesson from it: every suite
+came back smaller after PR #8322, each drop pinned to a landed deletion, and *a re-run that reproduced
+the old counts would have been the finding*. This run is the other case, so the same discipline applies
+in reverse — the identity has to be stated rather than passed over.
+
+| Arm | parent §6.3, at `7304e825c9` | here, at `f5b1f1e94f` | moved? |
+|---|---|---|---|
+| node lane | 11771 tests / 59589 assertions | 11771 / 59589 | no |
+| browser lane | 1015 / 5724 | 1015 / 5724 | no |
+| SSR JVM | 599 / 2925 | 599 / 2925 | no |
+| elision lane | 92 / 295 | 92 / 295 | no |
+| `hicasso-release` build | 162 files / 107 compiled | 162 / 107 | no |
+| node-lane compile | 1985 files / 1984 compiled | 1985 / 1984 | no |
+| browser-lane compile | 1075 files / 1074 compiled | 1075 / 1074 | no |
+
+**Read this as what it is.** 175 commits and 219 files landed in the interval (§1), and none of them
+added or removed a test in these four suites or a file in these three builds. That is consistent with
+the interval's character — fixes and records rather than deletions or new lanes — and it is *not*
+evidence that the gates ran over a cached artefact, because [§7](#7-the-controls--which-gates-were-shown-to-still-bite)
+shows three of them going red on demand on this same base.
+
+**One number DID move, and it moved to zero.** The browser lane compiled **4 warnings** at
+`7304e825c9` and compiles **0** here. All four were `:infer-warning` on `(.-server (n/marker …))` in
+`native_ssr_dom_cljs_test.cljs`; the previous recertification filed them as `rf2-wqalj`, and that bead
+is now **closed** by PR `#8416`, landed as `5c7b0febe3` — the only commit to touch that file in the
+interval. So the drop has exactly one candidate cause and it is a repair. `rf2-wqalj`'s own close
+reason states the suite was unmoved at 1015 tests / 5724 assertions, which is independently what the
+row above measures.
 
 ## 6. What this still does not certify
 
-NOT YET WRITTEN AT THIS COMMIT.
+**The overall certification remains PARTIAL, and for the same reason as the parent page's.** Nothing
+here disturbs the mayor's 2026-08-15 ruling: what holds `rf2-hic-090` open is not the five families but
+naming-ledger row 18, and row 18 is uncertified because `rf2-t32wg` needs an operator spec ruling on
+admitting zero-arity `rf/capture-frame` and `rf/current-frame-id` inside a Hicasso body.
+
+That fence was re-tested at source for this run rather than carried forward. `rf2-t32wg` is `DEFERRED`
+to 2026-09-16 and **unruled** — a defer schedules the question rather than answering it, so the release
+condition the mayor stated is unmet: this bead closes when `rf2-t32wg` is ruled and row 18 is executed,
+or when the operator rules that row 18 need not block certification. Both are operator calls, and
+neither is a worker's to make.
+
+Two further boundaries are worth stating plainly, because a certification record is exactly the
+document whose careful sentences get quoted one notch stronger later.
+
+- **Four families green is not five.** Family 5 has no gate, so it has no verdict — not a green one and
+  not a red one. See [§4](#4-family-5--the-pinned-regression-gate).
+- **The byte counts here are anchors, not comparisons.** 671290 bytes for `hicasso-release` and 1968527
+  for the elision bundle are stated of `f5b1f1e94f`. No earlier byte figure exists in this corpus to
+  difference them against, so nothing here licenses a claim about whether the bundle grew or shrank.
+
+**Nothing was filed in [`correction-ledger.md`](correction-ledger.md), because there was no red to
+file.** Every captured exit in §3 and §5 is the runner's own `0`.
 
 ## 7. The controls — which gates were shown to still bite
 
-NOT YET WRITTEN AT THIS COMMIT.
+A certification's characteristic failure is a gate that returns green because it ran over nothing, so
+green is only worth as much as the demonstration that red was available. Each control below planted a
+fault, ran the gate, checked that the failure named the plant, restored, and verified the restore by
+**content hash against the committed object** — never by reading a diff, because this checkout
+translates line endings and a plain byte digest reports a correct restore as failed.
+
+| Family | What was planted | Gate under the plant | Captured exit | What the red said |
+|---|---|---|---|---|
+| 1, source half | one `:require` of `re-frame.hicasso.motion` in the public door's `ns` form | `check_optional_module_reachability.py` | `1` | named the file and the optional module by name |
+| 1, bundle half | a `:require` of `re-frame.hicasso.native` plus one reachable `n/marker` call in the consumer app's `-main` | `npx shadow-cljs release hicasso-release` then `check_bundle_isolation.cjs` | build `0`, gate `1` | `OPTIONAL SURFACE LEAKED: native tier`, quoting sentinel `"rf2:hicasso-native-tier"` |
+| 2, SSR JVM arm | one string-literal marker prepended to text-node output in `ssr/emit.cljc`'s `emit-element` | `clojure -M:test` in `implementation/ssr` | `1` | **97 failures, 0 errors**, over the same **599 tests / 2925 assertions** as the control run — so no namespace crashed and the plant was scoped to assertions rather than to the lane |
+
+| Family | Baseline content hash | Under the plant | After restore |
+|---|---|---|---|
+| 1, source half — `hicasso/src/re_frame/hicasso.cljc` | `8641b387629974f2564fe9cbf16748ce1473bfa7` | `a3d28cb07e3a624915ca3f3378176885cc90b455` | `8641b387629974f2564fe9cbf16748ce1473bfa7` |
+| 1, bundle half — `hicasso/test/re_frame/hicasso/consumer_app.cljs` | `2226b91b0c9579aa04bee412c3ef28b4886c844f` | `ff8ceed08d856dee11c3e72cc0c12f96f7febe1c` | `2226b91b0c9579aa04bee412c3ef28b4886c844f` |
+| 2 — `ssr/src/re_frame/ssr/emit.cljc` | `484e5f9abdee993a841a46da0583006e22cd23b1` | `7fbc629c7eee7aafce8fa651fd45cf8197d7eb75` | `484e5f9abdee993a841a46da0583006e22cd23b1` |
+
+**Each baseline hash equals the object committed at `f5b1f1e94f`, and each restored hash equals the
+baseline** — so every plant is proved to have applied rather than silently no-opped, and every restore
+is proved exact.
+
+**The plants also answer a second question the greens cannot: which tree the gate read.** Each fault
+existed only in this worker's worktree, so a run that had wandered into a sibling checkout would have
+come back green. Two of the three gates independently corroborate it by printing their
+`shadow-cljs.edn` path, which named this worktree on every heavy run.
+
+**Two further gates were shown to bite, unplanned, in the course of this work**, and they are recorded
+because a control that arrives by accident is still a control.
+
+- `scripts/check_doc_slugs.py` returned exit `1` on this page's first draft, naming a forward reference
+  to a heading that did not yet exist; exit `0` after the heading was added.
+- `scripts/check-no-hardcoded-paths.sh` returned exit `1` on a deliberately planted home path, firing
+  both its literal-user rule and its personal-named-path rule; exit `0` after the restore, with the
+  page's content hash back at `fd8ab39c33681ed5eb06788375792c03c8675768`.
+
+`scripts/check_provenance_pins.py` supplied a third lesson of the same kind without being planted at
+all: run before the new page was staged, it reported *0 pages inspected* and said in its own output
+that **this exit 0 is not a verdict on the corpus**. Staged, it reported 1 page, 3 cited pins, 3 landed,
+0 findings. A zero-result run is not a passing run, and this gate is honest enough to say so.
+
+### 7.1 Families 3 and 4
+
+NOT YET RUN AT THIS COMMIT. Until this section says otherwise, families 3 and 4 have **no plant of
+their own**: their green rests on the node and browser lanes' own pass/fail reporting and on the
+elision gate's positive control, which is weaker evidence than families 1 and 2 carry, and it should be
+read at that strength and no higher.
