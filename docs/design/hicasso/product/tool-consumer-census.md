@@ -142,6 +142,27 @@ Written as arithmetic so a later reader can check it in one line: **43 = 23 + 20
 **30 rows = 15 STILL-LIVE · 5 FIXTURE-ONLY · 10 MIGRATED.** By tool: Xray 13 (9 · 0 · 4), Story 11
 (6 · 5 · 0), Pair 6 (0 · 0 · 6).
 
+**Those are the figures AS MEASURED, and so is every by-tool figure and section heading below** —
+a record of the tree at commit `e1b4cae5d0`, 2026-08-11, not a statement about today. Eighteen of
+the 30 rows have since been discharged by beads that landed, each recorded in its own verdict cell,
+and the page's convention is to leave a row as taken rather than rewrite it. That convention is
+right, and it has one cost: a roll-up written once at measurement time reads as a status to anyone
+who does not scroll to the table. So both readings are given, here and at each of the three other
+roll-up sites, and neither is allowed to stand alone.
+
+**STANDING TODAY, re-derived at commit `861c59f85b`, 2026-08-18: 30 rows = 2 STILL-LIVE ·
+0 FIXTURE-ONLY · 10 MIGRATED · 18 DISCHARGED.** By tool: Xray 13 (2 · 0 · 4, 7 discharged), Story 11
+(0 · 0 · 0, 11 discharged), Pair 6 (0 · 0 · 6). Written as arithmetic on the same footing as the
+line above: **30 = 2 + 0 + 10 + 18**, where the 18 are Xray's X1, X2, X4, X5, X6, X7 and X8
+(`rf2-l86mm`, `rf2-0yp7w`) and all eleven Story rows (`rf2-5gka`, `rf2-2og6s`); and per tool
+**13 = 2 + 0 + 4 + 7**, **11 = 0 + 0 + 0 + 11**, **6 = 0 + 0 + 6 + 0**. "Discharged" is the word the
+ACTIONED banners already use, not a fourth verdict: each discharged row carries its own
+RETIRED / SUBSTRATE-FREE / REWORDED disposition and the bead that landed it.
+
+**The only two rows still live on a donor tier are X3 and X13**, and neither is a migration — both
+were re-verified at source rather than carried forward, and both are dispositioned in
+[Disposition of the still-live rows](#disposition-of-the-still-live-rows).
+
 Liveness was established per row, not assumed from the presence of a `:require` — the "how" column
 below says which. A require alone does not make a path live, and a path can be live through a
 fixture.
@@ -155,16 +176,47 @@ Hicasso tab reads `re-frame.hicasso.tool`, while the Reactive panel's "Mounted V
 reads `re-frame.freehand.tool`. Both ship in the same build. (Since `rf2-n3mb`, Pair is on the
 target too — but wholly, with nothing left behind on the donor.)
 
+> **ACTIONED, 2026-08-18 09:53:02 AUSEST (rf2-p4h2t).** Seven of the nine STILL-LIVE rows above —
+> X1, X2, X4, X5, X6, X7 and X8 — are discharged, and the verdict column records how. The rows and
+> the "how" column are left as taken, on the same footing as the Story cluster below: a census is a
+> record of what was found, not of what is true now. **The paragraph immediately above is part of
+> that record and its present tense no longer holds** — the Reactive panel's Mounted Views and
+> Declared View Sites sections were retired by `rf2-l86mm`, so Xray stands on the target tier only.
+>
+> **It is seven, not the six the bead was filed for.** X5 was the row `rf2-p4h2t` recorded as
+> unmeasured, and completing that measurement moved it: its file survives with 632 lines and 29
+> `deftest` forms, and carries zero occurrences of `freehand` case-insensitively, against 55 for
+> `panel` in the same file. The two literal schema assertions the row cites are both gone.
+>
+> **Two rows were re-verified and STAND: X3 and X13**, each still at two occurrences of the token
+> its cell names. That is the interesting half of this pass, not a null result — live Xray code
+> references a substrate removed on 2026-08-15, and in both cases deliberately. X3's membership is a
+> defensive denylist entry the source documents in place, on the footing `:rf.adapter/helix` has
+> held since its own adapter was removed (`rf2-d6epb`); `rf2-wtznc` closed on that reading and
+> `rf2-0yp7w.9` lists the set under DO NOT DELETE. X13's `warn-donor-ownership-resident!` is
+> genuinely live — called on the schema-migration path — and it is the message CONTENT that is
+> stale, filed separately rather than fixed here because `tools/xray/**` was fenced off this pass.
+>
+> **Provenance, so no later reader re-derives it.** `73eb268be2` (2026-08-14, `rf2-l86mm`) dropped
+> X1's coordinate and deleted X2 and X4; `47e1e891a5` (2026-08-14, `rf2-l86mm`) took X5's schema
+> assertions and X8's scenario; `c951808b47` (2026-08-15, `rf2-0yp7w`.6) deleted the whole
+> `tools/xray/testbeds/freehand_views/` deck, X6 and X7 with it.
+>
+> **Why this was its own dispatch rather than a correction in passing.** `rf2-ps7ia` asked for X1
+> alone. Striking one row and leaving six siblings asserting STILL-LIVE over files that do not exist
+> would have made the page more self-contradictory, not less — the convention worn once and not by
+> its siblings, which is the defect pattern that reopened `rf2-hic-090`.
+
 | row | consumer | donor surface named, and how | verdict |
 |---|---|---|---|
-| X1 | `tools/xray/deps.edn` | `day8/re-frame2-freehand {:local/root "../../implementation/freehand"}` at **top-level `:deps`** (L53), not a `:test` alias — an artefact-level dependency of the shipped tool | STILL-LIVE |
-| X2 | `tools/xray/src/day8/re_frame2_xray/mounted_views.cljs` | `:require` of `re-frame.freehand.evidence` + `re-frame.freehand.tool`; pins `consumed-evidence-schema :re-frame.freehand.evidence/v1`; calls `tool/read-mounted-views` at L118 and L182 | STILL-LIVE |
+| X1 | `tools/xray/deps.edn` | `day8/re-frame2-freehand {:local/root "../../implementation/freehand"}` at **top-level `:deps`** (L53), not a `:test` alias — an artefact-level dependency of the shipped tool | ~~STILL-LIVE~~ → **RETIRED** (rf2-l86mm — the coordinate is gone; the file's only `freehand` token is the comment recording its removal) |
+| X2 | `tools/xray/src/day8/re_frame2_xray/mounted_views.cljs` | `:require` of `re-frame.freehand.evidence` + `re-frame.freehand.tool`; pins `consumed-evidence-schema :re-frame.freehand.evidence/v1`; calls `tool/read-mounted-views` at L118 and L182 | ~~STILL-LIVE~~ → **RETIRED** (rf2-l86mm — file deleted) |
 | X3 | `tools/xray/src/day8/re_frame2_xray/mount.cljs` | `:rf.adapter/freehand` and `:rf.adapter/ui` are members of a live set of React-element-shaped adapter ids (L216) — data the mount path reads, not a comment | STILL-LIVE |
-| X4 | `tools/xray/test/day8/re_frame2_xray/mounted_views_cljs_test.cljs` | seven `re-frame.freehand.*` requires (`.cell`, `.evidence`, `.occurrences`, `.test`, `.tool`, `.release-app`, and the door) — the suite of X2 | STILL-LIVE |
-| X5 | `tools/xray/test/day8/re_frame2_xray/panels/reactive_panel_view_cljs_test.cljs` | no require; asserts on the literal schema values `:re-frame.freehand.evidence/v9` (L451, the mismatch banner) and `/v1` (L466, the supported case) — the banner contract of the live panel | STILL-LIVE |
-| X6 | `tools/xray/testbeds/freehand_views/core.cljs` | `:require` of `re-frame.freehand` (L97) — the one staged deck whose views are Freehand views | STILL-LIVE |
-| X7 | `tools/xray/testbeds/freehand_views/index.html` | **names no donor** — its two hits (`<title>` L5, a comment L29) name the deck's own `freehand-views` prefix. It is a row as the deck's host page: `#app` (L26) is the mount target X6's `run` takes, and `fh-mount` / `fh-unmount` (L33-34) are the ids X8's scenario drives. `freehand-views.core/run` is bound by `:init-fn` in top-level `implementation/shadow-cljs.edn` L2042, not here | STILL-LIVE |
-| X8 | `tools/xray/testbeds/feature_matrix/scenarios.cjs` | the `freehand-views populated Views roster` scenario (L3819) plus its `build` / `bundleDir` / `html` / `servedPath` wiring (L184-187) — a gated browser scenario | STILL-LIVE |
+| X4 | `tools/xray/test/day8/re_frame2_xray/mounted_views_cljs_test.cljs` | seven `re-frame.freehand.*` requires (`.cell`, `.evidence`, `.occurrences`, `.test`, `.tool`, `.release-app`, and the door) — the suite of X2 | ~~STILL-LIVE~~ → **RETIRED** (rf2-l86mm — file deleted with X2) |
+| X5 | `tools/xray/test/day8/re_frame2_xray/panels/reactive_panel_view_cljs_test.cljs` | no require; asserts on the literal schema values `:re-frame.freehand.evidence/v9` (L451, the mismatch banner) and `/v1` (L466, the supported case) — the banner contract of the live panel | ~~STILL-LIVE~~ → **SUBSTRATE-FREE** (rf2-l86mm — the file survives; only its Freehand schema arms went) |
+| X6 | `tools/xray/testbeds/freehand_views/core.cljs` | `:require` of `re-frame.freehand` (L97) — the one staged deck whose views are Freehand views | ~~STILL-LIVE~~ → **RETIRED** (rf2-0yp7w — the whole `freehand_views/` deck deleted) |
+| X7 | `tools/xray/testbeds/freehand_views/index.html` | **names no donor** — its two hits (`<title>` L5, a comment L29) name the deck's own `freehand-views` prefix. It is a row as the deck's host page: `#app` (L26) is the mount target X6's `run` takes, and `fh-mount` / `fh-unmount` (L33-34) are the ids X8's scenario drives. `freehand-views.core/run` is bound by `:init-fn` in top-level `implementation/shadow-cljs.edn` L2042, not here | ~~STILL-LIVE~~ → **RETIRED** (rf2-0yp7w — deleted with X6's deck) |
+| X8 | `tools/xray/testbeds/feature_matrix/scenarios.cjs` | the `freehand-views populated Views roster` scenario (L3819) plus its `build` / `bundleDir` / `html` / `servedPath` wiring (L184-187) — a gated browser scenario | ~~STILL-LIVE~~ → **SUBSTRATE-FREE** (rf2-l86mm — the file survives; the scenario and its wiring went) |
 | X9 | `tools/xray/src/day8/re_frame2_xray/panels/hicasso_reads.cljs` | `:require [re-frame.hicasso.tool :as tool]` (L41) — the live read seam behind the Hicasso tab | MIGRATED |
 | X10 | `tools/xray/src/day8/re_frame2_xray/panels/hicasso_helpers.cljc` | pins `:re-frame.hicasso.evidence/v2` (L66) as the consumer-owned schema literal | MIGRATED |
 | X11 | `tools/xray/test/day8/re_frame2_xray/panels/hicasso_cljs_test.cljs` | requires `re-frame.hicasso`, `.evidence`, `.impl.collector`, `.tool` | MIGRATED |
@@ -184,6 +236,14 @@ grep.
 **X1 is the load-bearing one for `rf2-hic-062`.** Every other Xray row is downstream of it: the
 Freehand artefact is on the shipped tool's classpath at top level, so Xray does not merely tolerate
 Freehand's absence, it is built against its presence.
+
+> **SPENT, and the two paragraphs above are the measurement rather than the state (rf2-p4h2t).**
+> Both describe X1 and X2 in the present tense and neither holds: `rf2-l86mm` deleted
+> `mounted_views.cljs`, `install-mounted-views-subs!` and the panel section that rendered it, and
+> dropped the coordinate. The trace is kept because it is the reasoning that made X2's liveness
+> checkable at all — liveness had to be followed through Xray's own namespaces rather than read off
+> the grep — and that method outlives its subject. `rf2-hic-062`, the bead X1 was load-bearing for,
+> is itself closed.
 
 **Why X13 counts, and why it is the row most easily lost** (`rf2-kqls`). A `js/console.warn`
 argument is a runtime string the code actually uses, which the verdict table already calls
@@ -429,14 +489,24 @@ work; the third is not, and one former cluster is gone entirely. A closed bead i
 the question has been answered, **not** that work is waiting — mistaking one for the other is how
 completed work gets re-done.
 
+> **AS MEASURED ABOVE, STANDING BELOW (rf2-p4h2t, 2026-08-18).** Both paragraphs are the
+> 2026-08-11 reading. **No cluster is pending work now**: `rf2-u5b4` and `rf2-5gka` both closed,
+> `rf2-jkdy` and `rf2-n3mb` were already closed when the census was taken, and the disposition
+> column below is corrected row by row. **All thirteen clustered rows are discharged.** The whole
+> still-live set is therefore **X3 and X13**, the two that were never in a cluster — so the
+> sentence above holds under a different arithmetic than the one it was written for:
+> `13 discharged + X3 + X13`, with 2 standing rather than 15. Both fold into `rf2-hic-062`, which
+> has itself closed since; X13 acquired its own follow-up in this pass, and X3 was answered by
+> `rf2-wtznc` and is on `rf2-0yp7w.9`'s DO NOT DELETE list.
+
 | cluster | rows | what moving it costs | disposition |
 |---|---|---|---|
-| Xray Views panel on donor 2 | X1, X2, X4, X5 | re-authoring against four different reads; the panel's whole question ("which *views* are mounted") is one the target cannot answer, because Hicasso keys boundaries by read set and has no view registry | `rf2-jkdy` **CLOSED — the verdict was a refusal.** Of the panel's eight questions two carry across, one degrades structurally and five have no answer at all, so there is no migration to perform; the eight-row mapping is `tools/xray/spec/021-Dynamic-Panel-Designs.md` §3.4.3. The retire-or-keep call, and X1's coordinate with it, is a product decision recorded on `rf2-hic-062` |
-| The staged Freehand deck | X6, X7, X8 | the deck's shadow-cljs build id and `:dev-http` port live in top-level `implementation/shadow-cljs.edn` — hot zone, and fenced out of this bead | follow-up bead `rf2-u5b4` — **open** |
-| Story presence bridge | S2, S3, S4, S5, S6, S11 | Hicasso's presence surface is `re-frame.hicasso.impl.presence` / `.presence-react`, not a published `presence-runtime` door with `advance-clock!`; the bridge needs a target-side verb that does not exist yet. S11 is the cheap row of the six — the refusal message just names whatever replaces Freehand — and S4's assertion fails until it does | follow-up bead `rf2-5gka` — **open** |
+| Xray Views panel on donor 2 | X1, X2, X4, X5 | re-authoring against four different reads; the panel's whole question ("which *views* are mounted") is one the target cannot answer, because Hicasso keys boundaries by read set and has no view registry | `rf2-jkdy` **CLOSED — the verdict was a refusal.** Of the panel's eight questions two carry across, one degrades structurally and five have no answer at all, so there is no migration to perform; the eight-row mapping is `tools/xray/spec/021-Dynamic-Panel-Designs.md` §3.4.3. The retire-or-keep call, and X1's coordinate with it, is a product decision recorded on `rf2-hic-062`. **SETTLED — the call was RETIRE, and `rf2-l86mm` executed it** (`73eb268be2`, `47e1e891a5`, both 2026-08-14): the panel's Mounted Views and Declared View Sites sections, `mounted_views.cljs` and its suite, X5's schema assertions and X1's coordinate are all gone. All four rows discharged; `rf2-hic-062` has since closed |
+| The staged Freehand deck | X6, X7, X8 | the deck's shadow-cljs build id and `:dev-http` port live in top-level `implementation/shadow-cljs.edn` — hot zone, and fenced out of this bead | follow-up bead `rf2-u5b4` — ~~open~~ **CLOSED**. Resolved as retire, not migrate: `rf2-0yp7w`.6 (`c951808b47`, 2026-08-15) deleted the whole `tools/xray/testbeds/freehand_views/` deck, and `rf2-l86mm` had already taken the feature-matrix scenario. All three rows discharged |
+| Story presence bridge | S2, S3, S4, S5, S6, S11 | Hicasso's presence surface is `re-frame.hicasso.impl.presence` / `.presence-react`, not a published `presence-runtime` door with `advance-clock!`; the bridge needs a target-side verb that does not exist yet. S11 is the cheap row of the six — the refusal message just names whatever replaces Freehand — and S4's assertion fails until it does | follow-up bead `rf2-5gka` — ~~open~~ **CLOSED**. Resolved as retire with the donor, not as a port; see the ACTIONED banner in [Story](#story--11-rows-6-still-live-5-fixture-only). All six rows discharged |
 | ~~Pair's five view tools~~ | *(was P1-P5)* | same four-reads problem as the Xray cluster, plus a regenerated `tool-descriptors.edn` and a spec-catalogue rewrite | `rf2-n3mb` **CLOSED and LANDED** (PR #7848). The five tools became three on `re-frame.hicasso.tool`; the rows are now MIGRATED P1-P6 and no longer still-live. **Not pending work** |
-| Xray adapter-id set | X3 | `:rf.adapter/ui` and `:rf.adapter/freehand` are adapter identities, not evidence reads; they retire when the adapters do, under `rf2-hic-062` itself | fold into `rf2-hic-062` — no follow-up bead |
-| Xray's schema-4 reload warning | X13 | nothing to migrate: the donor names are prose inside one `js/console.warn` about a schema-3 residue. With the tiers gone the message names namespaces that no longer exist, so the cost is a stale developer-facing string, not a broken read | fold into `rf2-hic-062` — reword or drop the warning with the tiers; no follow-up bead |
+| Xray adapter-id set | X3 | `:rf.adapter/ui` and `:rf.adapter/freehand` are adapter identities, not evidence reads; they retire when the adapters do, under `rf2-hic-062` itself | fold into `rf2-hic-062` — no follow-up bead. **STANDS, re-verified 2026-08-18 at 2 occurrences, and the fold was overtaken by a decision to KEEP**: `rf2-wtznc` closed on the reading that the member is a defensive denylist entry, on the footing `:rf.adapter/helix` has held since its own adapter was removed (`rf2-d6epb`), and `rf2-0yp7w.9` lists the set under DO NOT DELETE. `docs/design/retirement/donor-surfaces.md` reaches the same disposition independently |
+| Xray's schema-4 reload warning | X13 | nothing to migrate: the donor names are prose inside one `js/console.warn` about a schema-3 residue. With the tiers gone the message names namespaces that no longer exist, so the cost is a stale developer-facing string, not a broken read | fold into `rf2-hic-062` — reword or drop the warning with the tiers; no follow-up bead. **STANDS, re-verified 2026-08-18 at 2 occurrences, and it now HAS a follow-up bead: `rf2-0ucyg`.** The predicted cost arrived early and by a different route — the message says schema 4 "reads views through `re-frame.freehand.tool`", which stopped being true at `rf2-l86mm` on 2026-08-14, a day BEFORE the tree was deleted. `rf2-hic-062` closed without it, and `rf2-0yp7w.9` has the file only as "comments and docstrings", which is not what this is |
 
 **No migration was made in this bead, and that is the finding rather than a shortfall.** Every
 cluster failed the same test: the target does not publish the read the consumer needs, so the change
@@ -464,6 +534,42 @@ either — 4 in Xray's Hicasso tab, 6 in Pair.
 > MIGRATED rows are unaffected: they read the target.
 
 ## The proof statement
+
+There are two, and a reader owes both. The second is the measurement, preserved verbatim because
+that is what a census is for; the first is what it says today. **Three of the measurement's
+operative claims have been overtaken** — the still-live count, the two clusters it calls genuinely
+open, and above all its closing refusal to dispose of the Freehand tree, which has since been
+disposed of. Quoting the 2026-08-11 block alone is therefore the one misuse this page cannot
+survive.
+
+### The standing statement, 2026-08-18
+
+> **Re-derived at commit `861c59f85b` (merged `main`, 2026-08-18) by `rf2-p4h2t`**, per row rather
+> than by repeating the grep — the pattern that produced the 43 is the wrong instrument for a
+> liveness question, which is the whole lesson of the section above.
+>
+> **The primary tool paths ARE donor-free.** Of 30 tool-consumer rows across Xray, Story and Pair,
+> **10 are MIGRATED** to the adapter-neutral Hicasso provider (4 in Xray's Hicasso tab, all 6 of
+> Pair's), **18 are DISCHARGED** — retired, made substrate-free or reworded, each with the bead that
+> landed it in its verdict cell — and **2 are STILL-LIVE**. Zero remain FIXTURE-ONLY. The three
+> clusters are all settled: `rf2-jkdy` and `rf2-u5b4` by retirement, `rf2-5gka` and `rf2-2og6s` by
+> retire-with-the-donor, `rf2-n3mb` by re-authoring Pair's five tools into three.
+>
+> **The two still-live rows are X3 and X13, and both are deliberate rather than residual.** X3 is
+> `:rf.adapter/freehand` in `mount.cljs`'s `react-element-render-kinds` — a defensive denylist entry
+> whose docstring gives the reasoning in place, kept on the footing `:rf.adapter/helix` has held
+> since its own adapter was removed, and listed under DO NOT DELETE by `rf2-0yp7w.9`. X13 is the
+> schema-4 reload warning in `registry.cljs`, which is live code on a rarely-reached path; what is
+> wrong there is the message's CONTENT, filed as `rf2-0ucyg`. **Neither is a migration, and X3 is
+> not a defect at all** — a later reader should not "fix" it.
+>
+> **So the Freehand tree HAS been disposed of, and this census no longer withholds it.**
+> `git ls-files implementation/freehand` returns 0, controlled against 464 for
+> `implementation/hicasso` in the same command. Xray's top-level coordinate went with `rf2-l86mm`;
+> its Views panel and staged deck are deleted; Story's bridge is retired. The paragraph in the
+> measurement below that refuses disposal was correct when written and is spent.
+
+### The measurement it replaces, as taken 2026-08-11
 
 For `rf2-hic-062` to cite:
 
