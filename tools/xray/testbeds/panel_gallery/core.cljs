@@ -44,9 +44,9 @@
 
   Per `tools/xray/spec/018-Event-Spine.md` the chrome is four stacked
   layers — top ribbon + event list + tab bar + detail panel — with
-  nine L4 tabs (Issues folded inline; this gallery covers the six core
-  lenses and intentionally excludes Resources / Graph / Frames — see
-  the exclusions note above). Time Travel is folded into the spine.
+  ten L4 tabs (Issues folded inline; this gallery covers the six core
+  lenses and intentionally excludes Resources / Graph / Frames / Hicasso
+  — see the exclusions note above). Time Travel is folded into the spine.
 
   ## Per-variant frame isolation
 

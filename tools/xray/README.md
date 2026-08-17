@@ -22,7 +22,7 @@ shipped to consumers.
 Xray consumes the re-frame2 instrumentation surface (Spec 009 trace
 bus, Tool-Pair epoch history, the registrar query API) — it adds
 nothing the framework didn't already expose. The chrome is one tool in
-two modes: a **9-tab Dynamic detail panel** (event-coupled) and a
+two modes: a **10-tab Dynamic detail panel** (event-coupled) and a
 **5-tab Static mode** (registry browse). The tabs are *presentation* of
 an already-structured runtime.
 
@@ -241,7 +241,7 @@ that the tool could be one-shotted from it.
 
 | File | Covers |
 |---|---|
-| [`spec/000-Vision.md`](./spec/000-Vision.md) | Why Xray exists; the two-mode chrome (9-tab Dynamic + 5-tab Static); the bar it sets. |
+| [`spec/000-Vision.md`](./spec/000-Vision.md) | Why Xray exists; the two-mode chrome (10-tab Dynamic + 5-tab Static); the bar it sets. |
 | [`spec/002-Time-Travel.md`](./spec/002-Time-Travel.md) | Epoch scrubber; replay semantics; read-only posture. |
 | [`spec/003-Machine-Inspector.md`](./spec/003-Machine-Inspector.md) | Embeds `tools/machines-viz/`; transition history; source jumps. |
 | [`spec/004-App-DB-Diff.md`](./spec/004-App-DB-Diff.md) | Slice-centric diff; pinned slices; full-tree escape hatch. |
@@ -334,7 +334,7 @@ Required GitHub secrets (configured at the repository level):
 
 ## Status
 
-Pre-alpha. The full 9-tab Dynamic shell, 5-tab Static catalogue,
+Pre-alpha. The full 10-tab Dynamic shell, 5-tab Static catalogue,
 true-inline and overlay launch modes, same-origin pop-out, command palette,
 global shortcuts, and frame-isolated `:rf/xray` state are implemented.
 

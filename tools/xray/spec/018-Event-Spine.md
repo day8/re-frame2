@@ -1,6 +1,6 @@
 # 018-Event-Spine
 
-The architectural core of Xray: the **4-layer chrome** + the **9-tab detail panel** + the **single-axis spine sub** (`:rf.xray/focus`) that binds every dependent surface to one user-controlled focal point.
+The architectural core of Xray: the **4-layer chrome** + the **10-tab detail panel** + the **single-axis spine sub** (`:rf.xray/focus`) that binds every dependent surface to one user-controlled focal point.
 
 This spec replaces the legacy 16-panel sidebar (now dead — see [`000-Vision.md`](000-Vision.md) §The tab inventory and [`007-UX-IA.md`](007-UX-IA.md) §The 4-layer chrome) with a denser, keyboard-mnemonic, 10x-shaped layout. The event list is the load-bearing layer; every panel rebinds when selection moves.
 
@@ -1949,7 +1949,7 @@ not Xray.
 ## §14 Cross-references
 
 - [`DESIGN-RATIONALE.md`](DESIGN-RATIONALE.md) — Lock #14 (Two modes — Dynamic + Static) is the direction-setting decision behind §2.5 Static surface above.
-- [`000-Vision.md`](000-Vision.md) — the 9-tab Dynamic inventory; philosophy shift to human-only surface.
+- [`000-Vision.md`](000-Vision.md) — the 10-tab Dynamic inventory; philosophy shift to human-only surface.
 - [`003-Machine-Inspector.md`](003-Machine-Inspector.md) — event-driven Dynamic Machines panel (rf2-y9xmf) + §Static Machines surface (the shipped Static-mode Machines surface — 4-mode sub-strip with Topology / Sim body (rf2-r4nao — landed) / Instances JUMP / Cascade dimmed-with-tooltip). The UC1 Sim engine and UC2 Mode A/B/C historical prose remain below as Sim re-host reference (rf2-r4nao — landed).
 - [`004-App-DB-Diff.md`](004-App-DB-Diff.md) — diff renderer + changed-paths derivation used in L4 App-db tab content.
 - [`007-UX-IA.md`](007-UX-IA.md) — typography, colour tokens, density, keyboard map, editor protocol matrix.
