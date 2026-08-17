@@ -158,8 +158,9 @@ in reverse — the identity has to be stated rather than passed over.
 **Read this as what it is.** 175 commits and 219 files landed in the interval (§1), and none of them
 added or removed a test in these four suites or a file in these three builds. That is consistent with
 the interval's character — fixes and records rather than deletions or new lanes — and it is *not*
-evidence that the gates ran over a cached artefact, because [§7](#7-the-controls--which-gates-were-shown-to-still-bite)
-shows three of them going red on demand on this same base.
+evidence that the gates ran over a cached artefact, because
+[§7](#7-the-controls--which-gates-were-shown-to-still-bite) plants **five** faults across **four**
+of these runners on this same base and every one of them comes back red.
 
 **One number DID move, and it moved to zero.** The browser lane compiled **4 warnings** at
 `7304e825c9` and compiles **0** here. All four were `:infer-warning` on `(.-server (n/marker …))` in
@@ -207,12 +208,16 @@ translates line endings and a plain byte digest reports a correct restore as fai
 | 1, source half | one `:require` of `re-frame.hicasso.motion` in the public door's `ns` form | `check_optional_module_reachability.py` | `1` | named the file and the optional module by name |
 | 1, bundle half | a `:require` of `re-frame.hicasso.native` plus one reachable `n/marker` call in the consumer app's `-main` | `npx shadow-cljs release hicasso-release` then `check_bundle_isolation.cjs` | build `0`, gate `1` | `OPTIONAL SURFACE LEAKED: native tier`, quoting sentinel `"rf2:hicasso-native-tier"` |
 | 2, SSR JVM arm | one string-literal marker prepended to text-node output in `ssr/emit.cljc`'s `emit-element` | `clojure -M:test` in `implementation/ssr` | `1` | **97 failures, 0 errors**, over the same **599 tests / 2925 assertions** as the control run — so no namespace crashed and the plant was scoped to assertions rather than to the lane |
+| 3, macro expansion | `head-form` in `native.cljc` — the `n/$` macro's expansion-time lowering of a keyword head — made to append a marker to the element name | node lane, compile then run | compile `0`, run `1` | `three_way_parity_cljs_test.cljs:338:15`, **8 failures** on *the-three-routes-render-the-same-server-bytes* and **7** on *the-three-routes-build-the-same-element-shape* — the native arm's expansion no longer agrees with handwritten React |
+| 4, source coordinate | `defview`'s captured coordinate in `hicasso.cljc` given `:line 0` at expansion | node lane, same run | run `1` | `error_shape_cljs_test.cljs:143:11` — expected `:line? true`, actual `:line? false` |
 
 | Family | Baseline content hash | Under the plant | After restore |
 |---|---|---|---|
 | 1, source half — `hicasso/src/re_frame/hicasso.cljc` | `8641b387629974f2564fe9cbf16748ce1473bfa7` | `a3d28cb07e3a624915ca3f3378176885cc90b455` | `8641b387629974f2564fe9cbf16748ce1473bfa7` |
 | 1, bundle half — `hicasso/test/re_frame/hicasso/consumer_app.cljs` | `2226b91b0c9579aa04bee412c3ef28b4886c844f` | `ff8ceed08d856dee11c3e72cc0c12f96f7febe1c` | `2226b91b0c9579aa04bee412c3ef28b4886c844f` |
 | 2 — `ssr/src/re_frame/ssr/emit.cljc` | `484e5f9abdee993a841a46da0583006e22cd23b1` | `7fbc629c7eee7aafce8fa651fd45cf8197d7eb75` | `484e5f9abdee993a841a46da0583006e22cd23b1` |
+| 3 — `hicasso/src/re_frame/hicasso/native.cljc` | `352f1e3d6342e334c39331186454fda8235a4116` | `d7f4272fafc8407cf4e9c49624873d633a4c2902` | `352f1e3d6342e334c39331186454fda8235a4116` |
+| 4 — `hicasso/src/re_frame/hicasso.cljc` | `8641b387629974f2564fe9cbf16748ce1473bfa7` | `7c4659d24bc7791391854615bd9f0c47500a059f` | `8641b387629974f2564fe9cbf16748ce1473bfa7` |
 
 **Each baseline hash equals the object committed at `f5b1f1e94f`, and each restored hash equals the
 baseline** — so every plant is proved to have applied rather than silently no-opped, and every restore
@@ -220,8 +225,9 @@ is proved exact.
 
 **The plants also answer a second question the greens cannot: which tree the gate read.** Each fault
 existed only in this worker's worktree, so a run that had wandered into a sibling checkout would have
-come back green. Two of the three gates independently corroborate it by printing their
-`shadow-cljs.edn` path, which named this worktree on every heavy run.
+come back green. The shadow-cljs runs corroborate it a second way, by printing the absolute path of the
+`shadow-cljs.edn` they loaded on their first line — it named this worker's worktree on every heavy run,
+never a sibling's.
 
 **Two further gates were shown to bite, unplanned, in the course of this work**, and they are recorded
 because a control that arrives by accident is still a control.
@@ -237,9 +243,27 @@ all: run before the new page was staged, it reported *0 pages inspected* and sai
 that **this exit 0 is not a verdict on the corpus**. Staged, it reported 1 page, 3 cited pins, 3 landed,
 0 findings. A zero-result run is not a passing run, and this gate is honest enough to say so.
 
-### 7.1 Families 3 and 4
+### 7.1 Families 3 and 4 shared one sabotage run, and the counts prove the scoping
 
-NOT YET RUN AT THIS COMMIT. Until this section says otherwise, families 3 and 4 have **no plant of
-their own**: their green rests on the node and browser lanes' own pass/fail reporting and on the
-elision gate's positive control, which is weaker evidence than families 1 and 2 carry, and it should be
-read at that strength and no higher.
+Both plants went in together and the node lane was compiled and run **once** under both. That is worth
+stating rather than glossing, because a shared run is only legitimate if the two reds are separable —
+and they are: family 3's failures are all in `three_way_parity_cljs_test` and family 4's are in
+`error_shape_cljs_test`, at the file and line quoted above.
+
+The run reported **47 failures and 8 errors over 11771 tests containing 59589 assertions**. That test
+and assertion count is **identical to the green control run** in §5, which is the check that matters
+here: if either plant had crashed a namespace, every namespace after it would have been skipped and the
+totals would have dropped. They did not, so the plants were scoped to assertions and the lane ran
+whole. The eight errors are downstream of the same two plants — the SSR-entry and identifier-prefix
+namespaces consume the native tier's element names — and they are not a separate finding.
+
+### 7.2 What was NOT proved
+
+**Family 4's elision arm carries no plant.** The plant above proves the *coordinate present in dev*
+half of family 4; the *coordinate erased in production* half rests on
+`check_source_coord_elision.cjs`'s own positive control, which is real evidence that the gate read a
+non-empty bundle but is weaker than a planted red. Stated so nobody reads §7's table as covering both
+arms.
+
+**Family 5 has nothing to prove.** There is no gate to sabotage, which is the finding in
+[§4](#4-family-5--the-pinned-regression-gate) rather than a gap in this section.
