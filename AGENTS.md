@@ -169,9 +169,14 @@ cp -rf source dest          # NOT: cp -r source dest
 ## Docs Gates — What Covers `docs/design/**`
 
 `mkdocs build --strict` does **not** cover `docs/design/**`. `mkdocs.yml`'s
-`exclude_docs` block deliberately keeps `design/freehand/` and `design/hicasso/`
-out of the site, so never nominate it as the gate for an edit confined to that
-tree — it will exit 0 having verified nothing. `scripts/check_doc_slugs.py` does
+`exclude_docs` block deliberately keeps the design trees out of the site, so
+never nominate it as the gate for an edit confined to that tree — it will exit 0
+having verified nothing. That block is the authority on what else the build
+cannot see, and it holds more than the design trees: read `exclude_docs` in
+`mkdocs.yml` before nominating `mkdocs build` for any path, rather than trusting
+a list in prose. A prose list drifts, and this one already had, naming two of
+the six trees the block excluded (rf2-yxuta).
+`scripts/check_doc_slugs.py` does
 cover it: markdown link targets and heading anchors, in the fast-PR spine and —
 since rf2-v7fui — unconditionally in `test.yml`'s `verify-readme-links` job, so
 on every PR rather than only a docs-classified one. Its `--verbose` banner
