@@ -83,16 +83,20 @@ const { REPO_ROOT, IMPL_ROOT } = require('./_path-policy.cjs');
 //
 //   Band        Owner                     Notes
 //   ----------  ------------------------  ----------------------------------
-//   8030-8036   Xray testbeds             :dev-http (shadow-cljs.edn):
+//   8030-8035   Xray testbeds             :dev-http (shadow-cljs.edn):
 //                                           8030 two-frame-isolation
 //                                           8031 standard-epochs
 //                                           8032 routes-epochs
 //                                           8033 machine-epochs
 //                                           8034 edn-inspector
 //                                           8035 managed-http
-//                                           8036 freehand-views (rf2-6pohj)
+//                                         8036 was the freehand-views deck
+//                                         and is FREE again (rf2-puwyb): the
+//                                         deck, its build id and its :dev-http
+//                                         entry all went with the Freehand
+//                                         retirement (rf2-0yp7w).
 //   8037        xray-feature-gate         NOT a :dev-http port, and the one
-//                                         hole inside the Xray band above:
+//                                         reserved slot in the Xray run above:
 //                                         PREFERRED_PORT in implementation/
 //                                         scripts/serve-and-run-xray-feature-
 //                                         gate.cjs (XRAY_FEATURE_GATE_PORT),
@@ -100,10 +104,11 @@ const { REPO_ROOT, IMPL_ROOT } = require('./_path-policy.cjs');
 //                                         out because "next slot after the
 //                                         last testbed" is the natural way to
 //                                         pick a new Xray port and would land
-//                                         here — a collision that only shows
-//                                         up when the gate and a watch run at
-//                                         once. The next free Xray slot is
-//                                         8038.
+//                                         here once 8036 is taken — a
+//                                         collision that only shows up when
+//                                         the gate and a watch run at once.
+//                                         The next free Xray slot is 8036,
+//                                         then 8038; 8037 is never free.
 //   8040-8045   Story showcases +         :dev-http (shadow-cljs.edn):
 //               worked examples             8040 nine-states-with-stories
 //                                           8041 login-with-stories
@@ -129,7 +134,7 @@ const { REPO_ROOT, IMPL_ROOT } = require('./_path-policy.cjs');
 //                                         must share an origin.
 //   8765        Xray panel-gallery        :dev-http (shadow-cljs.edn).
 //
-// The :dev-http bands (8030-8036 / 8040-8045 / 8765) are mirrored in the
+// The :dev-http bands (8030-8035 / 8040-8045 / 8765) are mirrored in the
 // DEV_HTTP map below (READ-only — shadow-cljs.edn is hot-zone). The 805x
 // examples band is NOT a :dev-http port — it is the test-orchestrator's
 // http-server default, resolved at runtime — so it lives only here + in
@@ -148,9 +153,6 @@ const DEV_HTTP = {
   ':examples/machine-epochs': { port: 8033 },
   ':examples/edn-inspector': { port: 8034 },
   ':examples/managed-http': { port: 8035 },
-  // rf2-6pohj — the Freehand-hosted Views deck, the only Xray testbed whose
-  // views are Freehand views (803x band).
-  ':testbeds/freehand-views': { port: 8036 },
   ':testbeds/panel-gallery': { port: 8765 },
   ':examples/nine-states-with-stories': { port: 8040, story: true },
   ':examples/login-with-stories': { port: 8041, story: true },
