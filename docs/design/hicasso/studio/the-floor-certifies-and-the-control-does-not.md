@@ -149,6 +149,25 @@ the first-leg excess spread across six writes — about 6,966 / 6 ≈ **1,161 B*
 Subtracting it leaves a pre-prime-equivalent target near 22,947 and 23,569, and
 the certified readings are still ≈ 3.1 – 3.6 KB below that.
 
+> **AMENDED 2026-08-17 22:30 AUSEST (`rf2-nkeba`).** Two corrections to the
+> paragraph above, and one enlargement. **(1)** The "≈ 3.1 – 3.6 KB" is the
+> `reagent-subs` range; `uix-subs`' own residual against 23,569 is
+> **2,873 – 3,857 B**, so the sentence understates the spread at both ends on
+> that segment. **(2)** The 6,966 B is a median pooled over *all* 2026-08-13 arm
+> windows; re-derived on the 2026-08-08 floor windows themselves it is
+> **≈ 6,231 B** and **≈ 6,267 B**, i.e. 1,038 / 1,045 B per write, so the
+> correction applied here is *generous to the control* by about 120 B and the
+> residual is slightly larger, not smaller. **(3)** The targets `24,108` and
+> `24,730` are the **median** of `rise/W` across the six 2026-08-08 rounds — the
+> per-round values run 21,829 – 24,440 and 24,213 – 25,144 — where the figures
+> in the table above are per-window values on a certified subset. Against the
+> *lowest* 2026-08-08 round with its largest step removed the shortfall is
+> **4.7 – 7.0%** and **10.7 – 14.9%**, not 16 – 20%. The full re-derivation, the
+> refutation of the reseeded-page-width candidate, and what remains unexplained
+> are in
+> [the control's target is not the quantity it is read against](the-controls-target-is-not-the-quantity-it-is-read-against.md).
+> **Nothing measured by this window is withdrawn**; the readings stand as taken.
+
 **What that costs is specific and bounded.** `F_old`'s stated job is to say the
 rig has not moved and thereby license comparison between the two writes. The
 across-time half of that job is not discharged: **rows measured today may not be
