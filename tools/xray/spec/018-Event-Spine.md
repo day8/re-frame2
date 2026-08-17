@@ -141,9 +141,11 @@ Static mode is unconditionally available. The mode dropdown mounts at chrome-rib
 
 ### Mnemonic mode-scoping rule
 
-The 5-letter Static sub-tab mnemonics (`m` Machines · `r` Routes · `c` Schemas · `f` Flows · `i` Interceptors per [`007-UX-IA.md`](007-UX-IA.md) §Static mode) are **mode-scoped**: the same letter dispatches the active mode's tab, not a globally-fixed target. `m` in Dynamic opens the Machines instance-inspector (per §5); `m` in Static opens the Machines registry browse (per [`003-Machine-Inspector.md`](003-Machine-Inspector.md) §Static Machines surface). The keybinding wiring rides the same chord-detection ns (`keybinding.cljs`) but routes through a mode-aware dispatcher.
+The 5-letter Static sub-tab mnemonics (`m` Machines · `r` Routes · `c` Schemas · `f` Flows · `i` Interceptors per [`007-UX-IA.md`](007-UX-IA.md) §Static mode) are **mode-scoped**: each letter names the active mode's tab, not a globally-fixed target. `m` in Dynamic names the Machines instance-inspector (per §5); `m` in Static names the Machines registry browse (per [`003-Machine-Inspector.md`](003-Machine-Inspector.md) §Static Machines surface).
 
-The mode-scoping rule is what lets the mnemonic vocabulary stay small (single letters) without colliding across modes — switching modes flips both the chrome AND the meaning of the letter keys, and the user reads which is active from the 4 stacked mode signals above.
+**These are LABELS, not keys.** No bare-letter tab handler exists in `keybinding.cljs` — the shipped bare keys are exactly those in §11's complete map (Space · `l` · Shift+`G` · `j` · `k` · `,` · `s`), and the tab mnemonics sit in [`007-UX-IA.md` §Trimmed pending demand](./007-UX-IA.md#trimmed-pending-demand-rf2-f7748x--the-post-freeze-upgrade-path) as never-implemented. Each letter is surfaced in its tab button's `title` attribute and nowhere else; the tab is reached by click or by the command palette's tab-jump verb, which is itself mode-aware (per [`007-UX-IA.md`](007-UX-IA.md) §Mode-aware command surface).
+
+The rule is stated here because it governs the vocabulary: single letters stay small and collision-free across modes, so the letter a reader sees on a Static tab is the same one they see on its Dynamic peer. Were the keys ever wired — a new feature, not a documented-existing one — this is the semantics they would take.
 
 ### Frame isolation
 

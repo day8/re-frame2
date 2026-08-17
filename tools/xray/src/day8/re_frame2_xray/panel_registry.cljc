@@ -41,7 +41,13 @@
             (Dynamic) or `:rf.xray.static/selected-tab` (Static)
             when the tab is selected.
     :label  string — visible tab label.
-    :mnem   string — single-letter keyboard mnemonic.
+    :mnem   string — single-letter LABEL mnemonic, rendered into the
+                     tab button's `title` (`\"Trace (t)\"`) by both
+                     shells and read by nothing else. Not a key: no
+                     bare-letter tab handler exists in
+                     `keybinding.cljs`, and tab-jump is a
+                     command-palette verb (spec/007 §Trimmed pending
+                     demand).
     :modes  set    — subset of #{:dynamic :static}. Tabs registered
                      against multiple modes appear in every matching
                      tab bar.

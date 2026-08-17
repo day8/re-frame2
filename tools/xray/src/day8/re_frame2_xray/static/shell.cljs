@@ -62,14 +62,19 @@
       Interceptors (i)
 
   Tab order + mnemonics per the findings doc §5.2 (mode-scoped: same
-  letter, different target per mode — `m` in Dynamic opens the
-  Machines instance inspector, `m` in Static opens the Machines
-  registry browse).
+  letter, different target per mode — `m` names the Machines instance
+  inspector in Dynamic and the Machines registry browse in Static).
+
+  Those letters are LABELS, not keys. They ride the registry entry's
+  `:mnem` into each tab button's `title` and are read by nothing else;
+  there is no `static/keybinding.cljs`, and the global
+  `keybinding.cljs` binds no bare letter to a tab. A tab is reached by
+  click or by the command palette's `select-static-tab` verb. See
+  spec/018 §2.5 Mnemonic mode-scoping rule + spec/007 §Trimmed pending
+  demand.
 
   Static has no standalone Views or Events sub-tabs — the information
   those would surface already lives in the source code.
-
-  Tab-mnemonic mode-scoping lives in `static/keybinding.cljs`.
 
   ## Frame isolation
 
