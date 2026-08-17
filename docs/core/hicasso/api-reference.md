@@ -31,15 +31,17 @@ name the ids a door raises; [Errors](17-errors.md) explains the shape and
 
 ## What this page does not enumerate
 
-Three rosters exist elsewhere and are authoritative there. Copying one here
-would produce a second answer that goes stale the day the first one moves, so
-this page points at each instead.
+Four questions are answered authoritatively elsewhere. Copying an answer here
+would produce a second one that goes stale the day the first moves, so this page
+points at each instead. Every target below is a page of this guide except the
+naming ledger, which is a working design record in the repository and does not
+publish — a reader who cannot reach that one is missing history, not behaviour.
 
 | Question | Where it is answered |
 | --- | --- |
-| What each surface does on the server, and under hydration | `docs/design/hicasso/product/dispositions.md` §2.1 and §2.2 |
-| Which spellings changed, when, and under whose ruling | `docs/design/hicasso/product/naming-ledger.md` |
-| Every refusal id, its reason and its recovery | `docs/design/hicasso/product/complaints.md`, and [Errors](17-errors.md) |
+| What each surface does on the server, and under hydration | [SSR and hydration](18-ssr-and-hydration.md#server-policy-by-surface) |
+| Which spellings changed, when, and under whose ruling | the naming ledger, `docs/design/hicasso/product/naming-ledger.md`, in the repository |
+| Every refusal id, its reason and its recovery | [Troubleshooting](troubleshooting.md#the-complaint-index), with [Errors](17-errors.md) for the shape each one carries |
 | Which doors this guide teaches under a spelling the code does not yet carry | the Status block on [the guide index](index.md) |
 
 ## `re-frame.hicasso` — the door
