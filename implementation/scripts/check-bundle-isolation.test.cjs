@@ -504,24 +504,26 @@ for (const relPath of Object.keys(DEDICATED_ISOLATION_GATES)) {
   assert(rt && rt.via === 'dedicated' && rt.relPath.startsWith('adapters/'),
     `${relPath}: must be discovered under adapters/ and covered by its validated dedicated gate`);
 }
-// rf2-a32r7 — `ui` was never publishable, so it was never discovered as a
-// required browser-optional runtime. The artefact itself is now RETIRED and the
-// directory is gone, so this assertion is vacuous rather than load-bearing; it is
-// kept only until somebody decides whether the retired-path guard is worth
-// generalising.
-assert(!realCoverage.required.some((rt) => rt.relPath === 'ui'),
-  'ui must NOT be in the required browser-optional set — it declares no :clein/build (rf2-a32r7)');
-
-// Every generic-coverage path must be a real implementation/ runtime on disk (so
-// a stale relPath can't paper over a missing runtime). Publishable ones are held
-// to the stronger structural test; `ui` is the one in-tree-only entry.
-const NON_PUBLISHABLE_GENERIC = new Set(['ui']);
+// rf2-k9rzr — the decision the retired-`ui` guard was left waiting on. Two
+// `ui`-shaped remnants stood here, and BOTH were unreachable once the artefact
+// was retired and its directory deleted:
+//
+//   - `assert(!realCoverage.required.some((rt) => rt.relPath === 'ui'))`. The
+//     required set is derived by READING each candidate's deps.edn off disk, so
+//     a path with no directory can never enter it. Measured: substituting any
+//     never-present string for 'ui' left the self-test green, which is the
+//     definition of an assertion proving nothing.
+//   - a `NON_PUBLISHABLE_GENERIC = new Set(['ui'])` waiver that let a named
+//     generic-coverage path settle for mere directory existence instead of the
+//     structural publishable test. `genericCoveragePaths()` has not yielded 'ui'
+//     since the retire, so the branch never ran.
+//
+// Generalising the first into a retired-path guard was considered and REJECTED:
+// discovery cannot manufacture a path that is not on disk, so the generalised
+// form would be vacuous by construction too. Both are deleted rather than
+// patched, and the waiver goes with them — an exemption nothing claims can only
+// ever weaken this check for whatever claims it next.
 for (const relPath of genericCoveragePaths()) {
-  if (NON_PUBLISHABLE_GENERIC.has(relPath)) {
-    assert(fs.existsSync(path.join(REPO_ROOT, 'implementation', relPath, 'deps.edn')),
-      `generic-coverage relPath '${relPath}' must be a real implementation/ artefact directory`);
-    continue;
-  }
   assert(pathDeclaresBuildAlias(path.join(REPO_ROOT, 'implementation'), relPath),
     `generic-coverage relPath '${relPath}' must be a real publishable implementation/ artefact`);
 }
@@ -544,7 +546,7 @@ console.log(
   `${sentinelMutations} deliberate production leaks; ` +
   `${thirdParty.size} emitted third-party owners; ` +
   `${coverageMutations} structural+causal enrollment mutations ` +
-  '(publishable ui + new adapter + nested non-adapter fail closed; leaf-collision, ' +
+  '(new flat publishable + new adapter + nested non-adapter fail closed; leaf-collision, ' +
   'EDN string/comment/discard rejected; dedicated gate bound to exact runtime + ' +
   'executable — prose/absent/uninvoked/echo/false-and/arg-only/substring command + ' +
   'unrelated-checker-for-new-runtime all rejected; nonexistent-root / subtree-EACCES / ' +
