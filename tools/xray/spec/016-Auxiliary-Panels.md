@@ -2,7 +2,7 @@
 
 The normative home for the per-tab content contracts beyond the hero
 4-layer chrome architecture in
-[`018-Event-Spine.md`](./018-Event-Spine.md). The 9-tab Dynamic inventory in
+[`018-Event-Spine.md`](./018-Event-Spine.md). The 10-tab Dynamic inventory in
 [`000-Vision.md`](./000-Vision.md) §The tab inventory is the
 top-level navigation map; this doc gives the per-tab implementation
 contract a one-shot implementer needs — inputs (subs / events
@@ -880,7 +880,7 @@ See [`007-UX-IA.md` §Settings popup](./007-UX-IA.md#settings-popup-modal-overla
 ## Cross-references
 
 - [`000-Vision.md`](./000-Vision.md) — the canonical-questions + the
-  9-tab Dynamic inventory.
+  10-tab Dynamic inventory.
 - [`019-Cross-Cutting-Insight.md`](./019-Cross-Cutting-Insight.md) —
   the 5-idioms × 4-areas matrix driving the per-tab content growth
   above.

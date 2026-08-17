@@ -12,11 +12,11 @@ main read**.
 
 - **[000-Vision.md](000-Vision.md)** — The claim. Xray shows you what
   happens when an event fires. The five canonical questions; the audience;
-  the "two doors" split (Xray = human; re-frame2-pair-mcp = AI); the 9-tab
+  the "two doors" split (Xray = human; re-frame2-pair-mcp = AI); the 10-tab
   Dynamic inventory (the Issues tab was removed per rf2-gbz39 Option (c)).
 - **[018-Event-Spine.md](018-Event-Spine.md)** — The architectural core:
   the 4-layer chrome (ribbon · event list · tab bar · detail panel), the
-  spine sub `:rf.xray/focus`, the 9-tab Dynamic inventory, the popover
+  spine sub `:rf.xray/focus`, the 10-tab Dynamic inventory, the popover
   invocation contract, the data-classification rendering contract. Reading
   order: read THIS after 000-Vision, then per-tab specs.
 - **[019-Cross-Cutting-Insight.md](019-Cross-Cutting-Insight.md)** — The
@@ -194,7 +194,7 @@ main read**.
    ("Xray shows you what happens when an event fires") and the five
    canonical questions.
 2. **Read [`018-Event-Spine.md`](018-Event-Spine.md) next** for the
-   chrome architecture — the 4-layer + spine + 9 Dynamic tabs + popovers.
+   chrome architecture — the 4-layer + spine + 10 Dynamic tabs + popovers.
 3. **Read [`019-Cross-Cutting-Insight.md`](019-Cross-Cutting-Insight.md)
    third** for the matrix of features across the four cross-cutting areas
    (SSR · Machines · Routes · Managed-Fx).

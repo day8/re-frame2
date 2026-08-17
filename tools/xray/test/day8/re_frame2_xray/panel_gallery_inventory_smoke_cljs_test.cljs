@@ -136,10 +136,10 @@
 ;; ---- Dynamic-tab gallery coverage + documented exclusions (rf2-1sddi6 F3) ----
 ;;
 ;; The panel-gallery is the visual-design harness for the six CORE L4
-;; lenses. The three cohesive-sub-domain / runtime-structure tabs added
-;; later (Resources · Graph · Frames) are INTENTIONALLY not galleried —
-;; their shipped-surface + focusability coverage lives in the
-;; feature-matrix browser sweep (PANEL_HANDOFFS walks all nine live tabs)
+;; lenses. The four cohesive-sub-domain / runtime-structure tabs added
+;; later (Resources · Graph · Frames · Hicasso) are INTENTIONALLY not
+;; galleried — their shipped-surface + focusability coverage lives in the
+;; feature-matrix browser sweep (PANEL_HANDOFFS walks all ten live tabs)
 ;; + their own per-panel CLJS unit tests. This test locks that split:
 ;; the galleried set + the documented-exclusion set must EXACTLY partition
 ;; the live Dynamic tab inventory (`focus/valid-panels`, which mirrors the

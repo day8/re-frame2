@@ -12,7 +12,13 @@
 Hicasso is a lean-React view substrate: a boundary is a real React function
 component, the runtime owns which boundaries a commit must re-run, and
 everything else is React's. The tab answers the four questions spec SN §10
-says a developer actually asks of such a substrate, one sub-view each.
+says a developer actually asks of such a substrate, one sub-view each — and
+then adds two more views that DERIVE from the same take rather than reading
+anything new. **Four envelopes, six views**: Advisor and Causal are
+derivations over the four reads already in hand (rf2-hic-037), which is why
+they are sub-views of this tab and not a tab of their own — a second tab
+would take a second turn, and a mount landing between the two would give a
+ranking about a census the slice no longer agrees with.
 
 | Sub-view | Question | Envelope read |
 |---|---|---|
@@ -20,6 +26,12 @@ says a developer actually asks of such a substrate, one sub-view each.
 | **Reads** | Which boundaries read each subscription, at what fan-out? | `:read-attribution` |
 | **Intents** | What was dispatched, in order, in the retained window? | `:intents` |
 | **Why** | Which reads changed, and what does that prove? | `:explain-render` |
+| **Advisor** | Which boundary is hot, what owns the pressure, and what is the smallest route that addresses it? | derived — all four, no read of its own ([`028-Hicasso-Advisor.md`](028-Hicasso-Advisor.md)) |
+| **Causal** | One dispatch, walked link by link from event to paint — with every missing link named. | derived — all four, no read of its own ([`028-Hicasso-Advisor.md`](028-Hicasso-Advisor.md)) |
+
+The live view list is `hicasso-helpers/sub-modes`, and the per-view copy and
+testid suites count against THAT rather than a literal, so a seventh view
+cannot ship carrying a sixth view's sentence.
 
 The sub-view is panel-local app-db state (`:rf.xray.hicasso/set-view` /
 `:rf.xray.hicasso/view`), normalised on write so a stale or hand-dispatched
