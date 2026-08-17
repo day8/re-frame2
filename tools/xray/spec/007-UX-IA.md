@@ -1562,8 +1562,9 @@ on `Esc`, click-outside, or invocation of any item.
 - Registered handlers (id + `:doc`)
 - Frames
 - Machines with current state
-- L4 tab jumps — Dynamic: Epoch / App DB / Views / Trace / Machines
-  / Routes; Static: Machines / Routes /
+- L4 tab jumps — Dynamic: every registered `:dynamic` tab (today
+  Epoch / app-db / Views / Trace / Machine / Routes / Resources /
+  Graph / Frames / Hicasso); Static: Machines / Routes /
   Schemas / Flows / Interceptors (see §Mode-aware command surface below)
 - Command verbs (recents-boosted; see §Command verbs below)
 - Settings entries
