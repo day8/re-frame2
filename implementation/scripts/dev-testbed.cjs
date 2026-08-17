@@ -134,11 +134,15 @@ const { REPO_ROOT, IMPL_ROOT } = require('./_path-policy.cjs');
 //                                         must share an origin.
 //   8765        Xray panel-gallery        :dev-http (shadow-cljs.edn).
 //
-// The :dev-http bands (8030-8035 / 8040-8045 / 8765) are mirrored in the
-// DEV_HTTP map below (READ-only — shadow-cljs.edn is hot-zone). The 805x
-// examples band is NOT a :dev-http port — it is the test-orchestrator's
-// http-server default, resolved at runtime — so it lives only here + in
-// examples-port.cjs, not in DEV_HTTP.
+// Every band whose Notes above read `:dev-http (shadow-cljs.edn)` is
+// mirrored entry-for-entry in the DEV_HTTP map below (READ-only —
+// shadow-cljs.edn is hot-zone). DEV_HTTP is the roster, and is deliberately
+// NOT re-listed here: a transcribed band list goes stale in silence, which
+// this sentence proved by naming 8030-8035 / 8040-8045 / 8765 while the live
+// 806x band sat in the table right above it (rf2-puwyb). A band whose Notes
+// read otherwise is not in DEV_HTTP — the 805x examples band is the test-
+// orchestrator's http-server default, resolved at runtime, so it lives only
+// here + in examples-port.cjs.
 // ===========================================================================
 
 // ---------------------------------------------------------------------------
