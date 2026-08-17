@@ -435,9 +435,19 @@
   successor's own `:observability :errors` sink. This is the event-centric
   mirror of the union-path `route-frame?` seam rf2-vxgfnd.118 added for the
   post-dissoc teardown report. Every ordinary live / address-directed caller
-  keeps the default, so normal frame-owned routing is untouched — and no
-  in-repo caller passes false today, the one that did having gone with the
-  retired view artefact's frame-bundle stale-op seam."
+  keeps the default, so normal frame-owned routing is untouched.
+
+  THE FALSE BRANCH IS LIVE, reached through [[emit-error-both!]], which threads
+  its own trailing `route-frame?` straight into this 9-arity. rf2-qjfrw carried
+  the seam from the retired view artefact's `(frame)` bundle into core's own
+  `capture-frame` primitive, and two production sites drive it:
+  `router/emit-frame-destroyed!` passes `(nil? op)`, so every captured-op
+  rejection suppresses the route, and `subs/emit-frame-destroyed-recovery!`
+  passes a literal false for a captured subscribe whose pinned incarnation was
+  superseded. `capture_frame_reincarnation_sink_route_cljs_test` pins both
+  branches. (This paragraph used to say no in-repo caller passed false — true
+  while the seam was UI-only, stale from rf2-qjfrw onward, and read by a later
+  audit as evidence the branch was unreachable. That is rf2-k9rzr.)"
   ([error-kw event event-id frame-id exception elapsed-ms time]
    (dispatch-on-error! error-kw event event-id frame-id exception elapsed-ms time nil true))
   ([error-kw event event-id frame-id exception elapsed-ms time attrs]

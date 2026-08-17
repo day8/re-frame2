@@ -233,7 +233,7 @@
       (is (= :fn (:live-kind (first problems)))))))
 
 (deftest cljs-classified-var-without-signature-goes-red
-  (testing "a live blessed var with no :ui-test-signatures entry (an omitted
+  (testing "a live blessed var with no signature-contract entry (an omitted
             contract entry, or a classified CLJS-only function added without a
             host-arity contract) is :uncontracted-var — cannot escape coverage"
     (let [problems (probe/signature-problems
