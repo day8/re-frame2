@@ -47,8 +47,8 @@
 > the same kind of thing. **The sentence was therefore not written, and nothing
 > is claimed in its place.** The same three ranges recur in the replication
 > table's sweep-1 column below, and `1.078 – 1.306` once more as the min–max
-> union of all six `mount-M` run-segments — seven lines on this page, every one
-> of them inside this frozen record.
+> union of all six `mount-M` run-segments — seven source-data rows below this
+> amendment, every one of them inside this frozen record.
 >
 > **`codecs-differ?` went with the arm rather than being re-pointed**, and its
 > absence is stated at source in `hd8_witnesses.cljs`'s closing section. It
