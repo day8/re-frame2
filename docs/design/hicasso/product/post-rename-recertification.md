@@ -273,3 +273,8 @@ The certification stays **partial**, and one thing about the partiality has chan
 - **Family 5 still does not exist**, and §4's correction is unchanged rather than merely un-rechecked:
   `budgets.md`'s ledger row `C1` reads `UNPINNED` with instrument `— (none)`, repointed to `rf2-85og2`,
   which is open and sitting in the measurement lane. There is no pinned regression gate to re-run.
+
+## 7. The re-run, 2026-08-18 — recorded on its own page
+
+A third re-run followed the donor retire, and it is written up separately rather than as a section
+here: [`post-rename-recertification-2026-08-18.md`](post-rename-recertification-2026-08-18.md).
