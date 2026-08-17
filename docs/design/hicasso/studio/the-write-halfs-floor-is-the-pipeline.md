@@ -157,6 +157,19 @@ between the two writes. It has two clauses and they come back differently.
   ranges but no certified window exists to read the clause from, so the honest
   verdict is that it was not assessed — not that it was missed.
 
+> **AMENDED 2026-08-17 22:30 AUSEST (`rf2-nkeba`).** "Those figures are
+> `rise/W`" is true and incomplete, and the missing half is what the clause
+> turned on once it could be read. They are the **median** of `rise/W` across the
+> six 2026-08-08 rounds, to the byte — the runner of the day printed the
+> **mean**, 23,761 and 24,679 — taken on a **pre-prime, pre-certificate**
+> instrument over an **unselected** population. So the comparison a later window
+> makes against a per-window value on a certified subset differs in statistic,
+> in population and in sample stream at once. Re-derived from the committed
+> dataset in
+> [the control's target is not the quantity it is read against](the-controls-target-is-not-the-quantity-it-is-read-against.md).
+> **Nothing on this page is withdrawn**, and the two figures quoted here for
+> this window's own `rise/W` are unaffected.
+
 ### The per-cell cost, which is the number the write half turns on
 
 `F_old` rebuilds a fixed 300 cells; `F_new` rebuilds B. The saving therefore
