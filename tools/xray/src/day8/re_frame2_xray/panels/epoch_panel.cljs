@@ -291,9 +291,9 @@
   ;; ---- L4 tab registration ----------------------------------------------
   ;;
   ;; The Epoch tab is the master inverse of the other Dynamic tabs:
-  ;; the six tabs (Epoch · App-db · Views · Trace · Machines ·
-  ;; Routing) read in event-bundle order, and Epoch renders every step
-  ;; the other tabs detail as one timeline. (History: Epoch was
+  ;; each of the registered Dynamic lenses reads one slice in
+  ;; event-bundle order, and Epoch renders every step they detail as
+  ;; one timeline. (History: Epoch was
   ;; added alongside the then-existing tabs; rf2-5gl5r since retired
   ;; the Handler tab and rf2-gbz39 removed the Issues tab — issues
   ;; surface inline in the Epoch panel + the L2 event-row pink-wash

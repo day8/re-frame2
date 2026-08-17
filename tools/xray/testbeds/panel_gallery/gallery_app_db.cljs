@@ -1,5 +1,5 @@
 (ns panel-gallery.gallery-app-db
-  "Story coverage for the **App-db tab** of the new 6-tab Xray chrome
+  "Story coverage for the **app-db tab** of the Xray 4-layer chrome
   (rf2-sszlr — gallery rebuild for spec/018-Event-Spine).
 
   The App-db tab body is the `app-db-diff/Panel` view: the changed-
