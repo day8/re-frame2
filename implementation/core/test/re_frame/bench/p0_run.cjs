@@ -2471,9 +2471,18 @@ function allocSiteReport(row) {
   }
 
   // --- where each window's dispersion sits ---------------------------------
+  //
+  // THE LAST COLUMN IS `dominant`, AND ITS HEADING SAYS SO (rf2-stals). It is
+  // `allocSiteWitness`'s TOTALS estimator — the site holding the largest sum of
+  // per-leg |deviation from that site's own median|, across every measured leg.
+  // The WORST LEG's own site is a different quantity (`legs[k].site`), and its
+  // decomposition prints on the line immediately below this table's row, so both
+  // are on screen at once. The heading previously read `worst-dev site`, which
+  // named the one the column does not carry; readers quote the heading, not the
+  // estimator, so the heading is the thing that has to be true.
   out.push(';;');
   out.push(
-    ';;   round  window                                  ticks        legMed  dispMed  drainMed  worst-dev site'
+    ';;   round  window                                  ticks        legMed  dispMed  drainMed  dominant site (total |dev|)'
   );
   for (const { round, key, a } of windows) {
     const w = a.siteWitness;
