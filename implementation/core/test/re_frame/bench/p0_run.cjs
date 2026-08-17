@@ -8,6 +8,12 @@
 //   node implementation/core/test/re_frame/bench/p0_run.cjs --only fanout
 //   node implementation/core/test/re_frame/bench/p0_run.cjs --only ladder
 //   P0_ROUNDS=6 P0_SAMPLES=12 node .../p0_run.cjs
+//   P0_RAW_OUT=.../data/alloc-<bead>/run1.json node .../p0_run.cjs
+//
+// `P0_RAW_OUT` writes the whole collected record as JSON, and an allocation
+// window COMMITS that file beside its studio page. See the write site at the
+// foot of this file for why, and `samples` on each window for what the record
+// now retains so a later estimator can be driven over it.
 //
 // `--only ladder` is the PER-READ row (rf2-2rtt6.34): B and the witness
 // held fixed while READS walk HD-002's 1/3/7/20 at Q = E, on three
@@ -2249,6 +2255,10 @@ async function allocRow(chromium) {
         sites: site.sites,
         siteLegs: site.siteLegs,
         siteWitness: site.siteLegs.length ? allocSiteWitness(site.siteLegs) : null,
+        // THE RAW STREAM THIS WINDOW WAS READ OFF (rf2-erre5). See the arm
+        // window below for why; the controls carry it for the same reason
+        // they carry the prime — one window shape, not two.
+        samples: w.samples,
       };
     };
     const idle = await controlOf('idle', 0);
@@ -2383,6 +2393,39 @@ async function allocRow(chromium) {
           sites: site.sites,
           siteLegs: site.siteLegs,
           siteWitness: site.siteLegs.length ? allocSiteWitness(site.siteLegs) : null,
+          // THE RAW STREAM, SO A FUTURE ESTIMATOR CAN BE APPLIED TO A PAST RUN
+          // (rf2-erre5). Everything else in this object is DERIVED — `collapsed`
+          // from `allocSiteSplit(samples, sites)`, `measured` and `primeLegs`
+          // from `allocPrimeSplit` on that, and `rise`, `fall`, `falls`,
+          // `maxStep`, `endpoints`, `legs`, `gaps` and the certificate from
+          // `allocSteps` on that again. Recording the stream the three of them
+          // are handed makes the record CLOSED under re-analysis: an estimator
+          // written after the run can be driven over it and get the number this
+          // run would have published, instead of over a reconstruction.
+          //
+          // WHAT IT ADDS OVER `legs` AND `gaps`, which have been recorded since
+          // rf2-2rtt6.140 and already re-derive every published figure exactly.
+          // Two things, and they are the two a scalar record cannot hold:
+          //
+          //   - THE PRIME REGION'S GAPS. `primeLegs` keeps the prime's LEGS and
+          //     nothing keeps the steps between them, so "did a collection land
+          //     in the prime?" is not askable of a record. The prime is exactly
+          //     the term rf2-oiy1 took out of every published quantity, which
+          //     makes it the term a later bead is most likely to come back to.
+          //   - THE ABSOLUTE HEAP LEVEL. Every recorded quantity is a
+          //     difference, so a record of them fixes the stream only up to a
+          //     translation. Drift across a page's rounds is a question about
+          //     the level itself and no arithmetic on the deltas reaches it.
+          //
+          // WHY THIS AND NOT THE COLLAPSED STREAM. `sites` is recorded beside
+          // it, and `allocSiteSplit` is a pure function of the two, so the raw
+          // stream determines the collapsed one and a stride-3 run keeps its
+          // mid samples as well. The collapsed stream determines neither.
+          //
+          // IT MOVES NOTHING. No gate reads this field, no figure is computed
+          // from it, and `allocSteps` is handed exactly what it was handed
+          // before — rf2-rs8q6's fence stands untouched. This is retention.
+          samples: win.samples,
           // WHERE THIS WINDOW SITS IN THE PAGE'S OWN WORK-UNIT SEQUENCE.
           // `alloc-tick` is monotone for the life of the page — the warm-ups
           // advance it too — so this pair is what a round index actually IS,
@@ -3795,11 +3838,29 @@ if (require.main === module) (async () => {
   } finally {
     server.close();
   }
+  // THE RAW RECORD, AND WHAT AN ALLOCATION WINDOW IS EXPECTED TO DO WITH IT
+  // (rf2-erre5). **An allocation window commits this file beside its studio
+  // page**, under
+  // `implementation/hicasso/test/re_frame/bench/hicasso/data/alloc-<bead>/`,
+  // exactly as rf2-2rtt6.138 did — and that is a CONVENTION rather than a
+  // mechanism, because nothing here can tell whether an operator committed a
+  // file, and a gate that guessed would go red on every run that was not a
+  // published window.
+  //
+  // WHY IT IS WORTH THE HABIT. The 2026-08-08 window is the only allocation
+  // window that ever did it, and it is the only one that has since been
+  // re-analysed: rf2-nkeba re-derived its figures under an estimator that did
+  // not exist when it was taken, and settled that the published values were the
+  // MEDIAN of rise/W rather than the mean the summary printed. The 2026-08-13,
+  // 2026-08-16 and 2026-08-17 windows published records and no dataset, so the
+  // same question is not askable of them at all. The convention has paid for
+  // itself once; the three windows that skipped it cannot be made to pay later.
   const raw = process.env.P0_RAW_OUT;
   if (raw) {
     fs.mkdirSync(path.dirname(raw), { recursive: true });
     fs.writeFileSync(raw, JSON.stringify(out, null, 2));
     console.error(`[p0] raw data -> ${raw}`);
+    console.error('[p0] an allocation window COMMITS this file beside its studio page');
   }
   // THE PAGES' OWN FAILURES, JOINING THE LIST THE EXIT ALREADY READS
   // (rf2-sib23). It joins `failures` rather than taking a code of its own
