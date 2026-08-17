@@ -2390,6 +2390,13 @@ async function allocRow(chromium) {
     // Criterion 6's separation is that a reader of any row can tell FROM THE
     // ROW which write produced it; a hard-coded string could only ever have
     // named one, and would have gone on naming it after the selector landed.
+    //
+    // BOTH ARE THE SELECTION, NOT THE EVENT. The selected write is driven only
+    // inside the arm loop, so a plan that mounts no arm resolves these two and
+    // fires nothing. `writeDriven` is the record's answer to "did it fire?",
+    // and `summariseAlloc` derives it off `perRound` — measured, not
+    // configured — beside `controlVerdict` and the other verdicts this row
+    // learns about itself only once its rounds are in.
     writeSelector: ALLOC_WRITE,
     write: `${ALLOC_WRITE_SPEC.event} — ${ALLOC_WRITE_SPEC.note}`,
     plan: { name: ALLOC_PLAN, ...ALLOC_PLAN_SHAPE },
@@ -2549,21 +2556,77 @@ function allocSiteReport(row) {
 
 function summariseAlloc(row, refused) {
   const B = row.boundaries;
-  console.log('\n;; ==== P0 STEADY-STATE ALLOCATION — WARM 1/3/7/20 READS (rf2-2rtt6.76) ====');
-  console.log(
-    `;; ${row.roots} root(s) held per arm, ${row.perRoot.grid} cells each — B = ${B} boundaries, ` +
-      'held FIXED across every rung'
-  );
-  console.log(
-    `;; ${row.rounds} rounds x ${row.writes} warm bulk writes, after ${row.warmups} full-size ` +
-      'warm-up windows. Q = E on every rung.'
-  );
+  // WHAT THIS RUN ACTUALLY MOUNTED, AND WHAT IT ACTUALLY DROVE (rf2-gxrr).
+  //
+  // The header states the SHAPE of the measurement, and under a narrowed plan
+  // the full plan's sentences are not merely uninteresting — they are FALSE of
+  // the run. "held FIXED across every rung" and "Q = E on every rung" describe
+  // rungs a floor-only run never mounts; "the arm stays MOUNTED" describes an
+  // arm a controls-only run never mounts; and "THE WRITE IS ..." names an
+  // event a controls-only run never drives, because the selected write reaches
+  // the page only inside the arm loop. These modes exist to be the PROVENANCE
+  // of a validity witness, and a record that misstates its own measurement
+  // shape cannot be that — a reader of V3's controls artefact would take a
+  // named write for an executed one.
+  //
+  // MEASURED OFF THE ROUNDS, NOT READ OFF THE SWITCH. `writeDriven` asks the
+  // record whether any arm window ran, which is the only thing that can drive
+  // the write. Deriving it from `plan.arms` would be the instrument checking
+  // its own configuration against itself and agreeing.
+  //
+  // The `full` branches are lifted out WHOLE rather than guarded in place, on
+  // `summariseAllocFits`'s rule: today's published run is unchanged to the
+  // byte, and the narrow plans simply do not reach those lines.
+  const armed = row.plan.arms;
+  const runged = row.plan.rungs;
+  const writeDriven = row.perRound.some((r) => Object.keys(r.arms || {}).length > 0);
+  row.writeDriven = writeDriven;
+  if (runged) {
+    console.log('\n;; ==== P0 STEADY-STATE ALLOCATION — WARM 1/3/7/20 READS (rf2-2rtt6.76) ====');
+    console.log(
+      `;; ${row.roots} root(s) held per arm, ${row.perRoot.grid} cells each — B = ${B} boundaries, ` +
+        'held FIXED across every rung'
+    );
+    console.log(
+      `;; ${row.rounds} rounds x ${row.writes} warm bulk writes, after ${row.warmups} full-size ` +
+        'warm-up windows. Q = E on every rung.'
+    );
+  } else if (armed) {
+    console.log('\n;; ==== P0 STEADY-STATE ALLOCATION — FLOOR ARM ONLY, NO RUNG (rf2-gxrr) ====');
+    console.log(
+      `;; ${row.roots} root(s) held per arm, ${row.perRoot.grid} cells each — B = ${B} boundaries. ` +
+        'NO RUNG WAS MOUNTED:'
+    );
+    console.log(
+      ';; this run makes no statement about 1/3/7/20 reads, fits nothing, and reports no Q = E —'
+    );
+    console.log(
+      ';; the floor arm holds no subscription, so there is no read count for Q = E to be about.'
+    );
+    console.log(
+      `;; ${row.rounds} rounds x ${row.writes} warm bulk writes, after ${row.warmups} full-size ` +
+        'warm-up windows.'
+    );
+  } else {
+    console.log('\n;; ==== P0 STEADY-STATE ALLOCATION — CONTROLS ONLY, NO ARM (rf2-gxrr) ====');
+    console.log(';; NO ARM WAS MOUNTED AND NO WRITE EVENT WAS DRIVEN. The three control windows');
+    console.log(';; below are the whole measurement: no rung, no fit, no Q = E, and no statement');
+    console.log(
+      `;; about any substrate. The page this run was CONFIGURED for and never mounted is B = ${B}.`
+    );
+    console.log(
+      `;; ${row.rounds} rounds x ${row.writes} warm bulk writes, after ${row.warmups} full-size ` +
+        'warm-up windows.'
+    );
+  }
   console.log(
     `;; The window drives ${row.windowWrites} — the first ${row.primeWrites} is a PRIME and is in ` +
       'no figure below (rf2-oiy1).'
   );
-  console.log(';; The arm stays MOUNTED across the window: this is what a standing page');
-  console.log(';; allocates when it is written to, not what a mount costs.');
+  if (armed) {
+    console.log(';; The arm stays MOUNTED across the window: this is what a standing page');
+    console.log(';; allocates when it is written to, not what a mount costs.');
+  }
 
   // THE ARM'S SIZE, AND WHERE IT CAME FROM (rf2-2rtt6.140). Printed beside the
   // figures rather than left in a source comment, because the one question a
@@ -2589,23 +2652,42 @@ function summariseAlloc(row, refused) {
   // from the record rather than asserted from a literal. `page` and `full`
   // are the defaults every published row is taken under; anything else is a
   // validity witness saying so on its own face.
-  console.log(`;;   THE WRITE IS \`${row.write}\`.`);
-  if (row.writeSelector === 'page') {
-    console.log(
-      `;;   It rebuilds the grid at ${B} cells — one per mounted boundary. \`:p0/write-all\``
-    );
-    console.log(
-      ';;   rebuilt 300 whatever was mounted, and that fixed cost was 57% of the retired budget'
-    );
-    console.log(';;   before a single boundary had been measured.');
+  //
+  // AND A SELECTED WRITE IS NOT A DRIVEN ONE. `P0_ALLOC_WRITE` names the event
+  // the ARM LOOP will drive, and a controls-only plan has no arm loop — so the
+  // switch resolves, the record carries it, and nothing fires. Saying "THE
+  // WRITE IS `:p0/write-page`" over that run would attribute an event that did
+  // not execute, which is the one failure a provenance line may not have.
+  if (writeDriven) {
+    console.log(`;;   THE WRITE IS \`${row.write}\`.`);
+    if (row.writeSelector === 'page') {
+      console.log(
+        `;;   It rebuilds the grid at ${B} cells — one per mounted boundary. \`:p0/write-all\``
+      );
+      console.log(
+        ';;   rebuilt 300 whatever was mounted, and that fixed cost was 57% of the retired budget'
+      );
+      console.log(';;   before a single boundary had been measured.');
+    } else {
+      console.log(
+        ';;   THIS IS V1\'s F_old CONTROL, NOT A PUBLISHED ROW — the fixed 300-cell rebuild, which'
+      );
+      console.log(
+        `;;   is flat in B by construction and is the only way the two writes can be compared like`
+      );
+      console.log(';;   for like. Selected by P0_ALLOC_WRITE=all; the default is `page`.');
+    }
   } else {
+    console.log(';;   NO WRITE EVENT WAS DRIVEN, and no figure below is a reading of one. The');
     console.log(
-      ';;   THIS IS V1\'s F_old CONTROL, NOT A PUBLISHED ROW — the fixed 300-cell rebuild, which'
+      ';;   selected write reaches the page only inside the arm loop, and this plan mounted no'
     );
     console.log(
-      `;;   is flat in B by construction and is the only way the two writes can be compared like`
+      `;;   arm — so P0_ALLOC_WRITE resolved to \`${row.writeSelector}\`, the record carries it,`
     );
-    console.log(';;   for like. Selected by P0_ALLOC_WRITE=all; the default is `page`.');
+    console.log(
+      ';;   and nothing fired. The control windows below allocate doubles and nothing else.'
+    );
   }
   console.log(';;   The clock, bulk, fan-out and retention rows drive `:p0/write-all` unchanged,');
   console.log(';;   at the published width, whatever this switch says.');
