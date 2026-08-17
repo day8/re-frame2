@@ -30,6 +30,26 @@
 > (`donor-r* / uix`). That is a smaller claim honestly stated, not the same claim
 > on fewer arms.
 >
+> **Amended 2026-08-17 (`rf2-prvry`) — the three per-run codec ranges are ONE
+> comparison measured three ways, not three comparators.** `rf2-m4rpa`'s ruling
+> proposed writing that the codec claim *"survives on THREE independent
+> comparators instead of four"*, reading UIx `1.139 – 1.217`, Reagent
+> `1.154 – 1.272` and slim `1.078 – 1.306` as three arms that outlive
+> `:donor-fh`. They do not, and the ruling's own condition — *"re-verify the
+> three surviving figures at source before writing anything"* — is what caught
+> it. All three are the sweep-1 `mount-M` rows below: that table's `run` and
+> `comparison` columns are separate, all three rows carry the same comparison
+> `donor-fh / donor-r1`, and the numerator of all three is `:donor-fh`, the arm
+> being retired. `uix` / `reagent` / `slim` name the three ADAPTER INSTALLS the
+> instrument runs under — Spec 006 allows exactly one installed adapter per
+> process — rather than arms; `arm-ids-for` in `hd8_rows.cljs` lists `:uix` as
+> an arm *inside* the `:reagent` and `:slim` runs, so the two labels cannot be
+> the same kind of thing. **The sentence was therefore not written, and nothing
+> is claimed in its place.** The same three ranges recur in the replication
+> table's sweep-1 column below, and `1.078 – 1.306` once more as the min–max
+> union of all six `mount-M` run-segments — seven lines on this page, every one
+> of them inside this frozen record.
+>
 > **`codecs-differ?` went with the arm rather than being re-pointed**, and its
 > absence is stated at source in `hd8_witnesses.cljs`'s closing section. It
 > guarded exactly one reading — a `donor-fh / donor-r1` of 1.0 being ambiguous
@@ -248,6 +268,11 @@ own fixed React cost dominates most. That is the shape predicted.
 **Arm count: 5 / 6 / 6 by run (uix / reagent / slim), seven distinct arms.**
 Every figure below rests on that plan, and on an instrument that no longer
 exists — see the retirement banner at the top of this page.
+
+**`run` and `comparison` are separate columns below.** The three
+`donor-fh / donor-r1` rows in each mount table are that one comparison measured
+under three adapter installs — not three comparisons, and not three arms. See
+the 2026-08-17 amendment in the banner.
 
 Every figure is a **range over 6 rounds**, formed within each round against that
 round's own p50s. **A range including 1.0 means the two arms are
