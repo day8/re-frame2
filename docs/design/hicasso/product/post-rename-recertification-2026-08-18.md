@@ -159,8 +159,9 @@ in reverse — the identity has to be stated rather than passed over.
 added or removed a test in these four suites or a file in these three builds. That is consistent with
 the interval's character — fixes and records rather than deletions or new lanes — and it is *not*
 evidence that the gates ran over a cached artefact, because
-[§7](#7-the-controls--which-gates-were-shown-to-still-bite) plants **five** faults across **four**
-of these runners on this same base and every one of them comes back red.
+[§7](#7-the-controls--which-gates-were-shown-to-still-bite) plants **five** faults across **four** of
+this page's gate runners — the reachability script, the bundle-isolation script, the SSR JVM lane and
+the node lane — on this same base, and every one of them comes back red.
 
 **One number DID move, and it moved to zero.** The browser lane compiled **4 warnings** at
 `7304e825c9` and compiles **0** here. All four were `:infer-warning` on `(.-server (n/marker …))` in
