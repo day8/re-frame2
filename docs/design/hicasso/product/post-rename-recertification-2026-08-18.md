@@ -46,7 +46,7 @@ what is certified overall; see [§6](#6-what-this-still-does-not-certify).
 | | |
 |---|---|
 | base | `f5b1f1e94fbfe440de2fa5b70170c34dc46a61de`, `origin/main` at 2026-08-18 00:03 AUSEST |
-| worktree | `C:/Users/miket/code/re-frame2-worktrees/recert-hic090`, printed by `scripts/assert-worker-worktree.sh` |
+| worktree | a dedicated worker worktree on `worker/recert-hic090`; `scripts/assert-worker-worktree.sh` ran there and exited `0`. **The literal path is deliberately not written down** — `scripts/check-no-hardcoded-paths.sh` reds a tracked file carrying a personal home path, and it reds correctly: a machine-specific string is not what makes the guard evidence. That the guard ran and passed is. |
 | `node_modules` | a junction into the primary checkout's real one, **103** top-level entries by `Get-ChildItem \| Measure-Object`, removed as the last act of this work |
 | open PRs touching a family surface | none — `#8440` is `tools/xray`, `#8443` is `implementation/core/test/re_frame/bench`, `#8442` is `docs/design/hicasso/studio`, `#8444` is `.github/workflows` |
 
