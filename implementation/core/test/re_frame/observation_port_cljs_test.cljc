@@ -2456,16 +2456,35 @@
      was. Allocates transient heap pressure between cycles to prod the
      collector. The bounded loop keeps the fixture deterministic — it never
      blocks unboundedly (a still-strong-reachable referent returns false, which
-     is the pre-fix failure signal)."
-     [^java.lang.ref.WeakReference wref]
-     (loop [i 0]
-       (cond
-         (nil? (.get wref)) true
-         (>= i 40)          false
-         :else              (do (System/gc)
-                                (System/runFinalization)
-                                (make-array Object 200000) ;; transient pressure
-                                (recur (inc i)))))))
+     is the pre-fix failure signal).
+
+     `poke` runs ONCE PER CYCLE, inside the loop, and is how a caller whose
+     referent is reachable only through a `java.util.WeakHashMap` VALUE keeps
+     this fixture honest. Such a value is released solely by
+     `expungeStaleEntries`, which runs on a MAP OPERATION and drains the map's
+     own ReferenceQueue. A Reference is CLEARED during the collection but
+     ENQUEUED afterwards, asynchronously, by the ReferenceHandler thread — the
+     same asymmetry `jvm-provenance-entry-is-weak-and-expunged-when-its-throwable-dies`
+     records below (rf2-8vvdo) — so there is a window in which the key reads
+     cleared and has not yet been enqueued. A single map operation performed
+     BEFORE this loop can land in that window: it expunges nothing, no later
+     cycle touches the map, and the value stays strongly reachable for the rest
+     of the run. That is not a slow test but a permanently red one, and it is
+     what reddened `jvm-core-prod-gate` on a branch whose diff could not reach
+     this namespace (rf2-2vr35). Poking every cycle relies on no happens-before
+     edge and needs none: whichever cycle follows the enqueue expunges."
+     ([^java.lang.ref.WeakReference wref]
+      (gc-until-cleared? wref (fn [])))
+     ([^java.lang.ref.WeakReference wref poke]
+      (loop [i 0]
+        (cond
+          (nil? (.get wref)) true
+          (>= i 40)          false
+          :else              (do (System/gc)
+                                 (System/runFinalization)
+                                 (make-array Object 200000) ;; transient pressure
+                                 (poke)
+                                 (recur (inc i))))))))
 
 #?(:clj
    (deftest jvm-weak-node-record-does-not-strong-pin-its-abandoned-reaction
@@ -2500,11 +2519,13 @@
              (str "the abandoned reaction is GC-collectable — the weak "
                   "node-records value no longer strong-references its own weak "
                   "key (this assertion FAILS on PR #5710's strong :reaction)"))
-         ;; The reaction (weak KEY) is gone; a WeakHashMap operation now expunges
-         ;; the stale entry, dropping the map's strong ref to the VALUE (record →
-         ;; :owners → handle), which the next GC reclaims.
-         (.size ^java.util.Map @#'obs/node-records)
-         (is (gc-until-cleared? handle-ref)
+         ;; The reaction (weak KEY) is gone; a WeakHashMap operation expunges the
+         ;; stale entry, dropping the map's strong ref to the VALUE (record →
+         ;; :owners → handle), which the next GC reclaims. That operation runs
+         ;; INSIDE the loop, never once before it: clearing the key and ENQUEUEING
+         ;; it are separate steps, so a single pre-loop `.size` can expunge nothing
+         ;; and pin the handle for the whole run (rf2-2vr35 — see gc-until-cleared?).
+         (is (gc-until-cleared? handle-ref #(.size ^java.util.Map @#'obs/node-records))
              "the abandoned handle was reclaimed once its node record's weak key died")))))
 
 ;; ===========================================================================
