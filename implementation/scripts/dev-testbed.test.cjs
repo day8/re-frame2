@@ -325,6 +325,28 @@ it('DEV_HTTP covers every :dev-http-served build in shadow-cljs.edn (drift guard
   );
 });
 
+// --- Drift guard, the other direction (rf2-puwyb) --------------------------
+// The guard above is one-way: it catches a served build MISSING from DEV_HTTP.
+// It says nothing about an ORPHAN — a DEV_HTTP entry whose build and :dev-http
+// port are both gone — so `:testbeds/freehand-views` (port 8036) survived the
+// Freehand retirement here, mapping a port to something that cannot be served,
+// and every census missed it because it is executable config rather than prose.
+// An orphan is not merely untidy: `npm run dev :testbeds/freehand-views` prints
+// a live-looking URL for a build shadow-cljs will reject. Assert the mirror is
+// exact in BOTH directions so the next deletion cannot leave one behind.
+it('DEV_HTTP carries no build that shadow-cljs.edn no longer serves (orphan guard)', () => {
+  const served = servedBuildPorts(readShadowEdn());
+  const orphans = Object.keys(DEV_HTTP).filter((buildId) => !(buildId in served));
+  assert.deepStrictEqual(
+    orphans,
+    [],
+    `DEV_HTTP (dev-testbed.cjs) maps build(s) that no :dev-http port in ` +
+      `shadow-cljs.edn serves: ${orphans.join(', ')}. Delete each from ` +
+      `DEV_HTTP (and the README build->port table) — the launcher would ` +
+      `print a URL for a build that cannot be served.`,
+  );
+});
+
 if (failed > 0) {
   console.error(`\n${failed} test(s) failed.`);
   process.exit(1);
