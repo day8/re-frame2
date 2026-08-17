@@ -149,7 +149,9 @@ not.
 from its own per-site median, summed across the window's six measured legs**. It
 is not the worst leg's site, though on this data the two agree; the summary's
 column header spells it `worst-dev site`, which understates what the estimator
-computes.
+computes. **[Amended 2026-08-17, `rf2-stals`: the heading now reads `dominant
+site (total |dev|)`. Nothing computed changed, so every figure below stands as
+measured — only the column's label does.]**
 
 Three populations are reported, narrowing left to right, because a reader is
 entitled to see what the exclusions cost:
@@ -432,13 +434,34 @@ Two further readings from the same pair:
   estimator, no extra rung, no third site, no fourth warm-up. The two instrument
   findings this window turned up — the intra-leg reclamation invisible to both
   gates, and the `worst-dev site` column header naming an estimator it does not
-  compute — are **filed, not built**.
+  compute — are **filed, not built**. **[Amended 2026-08-17: both have since
+  been built, outside this window and after it — the gate by PR #8420
+  (`rf2-4ctls`) and the heading by `rf2-stals`. The sentence records what this
+  window did, which is unchanged; it is no longer a description of the
+  instrument's present state.]**
 - **Every run's refusals are reported.** All seven runs exited **1** on the
   driver's own alloc refusals: 23 of 72 arm windows carried an observed
-  collection and **33 of 72 carry a leg past τ**, so **39 of 72 certify** —
+  collection and **33 of 72 carry a leg past τ**, so **37 of 72 certify** —
   against `rf2-e9wr`'s 41 of 72, a third replication. Those are the driver's
   verdicts on what may be quoted, and this page quotes nothing from a refused
   window.
+
+  **[Amended 2026-08-17, `rf2-7rohx`.]** That count read **39 of 72** when this
+  page was written and it was correct then. **No run was re-taken and no figure
+  was re-measured.** PR #8420 built the instrument finding this page filed,
+  adding a third allocation gate — `allocIntraLegRefusals`, which refuses a
+  window carrying a negative measured site step — and the same raw record
+  replayed through the shipped `allocWindowVerdict` now refuses two windows the
+  older two gates both passed. They are the two in [An intra-leg collection the
+  falls gate cannot see](#an-intra-leg-collection-the-falls-gate-cannot-see),
+  whose verdict cells read `certified` on the gates of the day. **Exactly two
+  windows change classification, and nothing else on this page moves.** Of the
+  24 windows carrying a negative site step, 21 were already refused by the falls
+  gate and the third was already refused at τ on other legs; the 41-window
+  headline population had already excluded these two by hand, which is why it is
+  unaffected. `rf2-e9wr`'s 41 of 72 is unmoved as well — that window ran at the
+  shipped stride of 2, where `allocSiteSplit` yields no site legs and the new
+  gate is inert by construction.
 - **No figure from a collection-carrying window enters any conclusion**, and the
   headline population additionally excludes six-figure excursions and the two
   windows carrying an intra-leg reclamation.
