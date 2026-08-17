@@ -2029,9 +2029,12 @@ Five Static sub-tabs, mode-scoped mnemonics per the findings doc
 rf2-b2fif removed the Views + Events sub-tabs (info already in the
 source code; the tabs were not pulling their weight).
 
-Mnemonic mode-scoping: the same letter dispatches the active mode's
-tab — `m` in Dynamic opens the Machines instance-inspector, `m` in
-Static opens the Machines registry browse.
+Mnemonic mode-scoping: the same letter names the active mode's tab —
+`m` is the Machines instance-inspector in Dynamic and the Machines
+registry browse in Static. The Mnemonic column is a LABEL, surfaced in
+each tab button's `title`; the letters are not keys (§Trimmed pending
+demand), and the tab is reached by click or by the mode-aware
+command-palette tab-jump verb (§Mode-aware command surface).
 
 ### Mode-signal mechanism (4 stacked signals)
 
@@ -2144,9 +2147,10 @@ Routes / Schemas / Flows / Interceptors — see §Sub-tab inventory
 above). New tabs MUST declare which mode(s) they belong to; tab-id
 keyword collisions across modes (`:machines`) are deliberate and
 resolved by the active-mode dispatch, not by renaming. Mnemonic
-collisions across modes (`m` · `r`) are likewise resolved by the
-mode-scoped resolver (Cmd-Shift-M flips the active mode; the letter
-then dispatches the active mode's tab — see §Keyboard).
+collisions across modes (`m` · `r`) need no resolver at all: the
+letters are tab LABELS rather than keys (§Trimmed pending demand), so
+the only thing a collision costs is that the reader must know which
+mode is active — which the 4 stacked mode signals already tell them.
 
 **Shared-token rule.** Design tokens — colours, spacing, typography,
 motion — live ONCE in the HCM token registry (`theme/tokens.cljc`,
