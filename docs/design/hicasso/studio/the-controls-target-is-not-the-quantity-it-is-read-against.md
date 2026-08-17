@@ -13,6 +13,20 @@ instrument's own source at two revisions. The one thing that was *run* is the
 instrument's own pure gate, driven over reconstructed sample streams. That
 choice is defended under [why nothing was measured](#why-nothing-was-measured).
 
+> **CORRECTED 2026-08-17 23:50 AUSEST (merged-PR audit of PR #8434).** The
+> record as landed established that the two quantities are **not comparable**
+> and then went on to state a residual magnitude derived from comparing them
+> anyway. Non-comparability forecloses the comparison; it does not shrink the
+> effect. Corrections are marked in place at each site, and there are three
+> classes of them: every **residual** claim is narrowed to what the arithmetic
+> licenses and reported **UNRESOLVED**; the certification reconstruction gains a
+> third row that certifies **12 of 12**, so the preserved scalars are shown to
+> constrain the verdict not at all rather than to admit two readings; and the
+> comparison table's four delta rows are re-ordered to match the readings they
+> belong to, with one percentage fixed. **No measurement was re-run and no rig
+> file was touched.** Nothing measured is withdrawn — every re-derivation from
+> the committed 2026-08-08 dataset stands exactly as taken.
+
 ## The answer, first
 
 - **The clause compares two different quantities, and the difference is
@@ -25,21 +39,27 @@ choice is defended under [why nothing was measured](#why-nothing-was-measured).
 - **The 2026-08-08 windows are the population the prime was built to remove.**
   Under `rf2-oiy1`'s own model of the first-leg term, all twelve of them refuse
   today's leg witness, at worst deviations of **25.18% – 29.81%** against
-  τ = 0.25. The clause therefore asks a certified quantity to reproduce a
-  number that only uncertified windows produced.
-- **A residual survives all of that, and it is smaller than published.** Against
-  the single most favourable 2026-08-08 round with its largest step removed,
-  today's certified readings are still low by **≥ 982 B (4.7%)** on
-  `reagent-subs` and **≥ 2,472 B (10.7%)** on `uix-subs`. The published
-  16 – 20% is a comparison against the round median; the like-for-like floor is
-  roughly a third to two thirds of it.
-- **The reseeded page width is REFUTED as the cause**, on two independent
+  τ = 0.25 — and under an arrangement of the same recorded scalars all twelve
+  certify instead, so the artefact does not settle which. On the model, the
+  clause asks a certified quantity to reproduce a number that only uncertified
+  windows produced.
+- **The residual term is UNRESOLVED, and the published 16 – 20% does not
+  survive as a smaller-but-real effect.** Every pairing the artefacts support
+  still differences an *unselected pre-prime* population against a *certified*
+  one; the tightest of them narrows the arithmetic to 4.7 – 14.9%, and
+  narrowing an inadmissible comparison does not make it admissible. Since the
+  certificate may select on level and nothing here bounds that, the difference
+  has no defined estimand. **Nothing on this page shows that anything moved,
+  and nothing on it shows that nothing did.**
+- **The reseeded page width is REFUTED as a candidate**, on two independent
   grounds — source and the control's own first clause. It was one of the three
-  candidates the previous window left open, and it can be struck.
+  the previous window left open, and it can be struck whatever the difference
+  turns out to be.
 - **The prime term, re-derived on the 2026-08-08 data itself, is ≈ 6,231 B
   (`reagent-subs`) and ≈ 6,267 B (`uix-subs`)**, i.e. **1,038** / **1,045** B
   per write — *smaller* than the 1,161 B the corpus subtracts. Using the
-  dataset's own term makes the residual slightly **larger**, not smaller.
+  dataset's own term moves the target **up** by about 120 B, so the arithmetic
+  the clause computes gets slightly larger, not smaller.
 - **What moved — and whether anything moved at all — is not established.** The
   seed width is struck and the work unit is byte-identical, which narrows the
   candidate set; it does not license the difference the clause computes, because
@@ -86,8 +106,13 @@ three sessions already agree on and answers nothing.
 one.** To reproduce the 2026-08-08 *seeded* width at the 2026-08-08 *mounted*
 page you would need the seed decoupled from B — the driver passes
 `prepare(segment, B)` and the two move together — which is a rig change, and
-`rf2-nkeba` is filed against a rig that must not move mid-window. It is
-filed as its own bead instead.
+`rf2-nkeba` is filed against a rig that must not move mid-window.
+~~It is filed as its own bead instead.~~ **CORRECTED (merged-PR audit of
+PR #8434): no such bead exists.** This window filed exactly two follow-ups,
+`rf2-9jrhi` and `rf2-erre5`, and neither owns that rung. Nor does it now need
+an owner: [the reseeded page width is refuted](#the-reseeded-page-width-is-refuted)
+below on two independent grounds, so the run that rung would have taken has no
+question left to answer.
 
 **What was run is the instrument's own gate, unmodified.** `allocSteps`,
 `allocPrimeSplit` and `ALLOC_LEG_TOLERANCE` are exported pure functions,
@@ -153,8 +178,8 @@ was never written down.
 
 **Neither statistic is wrong. What is wrong is comparing either of them to a
 per-window value without saying which it is** — and the gap between them,
-347 B on `reagent-subs`, is itself a tenth of the residual the previous window
-could not explain.
+347 B on `reagent-subs`, is itself about a tenth of the prime-corrected
+shortfall the previous window reported.
 
 ## The prime term, re-derived on the data it is being subtracted from
 
@@ -189,29 +214,46 @@ corpus applies is *generous to the control* by about 120 B.
 This is the question the clause turns on, and it is asked of the real gate
 rather than argued.
 
-Two sample streams were reconstructed per window, both reproducing that
-window's recorded `rise`, `maxStep` and `falls: 0` exactly, and both handed to
-the shipped `allocSteps` at the shipped τ = 0.25.
+Sample streams were reconstructed per window, each reproducing that window's
+recorded `rise`, `maxStep`, `falls: 0` and `endpoints` exactly, and each handed
+to the shipped `allocSteps` at the shipped τ = 0.25.
 
 - **(A) `rf2-oiy1`'s model** — leg 1 carries the whole excess, legs 2 – 6 equal.
 - **(B) an adversarial arrangement** — the same `rise` and the same `maxStep`,
-  deliberately arranged to certify if any arrangement can.
+  arranged toward certification.
+- **(C) six 32 B gaps, three legs at `maxStep`, and three integer legs sharing
+  `rise − 3·maxStep − 192`** — where 32 B is the idle control's own measured
+  per-iteration cost and 192 B its own total `rise`, in all six rounds.
 
 | reconstruction | `reagent-subs` | `uix-subs` | total |
 |---|---|---|---|
 | (A) `rf2-oiy1` model | 0 of 6 certified | 0 of 6 certified | **0 of 12** |
 | (B) adversarial | 2 of 6 certified | 6 of 6 certified | 8 of 12 |
+| (C) three legs at `maxStep` | 6 of 6 certified | 6 of 6 certified | **12 of 12** |
 
 Under (A) the worst leg deviations run **25.18% – 29.81%** — every window past
-τ = 0.25, and every one of them only just past it. Under (B), eight certify.
+τ = 0.25, and every one of them only just past it. Under (C) they run
+**20.29% – 23.83%** — every window inside it, and every one only just inside.
+
+> **CORRECTED (merged-PR audit of PR #8434).** Row (C) is new, and row (B)'s
+> description is corrected: it was published as ~~"deliberately arranged to
+> certify if any arrangement can"~~, and it is not — (C) certifies all twelve
+> under the same shipped gate and the same recorded scalars. (B)'s **8 of 12
+> stands as taken**; what is withdrawn is its standing as an upper bound.
+> **The preserved scalars constrain the verdict
+> not at all.** Every count from 0 to 12 is consistent with them, so the
+> artefact's answer to "would these windows certify today?" is the whole range
+> — which is exactly why `rf2-erre5` asks for the `samples` array rather than
+> for a better argument over the scalars.
 
 **So the honest reading is conditional, and it is stated as one.** *If* the
 first-leg term described by `rf2-oiy1` — confirmed in 336 of 336 arm windows on
 2026-08-13 and replicated at a median 6,864 B by `rf2-e9wr` — was present in
 these windows, then none of them would be certified by today's witness. The
-recorded scalars alone do not compel that: `rise`, `maxStep` and `falls` are
-consistent with arrangements that certify. **The per-leg samples were not
-preserved, so the artefact cannot settle it.**
+recorded scalars alone do not compel that: `rise`, `maxStep`, `falls` and
+`endpoints` are equally consistent with an arrangement in which **every** window
+certifies. **The per-leg samples were not preserved, so the artefact cannot
+settle it.**
 
 The driver was itself controlled. Six equal 20,000 B legs certify with worst
 deviation 0; one leg at +30% refuses at 30.00%; one leg at exactly +25%
@@ -221,20 +263,36 @@ seven-write stream yields one prime leg and six measured, matching
 
 ## What the comparison looks like once the quantities are lined up
 
+Every row below is read **positionally**: the *n*th figure in a row belongs to
+the *n*th certified reading in the first row.
+
 | comparison | `reagent-subs` | `uix-subs` |
 |---|---|---|
 | today's certified `rise/W` | 19,349 / 19,650 / 19,816 | 19,712 / 20,696 |
-| vs the published median (as recorded) | −17.80% / −18.51% / −19.74% | −16.31% / −20.29% |
-| vs the median less the corpus prime (22,947 / 23,569) | −3,131 / −3,297 / −3,598 B | −2,873 / −3,857 B |
-| vs the median less the dataset's own prime (23,070 / 23,685) | −3,254 / −3,420 / −3,721 B | −2,989 / −3,973 B |
-| **vs the lowest 2026-08-08 round, largest step removed** (20,798 / 23,168) | **−982 / −1,148 / −1,449 B (4.7 – 7.0%)** | **−2,472 / −3,456 B (10.7 – 14.9%)** |
+| vs the published median (as recorded) | −19.74% / −18.49% / −17.80% | −20.29% / −16.31% |
+| vs the median less the corpus prime (22,947 / 23,569) | −3,598 / −3,297 / −3,131 B | −3,857 / −2,873 B |
+| vs the median less the dataset's own prime (23,070 / 23,685) | −3,721 / −3,420 / −3,254 B | −3,973 / −2,989 B |
+| **vs the lowest 2026-08-08 round, largest step removed** (20,798 / 23,168) | **−1,449 B (7.0%) / −1,148 B (5.5%) / −982 B (4.7%)** | **−3,456 B (14.9%) / −2,472 B (10.7%)** |
 
-The last row is the tightest like-for-like the surviving artefacts support: the
-most favourable of the six 2026-08-08 rounds, with the term the prime removes
-taken out at that round's own magnitude, against each certified reading
-individually. **A gap remains at every cell of it.** It is not the published
-16 – 20%, and on `reagent-subs` it is roughly a third of it, but it does not
-close.
+> **CORRECTED (merged-PR audit of PR #8434).** As landed, all four delta rows
+> ran in the **opposite order** to the readings they belong to: the source row
+> is low-to-high and the deltas were high-to-low, so every per-window pairing
+> was false. The ranges were right and are unchanged. One figure was also wrong
+> in itself — the middle percentage read `−18.51%` where
+> (19,650 − 24,108) / 24,108 is **−18.49%**.
+
+The last row is the tightest pairing the surviving artefacts support: the most
+favourable of the six 2026-08-08 rounds, with the term the prime removes taken
+out at that round's own magnitude, against each certified reading individually.
+A gap appears at every cell of it, and **that is not evidence a residual
+exists.** The row is still a difference between one value drawn from an
+unselected pre-prime population and values drawn from a certified one — the
+tightest such difference, not a comparable one. The certificate selects on leg
+homogeneity, and nothing in the artefact rules out that it selects on level too;
+if it does, every cell of the row is a selection artefact. **Every figure in
+this table is the arithmetic of a comparison this page has just shown to be
+inadmissible. It is recorded so a later window can see what was computed, and
+none of it estimates a quantity.**
 
 ## The reseeded page width is refuted
 
@@ -254,8 +312,14 @@ B ∈ {4, 24, 96}, and under this driver the seeded width *is* B. It reads
 19,898 / 19,781 / 19,898 on `reagent-subs` and 20,487 / 20,446 / 20,487 on
 `uix-subs`. Over a 24× range of seeded width the movement is **≤ 117 B and
 non-monotone** — under 1.3 B per seeded cell on `reagent-subs` and under 0.5 on
-`uix-subs`. Extrapolating from 24 cells to 2026-08-08's 300 gives **at most
-≈ 351 B and ≈ 123 B**, an order of magnitude short of a 2.5 – 3.5 KB residual.
+`uix-subs`. Extrapolating from 24 cells to 2026-08-08's 300 bounds the seeded
+width's own contribution at **≈ 351 B and ≈ 123 B**. That bound is absolute and
+holds whatever the across-time difference turns out to be estimating: it is
+about a ninth of the smallest prime-corrected difference on `reagent-subs`
+(3,131 B) and under a twentieth of `uix-subs`' (2,873 B), and even against the
+tightest row in the table above it is only just over a third of 982 B and about
+a twentieth of 2,472 B. On no pairing does the seeded width reach the
+difference — and the **source** ground above rests on no magnitude at all.
 
 **The clause that holds kills a hypothesis about the clause that fails.** That
 is the flat-in-B reading doing work beyond confirming itself.
@@ -305,14 +369,21 @@ operator rather than to rewrite it from inside the window that found it.
   `rf2-9jrhi` carries that as a **hypothesis test on those candidates**, not as
   the location of a proven drop.
 - **Whether the 2026-08-08 windows would certify today is CONDITIONAL, not
-  established.** Under `rf2-oiy1`'s model none of the twelve certifies; under an
-  adversarial arrangement of the same recorded scalars, eight do. The per-leg
-  samples are not in the artefact and the question is not decidable from it.
-- **The selection effect is not quantified.** Today's certificate admits a
-  subpopulation and 2026-08-08 had no certificate, so the two populations differ
-  by an amount nothing here measures. All that is shown is that it cannot be the
-  *whole* story, because today's readings sit below the entire 2026-08-08
-  per-round range.
+  established.** Under `rf2-oiy1`'s model none of the twelve certifies; under
+  another arrangement of the same recorded scalars **all twelve** do, and every
+  count between is available too. The per-leg samples are not in the artefact
+  and the question is not decidable from it.
+- **The selection effect is not quantified, and nothing here bounds it.**
+  Today's certificate admits a subpopulation and 2026-08-08 had no certificate,
+  so the two populations differ by an amount nothing here measures.
+  ~~All that is shown is that it cannot be the *whole* story, because today's
+  readings sit below the entire 2026-08-08 per-round range.~~ **CORRECTED
+  (merged-PR audit of PR #8434): that inference does not follow.** Lying below
+  a finite sample of six unselected observations bounds nothing. The certificate
+  selects on leg homogeneity and may select on level as well; if it does, the
+  selected subpopulation can sit wholly below the unselected range with nothing
+  having moved at all. **Selection can be the whole story, and this window
+  cannot tell.**
 - **Nothing is concluded about τ.** It was not moved, not calibrated, and not
   read as a verdict on anything.
 - **No new allocation figure is published.** Every number here is re-derived from
