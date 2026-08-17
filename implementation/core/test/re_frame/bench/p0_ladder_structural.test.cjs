@@ -2150,6 +2150,86 @@ const FLOOR_ARMS = () =>
     ])
   );
 
+// EVERY ARM THE FULL PLAN MOUNTS, keyed exactly as the driver keys them and
+// built FROM `ladderPlan` rather than spelled out — so a rung added to the
+// ladder arrives here too, and the full-plan control below cannot quietly go
+// stale while still passing.
+const FULL_ARMS = () =>
+  Object.fromEntries(
+    ladderPlan({ list: 300, grid: 6 }, 4).flatMap(({ segment, arms }) =>
+      arms.map((a) => [
+        a.key,
+        {
+          segment,
+          arm: a.arm,
+          rung: a.rung,
+          reads: a.reads || 0,
+          boundaries: 24,
+          ...allocSteps(stream([5000, 5000, 5000, 5000])),
+          primeLegs: [11788],
+          primeExcess: 6788,
+          perWrite: 5000,
+          perBoundaryPerWrite: 208,
+        },
+      ])
+    )
+  );
+
+// The fits a full run carries, one per (segment, substrate), derived from the
+// same plan for the same reason. Only the full plan reaches
+// `summariseAllocFits`; the narrow ones print the NO FITTED LINE block.
+const FULL_FITS = () => {
+  const mean = {};
+  const perRound = {};
+  for (const { segment, arms } of ladderPlan({ list: 300, grid: 6 }, 4)) {
+    for (const sub of [...new Set(arms.map((a) => a.substrate).filter(Boolean))]) {
+      mean[`${segment}|${sub}`] = {
+        slope: 12,
+        intercept: 100,
+        shell: 90,
+        firstRead: 110,
+        r2: 0.999,
+        linear: true,
+        why: 'a synthetic fit, measured against nothing',
+      };
+      perRound[`${segment}|${sub}`] = [1, 2].map(() => ({
+        slope: 12,
+        intercept: 100,
+        shell: 90,
+        firstRead: 110,
+        linear: true,
+      }));
+    }
+  }
+  return { perRound, mean };
+};
+
+// THE FULL PLAN IS THE CONTROL FOR THE TWO PINS BELOW (rf2-gxrr), and it is
+// not decoration. Each narrowed pin asserts that a run does NOT say something,
+// and a `doesNotMatch` passes just as quietly when the summary says it under
+// NO plan at all — a later edit that deleted "Q = E on every rung" outright
+// would leave both narrowed pins green while silently retiring the claim from
+// the published row. So every string they forbid is asserted PRESENT here, on
+// the plan this bead left unchanged to the byte.
+test('the FULL plan still makes every claim the narrowed plans may not', () => {
+  const { row, out } = allocSummaryFor('full', FULL_ARMS(), { allocFits: FULL_FITS() });
+  assert.match(out, /WARM 1\/3\/7\/20 READS \(rf2-2rtt6\.76\)/, 'the published banner');
+  assert.match(out, /held FIXED across every rung/);
+  assert.match(out, /Q = E on every rung\./);
+  assert.match(out, /The arm stays MOUNTED across the window/);
+  assert.match(out, /THE WRITE IS `/, 'and the write is named as DRIVEN');
+  assert.match(out, /THE PLAN IS `full` — controls, floor and every rung, fitted\./);
+  assert.match(out, /THE FITTED LINES/);
+  assert.match(out, /---- reagent-subs ----/);
+  assert.match(out, /^;; hicasso {8}20 /m, 'the R=20 rung is in the arm table');
+  // And it says none of the narrowed plans' absence lines.
+  assert.doesNotMatch(out, /NO ARM WAS MOUNTED/);
+  assert.doesNotMatch(out, /NO WRITE EVENT WAS DRIVEN/);
+  assert.doesNotMatch(out, /NO RUNG WAS MOUNTED/);
+  assert.doesNotMatch(out, /NO FITTED LINE/);
+  assert.strictEqual(row.writeDriven, true, 'the arm loop ran, so the selected write fired');
+});
+
 test("V3's CONTROLS-ONLY summary RUNS, and states absence rather than zero", () => {
   const { row, out } = allocSummaryFor('controls');
   assert.match(out, /NO ARM WAS MOUNTED/, 'absence is stated, not left to be read as zero');
@@ -2168,10 +2248,37 @@ test("V3's CONTROLS-ONLY summary RUNS, and states absence rather than zero", () 
   // a run that printed no prime line at all would be hiding the one term this
   // instrument now has a name for.
   assert.match(out, /prime excess over the measured cohort median: 0 B mean/);
+
+  // AND IT CLAIMS NOTHING THE FULL PLAN CLAIMS (rf2-gxrr). Every line below
+  // printed unconditionally when the modes first landed, so this artefact
+  // stated that rungs were held at Q = E, that an arm stayed mounted, and
+  // that a write fired — over a run that mounted nothing and drove nothing —
+  // and then admitted "no arm mounted" twenty lines further down. V3's
+  // controls artefact is provenance for a validity witness, and a record that
+  // misstates its own measurement shape cannot be that.
+  assert.match(out, /CONTROLS ONLY, NO ARM/, 'the banner names the shape');
+  assert.doesNotMatch(out, /WARM 1\/3\/7\/20 READS/, 'no rung was read');
+  assert.doesNotMatch(out, /held FIXED across every rung/, 'there is no rung to hold B across');
+  assert.doesNotMatch(out, /Q = E on every rung/, 'and none to hold Q = E on');
+  assert.doesNotMatch(out, /The arm stays MOUNTED/, 'no arm was mounted to stay');
+  assert.doesNotMatch(out, /NO RUNG WAS MOUNTED/, "that is the FLOOR plan's line, not this one");
+
+  // THE WRITE, WHICH IS THE FALSE ATTRIBUTION THIS PIN EXISTS FOR. The
+  // selected write is driven only inside the arm loop, so a plan with no arms
+  // resolves the switch and fires nothing. Naming it is the one failure a
+  // provenance line may not have.
+  assert.doesNotMatch(out, /THE WRITE IS `/, 'no write event is NAMED as driven');
+  assert.match(out, /NO WRITE EVENT WAS DRIVEN, and no figure below is a reading of one/);
+  assert.match(out, /P0_ALLOC_WRITE resolved to `page`/, 'the SELECTION is still on the record');
+  // And the raw record says it too, so a reader of the JSON is not left to
+  // infer it from the plan name. Measured off `perRound`, not read off
+  // `plan.arms`: a flag derived from the configuration would be the
+  // instrument checking itself against itself and agreeing.
+  assert.strictEqual(row.writeDriven, false, 'the record itself denies the event');
 });
 
 test("V1's FLOOR-ONLY summary RUNS, prints the floor, and prints no rung", () => {
-  const { out } = allocSummaryFor('floor', FLOOR_ARMS());
+  const { row, out } = allocSummaryFor('floor', FLOOR_ARMS());
   // NOT VACUOUS: this plan DOES mount an arm, so the two modes are told apart
   // by the summary and not merely by the shape table.
   assert.doesNotMatch(out, /NO ARM WAS MOUNTED/);
@@ -2196,6 +2303,24 @@ test("V1's FLOOR-ONLY summary RUNS, prints the floor, and prints no rung", () =>
     new RegExp(`The window drives ${ALLOC_WINDOW_WRITES} — the first ${ALLOC_PRIME_WRITES} is a PRIME`),
     'and the header says how many work units ran against how many are published'
   );
+
+  // AND IT CLAIMS NO RUNG, NO FIT AND NO Q = E (rf2-gxrr). V1's floor arm
+  // holds no subscription, so there is no read count for Q = E to be about
+  // and no 1/3/7/20 ladder to hold B fixed across — three sentences the
+  // header printed unconditionally when this mode first landed.
+  assert.match(out, /FLOOR ARM ONLY, NO RUNG/, 'the banner names the shape');
+  assert.doesNotMatch(out, /WARM 1\/3\/7\/20 READS/);
+  assert.doesNotMatch(out, /held FIXED across every rung/);
+  assert.doesNotMatch(out, /Q = E on every rung/);
+
+  // THE OTHER HALF, AND IT IS WHAT SEPARATES THIS MODE FROM V3's. A floor arm
+  // IS mounted and it DOES drive the selected write, so both claims stand
+  // here — the narrowing is about rungs, and a pin that suppressed these too
+  // would be reporting V3's shape under V1's name.
+  assert.match(out, /The arm stays MOUNTED across the window/);
+  assert.match(out, /THE WRITE IS `/);
+  assert.doesNotMatch(out, /NO WRITE EVENT WAS DRIVEN/);
+  assert.strictEqual(row.writeDriven, true, 'the floor arm loop ran, so the write fired');
 });
 
 test('the DRIVER honours both switches — the write, the plan, and the record', () => {
