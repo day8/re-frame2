@@ -4054,10 +4054,14 @@ jobs:
       #     that is 4 scenarios (ten-tab shell + panel handoff,
       #     deterministic exceptions → inline/Trace surfacing, Cmd-K
       #     palette, panel-gallery theme tokens) over 3 staged surfaces,
-      #     compiling 3 testbed bundles instead of 11 — ~80s warm as
-      #     measured at 4 bundles (rf2-ano54), so an upper bound now. The
-      #     freehand-views Views roster scenario and its staged surface
-      #     went with the rf2-0yp7w Freehand retirement (rf2-l86mm).
+      #     compiling 3 testbed bundles instead of 11. The only timing on
+      #     record is rf2-ano54's nine PR-smoke runs of 2026-08-05, taken
+      #     at FOUR bundles: 65–85s, mean 79s — the figure it rounds to
+      #     `~80s warm`. That is a prior, not a ceiling: five of those
+      #     nine ran over 80s, and the three-bundle gate has not been
+      #     remeasured. The freehand-views Views roster scenario and its
+      #     staged surface went with the rf2-0yp7w Freehand retirement
+      #     (rf2-l86mm).
       #   - Story :play-script CI-as-test gate (rf2-3qcxk): drives the
       #     live Story shell over the runner's own testbed roster and
       #     runs every variant's :play-script. This is the gate that
