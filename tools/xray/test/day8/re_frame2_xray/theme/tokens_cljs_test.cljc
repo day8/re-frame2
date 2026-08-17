@@ -192,16 +192,18 @@
 
 ;; ---- panel domain colours (rf2-5kfxe.8) --------------------------------
 
-(deftest panel-domain-map-covers-every-l4-tab
-  (testing "rf2-5kfxe.8 — the 6 L4 tabs each get a domain colour, so
-            panels are distinguishable at a glance via the 3px left
-            border on their header. (rf2-gbz39 — the Issues tab was
-            removed per Mike's Option (c) ruling; issues surface inline
-            + event-row pink-wash + the always-on issues ribbon signal.
-            rf2-4v67l — Chrome A11y was removed in favour of Story's
-            already-shipped chrome-a11y dogfood per rf2-18t6p. rf2-ga16q
-            — Machines Canvas removed; its browse-all canvas relocated
-            to the Static Machines sub-tab.)"
+(deftest panel-domain-map-keys-are-pinned
+  (testing "rf2-5kfxe.8 — `panel-domain->token` is NOT the tab
+            inventory and does not track it: rf2-ad7zx.13 superseded the
+            per-panel domain colours with a single `:accent`, leaving
+            this map a six-key vestige that still names the retired
+            `:event` id and knows nothing of the four tabs registered
+            since. `panel-accent` falls back to `:accent` for any key
+            absent here, so every shipped tab renders correctly
+            regardless. This pins the keys so the vestige cannot grow
+            back into a second inventory. (rf2-gui26 — the docstring
+            here read 'the 6 L4 tabs', a word-numeral roster claiming to
+            be the tab count.)"
     (let [tabs #{:event :app-db :views :trace :machines
                  :routing}]
       (is (= tabs (set (keys t/panel-domain->token)))))))

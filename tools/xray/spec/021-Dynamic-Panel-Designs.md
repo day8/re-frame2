@@ -5190,7 +5190,7 @@ What the panel design needs from the substrate (per §1.4 captured-not-replayed)
 | Sub-decision | Pick | Notes |
 |---|---|---|
 | Unchanged subs in cascade | **Dim, collapsed by default with "Show N unchanged"** | §3.4. Toggle in Settings → View. |
-| Meta-epoch section ordering | **Fixed order: the L3 tab `:order` — Epoch > app-db > Views > Trace > Machine > Routes > Resources > Graph > Frames > Hicasso** | Matches the L3 tab order. Predictable beats dynamic. (rf2-4v67l — Chrome A11y removed in favour of Story's shipped panel.) |
+| Meta-epoch section ordering | **Fixed order: ascending L4 tab `:order`** (`panel-registry/tabs-for-mode :dynamic`) | Matches the L3 tab order, and follows it automatically — an enumeration here would be a second inventory to keep in step. Predictable beats dynamic. (rf2-4v67l — Chrome A11y removed in favour of Story's shipped panel.) |
 | Epoch panel section default-expansion | **All cascade steps expanded by default; collapsible per-step via header click; collapse-all keyboard `[`** | The Epoch panel IS the handling-pipeline view — collapsing by default would hide the punch. |
 | Dispatch-origin display on L2 rows | **Short text label prefix** (`user · :checkout/submit`) | No icon-only or coloured chip — keeps L2 row scannable. Matches the existing L1 ribbon density. |
 | Pattern view (4th lens) | **Post-v1, untracked note** (see trigger below) | The 3-lens model (handling / reactive / state) is sufficient for MVP. |

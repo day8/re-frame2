@@ -61,10 +61,15 @@
   The strip is whatever `panel-registry/tabs-for-mode :dynamic` has
   registered, ordered by `:order` — it is not a literal in this ns, so
   adding a tab is one `reg-l4-tab!` call and nothing here changes. As
-  registered today, with mnemonic letters per spec/018 §11:
+  registered today, with each entry's `:mnem` in brackets:
 
       Epoch (e) · app-db (a) · Views (v) · Trace (t) · Machine (m) ·
       Routes (r) · Resources (s) · Graph (g) · Frames (u) · Hicasso (h)
+
+  Those letters are LABEL mnemonics, surfaced in each tab button's
+  `title` (see `tab-button` below) — they are not keys. No bare-letter
+  tab handler exists in `keybinding.cljs`; tab-jump is a command-palette
+  verb, per spec/007 §Trimmed pending demand.
 
   Selection lives on `:rf.xray/selected-tab` and drives the L4
   detail panel's registry lookup. Routing was promoted to its own tab

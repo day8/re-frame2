@@ -236,15 +236,15 @@
             tabs) is focusable and resolves to an installed panel,
             never the unknown-tab stub.
 
-            rf2-v1fg3 — this used to walk a HAND-LISTED
-            `[:resources :derivation-graph :module-view]` while
-            claiming to cover 'every shipped Dynamic tab id'. When
-            rf2-hic-023 shipped `:hicasso` as a fourth L4-only registry
-            tab on exactly the same footing, the list was not extended
-            and the newest shipped tab went unasserted — the docstring
-            said 'every' and the loop meant 'three'. It now walks
-            `focus/valid-panels`, so the claim is true by construction
-            and a tab cannot be skipped by omission again."
+            rf2-v1fg3 — this walked a HAND-LISTED
+            `[:resources :derivation-graph :module-view]` while claiming
+            'every shipped Dynamic tab id'. `:hicasso` then shipped as a
+            fourth L4-only registry tab and nobody extended the list, so
+            the docstring said 'every' and the loop meant 'three'.
+            Walking `focus/valid-panels` makes the claim true by
+            construction — and it is `valid-panels-mirrors-the-live-registry`
+            above that makes `valid-panels` the SHIPPED set rather than a
+            second hand-list."
     (setup-xray-frame!)
     (doseq [panel focus/valid-panels]
       (let [result (focus/focus! {:frame :checkout :panel panel :sync? true})]
@@ -252,34 +252,6 @@
         (is (= panel (selected-tab)) (str panel " tab is selected"))
         (is (some? (panel-registry/tab-by-id :dynamic (selected-tab)))
             (str panel " resolves to an installed tab — no unknown-tab stub"))))))
-
-(deftest focus-acceptance-inventory-cannot-silently-shrink
-  (testing "rf2-v1fg3 ADVERSARIAL — the negative half of the acceptance
-            above. Walking `focus/valid-panels` only proves 'every
-            shipped tab' if `valid-panels` is itself the shipped set; a
-            tab registered at runtime but missing from the mirror would
-            be skipped by BOTH, silently, which is the exact shape of
-            the defect this bead fixes. Assert the mirror against the
-            LIVE registry, and assert a retired id is still rejected so
-            the mirror cannot be widened into a rubber stamp."
-    (setup-xray-frame!)
-    (is (= (set (panel-registry/tab-ids-for-mode :dynamic))
-           (set focus/valid-panels))
-        (str "focus/valid-panels mirrors the live Dynamic registry — "
-             "registered but unmirrored: "
-             (pr-str (sort (remove (set focus/valid-panels)
-                                   (panel-registry/tab-ids-for-mode :dynamic))))
-             ", mirrored but unregistered: "
-             (pr-str (sort (remove (set (panel-registry/tab-ids-for-mode :dynamic))
-                                   focus/valid-panels)))))
-    ;; A RETIRED tab id is not a typo — it is the regression that would
-    ;; follow from widening the mirror carelessly. `:issues` was removed
-    ;; per rf2-gbz39 and must stay rejected.
-    (let [result (focus/focus! {:frame :checkout :panel :issues :sync? true})]
-      (is (false? (:ok? result))
-          ":issues was retired per rf2-gbz39 and is still rejected")
-      (is (not= :issues (selected-tab))
-          "a retired tab id never becomes the selected tab"))))
 
 (deftest command-is-host-agnostic
   (testing "the SAME command shape drives Xray regardless of who built
