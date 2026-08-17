@@ -168,6 +168,27 @@ the certified readings are still ≈ 3.1 – 3.6 KB below that.
 > [the control's target is not the quantity it is read against](the-controls-target-is-not-the-quantity-it-is-read-against.md).
 > **Nothing measured by this window is withdrawn**; the readings stand as taken.
 
+> **FURTHER AMENDED 2026-08-17 23:50 AUSEST (`rf2-nkeba`, merged-PR audit of
+> PR #8434).** Point **(3)** above reports the narrowed figures as though
+> narrowing had repaired the comparison. It has not. That pairing still
+> differences one value from an **unselected, pre-prime** population against
+> **per-window** values on a **certified** subset, and the certificate selects on
+> leg homogeneity with nothing ruling out that it selects on level as well — so
+> the **4.7 – 7.0%** and **10.7 – 14.9%** are the arithmetic of a comparison the
+> same amendment has just shown to be inadmissible, not a smaller shortfall of a
+> comparable quantity. **The residual term is UNRESOLVED.** This page's
+> 16 – 20% is not shown to overstate a real effect, and is not shown to be a
+> real effect at all. **The same qualification reaches (1) and (2), and it
+> reaches only half of each.** The re-derivations themselves stand — that
+> `uix-subs` has its own range where the paragraph quoted one, and that the
+> prime term priced on the 2026-08-08 windows is ≈ 6,231 / ≈ 6,267 B rather
+> than the pooled 1,161 B per write — because both are computed inside the
+> committed dataset. What does not stand is either point's closing reading of
+> those numbers as a *residual* that is larger, smaller or present at all: every
+> such figure differences the two incomparable populations, so all of them are
+> arithmetic without an estimand. **Nothing measured by this window is
+> withdrawn.**
+
 **What that costs is specific and bounded.** `F_old`'s stated job is to say the
 rig has not moved and thereby license comparison between the two writes. The
 across-time half of that job is not discharged: **rows measured today may not be
