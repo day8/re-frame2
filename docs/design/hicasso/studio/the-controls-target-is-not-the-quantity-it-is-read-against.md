@@ -40,10 +40,14 @@ choice is defended under [why nothing was measured](#why-nothing-was-measured).
   (`reagent-subs`) and ≈ 6,267 B (`uix-subs`)**, i.e. **1,038** / **1,045** B
   per write — *smaller* than the 1,161 B the corpus subtracts. Using the
   dataset's own term makes the residual slightly **larger**, not smaller.
-- **What moved is still not established.** With the seed width struck and the
-  work unit shown byte-identical, the surviving candidate is drift in the event
-  pipeline between 2026-08-08 and 2026-08-13. This page does not identify it and
-  does not claim either reading is the wrong one.
+- **What moved — and whether anything moved at all — is not established.** The
+  seed width is struck and the work unit is byte-identical, which narrows the
+  candidate set; it does not license the difference the clause computes, because
+  the two quantities are not comparable. What survives is a set of untested
+  candidates: drift in the event pipeline between 2026-08-08 and 2026-08-13, a
+  resident-runtime difference the identical pins cannot rule out, and a
+  selection effect nothing in the artefact bounds. This page identifies none of
+  them and does not claim either reading is the wrong one.
 
 ## The estimand was classified before anything else
 
@@ -289,11 +293,17 @@ operator rather than to rewrite it from inside the window that found it.
 
 ## What was NOT concluded
 
-- **No cause is assigned to the residual.** The seed width is struck and the
-  work unit is shown unchanged; what is left is drift somewhere in the event
-  pipeline between 2026-08-08 and 2026-08-13. Twenty-two commits landed under
+- **No residual is established, so there is no cause here to assign.** The seed
+  width is struck and the work unit is shown unchanged, and both of those
+  narrow the candidate set without making the clause's two quantities
+  comparable. Three candidates survive untested and none is preferred over the
+  others: drift in the event pipeline between 2026-08-08 and 2026-08-13, a
+  resident-runtime difference the identical pins cannot see, and an
+  unquantified selection effect. Twenty-two commits landed under
   `implementation/core/src` in that interval and **none was shown to be it**.
-  Naming one would take a bisection window this page may not spend.
+  Naming one would take a bisection window this page may not spend, and
+  `rf2-9jrhi` carries that as a **hypothesis test on those candidates**, not as
+  the location of a proven drop.
 - **Whether the 2026-08-08 windows would certify today is CONDITIONAL, not
   established.** Under `rf2-oiy1`'s model none of the twelve certifies; under an
   adversarial arrangement of the same recorded scalars, eight do. The per-leg
