@@ -1794,6 +1794,24 @@ function allocSiteWitness(siteLegs, prime = ALLOC_PRIME_WRITES) {
 // step to be negative and this returns `[]`. Every row ever published was taken
 // at stride 2, so no published figure and no published verdict moves.
 //
+// AND THE CONVERSE, WHICH IS THE HALF A READER NEEDS AND THE PARAGRAPH ABOVE
+// DOES NOT STATE (rf2-fir5n). "No published verdict moves" is the reassurance;
+// the cost is that `certified` on a stride-2 window means certified by the falls
+// gate and the leg tolerance and NO MORE. That is not a defect in this gate and
+// widening it would be the wrong repair — there is no site step at stride 2 to
+// widen a test on, only a reading that was never taken — but it does close a
+// class of question off. The note at `ALLOC_BY_SITE` records that a stride-3 leg
+// magnitude is not comparable byte for byte with a stride-2 one, because each
+// leg there carries one extra sampler read. So a witness whose criterion IS a
+// byte-for-byte comparison against a figure published at stride 2 must run at
+// stride 2, where this gate adjudicates nothing: the class of comparison that
+// most wants a third gate is precisely the class that cannot use one. The
+// record says so per row — see `allocInstrumentNote` — rather than leaving a
+// reader to derive it, and rf2-fir5n carries the two ways out (price the extra
+// read off the idle control and correct stride-3 bytes back, which wants a
+// hermetic build and a ruling; or state the limitation on every page that takes
+// such a comparison) with neither taken here.
+//
 // WHAT IT DOES NOT CLOSE, stated because a gate that oversells itself is worse
 // than none. A reclamation bracketed inside ONE SITE — collected and
 // re-allocated between the same two readings — is invisible here for the reason
@@ -1946,6 +1964,58 @@ function allocWindowVerdict(steps, siteLegs = [], prime = ALLOC_PRIME_WRITES) {
     refusals: [...steps.refusals, ...intraLegRefusals],
     certified: steps.certified && intraLegRefusals.length === 0,
   };
+}
+
+// WHICH GATES ACTUALLY SCREENED THIS ROW (rf2-fir5n) — the record's `instrument`
+// string, as a pure function of the stride so a pin can DRIVE it rather than
+// read the source and hope.
+//
+// THE DEFECT IT REPAIRS. The string was one constant, emitted on every row, and
+// it closed with "All three refuse". On a stride-2 row that is at best ambiguous
+// between a claim about the INSTRUMENT's design — all three gates refuse, none
+// widens — and a claim about THIS ROW, and on a field whose whole stated purpose
+// is criterion 6's "a reader of any row can tell FROM THE ROW how it was taken"
+// the row reading is the one that governs. Two gates screened every published
+// row. rf2-4ctls already made the COUNT honest by omission — off the mode the
+// summary prints no intra-leg line and the record gains no
+// `intraLegRefusalReasons` field, because a 0 would claim the instrument looked
+// when it could not — and this closes the same hole in the prose beside it.
+//
+// AND IT IS NOT A SWITCH THAT COULD BE FLIPPED HERE, which is why the stride-2
+// branch states a constraint rather than a TODO. `allocSiteSplit` yields no site
+// legs at a stride of 2 because there is no interior reading per leg to
+// subtract, so there is no site step whose sign could be read; arming the gate
+// needs the stride-3 reading, and a stride-3 leg magnitude is not comparable
+// byte for byte with a stride-2 one. A witness whose criterion IS a byte-for-
+// byte comparison against a figure published at stride 2 must therefore run at
+// stride 2, where this gate adjudicates nothing — so that class of comparison
+// can never be screened by all three. Saying so on the row is the honest half of
+// that; correcting stride-3 bytes back to stride-2 ones off the idle control's
+// per-leg price is the other half, and it is an instrument change wanting a
+// hermetic build and a ruling, not a quiet box.
+//
+// THE BY-SITE BRANCH IS UNCHANGED TO THE BYTE, on `summariseAllocFits`'s rule:
+// the stride-3 text is the string this file has always emitted, lifted out whole
+// rather than guarded in place.
+function allocInstrumentNote(bySite = ALLOC_BY_SITE) {
+  const shared =
+    'in-page performance.memory.usedJSHeapSize sampled at every leg boundary, ' +
+    'rising steps accumulated separately from falling ones; --enable-precise-memory-info. ' +
+    'A falling step is a collection this counter SAW; a leg that deviates from its cohort ' +
+    'median by more than the leg tolerance is a work unit that is not one; and under the ' +
+    'by-site stride a NEGATIVE SITE STEP is a collection inside one leg that neither of the ' +
+    'other two can see. ';
+  if (bySite) return shared + 'All three refuse';
+  return (
+    shared +
+    'TWO OF THE THREE RAN ON THIS ROW (rf2-fir5n): it was taken at a stride of 2, where a leg ' +
+    'has no interior reading and so no site step to be negative, and the intra-leg gate ' +
+    'returned an empty list BY CONSTRUCTION rather than by a switch. `certified` here means ' +
+    'certified by the falling-step gate and by the leg tolerance and NO MORE. Arming the third ' +
+    'needs the stride-3 reading, whose leg magnitudes are not comparable byte for byte with ' +
+    'these (see `bySite`), so a witness comparing byte for byte against a figure published at ' +
+    'stride 2 can never be screened by all three'
+  );
 }
 
 // The witness over a whole collected row, as a PURE FUNCTION of it — the
@@ -2400,13 +2470,12 @@ async function allocRow(chromium) {
     writeSelector: ALLOC_WRITE,
     write: `${ALLOC_WRITE_SPEC.event} — ${ALLOC_WRITE_SPEC.note}`,
     plan: { name: ALLOC_PLAN, ...ALLOC_PLAN_SHAPE },
-    instrument:
-      'in-page performance.memory.usedJSHeapSize sampled at every leg boundary, ' +
-      'rising steps accumulated separately from falling ones; --enable-precise-memory-info. ' +
-      'A falling step is a collection this counter SAW; a leg that deviates from its cohort ' +
-      'median by more than the leg tolerance is a work unit that is not one; and under the ' +
-      'by-site stride a NEGATIVE SITE STEP is a collection inside one leg that neither of the ' +
-      'other two can see. All three refuse',
+    // WHICH OF THE THREE GATES SCREENED THIS ROW (rf2-fir5n), and not merely
+    // which three exist. It reads `ALLOC_BY_SITE` for the same reason `bySite`
+    // above does: at a stride of 2 the intra-leg gate returns `[]` by
+    // construction, so a row that closed with "All three refuse" named a gate
+    // that adjudicated nothing on it. See `allocInstrumentNote`.
+    instrument: allocInstrumentNote(ALLOC_BY_SITE),
     fallThresholdB: ALLOC_FALL_THRESHOLD_B,
     legTolerance: ALLOC_LEG_TOLERANCE,
     verification: { unverified, detail: unverifiedDetail },
@@ -3495,6 +3564,12 @@ module.exports = {
   // by running both functions over one window and comparing.
   allocIntraLegRefusals,
   allocWindowVerdict,
+  // And the row's own statement of WHICH of the three screened it (rf2-fir5n),
+  // exported on the same rule again: it is a pure function of the stride, so the
+  // pin drives both branches instead of matching the source for a phrase. The
+  // property that matters is a claim about what the string says at stride 2,
+  // which a source match cannot make without restating the string.
+  allocInstrumentNote,
   // The measurement surface (rf2-gxrr), exported so the structural pin can
   // DRIVE it rather than read its source: the tables as values, the plan
   // filter as a pure function, and the two resolved selections so the env

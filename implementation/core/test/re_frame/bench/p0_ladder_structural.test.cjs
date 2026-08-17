@@ -66,6 +66,8 @@ const {
   allocSiteReport,
   allocIntraLegRefusals,
   allocWindowVerdict,
+  allocInstrumentNote,
+  ALLOC_BY_SITE,
   ALLOC_SITES,
   ALLOC_SITE_NAMES,
 } = require('./p0_run.cjs');
@@ -1305,6 +1307,49 @@ test('INERT AT THE SHIPPED STRIDE — every published row is untouched', () => {
   assert.deepStrictEqual(allocIntraLegRefusals([], 1), []);
   assert.deepStrictEqual(allocIntraLegRefusals([{ dispatch: -9, drain: 1, leg: -8 }], 1), [],
     'a single leg is the prime, and the prime is in no figure and no certificate');
+});
+
+test('AND THE ROW SAYS SO — a stride-2 record does not claim three gates screened it', () => {
+  // rf2-fir5n. The inertness above is CORRECT and nothing here arms anything;
+  // what was wrong was the record. `instrument` closed with "All three refuse"
+  // on every row, including the stride-2 rows that are the only ones ever
+  // published, where the third gate returned `[]` by construction. Driven
+  // through the real function at both strides rather than matched in the source,
+  // because the claim is about what the string SAYS and a source match can only
+  // restate it.
+  const off = allocInstrumentNote(false);
+  const on = allocInstrumentNote(true);
+
+  // The stride-3 text is unchanged to the byte: this bead moves no by-site row.
+  assert.ok(on.endsWith('other two can see. All three refuse'), on.slice(-80));
+
+  // And the stride-2 text does not, which is the whole repair.
+  assert.doesNotMatch(off, /All three refuse/, 'two of the three ran on a published row');
+  assert.match(off, /TWO OF THE THREE RAN ON THIS ROW \(rf2-fir5n\)/);
+  assert.match(off, /returned an empty list BY CONSTRUCTION rather than by a switch/);
+  assert.match(off, /certified by the falling-step gate and by the leg tolerance and NO MORE/);
+  // It states the CONSTRAINT, not a TODO: the two strides are not comparable, so
+  // this is not a switch a reader should go looking for.
+  assert.match(off, /not comparable byte for byte/);
+  assert.match(off, /can never be screened by all three/);
+
+  // Both branches still describe the same instrument — the shared half is shared
+  // rather than forked, so a future edit to the sampling description cannot
+  // reach one stride and miss the other.
+  const shared = 'in-page performance.memory.usedJSHeapSize sampled at every leg boundary';
+  assert.ok(on.startsWith(shared) && off.startsWith(shared), 'one instrument, two verdicts');
+
+  // THE DEFAULT IS THE RESOLVED CONSTANT, so the row the driver writes gets the
+  // branch its own stride earned. The mode is off in this process, exactly as it
+  // is on every published run.
+  assert.strictEqual(ALLOC_BY_SITE, false, 'the by-site mode is opt-in and off by default');
+  assert.strictEqual(allocInstrumentNote(), off);
+  // And the driver passes it rather than letting the default drift out of step
+  // with the `bySite` field printed beside it.
+  has(
+    /instrument: allocInstrumentNote\(ALLOC_BY_SITE\),/,
+    'the record states the stride it was actually taken at'
+  );
 });
 
 test('THE FENCE HOLDS — `allocSteps` is untouched and no published quantity moves', () => {
