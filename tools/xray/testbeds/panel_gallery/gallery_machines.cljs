@@ -1,5 +1,5 @@
 (ns panel-gallery.gallery-machines
-  "Story coverage for the **Machines tab** of the new 6-tab Xray chrome
+  "Story coverage for the **Machine tab** of the Xray 4-layer chrome
   (rf2-sszlr — gallery rebuild for spec/018-Event-Spine).
 
   The Machines tab body is the `machine-inspector/Panel` view

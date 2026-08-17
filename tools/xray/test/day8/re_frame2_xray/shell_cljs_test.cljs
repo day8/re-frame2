@@ -20,8 +20,9 @@
        dropped the explicit `● LIVE` / `◐ RETRO` mode pill — the
        state is derivable, and Space / L / G preserve toggles.)
 
-    3. The L3 tab bar renders six tabs (Event / App-db / Views /
-       Trace / Machines / Issues) and clicking a tab updates
+    3. The L3 tab bar renders one button per registered Dynamic tab
+       (Epoch / app-db / Views / Trace / Machine / Routes / Resources /
+       Graph / Frames / Hicasso) and clicking a tab updates
        `:rf.xray/selected-tab` so the L4 detail panel rebinds.
 
     4. The L2 event list reads `:rf.xray/event-bundles` and clicking a
@@ -42,6 +43,7 @@
   Same approach as the original shell test — we walk the view's
   hiccup tree by `data-testid` rather than mounting to a DOM."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
+            [clojure.string :as str]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
             [re-frame.test-helpers :as th]
@@ -647,12 +649,21 @@
           ":rf.xray/follow-head dispatched on ⏭ click"))))
 
 ;; -------------------------------------------------------------------------
-;; (3) L3 tab bar — six tabs, mnemonics, selection
+;; (3) L3 tab bar — every registered Dynamic tab, mnemonics, selection
 ;; -------------------------------------------------------------------------
 
 (def ^:private expected-tab-ids
-  "Authoritative tab inventory per spec/018 §5 The 6 tabs (Routing
-  promoted to its own L3 tab per rf2-nrbs9). rf2-5gl5r retired the
+  "Authoritative tab inventory per spec/018 §5 — every id registered
+  against `#{:dynamic}`, in `:order`. This vector is a DELIBERATE
+  hand-maintained mirror of the registry, not a read of it: the point
+  of the assertions below is to fail when a tab is added or removed
+  without the shell test noticing, which a live read could not do.
+  It drifted to a stale seven exactly that way (rf2-gui26) — the
+  three newest tabs shipped while this whitelist silently filtered
+  them out of its own count. Re-derive from `focus.cljc`
+  `valid-panels` when you touch it.
+
+  (Routing promoted to its own L3 tab per rf2-nrbs9). rf2-5gl5r retired the
   Event/Handler tab in favour of the Epoch panel — `:epoch` now
   occupies the leftmost position (the same default-landing slot the
   prior `:event` tab held). rf2-gbz39 removed the Issues tab (Mike
@@ -665,31 +676,60 @@
   removed; its spine-INDEPENDENT browse-all canvas relocated to the
   Static Machines sub-tab. Resources — Spec 016 §Xray and AI tooling —
   earns its own L3 tab after Routing per Mike's cohesive-sub-domain
-  ruling.)"
-  [:epoch :app-db :views :trace :machines :routing :resources])
+  ruling. rf2-9ett2d added Graph per EP-0014; rf2-wtg9z4 added Frames
+  per EP-0013; rf2-hic-023 added Hicasso.)"
+  [:epoch :app-db :views :trace :machines :routing :resources
+   :derivation-graph :module-view :hicasso])
 
-(deftest tab-bar-renders-six-tabs
-  (testing "spec/018 §5 — Epoch / App-db / Views / Trace / Machines /
-            Routing / Resources (Epoch supersedes the retired
-            Event/Handler tab per rf2-5gl5r; rf2-gbz39 removed the
-            Issues tab per Option (c)). rf2-4v67l removed the
-            Chrome A11y dogfood in favour of Story's shipped panel;
-            rf2-ga16q removed the Machines Canvas tab (relocated to
-            Static); Resources added per Spec 016."
+(deftest tab-bar-renders-every-registered-dynamic-tab
+  (testing "spec/018 §5 — Epoch / app-db / Views / Trace / Machine /
+            Routes / Resources / Graph / Frames / Hicasso (Epoch
+            supersedes the retired Event/Handler tab per rf2-5gl5r;
+            rf2-gbz39 removed the Issues tab per Option (c)). rf2-4v67l
+            removed the Chrome A11y dogfood in favour of Story's
+            shipped panel; rf2-ga16q removed the Machines Canvas tab
+            (relocated to Static); Resources added per Spec 016; Graph
+            / Frames / Hicasso per EP-0014 / EP-0013 / rf2-hic-023."
     (xray-setup!)
     (rf/with-frame :rf/xray
-      (let [tree (shell/shell-view)
-            tabs (find-all-by-testid-prefix tree "rf-xray-tab-")]
-        ;; Need to filter out the L4 detail panel and tab-bar root.
-        (is (= 7 (count (filter (fn [n]
-                                  (let [t (:data-testid (second n))]
-                                    (some #(= t (str "rf-xray-tab-" (name %)))
-                                          expected-tab-ids)))
-                                tabs)))
-            "7 tab buttons render")
+      (let [tree     (shell/shell-view)
+            tabs     (find-all-by-testid-prefix tree "rf-xray-tab-")
+            ;; Every `rf-xray-tab-*` testid actually in the tree, as the
+            ;; ids they encode. Derived from the RENDER, never from
+            ;; `expected-tab-ids` — see the adversarial assertion below.
+            ;;
+            ;; The `rf-xray-tab-bar` PREFIX is dropped, not just the
+            ;; exact root: the tab-bar's own chrome children
+            ;; (`-bar-context-label`, `-bar-reset`, `-bar-spacer`) share
+            ;; the `rf-xray-tab-` prefix without being tab buttons, so an
+            ;; exact-match exclusion lets three non-tabs into the set.
+            ;; No tab id begins with `bar`, so the prefix is unambiguous.
+            rendered (->> tabs
+                          (keep #(:data-testid (second %)))
+                          (remove #(str/starts-with? % "rf-xray-tab-bar"))
+                          (map #(keyword (subs % (count "rf-xray-tab-"))))
+                          set)]
+        (is (= (count expected-tab-ids) (count rendered))
+            (str (count expected-tab-ids) " tab buttons render"))
         (doseq [tab-id expected-tab-ids]
           (is (some? (find-by-testid tree (str "rf-xray-tab-" (name tab-id))))
-              (str "tab button for " tab-id)))))))
+              (str "tab button for " tab-id)))
+        ;; ADVERSARIAL — the negative half, and the one that was missing.
+        ;; The prior assertion counted only buttons already named in
+        ;; `expected-tab-ids`, so the count was computed from the
+        ;; whitelist and could never disagree with it: a tab REGISTERED
+        ;; but not whitelisted was filtered out before it was counted.
+        ;; Three shipped that way (Graph / Frames / Hicasso) and this
+        ;; deftest stayed green throughout (rf2-gui26). Comparing the
+        ;; rendered set against the expected set fails in BOTH
+        ;; directions — a tab dropped from the bar, and a tab added to
+        ;; the registry that nobody taught this suite about.
+        (is (= (set expected-tab-ids) rendered)
+            (str "the rendered L3 tab set is exactly the expected "
+                 "inventory — unexpected: "
+                 (pr-str (sort (remove (set expected-tab-ids) rendered)))
+                 ", missing: "
+                 (pr-str (sort (remove rendered (set expected-tab-ids))))))))))
 
 (deftest tab-bar-uses-tablist-aria-pattern
   (testing "rf2-lvf8t (rf2-q7who Thread B) — the L3 tab strip uses the

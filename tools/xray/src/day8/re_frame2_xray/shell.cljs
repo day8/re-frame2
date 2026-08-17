@@ -13,7 +13,7 @@
       ├───────────────────────────────────────────────────────┤
       │ L2  Event list (8 rows default; resizable; min 2)     │  the spine / timeline
       ├───────────────────────────────────────────────────────┤
-      │ L3  Tab bar (40px) — 6 tabs                           │  projection selector
+      │ L3  Tab bar (40px) — one tab per registered lens      │  projection selector
       ├───────────────────────────────────────────────────────┤
       │ L4  Detail panel (fills remaining canvas)             │  per-tab content
       └───────────────────────────────────────────────────────┘
@@ -58,12 +58,16 @@
 
   ## Tab bar (L3)
 
-  Six tabs, mnemonic letters per spec/018 §11:
+  The strip is whatever `panel-registry/tabs-for-mode :dynamic` has
+  registered, ordered by `:order` — it is not a literal in this ns, so
+  adding a tab is one `reg-l4-tab!` call and nothing here changes. As
+  registered today, with mnemonic letters per spec/018 §11:
 
-      Event (e) · App-db (a) · Views (v) · Trace (t) · Machines (m) · Routing (r)
+      Epoch (e) · app-db (a) · Views (v) · Trace (t) · Machine (m) ·
+      Routes (r) · Resources (s) · Graph (g) · Frames (u) · Hicasso (h)
 
   Selection lives on `:rf.xray/selected-tab` and drives the L4
-  detail panel's case switch. Routing was promoted to its own tab
+  detail panel's registry lookup. Routing was promoted to its own tab
   per rf2-nrbs9 (Mike's design call, 2026-05-18) — it follows the
   cohesive-sub-domain rule (sub-domains earn their own lens tab
   rather than overloading the parent tab).
@@ -85,12 +89,14 @@
   panel is registry-driven (rf2-2moh1): each tab registers its
   `:panel` via `panel-registry/reg-l4-tab!` and the shell mounts the
   active tab through `panel-registry/tab-by-id`. Post rf2-5gl5r +
-  rf2-gbz39 the six Dynamic tabs all mount real panels — Epoch →
+  rf2-gbz39 every registered Dynamic tab mounts a real panel — Epoch →
   `epoch-panel/Panel` (the canonical numbered event-bundle per 021 §9.1;
-  supersedes the retired Event/Handler panel), App-db →
+  supersedes the retired Event/Handler panel), app-db →
   `app-db-diff/Panel`, Views → `reactive-panel/Panel` (the 021 §3
   three-stacked-tables design, rf2-8ve8z), Trace → `trace/Panel`,
-  Machines → `machine-inspector/Panel`, Routing → `routing/Panel`.
+  Machine → `machine-inspector/Panel`, Routes → `routing/Panel`,
+  Resources → `resources/Panel`, Graph → `derivation-graph/Panel`,
+  Frames → `module-view/Panel`, Hicasso → `hicasso/Panel`.
 
   ## Frame isolation (rf2-tijr Option C + rf2-in6l2)
 
@@ -188,10 +194,12 @@
 ;; L4 detail-panel read the registry via `tabs-for-mode :dynamic`
 ;; (driven by the `:modes` set on each entry).
 ;;
-;; The seven Dynamic tabs registered against `#{:dynamic}` retain the
-;; canonical left-to-right order via `:order` (0..6) — spec/018 §5
-;; ordering is preserved as registration metadata rather than a literal
-;; vector in this ns.
+;; The Dynamic tabs registered against `#{:dynamic}` retain the
+;; canonical left-to-right order via `:order` — spec/018 §5 ordering is
+;; preserved as registration metadata rather than a literal vector in
+;; this ns, so the inventory and its span are whatever the registry
+;; holds (Epoch sits leftmost at `:order -1`; the values are sparse and
+;; deliberately leave gaps for retired tabs).
 ;;
 ;; Most labels use spaces so the rendered text carries no `-` glyphs.
 ;; The app-db tab's label is the lowercase library term `app-db`
@@ -2241,10 +2249,11 @@
      label]))
 
 (rf/reg-view tab-bar
-  "L3 tab bar — six tabs per spec/018 §5 The 6 tabs (Routing
-  promoted per rf2-nrbs9 — follows the cohesive-sub-domain rule;
-  the Issues tab was removed per rf2-gbz39 — issues surface inline
-  in the Epoch panel + the L2 event-row pink-wash + the ribbon).
+  "L3 tab bar — renders `panel-registry/tabs-for-mode :dynamic` in
+  `:order`, per spec/018 §5 (Routing promoted per rf2-nrbs9 — follows
+  the cohesive-sub-domain rule; the Issues tab was removed per
+  rf2-gbz39 — issues surface inline in the Epoch panel + the L2
+  event-row pink-wash + the ribbon).
 
   Per rf2-in6l2 `reg-view`-registered so subscribes resolve to
   `:rf/xray`.
@@ -2388,10 +2397,10 @@
 (rf/reg-view detail-panel
   "L4 detail panel — mounts the active `:rf.xray/selected-tab`'s panel
   via the registry-driven `panel-registry/tab-by-id :dynamic` lookup
-  (rf2-2moh1). All six Dynamic tabs mount real panels (Event /
-  App-db / Views / Trace / Machines / Routing); the former
-  literal case-switch is gone, and the Issues tab was removed per
-  rf2-gbz39 (Option (c) — issues surface inline + event-row + ribbon).
+  (rf2-2moh1). Every registered Dynamic tab mounts a real panel — the
+  inventory is the registry's, not a list here; the former literal
+  case-switch is gone, and the Issues tab was removed per rf2-gbz39
+  (Option (c) — issues surface inline + event-row + ribbon).
   An unrecognised tab falls back to `unknown-tab-stub`.
 
   Per rf2-in6l2 `reg-view`-registered so subscribes resolve to
