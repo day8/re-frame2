@@ -34,7 +34,7 @@ adapter contract, React root calls, disposal, source coordinates, and the
 Each adapter implements the surface defined in [Spec 006 §The adapter API contract](../../spec/006-ReactiveSubstrate.md):
 
 - **Required (6):** `make-state-container`, `read-container`, `replace-container!`, `make-derived-value`, `render`, `render-to-string`.
-- **Optional (3):** `subscribe-container`, `register-context-provider`, `flush-render!` — the core falls back (or no-ops) when these are absent. `flush-render!` is the production-grade synchronous render-commit (distinct from the `flush-views!` test helper), implemented by all four React-shaped adapters.
+- **Optional (3):** `subscribe-container`, `register-context-provider`, `flush-render!` — the core falls back (or no-ops) when these are absent. `flush-render!` is the production-grade synchronous render-commit (distinct from the `flush-views!` test helper). Three of the six shipped adapter kinds install it — Reagent, reagent-slim and UIx. The other three omit it deliberately: `plain-atom` (in core) and the SSR substrate render without a live commit, so there is nothing to flush, and the test-react fixture hands the render clock to the test.
 - **Lifecycle (1):** `dispose-adapter!`.
 
 An adapter is a Clojure map carrying these fns under the matching keys plus a `:kind` discriminator keyword (e.g. `:rf.adapter/reagent-slim`). See [`re-frame.substrate.adapter`](../core/src/re_frame/substrate/adapter.cljc) for the live contract.
