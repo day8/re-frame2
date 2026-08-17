@@ -61,8 +61,10 @@ const VERBOSE_TESTS = isVerboseTests();
 // actually load — cutting the nightly sweep down to the high-signal
 // subset on the PR critical path. Both counts are DERIVED from
 // scenarios.cjs and main() prints the live pair every run, so read that
-// rather than a number frozen here (rf2-ano54). As at 2026-08-06 the
-// split is 5 scenarios over 4 surfaces against 17 over 12 nightly. The
+// rather than a number frozen here (rf2-ano54). As at 2026-08-17 the
+// split is 4 scenarios over 3 staged surfaces against 16 over 11
+// nightly — the freehand-views Views roster scenario and its staged
+// surface went with the rf2-0yp7w Freehand retirement (rf2-l86mm). The
 // full sweep keeps running nightly in expensive-tests.yml. The CLI flag
 // is the cross-platform entry point (no cross-env dependency); the env
 // var stays supported for harness composition.

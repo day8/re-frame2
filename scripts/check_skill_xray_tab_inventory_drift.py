@@ -28,8 +28,11 @@ whose `:modes` include `:dynamic`, under
 `panel-registry/tab-ids-for-mode :dynamic`, guarded by an Xray-side build
 test). Ordered by `:order`, that is today:
 
-    Epoch · app-db · Views · Trace · Machine · Routes · Resources · Graph · Frames
-    (mnemonics  e     a       v       t       m         r        s          g       u)
+    Epoch · app-db · Views · Trace · Machine · Routes · Resources · Graph ·
+    Frames · Hicasso   (mnemonics: e a v t m r s g u h)
+
+That roster is a SNAPSHOT, and no check reads it — see the note below the
+checks for why that matters.
 
 The gate is behaviour-neutral: it reads the runtime, it never edits it.
 
@@ -53,15 +56,23 @@ Checks (all against the runtime inventory parsed fresh each run):
       reorder in the primary inventory prose (e.g. "… Graph · Modules").
 
   A3  MNEMONIC SEQUENCE — the runtime mnemonics, joined in `:order` order
-      (space-separated, e.g. `e a v t m r s g u`), must appear in SKILL.md,
+      (space-separated, e.g. `e a v t m r s g u h`), must appear in SKILL.md,
       references/panels.md, and evals/evals.json.
 
   A4  LABEL PRESENCE — every runtime Dynamic label appears at least once in
       SKILL.md (so a newly-added tab's user-visible name is actually taught).
 
-  A5  EVAL NINTH-TAB LABEL — evals.json names the highest-`:order` tab by its
-      shipped visible label (today "Frames"), so the answer-quality fixtures
-      pin the currently-shipped label rather than a stale one.
+  A5  EVAL HIGHEST-ORDER TAB LABEL — evals.json names the highest-`:order` tab
+      by its shipped visible label (today "Hicasso", `:order 10`), so the
+      answer-quality fixtures pin the currently-shipped label rather than a
+      stale one.
+
+THE GATE DOES NOT READ THIS FILE. Its inputs are the Xray runtime and
+`skills/re-frame2-xray/**` — nothing else. So the roster above is prose no
+check covers, and it drifted exactly the way the drift this gate exists to
+catch does: it sat at nine tabs ending "Frames", naming the retired ninth-tab
+framing, while the gate itself printed "10 Dynamic tabs verified" on every run
+(rf2-vuabu). Re-derive it from `focus.cljc` `valid-panels` when you touch it.
 
 Pure-Python-stdlib (no PyYAML / Node) to stay fast + CI-portable, mirroring the
 sibling `scripts/check_skill_*.py` gates.
@@ -118,7 +129,7 @@ SKILL_FILES = {
 ORDERED_LABEL_FILES = ("SKILL.md", "README.md", "references/panels.md", "evals/evals.json")
 MNEM_FILES = ("SKILL.md", "references/panels.md", "evals/evals.json")
 LABEL_PRESENCE_FILE = "SKILL.md"
-EVAL_NINTH_LABEL_FILE = "evals/evals.json"
+EVAL_HIGHEST_LABEL_FILE = "evals/evals.json"
 
 _MIDDOT = "·"  # "·"
 
@@ -342,13 +353,15 @@ def check(
             )
 
     # A5 — evals name the highest-:order tab by its shipped visible label.
-    ninth = max(runtime_tabs, key=lambda t: t.get("order", 0))
-    ninth_label = ninth.get("label")
-    eval_text = skill_files.get(EVAL_NINTH_LABEL_FILE, "")
-    if ninth_label and ninth_label not in eval_text:
+    # Derived, never hard-coded: the last tab was :module-view ("Frames") until
+    # rf2-hic-023 appended :hicasso at :order 10, and it will move again.
+    highest = max(runtime_tabs, key=lambda t: t.get("order", 0))
+    highest_label = highest.get("label")
+    eval_text = skill_files.get(EVAL_HIGHEST_LABEL_FILE, "")
+    if highest_label and highest_label not in eval_text:
         findings.append(
-            f"A5 eval-label [{EVAL_NINTH_LABEL_FILE}]: the shipped label for the "
-            f"highest-:order tab (:{ninth['id']}) is {ninth_label!r} but the eval "
+            f"A5 eval-label [{EVAL_HIGHEST_LABEL_FILE}]: the shipped label for the "
+            f"highest-:order tab (:{highest['id']}) is {highest_label!r} but the eval "
             f"fixtures never name it — the answer-quality layer would pass a "
             f"stale label."
         )
@@ -467,8 +480,8 @@ def _run_self_test() -> int:
          files(**{"SKILL.md": f"Tabs: Epoch {_MIDDOT} Machine {_MIDDOT} Frames (mnemonics {mnem})."
                               .replace("Frames", "Frms")}),
          False),
-        # A5: evals never name the ninth label.
-        ("eval ninth label absent", rt, vp,
+        # A5: evals never name the highest-:order tab's label.
+        ("eval highest-order label absent", rt, vp,
          files(**{"evals/evals.json": f'"list Epoch {_MIDDOT} Machine {_MIDDOT} Modules (mnemonics {mnem})"'}),
          False),
         # R0: valid-panels omits a registered tab.
