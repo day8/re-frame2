@@ -889,9 +889,12 @@ unconditional `verify-readme-links` job — rf2-v7fui moved it there because its
 roster covers `skills/` and `docs.yml`'s classifier does not.
 
 `mkdocs build --strict` sees only the published corpus. `mkdocs.yml`'s
-`exclude_docs` block keeps `docs/design/freehand/` and `docs/design/hicasso/`
-out of the site, so a green build has inspected none of their pages — never
-cite it as the gate for a change confined to either. Two gates do cover them:
+`exclude_docs` block keeps the design trees out of the site, so a green build
+has inspected none of their pages — never cite it as the gate for a change
+confined to one. Read that block rather than any prose list before citing
+`mkdocs build` for a path: it is the authority on what the build cannot see, it
+covers more than the design trees, and it grows. Two gates do cover the design
+trees:
 `scripts/check_doc_slugs.py` validates link targets and heading anchors across
 the whole corpus, design trees included, and `scripts/check_provenance_pins.py`
 runs on changed pages under `docs/design/hicasso/`. Nothing checks their
