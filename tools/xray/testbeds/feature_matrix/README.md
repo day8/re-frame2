@@ -34,8 +34,9 @@ state, the last trace rows, load stats when applicable, and a screenshot path.
 ## Current slice
 
 After the 4-layer chrome refactor (`rf2-xy4yb`) the live L3/L4 tabs are
-Epoch / App-DB / Views / Trace / Machines / Routing / Resources /
-Derivation-Graph / Module-View. The dedicated Event-Detail, Time-Travel,
+whatever `panel-registry/tabs-for-mode :dynamic` holds — today, in
+`:order`: Epoch / app-db / Views / Trace / Machine / Routes / Resources /
+Graph / Frames / Hicasso. The dedicated Event-Detail, Time-Travel,
 Schema, Flows, and Performance panels were retired, so this gate exercises
 only the surviving tabs (chiefly Epoch / Trace / Routing / Machines) plus
 the 20-event/load re-check:

@@ -1,5 +1,5 @@
 (ns panel-gallery.gallery-trace
-  "Story coverage for the **Trace tab** of the 6-tab Xray chrome
+  "Story coverage for the **Trace tab** of the Xray 4-layer chrome
   (rf2-sszlr — gallery rebuild for spec/018-Event-Spine; epoch-scoped
   rewire rf2-ofoqu; FLAT-list refresh rf2-aqusw).
 

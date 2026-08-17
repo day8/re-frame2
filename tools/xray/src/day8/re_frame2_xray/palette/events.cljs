@@ -344,9 +344,12 @@
                                       (get db-with-recent :palette-recents)]))]
         (case verb
           :palette/select-panel
-          ;; Panel ids in `palette-panels` are the 6 L3 tab ids per
-          ;; spec/018 §5. Dispatch into `:rf.xray/select-tab` so the
-          ;; visible tab flips — the slot the 4-layer shell reads.
+          ;; Panel ids in `palette-panels` are not a frozen list at all:
+          ;; that fn maps `panel-registry/tabs-for-mode :dynamic` at
+          ;; sub-recompute time, so the ids are exactly whatever the L4
+          ;; tab registry currently holds for `:dynamic` (spec/018 §5).
+          ;; Dispatch into `:rf.xray/select-tab` so the visible tab
+          ;; flips — the slot the 4-layer shell reads.
           {:db close-db
            :fx (conj base-fx [:dispatch [:rf.xray/select-tab (first args)]])}
 

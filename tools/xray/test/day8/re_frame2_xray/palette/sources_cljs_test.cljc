@@ -15,8 +15,10 @@
 ;; ---- fixture inputs -----------------------------------------------------
 
 (def sample-panels
-  ;; rf2-qy0nu / rf2-nrbs9 / rf2-gbz39 — palette-panels mirrors the 6 L3 tab ids
-  ;; (Issues tab removed per Mike's Option (c) ruling). We use
+  ;; rf2-qy0nu / rf2-nrbs9 / rf2-gbz39 — in production `palette-panels`
+  ;; maps whatever the L4 tab registry holds for `:dynamic`, so it has no
+  ;; fixed size; these three rows are a DELIBERATE minimal fixture for the
+  ;; shape tests below, not a mirror of the shipped inventory. We use
   ;; `:event` first (so the panel-items-shape test pins the first row's
   ;; action) and include `:trace` for the cross-source collision tests.
   ;; A third entry rounds out the panel-items-shape `(count items) = 3`

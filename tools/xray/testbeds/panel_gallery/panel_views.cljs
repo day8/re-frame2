@@ -19,8 +19,10 @@
 
   ## The L4 tabs
 
-  Per spec/018-Event-Spine.md §5 the chrome surfaces six tabs whose
-  bodies are existing per-panel Panel views:
+  Per spec/018-Event-Spine.md §5 the chrome surfaces one tab per
+  registered Dynamic lens. This gallery wraps six of them, whose bodies
+  are existing per-panel Panel views (Resources · Graph · Frames ·
+  Hicasso ship but are deliberately not galleried here):
 
     - **Epoch**           → `epoch-panel/Panel` (rf2-sc3r1; supersedes
                             the retired Event/Handler panel — rf2-5gl5r)

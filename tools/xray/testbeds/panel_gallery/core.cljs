@@ -167,10 +167,12 @@
 (defn- landing-view []
   [:div {:class "gallery-landing"}
    [:h1 "Xray panel gallery"]
-   [:p "A visual gallery of the 6-tab Xray chrome (per "
+   [:p "A visual gallery of the 4-layer Xray chrome (per "
     [:code "tools/xray/spec/018-Event-Spine.md"]
-    ") and each of the six L4 tab panels — Epoch · App-db · Reactive ·
-    Trace · Machines · Routing. Issues is not a tab; it surfaces inline
+    ") and of six of its L4 tab panels — Epoch · App-db · Reactive ·
+    Trace · Machines · Routing. Resources · Graph · Frames · Hicasso
+    ship in the chrome but sit deliberately outside this gallery.
+    Issues is not a tab; it surfaces inline
     in the Epoch panel + the L2 event-row pink-wash + the ribbon signal
     (rf2-gbz39)."]
    [:p "The centrepiece is the "
