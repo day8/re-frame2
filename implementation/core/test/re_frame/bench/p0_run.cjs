@@ -1807,10 +1807,12 @@ function allocSiteWitness(siteLegs, prime = ALLOC_PRIME_WRITES) {
 // stride 2, where this gate adjudicates nothing: the class of comparison that
 // most wants a third gate is precisely the class that cannot use one. The
 // record says so per row — see `allocInstrumentNote` — rather than leaving a
-// reader to derive it, and rf2-fir5n carries the two ways out (price the extra
-// read off the idle control and correct stride-3 bytes back, which wants a
-// hermetic build and a ruling; or state the limitation on every page that takes
-// such a comparison) with neither taken here.
+// reader to derive it. The only other way out is rf2-e3p0r, HELD FOR A RULING:
+// price the extra read off the idle control (rf2-ojehu read it at 16 B per leg
+// and its stride pair met its own falsifiable claim) and correct stride-3 bytes
+// back to stride-2 ones, which would make a byte-for-byte witness screenable by
+// all three. That is an instrument change wanting a hermetic build, and it may
+// equally be judged not worth building; it is not taken here.
 //
 // WHAT IT DOES NOT CLOSE, stated because a gate that oversells itself is worse
 // than none. A reclamation bracketed inside ONE SITE — collected and
@@ -1992,7 +1994,7 @@ function allocWindowVerdict(steps, siteLegs = [], prime = ALLOC_PRIME_WRITES) {
 // can never be screened by all three. Saying so on the row is the honest half of
 // that; correcting stride-3 bytes back to stride-2 ones off the idle control's
 // per-leg price is the other half, and it is an instrument change wanting a
-// hermetic build and a ruling, not a quiet box.
+// hermetic build and a ruling, not a quiet box (rf2-e3p0r).
 //
 // THE BY-SITE BRANCH IS UNCHANGED TO THE BYTE, on `summariseAllocFits`'s rule:
 // the stride-3 text is the string this file has always emitted, lifted out whole
