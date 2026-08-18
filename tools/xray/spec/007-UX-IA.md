@@ -5,18 +5,18 @@
 Every Xray surface orients around **one focused event** — the spine
 sub `:rf.xray/focus`. The user picks an event in the L2 list; every
 dependent surface rebinds atomically. Tabs are **lenses on that one
-event**:
+event**, and each answers a different bug-class question about it —
+Epoch "what does this event do?", App-db "what changed because of
+it?", Views "why did these views re-render?", Trace "what raw ops
+fired in its cascade?". Ten Dynamic tabs ship. The complete roster —
+every tab with its mnemonic, its registry id and what it shows — is
+[`018-Event-Spine.md` §The 10 tabs](./018-Event-Spine.md#the-10-tabs),
+and the per-panel content designs are in
+[`021-Dynamic-Panel-Designs.md`](./021-Dynamic-Panel-Designs.md) (plus
+[`023-Trace-Panel.md`](./023-Trace-Panel.md) for the Trace redesign);
+this document keeps no tab roster of its own.
 
-| Tab | Bug-class it answers |
-|---|---|
-| **Epoch** (`e`) | "What does this event do?" — the handling pipeline (DISPATCH → COEFFECTS → EVENT HANDLER → FLOWS → DB CHANGES → AFTER INTERCEPTORS → FX; optional sections omitted when absent) + wire-boundary diff per managed fx. Supersedes the retired Event/Handler tab per rf2-5gl5r. (Per-panel content design: [`021-Dynamic-Panel-Designs.md`](./021-Dynamic-Panel-Designs.md) §2.) |
-| **app-db** (`a`) | "What changed because of this event?" — the complete app-db, sectioned by reserved `:rf/*` area, with inline diff annotations. (Per-panel content design: [`021-Dynamic-Panel-Designs.md`](./021-Dynamic-Panel-Designs.md) §4.) |
-| **Views** (`v`) | "Why did these views re-render?" — the left → right reactive-flow graph (app-db → subs → views) + hover-to-highlight on rendered DOM. (Per-panel content design: [`021-Dynamic-Panel-Designs.md`](./021-Dynamic-Panel-Designs.md) §3. Rendered tab label follows the Figma export `Views` (rf2-ad7zx); the spec's rf2-e33ad display label was `View`; key stays `:views`.) |
-| **Trace** (`t`) | "What raw events fired in this cascade?" — readable-line timeline, op-family colour bands, relative timing. (Per-panel content design: [`021-Dynamic-Panel-Designs.md`](./021-Dynamic-Panel-Designs.md) §5; dedicated redesign spec + Figma-handoff target: [`023-Trace-Panel.md`](./023-Trace-Panel.md).) |
-| **Machine** (`m`) | "What did this event do to my machines?" — transitions, cancellation cascade, `:after` rings. **Event-driven only post-rf2-y9xmf** (no picker, no Mode A/B/C; BLANK when the focused event has no machine activity; per-machine prev/next nav walks the spine). (Per-panel content design: [`021-Dynamic-Panel-Designs.md`](./021-Dynamic-Panel-Designs.md) §6.) |
-| **Routes** (`r`) | "What did this event do to my routes?" — current route + this-epoch navigation + the registered route table. (Per-panel content design: [`021-Dynamic-Panel-Designs.md`](./021-Dynamic-Panel-Designs.md) §7. Promoted to its own L3 tab per rf2-nrbs9.) |
-
-(The former **Issues** tab (`i`) was removed per rf2-gbz39 — Mike RULED Option (c), 2026-05-31. Errors · warnings · advisories now surface inline in the Epoch panel + the L2 event-row pink-wash + the always-on issues ribbon signal, rather than in a dedicated 7th tab.)
+(The former **Issues** tab (`i`) was removed per rf2-gbz39 — Mike RULED Option (c), 2026-05-31. Errors · warnings · advisories now surface inline in the Epoch panel + the L2 event-row pink-wash + the always-on issues ribbon signal, rather than in a dedicated tab of its own.)
 
 (rf2-4v67l — the Chrome A11y dogfood tab was removed. A11y
 dogfooding is properly Story's domain, where it already ships as
