@@ -965,11 +965,12 @@
             a whole-slice `(assoc db :editor (editor-slice …))` that threw the
             keystrokes away — the R-C1 harness case (fitness-harness.md §C.2),
             named MATERIAL by the rf2-y4mgw audit and uncovered by any suite
-            until now. The seed is LEAFWISE instead, the same law `FH-CTRL-013`
-            states for freehand forms: a TOUCHED field keeps its own draft AND
-            its own baseline, so the typing survives and stays dirty; every
-            untouched field takes the loaded article's value in both, so the
-            dirty-check still compares against what the server holds."
+            until now. The seed is LEAFWISE instead. The withdrawn
+            `re-frame.freehand` substrate stated that seed law for its forms
+            (`FH-CTRL-013`): a TOUCHED field keeps its own draft AND its own
+            baseline, so the typing survives and stays dirty; every untouched
+            field takes the loaded article's value in both, so the dirty-check
+            still compares against what the server holds."
     (with-new-frame [f (frame/make-anon-frame-record! {:url-bound? true
                                        :fx-overrides {:rf.nav/push-url :rf/no-op}})]
       (rf/dispatch-sync [:auth/store-session {:username "alice" :token "jwt"}] {:frame f})
