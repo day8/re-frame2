@@ -1214,19 +1214,21 @@ else
         ;;
       implementation/spec-resource/*)
         # day8/re-frame2-spec-resource is the ONE build-time reader for
-        # committed spec/ data — the Freehand conformance fixture loader
-        # and the api-manifest CLJS probe both expand through it, so a
-        # change here can break either macro's compile.
+        # committed spec/ data — the api-manifest CLJS probe expands
+        # through it, so a change here can break that macro's compile.
         #
         # implementation_jvm fires this artefact's own `:test` alias, which
         # is the deterministic control for the cold-load race the reader
-        # exists to close (jvm-spec-resource), plus jvm-freehand, whose
-        # `:test` alias carries the fixture loader. cljs_node_test fires
+        # exists to close (jvm-spec-resource). cljs_node_test fires
         # the consolidated `:node-test` build, where the reader is actually
         # exercised — that is the lane whose macro expansion reaches
-        # shadow-cljs's recording read, in parallel, from both consumers at
-        # once. cljs_browser for the same reason the freehand case gives:
-        # the `-dom-cljs-test$` suites inline fixtures too.
+        # shadow-cljs's recording read. cljs_browser stays on, but its
+        # stated reason has expired: it was the Freehand fixture suites,
+        # and they left with the rf2-0yp7w retirement together with the
+        # second consumer and the `jvm-freehand` lane this comment used to
+        # name. Narrowing the arm is a routing change, not a prose one —
+        # `implementation/scripts/_changed-surfaces.test.cjs` pins this
+        # arm's outputs and would have to move in the same commit.
         #
         # No production bundle requires any of this (build-time only), so
         # cljs_prod / bundle_isolation stay off.
