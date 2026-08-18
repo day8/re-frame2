@@ -5396,7 +5396,11 @@ under panel-specific filter / toolbar rows where applicable).
 
 Per-panel header icons (`◐` App-db · `⚠` Issues · `◆` Machines · `⬢`
 Trace · etc., spec §17.1.5) lived inside the deleted `<h1>` elements
-and are also removed. The accent-stripe-style helper (§17.1.3) is
+and are also removed — the glyph table at §17.1.5 is retired, and
+rf2-qm2rt deleted the `theme/tokens/panel-icon` map plus its
+`panel-icon-style` helper, which no `src` call site had ever read.
+The machine-inspector, Views and Routes suites assert their
+`…-panel-icon` testid renders nil. The accent-stripe-style helper (§17.1.3) is
 still applied to the outer panel container's left border for the
 domain colour stripe; the heading-based stripe is gone.
 
@@ -5579,21 +5583,19 @@ convention). Under HCM, the `@media (forced-colors: active)` block
 strips the color; the glyph alone carries the signal — colour is never
 alone (§007).
 
-**Per-panel header icons** (rendered to the LEFT of the panel `<h1>`,
-8px to the left of the accent stripe):
-
-| Panel | Icon (Unicode glyph) | Token |
-|---|---|---|
-| Event | ⚡ | `accent` (mode accent) |
-| Reactive | ◉ | `:cyan` |
-| App-db | ◐ | `:cyan` |
-| Trace | ⬢ | `:orange` |
-| Machines | ◆ | `:green` |
-| Routing | 🌐 | `:yellow` |
-| Issues | ⚠ | `:red` |
-
-(rf2-4v67l — the Chrome A11y `✦` glyph row was removed alongside
-the panel itself.)
+**Per-panel header icons — RETIRED, not shipped (§14.1 · rf2-6xezz ·
+rf2-qm2rt).** The glyphs (`⚡` Event · `◉` Reactive · `◐` App-db · `⬢`
+Trace · `◆` Machines · `🌐` Routing · `⚠` Issues · `✦` Chrome A11y)
+were rendered to the LEFT of the panel `<h1>`, and went out with those
+`<h1>` elements when §14.1 scrubbed them. Their per-panel colour tokens
+were independently superseded by the single-accent identity (§17.1.3 ·
+rf2-ad7zx.13), so the table encoded two dead contracts at once. The
+`theme/tokens/panel-icon` map and its `panel-icon-style` helper — both
+unread by `src` — were deleted under rf2-qm2rt. The machine-inspector,
+Views and Routes suites each assert their `…-panel-icon` testid renders
+nil, so the surface cannot return unnoticed. Should a header treatment
+ever return, derive its roster from `panel-registry/tab-ids-for-mode`
+rather than hand-listing one here.
 
 **Film-strip back/forward buttons** (rendered in every L4 panel header):
 
@@ -5920,10 +5922,13 @@ already drafted in §13.
   pressed · disabled at spine ends). Keyboard `← / →` global binding.
   Gates: panel-by-panel film-strip rollout.
 
-- **rf2-?????** — *Xray: per-L4 panel header icons.* Add the §17.1.5
-  Unicode header glyphs (⚡ ◉ ◐ ⬢ ◆ 🌐 ⚠ ✦) to the panel `<h1>` chrome
-  via a new `theme/tokens/panel-icon` map. Renders 8px to the left of
-  the accent stripe. Mechanical, single-file PR.
+- **DONE (retired · rf2-6xezz / rf2-qm2rt)** — *Xray: per-L4 panel
+  header icons.* Originally sketched as the §17.1.5 Unicode header
+  glyphs (⚡ ◉ ◐ ⬢ ◆ 🌐 ⚠ ✦) on the panel `<h1>` chrome via a
+  `theme/tokens/panel-icon` map. The map shipped; the glyphs never
+  reached a call site, and §14.1 (rf2-6xezz) then deleted the `<h1>`
+  elements they were to live in. The unread map and its
+  `panel-icon-style` helper were deleted under rf2-qm2rt.
 
 - **rf2-?????** — *Xray: L2 row activity badges + dispatch-origin
   prefix.* Already drafted in §13; the §17 visual pass binds the exact

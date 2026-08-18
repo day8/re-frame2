@@ -1081,8 +1081,10 @@ Figma export carries a **single accent identity** (App's active tab + every pane
 colour. Surfaces stay neutral so the blue accent pops.
 
 Domain colour still does load-bearing work **inside** each panel where it is semantic — `error`
-red in Issues, machine `green`, route `yellow`, the op-family colour-bands in Trace (§021 §5.2),
-the per-panel header icons (§021 §17.1.5) — but the **header stripe** is the single accent.
+red in Issues, machine `green`, route `yellow`, the op-family colour-bands in Trace (§021 §5.2) —
+but the **header stripe** is the single accent. (The per-panel header icons that once appeared in
+this list are retired: §021 §14.1 deleted the `<h1>` elements they lived in, and rf2-qm2rt deleted
+the unread `theme/tokens/panel-icon` map behind them.)
 
 The helper `theme/tokens/accent-stripe-style` emits the inline-style map (`:border-left "3px
 solid <accent>"` + `:padding-left "10px"`); per-panel call sites merge it into the `<h1>`

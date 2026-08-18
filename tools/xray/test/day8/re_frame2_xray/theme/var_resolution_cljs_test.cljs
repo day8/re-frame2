@@ -26,9 +26,9 @@
        too; reinforced here to keep the contract co-located.
 
     2. **Helpers route through the var-map** — `panel-accent`,
-       `accent-stripe-style`, `panel-icon-style`, `tier-colour`,
-       `severity-colour`, `op-type-colour`, `event-status-colour` —
-       every public colour helper returns a CSS-variable string.
+       `accent-stripe-style`, `tier-colour`, `severity-colour`,
+       `op-type-colour`, `event-status-colour` — every public colour
+       helper returns a CSS-variable string.
 
     3. **Rendered hiccup carries var() references** — render small
        view fragments and walk every `:style` map: no value is a
@@ -123,16 +123,6 @@
             (str tab " stripe references the canonical var() prefix"))
         (is (not (re-find #"#[0-9A-Fa-f]" border))
             (str tab " stripe has no hex literal in the border declaration"))))))
-
-(deftest panel-icon-style-colour-references-css-variable
-  (testing "rf2-on4cm — the panel-icon header glyph rides the same
-            domain colour as the accent stripe, resolved through the
-            var-map."
-    (doseq [tab (keys tokens/panel-icon)]
-      (let [colour (:color (tokens/panel-icon-style tab))]
-        (is (string? colour))
-        (is (re-find #"^var\(--rf-xray-" colour)
-            (str tab " icon colour resolves to a CSS variable"))))))
 
 (deftest tier-colour-returns-css-variable-string
   (testing "rf2-on4cm — `perf-tier/tier-colour` is read through tokens
@@ -327,14 +317,4 @@
           (when (string? v)
             (is (not (re-find palette-hex-pattern v))
                 (str tab " stripe style key " k " value "
-                     (pr-str v) " contains a palette hex literal"))))))))
-
-(deftest panel-icon-style-output-has-no-palette-hex-literal
-  (testing "rf2-on4cm — every panel's header-icon style map is hex-free."
-    (doseq [tab (keys tokens/panel-icon)]
-      (let [s (tokens/panel-icon-style tab)]
-        (doseq [[k v] s]
-          (when (string? v)
-            (is (not (re-find palette-hex-pattern v))
-                (str tab " icon style key " k " value "
                      (pr-str v) " contains a palette hex literal"))))))))
