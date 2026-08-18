@@ -103,11 +103,13 @@ for *what*.
 - **The v1→v2 corpus** (`migration/from-re-frame-v1/README.md`, the `M-N`/`O-N`
   rules) — that is the *other* migration, the required first step.
 - **`examples/**`** — worked examples are for authoring, not this migration.
-- **Freehand and `re-frame.ui`** — both retired. `spec/004-Views.md`,
-  `docs/api/re-frame.freehand.md` and `docs/core/freehand/` describe a
-  *different substrate*, and their verbs (`v/html`, `v/spread-safe`,
-  `v/defbehavior`, `{:compiled true}`) must never be carried across by analogy.
-  This is the single most likely way a future edit reintroduces a wrong spelling.
+- **Freehand and `re-frame.ui`** — both retired, and both trees were **removed**
+  on 2026-08-16 (rf2-0yp7w); their API pages and guide went with them, so there
+  is nothing left to read and nothing to consume. Residual prose still survives
+  in `spec/004-Views.md`, whose sweep is outstanding, and it describes a
+  *different substrate*: its verbs (`v/html`, `v/spread-safe`, `v/defbehavior`,
+  `{:compiled true}`) must never be carried across by analogy. This is the
+  single most likely way a future edit reintroduces a wrong spelling.
 
 ## 7. Update procedure
 
