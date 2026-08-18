@@ -12,23 +12,23 @@
   *is this region showing its fallback or its live subtree?* had no
   answer.
 
-  It has one now, and these rows pin the three properties that make it
-  worth having rather than noise.
+  It has one now, and these rows pin the properties that make it worth
+  having rather than noise.
 
-  ## The three claims
+  ## The claims
 
-  1. **It fires on a real crossing, exactly once.** A hydrated
-     `:client-only` host emits ONE `:info` trace when React swaps the
-     placeholder out — not one per re-render, and not one per SITE.
-  2. **It does not fire when nothing crossed.** A fresh `createRoot`
-     mount renders the foreign component on its very first pass, with no
-     placeholder to replace; `adopted?` answers `true` immediately there
-     because such a root consults no server snapshot at all. Reporting a
-     transition there would be reporting one that did not occur, which is
-     the failure mode that turns a trace into noise.
-  3. **The server emits nothing.** Server bytes are produced under the
-     server snapshot, where the gate renders its placeholder and stays
-     there.
+  1. **The server announces nothing.** Server bytes are produced under
+     the server snapshot, where the gate renders its placeholder and
+     stays there.
+  2. **A real crossing announces exactly once** — not once per render,
+     and not once per SITE.
+  3. **A first render that is already adopted announces nothing.** A
+     fresh `createRoot` mount renders the foreign component on its very
+     first pass, with no placeholder to replace, because such a root
+     consults no server snapshot at all. Reporting a transition there
+     would be reporting one that did not occur, which is the failure
+     mode that turns a trace into noise.
+  4. **End to end**, a genuinely hydrated page produces (2).
 
   ## Why each row mints its own declaration
 
@@ -42,12 +42,31 @@
   door `defhost` expands to — and gets a declaration nobody else has
   touched.
 
+  ## Why rows 2 and 3 stub `adopted?`, and what that costs
+
+  Adoption is React's own business: `adopted?` answers `false` from its
+  SERVER snapshot and `true` from its client one, and only a real client
+  renderer over a real document ever moves between them. Node has no
+  document, so a Node-only suite could asserts nothing but absences —
+  and an absence-only suite is exactly what let the first draft of this
+  mechanism ship broken. (It did: the crossing cell's transitions were
+  guarded with `identical?` on keyword literals, which is `false` in a
+  dev build, so the trace never fired at all while every no-trace row
+  stayed green. [[re-frame.hicasso.impl.codec/mint-adoption-crossing]]
+  carries the post-mortem.)
+
+  So rows 2 and 3 drive the REAL gate, the REAL crossing cell and the
+  REAL emit through `renderToString`, stubbing only `adopted?` — the one
+  input Node cannot supply. Row 4 then takes the whole thing unstubbed
+  through an actual `hydrateRoot` in the browser, so the stub is a Node
+  convenience rather than the only evidence.
+
   ## Lane
 
-  Row 3 needs no DOM and runs under `:node-test` as well as in the
-  browser. Rows 1 and 2 mount React against a real document, so they
-  take the `-dom-cljs-test` suffix and skip in Node, in the shape the
-  sibling `host-ssr-dom-cljs-test` established."
+  Rows 1–3 need no DOM and run under `:node-test` as well as in the
+  browser. Row 4 mounts React against a real document, so this file
+  takes the `-dom-cljs-test` suffix and that row skips in Node, in the
+  shape the sibling `host-ssr-dom-cljs-test` established."
   (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
             [re-frame.adapter.uix :as uix-adapter]
             [re-frame.core :as rf]
@@ -96,8 +115,8 @@
 (defn- mint!
   "A declaration nobody else has touched — the same door `defhost`
   expands to. `n` keeps the `displayName` legible in a failure."
-  [n opts]
-  (codec/mint-host! n chart opts))
+  [n]
+  (codec/mint-host! n chart {:fallback [:div.chart-skeleton "loading"]}))
 
 ;; ---------------------------------------------------------------------------
 ;; Watching the instrumentation channel
@@ -115,22 +134,31 @@
                     (swap! seen conj ev))))
     {:seen seen :stop (fn [] (trace/unregister-listener! lk))}))
 
-(defn- server-html [hiccup]
+(defn- render-html [hiccup]
   (react-dom-server/renderToString
     (mount/provider frame-id (codec/root-element frame-id hiccup))))
+
+(defn- render-as
+  "One render of `hiccup` with React's adoption answer FORCED — the whole
+  stub, and the reason it is legitimate: `adopted?` is React's signal,
+  not Hicasso's state. Everything downstream of it here — the gate
+  closure, the crossing cell, the emit — is the shipping code."
+  [adopted? hiccup]
+  (with-redefs [codec/adopted? (fn [] adopted?)]
+    (render-html hiccup)))
 
 (defn- q [root sel] (.querySelector root sel))
 
 ;; ---------------------------------------------------------------------------
-;; 1 — the server emits nothing (this row runs under :node-test too)
+;; 1 — the server announces nothing
 ;; ---------------------------------------------------------------------------
 
 (deftest a-server-render-announces-no-adoption
   (fresh!)
-  (let [host   (mint! "server-silent-chart" {:fallback [:div.chart-skeleton "loading"]})
+  (let [host (mint! "server-silent-chart")
         {:keys [seen stop]} (watch-adoptions!)]
     (try
-      (let [html (server-html [:div [host {:label "revenue"}]])]
+      (let [html (render-html [:div [host {:label "revenue"}]])]
         (testing "the server rendered the placeholder rather than the component
                   — the row's own restatement of the policy, so a gate that
                   stopped gating is red HERE and not only in the trace claim"
@@ -145,69 +173,99 @@
         (collector/reset-runtime!)))))
 
 ;; ---------------------------------------------------------------------------
-;; 2 — a fresh mount crossed nothing, and says nothing
+;; 2 — a crossing announces ONCE, and carries the facts a tool reads
 ;; ---------------------------------------------------------------------------
 
-(deftest a-fresh-mount-announces-no-adoption
-  (async done
-    (if-not (mount/browser?)
-      (do (skip! ":node-test has no DOM") (done))
-      (do
-        (fresh!)
-        (let [host      (mint! "fresh-mount-chart" {:fallback [:div.chart-skeleton "loading"]})
-              container (mount/fresh-container!)
-              {:keys [seen stop]} (watch-adoptions!)
-              hiccup    [:div [host {:label "revenue"}]]
-              root      (react-dom-client/createRoot container)]
-          (.render root (mount/provider frame-id (codec/root-element frame-id hiccup)))
-          (js/setTimeout
-            (fn []
-              (try
-                (testing "the component is mounted and the placeholder never
-                          flashed — `adopted?` answers true on the very first
-                          pass of a root that consults no server snapshot"
-                  (is (some? (q container ".chart")))
-                  (is (nil? (q container ".chart-skeleton"))))
-                (testing "and precisely because the placeholder never rendered,
-                          there was no transition to report. This is the row
-                          that keeps the trace meaningful: a mechanism that
-                          announced on every mount would be announcing the
-                          absence of the thing it names"
-                  (is (empty? @seen) (pr-str @seen)))
-                (finally
-                  (stop)
-                  (.unmount root)
-                  (when-some [p (.-parentNode container)] (.removeChild p container))
-                  (collector/reset-runtime!)
-                  (done))))
-            150))))))
-
-;; ---------------------------------------------------------------------------
-;; 3 — a hydrated crossing announces ONCE, whatever the site count
-;; ---------------------------------------------------------------------------
-
-(deftest a-hydrated-crossing-announces-once-per-declaration
-  (async done
-    (if-not (mount/browser?)
-      (do (skip! ":node-test has no DOM") (done))
-      (do
-        (fresh!)
-        (let [host      (mint! "hydrated-chart" {:fallback [:div.chart-skeleton "loading"]})
+(deftest a-crossing-announces-exactly-once
+  (fresh!)
+  (let [host (mint! "crossing-chart")
+        page [:div
               ;; TWO sites of ONE declaration. The grain claim is not
               ;; decoration: the retired predecessor was root-scoped
               ;; because the substrate that emitted it was, and hicasso's
               ;; is per-declaration. A per-SITE implementation passes
-              ;; every other assertion here and fails this one.
-              hiccup    [:div
-                         [host {:label "revenue"}]
-                         [host {:label "costs"}]]
-              html      (server-html hiccup)
+              ;; every other assertion in this file and fails this one.
+              [host {:label "revenue"}]
+              [host {:label "costs"}]]
+        {:keys [seen stop]} (watch-adoptions!)]
+    (try
+      (let [before (render-as false page)]
+        (testing "the unadopted pass shows the placeholder and says nothing"
+          (is (re-find #"chart-skeleton" before) before)
+          (is (empty? @seen) (pr-str @seen))))
+      (let [after (render-as true page)]
+        (testing "the adopted pass swaps in the foreign component"
+          (is (re-find #"class=\"chart\"" after) after)
+          (is (not (re-find #"chart-skeleton" after)) after))
+        (testing "and announces the crossing EXACTLY ONCE — one declaration,
+                  one gate, one event, however many sites used it"
+          (is (= 1 (count @seen)) (pr-str @seen))))
+      (testing "the event carries what a tool needs to place it: `:info`,
+                because nothing is wrong — this is `:client-only` reporting
+                that it completed — plus the declaration that crossed and
+                the door that observed it"
+        (when (= 1 (count @seen))
+          (let [ev (first @seen)]
+            (is (= :info (:op-type ev)))
+            (is (= :rf.ssr/host-adopted (:operation ev)))
+            (is (= "crossing-chart" (get-in ev [:tags :host])))
+            (is (= 're-frame.hicasso.impl.codec/mint-host-gate!
+                   (get-in ev [:tags :where]))))))
+      (testing "and every later adopted render is silent — React re-renders a
+                gate freely, and a Strict-Mode double render is two passes of
+                the same one; an announce per pass would be a stream rather
+                than an event"
+        (render-as true page)
+        (render-as true page)
+        (is (= 1 (count @seen)) (pr-str @seen)))
+      (finally
+        (stop)
+        (collector/reset-runtime!)))))
+
+;; ---------------------------------------------------------------------------
+;; 3 — nothing crossed, so nothing is announced
+;; ---------------------------------------------------------------------------
+
+(deftest an-already-adopted-first-render-announces-nothing
+  (fresh!)
+  (let [host (mint! "fresh-mount-chart")
+        page [:div [host {:label "revenue"}]]
+        {:keys [seen stop]} (watch-adoptions!)]
+    (try
+      (let [html (render-as true page)]
+        (testing "this is the fresh-mount shape: `adopted?` answers true on the
+                  very first pass of a root that consults no server snapshot,
+                  so the component renders and the placeholder never flashes"
+          (is (re-find #"class=\"chart\"" html) html)
+          (is (not (re-find #"chart-skeleton" html)) html)))
+      (testing "and precisely because the placeholder never rendered, there was
+                no transition to report. This is the row that keeps the trace
+                meaningful: a mechanism that announced on every mount would be
+                announcing the absence of the thing it names"
+        (is (empty? @seen) (pr-str @seen)))
+      (finally
+        (stop)
+        (collector/reset-runtime!)))))
+
+;; ---------------------------------------------------------------------------
+;; 4 — the same claim, unstubbed, through a real hydration
+;; ---------------------------------------------------------------------------
+
+(deftest a-hydrated-crossing-announces-once
+  (async done
+    (if-not (mount/browser?)
+      (do (skip! ":node-test has no DOM") (done))
+      (do
+        (fresh!)
+        (let [host      (mint! "hydrated-chart")
+              page      [:div [host {:label "revenue"}] [host {:label "costs"}]]
+              html      (render-html page)
               container (mount/fresh-container!)
               {:keys [seen stop]} (watch-adoptions!)]
           (set! (.-innerHTML container) html)
           (let [root (react-dom-client/hydrateRoot
                        container
-                       (mount/provider frame-id (codec/root-element frame-id hiccup)))]
+                       (mount/provider frame-id (codec/root-element frame-id page)))]
             (js/setTimeout
               (fn []
                 (try
@@ -215,26 +273,12 @@
                             both sites, and the live component at neither"
                     (is (re-find #"chart-skeleton" html) html)
                     (is (not (re-find #"class=\"chart\"" html)) html))
-                  (testing "React's post-hydration pass swapped both"
+                  (testing "React's own post-hydration pass swapped both"
                     (is (some? (q container ".chart")))
                     (is (nil? (q container ".chart-skeleton"))))
-                  (testing "and the crossing was announced EXACTLY ONCE — one
-                            declaration, one gate, one event, however many
-                            sites used it and however many times React
-                            re-rendered them"
+                  (testing "and the real crossing announced once, with no stub
+                            anywhere in the path"
                     (is (= 1 (count @seen)) (pr-str @seen)))
-                  (when (= 1 (count @seen))
-                    (let [ev (first @seen)]
-                      (testing "as an `:info`, because nothing is wrong: this is
-                                `:client-only` reporting that it completed"
-                        (is (= :info (:op-type ev)))
-                        (is (= :rf.ssr/host-adopted (:operation ev))))
-                      (testing "naming the declaration that crossed and the door
-                                that observed it, so a page with several hosts
-                                is legible rather than merely noisy"
-                        (is (= "hydrated-chart" (get-in ev [:tags :host])))
-                        (is (= 're-frame.hicasso.impl.codec/mint-host-gate!
-                               (get-in ev [:tags :where]))))))
                   (finally
                     (stop)
                     (.unmount root)
