@@ -69,10 +69,10 @@ checked against. **React 18 is not supported**: nothing tests Hicasso there, and
 the Activity half of the contract has nothing to run on. A bare
 `npm install react react-dom` resolves to whatever is current that day, which is
 the other half of why the pin is written out. **And keep `shadow-cljs` in
-`devDependencies`**
-even though the JVM dependency above is what compiles: the npm package is where
-the `process` shim React's CommonJS build asks for comes from, and without it
-the build stops at `The required JS dependency "process" is not available`.
+`devDependencies`** even though the JVM dependency above is what compiles: the
+npm package is where the `process` shim React's CommonJS build asks for comes
+from, and without it the build stops at
+`The required JS dependency "process" is not available`.
 
 Hicasso interprets Hiccup at runtime, so it needs no compiler hook, macro
 allow-list, or build flag. A normal shadow-cljs browser build is enough:
