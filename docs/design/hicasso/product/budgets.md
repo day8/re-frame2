@@ -378,6 +378,12 @@ through by `rf2-fe0l`. **S6 and S7 are still carried unchanged** from
 [the evidence baseline](lanes/evidence-baseline.md#pinned-economic-evidence)
 and are **not** package figures: no package-resident clock instrument exists,
 and the allocation row has no publishable claim to re-pin.
+**[Amended 2026-08-18, `rf2-xa8wo`.]** The first of those two reasons has
+expired — one **does** exist, and it is `S8`'s own arm; see
+[the subsection below](#the-package-resident-clock-instrument-and-what-it-is-still-missing).
+Neither row moves: that arm is not `S6`'s cold-mount estimator nor `S7`'s
+allocation instrument, and neither has been re-taken. `S6` and `S7` stay
+**carried**, exactly as stated.
 
 | # | Estimand | Pinned figure | Instrument | Status |
 |---|---|---|---|---|
@@ -441,6 +447,15 @@ excludes 1.0, so it is a real effect rather than a null. Read against
   threshold nothing was measured against cannot be met or missed. Assessing
   this disjunct needs an instrument that reports a `p95`, and building one is a
   rig change with its own window rather than a reading of this one.
+  **[Amended 2026-08-18, `rf2-xa8wo`.]** That rig change has been made —
+  `lane/summarise` now carries `:p95` and `:p99`
+  ([below](#the-package-resident-clock-instrument-and-what-it-is-still-missing))
+  — and the disjunct is **still `UNASSESSED` at this witness**, for a reason
+  that is now about the reading rather than the rig. Run 1 retained only
+  `n`/`min`/`max`/`p50` per arm, as this section records further down, so no
+  `p95` can be recovered from it after the fact. Assessing the disjunct is
+  therefore a **new run** on the rebuilt instrument, and that run is not this
+  bead's and has not been taken.
 - **converting a failed user-visible budget** — NOT ASSESSABLE. U1–U4 are
   `UNPINNED` on the package, so there is no failed budget available to convert.
 
@@ -678,6 +693,54 @@ rather than toward it, which is the direction that most deserves a decider.
 Until that ruling, the row above stands as published, on run 1's own basis, and
 this window is the record beside it.
 
+### The package-resident clock instrument, and what it is still missing
+
+**[Amended 2026-08-18, `rf2-xa8wo`. No row moves, no reading was taken, and
+nothing here is a figure.]** This section and
+[§9.2](#92-what-each-not-green-row-is-waiting-on) both say in terms that *no
+package-resident clock instrument exists*, and that sentence was true when it
+was written and is not true now. It is corrected here once. The other places in
+those two sections that state it — or that state the `p95` clause standing
+beside it — point here rather than restating it, on §3's own rule that a second
+source for one number is a second thing to drift.
+
+**Two clock drivers have landed, and one of them is pointed at the package.**
+`re-frame.bench.hicasso.direct-return-clock-app` requires `re-frame.hicasso`
+itself, and it is the arm behind `S8` above — a row this page already calls a
+**package figure**, which is the same statement from the other side. The other,
+`re-frame.bench.hicasso.topo.clock-app` (`rf2-w01c`, window taken 2026-08-18),
+requires `re-frame.bench.hicasso.arm1.runtime` and is a **bench-tree**
+instrument. The axis is what each driver is *pointed at* and never where its
+own code ships — the test §9.4 spells out, and the one this section's
+*package figure* / *bench-tree figure* column already sorts readings on.
+
+**The estimator has landed too.** `re-frame.bench.hicasso.lane/summarise`
+answered `{:n :min :max :p50}` and computed no tail quantile anywhere on the
+lane, which is why `U1`–`U4` — every one of them registered at a `p95` or a
+`p99` — could not be pinned even by a driver aimed correctly. It now carries
+`:p95` and `:p99`, from a `lane/quantile` that interpolates linearly between
+the order statistics either side of `h = (n-1)q`: the definition
+`clock_readjudicate.cjs` already spells out, and the one the lane's `:p50` was
+already computed under, so a row printing a `p50` beside a `p95` prints one
+method. Both drivers above call `summarise`, so both have it.
+
+**What is still missing is the POPULATION, and it governs.** `U1`–`U4` are
+stated over a slice application's own interactions — this section's estimand
+column reads *latency to visible echo*, *latency to next paint*, *operation
+latency* and *per-frame latency*, and
+[§9.3](#93-where-this-ledger-stops-and-rf2-hic-071-begins) says *slice-app
+user-visible gates* — while every window either driver can drive is a commit
+bracketed by `flushSync` on a synthetic bench page, which is a **mount and not
+a paint**. A `p95` taken over that window would be a `p95` of a mount published
+against a line written about a paint, and that is worse than no `p95` at all
+because it is quotable. So the correct statement of what these six rows need is
+no longer *a clock instrument pointed at `implementation/hicasso`* — they have
+one — but **a driver whose window is one discrete interaction through to the
+paint that follows it, on a witness application, taken in its own quiet
+window**. `U1`–`U4` and `C3`/`C4` stay `UNPINNED`, and
+[§9.4](#94-what-rf2-hic-071-has-taken-so-far-and-what-it-still-cannot-take)
+carries the full record of both gaps and which of them closed.
+
 ### The §6 user-visible budgets
 
 Transcribed with their estimands. All are P-DEV-1-only and all inherit §1's
@@ -694,6 +757,13 @@ single-profile limitation.
 
 U5 and the deterministic half of U6 are pinned on the package today. U1–U4 are
 not, and cannot be until a package-resident clock instrument exists.
+**[Amended 2026-08-18, `rf2-xa8wo`.]** One exists, and `U1`–`U4` are still not
+pinned: what blocks them is the **population** rather than the instrument's
+aim, because both landed drivers mount a synthetic bench page inside one
+`flushSync` window and the four estimands above are all stated over a paint in
+a slice application.
+[The subsection above](#the-package-resident-clock-instrument-and-what-it-is-still-missing)
+states the corrected condition.
 
 **`U5`'s estimand carries two counters as of 2026-08-14 (`rf2-mwr2`), and its
 line is unchanged.** Registered on bodies alone it read `PASS` on a coarse
@@ -1456,6 +1526,20 @@ or `C5` changes with it.
   §9.3's *one-frame keystroke echo* deliverable is therefore still
   `rf2-hic-071`'s, and its scope is unchanged. **[Repointed 2026-08-15, `rf2-b3oni`:
   `rf2-85og2`'s. The scope is still unchanged — only the custody moved.]**
+  **[Amended 2026-08-18, `rf2-xa8wo`. All six rows keep the status they had.]**
+  This bullet's heading sentence has expired and its conclusion has moved. A
+  package-resident clock instrument **does** now exist —
+  `re-frame.bench.hicasso.direct-return-clock-app`, which requires
+  `re-frame.hicasso` itself and is `S8`'s arm — and the lane's `summarise` now
+  computes the `:p95` and `:p99` these rows are registered at, which it did not
+  when the bullet was written. So *each needs a clock instrument pointed at
+  `implementation/hicasso`* is no longer the condition. What the six need is a
+  driver whose window is **one discrete interaction through to the paint that
+  follows it, in a slice application**, because both landed drivers mount a
+  synthetic bench page inside one `flushSync` window — a mount, not a paint —
+  and a `p95` over the wrong population is worse than none, being quotable.
+  [§4 states the corrected condition in full](#the-package-resident-clock-instrument-and-what-it-is-still-missing);
+  the run itself is still a quiet window rather than an edit.
 - **The 5% rule has no same-instrument anchor.** `C1` compares a reading
   against the pinned ordinary-Hicasso benchmark, and §6 records that the
   registered instrument's eleven pinned blobs are superseded rather than
@@ -1528,6 +1612,12 @@ or `C5` changes with it.
   witness** rather than missed: the instrument computes no `p95`, so the
   per-boundary rate and the break-even boundary count first published beside
   this row are **withdrawn** — one 200-boundary witness fixes no scaling law.
+  **[Amended 2026-08-18, `rf2-xa8wo`. `S8` does not move and the disjunct stays
+  `UNASSESSED`.]** The instrument computes a `p95` as of this date, so the
+  clause naming its absence is history; the disjunct stays `UNASSESSED` because
+  the run that produced this row retained only `n`/`min`/`max`/`p50` per arm and
+  a `p95` cannot be recovered from it afterwards. What changed is that assessing
+  it is now a **re-run** rather than a rig build.
   **Narrowing the range is a measurement and widening the line is forbidden**,
   and the re-run is not scheduled: under the site-level reading below nothing
   turns on whether the corpus-wide recovery is 18% or 26%. Buy one only when a
@@ -1586,7 +1676,14 @@ or `C5` changes with it.
   forbids converting a distributional row into a pull-request threshold in any
   case. All three are `rf2-hic-071`'s, which names these beads as the ones it
   extends over — the same statement from the other side. **[Repointed 2026-08-15,
-  `rf2-b3oni`: `rf2-85og2`'s.]**
+  `rf2-b3oni`: `rf2-85og2`'s.]** **[Amended 2026-08-18, `rf2-xa8wo`: `C7` stays
+  `UNPINNED`.]** The first of those three reasons has expired — a
+  package-resident clock instrument
+  [now exists](#the-package-resident-clock-instrument-and-what-it-is-still-missing)
+  — and the other two are untouched, so the row does not move. `C7`'s clock half
+  wants a render duration on a mounted application, which is the same
+  interaction-through-to-paint window `U1`–`U4` are waiting on and which no
+  landed driver takes.
 - **`C5` and `C6` are rules whose readings have been dispositioned, and the
   rules have not.** `C5` is the shell rule; its evidence is `S1` and `S2`,
   carried red by the substrate decision's §5.2. `C6` is the per-read rule; its
