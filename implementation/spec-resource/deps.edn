@@ -1,14 +1,13 @@
 ;; day8/re-frame2-spec-resource — the build-time reader for committed
 ;; spec-side data.
 ;;
-;; Several macros inline a committed file from `spec/` at
-;; macro-expansion time (the Freehand conformance fixtures; the
-;; api-manifest sidecar). Inlining by itself HIDES that file from the
-;; ClojureScript build, so the read has to go through shadow-cljs's
-;; recording reader — and resolving that reader is a concurrency
-;; problem, not a one-liner (see the namespace docstring). This artefact
-;; is the ONE place that solves it, so two consumers cannot solve it two
-;; ways and race each other.
+;; One macro inlines a committed file from `spec/` at macro-expansion
+;; time (the api-manifest sidecar). Inlining by itself HIDES that file
+;; from the ClojureScript build, so the read has to go through
+;; shadow-cljs's recording reader — and resolving that reader is a
+;; concurrency problem, not a one-liner (see the namespace docstring).
+;; This artefact is the ONE place that solves it, so two consumers
+;; cannot solve it two ways and race each other.
 ;;
 ;; Not a published artefact and not a runtime dependency of anything: it
 ;; is build/test-time only, and it declares no dependency on shadow-cljs
