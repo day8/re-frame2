@@ -394,7 +394,7 @@ allocation instrument, and neither has been re-taken. `S6` and `S7` stay
 | S5 | Teardown, retained **bytes** | indistinguishable from zero — all ten candidate rungs' bands straddle 0 | as S1 | **package figure** |
 | S6 | Cold mount vs direct UIx-on-subs | `1.1718x` [1.1263–1.2190] n=8; `1.1976x` [1.1504–1.2468] n=6 | final K1 estimator | **bench-tree figure** — registered `1.10x` gate missed; `1.25x` is the *accepted price* for that miss (ratified 2026-08-13), never a line this row is judged on |
 | S7 | Warm allocation | no publishable claim | allocation instrument | **bench-tree** — no fitted series clears the quality floor |
-| S8 | Direct-return escape (Rung 3): mount time against the same page written as hiccup | `0.7418x`, per-round escapes [0.6458–0.8409] over run 1's five rounds — **25.8% of mount time recovered** [15.9–35.4%]. Run 2 is excluded: its positive control missed an every-round reading of its band | P0 lane direct-return clock arm | **package figure** — an observed range, not a confidence interval; it excludes 1.0 and it CROSSES C8's 20% line |
+| S8 | Direct-return escape (Rung 3): mount time against the same page written as hiccup | `0.8081x`, per-round escapes [0.6863–0.9302] over the fifteen rounds of runs A, B and C — **19.2% of mount time recovered** [7.0–31.4%]. **The figure MOVED on 2026-08-18 (`rf2-6zc2q`), and the move is a CHANGE OF BASIS rather than a correction**: the row read `0.7418x` [0.6458–0.8409] / 25.8% [15.9–35.4%] taken at `{:warmup 3 :samples 6}`, and this is the re-tuned `{:warmup 8 :samples 12}`. That old basis is RETIRED, so `0.7418x` can never be re-taken. What the new figure rests on, and the confound it does not resolve, are in the `S8` note below | P0 lane direct-return clock arm | **package figure** — an observed range, not a confidence interval; it excludes 1.0 and it CROSSES C8's 20% line |
 
 The run's evidence, its controls and its full provenance are
 [on the ladder's studio page](../studio/reads-per-boundary-heap-ladder.md#the-package-itself-priced-on-this-rung-at-last-rf2-fe0l);
@@ -429,18 +429,57 @@ does not clear it. The registered `1.10x` line is still the only adjudicated
 one, S6 stays `BREACH` against it, and **no evidence row may use the accepted
 ceiling to mark K1 green.**
 
+**The `S8` note: the figure moved on 2026-08-18, and the move is a CHANGE OF
+BASIS (`rf2-6zc2q`).** The row published `0.7418x` `[0.6458–0.8409]` — `25.8%`
+recovered — from run 1 of 2026-08-13, taken at `{:warmup 3 :samples 6}`. It now
+publishes `0.8081x` `[0.6863–0.9302]` — `19.2%` recovered `[7.0–31.4%]` — pooled
+over the fifteen per-round ratios of the 2026-08-16 runs A, B and C, taken at
+the re-tuned `{:warmup 8 :samples 12}`. **Those are two different measurement
+conditions and not one correcting the other**, which is exactly why the old
+figure goes: run 1 refused nothing only because the strict rule did not yet
+exist to refuse it, it carries neither a strict per-round control verdict nor a
+reportable arm-order guard, and **it can never be given the first**, because its
+per-round ratios were never kept and the rig it was taken on no longer exists.
+A figure the current instrument cannot reproduce does not become the better
+figure by being older. The remedy for a change of basis is disclosure, which is
+this note.
+
+**What the new figure rests on.** Three sequential runs on P-DEV-1, their count
+fixed at three **before the first started**, so no stopping rule could end the
+series on a good answer; all three recorded whatever each returned. The
+arm-order guard returned `reportable` on both factors and all four arms in all
+three runs. The strict control read `:ok? true` in each, with all fifteen rounds
+inside `[1.500–2.500]` — **`S8` carries a strict per-round control verdict for
+the first time**. The fairness gate agreed at `601` elements two ways and was
+proven able to answer false three times over, `0` of `1,500` measured mounts
+failed their own read-back, and `run.cjs` exited `0` on all three. The full
+window — its phase strata, its per-round values and what it does not conclude —
+is recorded further down this section.
+
+**And the confound this does NOT resolve, which is what makes it a good result
+rather than a clean one.** The re-tune moved **two** knobs: samples per round
+went `6` to `12` as well as warmup `3` to `8`, so each phase third now holds
+different content and no window separates the two. The phase effect is
+**REDUCED, NOT REMOVED** — `:ctl-2x` reads `1.1467x`, `1.1625x` and `1.1711x`,
+above the guard's `10%` tolerance in all three runs, passing only because its
+two ranges overlap. **The warm-up hypothesis is SUPPORTED, NOT CONFIRMED**, and
+nothing in this row may be read as confirming it.
+
 **S8 prices the Rung 3 escape, and the answer is that it is real and that it
 does not by itself clear C8.** The witness is `direct_return_cljs_test`'s pair —
 one page written twice, same props, same two ambient reads, same data — at 200
 boundaries, mounted inside one `flushSync` window. The escape recovers
-`25.8%` of the mount, per-round escapes running `[15.9–35.4%]`, and that range
+`19.2%` of the mount, per-round escapes running `[7.0–31.4%]`, and that range
 excludes 1.0, so it is a real effect rather than a null. Read against
 [C8](#the-comparative-and-regression-rules) it decides nothing on its own:
 
-- **`≥ 20% recovered`** — the point estimate clears the line and **the range
-  crosses it**. Under the rule the operator adopted with §5's freeze, an
-  interval that crosses a line is UNRESOLVED and not a pass. So is this one,
-  and §9's gate is what holds it there.
+- **`≥ 20% recovered`** — the point estimate now sits just **below** the line at
+  `19.2%`, where the retired basis put it just above at `25.8%`, and **the range
+  crosses it** either way. Under the rule the operator adopted with §5's freeze,
+  an interval that crosses a line is UNRESOLVED and not a pass — and, for the
+  same reason, an interval that crosses a line is not a *fail* either. So this
+  is `UNRESOLVED` on both bases, the change of basis moves no status, and §9's
+  gate is what holds it there.
 - **`≥ 2 ms p95`** — **UNASSESSED at this witness.** The instrument records six
   samples per round, reduces each round to a `p50`, and publishes the min and
   max across those round medians. **It never computes a `p95` at all**, and a
@@ -464,7 +503,7 @@ acting on.** C8 is a rule about *an escape at a site* — an island missing its
 threshold is simplified or removed — so one witness at one size cannot pass or
 fail it corpus-wide, and S8 does not try to. What S8 gives is the price an
 author measures their own site against: at this size the escape is worth about
-a quarter of the mount, and the author has to decide whether a quarter of
+a fifth of the mount, and the author has to decide whether a fifth of
 *their* mount is a number their users can feel. **No per-boundary rate and no
 break-even boundary count are published, and one witness is why.** A single
 200-boundary reading fixes no scaling law — dividing it out would assume the
@@ -475,14 +514,21 @@ recorded: it leaves the L2 assertion tier, and it gives up controlled-input
 repair and intent lowering inside the returned element (§3's D10–D13 note, and
 the pair's own source).
 
-**S8 is one witness, one run, and the estimand is narrower than a band.** What
-the row publishes is the **min and max across five per-round readings — each of
-them a ratio between that round's floor-normalised `p50`s, and each `p50` the
-median of six samples. That is an observed range, not a confidence interval**,
-and nothing on this page may read it as one. Two runs
-were taken back to back on the same binary with nothing changed
-between them, reading `0.7418x` `[0.6458–0.8409]` and `0.7982x`
-`[0.6909–0.8421]`. **Only run 1 is published.** Run 2's positive control
+**S8 is one witness, and the estimand is narrower than a band.** What the row
+publishes is the **min and max across per-round readings — each of them a ratio
+between that round's floor-normalised `p50`s. That is an observed range, not a
+confidence interval**, and nothing on this page may read it as one. On the
+current basis those are the fifteen rounds of runs A, B and C, each `p50` the
+median of twelve samples; on the retired basis they were run 1's five rounds,
+each `p50` the median of six.
+
+**The 2026-08-13 pair, kept as the record it now is rather than as the published
+figure.** Two runs were taken back to back on the same binary with nothing
+changed between them, reading `0.7418x` `[0.6458–0.8409]` and `0.7982x`
+`[0.6909–0.8421]`. **Run 1 alone was published, and as of 2026-08-18 it is no
+longer what the row carries** — the change of basis set out in this section's
+`S8` note replaced it, and every figure in this paragraph is history from here
+down. Run 2's positive control
 predicted `4.000` with a ±25% band of `[3.000–5.000]` and its rounds reach
 `5.150`, so it refuses under the strict every-round-inside rule —
 `lane/control-verdict`'s own docstring names its overlap `:ok?` rule the lane's
@@ -511,7 +557,10 @@ claimed here for either.** Only `n`/`min`/`max`/`p50` across rounds was
 retained per arm, so the per-round `:ctl-2x`/`:hiccup` ratios are gone; the
 containment statement above stands only as stated, against the aggregate
 denominator, and run 2's exclusion rests on the same aggregate — it is the
-conservative direction, and the published figure is run 1 alone either way.
+conservative direction, and on this basis the published figure was run 1 alone
+either way. **That neither run can ever be given a strict verdict is what later
+decided the ruling**: the figure they carried could not be validated by any
+future work, which is why the row now publishes the re-tuned window's instead.
 The instrument now records `:per-round` for the control alongside the escape,
 so the **next** run's verdict is readable from what it keeps.
 
@@ -530,16 +579,17 @@ with **disjoint** ranges — and a figure whose value depends on where in the pl
 it was measured is not a figure. `run.cjs` exited `2` and the guard's own
 verdict line is that no figure from the run may be published as measured.
 
-**`0.7418x` does not come off the page, and S8 still carries no strict
-verdict.** Those are two findings and not one. The rule `rf2-zcgps` was given
-is that the published escape falls if the STRICT CONTROL refuses, and it did
-not: computed on this run's samples it read `:ok? true`, all five rounds inside
-`[1.500–2.500]`. But the arm the guard refused is `:hiccup`, and `:hiccup` is
-the denominator the control and the escape are each divided by — so the
-refusal lands under the verdict rather than beside it. That verdict is
-recorded below as data, never quoted as a verdict, and **the absence this
-section records stands unchanged.** The published figure is still
-run 1's, on run 1's own basis, and no window has yet re-adjudicated it.
+**`0.7418x` did not come off the page on THIS run, and S8 still carried no
+strict verdict after it.** Those were two findings and not one. The rule
+`rf2-zcgps` was given is that the published escape falls if the STRICT CONTROL
+refuses, and it did not: computed on this run's samples it read `:ok? true`, all
+five rounds inside `[1.500–2.500]`. But the arm the guard refused is `:hiccup`,
+and `:hiccup` is the denominator the control and the escape are each divided
+by — so the refusal lands under the verdict rather than beside it. That verdict
+is recorded below as data, never quoted as a verdict, and **the absence this
+paragraph records was not closed by this run.** It was closed by the fresh
+window recorded after it, and `0.7418x` came off the page on 2026-08-18 on
+those three reportable runs — never on this refused one.
 
 **The refused run's per-round values, so it can be re-adjudicated without being
 re-run.** This is the durability the two published runs lack, and it is kept
@@ -681,17 +731,34 @@ below and one above — and the pooled range straddles it far more widely. `S8`
 stays `UNRESOLVED` against C8 whichever figure the row carries, for the same
 reason §9.2 gives.
 
-**Whether `0.7418x` moves is a ruling, and this window does not take it.** The
-case for moving: these three runs are the only readings of this arm that carry a
-strict per-round control verdict *and* a reportable arm-order guard, and the
-published figure carries neither and can never be given the first. The case
+**Whether `0.7418x` moved was a ruling, and it was TAKEN on 2026-08-18
+(`rf2-6zc2q`): the figure MOVES, and the row must say the move is a change of
+basis.** This window did not take that ruling and was never entitled to; it
+recorded the case and waited. Both sides of it are set out here as they stood,
+because the reasoning is what a later reader needs and not just the verdict.
+
+The case for moving: these three runs are the only readings of this arm that
+carry a strict per-round control verdict *and* a reportable arm-order guard, and
+the published figure carries neither and can never be given the first. The case
 against: the two are **not the same measurement** — `0.7418x` was taken at
 `{:warmup 3 :samples 6}` and the re-tune was expected to make run 1 incomparable
 to whatever the file read next — so replacing one with the other is a change of
 basis and not a correction, and it moves the headline **away** from C8's line
 rather than toward it, which is the direction that most deserves a decider.
-Until that ruling, the row above stands as published, on run 1's own basis, and
-this window is the record beside it.
+
+**The ruling accepted the case against as TRUE and held that it argues for
+moving.** A basis that has been retired is not a basis a row may keep
+publishing: `0.7418x` cannot be re-taken, because the rig it was read on no
+longer exists, so the file was publishing a number the current instrument cannot
+reproduce beside a window saying exactly that. The remedy for a change of basis
+is **disclosure**, which the row now carries, and not a worse number. The
+*"moves away from C8's line"* objection was ruled to be about optics with no
+consequence here: `S8` stays `UNRESOLVED` against C8 whichever figure the row
+carries — this section says so above and [§9.2](#92-what-each-not-green-row-is-waiting-on)
+says so again — so no published verdict changes, and the direction a number
+moves is not evidence about the number. The row above therefore now stands at
+`0.8081x` `[0.6863–0.9302]`, `19.2%` recovered, on this window's basis, and this
+window is the evidence behind it rather than the record beside it.
 
 ### The package-resident clock instrument, and what it is still missing
 
@@ -1406,7 +1473,7 @@ loses no address.
 | S5 | teardown retained indistinguishable from 0 | indistinguishable from 0; all ten rungs' bands straddle it | package | `MET` | P0 heap ladder, package candidate arm (P-DEV-1 evidence run) | `rf2-hic-089` | — |
 | S6 | 1.10x cold mount against direct UIx-on-subs | 1.1718x [1.1263–1.2190] n=8; 1.1976x [1.1504–1.2468] n=6 | bench-tree | `BREACH` | final K1 estimator (P-DEV-1 evidence run) | `rf2-hic-085` | [§9.2](budgets.md#92-what-each-not-green-row-is-waiting-on) |
 | S7 | warm allocation, a fitted series clearing the quality floor | no publishable claim | bench-tree | `UNPINNED` | — (none) | `rf2-85og2` | [§9.2](budgets.md#92-what-each-not-green-row-is-waiting-on) |
-| S8 | C8's first disjunct: an escape recovers ≥ 20% | `0.7418x` [0.6458–0.8409] — 25.8% recovered [15.9–35.4%], run 1 alone, on a 200-boundary mount; an observed range across per-round ratios, not a confidence interval | package | `UNRESOLVED` | P0 lane direct-return clock arm (P-DEV-1 evidence run) | `rf2-5yn9` | [§9.2](budgets.md#92-what-each-not-green-row-is-waiting-on) |
+| S8 | C8's first disjunct: an escape recovers ≥ 20% | `0.8081x` [0.6863–0.9302] — 19.2% recovered [7.0–31.4%], runs A, B and C pooled over fifteen rounds, on a 200-boundary mount; an observed range across per-round ratios, not a confidence interval. **Moved 2026-08-18 (`rf2-6zc2q`) from `0.7418x` [0.6458–0.8409] / 25.8% [15.9–35.4%]; that is a CHANGE OF BASIS — `{:warmup 3 :samples 6}` then, `{:warmup 8 :samples 12}` now — and the old basis is retired, so `0.7418x` cannot be re-taken. The status does not move: the range crossed the line on both bases** | package | `UNRESOLVED` | P0 lane direct-return clock arm (P-DEV-1 evidence run) | `rf2-5yn9` | [§9.2](budgets.md#92-what-each-not-green-row-is-waiting-on) |
 | U1 | echo within one 60 Hz frame at p95 | — | — | `UNPINNED` | — (none) | `rf2-85og2` | [§9.2](budgets.md#92-what-each-not-green-row-is-waiting-on) |
 | U2 | ≤ 50 ms p95 and ≤ 100 ms p99 to next paint | — | — | `UNPINNED` | — (none) | `rf2-85og2` | [§9.2](budgets.md#92-what-each-not-green-row-is-waiting-on) |
 | U3 | ≤ 100 ms p95 for broad operations | — | — | `UNPINNED` | — (none) | `rf2-85og2` | [§9.2](budgets.md#92-what-each-not-green-row-is-waiting-on) |
@@ -1594,12 +1661,13 @@ or `C5` changes with it.
   touches either row's `BREACH` status.
 - **`S8`'s range crosses C8's own line, which is what `UNRESOLVED` is for.** The
   reading is not thin and the rig is not the problem: the arm-order guard
-  returned `reportable`, the positive control saw the doubling its own
-  arithmetic predicts, 225 of 225 measured mounts were read back at their far
-  end, and a mounted-DOM fairness gate agreed and was driven to disagree on
-  purpose. What the range does is straddle `20%` — `25.8%` recovered,
-  `[15.9–35.4%]` — so the first of C8's three disjuncts is neither met nor
-  missed, exactly the case §5's freeze ruling created this status for.
+  returned `reportable` on both factors and every arm, the positive control saw
+  the doubling its own arithmetic predicts under the strict per-round rule,
+  1,500 of 1,500 measured mounts were read back at their far end, and a
+  mounted-DOM fairness gate agreed and was driven to disagree on purpose. What
+  the range does is straddle `20%` — `19.2%` recovered, `[7.0–31.4%]` — so the
+  first of C8's three disjuncts is neither met nor missed, exactly the case §5's
+  freeze ruling created this status for.
   **[Amended 2026-08-13.]** Three corrections to how this row was first
   published, none of which moves its status. The figure is **run 1 alone**,
   because run 2's positive control predicted `4.000` against a ±25% band of
@@ -1618,6 +1686,24 @@ or `C5` changes with it.
   the run that produced this row retained only `n`/`min`/`max`/`p50` per arm and
   a `p95` cannot be recovered from it afterwards. What changed is that assessing
   it is now a **re-run** rather than a rig build.
+  **[Amended 2026-08-18, `rf2-6zc2q`. The FIGURE moves; the STATUS does not, and
+  no reading was taken to move it.]** By operator ruling the row's figure changes
+  from `0.7418x` `[0.6458–0.8409]` / `25.8%` recovered `[15.9–35.4%]` to
+  `0.8081x` `[0.6863–0.9302]` / `19.2%` recovered `[7.0–31.4%]`. **This is a
+  CHANGE OF BASIS and not a correction**: the retired figure was read at
+  `{:warmup 3 :samples 6}` and the new one at the re-tuned
+  `{:warmup 8 :samples 12}`, and `0.7418x` can never be re-taken or given a
+  strict verdict, because the rig it was read on no longer exists. Everything
+  above this amendment that speaks of *run 1 alone*, of `225` mounts, or of what
+  *the run that produced this row* retained is therefore about the **retired**
+  basis and is kept as history. `S8` stays `UNRESOLVED`: the range straddled
+  `20%` on both bases, so the disjunct is neither met nor missed either way, and
+  the `≥ 2 ms p95` disjunct stays `UNASSESSED` untouched by this move — the new
+  window published no `p95` either. The point estimate now sits just below the
+  line rather than just above it, which changes how the row reads and not what
+  it decides. The window itself, the strict per-round control verdict `S8` now
+  carries for the first time, and the unresolved warm-up confound behind it are
+  all in [§4](#4-distributional-rows--s1s5-re-pinned-on-the-package-s6s7-carried).
   **Narrowing the range is a measurement and widening the line is forbidden**,
   and the re-run is not scheduled: under the site-level reading below nothing
   turns on whether the corpus-wide recovery is 18% or 26%. Buy one only when a
