@@ -201,7 +201,7 @@ const CTL_2 = Number(process.env.HN_CTL_2 || 0.9);
 // landed yet. It has (rf2-2rtt6.2), so the fallback was unreachable code
 // carrying a paragraph of reasoning for a branch that could no longer be
 // taken, and rf2-uhw11 removes both. The donor template was never
-// equivalent anyway: `:freehand-release` is CLEANED AND REBUILT by
+// equivalent anyway: `:freehand-release` was CLEANED AND REBUILT by
 // `test:freehand-reachability` and `test:freehand-matched`, so a bench run
 // and a gate run raced the same `.shadow-cljs/builds/freehand-release`
 // cache — and Closure's renaming for a build compiled fresh differs from
