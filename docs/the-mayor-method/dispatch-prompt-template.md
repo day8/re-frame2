@@ -4,9 +4,9 @@ Copy-adaptable shapes for delegating bounded work to a background worker. Assume
 a capable agent. Placeholders:
 
 - `<MAYOR_CHECKOUT>` — the mayor's primary checkout (absolute path)
-- `<WORKTREE_ROOT>` — the directory holding worker worktrees (derive it from your
+- `<WORKTREE_PARENT>` — the directory holding worker worktrees (derive it from your
   version-control tool at dispatch time; never hardcode a path)
-- `<ASSIGNED_WORKTREE>` — this worker's worktree, a subdirectory of `<WORKTREE_ROOT>`
+- `<ASSIGNED_WORKTREE>` — this worker's worktree, a subdirectory of `<WORKTREE_PARENT>`
 - `<ITEM_ID>` — the tracker id
 
 > **Project-specifics live with the project, not here.** Your hot-zone file list,
@@ -483,6 +483,11 @@ Before EVERY edit, confirm you are in your worktree: ask version control for the
 top level of <ASSIGNED_WORKTREE> and check it prints <ASSIGNED_WORKTREE>.
 Use ABSOLUTE paths under <ASSIGNED_WORKTREE> for every edit and write. A
 start-of-session guard is NOT sufficient — verify per edit.
+
+Report that root to the mayor in your completion message, and never write it, or
+any absolute home path, into a committed file — if your deliverable is itself a
+written record, what makes the guard evidence is that it RAN and exited 0, not
+the machine-specific path it printed.
 
 After your first edit, and after writing any NEW file, confirm it landed in your
 worktree and NOT the mayor checkout. Check BOTH trees: a new ignored file leaking
