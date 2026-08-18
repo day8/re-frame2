@@ -105,8 +105,9 @@ Every adapter implements the surface below. The contract is **closed for v1** �
 > [§The internal observation port](#the-internal-observation-port-adapter-internal))
 > that lives **outside** this closed ten-fn map: no entry is added to the adapter spec
 > map, no signature here changes, and existing adapters implement nothing new. The
-> port's consumer is the `day8/re-frame2-hicasso` view runtime, via the core-internal
-> `re-frame.substrate.observation` namespace on the lockstep release train. The
+> port's intended consumer is a re-frame-native view runtime in a sibling artefact, via the
+> core-internal `re-frame.substrate.observation` namespace on the lockstep release train —
+> though no shipped namespace requires the port today (see the scope section below). The
 > closed-for-v1 statement above is unaffected by the port's existence.
 
 > **The adapter contract is the canonical mechanism for bridging external reactive sources** (timers, JS event streams, external pub/sub, signals from other libraries). The v1 `reg-sub-raw` escape hatch — which v1 users sometimes leaned on for non-app-db reactivity — is not shipped in v2 (per [MIGRATION §M-18](../migration/from-re-frame-v1/README.md)). A custom adapter brings the external source into the substrate; subs consume normally via `reg-sub`. State that needs to live across [Goal 2 — Frame state revertibility](000-Vision.md#frame-state-revertibility) must reach `app-db` through an event handler (Pattern-AsyncEffect plus a registered fx), not through an adapter-private side channel — see [§What an adapter MUST NOT do](#what-an-adapter-must-not-do).
@@ -1214,8 +1215,9 @@ the port's presence because the port is not consumable.
 
 **The seam, named.** The port's concrete surface is the namespace
 **`re-frame.substrate.observation`** in the core artifact (`day8/re-frame2`), a sibling
-of the existing `re-frame.substrate.*` internals. Its **consumer** is the
-**`day8/re-frame2-hicasso`** artifact's view runtime. The seam is versioned
+of the existing `re-frame.substrate.*` internals. Its **intended consumer** is a
+re-frame-native view runtime in a sibling artefact — the role
+**`day8/re-frame2-hicasso`** was expected to fill. The seam is versioned
 by two rules (the second follows from the lockstep release train recorded in
 [Conventions §Internal cross-artefact seams](Conventions.md#internal-cross-artefact-seams)):
 
@@ -1223,11 +1225,22 @@ by two rules (the second follows from the lockstep release train recorded in
    together; the port may change shape between releases without deprecation ceremony
    because no third party may consume it.
 2. **Explicit ABI guard.** `re-frame.substrate.observation` exports an integer
-   **`port-abi-version`**; the consuming view runtime records the version it compiled
+   **`port-abi-version`**; a consuming view runtime records the version it compiled
    against and asserts it at load, failing loudly on skew with
    `:rf.error/observation-port-version-mismatch` (always-on; catalogued per
    [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue)).
    Artifact drift is a boot error, never undefined behaviour.
+
+**No shipped namespace requires the port today, and that is an open question rather than a
+settled posture (rf2-63t1i).** The port's original requirers were `re-frame.ui` and
+`re-frame.freehand`, and both went when those artefacts were retired. `day8/re-frame2-hicasso`
+did not inherit the edge: its collector reaches the same core sub-machinery the port itself
+uses (`re-frame.subs/compute-sub-with-memo`) rather than reaching through the port, so it is a
+peer consumer of that core seam and not a consumer of this one. Every surviving `:require` of
+`re-frame.substrate.observation` is a test namespace, which means the ABI guard in rule 2 has
+no consumer side in any shipped build and cannot fire there. Whether the port gains a real
+consumer or is itself retired is undecided; everything specified below states the semantics a
+consumer would meet, and remains normative for one.
 
 ### Observation targets — stable identity, never evidence
 
