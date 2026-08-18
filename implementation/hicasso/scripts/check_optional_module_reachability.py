@@ -335,6 +335,34 @@ MODULES = [
             "re_frame/hicasso/server.cljs",
         ],
     },
+    {
+        # rf2-hvr5h.  The artefact's own reactive-substrate adapter, so a
+        # Hicasso application depends on core plus Hicasso and nothing else
+        # rather than adding a second coordinate purely to obtain a state
+        # container.  It is a MODULE and not a door the package leads to, for
+        # the reason every row here exists: an application that deliberately
+        # installs Reagent, reagent-slim or UIx under a Hicasso tree must not
+        # pay for this one, and `re-frame.substrate.spine` is what it would
+        # pay in.  The adapter ADDS an option and withdraws none, and this row
+        # is what keeps the option free.
+        #
+        # NO ENGINE, for the `native` and `forms` rows' reason: the namespace
+        # owns exactly one file, and everything it reaches — the spine, the
+        # shared frame context, `re-frame.frame` — is CORE's rather than this
+        # package's, so naming any of it here would forbid core its own
+        # machinery.  The one edge to guard is therefore the door, and the
+        # live risk is the ordinary convenience: a single `:require` in
+        # `hicasso.cljc` — to re-export `substrate/adapter` beside `h/mount!`,
+        # say — would put the whole React-hook spine into the bundle of every
+        # application that ever aliased `h`, including the ones that install
+        # somebody else's adapter.
+        "name": "substrate",
+        "door": "re-frame.hicasso.substrate",
+        "engine": [],
+        "files": [
+            "re_frame/hicasso/substrate.cljs",
+        ],
+    },
 ]
 
 def ns_of(text):

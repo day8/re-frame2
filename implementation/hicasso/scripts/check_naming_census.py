@@ -14,7 +14,7 @@ a DISPOSITION*, because the native tier's `el`, `props*`, `component` and
 `marker` are compiler targets rather than authoring surface and only that
 tier's owner can say which is which. It is the wrong scope for the weaker
 question this gate asks -- *is the name WRITTEN DOWN anywhere in the naming
-ledger* -- which needs no such judgement and reaches all ten shipped
+ledger* -- which needs no such judgement and reaches all eleven shipped
 namespaces. `rf2-hic-065`'s census measured what the gap costs: 105 public
 names, of which 60 carried no ledger row, and 58 of those sat outside every
 existing gate's reach.
@@ -68,7 +68,7 @@ has, which is this gate's own subject.
 
 The rule's limit, stated rather than left to be discovered: a `def`-headed
 CALL that happens to begin its own line would still be read as a
-definition. No such call exists in the ten namespaces -- both of
+definition. No such call exists in the eleven namespaces -- both of
 `evidence.cljs`'s are mid-line, which is why this rule is sufficient today
 -- and the failure it would produce is a phantom name reported UNROSTERED,
 which is a false RED. That is the safe direction, and it is why a bracket
@@ -150,7 +150,7 @@ rather than waiting for a worker to remember it.
 Two input families that do not arm the same lane, exactly as
 `check_facade_inventory.py` documents for exactly this reason:
 
-    implementation/hicasso/src/**, test_kit/src/**   the ten namespaces
+    implementation/hicasso/src/**, test_kit/src/**   the eleven namespaces
     docs/design/hicasso/product/naming-ledger.md     the ledger
 
 A name escapes when the SOURCE grows, and a source change arms the `cljs`
@@ -180,10 +180,13 @@ import os
 import re
 import sys
 
-# The ten shipped namespaces, their sources relative to `implementation/hicasso`,
-# and the alias each one's names are spelled under in the ledger.
+# The eleven shipped namespaces, their sources relative to
+# `implementation/hicasso`, and the alias each one's names are spelled under in
+# the ledger.
 PUBLIC = [
     ("re-frame.hicasso", "src/re_frame/hicasso.cljc", "h"),
+    ("re-frame.hicasso.substrate", "src/re_frame/hicasso/substrate.cljs",
+     "substrate"),
     ("re-frame.hicasso.native", "src/re_frame/hicasso/native.cljc", "n"),
     ("re-frame.hicasso.forms", "src/re_frame/hicasso/forms.cljs", "forms"),
     ("re-frame.hicasso.overlay", "src/re_frame/hicasso/overlay.cljs", "overlay"),

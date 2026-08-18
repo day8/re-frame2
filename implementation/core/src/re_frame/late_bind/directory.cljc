@@ -927,6 +927,7 @@
     :producer-ns '[re-frame.adapter.reagent
                    re-frame.adapter.reagent-slim
                    re-frame.adapter.uix
+                   re-frame.hicasso.substrate
                    re-frame.adapter.test-react]
     :chained?    true
     :design-bead "rf2-4z7bp"
@@ -950,7 +951,8 @@
    {:key         :adapter/clear-warn-once-caches!
     :producer-ns '[re-frame.views.warn-once
                    re-frame.views
-                   re-frame.adapter.uix]
+                   re-frame.adapter.uix
+                   re-frame.hicasso.substrate]
     :chained?    true
     :design-bead "rf2-4edk"
     :description "Chained reset of EVERY adapter/views warn-once defonce cache the standard make-reset-runtime-fixture must wipe between tests. Per rf2-z79p8 every contributor enrols through the single governance chokepoint re-frame.late-bind/register-warn-once-clear-fn! (which chains the clear-fn here AND records it in the warn-once-clear governance registry). Members: re-frame.views.warn-once's warned-non-dom-roots, re-frame.views's rf2-9hoos seen-render-keys (:mount? discriminator), the React-hook spine's per-adapter source-coord cache (re-frame.substrate.spine, used by uix), and the slim hiccup interpreter's warned-keyword-prop (re-frame.adapter.reagent-slim, rf2-qy6cl). The warn-once-clear governance assertion enumerates the registry and proves each member is wiped by this chain so a future cache cannot silently escape the fixture. (A 5th member, warned-plain-fn-frame-pairs, was removed in rf2-k4xous once its warning was retired per EP-0002.)"}
@@ -958,6 +960,7 @@
     :producer-ns '[re-frame.adapter.reagent
                    re-frame.adapter.reagent-slim
                    re-frame.adapter.uix
+                   re-frame.hicasso.substrate
                    re-frame.adapter.test-react]
     :chained?    true
     :design-bead "rf2-d4sf"
@@ -995,14 +998,16 @@
    {:key         :adapter/add-on-dispose!
     :producer-ns '[re-frame.adapter.reagent
                    re-frame.adapter.reagent-slim
-                   re-frame.adapter.uix]
+                   re-frame.adapter.uix
+                   re-frame.hicasso.substrate]
     :chained?    true
     :design-bead "rf2-s36l"
     :description "Substrate-specific add-on-dispose! (re-frame.interop/add-on-dispose!). Per rf2-jicu2 UIx routes to the re-frame-owned re-frame.disposable/IDisposable protocol; Reagent/reagent-slim dispatch both that protocol and their substrate's own IDisposable."}
    {:key         :adapter/dispose!
     :producer-ns '[re-frame.adapter.reagent
                    re-frame.adapter.reagent-slim
-                   re-frame.adapter.uix]
+                   re-frame.adapter.uix
+                   re-frame.hicasso.substrate]
     :chained?    true
     :design-bead "rf2-s36l"
     :description "Substrate-specific dispose! (re-frame.interop/dispose!). Per rf2-jicu2 UIx routes to the re-frame-owned re-frame.disposable/IDisposable protocol; Reagent/reagent-slim dispatch both that protocol and their substrate's own IDisposable."}
@@ -1021,19 +1026,22 @@
    {:key         :adapter/after-render
     :producer-ns '[re-frame.adapter.reagent
                    re-frame.adapter.reagent-slim
-                   re-frame.adapter.uix]
+                   re-frame.adapter.uix
+                   re-frame.hicasso.substrate]
     :chained?    true
     :design-bead "rf2-s36l"
     :description "Substrate-specific after-render hook (re-frame.interop/after-render). Per rf2-334d9 the UIx adapter publishes a `React.useLayoutEffect`-backed impl via the spine's after-render machinery (Mike decision rf2-neiqf). Reagent + reagent-slim route through their substrate's native render scheduler."}
    {:key         :adapter/wrap-view
-    :producer-ns '[re-frame.adapter.uix]
+    :producer-ns '[re-frame.adapter.uix
+                   re-frame.hicasso.substrate]
     :chained?    true
     :design-bead "rf2-00li"
     :description "Substrate-side source-coord injection on rendered React elements."}
    {:key         :adapter/arm-hiccup-emitter-if-unarmed!
     :producer-ns '[re-frame.adapter.reagent
                    re-frame.adapter.reagent-slim
-                   re-frame.adapter.uix]
+                   re-frame.adapter.uix
+                   re-frame.hicasso.substrate]
     :chained?    true
     :design-bead "rf2-h9szm"
     :description "Precedence-safe, routed install-replay arm for the retained SSR hiccup emitter. `re-frame.substrate.adapter/install-adapter!` calls it (with the durable `:ssr/current-hiccup-emitter`) as part of its failure-atomic install transaction so a destroy → re-init cycle — or an SSR-before-adapter load order — re-arms the freshly-installed generation's `render-to-string` slot. Routed via `route-hook!` so ONLY the installed adapter's slot is re-armed (a loaded inactive adapter's arm never runs, so its throw cannot break the active boot); each adapter's impl arms its per-generation `emitter-cell` ONLY when otherwise unarmed, so a pre-init explicit custom emitter / reset is not silently overwritten by the retained default. Distinct from the broadcast `:reagent/set-hiccup-emitter!` chain the earlier replay used (rf2-h9szm). Not published by plain-atom / test-react, whose emitters are retained across a no-op dispose (no re-arm required)."}
