@@ -190,44 +190,51 @@
       (is (re-find #"transparent\)$" out)
           "ends with the transparent partner so the result is a tint"))))
 
-;; ---- panel domain colours (rf2-5kfxe.8) --------------------------------
+;; ---- L4 panel accent stripe (rf2-5kfxe.8 · rf2-ad7zx.13) ---------------
 
-(deftest panel-domain-map-keys-are-pinned
-  (testing "rf2-5kfxe.8 — `panel-domain->token` is NOT the L4 tab
-            inventory and does not track it: rf2-ad7zx.13 superseded
-            the per-panel domain colours with a single `:accent`,
-            leaving this map a six-key vestige. Five of the ten live
-            Dynamic tabs (`focus/valid-panels`) are absent from it —
-            `:epoch`, which superseded the retired `:event` id the map
-            still names (rf2-5gl5r), plus the four L4 lenses registered
-            since (`:resources` · `:derivation-graph` · `:module-view`
-            · `:hicasso`). `panel-accent` falls back to `:accent` for
-            any key absent here, so every shipped tab renders correctly
-            regardless. This pins the keys so the vestige cannot grow
-            back into a second inventory. (rf2-gui26 — this docstring
-            read 'the 6 L4 tabs', a word-numeral roster claiming to be
-            the tab count. The map itself is rf2-9g1ea's subject: a
-            design call, not doc drift.)"
-    (let [tabs #{:event :app-db :views :trace :machines
-                 :routing}]
-      (is (= tabs (set (keys t/panel-domain->token)))))))
+(deftest panel-accent-is-tab-independent
+  (testing "rf2-9g1ea — `panel-accent` is TOTAL and tab-independent:
+            spec/022 + spec/021 §17.1.3 rule the L4 header stripe to a
+            SINGLE accent, so every tab id, every keyword that is not a
+            tab id, and `nil` all resolve to the one `:accent`
+            variable. The stripe always renders.
 
-(deftest panel-accent-resolves-through-tokens
-  (testing "`panel-accent` is a thin wrapper:
-            (get tokens (panel-domain->token tab))."
-    (doseq [[tab token-kw] t/panel-domain->token]
-      (is (= (get t/tokens token-kw)
-             (t/panel-accent tab))
-          (str "tab " tab " resolves via token " token-kw)))))
+            ASSERTED UNIVERSALLY, NOT AGAINST A ROSTER, ON PURPOSE.
+            A hand-listed roster here WAS the rf2-9g1ea defect: the
+            deleted `panel-domain->token` map named six tabs — one of
+            them the retired `:event` (rf2-5gl5r) — while five shipped
+            ones (`:epoch` · `:resources` · `:derivation-graph` ·
+            `:module-view` · `:hicasso`) were absent, and the pinning
+            test could not fail on that because it compared the map
+            with a copy of itself. A universal assertion covers every
+            shipped tab without introducing a second inventory to
+            drift. The shipped roster has exactly ONE control and it
+            is registry-derived, not hand-listed:
+            `focus-cljs-test/valid-panels-mirrors-the-live-registry`
+            asserts `focus/valid-panels` equals
+            `panel-registry/tab-ids-for-mode :dynamic`.
 
-(deftest panel-accent-falls-back-for-unknown-tab
-  (testing "unknown tab → :accent (the mode-accent fallback per
-            rf2-ad7zx / spec/022). The stripe always renders rather
-            than disappearing."
-    (is (= (:accent t/tokens)
-           (t/panel-accent :unknown-tab-kw)))
-    (is (= (:accent t/tokens)
-           (t/panel-accent nil)))))
+            The vector below is a SAMPLE, not an inventory — one
+            shipped tab, one of the newest, one retired id, one that
+            was never registered, and `nil`. Nothing here needs
+            maintaining when a tab ships or retires; the property is
+            universal over the argument."
+    (let [accent (:accent t/tokens)]
+      (is (string? accent) "the single accent resolves (sanity guard)")
+      (doseq [tab [:machines :hicasso :event :never-a-tab nil]]
+        (is (= accent (t/panel-accent tab))
+            (str "panel-accent " (pr-str tab) " is the single accent"))))))
+
+(deftest panel-accent-resolves-through-the-var-map
+  (testing "rf2-on4cm — `panel-accent` materialises its answer through
+            `tokens`, the CSS-variable map, rather than a palette hex.
+            The active theme class on the shell root decides which
+            palette paints."
+    (let [v (t/panel-accent :machines)]
+      (is (re-find #"^var\(--rf-xray-accent\)$" v)
+          "resolves to the accent CSS variable")
+      (is (not (re-find #"#[0-9A-Fa-f]" v))
+          "no hex literal — the theme class scope owns the paint"))))
 
 (deftest accent-stripe-style-emits-3px-left-border
   (testing "`accent-stripe-style` returns a merge-able style map
@@ -560,10 +567,25 @@
 
 ;; ---- rf2-ezx8w — per-panel header icons (spec/021 §17.1.5) -------------
 
-(deftest panel-icon-map-covers-every-l4-tab
-  (testing "rf2-ezx8w — every L4 tab has a header-icon glyph per
-            spec/021 §17.1.5. Mirrors `panel-domain->token` so the
-            icon and the accent stripe address the same tab keys.
+(deftest panel-icon-map-keys-are-pinned
+  (testing "rf2-ezx8w — the glyph table of spec/021 §17.1.5.
+
+            THE NAME NO LONGER CLAIMS COMPLETENESS, because it never
+            held (rf2-9g1ea). This map is seven keys against ten live
+            Dynamic tabs (`focus/valid-panels`): it names TWO retired
+            ids (`:event`, superseded by `:epoch` per rf2-5gl5r, and
+            `:reactive`) and omits FIVE shipped ones (`:epoch` ·
+            `:resources` · `:derivation-graph` · `:module-view` ·
+            `:hicasso`). The old name — `…-covers-every-l4-tab` — read
+            as a completeness control while asserting set equality
+            against a copy of the map, so it could not fail on the very
+            drift it appeared to guard.
+
+            Nothing in `src` reads `panel-icon`: spec/021 §14.1
+            (rf2-6xezz) deleted the panel `<h1>` elements the glyphs
+            lived in. The map's disposition is a separate design call;
+            this pins its keys so it cannot quietly grow into a second
+            tab inventory in the meantime.
             (rf2-gbz39 — the Issues tab + its ⚠ glyph were removed per
             Mike's Option (c) ruling. rf2-4v67l — Chrome A11y removed
             in favour of Story's already-shipped chrome-a11y dogfood
@@ -592,8 +614,8 @@
 
 (deftest panel-icon-style-rides-panel-accent
   (testing "rf2-ezx8w — `panel-icon-style` resolves the glyph colour
-            through `panel-accent` so the icon hue tracks the same
-            domain token as the 3px stripe."
+            through `panel-accent` so the icon hue tracks the 3px
+            stripe: post rf2-ad7zx.13 that is the single accent."
     (doseq [tab (keys t/panel-icon)]
       (let [s (t/panel-icon-style tab)]
         (is (= (t/panel-accent tab) (:color s))
@@ -601,10 +623,11 @@
         (is (string? (:font-size s)))
         (is (= 600 (:font-weight s)))))))
 
-(deftest panel-icon-style-falls-back-for-unknown
-  (testing "unknown tab → :accent (same mode-accent fallback as panel-
-            accent, rf2-ad7zx). The icon always paints rather than
-            dropping to a colourless stroke."
+(deftest panel-icon-style-is-tab-independent-too
+  (testing "an unregistered tab id still paints the single accent —
+            `panel-icon-style` reads `panel-accent`, which is total
+            (rf2-ad7zx.13 / rf2-9g1ea). The icon always paints rather
+            than dropping to a colourless stroke."
     (is (= (:accent t/tokens)
            (:color (t/panel-icon-style :unknown-tab-kw))))))
 

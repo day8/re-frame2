@@ -88,7 +88,7 @@
 ;; ---- accent -------------------------------------------------------------
 ;;
 ;; The Routing panel's accent is the single GitHub-blue `:accent` token
-;; (per `panel-domain->token`). Both the CURRENT ROUTE id and the
+;; (per `theme.tokens/panel-accent`). Both the CURRENT ROUTE id and the
 ;; current row in the ROUTE TABLE ride this hue so the operator's eye
 ;; ties the two surfaces together (RoutesPanel `--devtools-active`).
 

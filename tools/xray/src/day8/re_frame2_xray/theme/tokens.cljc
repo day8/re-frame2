@@ -721,14 +721,13 @@
   [ms]
   (str "calc(" ms "ms * var(" (:scale-var-name motion) ", 1))"))
 
-;; ---- L4 panel domain colours (rf2-5kfxe.8) -----------------------------
+;; ---- L4 panel accent stripe (rf2-5kfxe.8 · rf2-ad7zx.13) ---------------
 
-(def panel-domain->token
-  "Pure semantic map from L4 tab keyword → token keyword for the
-  panel's header stripe colour.
+(defn panel-accent
+  "Resolve the L4 panel's header-stripe accent CSS-variable string.
 
-  ## Single accent (rf2-ad7zx.13 / spec/022 · spec/007 §L4 panel accent
-  stripe)
+  ## Single accent (rf2-ad7zx.13 · spec/022 · spec/021 §17.1.3 ·
+  spec/007 §L4 panel accent stripe)
 
   The prior per-panel DOMAIN-colour mapping (`:event` violet ·
   `:app-db`/`:views` cyan · `:trace` orange · `:machines` green ·
@@ -738,39 +737,39 @@
   signal, not a per-panel domain colour. Surfaces stay neutral so the
   blue accent pops.
 
-  Every tab therefore maps to the `:accent` token. Domain colour still
-  does load-bearing work where it is semantic (severity `error` red on
-  the inline Epoch exception block + the L2 event-row issue wash,
-  machine `green`, route `yellow`, the op-family bands in Trace, the
-  per-panel header icons §021 §17.1.5) — but the HEADER STRIPE is the
-  single accent.
+  Domain colour still does load-bearing work where it is semantic
+  (severity `error` red on the inline Epoch exception block + the L2
+  event-row issue wash, machine `green`, route `yellow`, the op-family
+  bands in Trace, the per-panel header icons §021 §17.1.5) — but the
+  HEADER STRIPE is the single accent.
 
-  The map is retained (rather than collapsed to a constant) so the
-  per-tab inventory stays explicit and a future per-panel signal can
-  re-diverge a single entry without restructuring call sites.
+  The tab argument is therefore accepted and IGNORED: every L4 tab id,
+  and `nil`, resolves to the one `:accent` variable, so the stripe
+  always renders.
 
-  JVM-portable pure data → keyword. Call sites do
-  `(get tokens (panel-domain->token tab))` to materialise the
-  CSS-variable string."
-  {:event           :accent
-   :app-db          :accent
-   :views           :accent
-   :trace           :accent
-   :machines        :accent
-   :routing         :accent})
+  ## This function is the re-diverge seam (rf2-9g1ea)
 
-(defn panel-accent
-  "Resolve the L4 panel's header-stripe accent CSS-variable string —
-  the single `:accent` (GitHub blue) per spec/007 §L4 panel accent
-  stripe + spec/022. Falls back to the `:accent` variable for unknown
-  tab keywords so the stripe always renders.
+  A future per-panel signal changes THIS BODY and no call site. It
+  does not need a per-tab map reinstated. There was one here — a
+  six-key `panel-domain->token` whose every value was already
+  `:accent`, kept so \"the per-tab inventory stays explicit\" — and it
+  had drifted to naming the retired `:event` tab while omitting five
+  shipped ones (`:epoch` · `:resources` · `:derivation-graph` ·
+  `:module-view` · `:hicasso`). Nothing caught that, because this
+  function defaulted past every absent key, so the roster could not
+  drift into a wrong ANSWER, only into a wrong LIST. A hand-listed tab
+  roster with no reader is a drift attractor, not an inventory.
+
+  The live roster is `panel-registry/tab-ids-for-mode`, mirrored by
+  `focus/valid-panels` and pinned against the registry by
+  `focus-cljs-test/valid-panels-mirrors-the-live-registry`. A
+  re-diverge derives from THAT rather than restating it here.
 
   Returns a `\"var(--rf-xray-<key>)\"` string post rf2-on4cm — the
   active theme class scope on the shell root decides which palette's
   hex (`#539bf5` dark / `#0969da` light) resolves at paint time."
-  [tab]
-  (get tokens
-       (get panel-domain->token tab :accent)))
+  [_tab]
+  (:accent tokens))
 
 (defn accent-stripe-style
   "Build an inline-style map that paints the per-panel accent as a
@@ -823,8 +822,8 @@
   "Per-panel header glyph map per spec/021 §17.1.5 iconography. Each
   L4 tab carries a Unicode glyph rendered to the LEFT of the panel
   `<h1>` (or its inline-stripe header equivalent). Colour resolves
-  through `panel-domain->token` so the glyph rides the panel's domain
-  hue — a visual tie between the accent stripe and the icon.
+  through `panel-accent`, so the glyph rides the same single accent as
+  the 3px header stripe — a visual tie between the two.
 
   | Tab           | Glyph |
   |---------------|-------|
