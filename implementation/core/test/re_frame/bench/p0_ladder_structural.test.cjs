@@ -2649,6 +2649,33 @@ test('the DRIVER honours both switches — the write, the plan, and the record',
     /for \(const \{ segment, arms, leg \} of passes\) \{[\s\S]{0,2000}?window\.P0H\.prepare\(s, gw\), \[segment, B\]\);/,
     're-seeding the grid at B as the first thing every pass does'
   );
+  // AND THE RE-SEED IS UNCONDITIONAL, read off the page's own sources. This is
+  // the property the leg pass rests on, and it is the one failure here that
+  // would be SILENT: `:p0/write-all` rebuilds `:cells` at `cells-n` whatever
+  // is mounted, `:p0/write-page` rebuilds at `(count (:cells db))`, and the
+  // mounted boundaries read cells 0..(B/roots − 1) either way — so a page leg
+  // that inherited an all leg's grid would read back correctly while
+  // measuring the bulk write. `enter-segment!` destroys the frame and
+  // re-creates it with `[[:p0/seed grid-width]]` on EVERY call, so no pass can
+  // inherit a width; a branch that skipped the re-seed for an already
+  // installed segment would reintroduce exactly that.
+  const ARMS_SRC = fs.readFileSync(path.join(__dirname, 'p0_arms.cljs'), 'utf8');
+  const FIXTURE_SRC = fs.readFileSync(path.join(__dirname, 'p0_fixture.cljc'), 'utf8');
+  assert.match(
+    ARMS_SRC,
+    /\(rf\/make-frame \{:id frame-id :initial-events \[\[:p0\/seed \(long grid-width\)\]\]\}\)/,
+    'every segment entry re-seeds the grid at the width it was given'
+  );
+  assert.match(
+    ARMS_SRC,
+    /\(teardown! "destroy-frame!" #\(rf\/destroy-frame! frame-id\)\)/,
+    'and it destroys the frame first, so no previous write survives into a pass'
+  );
+  assert.match(
+    FIXTURE_SRC,
+    /\(rf\/reg-event :p0\/seed \(fn \[_ \[_ grid-width\]\] \{:db \(seed-db \(or grid-width cells-n\)\)\}\)\)/,
+    'and `:p0/seed` is what sets the width, from the argument it was handed'
+  );
   has(
     /const plan = allocPlanArms\(ladderPlan\(perRoot, ROOTS\), ALLOC_PLAN_SHAPE\);/,
     'and the plan is the shipped ladder plan narrowed by the shape'
