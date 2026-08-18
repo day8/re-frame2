@@ -1,6 +1,6 @@
 # The pilot programme — prep package
 
-The two pilots ratified on 2026-08-11 migrate a screen each onto Hicasso from the released artefact and the published documentation alone, and the friction they hit is the evidence [specification §13](../specification.md#13-adoption-and-definition-of-done) asks for. This directory is the package they are run *from*: the workspace each pilot gets, the brief each pilot is given, and the log each pilot keeps.
+The two pilots ratified on 2026-08-11 migrate a screen each onto Hicasso from the released artefact and the published documentation alone, and the friction they hit is the evidence [specification §13](../specification.md#13-definition-of-done) asks for. This directory is the package they are run *from*: the workspace each pilot gets, the brief each pilot is given, and the log each pilot keeps.
 
 Filed under `rf2-v04s`, executing item 2 of [`rf2-hic-063`](#what-governs-this-directory)'s ratification checklist.
 
