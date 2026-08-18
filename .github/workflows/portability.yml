@@ -71,6 +71,7 @@ jobs:
   no-hardcoded-paths:
     name: No hardcoded personal/home paths
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
 
@@ -163,6 +164,7 @@ jobs:
   ai-tracking-ratchet:
     name: No newly tracked files under ai/
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       # THE BASE IS ONE NAMED COMMIT, so the checkout fetches TWO and the step
       # below fetches THAT ONE (rf2-uol6). This job used fetch-depth: 0 and spent
@@ -292,6 +294,7 @@ jobs:
   view-lifetime-residue-ratchet:
     name: No retired view-lifetime vocabulary, repo-wide
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
 

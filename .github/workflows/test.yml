@@ -67,6 +67,7 @@ jobs:
   detect_changed_surfaces:
     name: Detect changed test surfaces
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     outputs:
       implementation_jvm: ${{ steps.detect.outputs.implementation_jvm }}
       cljs_node_test: ${{ steps.detect.outputs.cljs_node_test }}
@@ -135,6 +136,7 @@ jobs:
   verify-version-lockstep:
     name: Verify lockstep version contract (rf2-ace2)
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
 
@@ -184,6 +186,7 @@ jobs:
   verify-skill-mcp-drift:
     name: Repo invariant checks (skills, MCP, catalogues, namespaces)
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
 
@@ -815,6 +818,7 @@ jobs:
   verify-readme-links:
     name: Verify markdown link slugs — READMEs + the docs/spec/skills/migration corpus (rf2-br5u7, rf2-v7fui)
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
 
@@ -1417,6 +1421,7 @@ jobs:
     needs: detect_changed_surfaces
     if: needs.detect_changed_surfaces.outputs.implementation_jvm == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     defaults:
       run:
         working-directory: implementation/core
@@ -1492,6 +1497,7 @@ jobs:
     needs: detect_changed_surfaces
     if: needs.detect_changed_surfaces.outputs.implementation_jvm == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
 
@@ -1733,6 +1739,7 @@ jobs:
     needs: detect_changed_surfaces
     if: needs.detect_changed_surfaces.outputs.adapter_diagnostic == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     defaults:
       run:
         working-directory: implementation/adapters/reagent
@@ -1778,6 +1785,7 @@ jobs:
     needs: detect_changed_surfaces
     if: needs.detect_changed_surfaces.outputs.adapter_diagnostic == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     defaults:
       run:
         working-directory: implementation/adapters/reagent-slim
@@ -1821,6 +1829,7 @@ jobs:
     needs: detect_changed_surfaces
     if: needs.detect_changed_surfaces.outputs.adapter_diagnostic == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     defaults:
       run:
         working-directory: implementation/adapters/uix
@@ -1866,6 +1875,7 @@ jobs:
     needs: detect_changed_surfaces
     if: needs.detect_changed_surfaces.outputs.adapter_diagnostic == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     defaults:
       run:
         working-directory: implementation/adapters/test-react
@@ -1921,6 +1931,7 @@ jobs:
     needs: detect_changed_surfaces
     if: needs.detect_changed_surfaces.outputs.implementation_jvm == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     defaults:
       run:
         working-directory: implementation/schemas
@@ -1964,6 +1975,7 @@ jobs:
     needs: detect_changed_surfaces
     if: needs.detect_changed_surfaces.outputs.implementation_jvm == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     defaults:
       run:
         working-directory: implementation/machines
@@ -2009,6 +2021,7 @@ jobs:
     needs: detect_changed_surfaces
     if: needs.detect_changed_surfaces.outputs.implementation_jvm == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     defaults:
       run:
         working-directory: implementation/routing
@@ -2082,6 +2095,7 @@ jobs:
     needs: detect_changed_surfaces
     if: needs.detect_changed_surfaces.outputs.implementation_jvm == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
 
@@ -2119,6 +2133,7 @@ jobs:
     needs: detect_changed_surfaces
     if: needs.detect_changed_surfaces.outputs.implementation_jvm == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     defaults:
       run:
         working-directory: implementation/flows
@@ -2154,6 +2169,7 @@ jobs:
     needs: detect_changed_surfaces
     if: needs.detect_changed_surfaces.outputs.implementation_jvm == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: implementation/http
@@ -2189,6 +2205,7 @@ jobs:
     needs: detect_changed_surfaces
     if: needs.detect_changed_surfaces.outputs.implementation_jvm == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: implementation/ssr
@@ -2277,6 +2294,7 @@ jobs:
     needs: detect_changed_surfaces
     if: needs.detect_changed_surfaces.outputs.implementation_jvm == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
 
@@ -2314,6 +2332,7 @@ jobs:
     needs: detect_changed_surfaces
     if: needs.detect_changed_surfaces.outputs.implementation_jvm == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     defaults:
       run:
         working-directory: implementation/security
@@ -2364,6 +2383,7 @@ jobs:
     needs: detect_changed_surfaces
     if: needs.detect_changed_surfaces.outputs.implementation_jvm == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     defaults:
       run:
         working-directory: implementation/ssr-ring
@@ -2417,6 +2437,7 @@ jobs:
     needs: detect_changed_surfaces
     if: needs.detect_changed_surfaces.outputs.implementation_jvm == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     defaults:
       run:
         working-directory: implementation/epoch
@@ -2506,6 +2527,7 @@ jobs:
     needs: detect_changed_surfaces
     if: needs.detect_changed_surfaces.outputs.implementation_jvm == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
 
@@ -2554,6 +2576,7 @@ jobs:
     needs: detect_changed_surfaces
     if: needs.detect_changed_surfaces.outputs.implementation_jvm == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     defaults:
       run:
         working-directory: implementation/resources
@@ -2606,6 +2629,7 @@ jobs:
     needs: detect_changed_surfaces
     if: needs.detect_changed_surfaces.outputs.implementation_jvm == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     defaults:
       run:
         working-directory: implementation/spec-resource
@@ -2648,6 +2672,7 @@ jobs:
     needs: detect_changed_surfaces
     if: needs.detect_changed_surfaces.outputs.implementation_jvm == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     defaults:
       run:
         working-directory: implementation/reply-conformance
@@ -2690,6 +2715,7 @@ jobs:
     needs: detect_changed_surfaces
     if: needs.detect_changed_surfaces.outputs.implementation_jvm == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     defaults:
       run:
         working-directory: implementation/derivation-conformance
@@ -2733,6 +2759,7 @@ jobs:
     needs: detect_changed_surfaces
     if: needs.detect_changed_surfaces.outputs.implementation_jvm == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     defaults:
       run:
         working-directory: implementation/event-conformance
@@ -3277,6 +3304,7 @@ jobs:
   js-harness-self-tests:
     name: JS harness self-tests (quiet reporters + path policy)
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: implementation
@@ -3595,6 +3623,7 @@ jobs:
     needs: detect_changed_surfaces
     if: needs.detect_changed_surfaces.outputs.cljs_prod == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: implementation
@@ -3827,6 +3856,7 @@ jobs:
     needs: detect_changed_surfaces
     if: needs.detect_changed_surfaces.outputs.bundle_isolation == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: implementation
@@ -3886,6 +3916,7 @@ jobs:
     needs: detect_changed_surfaces
     if: needs.detect_changed_surfaces.outputs.adapter_testbed_smokes == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     defaults:
       run:
         working-directory: implementation
@@ -4470,6 +4501,7 @@ jobs:
     needs: detect_changed_surfaces
     if: needs.detect_changed_surfaces.outputs.tools_jvm == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     defaults:
       run:
         working-directory: tools/xray
@@ -4512,6 +4544,7 @@ jobs:
     needs: detect_changed_surfaces
     if: needs.detect_changed_surfaces.outputs.tools_jvm == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     defaults:
       run:
         working-directory: tools/story
@@ -4555,6 +4588,7 @@ jobs:
     needs: detect_changed_surfaces
     if: needs.detect_changed_surfaces.outputs.tools_jvm == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     defaults:
       run:
         working-directory: tools/story-mcp
@@ -4606,6 +4640,7 @@ jobs:
     needs: detect_changed_surfaces
     if: needs.detect_changed_surfaces.outputs.tools_jvm == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     defaults:
       run:
         working-directory: tools/mcp-base
@@ -4683,6 +4718,7 @@ jobs:
     needs: detect_changed_surfaces
     if: needs.detect_changed_surfaces.outputs.tools_jvm_machines_viz == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     defaults:
       run:
         working-directory: tools/machines-viz
@@ -4884,6 +4920,7 @@ jobs:
     needs: detect_changed_surfaces
     if: needs.detect_changed_surfaces.outputs.tools_jvm_testbed_support == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     defaults:
       run:
         working-directory: tools/testbed-support
@@ -5058,6 +5095,7 @@ jobs:
     needs: detect_changed_surfaces
     if: needs.detect_changed_surfaces.outputs.migration_hicasso_codemod == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     defaults:
       run:
         working-directory: migration/reagent-to-hicasso/codemod
@@ -5109,6 +5147,7 @@ jobs:
     needs: detect_changed_surfaces
     if: needs.detect_changed_surfaces.outputs.migration_v1_codemod == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: migration/from-re-frame-v1/codemod
@@ -5161,6 +5200,7 @@ jobs:
     needs: detect_changed_surfaces
     if: needs.detect_changed_surfaces.outputs.ssr_node == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     defaults:
       run:
         working-directory: implementation
@@ -5201,6 +5241,7 @@ jobs:
     needs: detect_changed_surfaces
     if: needs.detect_changed_surfaces.outputs.mcp_conformance == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: tools/re-frame2-pair-mcp
@@ -5281,6 +5322,7 @@ jobs:
     needs: detect_changed_surfaces
     if: needs.detect_changed_surfaces.outputs.mcp_conformance == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     defaults:
       run:
         working-directory: tools/story-mcp
@@ -5543,6 +5585,7 @@ jobs:
     needs: detect_changed_surfaces
     if: needs.detect_changed_surfaces.outputs.mcp_conformance == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: tools/mcp-conformance
@@ -5639,6 +5682,7 @@ jobs:
     needs: detect_changed_surfaces
     if: needs.detect_changed_surfaces.outputs.mcp_conformance == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     defaults:
       run:
         working-directory: tools/mcp-conformance/wire-vocab
@@ -5684,6 +5728,7 @@ jobs:
     needs: detect_changed_surfaces
     if: needs.detect_changed_surfaces.outputs.skills_structural == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
 
@@ -5816,6 +5861,7 @@ jobs:
     needs: detect_changed_surfaces
     if: needs.detect_changed_surfaces.outputs.skills_structural == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: skills/re-frame2-pair/tests/fixture
@@ -5891,6 +5937,7 @@ jobs:
     needs: detect_changed_surfaces
     if: needs.detect_changed_surfaces.outputs.playground == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: docs/tools/playground
@@ -6068,6 +6115,7 @@ jobs:
     name: All required checks passed
     if: ${{ always() }}
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     needs:
       - detect_changed_surfaces
       - verify-version-lockstep

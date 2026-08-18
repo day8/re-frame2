@@ -139,6 +139,7 @@ jobs:
   verify-version:
     name: Verify Machines-Viz tag matches lockstep VERSION
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     outputs:
       version: ${{ steps.version.outputs.version }}
     steps:
@@ -179,6 +180,7 @@ jobs:
     name: Machines-Viz pre-release test gate
     needs: verify-version
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
 
@@ -218,6 +220,7 @@ jobs:
     name: Deploy day8/re-frame2-machines-viz
     needs: [verify-version, test-machines-viz]
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:

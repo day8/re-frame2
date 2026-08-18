@@ -145,6 +145,7 @@ jobs:
   detect:
     name: Detect lint surface
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     outputs:
       lint_surface: ${{ steps.detect.outputs.lint_surface }}
       js_surface: ${{ steps.detect.outputs.js_surface }}
@@ -245,6 +246,7 @@ jobs:
     needs: detect
     if: needs.detect.outputs.lint_surface == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     # The job runs with `--fail-level error` so an introduced ERROR
     # blocks the PR. Warnings stay informational and surface in the
     # job log for triage.
@@ -435,6 +437,7 @@ jobs:
     needs: detect
     if: needs.detect.outputs.lint_surface == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     # The job runs with `--fail-on-errors` so an introduced ERROR (a
     # file Splint cannot parse) blocks the PR. Style warnings still
     # print to the log for triage but never fail the gate — the same
@@ -512,6 +515,7 @@ jobs:
     needs: detect
     if: needs.detect.outputs.js_surface == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
 
@@ -559,6 +563,7 @@ jobs:
     needs: detect
     if: needs.detect.outputs.lint_surface == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
 
@@ -741,6 +746,7 @@ jobs:
     name: Lint required
     if: ${{ always() }}
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     needs:
       - detect
       - clj-kondo

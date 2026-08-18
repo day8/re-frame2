@@ -9,6 +9,7 @@ jobs:
   browser-bundle-and-story-gates:
     name: Browser, bundle, examples, Story/Xray gates
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     defaults:
       run:
         working-directory: implementation
@@ -274,6 +275,7 @@ jobs:
   template-emitted-app:
     name: Template emitted-app smoke
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     defaults:
       run:
         working-directory: tools/template
@@ -345,6 +347,7 @@ jobs:
   mcp-live:
     name: MCP live and client conformance
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     defaults:
       run:
         working-directory: tools/mcp-conformance
@@ -465,6 +468,7 @@ jobs:
     # `scripts/test-rigorous-local.sh`.
     name: JVM slow/stress tests (clojure -M:slow-test)
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
@@ -567,6 +571,7 @@ jobs:
       - mcp-live
       - jvm-slow-tests
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       issues: write     # open / edit / close the single tracking issue
       actions: read     # read this run's per-step conclusions
