@@ -1879,18 +1879,27 @@ mark of the window, cannot run until the synchronous stack unwinds, so it fires 
 before a torn frame can show (rf2-vxgfnd.40). That microtask is the window's **guaranteed**
 closer, and outside a synchronous host flush it is still the only one that ever runs;
 [§The second closer](#the-second-closer--a-synchronous-host-commit-must-be-able-to-close-the-window)
-below covers the one that runs inside one. The headless (JVM/SSR) host has no async
-render loop and drains through the explicit test flush. On CLJS, the substrate's
-test flush returns a Promise; its optional thunk runs inside direct React 19
-`act`, then framework drains and React commits alternate until both are quiescent. On
-the JVM the zero-arity flush is synchronous and returns nil. It is the sole public test
-flush, and the substrate publishes no production twin of it. A call while an event drain is still open
-throws `:rf.error/flush-in-open-epoch` synchronously before Promise construction,
-notifications, or host work, carrying the active `:frame` and `:frame-epoch` (per
-[009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue)). That guard
-rejects a misuse of the **explicit** flush; it is not the automatic scheduling boundary,
-which consults no drain state at all. The
-adapter's distinct production/tooling `flush-render!` contract is unchanged.
+below covers the one that runs inside one. The third closer in the enumeration above — the
+explicit headless/test flush — is a caller's door, and the doors that exist are narrow
+ones. The headless (plain-atom / SSR) adapters have no live host commit and so ship no
+flush at all: `render-to-string` is their only render path
+([§`flush-render!`](#flush-render-f--nil)). The three React adapters ship `flush-views!`,
+a dev/test-scoped boundary around direct React 19 `act` that returns nil, and whose
+production counterpart is `flush-render!`.
+
+A substrate that publishes a synchronous **registry-flush** — one that drains its OWN cell
+registry, and can therefore publish a render phase — MUST reject the call while a frame's
+run-to-completion event drain is still open, by calling the shared
+`re-frame.frame/guard-open-drain!` in core. It throws `:rf.error/flush-in-open-epoch`
+synchronously, before the caller touches its registry, carrying the active `:frame` and
+`:frame-epoch`. The requirement is a **standing** one: no in-repo substrate publishes such
+a flush today — its callers went with the donor view substrates removed by rf2-0yp7w — and
+the law stayed in core because it is core's rather than theirs. It rejects a misuse of an
+**explicit** flush; it is not the automatic scheduling boundary, which consults no drain
+state at all, and the adapter's distinct production/tooling `flush-render!` contract is
+unchanged (RULED, rf2-cydkp).
+[009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue) carries the
+category and the reasoning.
 
 #### The second closer — a synchronous host commit must be able to close the window
 
