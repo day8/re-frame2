@@ -1782,3 +1782,93 @@ this section's heading:
 now a ledger row with a witness a pull request runs, and every remaining gate
 is blocked on an instrument rather than on an edit. That is the honest boundary
 today, and moving it needs a quiet box rather than another pass over this page.
+
+**[Re-verified 2026-08-18, `rf2-85og2`, on a drained fleet.] All three are
+still refused, and the drain is what establishes it.** The measurement lane was
+cleared to zero for this bead's window and the window took **no reading** —
+because a precondition re-tested at the tip is what a window is for when the
+question is whether a trustworthy number can be taken at all. Each of the three
+above was re-tested at source rather than carried; two came back *stronger*
+than they were written, and the first came back the same but for a sharper
+reason. No threshold was guessed, no band widened and no figure restated.
+`U1`–`U4`, `C1`, `C3`, `C4` and `C8` all keep the status they had.
+
+**`U1`–`U4` and `C3`/`C4`: the reason has moved from *absence* to *estimator*.**
+Two clock drivers have landed since the bullet above was written, and one of
+them **is** pointed at the package: §4's `S8` clocks mount time through
+`re-frame.bench.hicasso.direct-return-clock-app`, which requires
+`re-frame.hicasso` itself and whose row this page already calls a **package
+figure**. The other, `re-frame.bench.hicasso.topo.clock-app` (`rf2-w01c`,
+window taken 2026-08-18), requires `re-frame.bench.hicasso.arm1.runtime` and is
+a bench-tree instrument. **Neither can pin `U1`–`U4`, and the block is now a
+line of source rather than a gap**: `lane/summarise` answers
+`{:n :min :max :p50}`, and no `p95` and no `p99` is computed anywhere on this
+lane, while every one of `U1`–`U4` is stated at `p95` or `p99`.
+[§9.2](#92-what-each-not-green-row-is-waiting-on) already records exactly that
+about `C8`'s `≥ 2 ms p95` disjunct — *the instrument computes no `p95`* — and
+it is the same lane. The populations differ as well: `U1`–`U4` are the slice
+application's own interactions, while both drivers mount a synthetic bench page
+inside one `flushSync` window, which is a mount and not a paint. `UNPINNED`
+stands on all six rows.
+
+**What *package-resident* means here**, written down because it is mis-readable
+in a way that would silently discharge that bullet. It names what the
+instrument is **pointed at**, never where the instrument's own code ships. §6's
+heading is *the instrument does not measure the package*, its diagnosis is *no
+heap instrument pointed at the package at all*, and `rf2-fe0l` discharged that
+half by **repointing** the P0 ladder's candidate seams at `re-frame.hicasso`
+rather than by repackaging anything; §4's *package figure* / *bench-tree
+figure* column sorts readings on the same axis. So `rf2-rxf49` putting
+`test_kit/src` on `:clein/build`'s `:src-dirs` — which does ship
+`re-frame.hicasso.test` and `re-frame.hicasso.test.mounted` in the jar, while
+`:paths` still does not carry it — moves nothing here, and the
+jar-versus-classpath distinction it creates is not the axis this gate turns on.
+The kit carries no clock estimand in any case: `mounted.cljs` installs a **fake**
+clock that replaces `Date.now` so that timers become deterministic, and its
+docstring records that it deliberately leaves `performance.now` alone. That is
+the opposite of an instrument, and `js/performance` appears nowhere in
+`test_kit/`.
+
+**`C1`: the supersession has widened rather than closed.** The ladder's
+provenance table pins eleven blobs. Six are the P0 driver's, under
+`implementation/core/test/re_frame/bench/`, and **all six have moved** — hashed
+at this branch's base with `git hash-object`:
+
+| file | pinned blob | at 2026-08-18 |
+|---|---|---|
+| `p0_run.cjs` | `4718aaea…` | `9c993e96…` |
+| `p0_heap.cljs` | `34c9210d…` | `2d922d31…` |
+| `p0_hicasso.cljs` | `f2440e30…` | `7a91564f…` |
+| `p0_reagent.cljs` | `b1f5ec92…` | `419e166a…` |
+| `p0_uix.cljs` | `deec8976…` | `f1aaf9cb…` |
+| `p0_fixture.cljc` | `867ad583…` | `de27135c…` |
+
+The other five are the candidate arm's, and §6 records one of them —
+`front/sub_index.cljs` — as absent. **All five are now unreachable rather than
+one**: the table pins them under
+`implementation/freehand/test/re_frame/bench/hicasso/`, and that tree was
+removed whole on 2026-08-16 (`rf2-0yp7w`, PR #8322), so `git ls-files` returns
+nothing under it. Eleven of eleven, then — six changed and five at a deleted
+path. *"The same instrument"* still names nothing, and the re-pin is still a run
+rather than an edit; now a run whose candidate arm has to be re-sited before it
+can be taken at all.
+
+**`C8`: the population is verifiably empty, not merely unreported.** Across the
+witness applications under
+`implementation/hicasso/test/re_frame/hicasso/examples/`, shipping view code
+carries exactly one `h/as-element` call — `ledger/views.cljs`'s `:render-row`,
+handing a boundary to the vendor virtualizer, which is the interoperability
+site the bullet above already names — and **no `re-frame.hicasso.native` island
+at all**. Nothing under `examples/` mounts Hicasso either. So there is still
+nothing for *"simplify or remove"* to name, and `S8` remains this mechanism's
+published reference price rather than a verdict about a site.
+
+**And one correction to *What this leaves*, above.** That paragraph says every
+remaining gate is blocked on an instrument rather than on an edit, and needs a
+quiet box rather than another pass. For `C8` that holds — its blocker is a
+landed site, which no amount of machine time supplies. For the other two it
+does not: `U1`–`U4` are blocked on an **estimator this lane does not compute**,
+and `C1` on a candidate arm that has to be re-sited, and **both of those are
+edit-shaped work that builds fine on a loud box.** Only the runs that follow
+them need the drain. Recording that distinction is what this window bought with
+a quiet fleet; it is a scheduling fact and it moves no row.
