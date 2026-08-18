@@ -396,9 +396,10 @@
     ;; Space / L / j / k / G.
     ;;
     ;; rf2-ttnst — also gate on "not inside a modal". The Settings
-    ;; popup and command palette each carry bare-letter mnemonics
-    ;; (g/t/f/k/b/d, fuzzy-typing in palette, etc.) that must NOT
-    ;; also drive the spine. The modal markers are read via
+    ;; popup and command palette each carry bare letters of their own
+    ;; (the Settings inner-tab mnemonics its `tabs` vector declares,
+    ;; fuzzy-typing in the palette) that must NOT also drive the
+    ;; spine. The modal markers are read via
     ;; `target-inside-modal?` which closest-walks the event target
     ;; for `data-rf-xray-mode="settings"|"palette"`.
     :else

@@ -1095,8 +1095,12 @@
   frame-aware `dispatch` (rf2-nesy9). Captures:
 
    - `Escape` → close the Settings popup (always).
-   - Bare-letter mnemonics (g/t/f/k/b/d) → switch the active inner
-     tab. Per Mike 2026-05-19 §0ter.4 the mnemonics are modal-only —
+   - Bare-letter inner-tab mnemonics → switch the active inner tab.
+     The letters are deliberately NOT enumerated here: the handler
+     below tests membership in `mnemonic->tab-id`, which is derived by
+     comprehension from the `tabs` vector, so `tabs` is the single
+     roster and this docstring cannot drift against it.
+     Per Mike 2026-05-19 §0ter.4 the mnemonics are modal-only —
      they conflict with the outer global `,` / `s` / `c` / `?` only
      in theory; the dialog stops propagation on every consumed key
      so the outer listener never sees them. Mnemonics are suppressed
