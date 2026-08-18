@@ -63,6 +63,8 @@
   degrades to a plain synchronous flush (still runs `f` and drains the
   render queue), so a `:node-test` runner with no real React render path
   still flushes.
+  It publishes a render phase, so do not call it from inside a
+  `dispatch-sync` handler (rf2-0c23j).
   The promise-returning `reagent2.dom.client/flush-views!` remains available
   when callers need deterministic Suspense ordering."
   (:flush-views! spine-fns))

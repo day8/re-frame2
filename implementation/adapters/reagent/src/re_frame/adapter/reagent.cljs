@@ -49,7 +49,9 @@
   with `f`, runs `f` then the synchronous render drain inside act. Returns
   nil. When act() is unreachable in the current React build it degrades to
   a plain synchronous flush (still runs `f` and drains the render queue),
-  so a `:node-test` runner with no real React render path still flushes."
+  so a `:node-test` runner with no real React render path still flushes.
+  It publishes a render phase, so do not call it from inside a
+  `dispatch-sync` handler (rf2-0c23j)."
   (:flush-views! spine-fns))
 
 (def adapter
