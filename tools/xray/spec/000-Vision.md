@@ -317,15 +317,27 @@ panel + the L2 event-row pink-wash + the always-on issues ribbon signal (see
 §The tab inventory intro above). The underlying issue projection
 (`:rf.xray/issues-ribbon`) survives as the ribbon signal's data source.
 
-**Popovers** (transient overlays, invokable from any tab):
+**Popovers** are transient overlays: they float over whichever tab is
+open and anchor on `:rf.xray/focus` like everything else. Three overlay
+surfaces ship today — the App-db segment-inspector popup, and the
+cancellation-cascade side-panel and popover — catalogued as the overlay
+tier in [`007-UX-IA.md`](007-UX-IA.md) §Mountable surface inventory. Two
+more are designed and **neither is built**:
 
-| Popover | Key | Content |
-|---|---|---|
-| **Nav-token timeline** | `r` | Horizontal swimlanes — each navigation is a bar; in-flight `:on-match` events ride above; stale-suppressed completions strike-through with carried-vs-current token visible. |
-| **Wire-trace** | `f` | The active fx's wire-boundary diff popped out — same content as the Epoch panel's inline "EFFECTS HANDLERS RAN" record-panel, but floats over any tab. |
+| Popover | Content |
+|---|---|
+| **Nav-token timeline** | Horizontal swimlanes — each navigation is a bar; in-flight `:on-match` events ride above; stale-suppressed completions strike-through with carried-vs-current token visible. Designed as R-C3 in [`019-Cross-Cutting-Insight.md`](019-Cross-Cutting-Insight.md) §4. |
+| **Wire-trace** | The active fx's wire-boundary diff popped out — same content as the Epoch panel's inline "EFFECTS HANDLERS RAN" record-panel, but floating over any tab. The diff itself ships; only the pop-out does not. |
 
-See [`018-Event-Spine.md`](018-Event-Spine.md) §10 for the popover invocation
-contract.
+An earlier draft gave these two an `r` and an `f` key and pointed here at
+an invocation contract in [`018-Event-Spine.md`](018-Event-Spine.md) §10.
+Neither key is bound: `r` was trimmed under Mike's Option B ruling
+(rf2-f7748x) and `f` was retired with the Effects tab, both recorded in
+[`007-UX-IA.md`](007-UX-IA.md) §Trimmed pending demand and §Retired keys.
+And §10 now reads `Reserved` — the third popover of that original set,
+Causality, was dropped outright per rf2-y0z5b, taking the contract with
+it. How an unbuilt popover gets invoked is undecided; what is settled is
+that it is not a keystroke.
 
 ## The bar
 
