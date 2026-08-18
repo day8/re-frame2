@@ -436,13 +436,18 @@ publishes `0.8081x` `[0.6863–0.9302]` — `19.2%` recovered `[7.0–31.4%]` �
 over the fifteen per-round ratios of the 2026-08-16 runs A, B and C, taken at
 the re-tuned `{:warmup 8 :samples 12}`. **Those are two different measurement
 conditions and not one correcting the other**, which is exactly why the old
-figure goes: run 1 refused nothing only because the strict rule did not yet
-exist to refuse it, it carries neither a strict per-round control verdict nor a
-reportable arm-order guard, and **it can never be given the first**, because its
-per-round ratios were never kept and the rig it was taken on no longer exists.
-A figure the current instrument cannot reproduce does not become the better
-figure by being older. The remedy for a change of basis is disclosure, which is
-this note.
+figure goes: run 1 carries **no strict per-round control verdict, and it can
+never be given one** — only `n`/`min`/`max`/`p50` was retained per arm, so its
+per-round ratios are gone, and the rig it was read on no longer exists. That is
+the deciding half, and it is about possibility rather than quality: **a figure
+no future work can ever validate does not become the better figure by being
+older**, and this file was publishing one beside a window that said so. The
+remedy for a change of basis is disclosure, which is this note.
+
+**One thing that argument does NOT rest on**, because this section records the
+opposite further down: run 1's **arm-order guard did return `reportable`**. What
+run 1 lacks is the strict control verdict, not the guard. Runs A, B and C carry
+both, and it is the control verdict that is unreachable for run 1 forever.
 
 **What the new figure rests on.** Three sequential runs on P-DEV-1, their count
 fixed at three **before the first started**, so no stopping rule could end the
@@ -739,8 +744,12 @@ because the reasoning is what a later reader needs and not just the verdict.
 
 The case for moving: these three runs are the only readings of this arm that
 carry a strict per-round control verdict *and* a reportable arm-order guard, and
-the published figure carries neither and can never be given the first. The case
-against: the two are **not the same measurement** — `0.7418x` was taken at
+the published figure carries neither and can never be given the first. **One
+correction to that sentence, which does not disturb it**: run 1's arm-order
+guard *did* return `reportable`, as this section records above, so what the
+published figure lacks is the strict control verdict alone — and since that is
+the half it *can never be given*, the case stands on the half that decided it.
+The case against: the two are **not the same measurement** — `0.7418x` was taken at
 `{:warmup 3 :samples 6}` and the re-tune was expected to make run 1 incomparable
 to whatever the file read next — so replacing one with the other is a change of
 basis and not a correction, and it moves the headline **away** from C8's line
