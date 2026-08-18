@@ -387,7 +387,15 @@ carries a full snapshot per commit — walk adjacent pairs newest-first until th
 text-bearing field, because the history holds duplicate checkpoint snapshots and status-only
 mutations and the newest pair alone can truthfully say nothing changed. And when a bead has
 children, re-enumerate them — a ruling is sometimes recorded as a new child bead rather than as
-a note.
+a note. **But a child is one of two carriers, and naming one reads as exhaustive**: a ruling that
+discharges a slice is more often the CLOSE REASON of a bead already CLOSED and linked as a
+*dependency*, which is normative text rather than an archival note. So read the item's dependency
+list and not only its children, and read each linked item's status and close reason before you
+brief from the item's own words — and note that enumerating by id prefix is not enumerating,
+because a generated id does not share the parent's prefix, so a prefix filter returns the children
+while silently omitting the bead that governs. That is how a dispatch on 2026-08-18 went out to
+delete a tree that a closed dependency had ruled KEEP, its ruling having sat on the item's own
+dependency list the whole time.
 
 Filter out before shaping anything:
 
