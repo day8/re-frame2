@@ -12,14 +12,18 @@ Neither can see the class that actually ambushed people:
 
     A REQUIRED CHECK CAN BE A **STEP INSIDE A JOB THE SPINE BELIEVES IT COVERS.**
 
-The sharpest instance is the EP-0036 donor-boundary check.  It is the last step
-of test.yml's `jvm-freehand` job, so it reports under the display name
-"JVM freehand (clojure -M:test)" -- and it is not a test at all, it is a
-`git grep` for `re-frame.ui` over `implementation/freehand`.  The spine runs that
-job's `clojure -M:test` and nothing else, so the tier is not skipped, the step is
-not a suite, and a worker reading the red goes looking for a failing test that
-does not exist.  Job-granularity comparison cannot see it.  This gate compares at
-STEP granularity, and it names the CHECK rather than the job.
+The sharpest instance was the EP-0036 donor-boundary check.  It was the last step
+of test.yml's `jvm-freehand` job, so it reported under the display name
+"JVM freehand (clojure -M:test)" -- and it was not a test at all, it was a
+`git grep` for `re-frame.ui` over `implementation/freehand`.  The spine ran that
+job's `clojure -M:test` and nothing else, so the tier was not skipped, the step
+was not a suite, and a worker reading the red went looking for a failing test
+that did not exist.  That job was deleted with the Freehand tree (rf2-0yp7w.6);
+the CLASS outlived it, and the witness this gate's self-test pins in its place is
+the `cljs` job's Hicasso `:advanced` release build, which the spine's `cljs` lane
+matches through its node-test run and never builds.  Job-granularity comparison
+cannot see either.  This gate compares at STEP granularity, and it names the
+CHECK rather than the job.
 
 HOW IT DECIDES, and why the failure direction is the safe one.
 
@@ -146,10 +150,12 @@ _SETUP_RE = tuple(re.compile(p) for p in SETUP_PATTERNS)
 # `command` matches the step's NORMALISED body (continuations joined, multiple
 # command lines joined with " ; ", whitespace collapsed).  `working_dir` may be
 # the sentinel "@impl-roster", meaning "the job's working-directory is an
-# artefact on scripts/test-jvm-implementation.sh" -- that one rule covers all
-# twenty-three per-artefact JVM jobs without naming any of them, and it is what
-# makes `jvm-freehand`'s SECOND gate step fall out of the derivation as unrun
-# rather than having to be remembered.
+# artefact on scripts/test-jvm-implementation.sh" -- that one rule covers every
+# per-artefact JVM job without naming any of them, and it is what made
+# `jvm-freehand`'s SECOND gate step fall out of the derivation as unrun rather
+# than having to be remembered.  That job went with the Freehand tree
+# (rf2-0yp7w.6) and this rule needed no edit, which is the point of it: the
+# roster is READ, never counted here.
 # ---------------------------------------------------------------------------
 class Lane:
     def __init__(self, key: str, command: str, why: str, working_dir: str | None = None):
@@ -377,9 +383,11 @@ _BLOCK_RE = re.compile(r"^[|>][-+0-9]*$")
 
 # `${{ github.workspace }}` IS the repo root, so a step declaring it needs no
 # `cd` at all -- and printing the raw expression as a local command would be
-# useless. This is the one workflow expression that reaches a required gate
-# step's location (the EP-0036 donor grep uses it); no required gate step's
-# `run:` body interpolates an expression at all.
+# useless. It is the one workflow expression ever seen to reach a required gate
+# step's location -- the EP-0036 donor grep used it, and that step went with the
+# Freehand tree (rf2-0yp7w.6), so no required gate step declares it today. The
+# handling stays because the shape is what a future one would reuse; no required
+# gate step's `run:` body interpolates an expression at all.
 _WORKSPACE_RE = re.compile(r"^\$\{\{\s*github\.workspace\s*\}\}$")
 
 
@@ -392,7 +400,9 @@ class Step:
         # job default; record that, so the job-default backfill below cannot
         # quietly put the default back after `${{ github.workspace }}` resolved
         # to "the repo root". That is exactly the shape the EP-0036 donor grep
-        # uses to escape `jvm-freehand`'s `implementation/freehand` default.
+        # used to escape `jvm-freehand`'s `implementation/freehand` default,
+        # kept after that job's deletion because the shape, not the job, is what
+        # this handling is for.
         self.declared_wd = working_directory is not None
         if working_directory and _WORKSPACE_RE.match(working_directory.strip("'\"")):
             working_directory = None

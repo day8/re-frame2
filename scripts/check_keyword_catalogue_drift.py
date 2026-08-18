@@ -97,24 +97,19 @@ its 485 active rows). The remaining 40 rows sit in 14 other `:rf.*` families
 arm that IS total over `:rf.*`: every emitted namespace must be reserved,
 whatever its family, so nothing escapes the gate entirely.
 
-OUT OF SCOPE, deliberately — `:rf.ui.compile/*`. The Freehand compiler emits
-~110 analyzer-refusal ids in that namespace (`:rf.ui.compile/bad-render-fn`,
-`…/bad-tag`, `…/unsupported-form`, …) and not one has a Spec 009 row. That is
-correct, and the reserved-namespace table already decided it: Conventions §The
-single-root reserved set says the family is the "compile-error id namespace …
-(compile-time only: thrown at macroexpansion, NEVER emitted at runtime, never
-a trace)", gives its spec home as "004 (rewrite)", and names its roster
-authority — "the id roster is pinned by the S1b analyzer reject tables". A
-never-a-trace id cannot have an error-EVENT row, so widening this scan to the
-family would not find drift; it would manufacture ~110 findings against a
-contract nobody wrote. The family's own roster gate is real and in flight
-elsewhere: `implementation/ui/test/re_frame/ui/error_roster_*`, dispositioned
-**MOVE** by the F1 absorption ledger (that archive was deleted by rf2-0yp7w.8;
-git history holds it) — it CROSSES into Freehand rather than dying with the
-donor tree, and the ids
-themselves already live on the Freehand side
-(`implementation/freehand/src/re_frame/freehand/compiler/`), so the pending
-`implementation/ui` deletion takes the donor copy only.
+OUT OF SCOPE, deliberately — `:rf.ui.compile/*`, and now doubly so. The Freehand
+compiler emitted ~110 analyzer-refusal ids in that namespace
+(`:rf.ui.compile/bad-render-fn`, `…/bad-tag`, `…/unsupported-form`, …) and not one
+had a Spec 009 row. That was correct: the family was compile-time only — thrown
+at macroexpansion, NEVER emitted at runtime, never a trace — and a never-a-trace
+id cannot have an error-EVENT row, so widening this scan to it would not have
+found drift, it would have manufactured ~110 findings against a contract nobody
+wrote. The compiler was then deleted with `implementation/ui/` on 2026-08-16
+(rf2-0yp7w): no implementation source emits the family, and its Conventions row
+is now a struck-through **RETIRED** tombstone, which `_row_is_retired` already
+keeps out of the reserved set (rf2-5kzwf). The boundary is recorded rather than
+dropped because a reader who meets the spelling in git history deserves the
+answer beside the scan.
 
 SCAN SURFACE (corpus-sweep rules — same as the sibling residue guards)
 ----------------------------------------------------------------------
