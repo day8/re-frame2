@@ -16,7 +16,6 @@ The most load-bearing files for the skill:
 - **`spec/Implementor-Checklist.md`** — the decision-ordered companion. Part 1 (which capabilities ship), Part 2 (per-capability mechanism choices), Part 3 (how to consume the conformance corpus). The skill's `references/phase-1-decisions.md` is the workflow shape of Part 1 + Part 2; `references/decision-record.md` is the fill-in shape for the engineer's choices against the table.
 - **`spec/001-Registration.md`** — EP 001. The registry contract. Referenced in `references/phase-2-impl-order.md`.
 - **`spec/002-Frames.md`** — EP 002. Frames + events + effects + subs. The largest EP after 005; multiple references in `phase-2-impl-order.md`.
-- **`spec/004-Views.md`** — EP 004. The view contract.
 - **`spec/006-ReactiveSubstrate.md`** — EP 006. The adapter contract.
 - **`spec/009-Instrumentation.md`** — EP 009. Trace event stream, error contract, production elision.
 - **`spec/005-StateMachines.md`** — EP 005. Walked in Phase 2 only if D3 Q1 = yes; the spec's largest EP (~2,900 lines).

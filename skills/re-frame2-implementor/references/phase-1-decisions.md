@@ -75,7 +75,7 @@ Non-React substrates (Vue, Solid, Svelte, vanilla DOM, Replicant, Lit) and non-c
 
 **The question.** Which React binding renders the view, and what is the reactive container that holds `app-db`?
 
-**What's at stake.** The reactive substrate decision propagates into EP 006 (the adapter contract), EP 004 (the render-tree shape), and the view-rerender trigger.
+**What's at stake.** The reactive substrate decision propagates into EP 006 (the adapter contract), the render-tree shape (§V1), and the view-rerender trigger.
 
 **The substrate is fixed: React + VDOM.** re-frame2 commits to React + VDOM at the render side (per [`spec/006-ReactiveSubstrate.md`](https://day8.github.io/re-frame2/spec/006-ReactiveSubstrate/) and the [`spec/000-Vision.md`](https://day8.github.io/re-frame2/spec/000-Vision/) §scope footnote). Every in-scope host cross-compiles to JS and binds against React; non-React substrates are out of scope. So D2 is *not* "which substrate" — it is "which React binding does your host use, and what is the reactive container."
 
@@ -257,7 +257,7 @@ From [Implementor-Checklist §Views](https://day8.github.io/re-frame2/spec/Imple
 
 **Options.** Hiccup (CLJS, Squint); JSX-as-data / snabbdom-style vnodes (TS); Feliz `Html.div [...]` (Fable); `R.div [] [...]` (PureScript); `<.div(...)` (Scala.js); `div { ... }` (Kotlin/JS) — every in-scope host targets React + VDOM, so the shape is the host's idiomatic data-form over `createElement`.
 
-**Where the spec speaks.** [Implementor-Checklist §V1](https://day8.github.io/re-frame2/spec/Implementor-Checklist/#v1-render-tree-shape). [`spec/004-Views.md`](https://day8.github.io/re-frame2/spec/004-Views/).
+**Where the spec speaks.** [Implementor-Checklist §V1](https://day8.github.io/re-frame2/spec/Implementor-Checklist/#v1-render-tree-shape).
 
 #### V2 Render trigger
 

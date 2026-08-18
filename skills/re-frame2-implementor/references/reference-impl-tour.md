@@ -23,7 +23,7 @@ implementation/
 │       ├── subs.cljc        EP 002 — subscription cache + signal graph
 │       ├── interceptor.cljc EP 002 — interceptor primitives (impl detail)
 │       ├── router.cljc      EP 002 — dispatch routing + drain
-│       ├── views.cljs       EP 004 — view registration
+│       ├── views.cljs       view registration
 │       ├── spec.cljc        EP 010 — schema hooks + validation
 │       ├── trace.cljc       EP 009 — trace listener registry + ring buffer
 │       ├── emit.cljc        EP 009 — trace emit sites
@@ -97,7 +97,7 @@ The per-feature directories ship as **separate artefacts** in the published libr
 
 **What's pattern-required.** The six required functions (`make-state-container`, `read-container`, `replace-container!`, `make-derived-value`, `render`, `render-to-string` — note `render-to-string` is required, JVM-runnable, even for no-SSR ports) + three optional (`subscribe-container`, `register-context-provider`, `flush-render!`) + one lifecycle slot (the adapter-spec map's internal `:dispose-adapter!`); install/teardown via the core's public `install-adapter!` / `destroy-adapter!` lifecycle pair (the public verb is `destroy-adapter!` — `:dispose-adapter!` is the adapter map's internal slot it calls, not a public function). One adapter bound at boot — the boot-bound adapter selection, no realm/container layer wrapping it (there is no "multi-adapter coexistence is N realms" model; image assembly plus frame isolation are the whole composition story). Adapter-internal state derivable from the frame value (revertibility constraint).
 
-### EP 004 — Views (`core/src/re_frame/views.cljs`)
+### Views (`core/src/re_frame/views.cljs`)
 
 **What you'll find.** `reg-view` is a macro that wraps a function, captures source coords, and registers the wrapper with the registrar. The wrapper plugs into Reagent's component model. Plain Reagent functions (not registered via `reg-view`) still work — they bypass the registry and the frame-propagation contract.
 

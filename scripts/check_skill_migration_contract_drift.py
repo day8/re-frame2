@@ -20,8 +20,8 @@ Two contract facts, each pinned against the shipped spec:
     in one raises `:rf.error/no-frame-context` (EP-0002 — no `:rf/default`
     fall-through; the old warn-once is superseded). A `reg-view`-registered view
     DOES read the provider frame. (spec/002-Frames.md §Reading the frame from
-    React context / §Decision table; spec/004-Views.md §Plain Reagent fns; the
-    cross_spec_dom and frame_provider_context_dom adapter tests.) The stale claim
+    React context / §Decision table; the cross_spec_dom and
+    frame_provider_context_dom adapter tests.) The stale claim
     this gate kills: "plain Reagent fns work / are fine inside any established
     frame scope" / "a plain fn inside a frame-provider inherits that frame
     ambiently".
@@ -698,8 +698,8 @@ def line_problems(line: str) -> list[str]:
             "M11-PLAIN-FN-INHERITS: a plain (non-`reg-view`) Reagent fn does NOT "
             "inherit / work inside a `frame-provider`'s frame — it carries no "
             "`:contextType`, so a bare ambient `subscribe`/`dispatch` raises "
-            "`:rf.error/no-frame-context` (EP-0002; spec/002-Frames.md, "
-            "spec/004-Views.md). Only a `reg-view`-registered view reads the "
+            "`:rf.error/no-frame-context` (EP-0002; spec/002-Frames.md). "
+            "Only a `reg-view`-registered view reads the "
             "provider frame. State the limitation, not the (false) inheritance."
         )
 

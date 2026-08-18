@@ -100,7 +100,7 @@ No standalone example app — the idiom appears wherever a list renders the same
 ## Pointers
 
 - Spec: [`spec/Pattern-ReusableComponents.md`](../../../spec/Pattern-ReusableComponents.md) — the full idiom, the multi-identity forms, the four placefulness answers, the conformance checklist.
-- Substrate: `SKILL-REDIRECT.md` → *EP — Views (004)* (`reg-view` positional args, render-tree splice), *EP — Registration (001)* (`reg-sub` query-vector destructure).
+- Substrate: `SKILL-REDIRECT.md` → *EP — Frames (002)* §What `reg-view` injects, *EP — Registration (001)* (`reg-sub` query-vector destructure), *Pattern — Reusable components* (positional args, render-tree splice).
 - Compose: `patterns/stateful-components.md` (a `[customer-chart id]` widget is a reusable component that *also* wraps a charting library — entity-id handles the data, the outer/inner shape handles the lifecycle).
 
 ---

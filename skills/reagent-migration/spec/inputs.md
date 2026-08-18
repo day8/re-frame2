@@ -105,11 +105,12 @@ for *what*.
 - **`examples/**`** — worked examples are for authoring, not this migration.
 - **Freehand and `re-frame.ui`** — both retired, and both trees were **removed**
   on 2026-08-16 (rf2-0yp7w); their API pages and guide went with them, so there
-  is nothing left to read and nothing to consume. Residual prose still survives
-  in `spec/004-Views.md`, whose sweep is outstanding, and it describes a
-  *different substrate*: its verbs (`v/html`, `v/spread-safe`, `v/defbehavior`,
-  `{:compiled true}`) must never be carried across by analogy. This is the
-  single most likely way a future edit reintroduces a wrong spelling.
+  is nothing left to read and nothing to consume. `spec/004-Views.md`, which
+  carried the last of that prose, was deleted on 2026-08-18 (rf2-h89ri). Its
+  verbs (`v/html`, `v/spread-safe`, `v/defbehavior`, `{:compiled true}`)
+  described a *different substrate* and must never be carried across by
+  analogy — the single most likely way a future edit reintroduces a wrong
+  spelling.
 
 ## 7. Update procedure
 

@@ -15,7 +15,7 @@ The EP-by-EP implementation walk for Phase 2. Each section names: what to read f
 1. EP 001 — Registration
 2. EP 002 — Frames + events + effects + subscriptions
 3. EP 006 — Reactive substrate
-4. EP 004 — Views
+4. Views — the render-tree obligation (no numbered Spec)
 5. EP 009 — Instrumentation
 6. EP 015 — Data Classification (v1-required; overlays the 009 emission boundary)
 7. **Acceptance gate 1** (the required-foundation gate): run every fixture applicable to the three v1-required families — `:core/*` + `:identity/*` + `:data-classification/*`
@@ -165,9 +165,9 @@ The contract the port must expose:
 
 ---
 
-## EP 004 — Views
+## Views — the render-tree obligation (no numbered Spec)
 
-**Read first.** [`spec/004-Views.md`](https://day8.github.io/re-frame2/spec/004-Views/).
+**Read first.** [Implementor-Checklist §V1](https://day8.github.io/re-frame2/spec/Implementor-Checklist/#v1-render-tree-shape) and [`spec/002-Frames.md` §What `reg-view` injects](https://day8.github.io/re-frame2/spec/002-Frames/#what-reg-view-injects). There is no numbered view Spec: the Spec that once held one described a view substrate re-frame2 has since removed, and was deleted with it. The obligation below is the whole of what a port must meet.
 
 **The contract.**
 

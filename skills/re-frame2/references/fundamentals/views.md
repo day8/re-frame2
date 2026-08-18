@@ -14,7 +14,7 @@ A view is a **pure function of subscriptions to hiccup**. It reads state via `su
 (rf/reg-view ^{:rf/id :explicit/id} sym [args] body+)   ;; override the auto-derived id
 ```
 
-Verified in `spec/004-Views.md` §`reg-view` is the multi-frame contract and `implementation/core/src/re_frame/core.cljc` (the `reg-view` macro). `reg-view`:
+Verified in `spec/002-Frames.md` §What `reg-view` injects and `implementation/core/src/re_frame/core.cljc` (the `reg-view` macro). `reg-view`:
 
 - **Auto-defs the symbol** to the wrapped (frame-aware) fn — there is no separate `(def sym (reg-view …))` step.
 - **Auto-injects two lexical bindings**, `dispatch` and `subscribe`, into every call of the render fn — these are the *frame-aware* versions bound to the view's resolved frame (no `rf/` prefix needed inside the body).
@@ -97,7 +97,7 @@ Everything above is the **adapter** story: re-frame2 drives a React view layer s
 
 Everything upstream of the view is unchanged — the same `reg-event`, `reg-sub`, app-db, effects, frames, machines and routing this skill teaches. Only the view spelling and its host move.
 
-Writing Hicasso views is not this skill's surface. Porting existing Reagent views across is the [`reagent-migration`](../../../reagent-migration) skill, which carries the verb roster, the judgment calls and the cases Hicasso does not yet handle. The contract is `spec/004-Views.md` — check a verb there before writing it, because the design corpus describes several that are not exported.
+Writing Hicasso views is not this skill's surface. Porting existing Reagent views across is the [`reagent-migration`](../../../reagent-migration) skill, which carries the verb roster, the judgment calls and the cases Hicasso does not yet handle. Check a verb against that skill's roster before writing it, because the design corpus describes several that are not exported.
 
 ## Common gotchas
 
@@ -112,8 +112,8 @@ Writing Hicasso views is not this skill's surface. Porting existing Reagent view
 
 ## Deeper material
 
-Full render-tree contract, the `:render-key` tuple, the two registration lanes, Form-1/2/3 in detail, the anonymous-fallback shape for plain fns: `SKILL-REDIRECT.md` → **EP — Views (004)**, **EP — Frames (002)** §What `reg-view` injects, **EP — Reactive substrate (006)** §Source-coord annotation.
+Full render-tree contract, the `:render-key` tuple, the two registration lanes, Form-1/2/3 in detail, the anonymous-fallback shape for plain fns: `SKILL-REDIRECT.md` → **EP — Frames (002)** §What `reg-view` injects, **EP — Reactive substrate (006)** §Source-coord annotation.
 
 ---
 
-*Derived from `spec/004-Views.md` and `implementation/core/src/re_frame/core.cljc` (the `reg-view` / `reg-view*` surface). Citations are symbol-level; re-verify symbol homes after view-registration or adapter-wrapper changes.*
+*Derived from `spec/002-Frames.md` and `implementation/core/src/re_frame/core.cljc` (the `reg-view` / `reg-view*` surface). Citations are symbol-level; re-verify symbol homes after view-registration or adapter-wrapper changes.*
