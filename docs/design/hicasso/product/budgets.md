@@ -1843,15 +1843,30 @@ at this branch's base with `git hash-object`:
 | `p0_uix.cljs` | `deec8976…` | `f1aaf9cb…` |
 | `p0_fixture.cljc` | `867ad583…` | `de27135c…` |
 
-The other five are the candidate arm's, and §6 records one of them —
-`front/sub_index.cljs` — as absent. **All five are now unreachable rather than
-one**: the table pins them under
-`implementation/freehand/test/re_frame/bench/hicasso/`, and that tree was
-removed whole on 2026-08-16 (`rf2-0yp7w`, PR #8322), so `git ls-files` returns
-nothing under it. Eleven of eleven, then — six changed and five at a deleted
-path. *"The same instrument"* still names nothing, and the re-pin is still a run
-rather than an edit; now a run whose candidate arm has to be re-sited before it
-can be taken at all.
+The other five are the candidate arm's, and **the pinned path itself is gone**:
+they are pinned under `implementation/freehand/test/re_frame/bench/hicasso/`,
+the benchmark harness was re-homed into `implementation/hicasso/` on 2026-08-14
+by `e61e175341`, and `implementation/freehand` was deleted whole on 2026-08-15
+by `c951808b47` (`rf2-0yp7w.6`). Four of the five survive the move under
+`implementation/hicasso/test/re_frame/bench/hicasso/`, and **all four have
+different content there**; the fifth is gone from the repository altogether,
+which is the absence §6 already records:
+
+| candidate-arm file | pinned blob | at its re-homed path, 2026-08-18 |
+|---|---|---|
+| `arm1/runtime.cljs` | `69bfc6fc…` | `202f7612…` |
+| `arm1/mount.cljs` | `4653e168…` | `780b2962…` |
+| `arm1/lang.clj` | `0151ddaf…` | `95f057e8…` |
+| `front/codec.cljs` | `5eb17dbd…` | `ea859037…` |
+| `front/sub_index.cljs` | `394927d6…` | **absent from the tree** |
+
+`arm1/lang.clj` is worth one line of its own: the ladder's provenance says it
+was the one file that did **not** move across that page's own three runs. It has
+moved since. So the count is eleven of eleven — six changed in place, four
+changed and re-homed, one gone — and *"the same instrument"* still names
+nothing. The re-pin is still a run rather than an edit, and it is now a run
+whose candidate arm has to be re-registered at a path that exists before it can
+be taken at all.
 
 **`C8`: the population is verifiably empty, not merely unreported.** Across the
 witness applications under
