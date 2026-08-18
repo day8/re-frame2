@@ -119,12 +119,12 @@
       "dimension": "critique-correctness",
       "leaf": "view-side-hook-state.md",
       "prompt": "Improvements for this re-frame2 view module?\n\n(ns my-app.dashboard\n  (:require [reagent.core :as r]\n            [re-frame.core :as rf]))\n\n(defonce !current-tab (r/atom :overview))\n\n(defn tab-buttons []\n  [:div (for [t [:overview :stats :settings]]\n          [:button {:on-click #(reset! !current-tab t)} (name t)])])\n\n(defn tab-content []\n  [:div (case @!current-tab\n          :overview [overview-pane]\n          :stats    [stats-pane]\n          :settings [settings-pane])])",
-      "expected_output": "The agent recognises a view-side `reagent/atom` (`!current-tab`) holding state that is SHARED across sibling components (written by `tab-buttons`, read by `tab-content`) — non-render-local state standing in for app-db, invisible to subs, events, Xray, Story/SSR, and tests. It loads references/view-side-hook-state.md and recommends moving the state to app-db behind a reg-sub with a reg-event writer, cross-linking subs.md / events.md and spec/Principles.md / spec/004-Views.md.",
+      "expected_output": "The agent recognises a view-side `reagent/atom` (`!current-tab`) holding state that is SHARED across sibling components (written by `tab-buttons`, read by `tab-content`) — non-render-local state standing in for app-db, invisible to subs, events, Xray, Story/SSR, and tests. It loads references/view-side-hook-state.md and recommends moving the state to app-db behind a reg-sub with a reg-event writer, cross-linking subs.md / events.md and spec/Principles.md.",
       "expectations": [
         "Skill skills/re-frame2-improver/ is invoked and references/view-side-hook-state.md is read.",
         "The output names the anti-pattern as view-side / module-level mutable state (the !current-tab reagent atom) holding NON-render-local state shared across components — written by one view and read by a sibling.",
         "The output's fix moves the state to app-db behind a reg-sub (read) plus a reg-event (write), so subs/events/tools can see it.",
-        "The output cross-links the canonical idiom (skills/re-frame2/references/fundamentals/subs.md and/or events.md; spec/Principles.md / spec/004-Views.md).",
+        "The output cross-links the canonical idiom (skills/re-frame2/references/fundamentals/subs.md and/or events.md; spec/Principles.md).",
         "The output's justification names at least one concrete invisibility cost (invisible to subs, to events, to Xray/re-frame2-pair, or to Story/SSR/replay) rather than a vague 'prefer app-db'."
       ]
     },
