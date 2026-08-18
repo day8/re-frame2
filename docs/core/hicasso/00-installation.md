@@ -59,11 +59,17 @@ launcher come from npm:
 npm install
 ```
 
-Both npm lines earn their place. **Pin React**: Hicasso needs 18 or newer — it
-mounts through `createRoot`, and `:identifier-prefix` sets what `useId` answers
-— and 19.2 is what the reference implementation runs and what this chapter is
-checked against, whereas a bare `npm install react react-dom` resolves to
-whatever is current that day. **And keep `shadow-cljs` in `devDependencies`**
+Both npm lines earn their place. **Pin React, and pin it at 19.2 or newer.**
+Hicasso mounts through `createRoot` and lets `:identifier-prefix` decide what
+`useId` answers, both of which React has offered since 18 — but the lifecycle
+contract Hicasso holds itself to is written against
+[`<Activity>`](https://react.dev/reference/react/Activity), which shipped in
+19.2, and 19.2 is the pair the reference implementation runs and this chapter is
+checked against. **React 18 is not supported**: nothing tests Hicasso there, and
+the Activity half of the contract has nothing to run on. A bare
+`npm install react react-dom` resolves to whatever is current that day, which is
+the other half of why the pin is written out. **And keep `shadow-cljs` in
+`devDependencies`**
 even though the JVM dependency above is what compiles: the npm package is where
 the `process` shim React's CommonJS build asks for comes from, and without it
 the build stops at `The required JS dependency "process" is not available`.
@@ -101,6 +107,39 @@ The main namespace is `re-frame.hicasso`, conventionally required as `h`.
 Forms, overlays, motion, routing, the native tier, and the test kit use separate
 namespaces. A build that does not require an optional module does not include
 its code.
+
+## Supported versions
+
+The pins above are not arbitrary, and this table says what stands behind each of
+them. **Tested** means a gate in the re-frame2 repository runs Hicasso against
+that combination. **Expected** means the code has no version-conditional branch
+that would make it fail there, but nothing measures it — a reasonable bet rather
+than a promise. Nothing here is forbidden; the distinction is only between what
+is checked and what is not.
+
+| Combination | Tested | Expected, but unmeasured |
+| --- | --- | --- |
+| React and react-dom | 19.2.0, on every browser and Node lane Hicasso runs | Later 19.x, for the render boundary and the two-hook contract. Below 19.2 the `<Activity>` lifecycle rows have nothing to run on, and 18 and earlier is not supported at all |
+| Browser engine | Chromium, on the headless DOM lane. Firefox and WebKit, whenever a change touches the Hicasso surface | Any other engine or version — the substrate targets React's DOM contract rather than any one browser's |
+| ClojureScript and shadow-cljs | 1.12.145 and 3.4.10 | Nothing else is measured |
+| re-frame2 core and `re-frame2-ssr` | the same checkout as Hicasso, which `:local/root` is what guarantees | There is no released coordinate yet, so no released-version pair exists to be compatible with |
+
+The full matrix — every row above, plus the platform axis and the named CI job
+or explicit untested-but-expected label behind each one — is maintained in the
+repository as the Hicasso release policy, under
+`docs/design/hicasso/product/release-policy.md`. That page is a working design
+record rather than part of this site, so it is read from a checkout.
+
+**Upgrades before 1.0 may cost you a rename, and should not cost you a
+rethink.** Every published artifact ships at the same version through 1.0, and
+the project ships no back-compatibility shims: a renamed or removed door is a
+compile error at your own call site rather than a deprecation warning, so the
+compiler enumerates every site that has to move. What is genuinely promised in
+the meantime is the complaint ids — an id never changes meaning or spelling, and
+a retired one is never reused — because stored errors and monitoring rules
+outlive the code that raised them. The
+[complaint index](troubleshooting.md#the-complaint-index) is the list those
+promises are about.
 
 ## Hicasso needs a substrate adapter
 

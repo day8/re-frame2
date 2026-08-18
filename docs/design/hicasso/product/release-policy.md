@@ -165,6 +165,16 @@ reports what it read.
 Every row carries either the CI job that backs it or an explicit **untested-but-expected** label, per
 `rf2-hic-061`'s acceptance. A row with neither would be a claim, and this page makes none.
 
+**This table has a consumer-facing abridgement, and the two must agree.** `mkdocs.yml`'s `exclude_docs`
+keeps `docs/design/hicasso/` out of the published site, so a consumer reading the guide cannot reach this
+page at all — which is how the guide came to tell readers Hicasso *"needs 18 or newer"* while this table
+said React 18 is **NOT SUPPORTED**. The abridgement now lives in
+[`docs/core/hicasso/00-installation.md` §Supported versions](../../../core/hicasso/00-installation.md#supported-versions),
+carries the React, browser-engine, ClojureScript and core-pairing rows in the same tested-versus-expected
+terms, and names this page as the full matrix without linking to it. **A change to a version row here is
+therefore a two-file change**, and nothing gates it: the site build never sees this page, and no gate
+compares the two. Whoever re-measures §3 and §4 re-reads that section in the same pass.
+
 | Combination | Pinned where | Backed by | Status |
 |---|---|---|---|
 | React 19.2.0 and react-dom 19.2.0 | `implementation/package.json` | the CLJS node lane in job `cljs`; `cljs-hicasso-controlled`; `cljs-hicasso-hmr` | **TESTED** — every Hicasso claim in this repository is a claim about this pair |
