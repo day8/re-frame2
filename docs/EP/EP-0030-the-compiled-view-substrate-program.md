@@ -5,10 +5,13 @@ Type: standards-track
 Created: 2026-07-16
 Resolution: accepted 2026-07-11 (program ratification); adapter disposition reframed 2026-07-17
 
-> **Historical record — 2026-07-30.** This programme's compiled substrate was
+> **Historical record — 2026-08-16.** This programme's compiled substrate was
 > absorbed into Freehand, and Freehand
-> ([EP-0036](EP-0036-the-freehand-view-substrate-programme.md)) is now
-> **withdrawn**. Nothing is in flight under this EP or its siblings
+> ([EP-0036](EP-0036-the-freehand-view-substrate-programme.md)) was
+> **withdrawn** on 2026-07-30. Both donor substrates were then **removed from
+> the tree** on 2026-08-16 under the operator ruling recorded as `rf2-0yp7w` —
+> `implementation/ui/` and `implementation/freehand/` return nothing from
+> `git ls-files`. Nothing is in flight under this EP or its siblings
 > EP-0031–EP-0035; they are kept as the record of the donor programme.
 
 ## Abstract
