@@ -26,7 +26,8 @@ to `88411ed803` afterwards.
 **The bisect is FLAT. No ~1 – 3.5 KB drop is located anywhere in
 2026-08-08 → 2026-08-13, and the event-pipeline candidate is not supported —
 the one commit carrying the whole event-pipeline change moves `F_old` by
-+284 to +322 B, which is the wrong sign and an order of magnitude too small.**
++296 B on `reagent-subs` and +284 B on `uix-subs`, which is the wrong sign and
+an order of magnitude too small.**
 
 **And the reason the search had something to find is an instrument property, not
 a substrate one. Two control-passing runs at the IDENTICAL revision, on the
@@ -44,9 +45,11 @@ case and refuses neither.
   `a158c40288` (`feat(core): refuse a malformed effect-map envelope at the
   final-effects boundary`) is the only commit in the interval that touches
   `events.cljc`, `router.cljc` or `fx.cljc`, and it touches all three at once —
-  295 / 221 / 49 lines. Across its own parent boundary the floor moves
-  **+322 B** on `reagent-subs` and **+284 B** on `uix-subs`. Against
-  2026-08-08's low-mode reading the same step is **+286 B** and **+284 B**.
+  295 / 221 / 49 lines. Pooling the two low-mode readings either side of it, the
+  floor moves **+296 B** on `reagent-subs` and **+284 B** on `uix-subs`. Taken
+  one edge at a time it is +322 / +284 across the immediate parent boundary and
+  +286 / +284 against 2026-08-08's own low-mode reading — a range narrower than
+  the step itself.
 - **The 2026-08-08 substrate is not high.** Two of its three runs read
   19,100 / 19,540; the third read 22,892 / 23,332. The high reading is the
   outlier, and its own run contains the refutation — rounds 1 – 3 of that run
@@ -216,11 +219,31 @@ the warm-write read-back, and a positive control adjudicated `ok`. Collections
 inside measured windows ran 7 – 12 of 36 windows per run and refusals 8 – 14 of
 36; the refused windows are excluded rather than netted.
 
-Read down the table twice. Down the last four rows the quantity moves by at most
-**322 B** across a boundary that includes every line of the event pipeline that
-changed in the interval, and by **8 B** across the five days from 2026-08-12 to
-HEAD. Across the first two rows — the *same* commit, the *same* instrument,
-twelve minutes apart — it moves by **3,792 B**.
+Read down the table twice. Down the last four rows the quantity moves by a few
+hundred bytes across a boundary that includes every line of the event pipeline
+that changed in the interval, and by **8 B** across the five days from
+2026-08-12 to HEAD. Across the first two rows — the *same* commit, the *same*
+instrument, twelve minutes apart — it moves by **3,792 B**.
+
+### The pipeline step, grouped
+
+Setting run 2 aside as the high-mode reading, the low-mode rows fall into two
+groups either side of `a158c40288`, and the groups are far tighter than the
+distance between them:
+
+| Segment | Pre-pipeline (`4a1537cb71` run 7, `9d20be1d00` run 5) | Post (`a158c40288`, `48c715f97c`, `88411ed803`) | Step |
+|---|---|---|---|
+| `reagent-subs` | 19,100 / 19,064 — spread **36 B** | 19,386 / 19,378 / 19,378 — spread **8 B** | **+296 B** |
+| `uix-subs` | 19,540 / 19,540 — spread **0 B** | 19,824 / 19,818 / 19,826 — spread **8 B** | **+284 B** |
+
+Five independent browser launches across five commits, and the within-group
+spread is an order of magnitude under the step. So the pipeline commit's price
+is *well resolved* — **conditional on the low mode**, which is the only mode
+these five runs were in. It is also small, positive, and consistent across two
+segments that share no view layer: the commit that replaced a per-event
+`(vec (remove …))` over the effect map's keys with a pure first-defect validator
+at the router boundary **added** about 290 B per write rather than removing
+three and a half kilobytes.
 
 ## The second mode
 
@@ -278,7 +301,7 @@ Filed rather than chased.
 
 **Ruled out.** That the event pipeline is where the published across-time gap
 went. The pipeline change is isolated to a single commit, priced across its own
-parent edge on one instrument, and it is +284 to +322 B — positive, and between
+parent edge on one instrument, and it is +296 B and +284 B — positive, and about
 a ninth and a twelfth of the effect. A drift of 1 – 3.5 KB in
 `implementation/core/src` between 2026-08-08 and 2026-08-13 is not there to be
 found.
