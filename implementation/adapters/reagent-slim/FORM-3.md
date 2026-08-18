@@ -673,9 +673,11 @@ is the answer, not a lossy rewrite.
   shape, React-class wrapper, and lifecycle key → method mapping.
 - **[DESIGN-RATIONALE](DESIGN-RATIONALE.md)** §4 — the seven-key Form-3 cap: design
   rationale and re-frame2-fit framing.
-- **[Views spec](../../../spec/004-Views.md)** §"Form-3 (class — out of scope for the
-  macro)" — Form-3 is intentionally not supported by the `reg-view` macro; use
-  `re-frame.core/reg-view*` (the plain-fn surface) for Form-3 components.
+- **Form-3 is intentionally not supported by the `reg-view` macro** — use
+  `re-frame.core/reg-view*` (the plain-fn surface) for Form-3 components. The
+  spec section that stated this, `spec/004-Views.md` §"Form-3 (class — out of
+  scope for the macro)", was deleted on 2026-08-18 with the substrate it
+  described (rf2-h89ri).
 - **[Migration recipe](../../../skills/re-frame-migration/references/guided-handlers-state.md)**
   §M-11 Form-3 routes 1 & 2 — the full recipe for a **frame-scoped** Form-3 (one
   that subscribes or dispatches app state): extract the subscribing part into a

@@ -6,7 +6,7 @@ Maven artefact: `day8/re-frame2-uix`. Target: UIx 2.x (hooks-based). Public ns: 
 
 This adapter implements re-frame2's substrate contract on top of UIx — Pitch's modern, hooks-based CLJS React wrapper. Subscriptions are read via the `use-subscribe` hook (returning a plain value, not a reaction); frame context is composed via React context.
 
-See [`../README.md`](../README.md) for the wider adapter tier and the substrate contract; [Spec 004 — Views](../../../spec/004-Views.md) for `reg-view` / `reg-view*` semantics; [Spec 006 — Reactive substrate](../../../spec/006-ReactiveSubstrate.md) for the contract this adapter implements.
+See [`../README.md`](../README.md) for the wider adapter tier and the substrate contract; [Spec 002 — Frames §What `reg-view` injects](../../../spec/002-Frames.md#what-reg-view-injects) for `reg-view` / `reg-view*` semantics; [Spec 006 — Reactive substrate](../../../spec/006-ReactiveSubstrate.md) for the contract this adapter implements.
 
 ## Adapter-specific surface
 

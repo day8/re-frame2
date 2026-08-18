@@ -145,7 +145,6 @@ The id idiom predates substrate choice. A view that follows it ports across adap
 ## Cross-references
 
 - [001-Registration.md](001-Registration.md) — `reg-sub` and `reg-view` registration grammar; the query-vector destructure is standard `reg-sub` mechanics.
-- [004-Views.md](004-Views.md) — `reg-view` positional args; render-tree splice semantics; Form-1 canonical.
 - [002-Frames.md](002-Frames.md) — per-frame `app-db` isolation; how frames change the multi-instance story for views rendered in different frames.
 - [006-ReactiveSubstrate.md](006-ReactiveSubstrate.md) — the adapter contract; why the idiom ports across Reagent / UIx unchanged.
 - [013-Flows.md](013-Flows.md) — when a host app's existing storage shape doesn't match a library's expected slice path, project into the expected shape via a registered flow.

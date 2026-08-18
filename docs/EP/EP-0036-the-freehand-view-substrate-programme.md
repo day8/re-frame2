@@ -398,7 +398,7 @@ evidence current, consumers migrated, and the donor artifact deleted.
 - [EP-0033 — donor view evidence](EP-0033-re-frame-ui-view-evidence.md)
 - [EP-0034 — donor production, SSR, and testing](EP-0034-re-frame-ui-production-ssr-testing.md)
 - [EP-0035 — donor component-library readiness](EP-0035-component-library-readiness.md)
-- [`spec/004-Views.md`](../../spec/004-Views.md)
+- `spec/004-Views.md` — deleted on 2026-08-18 (rf2-h89ri)
 - [`spec/004B-UI-Tree-and-Conversion.md`](../../spec/004B-UI-Tree-and-Conversion.md)
 - [`spec/004C-Roots-and-Mount.md`](../../spec/004C-Roots-and-Mount.md)
 - [`spec/006-ReactiveSubstrate.md`](../../spec/006-ReactiveSubstrate.md)

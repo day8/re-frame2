@@ -80,11 +80,14 @@ from pathlib import Path
 # --- The closed roster of ACTIVE dispatchable authorities ---------------------
 ACTIVE_AUTHORITIES = (
     "docs/EP/EP-0030-the-compiled-view-substrate-program.md",
-    "spec/004-Views.md",
     # `spec/004D-Freehand-Compiled-Grammar.md` was on this roster until rf2-0yp7w.11
     # deleted it with its artefact (`day8/re-frame2-ui`, removed by the R2b/R3b cuts).
-    # The adapter-disposition prose it carried is gone with it; spec/004-Views.md
-    # remains the Spec-tier authority the roster scans.
+    # `spec/004-Views.md` followed it under rf2-h89ri, which ruled the deletion of
+    # that Spec and the S3/S4/S5 view-conformance profiles once the Freehand
+    # substrate they described was removed. THERE IS NO SPEC-TIER AUTHORITY ON THIS
+    # ROSTER ANY MORE, and that is the ruled state rather than an omission: `spec/`
+    # carries no view contract, so it carries no adapter-disposition prose either.
+    # A replacement is graduated under rf2-ps7ia, not assumed here.
     "skills/re-frame2-implementor/references/phase-2-impl-order.md",
     "implementation/README.md",
     "implementation/adapters/reagent/README.md",

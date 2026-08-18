@@ -1983,7 +1983,8 @@ value it just wrote.
 > **Status: normative.** The port's one consumer, specified here because the commit law
 > IS the port's usage contract: everything the port refuses to do during a render, the
 > shell is what does at commit. A view substrate's declaration, authoring, and semantic
-> surface is owned by [Spec 004](004-Views.md); this section owns only the reactive commit.
+> surface is the substrate's own to specify — this corpus carries no view contract — and
+> this section owns only the reactive commit.
 
 A **mounted boundary occurrence** owns one **cell**. A render produces a **candidate** —
 a value the renderer holds — and the candidate is the unit of everything a render might
@@ -2129,8 +2130,8 @@ which resolves, probes, returns, and releases without installing a dependency.
 
 > **Status: normative.** `v/sub` is the paved path's reactive read. Its value, resolution,
 > invalidation and commit-safety are stated once here and hold in **both** execution modes; the
-> [atomic shell](#the-atomic-shell) owns the commit those semantics ride on, and
-> [Spec 004](004-Views.md) owns the surrounding authoring surface.
+> [atomic shell](#the-atomic-shell) owns the commit those semantics ride on; the
+> surrounding authoring surface was `spec/004-Views.md`'s and went with it (rf2-h89ri).
 
 `v/sub` takes a subscription **query vector** and returns that subscription's current **value**
 — not a reactive reference, not a deref-able container. It reads through the adapter-internal
@@ -2849,5 +2850,4 @@ Re-installing an adapter after frames exist is rejected (per [Adapter selection]
 - [011-SSR.md](011-SSR.md) — SSR boots the distinct `re-frame.ssr` adapter (`:rf.adapter/ssr`, plain-atom-shaped) on the JVM.
 - [008-Testing.md](008-Testing.md) — the headless-test path uses the plain-atom adapter.
 - [002-Frames.md](002-Frames.md) — frames are the core's primary structure; the adapter holds their `app-db` containers.
-- [004-Views.md](004-Views.md) — view rendering is the adapter's job.
 - [Derivations.md](Derivations.md) — the derivation/process algebra: subscriptions (and runtime subscriptions) are the first concrete **derivation** instance (`:storage :ephemeral`, `:evaluation :on-demand`, `:lifecycle :subscription-cache-entry`). The whole-value law every derivation obeys — memoization / equality-pruning / dirty-checks are optimizations that must not change the observable value — is owned there and cited by this substrate.

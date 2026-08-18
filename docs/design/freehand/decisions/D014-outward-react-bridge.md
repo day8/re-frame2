@@ -328,7 +328,8 @@ render this ruling refuses an unknown option key to prevent, with the key
 spelled correctly. This mirrors the reserved `frame` PROP one level down, where
 own-property presence already decides which arm runs.
 
-Normative home: [`spec/004-Views.md` §The outward React bridge](../../../../spec/004-Views.md),
+Normative home: `spec/004-Views.md` §The outward React bridge — deleted on
+2026-08-18 with the substrate it described (rf2-h89ri) — and
 [`spec/011-SSR.md` §The outward React bridge has no server arm](../../../../spec/011-SSR.md).
 Executable home: FH-REACT-001 … FH-REACT-005.
 

@@ -257,7 +257,7 @@ message one arity along. Where a host's protocol has a ceiling of its own
 variadic one), a call beyond it still cannot succeed; only the message is the
 host's. Nothing may treat `ifn?` as a proxy for “is this a view?”.
 
-Normative home: [`spec/004-Views.md` §A declared view cannot be called](../../../../spec/004-Views.md).
+Normative home: `spec/004-Views.md` §A declared view cannot be called — that Spec was deleted on 2026-08-18 with the substrate it described (rf2-h89ri), so this record is the surviving statement.
 
 ## Dependencies and what this unlocks
 

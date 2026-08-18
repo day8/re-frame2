@@ -121,7 +121,6 @@ spec/                          Full specification (AI-targeted; the primary arte
   000-Vision.md                Goals, hard constraints, the pattern's minimal core
   001-Registration.md          Registration grammar, hot-reload semantics
   002-Frames.md                Frames, dispatch envelope, drain semantics, view ergonomics
-  004-Views.md                 View contract; reg-view in the CLJS reference
   005-StateMachines.md         Transition-table machines
   006-ReactiveSubstrate.md     Substrate adapter contract
   007-Stories.md               Storybook-class tooling (post-v1)
@@ -265,7 +264,7 @@ re-frame2 is spec-first and AI-implementable. If you're an LLM landing here to i
    - [spec/000-Vision.md](spec/000-Vision.md) — goals, hard constraints, host-profile matrix, minimal core.
    - [spec/001-Registration.md](spec/001-Registration.md) — `reg-*` grammar, metadata-map shape, hot-reload.
    - [spec/002-Frames.md](spec/002-Frames.md) — frame model, dispatch envelope, drain semantics, machines-as-event-handlers hooks.
-   - [spec/004-Views.md](spec/004-Views.md) through [spec/014-HTTPRequests.md](spec/014-HTTPRequests.md) — per-area capabilities.
+   - [spec/004B-UI-Tree-and-Conversion.md](spec/004B-UI-Tree-and-Conversion.md) through [spec/014-HTTPRequests.md](spec/014-HTTPRequests.md) — per-area capabilities.
 3. **Naming + packaging** — [spec/Conventions.md](spec/Conventions.md) — reserved namespaces, fx-ids, `app-db` keys, artefact naming.
 4. **Surface-to-spec map** — [spec/Ownership.md](spec/Ownership.md) — every public surface's canonical home spec, plus informational cross-references.
 5. **Consolidated public API** — [spec/API.md](spec/API.md) — every shipped fn / macro / fx / cofx with signatures.
