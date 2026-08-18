@@ -77,6 +77,7 @@ jobs:
   dispatch-affected-workflows:
     name: Dispatch affected workflows
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       # DEPTH 2 HOLDS HEAD^ AND NOTHING DEEPER, which is all the FALLBACK base
       # needs (a manual dispatch, or the all-zeros first push to a fresh ref).

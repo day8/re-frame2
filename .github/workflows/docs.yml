@@ -146,6 +146,7 @@ jobs:
   detect:
     name: Detect docs surface
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     outputs:
       docs_surface: ${{ steps.detect.outputs.docs_surface }}
     steps:
@@ -674,6 +675,7 @@ jobs:
     name: Deploy to GitHub Pages
     needs: build
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       pages: write
       id-token: write
@@ -708,6 +710,7 @@ jobs:
     name: Docs required
     if: ${{ always() }}
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     needs:
       - detect
       - build

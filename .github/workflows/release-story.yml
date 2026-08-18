@@ -149,6 +149,7 @@ jobs:
   verify-version:
     name: Verify story-v tag matches lockstep VERSION
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     outputs:
       version: ${{ steps.version.outputs.version }}
     steps:
@@ -185,6 +186,7 @@ jobs:
     name: Story pre-release test gate
     needs: verify-version
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
 
@@ -218,6 +220,7 @@ jobs:
     name: mcp-base pre-release test gate
     needs: verify-version
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
 
@@ -256,6 +259,7 @@ jobs:
     name: story-mcp pre-release test gate
     needs: verify-version
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
 
@@ -302,6 +306,7 @@ jobs:
     name: Deploy day8/re-frame2-story
     needs: [verify-version, test-story]
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
@@ -403,6 +408,7 @@ jobs:
     name: Deploy day8/re-frame2-mcp-base
     needs: [verify-version, test-mcp-base]
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
@@ -461,6 +467,7 @@ jobs:
     name: Deploy day8/re-frame2-story-mcp
     needs: [verify-version, test-story-mcp, deploy-mcp-base, deploy-story]
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
