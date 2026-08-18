@@ -1501,12 +1501,60 @@ const ALLOC_WRITE_SPECS = {
       'control, flat in B by construction',
   },
 };
+// --- AND `paired`, WHICH DRIVES BOTH IN ONE PROCESS (rf2-irxrw) ------------
+//
+// V1/V2 require the two writes to be compared as a SAME-PAGE, SAME-RUN pair
+// (allocation-instrument-rework.md:231-232), and until this switch the
+// instrument could not do it: the resolved kind was ONE spec, passed into
+// every arm window of the run, so a `write-all` versus `write-page`
+// comparison was necessarily a difference of two sequential PROCESS runs in
+// a fixed order. rf2-0gjqi's re-analysis is what that cost — eight mid-rung
+// sign comparisons that share one run order, one floor per segment per
+// write, and a page-global floor level (rf2-77gz8) that moves both segments
+// by the same amount, so eight cells are one draw rather than eight.
+//
+// THE SELECTION IS THEREFORE A LIST, NOT A SPEC. There are still exactly TWO
+// writes — `ALLOC_WRITE_SPECS` above is unchanged and `paired` is not a third
+// one — and what `P0_ALLOC_WRITE` names is which of them this run drives, in
+// what order. `page` and `all` name one each and behave exactly as they did;
+// `paired` names both, and the arm pass below runs once per leg inside every
+// round, on the same page, in the same process.
+const ALLOC_WRITE_SELECTIONS = {
+  page: ['page'],
+  all: ['all'],
+  paired: ['page', 'all'],
+};
 const ALLOC_WRITE = process.env.P0_ALLOC_WRITE || 'page';
 // `undefined` for an unknown switch, and the preflight refuses on it BY NAME
 // rather than this line throwing: requiring this module must never drive it
 // (`p0_ladder_structural.test.cjs` requires it on every PR), so the refusal
 // belongs where every other one already is — before a browser is launched.
-const ALLOC_WRITE_SPEC = ALLOC_WRITE_SPECS[ALLOC_WRITE];
+const ALLOC_WRITE_KEYS = ALLOC_WRITE_SELECTIONS[ALLOC_WRITE];
+const ALLOC_WRITE_LEGS =
+  ALLOC_WRITE_KEYS &&
+  ALLOC_WRITE_KEYS.map((selector) => ({ selector, spec: ALLOC_WRITE_SPECS[selector] }));
+const ALLOC_WRITE_PAIRED = ALLOC_WRITE_LEGS !== undefined && ALLOC_WRITE_LEGS.length > 1;
+// THE SINGLE SPEC, WHERE THERE IS ONE. `page` and `all` resolve to the same
+// object they always did — every consumer below reads the LEGS, and this is
+// kept because the surface's own pins read it, and because "this run drives
+// exactly one write, and it is this one" is a real question with a real
+// answer under two of the three selections. It is `undefined` under `paired`
+// for the same reason it is `undefined` under a typo: there is no ONE write.
+// The two are told apart by `ALLOC_WRITE_LEGS`, and the preflight refuses on
+// that rather than on this.
+const ALLOC_WRITE_SPEC =
+  ALLOC_WRITE_LEGS && ALLOC_WRITE_LEGS.length === 1 ? ALLOC_WRITE_LEGS[0].spec : undefined;
+
+// WHERE A WINDOW IS RECORDED (rf2-irxrw). Off `paired` this is the identity,
+// so a published run's record is keyed exactly as it always was; on it, the
+// two legs of a pair are two windows and each is keyed by the write it drove.
+// The pair itself is not left to be reconstructed from the string: every
+// recorded window carries `pairKey` — the arm key its legs share — beside the
+// write it names, so a later estimator groups on a field rather than parsing
+// one.
+function allocWindowKey(armKey, selector, paired = ALLOC_WRITE_PAIRED) {
+  return paired ? `${armKey}@${selector}` : armKey;
+}
 
 // --- THE PLAN (V3's controls-only, and V1's floor-only) --------------------
 //
@@ -2083,6 +2131,82 @@ function allocRefusedWindowCount(row) {
   return n;
 }
 
+// EVERY RECORDED WINDOW NAMES ITS OWN WRITE, AND EVERY PAIR IS WHOLE
+// (rf2-irxrw). This is criterion 6's separation read at WINDOW granularity.
+//
+// WHY IT MOVED THERE. While one process drove one write, "a reader of any row
+// can tell FROM THE ROW which write produced it" was satisfied by the row's
+// own `writeSelector`: every window under that row had the same answer. A
+// `paired` row has both, so a row-level field answers nothing about a given
+// window and the claim has to be carried by the window. The pin over this
+// asserts exactly that, which is strictly more than the row-level one asked
+// and is why the row-level fields stay rather than being replaced.
+//
+// AND THE SECOND HALF IS WHAT MAKES THE PAIR USABLE. A record in which one
+// leg of a pair refused to record, or recorded under the wrong key, still
+// looks well-formed window by window — and an estimator differencing it would
+// silently be back to comparing unmatched populations, which is the whole
+// defect this switch exists to remove. So the pairs are counted: within each
+// round, the windows sharing a `pairKey` must name EVERY leg the run drove.
+// Off `paired` that is the identity — one leg, one window per key — and the
+// check is the same code saying so.
+//
+// IT IS A RECORDED FACT AND GATES NOTHING. No figure is computed from it and
+// no run exits on it; the pins are what adjudicate it, on every PR.
+function allocWriteProvenance(row) {
+  const legs = row.writeLegs || [];
+  const known = new Set(legs);
+  const unnamed = [];
+  const incomplete = [];
+  let windows = 0;
+  let pairCount = 0;
+  for (const r of row.perRound || []) {
+    const pairs = new Map();
+    for (const [key, a] of Object.entries(r.arms || {})) {
+      windows++;
+      const spec = ALLOC_WRITE_SPECS[a.writeSelector];
+      if (typeof a.writeSelector !== 'string' || !known.has(a.writeSelector) || !spec) {
+        unnamed.push(
+          `round ${r.round} ${key}: ` +
+            (typeof a.writeSelector === 'string'
+              ? `names \`${a.writeSelector}\`, which is not a write this run drove`
+              : 'names no write')
+        );
+        continue;
+      }
+      if (typeof a.write !== 'string' || !a.write.startsWith(spec.event)) {
+        unnamed.push(
+          `round ${r.round} ${key}: names \`${a.writeSelector}\` but records ` +
+            `${typeof a.write === 'string' ? `\`${a.write}\`` : 'no event'}, not \`${spec.event}\``
+        );
+        continue;
+      }
+      if (typeof a.pairKey !== 'string') {
+        unnamed.push(`round ${r.round} ${key}: carries no pairKey, so it belongs to no pair`);
+        continue;
+      }
+      if (!pairs.has(a.pairKey)) pairs.set(a.pairKey, new Set());
+      pairs.get(a.pairKey).add(a.writeSelector);
+    }
+    for (const [pairKey, got] of pairs) {
+      pairCount++;
+      if (got.size !== legs.length) {
+        incomplete.push(
+          `round ${r.round} ${pairKey}: ${[...got].sort().join(' + ') || 'nothing'} — ` +
+            `this run drives ${legs.join(' + ')}`
+        );
+      }
+    }
+  }
+  return {
+    windows,
+    pairs: pairCount,
+    unnamed,
+    incomplete,
+    ok: unnamed.length === 0 && incomplete.length === 0,
+  };
+}
+
 async function allocRow(chromium) {
   // THE PREFLIGHT REFUSAL, before a browser is launched and a byte is
   // measured. It refuses only on grounds it can defend WITHOUT a sizing model
@@ -2113,10 +2237,14 @@ async function allocRow(chromium) {
   // that is deliberate: the no-arms route out of a refused page is a mode
   // with a name on it, not a page of zero boundaries. V3 states its page like
   // any other run, and the averaging floor still holds its six writes.
-  if (ALLOC_WRITE_SPEC === undefined) {
+  // REFUSED ON THE LEGS, NOT ON THE SPEC (rf2-irxrw). `ALLOC_WRITE_SPEC` is
+  // `undefined` under `paired` as well as under a typo — there is no ONE
+  // write in either case — so the test that separates a valid selection from
+  // a mistyped one is whether the SELECTION resolved, and that is the legs.
+  if (ALLOC_WRITE_LEGS === undefined) {
     throw new Error(
       `unknown P0_ALLOC_WRITE ${JSON.stringify(ALLOC_WRITE)} — the allocation window drives ` +
-        `one of ${Object.keys(ALLOC_WRITE_SPECS).join(' | ')}, and \`page\` is the default ` +
+        `one of ${Object.keys(ALLOC_WRITE_SELECTIONS).join(' | ')}, and \`page\` is the default ` +
         'every published row is taken under'
     );
   }
@@ -2267,7 +2395,31 @@ async function allocRow(chromium) {
 
     // --- the arms, in the order this round's parity dictates ------------
     const segs = round % 2 === 0 ? plan : [...plan].slice().reverse();
-    for (const { segment, arms } of segs) {
+    // AND THE WRITE LEGS, ON THE SAME PARITY (rf2-irxrw). One pass over the
+    // segment's arms per write this run drives, so a `paired` round measures
+    // EVERY arm — the floor included, and the floor is the dominant shared
+    // term — under both writes on the same page in the same process. Off
+    // `paired` there is one leg, `passes` is `segs` with it attached, and the
+    // body below runs exactly the calls it ran before, in the same order.
+    //
+    // THE PASS RE-SEEDS, AND IT HAS TO. `:p0/write-all` replaces `:cells`
+    // with a `cells-n`-wide vector whatever is mounted, and `:p0/write-page`
+    // rebuilds at `(count (:cells db))` — so a page leg that followed an all
+    // leg on an unseeded frame would rebuild 300 cells and BE the bulk write,
+    // reading back correctly and saying nothing. `prepare(segment, B)` is
+    // already the first statement of every pass and already re-seeds; running
+    // one pass per leg is what keeps that true rather than a new mechanism.
+    //
+    // THE ORDER ALTERNATES for the reason the segment order does: a fixed one
+    // confounds the write with within-round position, which is exactly the
+    // defect this switch exists to remove, and a drift within a run would be
+    // read as a difference between the writes. Over the six default rounds
+    // each leg leads three times.
+    const legs = round % 2 === 0 ? ALLOC_WRITE_LEGS : [...ALLOC_WRITE_LEGS].reverse();
+    const passes = segs.flatMap(({ segment, arms }) =>
+      legs.map((leg) => ({ segment, arms, leg }))
+    );
+    for (const { segment, arms, leg } of passes) {
       // THE GRID WIDTH IS B, AND IT IS SEEDED WITH THE FRAME (rf2-2rtt6.140).
       // `:p0/write-page` rebuilds `:cells` at the width the mounted page
       // actually reads — one cell per boundary — so the write's own machinery
@@ -2307,7 +2459,8 @@ async function allocRow(chromium) {
         if (!v.ok) {
           unverified++;
           unverifiedDetail.push(
-            `${entry.key}: elements ${v.elements}/${v.expected}, keys ${v.keys}/${v.keysExpected}`
+            `${allocWindowKey(entry.key, leg.selector)}: elements ${v.elements}/${v.expected}, ` +
+              `keys ${v.keys}/${v.keysExpected}`
           );
         }
         // A WARM-UP PASS at the REAL window size, and not a token one. A
@@ -2329,17 +2482,24 @@ async function allocRow(chromium) {
           ([dd, n, s]) => window.P0H.allocPrepare(dd, n, s),
           [0, ALLOC_WINDOW_WRITES, ALLOC_SITES]
         );
+        //
+        // AND THEY WARM THIS PASS'S OWN WRITE (rf2-irxrw). A site warmed
+        // under one write and measured under the other reads its settled
+        // value for neither, and under `paired` the other write is one pass
+        // away rather than one process away — so `leg` is what both the
+        // warm-ups and the measured window below take, and the pin counts
+        // both call sites rather than matching one.
         for (let w = 0; w < ALLOC_WARMUPS; w++) {
           await page.evaluate(
             ([n, d, k]) => window.P0H.allocWindow(n, k, d),
-            [ALLOC_WINDOW_WRITES, drain, ALLOC_WRITE_SPEC.kind]
+            [ALLOC_WINDOW_WRITES, drain, leg.spec.kind]
           );
         }
         await gc();
         const pre = await read();
         const win = await page.evaluate(
           ([n, d, k]) => window.P0H.allocWindow(n, k, d),
-          [ALLOC_WINDOW_WRITES, drain, ALLOC_WRITE_SPEC.kind]
+          [ALLOC_WINDOW_WRITES, drain, leg.spec.kind]
         );
         const post = await read();
         await page.evaluate(() => window.P0H.release());
@@ -2366,16 +2526,33 @@ async function allocRow(chromium) {
         if (win.text !== want) {
           unverified++;
           unverifiedDetail.push(
-            `${entry.key}: warm write read-back "${win.text}", expected "${want}"`
+            `${allocWindowKey(entry.key, leg.selector)}: warm write read-back "${win.text}", ` +
+              `expected "${want}"`
           );
         }
-        armsOut[entry.key] = {
+        armsOut[allocWindowKey(entry.key, leg.selector)] = {
           segment,
           arm: entry.arm,
           rung: entry.rung,
           reads: R,
           boundaries: B,
           text: win.text,
+          // WHICH WRITE THIS WINDOW DROVE, AND WHICH PAIR IT BELONGS TO
+          // (rf2-irxrw). Criterion 6's separation — "a reader of any row can
+          // tell FROM THE ROW which write produced it" — held at ROW
+          // granularity while a process drove one write; under `paired` a row
+          // carries both, so it has to hold at WINDOW granularity instead.
+          // Every window names its own kind under every selection, so the
+          // property is one claim rather than a mode-dependent one.
+          //
+          // `pairKey` IS THE ARM KEY THE LEGS SHARE, and it is what makes the
+          // pairing a field rather than a parse. An estimator wanting matched
+          // within-round differences groups a round's windows by it and reads
+          // `writeSelector` off each leg; off `paired` it equals the key the
+          // window is stored at, which is the same statement with one leg.
+          writeSelector: leg.selector,
+          write: `${leg.spec.event} — ${leg.spec.note}`,
+          pairKey: entry.key,
           ...verdict,
           // THE PRIME LEG, RECORDED RATHER THAN DISCARDED (rf2-oiy1). It is
           // in no published quantity and in no certificate, and it is the
@@ -2437,7 +2614,17 @@ async function allocRow(chromium) {
         };
       }
     }
-    rounds.push({ round, controls: { idle, ctl1, ctl2 }, arms: armsOut });
+    // `writeLegs` IS THE ORDER THIS ROUND ACTUALLY DROVE THEM IN (rf2-irxrw),
+    // not the configured order. The parity flip above is the whole reason the
+    // pair is not order-confounded, and an estimator that wants to know which
+    // leg led in a given round has to be able to read it off the round rather
+    // than recompute the parity rule.
+    rounds.push({
+      round,
+      controls: { idle, ctl1, ctl2 },
+      arms: armsOut,
+      writeLegs: legs.map((l) => l.selector),
+    });
   }
 
   // --- the fits, through the LADDER's rule, with the page still open ----
@@ -2448,27 +2635,35 @@ async function allocRow(chromium) {
   // line — V1 and V3 both state "no fits" in their configurations, and a
   // line fitted through one point would be the instrument answering a
   // question it was not asked.
+  //
+  // AND ONE FIT PER WRITE (rf2-irxrw). A `paired` run has two rungs at every
+  // R, taken under two different writes, and a single line through both would
+  // be a slope over a mixture. So the fit id carries the write exactly as the
+  // window key does — `allocWindowKey`, on the same identity off `paired`, so
+  // every published run's `allocFits` is keyed as it always was.
   const fits = { perRound: {}, mean: {} };
   for (const { segment } of ALLOC_PLAN_SHAPE.fits ? plan : []) {
     for (const sub of LADDER_SUBSTRATES[segment]) {
-      const id = `${segment}|${sub}`;
-      const rungsOf = (r) =>
-        LADDER_RUNGS.map((R) => ({
-          rung: `R${R}`,
-          reads: R,
-          y: r.arms[`${segment}|lad/${sub}#R${R}`].perBoundaryPerWrite,
+      for (const { selector } of ALLOC_WRITE_LEGS) {
+        const id = allocWindowKey(`${segment}|${sub}`, selector);
+        const rungsOf = (r) =>
+          LADDER_RUNGS.map((R) => ({
+            rung: `R${R}`,
+            reads: R,
+            y: r.arms[allocWindowKey(`${segment}|lad/${sub}#R${R}`, selector)].perBoundaryPerWrite,
+          }));
+        fits.perRound[id] = [];
+        for (const r of rounds) {
+          fits.perRound[id].push(await page.evaluate((rs) => window.P0H.ladderFit(rs), rungsOf(r)));
+        }
+        const all = rounds.map(rungsOf);
+        const meanRungs = all[0].map((g, i) => ({
+          ...g,
+          y: all.reduce((acc, rr) => acc + rr[i].y, 0) / all.length,
         }));
-      fits.perRound[id] = [];
-      for (const r of rounds) {
-        fits.perRound[id].push(await page.evaluate((rs) => window.P0H.ladderFit(rs), rungsOf(r)));
+        fits.mean[id] = await page.evaluate((rs) => window.P0H.ladderFit(rs), meanRungs);
+        fits.mean[id].rungs = meanRungs;
       }
-      const all = rounds.map(rungsOf);
-      const meanRungs = all[0].map((g, i) => ({
-        ...g,
-        y: all.reduce((acc, rr) => acc + rr[i].y, 0) / all.length,
-      }));
-      fits.mean[id] = await page.evaluate((rs) => window.P0H.ladderFit(rs), meanRungs);
-      fits.mean[id].rungs = meanRungs;
     }
   }
 
@@ -2512,8 +2707,14 @@ async function allocRow(chromium) {
     // and `summariseAlloc` derives it off `perRound` — measured, not
     // configured — beside `controlVerdict` and the other verdicts this row
     // learns about itself only once its rounds are in.
+    //
+    // AND UNDER `paired` IT IS BOTH (rf2-irxrw), so the row states the legs
+    // it drove as a list rather than a scalar. Off `paired` the list has one
+    // member and `write` is the same string it always was, to the byte.
     writeSelector: ALLOC_WRITE,
-    write: `${ALLOC_WRITE_SPEC.event} — ${ALLOC_WRITE_SPEC.note}`,
+    writeLegs: ALLOC_WRITE_LEGS.map((l) => l.selector),
+    writePaired: ALLOC_WRITE_PAIRED,
+    write: ALLOC_WRITE_LEGS.map((l) => `${l.spec.event} — ${l.spec.note}`).join('  AND  '),
     plan: { name: ALLOC_PLAN, ...ALLOC_PLAN_SHAPE },
     // WHICH OF THE THREE GATES SCREENED THIS ROW (rf2-fir5n), and not merely
     // which three exist. It reads `ALLOC_BY_SITE` for the same reason `bySite`
@@ -2772,7 +2973,43 @@ function summariseAlloc(row, refused) {
   // switch resolves, the record carries it, and nothing fires. Saying "THE
   // WRITE IS `:p0/write-page`" over that run would attribute an event that did
   // not execute, which is the one failure a provenance line may not have.
-  if (writeDriven) {
+  //
+  // AND UNDER `paired` THE SENTENCE IS A DIFFERENT ONE (rf2-irxrw). Neither
+  // branch below is true of a run that drove both writes: the first says the
+  // grid was rebuilt at B, the second calls the row V1's F_old control and
+  // names the switch that selected it. So the paired shape is lifted out
+  // WHOLE on `summariseAllocFits`'s rule — an unpaired run does not reach a
+  // line of it and its output is unchanged to the byte.
+  if (writeDriven && row.writePaired) {
+    console.log(';;   THE TWO WRITES ARE DRIVEN AS A MATCHED PAIR (rf2-irxrw):');
+    for (const leg of row.writeLegs) {
+      const spec = ALLOC_WRITE_SPECS[leg];
+      console.log(`;;     \`${spec.event}\` — ${spec.note}`);
+    }
+    console.log(
+      ';;   EVERY ARM IS MEASURED UNDER BOTH — the FLOOR included, which is the point: the floor'
+    );
+    console.log(
+      ';;   is the dominant shared term in (arm − floor), so a pairing that left it under one'
+    );
+    console.log(';;   write would buy nothing. Both legs run inside the SAME round, on the same');
+    console.log(';;   page, in the same process, and the leg ORDER alternates on round parity so');
+    console.log(';;   that neither write leads every round.');
+    console.log(
+      ';;   WHAT THAT REPLACES: until this switch one process drove one write, so every write-all'
+    );
+    console.log(
+      ';;   versus write-page comparison differenced two sequential PROCESS runs in a fixed order'
+    );
+    console.log(
+      ';;   and its two arms shared run order, session and floor. A residual read off such a'
+    );
+    console.log(';;   difference could not be separated from those terms (rf2-0gjqi).');
+    console.log(
+      ';;   THIS IS A VALIDITY-WITNESS CONFIGURATION, NOT A PUBLISHED ROW. `page` is the default,'
+    );
+    console.log(';;   and every published figure is taken under it alone.');
+  } else if (writeDriven) {
     console.log(`;;   THE WRITE IS \`${row.write}\`.`);
     if (row.writeSelector === 'page') {
       console.log(
@@ -2803,6 +3040,26 @@ function summariseAlloc(row, refused) {
       ';;   and nothing fired. The control windows below allocate doubles and nothing else.'
     );
   }
+  // THE PROVENANCE OF EVERY WINDOW, ADJUDICATED AND RECORDED (rf2-irxrw). It
+  // is on the row under every selection, because it is one claim rather than
+  // a mode-dependent one; it is PRINTED under `paired`, where a reader has to
+  // be able to see that the pairs are whole before differencing them, and
+  // under any selection where it FAILED. A healthy unpaired run therefore
+  // prints not one line of this and its summary is unchanged to the byte.
+  const provenance = allocWriteProvenance(row);
+  row.writeProvenance = provenance;
+  if (row.writePaired) {
+    console.log(
+      `;;   PROVENANCE: ${provenance.windows} recorded window` +
+        `${provenance.windows === 1 ? '' : 's'} across ${provenance.pairs} pair` +
+        `${provenance.pairs === 1 ? '' : 's'} — ` +
+        (provenance.ok
+          ? 'every window names its own write and every pair is whole.'
+          : `${provenance.unnamed.length} unnamed, ${provenance.incomplete.length} incomplete.`)
+    );
+  }
+  for (const m of provenance.unnamed) console.log(`;;   WRITE UNNAMED ${m}`);
+  for (const m of provenance.incomplete) console.log(`;;   PAIR INCOMPLETE ${m}`);
   console.log(';;   The clock, bulk, fan-out and retention rows drive `:p0/write-all` unchanged,');
   console.log(';;   at the published width, whatever this switch says.');
   console.log(
@@ -3014,31 +3271,44 @@ function summariseAlloc(row, refused) {
     console.log(';;   The three controls above are the whole measurement. Nothing below this');
     console.log(';;   line is a statement about any substrate.');
   }
+  //
+  // ONE TABLE PER WRITE (rf2-irxrw). A `paired` run measured every arm twice
+  // and a single table would have to pick one or average them; both would be
+  // a table that cannot be read back to a window. `allocWindowKey` is the
+  // identity off `paired` and the sub-header is printed only on it, so an
+  // unpaired run's table is the table it always was, to the byte.
+  const paired = Boolean(row.writePaired);
+  const tableLegs = row.writeLegs || [row.writeSelector];
   for (const segment of row.plan.arms ? Object.keys(LADDER_SUBSTRATES) : []) {
     console.log(';;');
     console.log(`;; ---- ${segment} ----`);
-    console.log(
-      ';; arm            reads        B/boundary/write [min–max]        B/write        falls'
-    );
-    const floorKey = `${segment}|grid/floor`;
-    const fl = stat(row.perRound.map((r) => r.arms[floorKey].perBoundaryPerWrite));
-    const flw = stat(row.perRound.map((r) => r.arms[floorKey].perWrite));
-    console.log(
-      `;; floor              — ${(n0(fl.mean) + ' [' + n0(fl.min) + '–' + n0(fl.max) + ']').padStart(30)}` +
-        `${n0(flw.mean).padStart(15)}   (no subscription: the WRITE's own cost)`
-    );
-    for (const sub of row.plan.rungs ? LADDER_SUBSTRATES[segment] : []) {
-      for (const R of LADDER_RUNGS) {
-        const key = `${segment}|lad/${sub}#R${R}`;
-        const s = stat(row.perRound.map((r) => r.arms[key].perBoundaryPerWrite));
-        const w = stat(row.perRound.map((r) => r.arms[key].perWrite));
-        const f = row.perRound.reduce((a, r) => a + r.arms[key].falls, 0);
-        console.log(
-          `;; ${sub.padEnd(11)}${String(R).padStart(6)} ` +
-            `${(n0(s.mean) + ' [' + n0(s.min) + '–' + n0(s.max) + ']').padStart(30)}` +
-            `${n0(w.mean).padStart(15)}${String(f).padStart(9)}` +
-            (R === 0 ? '   (anchor — regressed nowhere; cannot re-render)' : '')
-        );
+    for (const selector of tableLegs) {
+      if (paired) {
+        console.log(`;;   under \`${ALLOC_WRITE_SPECS[selector].event}\` (P0_ALLOC_WRITE=paired)`);
+      }
+      console.log(
+        ';; arm            reads        B/boundary/write [min–max]        B/write        falls'
+      );
+      const floorKey = allocWindowKey(`${segment}|grid/floor`, selector, paired);
+      const fl = stat(row.perRound.map((r) => r.arms[floorKey].perBoundaryPerWrite));
+      const flw = stat(row.perRound.map((r) => r.arms[floorKey].perWrite));
+      console.log(
+        `;; floor              — ${(n0(fl.mean) + ' [' + n0(fl.min) + '–' + n0(fl.max) + ']').padStart(30)}` +
+          `${n0(flw.mean).padStart(15)}   (no subscription: the WRITE's own cost)`
+      );
+      for (const sub of row.plan.rungs ? LADDER_SUBSTRATES[segment] : []) {
+        for (const R of LADDER_RUNGS) {
+          const key = allocWindowKey(`${segment}|lad/${sub}#R${R}`, selector, paired);
+          const s = stat(row.perRound.map((r) => r.arms[key].perBoundaryPerWrite));
+          const w = stat(row.perRound.map((r) => r.arms[key].perWrite));
+          const f = row.perRound.reduce((a, r) => a + r.arms[key].falls, 0);
+          console.log(
+            `;; ${sub.padEnd(11)}${String(R).padStart(6)} ` +
+              `${(n0(s.mean) + ' [' + n0(s.min) + '–' + n0(s.max) + ']').padStart(30)}` +
+              `${n0(w.mean).padStart(15)}${String(f).padStart(9)}` +
+              (R === 0 ? '   (anchor — regressed nowhere; cannot re-render)' : '')
+          );
+        }
       }
     }
   }
@@ -3114,15 +3384,24 @@ function summariseAllocFits(row) {
   console.log(';;   recomputations and a React element tree. So the quantity that answers it is');
   console.log(';;   the candidate slope LESS the same-run donor slope, in the SAME segment.');
   const slopeOf = (id) => fits.mean[id] && fits.mean[id].slope;
+  // AND ONCE PER WRITE UNDER `paired` (rf2-irxrw). The difference is stated
+  // "in the SAME segment" because a cross-segment one would compare two
+  // pages; a cross-WRITE one would compare two writes, which is the same
+  // error one axis over. `allocWindowKey` is the identity off `paired`, so
+  // the published run prints the two lines it always did.
+  const paired = Boolean(row.writePaired);
   for (const seg of Object.keys(LADDER_SUBSTRATES)) {
-    const donor = LADDER_SUBSTRATES[seg][0];
-    const hc = slopeOf(`${seg}|hicasso`);
-    const dn = slopeOf(`${seg}|${donor}`);
-    if (typeof hc !== 'number' || typeof dn !== 'number') continue;
-    console.log(
-      `;;   ${seg.padEnd(13)} candidate ${n0(hc)} − ${donor} ${n0(dn)} = ` +
-        `${n0(hc - dn)} B/read of EXCESS steady-state allocation`
-    );
+    for (const selector of row.writeLegs || [row.writeSelector]) {
+      const donor = LADDER_SUBSTRATES[seg][0];
+      const hc = slopeOf(allocWindowKey(`${seg}|hicasso`, selector, paired));
+      const dn = slopeOf(allocWindowKey(`${seg}|${donor}`, selector, paired));
+      if (typeof hc !== 'number' || typeof dn !== 'number') continue;
+      console.log(
+        `;;   ${seg.padEnd(13)} candidate ${n0(hc)} − ${donor} ${n0(dn)} = ` +
+          `${n0(hc - dn)} B/read of EXCESS steady-state allocation` +
+          (paired ? `   (under \`${ALLOC_WRITE_SPECS[selector].event}\`)` : '')
+      );
+    }
   }
 }
 
@@ -3622,6 +3901,19 @@ module.exports = {
   ALLOC_WRITE_SPECS,
   ALLOC_WRITE,
   ALLOC_WRITE_SPEC,
+  // The paired selection (rf2-irxrw), exported on exactly the rule above: the
+  // selection table as a value and the RESOLVED legs, so the env route to
+  // `paired` is pinned from outside the process the way `all` already is —
+  // configuration is read once, at require, and no in-process assignment can
+  // reach it. `allocWindowKey` and `allocWriteProvenance` come too because
+  // they are pure: the pin can DRIVE a paired-shaped record and an
+  // unpaired-shaped one through the shipped adjudicator rather than restate
+  // what it would say.
+  ALLOC_WRITE_SELECTIONS,
+  ALLOC_WRITE_LEGS,
+  ALLOC_WRITE_PAIRED,
+  allocWindowKey,
+  allocWriteProvenance,
   ALLOC_PLAN_SHAPES,
   ALLOC_PLAN,
   ALLOC_PLAN_SHAPE,
