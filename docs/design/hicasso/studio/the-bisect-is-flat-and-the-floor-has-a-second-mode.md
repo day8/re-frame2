@@ -300,7 +300,9 @@ the same heap and allocate different amounts per write on it.
 this window may not build.** Three candidates are open and none is preferred: a
 V8 tier or deoptimisation transition in the compiled write path, a page-global
 allocation the counter attributes to the leg, and a `:advanced` build artefact.
-Filed rather than chased.
+**Filed as `rf2-77gz8` rather than chased** — a measurement window may not
+improve the rig it is measuring on, and every reading above would have been
+taken on a different instrument from the ones after the fix.
 
 ## What this rules out, and what it does not
 
