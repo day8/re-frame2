@@ -25,10 +25,12 @@
   nothing else is needed.
 
   Nothing here requires anything out of `implementation/freehand/`. That
-  was deliberate before the move and it is why `now-ms`/`summarise` are
-  re-derived in eleven lines rather than borrowed from the donor's
+  was deliberate before the move and it is why `now-ms`, `summarise` and
+  `quantile` are re-derived here rather than borrowed from the donor's
   `bench.measure`: a frozen donor `src/` tree is not a dependency this
-  lane should acquire. The move did not create that independence, it
+  lane should acquire. (That sentence used to count the lines — *eleven*
+  — and `rf2-xa8wo` adding `quantile` made the count wrong while leaving
+  the point untouched, so the point is what it now states.) The move did not create that independence, it
   merely made it visible in the path.
 
   ## What a reading is
@@ -91,7 +93,7 @@
             [re-frame.frame :as frame]))
 
 ;; ---------------------------------------------------------------------------
-;; Clock and summary — eleven lines, so the lane owes the donor tree nothing
+;; Clock and summary — small enough that the lane owes the donor tree nothing
 ;; ---------------------------------------------------------------------------
 
 (defn now-ms
@@ -102,8 +104,54 @@
     (js/performance.now)
     (.getTime (js/Date.))))
 
+(defn- quantile-of-sorted
+  "[[quantile]] over a vector already ascending and known non-empty."
+  [v q]
+  (let [h  (* (dec (count v)) (double q))
+        lo (int (js/Math.floor h))
+        hi (int (js/Math.ceil h))
+        a  (nth v lo)]
+    (+ a (* (- (nth v hi) a) (- h lo)))))
+
+(defn quantile
+  "The `q`-quantile of `xs`, by LINEAR INTERPOLATION between the two order
+  statistics either side of `h = (n-1)q`. That is the definition
+  `clock_readjudicate.cjs` already spells out for its effect-size
+  interval, so the lane carries one spelling of a quantile rather than a
+  second one that would have to be checked against the first.
+
+  **It is also the definition [[summarise]]'s `:p50` is already computed
+  under**, which is the reason it is the one chosen rather than
+  nearest-rank. `h` lands exactly on the middle order statistic when `n`
+  is odd and exactly midway between the two middle ones when `n` is even,
+  so `(quantile xs 0.5)` and `:p50` are one estimator and a row printing
+  a `p50` beside a `p95` is printing one method. `:p50` keeps its own
+  two-branch spelling all the same: `(a+b)/2` and `a+(b-a)/2` can differ
+  in the last representable place, and an already-published `:p50` must
+  not move because a field was added next to it. `lane_quantile_cljs_test`
+  holds the agreement — exact on odd `n`, and within a float epsilon on
+  even.
+
+  **What a short sample does to a tail quantile, stated here because a
+  bench window's `n` is small.** Interpolation cannot answer above the
+  largest reading: at `n = 20` a `p99` is `h = 18.81`, four fifths of the
+  way from the second-largest sample to the largest, and no reading in
+  the sample ever took that value. That is true of every quantile
+  estimator on a short sample rather than of this one — nearest-rank
+  answers the maximum itself and is no more truthful about the tail — and
+  the remedy is more rounds, not another formula. Every published row
+  states its `:n` beside the figure so a reader can see how much of the
+  tail was measured and how much was interpolated."
+  [xs q]
+  (let [v (vec (sort xs))]
+    (when (pos? (count v))
+      (quantile-of-sorted v q))))
+
 (defn summarise
-  "`{:n :min :max :p50}` over `xs`."
+  "`{:n :min :max :p50 :p95 :p99}` over `xs`.
+
+  The three quantiles are [[quantile]]'s definition — read it for what a
+  `p95` or a `p99` means over a sample this short."
   [xs]
   (let [v (vec (sort xs))
         c (count v)]
@@ -113,7 +161,9 @@
        :max (peek v)
        :p50 (if (odd? c)
               (nth v (quot c 2))
-              (/ (+ (nth v (dec (quot c 2))) (nth v (quot c 2))) 2.0))})))
+              (/ (+ (nth v (dec (quot c 2))) (nth v (quot c 2))) 2.0))
+       :p95 (quantile-of-sorted v 0.95)
+       :p99 (quantile-of-sorted v 0.99)})))
 
 (defn round4 [x] (/ (js/Math.round (* (double x) 10000.0)) 10000.0))
 
