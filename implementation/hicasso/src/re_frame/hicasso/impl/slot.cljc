@@ -56,6 +56,32 @@
   emission concerns and stay in the codec. This namespace holds the pure
   rule and its two vocabularies, and requires nothing but
   `clojure.string`."
+  ;; rf2-o9yo4 — THE SECTION ABOVE NAMES A DIRECTORY THAT NO LONGER EXISTS,
+  ;; and this note is the repair rather than an edit to it.
+  ;;
+  ;; `implementation/freehand` was removed by rf2-0yp7w. The JVM arm of the
+  ;; cross-host corpus now runs from `implementation/hicasso` — that
+  ;; artefact's `:test` alias, over
+  ;; `test/re_frame/bench/hicasso/front/slot_cljs_test.cljc`, gated on every
+  ;; PR as `test.yml`'s unconditional `jvm-hicasso` job. The CLJS arm is
+  ;; unchanged, and that suite's own docstring states the pair correctly.
+  ;;
+  ;; THE SENTENCE ITSELF IS NOT EDITED BECAUSE IT CANNOT BE. This file is the
+  ;; last row in `frozen-sources.edn`, and the freeze gate reconstructs it
+  ;; from the donor line by line — a docstring is a string and a string is
+  ;; code, so rewriting that line reds MOVED. None of the manifest's three
+  ;; responses is free either: the donor says `implementation/freehand` at
+  ;; the same line, so there is nothing to port; back-porting into the donor
+  ;; would falsify a MEASURED artefact; and retiring the row triggers the
+  ;; manifest's sunset clause, which takes SEALED — the package-wide bar on
+  ;; shipped source importing the bench tree — with it. rf2-o9yo4 holds that
+  ;; decision.
+  ;;
+  ;; An INSERTED COMMENT LINE is the one addition MOVED licenses, which is
+  ;; what makes this note legal where the edit is not. If you arrived here
+  ;; from a grep for `freehand`, this is the answer: read the sentence above
+  ;; as history, because the suite really did run there when the readings the
+  ;; package's budgets are set against were taken.
   (:require [clojure.string :as str]))
 
 (def ^:private dont-camel-case
