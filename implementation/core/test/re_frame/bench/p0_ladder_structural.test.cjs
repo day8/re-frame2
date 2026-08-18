@@ -58,6 +58,11 @@ const {
   ALLOC_PRIME_WRITES,
   ALLOC_WINDOW_WRITES,
   ALLOC_WRITE_SPECS,
+  // The paired selection (rf2-irxrw) — the table, the key and the provenance
+  // adjudicator, so the pins DRIVE the shipped code rather than restate it.
+  ALLOC_WRITE_SELECTIONS,
+  allocWindowKey,
+  allocWriteProvenance,
   ALLOC_PLAN_SHAPES,
   allocPlanArms,
   summariseAlloc,
@@ -840,7 +845,12 @@ test('the prime is CONFIGURED IN ONE PLACE and the divisor is not it', () => {
     assert.match(p, /ALLOC_WINDOW_WRITES/, `sized for the window it drives: ${p}`);
     assert.match(p, /ALLOC_SITES/, `and the stride is stated at the same call: ${p}`);
   }
-  has(/\[ALLOC_WINDOW_WRITES, drain, ALLOC_WRITE_SPEC\.kind\]/, 'the window drives the full count');
+  // `leg.spec.kind` since rf2-irxrw, where the run's write became a LIST and
+  // the arm pass runs once per member. This pin is about the COUNT — the
+  // window drives `ALLOC_WINDOW_WRITES`, the measured writes plus the prime —
+  // and the paired switch does not touch that half; what moved is only where
+  // the kind beside it is read from.
+  has(/\[ALLOC_WINDOW_WRITES, drain, leg\.spec\.kind\]/, 'the window drives the full count');
   // NO DIAL. The prime decides what a window MEANS, so it is a constant for
   // `ALLOC_LEG_TOLERANCE`'s reason: a knob on it is a knob on the certificate.
   lacks(/P0_ALLOC_PRIME|P0_ALLOC_WINDOW_WRITES/, 'the prime has no env dial on it');
@@ -2143,6 +2153,82 @@ test('THE WRITE SELECTOR — `page` is the DEFAULT and `all` is a NAMED switch',
   has(/unknown P0_ALLOC_WRITE/, 'and the preflight refuses it BY NAME, before a browser');
 });
 
+test('THE PAIRED SELECTION — `paired` names BOTH writes and is not a third one', () => {
+  // The two writes are still two (the pin above holds `ALLOC_WRITE_SPECS` at
+  // exactly `page` and `all`). What `paired` adds is a SELECTION over them,
+  // which is why it lives in its own table: a third entry in the spec table
+  // would be a third write, and there is no third event.
+  assert.deepStrictEqual(
+    Object.keys(ALLOC_WRITE_SELECTIONS),
+    ['page', 'all', 'paired'],
+    'three selections over two writes'
+  );
+  assert.deepStrictEqual(ALLOC_WRITE_SELECTIONS.page, ['page'], 'the default names one');
+  assert.deepStrictEqual(ALLOC_WRITE_SELECTIONS.all, ['all'], "and V1's control names one");
+  assert.deepStrictEqual(
+    ALLOC_WRITE_SELECTIONS.paired,
+    ['page', 'all'],
+    'and `paired` names both, in the order a round drives them on even parity'
+  );
+  for (const keys of Object.values(ALLOC_WRITE_SELECTIONS)) {
+    for (const k of keys) {
+      assert.ok(ALLOC_WRITE_SPECS[k], `every selected key is one of the two writes: ${k}`);
+    }
+  }
+
+  // THE ENV ROUTE, in a fresh process, exactly as `all` is pinned above.
+  assert.deepStrictEqual(
+    constUnderEnv('ALLOC_WRITE_LEGS', { P0_ALLOC_WRITE: '' }),
+    [{ selector: 'page', spec: ALLOC_WRITE_SPECS.page }],
+    'an unset switch drives ONE leg, and it is the page write'
+  );
+  assert.strictEqual(constUnderEnv('ALLOC_WRITE_PAIRED', { P0_ALLOC_WRITE: '' }), false);
+  assert.deepStrictEqual(
+    constUnderEnv('ALLOC_WRITE_LEGS', { P0_ALLOC_WRITE: 'all' }),
+    [{ selector: 'all', spec: ALLOC_WRITE_SPECS.all }],
+    'and so does `all` — one process, one write, which is what rf2-irxrw is about'
+  );
+  assert.strictEqual(constUnderEnv('ALLOC_WRITE_PAIRED', { P0_ALLOC_WRITE: 'all' }), false);
+  assert.deepStrictEqual(
+    constUnderEnv('ALLOC_WRITE_LEGS', { P0_ALLOC_WRITE: 'paired' }),
+    [
+      { selector: 'page', spec: ALLOC_WRITE_SPECS.page },
+      { selector: 'all', spec: ALLOC_WRITE_SPECS.all },
+    ],
+    'and `paired` resolves BOTH in one process — the thing the instrument could not do'
+  );
+  assert.strictEqual(constUnderEnv('ALLOC_WRITE_PAIRED', { P0_ALLOC_WRITE: 'paired' }), true);
+
+  // THERE IS NO ONE SPEC UNDER `paired`, and the record does not pretend
+  // there is. `ALLOC_WRITE_SPEC` answers "this run drives exactly one write,
+  // and it is this one", which has no answer here — so it is `undefined`, and
+  // the legs are what tell a valid selection from a mistyped one.
+  assert.strictEqual(constUnderEnv('ALLOC_WRITE_SPEC', { P0_ALLOC_WRITE: 'paired' }), null);
+  assert.strictEqual(constUnderEnv('ALLOC_WRITE_LEGS', { P0_ALLOC_WRITE: 'pged' }), null);
+  assert.strictEqual(constUnderEnv('ALLOC_WRITE_PAIRED', { P0_ALLOC_WRITE: 'pged' }), false);
+  has(
+    /if \(ALLOC_WRITE_LEGS === undefined\) \{/,
+    'the preflight refuses on the LEGS, so `paired` is not mistaken for a typo'
+  );
+  has(
+    /one of \$\{Object\.keys\(ALLOC_WRITE_SELECTIONS\)\.join\(' \| '\)\}/,
+    'and the refusal names every selection an operator may ask for'
+  );
+
+  // THE KEY. Off `paired` it is the identity, so a published run's record is
+  // keyed exactly as it always was; on it, each leg is its own window.
+  assert.strictEqual(allocWindowKey('reagent-subs|grid/floor', 'page', false), 'reagent-subs|grid/floor');
+  assert.strictEqual(allocWindowKey('reagent-subs|grid/floor', 'all', false), 'reagent-subs|grid/floor');
+  assert.strictEqual(
+    allocWindowKey('reagent-subs|lad/hicasso#R3', 'page', true),
+    'reagent-subs|lad/hicasso#R3@page'
+  );
+  assert.strictEqual(
+    allocWindowKey('reagent-subs|lad/hicasso#R3', 'all', true),
+    'reagent-subs|lad/hicasso#R3@all'
+  );
+});
+
 test('THE PLAN SELECTOR — `full` is the DEFAULT; the others SUBTRACT arms', () => {
   assert.deepStrictEqual(Object.keys(ALLOC_PLAN_SHAPES), ['full', 'floor', 'controls']);
   assert.deepStrictEqual(ALLOC_PLAN_SHAPES.full, { arms: true, rungs: true, fits: true });
@@ -2245,6 +2331,12 @@ function allocSummaryFor(planName, arms = {}, extra = {}) {
     warmups: 3,
     rounds: 2,
     writeSelector: 'page',
+    // THE LEGS AS THE DRIVER RECORDS THEM (rf2-irxrw). One member off
+    // `paired`, and `extra` is how a paired fixture states two — the same
+    // overlay the by-site mode is driven through, for the same reason: the
+    // parameter is what the PLAN decides, and this is what a SELECTION does.
+    writeLegs: ['page'],
+    writePaired: false,
     write: ':p0/write-page — a synthetic row, measured against nothing',
     plan: { name: planName, ...ALLOC_PLAN_SHAPES[planName] },
     controlDoubles: { d1: 1000, d2: 400 },
@@ -2275,75 +2367,113 @@ function allocSummaryFor(planName, arms = {}, extra = {}) {
   return { row, out: lines.join('\n') };
 }
 
-const FLOOR_ARMS = () =>
+// WHAT EVERY RECORDED WINDOW CARRIES ABOUT ITS OWN WRITE (rf2-irxrw), stated
+// once so the fixtures below cannot drift apart from one another. `pairKey` is
+// the arm key the legs of a pair share; off `paired` it is the key the window
+// is stored at, which is the same statement with one leg.
+const winWrite = (pairKey, selector) => ({
+  writeSelector: selector,
+  write: `${ALLOC_WRITE_SPECS[selector].event} — a synthetic window, measured against nothing`,
+  pairKey,
+});
+
+// `selectors` DEFAULTS TO THE PUBLISHED ONE, so every existing call site is
+// the record it always built plus the provenance the driver now records.
+const FLOOR_ARMS = (selectors = ['page'], paired = selectors.length > 1) =>
   Object.fromEntries(
-    ['reagent-subs', 'uix-subs'].map((seg) => [
-      `${seg}|grid/floor`,
-      {
-        segment: seg,
-        arm: 'grid/floor',
-        rung: 'floor',
-        reads: 0,
-        boundaries: 24,
-        ...allocSteps(stream([5000, 5000, 5000, 5000])),
-        // The bead's own excess, 6,788 B, riding on a synthetic floor window.
-        primeLegs: [11788],
-        primeExcess: 6788,
-        perWrite: 5000,
-        perBoundaryPerWrite: 208,
-      },
-    ])
+    ['reagent-subs', 'uix-subs'].flatMap((seg) =>
+      selectors.map((sel) => {
+        const pairKey = `${seg}|grid/floor`;
+        return [
+          allocWindowKey(pairKey, sel, paired),
+          {
+            segment: seg,
+            arm: 'grid/floor',
+            rung: 'floor',
+            reads: 0,
+            boundaries: 24,
+            ...winWrite(pairKey, sel),
+            ...allocSteps(stream([5000, 5000, 5000, 5000])),
+            // The bead's own excess, 6,788 B, riding on a synthetic floor window.
+            primeLegs: [11788],
+            primeExcess: 6788,
+            perWrite: 5000,
+            perBoundaryPerWrite: 208,
+          },
+        ];
+      })
+    )
   );
 
 // EVERY ARM THE FULL PLAN MOUNTS, keyed exactly as the driver keys them and
 // built FROM `ladderPlan` rather than spelled out — so a rung added to the
 // ladder arrives here too, and the full-plan control below cannot quietly go
 // stale while still passing.
-const FULL_ARMS = () =>
+const FULL_ARMS = (selectors = ['page'], paired = selectors.length > 1) =>
   Object.fromEntries(
     ladderPlan({ list: 300, grid: 6 }, 4).flatMap(({ segment, arms }) =>
-      arms.map((a) => [
-        a.key,
-        {
-          segment,
-          arm: a.arm,
-          rung: a.rung,
-          reads: a.reads || 0,
-          boundaries: 24,
-          ...allocSteps(stream([5000, 5000, 5000, 5000])),
-          primeLegs: [11788],
-          primeExcess: 6788,
-          perWrite: 5000,
-          perBoundaryPerWrite: 208,
-        },
-      ])
+      arms.flatMap((a) =>
+        selectors.map((sel) => [
+          allocWindowKey(a.key, sel, paired),
+          {
+            segment,
+            arm: a.arm,
+            rung: a.rung,
+            reads: a.reads || 0,
+            boundaries: 24,
+            ...winWrite(a.key, sel),
+            ...allocSteps(stream([5000, 5000, 5000, 5000])),
+            primeLegs: [11788],
+            primeExcess: 6788,
+            perWrite: 5000,
+            perBoundaryPerWrite: 208,
+          },
+        ])
+      )
     )
   );
+
+// AND THE OVERLAY THAT MAKES A ROW A PAIRED ONE (rf2-irxrw), so a paired
+// fixture states its selection in one place rather than three.
+const PAIRED_ROW = {
+  writeSelector: 'paired',
+  writeLegs: ['page', 'all'],
+  writePaired: true,
+  write:
+    ':p0/write-page — a synthetic row, measured against nothing  AND  ' +
+    ':p0/write-all — a synthetic row, measured against nothing',
+};
 
 // The fits a full run carries, one per (segment, substrate), derived from the
 // same plan for the same reason. Only the full plan reaches
 // `summariseAllocFits`; the narrow ones print the NO FITTED LINE block.
-const FULL_FITS = () => {
+const FULL_FITS = (selectors = ['page'], paired = selectors.length > 1) => {
   const mean = {};
   const perRound = {};
   for (const { segment, arms } of ladderPlan({ list: 300, grid: 6 }, 4)) {
     for (const sub of [...new Set(arms.map((a) => a.substrate).filter(Boolean))]) {
-      mean[`${segment}|${sub}`] = {
-        slope: 12,
-        intercept: 100,
-        shell: 90,
-        firstRead: 110,
-        r2: 0.999,
-        linear: true,
-        why: 'a synthetic fit, measured against nothing',
-      };
-      perRound[`${segment}|${sub}`] = [1, 2].map(() => ({
-        slope: 12,
-        intercept: 100,
-        shell: 90,
-        firstRead: 110,
-        linear: true,
-      }));
+      // ONE FIT PER WRITE UNDER `paired` (rf2-irxrw), keyed by the same
+      // function the windows are — a line through both writes would be a
+      // slope over a mixture.
+      for (const sel of selectors) {
+        const id = allocWindowKey(`${segment}|${sub}`, sel, paired);
+        mean[id] = {
+          slope: 12,
+          intercept: 100,
+          shell: 90,
+          firstRead: 110,
+          r2: 0.999,
+          linear: true,
+          why: 'a synthetic fit, measured against nothing',
+        };
+        perRound[id] = [1, 2].map(() => ({
+          slope: 12,
+          intercept: 100,
+          shell: 90,
+          firstRead: 110,
+          linear: true,
+        }));
+      }
     }
   }
   return { perRound, mean };
@@ -2479,14 +2609,46 @@ test('the DRIVER honours both switches — the write, the plan, and the record',
   // `ALLOC_WINDOW_WRITES` at both, since rf2-oiy1: the window drives the
   // measured writes PLUS the prime, and a warm-up shorter than the window is
   // the very defect the warm-up pass exists to avoid.
+  //
+  // `leg.spec.kind` SINCE rf2-irxrw, and the count is why it still bites. The
+  // run's write is a LIST now and the arm pass runs once per member, so both
+  // call sites have to take THIS PASS's leg — a warm-up left on the run's
+  // first leg while the window took the pass's would warm the page under one
+  // write and measure it under the other, which is the same defect the pin
+  // was written for with the two writes one pass apart instead of one process
+  // apart.
   assert.strictEqual(
     (SRC.match(
-      /window\.P0H\.allocWindow\(n, k, d\),\s*\[ALLOC_WINDOW_WRITES, drain, ALLOC_WRITE_SPEC\.kind\]/g
+      /window\.P0H\.allocWindow\(n, k, d\),\s*\[ALLOC_WINDOW_WRITES, drain, leg\.spec\.kind\]/g
     ) || []).length,
     2,
     'the warm-up AND the measured window both drive the SELECTED write'
   );
   lacks(/window\.P0H\.allocWindow\(n, 'write', d\)/, 'and neither is pinned to a literal kind');
+  lacks(
+    /\[ALLOC_WINDOW_WRITES, drain, ALLOC_WRITE_SPEC\.kind\]/,
+    'and neither is pinned to the RUN\'s write, which under `paired` is not a single one'
+  );
+  // THE PASS ITSELF (rf2-irxrw), so the pins over the record cannot drift off
+  // the loop that fills it. One pass per (segment, leg); the leg order flips
+  // on the same parity the segment order does, or the write would be
+  // confounded with within-round position — which is the defect this switch
+  // exists to remove; and the pass re-seeds, because `:p0/write-all` leaves
+  // `:cells` at `cells-n` and a page leg following it on an unseeded frame
+  // would rebuild 300 cells and BE the bulk write, reading back correctly and
+  // saying nothing.
+  has(
+    /const legs = round % 2 === 0 \? ALLOC_WRITE_LEGS : \[\.\.\.ALLOC_WRITE_LEGS\]\.reverse\(\);/,
+    'the leg order alternates on round parity'
+  );
+  has(
+    /const passes = segs\.flatMap\(\(\{ segment, arms \}\) =>\s*legs\.map\(\(leg\) => \(\{ segment, arms, leg \}\)\)\s*\);/,
+    'and every segment is passed once per leg'
+  );
+  has(
+    /for \(const \{ segment, arms, leg \} of passes\) \{[\s\S]{0,2000}?window\.P0H\.prepare\(s, gw\), \[segment, B\]\);/,
+    're-seeding the grid at B as the first thing every pass does'
+  );
   has(
     /const plan = allocPlanArms\(ladderPlan\(perRoot, ROOTS\), ALLOC_PLAN_SHAPE\);/,
     'and the plan is the shipped ladder plan narrowed by the shape'
@@ -2499,15 +2661,193 @@ test('the DRIVER honours both switches — the write, the plan, and the record',
   // hard-coded string satisfied only because there was one write to name and
   // would have gone on naming it after the selector landed.
   has(/writeSelector: ALLOC_WRITE,/, 'the record carries the switch');
+  // AMENDED, NOT DELETED (rf2-irxrw), and this is the second time this pin has
+  // moved rather than gone — rf2-gxrr moved its sibling in `p0_heap.cljs` from
+  // ABSENCE to REACHABILITY for the same reason, and called that the delicate
+  // half of the work. Its CONTENT is criterion 6's separation: "a reader of
+  // any row can tell FROM THE ROW which write produced it". Its SHAPE was a
+  // single interpolated spec, and that shape was only ever adequate because a
+  // process drove one write — the row's one answer was every window's answer.
+  // Under `paired` a row carries both, so the row-level string is a list and
+  // the claim moves to WINDOW granularity, where the pin below adjudicates it
+  // against a record rather than against this source. Both stay: the row still
+  // names what it drove, and now every window does too, which is strictly more
+  // than absence-of-a-literal could ask.
   has(
-    /write: `\$\{ALLOC_WRITE_SPEC\.event\} — \$\{ALLOC_WRITE_SPEC\.note\}`,/,
-    'and the write it actually drove'
+    /write: ALLOC_WRITE_LEGS\.map\(\(l\) => `\$\{l\.spec\.event\} — \$\{l\.spec\.note\}`\)\.join\('  AND  '\),/,
+    'and the write — or writes — it actually drove'
+  );
+  has(/writeLegs: ALLOC_WRITE_LEGS\.map\(\(l\) => l\.selector\),/, 'as a list, in the driven order');
+  has(/writePaired: ALLOC_WRITE_PAIRED,/, 'and the row says whether it is a pair');
+  // AND EVERY WINDOW NAMES ITS OWN, which is where criterion 6 now lives.
+  has(/writeSelector: leg\.selector,/, 'the window carries the write it drove');
+  has(
+    /write: `\$\{leg\.spec\.event\} — \$\{leg\.spec\.note\}`,/,
+    'and names the event, not merely the switch'
+  );
+  has(/pairKey: entry\.key,/, 'and the arm key its legs share, so a pair is a field not a parse');
+  has(
+    /armsOut\[allocWindowKey\(entry\.key, leg\.selector\)\] = \{/,
+    'and it is keyed by the write it drove — the identity off `paired`'
   );
   has(/plan: \{ name: ALLOC_PLAN, \.\.\.ALLOC_PLAN_SHAPE \},/, 'and the plan it ran');
   lacks(
     /write: ':p0\/write-page — the grid is rebuilt at the width the mounted page reads',/,
     'the record may no longer hard-code one write for every run'
   );
+});
+
+// --- THE AMENDED PIN, DRIVEN OVER RECORDS (rf2-irxrw) ----------------------
+//
+// The pins above read the driver's source; this one reads what the driver
+// PRODUCES, because "each recorded window names its own kind" is a property of
+// a record and a source match cannot make it without restating the assignment.
+// `allocWriteProvenance` is the shipped adjudicator and is pure, so both the
+// paired shape and the shape that preceded it are driven through it here.
+
+test('a PAIRED record names every window\'s write and every pair is WHOLE', () => {
+  const arms = FULL_ARMS(['page', 'all']);
+  const { row } = allocSummaryFor('full', arms, {
+    ...PAIRED_ROW,
+    allocFits: FULL_FITS(['page', 'all']),
+  });
+  // NOT VACUOUS: a paired full plan records TWICE the windows a single-write
+  // one does, and both legs of every arm are present under their own key.
+  assert.strictEqual(Object.keys(arms).length, 44, '22 arms x 2 writes');
+  assert.ok(arms['reagent-subs|grid/floor@page'], 'the FLOOR is paired too — that is the point');
+  assert.ok(arms['reagent-subs|grid/floor@all'], 'under both writes, in the same round');
+  assert.ok(arms['uix-subs|lad/hicasso#R20@page'] && arms['uix-subs|lad/hicasso#R20@all']);
+
+  const prov = allocWriteProvenance(row);
+  assert.deepStrictEqual(prov.unnamed, [], 'every window names its own write');
+  assert.deepStrictEqual(prov.incomplete, [], 'and every pair carries both legs');
+  assert.strictEqual(prov.ok, true);
+  assert.strictEqual(prov.windows, 88, '44 windows x 2 rounds');
+  assert.strictEqual(prov.pairs, 44, '22 pairs x 2 rounds');
+  // The record's own copy, so a reader of the JSON is not left to recompute it.
+  assert.strictEqual(row.writeProvenance.ok, true);
+});
+
+test('THE SAME PIN REFUSES an UNPAIRED-SHAPED record — the windows name nothing', () => {
+  // The shape every allocation record had before this bead: the row named the
+  // write and the windows did not, which was adequate while a process drove
+  // one write and is exactly what a paired record may not be.
+  const arms = Object.fromEntries(
+    Object.entries(FULL_ARMS(['page', 'all'])).map(([k, a]) => {
+      const { writeSelector, write, pairKey, ...rest } = a;
+      return [k, rest];
+    })
+  );
+  const { row, out } = allocSummaryFor('full', arms, {
+    ...PAIRED_ROW,
+    allocFits: FULL_FITS(['page', 'all']),
+  });
+  const prov = allocWriteProvenance(row);
+  assert.strictEqual(prov.ok, false, 'the pin must REFUSE the shape it was amended away from');
+  assert.strictEqual(prov.unnamed.length, 88, 'every window, on every round');
+  assert.match(prov.unnamed[0], /names no write$/, 'and the reason NAMES the defect');
+  assert.match(prov.unnamed[0], /^round 1 /, 'per round and per key, not one undifferentiated count');
+  // And the summary says so where an operator would see it.
+  assert.match(out, /WRITE UNNAMED round 1 /);
+  assert.match(out, /PROVENANCE: 88 recorded windows across 0 pairs — 88 unnamed/);
+});
+
+test('and it refuses a HALF PAIR, which is well-formed window by window', () => {
+  // The failure the first half cannot see: every window names its write, and
+  // one leg of a pair is simply missing. An estimator differencing this would
+  // be back to comparing unmatched populations without anything saying so.
+  const arms = FULL_ARMS(['page', 'all']);
+  delete arms['reagent-subs|lad/hicasso#R7@all'];
+  const row = {
+    ...PAIRED_ROW,
+    perRound: [1, 2].map((round) => ({ round, arms })),
+  };
+  const prov = allocWriteProvenance(row);
+  assert.deepStrictEqual(prov.unnamed, [], 'nothing is unnamed — that is what makes it dangerous');
+  assert.strictEqual(prov.incomplete.length, 2, 'one incomplete pair, on each of two rounds');
+  assert.match(prov.incomplete[0], /reagent-subs\|lad\/hicasso#R7: page — this run drives page \+ all/);
+  assert.strictEqual(prov.ok, false);
+});
+
+test('and a window naming a write this run did NOT drive is refused too', () => {
+  // A record whose windows name a write the row never selected is not a
+  // provenance record; it is two runs' windows in one file, which is the
+  // reconstruction rf2-irxrw exists to make unnecessary.
+  const arms = FULL_ARMS(['page']);
+  arms['reagent-subs|grid/floor'] = {
+    ...arms['reagent-subs|grid/floor'],
+    writeSelector: 'all',
+    write: ':p0/write-all — from some other run',
+  };
+  const prov = allocWriteProvenance({
+    writeSelector: 'page',
+    writeLegs: ['page'],
+    writePaired: false,
+    perRound: [{ round: 1, arms }],
+  });
+  assert.strictEqual(prov.ok, false);
+  assert.strictEqual(prov.unnamed.length, 1);
+  assert.match(prov.unnamed[0], /names `all`, which is not a write this run drove/);
+  // And a window whose named kind and recorded EVENT disagree, which a
+  // selector-only check would admit.
+  const crossed = FULL_ARMS(['page']);
+  crossed['uix-subs|grid/floor'] = {
+    ...crossed['uix-subs|grid/floor'],
+    write: ':p0/write-all — but the selector says page',
+  };
+  const p2 = allocWriteProvenance({
+    writeSelector: 'page',
+    writeLegs: ['page'],
+    writePaired: false,
+    perRound: [{ round: 1, arms: crossed }],
+  });
+  assert.strictEqual(p2.ok, false);
+  assert.match(p2.unnamed[0], /names `page` but records `:p0\/write-all/);
+});
+
+test('THE PAIRED SUMMARY runs, prints a table per write, and claims no single one', () => {
+  const { out } = allocSummaryFor('full', FULL_ARMS(['page', 'all']), {
+    ...PAIRED_ROW,
+    allocFits: FULL_FITS(['page', 'all']),
+  });
+  assert.match(out, /THE TWO WRITES ARE DRIVEN AS A MATCHED PAIR \(rf2-irxrw\)/);
+  assert.match(out, /EVERY ARM IS MEASURED UNDER BOTH — the FLOOR included/);
+  assert.match(out, /the leg ORDER alternates on round parity/);
+  assert.match(out, /under `:p0\/write-page` \(P0_ALLOC_WRITE=paired\)/, 'a table per write');
+  assert.match(out, /under `:p0\/write-all` \(P0_ALLOC_WRITE=paired\)/);
+  assert.match(out, /PROVENANCE: 88 recorded windows across 44 pairs — every window names its own/);
+  // AND IT MAKES NEITHER SINGLE-WRITE CLAIM. Both are FALSE of a paired run:
+  // the first says the grid was rebuilt at B, the second calls the row V1's
+  // F_old control and names the switch that selected it.
+  assert.doesNotMatch(out, /THE WRITE IS `/, 'there is no ONE write to name');
+  assert.doesNotMatch(out, /Selected by P0_ALLOC_WRITE=all/);
+  assert.doesNotMatch(out, /It rebuilds the grid at 24 cells/);
+  assert.doesNotMatch(out, /NO WRITE EVENT WAS DRIVEN/, 'both writes fired');
+  // The fits are per write as well, so no slope is a line over a mixture.
+  assert.match(out, /reagent-subs\|hicasso@page /);
+  assert.match(out, /reagent-subs\|hicasso@all /);
+  assert.match(out, /\(under `:p0\/write-page`\)/, "and HD-002's difference is stated per write");
+});
+
+test('an UNPAIRED summary says NONE of it — the third option is not a redefinition', () => {
+  for (const [name, arms, extra] of [
+    ['full', FULL_ARMS(), { allocFits: FULL_FITS() }],
+    ['floor', FLOOR_ARMS(), {}],
+    ['controls', {}, {}],
+  ]) {
+    const { row, out } = allocSummaryFor(name, arms, extra);
+    assert.doesNotMatch(out, /MATCHED PAIR/, `${name}: no pairing is claimed`);
+    assert.doesNotMatch(out, /P0_ALLOC_WRITE=paired/, `${name}: no paired sub-header`);
+    assert.doesNotMatch(out, /PROVENANCE: /, `${name}: a healthy unpaired run prints no line of it`);
+    assert.doesNotMatch(out, /WRITE UNNAMED/, `${name}`);
+    assert.doesNotMatch(out, /PAIR INCOMPLETE/, `${name}`);
+    assert.doesNotMatch(out, /@page|@all/, `${name}: nothing is keyed by a write`);
+    // It is still ADJUDICATED, and recorded — the claim is one claim, and only
+    // the printing is mode-dependent.
+    assert.strictEqual(row.writeProvenance.ok, true, `${name}: and it holds`);
+    assert.deepStrictEqual(row.writeLegs, ['page'], `${name}: one leg`);
+    assert.strictEqual(row.writePaired, false, `${name}`);
+  }
 });
 
 // ===========================================================================
