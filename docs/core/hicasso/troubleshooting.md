@@ -888,7 +888,7 @@ the same change. So a reservation is promoted, never drifted into.
 
 | Reserved | What it will refuse |
 | --- | --- |
-| `:rf.error/hicasso-view-called-directly` | a `defview` invoked as a function instead of mounted as a hiccup head. The static case is already an error — the clj-kondo config Hicasso ships raises `:re-frame.hicasso/direct-view-call` — and this is the runtime half |
+| `:rf.error/hicasso-view-called-directly` | a `defview` invoked as a function instead of mounted as a hiccup head. The static case is caught already — the clj-kondo export Hicasso ships reports it as `:re-frame.hicasso/direct-view-call`, at error level — and this is the runtime half |
 | `:rf.error/hicasso-test-hook-is-opaque` | a React hook reached from a body run at L2, where no React is running |
 | `:rf.error/hicasso-test-native-is-opaque` | a native-tier element reaching the L2 semantic tree, as host and raw-React elements already do |
 | `:rf.error/hicasso-contenteditable-not-controllable` | a controlled `:value` binding on a contenteditable region |
