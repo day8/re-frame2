@@ -4,9 +4,11 @@
 # Tracked-`ai/` RATCHET (rf2-lsp1i, fixed by rf2-ow7dz).
 #
 # Mike ruled (2026-07-18): "nothing under /ai should be tracked" is the END
-# STATE. Files stay tracked as long as they are needed; rf2-vxgfnd.99.1
-# removes the remaining trees at re-frame.ui S7. rf2-4lv73 (#6368) states
-# that policy as prose in CLAUDE.md and .gitignore.
+# STATE, and THAT END STATE IS REACHED: `git ls-files ai/` returns nothing.
+# There is no remaining roster to schedule out and no milestone left to wait
+# on, so this gate's whole remaining job is to prevent REGROWTH — it holds a
+# set that is now empty at empty. rf2-4lv73 (#6368) states that policy as
+# prose in CLAUDE.md and .gitignore.
 #
 # PROSE DOES NOT STOP A FORCE-ADD. This script is the mechanism.
 #
@@ -36,14 +38,14 @@
 # tracked before.
 #
 # A DECREASE MUST PASS, and does: removals only ever shrink the current set,
-# so the difference stays empty. S7's removals are never blocked by this
-# gate.
+# so the difference stays empty. A removal is never blocked by this gate.
 #
 # THE BASELINE TIGHTENS AUTOMATICALLY, with no maintenance step. BASE is
 # read from git, not from a file, so the instant a removal is accepted the
 # smaller set IS the baseline for everything that follows. There is nothing
-# to refresh and nothing that can go stale. When the last tracked ai/ file
-# goes, BASE is empty and the gate retires itself into "any addition fails".
+# to refresh and nothing that can go stale. The last tracked ai/ file has
+# now gone, so BASE is empty and the gate has settled into its final form:
+# any addition fails.
 #
 # NOT AN ALLOWLIST — and this file enumerates nothing. Mike ruled that
 # CLAUDE.md states policy and that `git ls-files ai/` is the roster, never a
@@ -205,9 +207,10 @@ if [ -s "$added_list" ]; then
   exit 1
 fi
 
-# PASS. A decrease is the expected direction of travel (rf2-vxgfnd.99.1
-# removes the remaining trees at S7). Nothing to refresh: the next run reads
-# its base from git and is already tight against this smaller set.
+# PASS. A decrease was the expected direction of travel and the set has now
+# reached zero, so this arm is a leftover-transition path rather than a
+# routine one. Nothing to refresh: the next run reads its base from git and
+# is already tight against this smaller set.
 if [ -s "$removed_list" ]; then
   printf 'ai/ tracking ratchet OK: tracked files under ai/ FELL from %s to %s.\n' \
     "$base_count" "$current_count"
