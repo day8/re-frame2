@@ -409,7 +409,11 @@ function main() {
 
 module.exports = { verdict, buildRows, readTheirs, readOurs, EXPECTED_CELLS, PAIRS, OTHERS, BASE, AGREEMENT_BAND };
 
+// `process.exitCode`, never `process.exit()` — the same lost-tail race the
+// clock readjudicator hit on CI (2026-08-16, 2026-08-18): piped stdio is
+// asynchronous and `process.exit()` drops what has not drained, so the verdict
+// lines this program exists to print can vanish while the code survives.
+// `main` is synchronous and holds no handles; natural exit keeps both.
 if (require.main === module) {
-  const code = main();
-  if (code !== 0) process.exit(code);
+  process.exitCode = main();
 }
