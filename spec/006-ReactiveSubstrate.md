@@ -1846,7 +1846,7 @@ non-watchable headless site, which guard (1) never reaches). No third mechanism 
 or is needed. A memo table that outlives its slice is a conformance bug (a leak fixture
 pins it).
 
-### Render-batch finalization — the host-checkpoint boundary
+## Render-batch finalization — the host-checkpoint boundary
 
 On the observation-port substrate, the invalidation algorithm's Phase 3
 ([§Invalidation algorithm](#invalidation-algorithm) — "notify subscribers") is realised
@@ -1914,7 +1914,7 @@ unchanged (RULED, rf2-cydkp).
 [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue) carries the
 category and the reasoning.
 
-#### The second closer — a synchronous host commit must be able to close the window
+### The second closer — a synchronous host commit must be able to close the window
 
 A dirty mark is **constant work**, and it schedules no host render work at all: it records
 the cause, enrols the cell in the open pending window, and arms the microtask. Nothing a
