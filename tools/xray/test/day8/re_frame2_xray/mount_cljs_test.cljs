@@ -416,6 +416,43 @@
                   (is (nil? @@#'mount/popout-state) "no popout state minted")
                   (is (zero? (count @calls))))))))))))
 
+(deftest hicasso-is-a-member-of-the-react-element-denylist
+  (testing "`:rf.adapter/hicasso` is a LIVE member of react-element-render-kinds
+            — re-frame.hicasso.substrate builds from
+            spine/make-react-adapter, so its :render is element-shaped
+            (rf2-zkjd5, superseding rf2-wtznc's no-such-kind premise)"
+    (let [kinds @#'mount/react-element-render-kinds]
+      (is (contains? kinds :rf.adapter/hicasso)
+          "the shipped Hicasso kind must be refused, not fall through")
+      (is (contains? kinds :rf.adapter/uix)
+          "the pre-existing members are untouched"))))
+
+(deftest open!-on-hicasso-substrate-refuses-cleanly
+  (testing "open! on a Hicasso host publishes the :unsupported-substrate
+            diagnostic, warns once, and mounts NOTHING. Before rf2-zkjd5 the
+            kind was absent from the denylist, so this path MOUNTED and the
+            hiccup shell reached React as raw CLJS data (rf2-zkjd5)"
+    (with-stub-document
+      (fn [_doc]
+        (let [{:keys [render-fn calls]} (mk-render-stub)]
+          (with-redefs [substrate-adapter/render          render-fn
+                        substrate-adapter/current-adapter (fn [] :rf.adapter/hicasso)]
+            (with-warn-counter*
+              (fn [warns]
+                (let [result     (mount/open!)
+                      diagnostic (:diagnostic (mount/status))]
+                  (is (= :unsupported-substrate (:reason result))
+                      "open! returns the refusal diagnostic")
+                  (is (false? (:ok? result)))
+                  (is (= :rf.adapter/hicasso (:adapter result))
+                      "the diagnostic names the Hicasso kind")
+                  (is (= :unsupported-substrate (:reason diagnostic))
+                      "the status API exposes the same diagnostic")
+                  (is (= 1 @warns) "exactly one console.warn")
+                  (is (false? (mount/mounted?)) "nothing mounted")
+                  (is (zero? (count @calls))
+                      "substrate-adapter/render never invoked"))))))))))
+
 (deftest open!-on-ratom-substrate-still-mounts
   (testing "the gate is a denylist of the element-shaped kinds only — a
             ratom-family kind mounts exactly as before (polarity guard for
