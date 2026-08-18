@@ -725,7 +725,7 @@ features (see §2 for the full catalogue).
 ## §4 Surface placement — which tab grows which feature
 
 The matrix's 20 cross-cutting-idiom features land in the existing Dynamic
-tabs + 3 popovers, with NO idiom-area spawning its own tab (the
+tabs + 2 popovers, with NO idiom-area spawning its own tab (the
 cohesive-sub-domain tabs Routing / Resources / Graph / Frames are a
 separate axis — see §0). The placement is uniform across areas:
 
@@ -734,13 +734,13 @@ separate axis — see §0). The placement is uniform across areas:
 | **Epoch** (`e`) | Per-fx **wire-boundary diff** (F-C2). `:on-match` event chain (R-C4). Retry timeline (F-C3). Head model inspector (S-C6). Server error projection (S-C5). Per-fx source-coord chip (F-C6). Plus the **inline issue surfacing** (rf2-gbz39 Option (c) — the former Issues tab's content): hydration mismatch bisector (S-C2 — the SSR hero), flow cascade-halt alarm (F-C8), pending-navigation card (R-C7), CRLF + open-redirect rendering (F-C11), open-redirect advisory (R-C10), inline Malli validation explanations, per-request frame teardown summary (S-C8). |
 | **App-db** (`a`) | current-route slice (`:rf/route` runtime area, `[:rf.runtime/routing :current]` in runtime-db) always-visible at top (R-C2). Hydration diff in App-db tab (S-C3). Route-chain visualiser (R-C9). Trusted-shell opt visualiser (S-C9). |
 | **Views** (`v`) | (Largely unchanged; flows surface in the "Re-rendered" group when a flow's downstream sub recomputed.) |
-| **Trace** (`t`) | **Wall-clock axis** for timer rings, retry waterfalls, deferred-dispatch arrivals. Nav-token timeline as sticky header (or via `r` popover). Streaming SSR boundary waterfall (F-C10 / S-C10). Skipped-on-platform tally chip (F-C9). |
+| **Trace** (`t`) | **Wall-clock axis** for timer rings, retry waterfalls, deferred-dispatch arrivals. Nav-token timeline as sticky header (or via the popover below, once built). Streaming SSR boundary waterfall (F-C10 / S-C10). Skipped-on-platform tally chip (F-C9). |
 | **Machines** (`m`) | All of §2.1's M-C* features. The cancellation cascade visualiser (M-C3) is the tab's hero growth. |
 
 | Popover | Cross-cutting role |
 |---|---|
-| **Nav-token timeline** (`r`) | NEW popover. Horizontal swimlanes; carried-vs-current tokens; click-bar → seek. |
-| **Wire-trace** (`f`) | NEW popover. The Event-tab wire-boundary diff popped out — floats over any tab. |
+| **Nav-token timeline** | NEW popover — designed here, not built. Horizontal swimlanes; carried-vs-current tokens; click-bar → seek. No key: the `r` an earlier draft gave it was trimmed under rf2-f7748x, and how an unbuilt popover is invoked is undecided. |
+| **Wire-trace** | NEW popover — designed here, not built. The Epoch panel's per-fx wire-boundary diff popped out so it floats over any tab; the diff itself ships inline. No key: the `f` an earlier draft gave it retired with the Effects tab. |
 
 | Ribbon (L1) | Cross-cutting growth |
 |---|---|

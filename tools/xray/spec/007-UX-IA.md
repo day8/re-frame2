@@ -25,9 +25,15 @@ story/ui/chrome_a11y.cljs`) — a sibling to the variant a11y scanner
 `re-frame.story.ui.a11y` (rf2-qgms1). A duplicate Xray-side panel
 was noise that flagged Xray's own events-list as a problem.)
 
-Plus popovers (`r` nav-token timeline · `f` wire-trace
-+ `h` hydration bisector, future). Every popover is invokable from any
-tab. Every popover anchors on `:rf.xray/focus`.
+Plus popovers, which float over any tab and anchor on `:rf.xray/focus`
+just as the tabs do. Two are designed and neither is built — the
+nav-token timeline and the wire-trace pop-out. A third, the hydration
+bisector, was superseded: rf2-gbz39 folded hydration mismatches inline
+into the Epoch panel. Earlier drafts gave the three an `r`, an `f` and
+an `h`; none of the three is a key — see §Trimmed pending demand and
+§Retired keys below, and note that `h` is the Hicasso tab's label
+mnemonic today. The overlay surfaces that DO ship are catalogued in
+§Mountable surface inventory.
 
 **This is the single most important model in the spec.** Every
 information-architecture decision in this doc derives from "one event
