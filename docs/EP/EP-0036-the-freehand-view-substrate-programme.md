@@ -5,6 +5,21 @@ Type: standards-track
 Created: 2026-07-22
 Resolution: accepted 2026-07-22 (D001–D021 ratified and folded); withdrawn 2026-07-30
 
+> **Historical record — 2026-08-16.** This programme was **withdrawn** on
+> 2026-07-30 (banner below), and both it and the donor it absorbed
+> ([EP-0030](EP-0030-the-compiled-view-substrate-program.md)) were then
+> **removed from the tree** on 2026-08-16 under the operator ruling recorded as
+> `rf2-0yp7w` — `implementation/freehand/` and `implementation/ui/` return
+> nothing from `git ls-files`, and `spec/004D-Freehand-Compiled-Grammar.md`,
+> which the slice table below plans for, went with them. The EP is kept as the
+> record of the programme and no work is in flight under it: the withdrawal
+> banner's "**The code is not removed**" paragraph states the disposition as it
+> stood on 2026-07-30, and `rf2-0yp7w` is the separate, later decision it
+> anticipated. The design record is not affected — `docs/design/freehand/`
+> remains a durable frozen record per
+> [§Design-record posture](#design-record-posture) below, re-affirmed by the
+> `rf2-0moc4` ruling of 2026-08-18.
+
 > **Withdrawn — 2026-07-30 (operator ruling, Mike).** The Freehand
 > view-substrate programme is closed as a failed experiment. No further work is
 > authorised under this EP. The document is kept, as EP-0009 requires of every
