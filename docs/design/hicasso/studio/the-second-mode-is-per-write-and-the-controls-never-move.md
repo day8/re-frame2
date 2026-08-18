@@ -2,7 +2,9 @@
 
 Seat: RE-ANALYSIS RECORD, EP-0038. Bead `rf2-77gz8`, which asks what mechanism
 puts the floor arm's `rise/W` into either of two levels 3,792 B apart at one
-revision. Written 2026-08-18 on `worker/bimodal-77gz8`, off `858452ce35`.
+revision. Written 2026-08-18 on `worker/bimodal-77gz8`, written off `858452ce35`
+and rebased onto `7902167197`. The three instrument blobs below are byte-identical
+at both, so the derivations here are against one instrument.
 
 **No allocation window was taken for this page, and no instrument was built.**
 Nothing here is a new measurement. Every figure below is re-derived from the
