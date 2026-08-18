@@ -19,9 +19,11 @@
 > ENSURE-at-host-preflight lifecycle of [§Preflight runs before React](#preflight-runs-before-react)
 > is realised by `re-frame.hicasso` — `implementation/hicasso/src/re_frame/hicasso/impl/mount.cljs`'s
 > `root!` calls `ensure-frame!` before `createRoot`. Where a door is named below it is named
-> as the historical realisation, never as a surface to build on. **What is NOT yet ruled is
-> this document's own disposition** — whether it is rewritten around the live substrate,
-> kept as a record, or retired: see rf2-h89ri.
+> as the historical realisation, never as a surface to build on. **This document's own
+> disposition is now ruled (rf2-h89ri, 2026-08-18): 004C is KEPT.** `spec/004-Views.md`
+> and the S3/S4/S5 view-conformance profiles were deleted in the same ruling; 004C was
+> exempted because the two producers named above are live, and the exemption rests on
+> them rather than on the doors.
 
 ## 1. Root identity — required, host-authored, derivable
 
@@ -131,8 +133,8 @@ hydration-salient fields carried by [011 §Root Manifest v1](011-SSR.md#root-man
    hydration is `:rf.error/root-manifest-invalid` (§7).
 
 This split resolves the 12-§3-postpones-S5 / 08-§2-requires-S1 tension without moving
-either stage: S1 ships the descriptor (compiler artefact, `ui.test`/Xray consumer); S5
-ships the manifest as its extension.
+either stage: S1 ships the descriptor (compiler artefact; Xray consumes it, as did the
+removed `ui.test`); S5 ships the manifest as its extension.
 
 ### 2.1 The descriptor is per-root static facts
 
@@ -262,9 +264,10 @@ derive from**, so its identity set is `:root-id` / `:identifier-prefix` only; su
   fields — supplying `:root-id`/`:identifier-prefix` to `hydrate-root` is an error
   (`:rf.error/root-manifest-invalid` data names the conflicting key). The client must
   use the server's prefix or `use-id` hydration breaks.
-- **Every root-form-accepting entry point requires the literal root form at the call
-  site** — `mount`, `render!`, `hydrate-root`, `render-static`, and `ui.test/render`
-  (§8) alike; the same compile error rejects runtime-assembled vectors everywhere.
+- **Every root-form-accepting entry point required the literal root form at the call
+  site** — `mount`, `render!`, `hydrate-root`, `render-static` and `ui.test/render`
+  (§8, §9) alike; the same compile error rejected runtime-assembled vectors everywhere.
+  All five went with the substrates that carried them; the rule is recorded, not offered.
 - **Verb kinds on the two removed doors (ratified, shipped S1; recorded here as the roster each door carried).** On the compiled door, `mount`,
   `create-root`, `render!`, and `hydrate-root` are **macros**; `unmount!` is a plain
   **function**. The four macros must
@@ -623,44 +626,57 @@ server in sight (guide 01):
 
 ## 9. `ui.test/render` — accepted root-or-view forms
 
-`(ui.test/render root-or-view opts)` accepts exactly two forms:
+**RETIRED (rf2-0yp7w).** `re-frame.ui.test` was the test surface of the compiled-view
+substrate `re-frame.ui`, removed on 2026-08-16 together with Freehand, and
+`ui.test/render` went with it. **No surviving mount site inherits the grammar below** —
+it is the compiled door's own. It resolved `defview` Vars and the literal top-region
+root forms that door accepted, and it rejected with `:rf.ui.compile/bad-test-root` and
+`:rf.error/ui-test-bad-opts`: the first has no catalogue row anywhere, the second is
+struck RETIRED in [009 §Error event catalogue](009-Instrumentation.md). The heading is
+kept because §10, the `[S1-CONFIRM]` register and
+[008 §The `ui.test` contract](008-Testing.md#the-uitest-contract--headless-testing-for-compiled-views)
+still address this anchor — 008's own entry is itself a retirement record, and it names
+004C as one of the two documents that address it. What follows is the roster that door
+carried at S1, recorded as history and never as a surface to build on.
 
-1. **A view reference** (compile-resolved Var/symbol of a `defview`). Props ride
-   `{:props p}`. A frame rides `{:frame f}`, minted with `rf/make-frame` +
-   `:initial-events` and **caller-owned** — `render` binds it for the render but
-   never creates or destroys it, so release it with `rf/with-new-frame`
+`(ui.test/render root-or-view opts)` accepted exactly two forms:
+
+1. **A view reference** (compile-resolved Var/symbol of a `defview`). Props rode
+   `{:props p}`. A frame rode `{:frame f}`, minted with `rf/make-frame` +
+   `:initial-events` and **caller-owned** — `render` bound it for the render but
+   never created or destroyed it, so the caller released it with `rf/with-new-frame`
    (eval-bind-run-destroy) or an explicit `rf/destroy-frame!` teardown per
    [Spec 008 §`with-frame` and `with-new-frame`](008-Testing.md#with-frame-and-with-new-frame),
-   or the `make-frame` value leaks. With no frame, structural rendering proceeds
-   and any `sub` raises `:rf.error/no-frame-context` — honest, not defaulted.
-2. **A literal root form** — the same literal top-region grammar `mount` takes,
+   or the `make-frame` value leaked. With no frame, structural rendering proceeded
+   and any `sub` raised `:rf.error/no-frame-context` — honest, not defaulted.
+2. **A literal root form** — the same literal top-region grammar `mount` took,
    wrappers included, tightened to exactly **one mounted view** per test root
-   (§1.1's authored-`:root-id` multi-view allowance does not apply here; two views →
+   (§1.1's authored-`:root-id` multi-view allowance did not apply here; two views →
    `:rf.ui.compile/bad-test-root`, remedy: wrap the composition in one `defview`).
    Then:
-   - `{:props p}` is **rejected** (didactic: props live in the form);
-   - the form's `frame-root` plans run preflight ENSURE against the test registrar,
+   - `{:props p}` was **rejected** (didactic: props lived in the form);
+   - the form's `frame-root` plans ran preflight ENSURE against the test registrar,
      minting fresh test frames from the plans;
-   - `{:frame f}` alongside a plan-bearing root form is **rejected**
+   - `{:frame f}` alongside a plan-bearing root form was **rejected**
      (*"the root form owns its frames — pass a bare view to control the frame"*);
-     with a plan-free form it combines.
-     No other Spec ruled this combination; rejection is the conservative contract
-     (no ambiguity about which frame is ambient), and it ships as the
+     with a plan-free form it combined.
+     No other Spec ruled this combination; rejection was the conservative contract
+     (no ambiguity about which frame is ambient), and it shipped as the
      `:rf.error/ui-test-bad-opts` `:frame`-branch.
 
-A runtime-assembled vector is the same compile error as at `mount` (§3). In both
-forms, `{:sub-overrides {query value}}` combines freely — it is the explicit JVM
+A runtime-assembled vector was the same compile error as at `mount` (§3). In both
+forms, `{:sub-overrides {query value}}` combined freely — the explicit JVM
 override door ([006 §The static override handle](006-ReactiveSubstrate.md#the-static-override-handle)),
-with `:owned? false` honesty unchanged. Registrations come from the loaded namespaces;
-`ui.test` has no frame constructor — mint one with `rf/make-frame`
+with `:owned? false` honesty unchanged. Registrations came from the loaded namespaces;
+`ui.test` had no frame constructor, so a caller minted one with `rf/make-frame`
 ([002 §`make-frame`](002-Frames.md#make-frame--atomic-create-and-register-and-the-canonical-config-grammar)),
 per [008 §The `ui.test` contract](008-Testing.md#the-uitest-contract--headless-testing-for-compiled-views).
 
-**Test-scope identity:** each `ui.test/render` call is its own document scope — root
-identity derives normally (so descriptor-shaped assertions work) but the duplicate
-registry never spans two `render` calls. Tier-3 `with-root` mounts participate in the
+**Test-scope identity:** each `ui.test/render` call was its own document scope — root
+identity derived normally (so descriptor-shaped assertions worked) but the duplicate
+registry never spanned two `render` calls. Tier-3 `with-root` mounts participated in the
 real per-document registry of the jsdom/browser document, and its total teardown
-unregisters (a leaked registration failing a later mount is a test-harness bug, fixture-pinned).
+unregistered (a leaked registration failing a later mount was a test-harness bug, fixture-pinned).
 
 ## The interpreted paved path
 
