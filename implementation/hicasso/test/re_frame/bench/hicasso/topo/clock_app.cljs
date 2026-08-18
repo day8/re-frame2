@@ -78,10 +78,30 @@
 
   The same ruling is the reason every row count also carries a `:noop`
   row. `[:topo/noop-write]` moves a key no arm reads, so its window holds
-  exactly the cost that does **not** move with the arm — dispatch, the
+  the per-commit cost of a commit that builds no markup — dispatch, the
   `flushSync` boundary, the commit React schedules regardless. That is the
   quantity that killed the windowed arm, and a reader handed an
   arm-to-arm ratio without it cannot tell a topology result from a floor.
+
+  **That cost is ARM-SPECIFIC, and the premise this file used to state —
+  that the row holds *\"exactly the cost that does not move with the
+  arm\"* — is FALSIFIED.** The window `rf2-w01c` took on this driver
+  reads, at `B = 1000`, **31.75 / 31.60 / 31.85 ms on `fine`** against
+  **8.00 / 8.20 / 8.40 on `coarse`** and **9.40 / 9.40 / 9.55 on
+  `chunked`** — `fine`'s floor is 3.97, 3.85 and 3.79 times `coarse`'s
+  across the three runs. The floor MOVES with the arm, by about 4x.
+  **What it varies with is not settled**, and this file fits no cost for
+  it: the arms differ in boundary count, in subscription count and in
+  nothing else the window separates, so the statement the measurement
+  supports is *the floor is larger on the arm with more boundaries and
+  reads* and nothing sharper. See
+  [§2.9.7](../../../../../../../docs/design/hicasso/product/topology-tournament.md#297-the-floor-row-and-the-thing-it-turned-out-not-to-be).
+
+  The sentence above — that a reader handed an arm-to-arm ratio without
+  the floor cannot tell a topology result from a floor — is
+  **STRENGTHENED** by that and not weakened: a floor that is itself
+  arm-specific is one a reader cannot even bound by taking the smallest
+  arm's.
 
   **It is published beside every cell and it adjudicates nothing.** The
   same ruling rejected subtracting a separately-measured floor on three
@@ -168,8 +188,11 @@
   "The fifth row, and the only one that is not a tournament operation.
 
   `[:topo/noop-write]` moves a key no arm reads, so its window holds the
-  per-commit cost that does not move with the arm. REPORTED beside the
-  cells; it corrects nothing. See the namespace docstring."
+  per-commit cost of a commit that builds no markup. That cost is
+  ARM-SPECIFIC — about 4x larger on `fine` than on `coarse` at
+  `B = 1000` — rather than the shared constant this row was named for.
+  REPORTED beside the cells; it corrects nothing. See the namespace
+  docstring."
   :noop)
 
 (def rows
@@ -488,20 +511,27 @@
 ;; ---------------------------------------------------------------------------
 
 (defn floor-shares
-  "How much of each cell's window is the per-commit cost that does NOT
-  move with the arm, as `{[arm op b] share}`.
+  "How much of each cell's window is that cell's OWN ARM's floor, as
+  `{[arm op b] share}`.
 
   `share` is the floor row's centre over the operation row's centre on
   the SAME arm at the SAME row count — a ratio of two measurements, never
   a correction applied to either. `rf2-4t36` rejected subtracting a
   floor and the sharpest of its three reasons is that there is nothing
   stable to subtract: the identical fit returns +47% on one arm and
-  negative constants on three.
+  negative constants on three. The window STRENGTHENED that reason, by
+  measuring a floor that is arm-specific — see the namespace docstring.
 
-  A reader uses this exactly as that ruling used it — a cell whose window
-  is mostly floor is a cell whose arm-to-arm ratio is compressed toward
-  1, and the compression is arithmetic rather than a defect. Nothing here
-  adjudicates on it."
+  **The received rule for reading a mostly-floor cell does not apply to
+  this table, and the reason is that same falsification.** *\"A cell
+  whose window is mostly floor has its arm-to-arm ratio compressed
+  toward 1\"* is true when both arms carry the SAME floor. These do not,
+  so the limit here is a different number: were an operation to add
+  nothing at all to either arm, the ratio would read this table's own
+  floor ratio — `coarse`/`fine` of 0.254-0.268 at `B = 1000` — and not
+  1.00. **No corrected ratio is computed here**, because computing one
+  needs the additive cost model `rf2-4t36` refused. Nothing here
+  adjudicates on any of it."
   [table]
   (into {}
         (for [b   row-counts
