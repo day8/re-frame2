@@ -67,8 +67,12 @@
             `implementation/hicasso/frozen-sources.edn` still pins that
             copy byte-for-byte — so BOTH files answer identically today
             and either would satisfy an `identical?` check taken alone.
-            Only one of them survives Freehand's retirement, and it is
-            the one a migrator's own code will meet."
+            The pin names the one a migrator's own code will meet.
+            Freehand's retirement did not settle that by deletion:
+            rf2-0yp7w P0 RE-HOMED the twin into
+            `implementation/hicasso/test/` rather than removing it, so
+            both copies still exist and the namespace guard below is
+            load-bearing rather than vestigial."
     (let [url  (io/resource "re_frame/hicasso/impl/slot.cljc")
           path (some-> url .getPath (str/replace "\\" "/"))]
       (is (some? url) "the shared slot rule is on the classpath")
@@ -78,7 +82,7 @@
       (is (not (str/includes? path "/migration/reagent-to-hicasso/"))
           "a copy of the slot rule has appeared inside the codemod's own tree")
       ;; The prototype-twin guard, spelled by NAMESPACE rather than by tree.
-      ;; rf2-r8j91 wrote it as `/implementation/freehand/`, which was where the
+      ;; rf2-r4j91 wrote it as `/implementation/freehand/`, which was where the
       ;; twin lived; rf2-0yp7w P0 re-homed the harness into
       ;; `implementation/hicasso/test/re_frame/bench/hicasso/front/` and left
       ;; that spelling matching nothing — a guard that had quietly gone slack
