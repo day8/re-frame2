@@ -744,9 +744,9 @@ separate axis — see §0). The placement is uniform across areas:
 
 | Ribbon (L1) | Cross-cutting growth |
 |---|---|
-| Active-managed-effects chip (`⧖ 3 HTTP · 1 WS · 2 actors`) — F-C4 entry. |
-| SSR indicator chip (`📄 SSR @ <hash>`) — S-C1 entry. |
-| Expanded event-list badge taxonomy on L2 rows: `🌐 🔌 📄 🌊 🤖 🧭` (F-C1, R-C1, S-C1). |
+| **Active-managed-effects chip** | `⧖ 3 HTTP · 1 WS · 2 actors` — F-C4 entry. |
+| **SSR indicator chip** | `📄 SSR @ <hash>` — S-C1 entry. |
+| **Expanded event-list badge taxonomy** | On L2 rows: `🌐 🔌 📄 🌊 🤖 🧭` (F-C1, R-C1, S-C1). |
 
 ---
 
