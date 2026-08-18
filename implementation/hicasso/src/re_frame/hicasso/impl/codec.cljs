@@ -1432,16 +1432,28 @@
 
 (defn- mint-adoption-crossing
   "The per-declaration crossing cell [[mint-host-gate!]] closes over, or
-  `nil` in a production build where nothing observes it."
+  `nil` in a production build where nothing observes it.
+
+  TWO BOOLEANS AND NOT A THREE-STATE KEYWORD, which is not a style
+  preference — the keyword version of this cell was written first and it
+  never fired ONCE. Its transitions were guarded with `identical?`, which
+  is reference equality: keyword literals are only the same OBJECT when
+  the build emits them through a shared constants table, and a dev build
+  does not, so `(identical? :fresh @cell)` compared two distinct
+  `Keyword` instances and answered `false` at every site. The cell stayed
+  on its initial value for the whole run, the announce never armed, and
+  nothing was emitted — silently, because the failure of a trace to fire
+  looks exactly like a page with no crossing on it. Booleans have no
+  identity to get wrong."
   []
-  (when interop/debug-enabled? (volatile! :fresh)))
+  (when interop/debug-enabled? #js {:armed false :announced false}))
 
 (defn- note-unadopted!
   "ARM the crossing — this gate has now rendered its placeholder, so the
   next adopted render is a genuine transition rather than a fresh mount."
   [crossing]
-  (when (and crossing (identical? :fresh @crossing))
-    (vreset! crossing :unadopted)))
+  (when crossing
+    (unchecked-set crossing "armed" true)))
 
 (defn- announce-adoption!
   "Spec 009's `:rf.ssr/host-adopted` — ONE `:info` trace, the first time an
@@ -1452,8 +1464,10 @@
   behaviour of `:server :client-only` reporting that it completed, and it
   rides the instrumentation channel rather than the console."
   [host-name crossing]
-  (when (and crossing (identical? :unadopted @crossing))
-    (vreset! crossing :announced)
+  (when (and crossing
+             (unchecked-get crossing "armed")
+             (not (unchecked-get crossing "announced")))
+    (unchecked-set crossing "announced" true)
     (trace/emit! :info :rf.ssr/host-adopted
                  {:host  host-name
                   :where 're-frame.hicasso.impl.codec/mint-host-gate!})))
