@@ -16,16 +16,22 @@ The test kit is split across two namespaces:
 
 ## Put the test kit on the classpath
 
-Neither namespace arrives with the artifact. The kit has its own source root,
-`test_kit/src`, deliberately outside the Hicasso artifact's `:paths` — so an
-application that writes no test carries none of it, and bundle isolation holds by
-construction rather than by convention. The cost of that is one line you have to
-add yourself, and until you add it every `ht` and `hm` require on this page fails
-to resolve.
+Where the kit comes from depends on how you resolve Hicasso, and the two routes
+differ.
 
-Following the [`:local/root` setup](00-installation.md#add-the-dependencies) — the
-only shape available while nothing is published — put the kit's root on a test
-alias in `deps.edn`:
+**From a published coordinate**, both namespaces arrive in the jar and there is
+nothing to add. The kit's source root is on the artifact's `:src-dirs`, which is
+what decides jar content, so it is packaged alongside `re-frame.hicasso` itself.
+What keeps it out of your production bundle is not packaging but reachability: no
+shipping namespace requires the kit, so a build that never requires `ht` or `hm`
+compiles none of it — the same property the diagnostic and SSR modules have.
+
+**From a `:local/root` checkout** — the only shape available while nothing is
+published — the kit is one line you add yourself. It has its own source root,
+`test_kit/src`, deliberately outside the Hicasso artifact's `:paths`, so an
+application that writes no test carries none of it; and until you put that root on
+a test alias every `ht` and `hm` require on this page fails to resolve. Following
+the [`:local/root` setup](00-installation.md#add-the-dependencies):
 
 ```clojure
 ;; deps.edn

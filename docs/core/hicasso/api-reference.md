@@ -513,9 +513,10 @@ evidence/projection-fields evidence/projection-invariants evidence/envelope-fiel
 
 ## `re-frame.hicasso.test` — the L0/L1 test kit
 
-Ships from `test_kit/src`, off `:paths`, so an application that writes no test
-carries none of it. Twenty-three names, and none of them mounts anything: this
-tier reads values and runs bodies.
+Ships from `test_kit/src` — in the jar, but off the artifact's `:paths`, so a
+`:local/root` consumer names that root explicitly and no shipping namespace ever
+requires it. Twenty-three names, and none of them mounts anything: this tier reads
+values and runs bodies.
 
 ```clojure
 (ns my.app-test
