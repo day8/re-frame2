@@ -196,4 +196,145 @@ read-back, and **2** if the arm-order guard refuses.)
 
 ## 7. The runs
 
-*This section was empty when §1–§6 were committed.*
+**Three declared, three taken, three admissible, none excluded.** Each is a
+separate invocation that cleared the build id's cache entry and recompiled the
+`:advanced` bundle before measuring, so no two share a build.
+
+### 7.1 The four exit-bearing checks, per run
+
+| check | run 1 | run 2 | run 3 |
+|---|---|---|---|
+| arm-order guard self-test (12 cases) + ladder-fit self-test (3 cases) | all `ok` | all `ok` | all `ok` |
+| structural read-back, `N unverified of M` | **0 of 154** | **0 of 154** | **0 of 154** |
+| positive control, predicted `4,700,000 B` | **4,700,284** [4,698,928–4,700,936] | **4,700,230** [4,699,042–4,700,872] | **4,700,230** [4,699,042–4,700,872] |
+| control deviation from prediction | +0.006% | +0.005% | +0.005% |
+| `lane/control-verdict` at ±25% slack | `OK` | `OK` | `OK` |
+| structural witness over the samples | expected counts | expected counts | expected counts |
+| arm-order verdict | `reportable` | `reportable` | `reportable` |
+| rounds completed | 6 | 6 | 6 |
+| captured exit code | `0` | `0` | `0` |
+
+The exit codes are quoted **last and as corroboration**, because on this driver
+they are the weakest of the nine lines above: the driver's own header records a
+run that printed `VERDICT: reportable` and exited `0` while no write had
+reached the page. Every check above was read out of the run's own output.
+
+Runs 2 and 3 report a **byte-identical** positive control, and it is the same
+range the 2026-08-12 package rung recorded. That is a property of the control —
+a fixed dense array read by a collector that is deterministic once warm — and
+run 1, the coldest of the three, is the one that differs.
+
+### 7.2 The anchor: the package arm, three runs, one instrument
+
+`B` = 1,200 boundaries, 4 roots × 300 cells, rungs 0/1/3/7/20, six rounds.
+`slope` is the **marginal** read; `shell` is the directly measured `R=0` rung
+and never the fitted intercept. Bands are min–max across the six rounds.
+
+| `reagent-subs` \| **hicasso** | slope B/read | shell B (R=0) | r² |
+|---|---:|---:|---:|
+| run 1 | 1,417 [1,414–1,418] | 1,098 [1,089–1,102] | 0.99833 |
+| run 2 | 1,416 [1,413–1,418] | 1,100 [1,092–1,107] | 0.99834 |
+| run 3 | 1,417 [1,417–1,417] | 1,101 [1,091–1,111] | 0.99831 |
+
+| `uix-subs` \| **hicasso** | slope B/read | shell B (R=0) | r² |
+|---|---:|---:|---:|
+| run 1 | 2,116 [2,114–2,118] | 1,096 [1,094–1,102] | 0.99956 |
+| run 2 | 2,116 [2,110–2,119] | 1,096 [1,087–1,103] | 0.99956 |
+| run 3 | 2,116 [2,110–2,118] | 1,097 [1,088–1,105] | 0.99956 |
+
+The donors were taken in the same runs and are the instrument's own control on
+these figures: `reagent` answered **948** B/read in all three, and `uix`
+**2,979 / 2,980 / 2,979**.
+
+### 7.3 What this establishes, and it is the point of taking three
+
+**The anchor's own run-to-run spread, on one unchanged instrument and one
+unchanged tree:**
+
+| quantity | across the three runs | spread |
+|---|---|---:|
+| `reagent-subs` \| hicasso, slope | 1,416 – 1,417 B/read | **0.07%** |
+| `reagent-subs` \| hicasso, shell | 1,098 – 1,101 B | **0.27%** |
+| `uix-subs` \| hicasso, slope | 2,116 – 2,116 B/read | **0.00%** |
+| `uix-subs` \| hicasso, shell | 1,096 – 1,097 B | **0.09%** |
+
+**So the `C1` line is measurable by this instrument, and that is what three
+runs bought that one could not have.** The widest disagreement between two
+readings of the *same* software on the *same* instrument is **0.27%**, which is
+roughly one eighteenth of the 5% the rule is written at. A future reading that
+moves this arm by more than 5% is therefore attributable to the software rather
+than to the instrument — which is exactly the claim `C1` has to be able to make
+and, until this window, could not.
+
+Had the three disagreed by more than 5%, the finding would have been that the
+rule is unmeasurable here and the line rather than the reading needed the
+ruling. They did not.
+
+### 7.4 The seven-day comparison, and why it is reported but not counted
+
+The [2026-08-12 package rung](reads-per-boundary-heap-ladder.md#the-package-itself-priced-on-this-rung-at-last-rf2-fe0l)
+measured the same arm on the same rung. Against it:
+
+| quantity | 2026-08-12 | this window | deviation |
+|---|---:|---:|---:|
+| `reagent-subs` \| hicasso, slope | 1,417 | 1,416 – 1,417 | ≤ 0.07% |
+| `reagent-subs` \| hicasso, shell | 1,100 | 1,098 – 1,101 | ≤ 0.18% |
+| `uix-subs` \| hicasso, slope | 2,115 | 2,116 | ≤ 0.05% |
+| `uix-subs` \| hicasso, shell | 1,095 | 1,096 – 1,097 | ≤ 0.18% |
+
+**This is not a `C1` verdict and must not be quoted as one.** `C1` is written
+*on the same witness **and instrument***, and the instrument is not the same:
+seven of its nine files moved between those two runs, six of them within the
+last day (§6). What the agreement does establish is narrower and still worth
+recording — the allocation lane's edits to the shared driver did **not** move
+what this rung reads, which is a fact about that lane rather than about
+Hicasso.
+
+### 7.5 The verdict, and the one thing this window deliberately did not do
+
+**Gate 2 is CERTIFIED as a measurement and `C1`'s ledger status is NOT moved.**
+Those are consistent, and the reason is the rule's own wording rather than
+caution.
+
+An anchor now exists: a pinned reading of the package arm, on a named
+instrument, with three admissible runs and a stated reproducibility. `C1`'s
+blocker has therefore changed in kind — from *"the same instrument" names
+nothing*, which is what §6 recorded, to *one anchor exists and a second
+same-instrument reading has not been taken*. The second is a far weaker
+blocker, but it is still a blocker, because a **regression** rule needs two
+readings of the same instrument across a change and this window produced one
+reading of an unchanged tree. Nothing was decided against the 5% line, so
+writing `MET` would be recording a verdict no comparison reached.
+
+Neither is `UNPINNED` still accurate on its own definition — *no instrument for
+it exists on the governed population* — because one now does. **The ledger's
+four-valued vocabulary has no cell for *anchored, instrument exists, awaiting
+a second reading*, and minting a fifth value is a ruling rather than a
+worker's edit.** The cell is therefore left exactly as it was and the
+discrepancy is written down here instead of being resolved by whichever
+neighbouring value looked closest. That choice is the same one §9.1 records the
+`UNRESOLVED` value being invented for: a vocabulary that cannot say what
+happened will otherwise round it to something that did not.
+
+No threshold was guessed, no band widened, no figure restated and no ledger
+count moved.
+
+## 8. Conditions
+
+Three invocations between **01:03 and 01:19 on 2026-08-19**, back to back on
+one drained fleet, each ~3.5–8.5 minutes (run 1 carried a cold compile).
+Captured exits `0`, `0`, `0`. React 19.2.0, Reagent 2.0.1, UIx 1.4.4,
+`:advanced` with `goog.DEBUG false`, headless Chromium via Playwright,
+Windows 11, 24 logical cores.
+
+The box was bracketed at both ends, standalone, never sampled inside a run:
+
+| bracket | queue length | occupancy | `java` | processes | free |
+|---|---|---|---:|---|---|
+| open, 00:56 | **0** on every sample | 7.12% / 6.63% | **0** | 20 node / 90 chrome / 529 | 21.09 GB |
+| close, 01:19 | **0** on every sample | 5.99% / 6.03% | **0** | 20 node / 90 chrome / 528 | 20.94 GB |
+
+No worker was dispatched against this box while the window was open, and
+nothing else was run alongside the runs — the cheap source checks behind §3 and
+§4 were taken **before** the first invocation and the gate runs **after** the
+last.

@@ -2139,3 +2139,66 @@ and `C1` on a candidate arm that has to be re-sited, and **both of those are
 edit-shaped work that builds fine on a loud box.** Only the runs that follow
 them need the drain. Recording that distinction is what this window bought with
 a quiet fleet; it is a scheduling fact and it moves no row.
+
+**[Window taken 2026-08-19, `rf2-85og2`, on a drained fleet. `C1` HAS AN ANCHOR
+AT LAST; no ledger status moves and no figure here is restated.]** This is the
+first of the three gates to produce a reading rather than a refusal, and the
+distinction between the three has now been drawn by measurement rather than by
+argument: **one of them was runnable and two were not, and the drain was spent
+on the one that was.** The run count was declared per gate and committed before
+the runner was invoked once — three invocations for `C1`, zero for each of the
+other two, because neither has a runner to invoke. The record is
+[the `C1` anchor page](../studio/the-c1-anchor-on-the-package-arm.md).
+
+**`C1`: three runs, three admissible, and the 5% line is now known to be
+measurable.** The package arm was read on the heap ladder three times on one
+instrument and one tree, each run six rounds with its own `:advanced` compile.
+All four of the driver's exit-bearing checks were affirmative on every run —
+the arm-order guard's self-test, `0 unverified of 154` mounts, the positive
+control at `4,700,230`–`4,700,284 B` against a `4,700,000 B` prediction fixed
+by arithmetic beforehand, and a `reportable` arm-order verdict — and the
+captured exit codes corroborate them rather than standing in for them. **The
+widest disagreement between two readings of the same software on the same
+instrument was 0.27%**, roughly one eighteenth of the line `C1` is written at.
+That is what three runs bought and one could not have: a future reading that
+moves this arm by more than 5% is now attributable to the software rather than
+to the instrument, which is the claim `C1` exists to make and, until this
+window, could not.
+
+**The status cell is deliberately not moved, and the reason is a gap in this
+ledger's vocabulary rather than caution.** `C1` is a **regression** rule — *the
+same witness and instrument* — so deciding it needs two readings across a
+change, and this window produced one reading of an unchanged tree. `MET` would
+record a verdict no comparison reached. But `UNPINNED` is no longer accurate on
+[§9.1](#91-how-to-read-a-row)'s own definition either, because *no instrument
+for it exists on the governed population* has stopped being true. **There is no
+value for *anchored, instrument exists, awaiting a second reading*, and minting
+a fifth is a ruling rather than a worker's edit**, so the cell stands unchanged
+and the discrepancy is recorded instead of being rounded to whichever
+neighbouring value looked closest — which is the failure §9.1 says `UNRESOLVED`
+was invented to prevent. `C1`'s blocker has nonetheless changed in kind, from
+*"the same instrument" names nothing* to a second reading not yet taken.
+
+**A seven-day agreement that is reported and NOT counted.** Against the
+2026-08-12 package rung the same four quantities agree to within **0.18%**.
+This is not a `C1` verdict and must not be quoted as one: seven of the
+instrument's nine files moved between those two runs, six of them within the
+preceding day, so the two readings are the same witness and **not** the same
+instrument. What it does establish is narrower — the allocation lane's edits to
+the shared P0 driver did not move what this rung reads, which is a fact about
+that lane rather than about Hicasso.
+
+**`U1`–`U4`, `C3`/`C4` and `C8`: refused again, zero runs declared and zero
+taken, and the refusals are now cheaper to re-derive.** Both were re-tested at
+source at this window's tip. For gate 1 the estimator half stays closed and the
+**population** half stays open: no driver under
+`implementation/hicasso/test/re_frame/bench/` requires anything under
+`re-frame.hicasso.examples`, and the lane's window is still a `flushSync`
+commit, a mount and not a paint. For gate 3 the population is still empty —
+one `h/as-element` in shipping example view code, the vendor-virtualizer
+boundary the rule already places outside the population, and no
+`re-frame.hicasso.native` island at all — and the census was run with a
+positive control in both directions, because a search that returns zero and a
+search that looks nowhere print the same thing. **Neither refusal is about box
+quietness and no quiet-box time was spent on either**; the cheap source checks
+were taken before the first invocation.
