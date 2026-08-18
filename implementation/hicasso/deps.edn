@@ -56,6 +56,29 @@
 ;; does: the clj-kondo export reaches a consumer over the CLASSPATH, so a jar
 ;; without it silently ships no lint layer at all.
 ;;
+;; IT ALSO CARRIES `test_kit/src`, WHICH `:paths` DOES NOT (rf2-rxf49). The two
+;; keys are not the same lever and this artefact is the one place they diverge:
+;; `:paths` is the classpath a `:local/root` consumer inherits, while `:src-dirs`
+;; is the ONLY thing that decides jar content — clein's `create-jar` is
+;; `copy-src` then `b/jar`, and `copy-src` is `b/copy-dir` over
+;; `(concat :src-dirs :resource-dirs)` into `:class-dir`, so a root that is off
+;; `:src-dirs` is off the jar and nothing else puts it back. Left as it was, the
+;; first `v*` tag would publish a `day8/re-frame2-hicasso` containing no
+;; `re-frame.hicasso.test` and no `re-frame.hicasso.test.mounted` — the supported
+;; testing surface, absent from the artefact that documents it, with no second
+;; coordinate to get it from.
+;;
+;; This does NOT weaken the kit's dev-only property, because that property was
+;; never the separate root's to give. `re-frame.hicasso.evidence` and
+;; `re-frame.hicasso.tool` ship from `src/` and are dev-only by REACHABILITY —
+;; no `src/` namespace requires them, so a consumer who never asks for the
+;; projection never bundles a byte of it — and `scripts/check_production_erasure.cjs`
+;; is what checks that, by scanning the release bundle for each surface's
+;; sentinel. The kit is on that same roster, under the sentinel
+;; `rf.error/hicasso-test-`, and its entry already states the real rule: no
+;; `src/` namespace may require the kit. A classpath entry costs no bundle bytes;
+;; a `:require` does. Off `:paths` it stays, so the in-repo lane and the
+;; `:local/root` route keep asking for the kit explicitly.
 ;; `resources` is on :paths for ONE reason: the clj-kondo export
 ;; (rf2-hic-022) reaches a consumer over the CLASSPATH. `clj-kondo --lint
 ;; "$(clojure -Spath)" --dependencies --copy-configs` scans the classpath for
@@ -103,13 +126,15 @@
  {:test {:extra-paths ["test"
                        ;; rf2-hic-020 — `re-frame.hicasso.test`, the supported
                        ;; L0–L2 testing surface. Its own root, and NOT in
-                       ;; `:paths` above: a consumer that never writes a test
-                       ;; never carries it, so the kit's zero production
-                       ;; reachability is a packaging fact rather than a
-                       ;; convention. Listed here so the classpath probe sees
-                       ;; it; the CLJS lane reaches it through the
-                       ;; `hicasso/test_kit/src` :source-paths entry in
-                       ;; implementation/shadow-cljs.edn.
+                       ;; `:paths` above, so the in-repo lane and any
+                       ;; `:local/root` consumer ask for it by name. It IS on
+                       ;; `:clein/build`'s `:src-dirs`, so the published jar
+                       ;; carries it (rf2-rxf49) — see the `:src-dirs` paragraph
+                       ;; in the header for why those are different levers and
+                       ;; why a classpath entry is not a bundle byte. Listed
+                       ;; here so the classpath probe sees it; the CLJS lane
+                       ;; reaches it through the `hicasso/test_kit/src`
+                       ;; :source-paths entry in implementation/shadow-cljs.edn.
                        "test_kit/src"]
          :extra-deps  {day8/re-frame2-test-quiet {:local/root "../test-quiet"}
                        ;; The Node lane's substrate. The prototype's own
@@ -147,4 +172,4 @@
    :version  "../../VERSION"
    :license  {:name "MIT"
               :url  "https://opensource.org/licenses/MIT"}
-   :src-dirs ["src" "resources"]}}}
+   :src-dirs ["src" "resources" "test_kit/src"]}}}
