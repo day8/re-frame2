@@ -1811,6 +1811,33 @@ application's own interactions, while both drivers mount a synthetic bench page
 inside one `flushSync` window, which is a mount and not a paint. `UNPINNED`
 stands on all six rows.
 
+**[Estimator half built, 2026-08-18, `rf2-xa8wo`. `UNPINNED` still stands on
+all six rows, and no reading was taken.]** The first of the two gaps above is
+closed as a matter of source: `lane/quantile` now answers a linear-interpolated
+quantile at `h = (n-1)q` — the definition `clock_readjudicate.cjs` already
+spells out, and the one the lane's `:p50` was already computed under — and
+`lane/summarise` carries `:p95` and `:p99` beside the fields it always
+answered. The paragraph above, [§9.2](#92-what-each-not-green-row-is-waiting-on)'s
+*the instrument computes no `p95`* and
+[the tournament's §2.9.9](topology-tournament.md#299-what-was-not-concluded)
+are each a true record of the lane as it stood when they were written, and each
+is now history rather than a live constraint.
+
+**THE SECOND GAP IS UNTOUCHED, AND IT IS THE ONE THAT GOVERNS.** The
+populations still differ. `U1`–`U4` are stated over a slice application's own
+interactions — [§9.3](#93-where-this-ledger-stops-and-rf2-hic-071-begins) says
+*slice-app user-visible gates*, and §4's estimand column reads *latency to
+visible echo*, *latency to next paint*, *operation latency* and *per-frame
+latency* — while every window the lane can currently drive is a commit bracketed
+by `flushSync` on a synthetic bench page. **A `p95` over that window would be a
+`p95` of a mount, published against a line written about a paint**, which is
+worse than no `p95` at all because it is quotable. `rf2-xa8wo` therefore built
+the estimator and stopped: what it still owes, and what the gate-1 window is
+still waiting on, is a driver whose window is one discrete interaction through
+to the paint that follows it, on a witness application under
+`implementation/hicasso/test/re_frame/hicasso/examples/`. No threshold was
+guessed, no band widened, no figure restated and no ledger count moved.
+
 **What *package-resident* means here**, written down because it is mis-readable
 in a way that would silently discharge that bullet. It names what the
 instrument is **pointed at**, never where the instrument's own code ships. §6's
