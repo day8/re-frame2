@@ -180,7 +180,7 @@
                 ;; resolvable. Data only: no sources, nothing compilable,
                 ;; and no production build requires any of it.
                 ;;
-                ;; Two consumers today, both macros that inline a
+                ;; One consumer today, a macro that inlines a
                 ;; committed file at macro-expansion time — which by
                 ;; itself hides that file from the build, because a
                 ;; ClojureScript compile that caches the namespace has no
@@ -190,8 +190,8 @@
                 ;; checking. Reading through `shadow.resource/slurp-resource`
                 ;; instead records the file's classpath path and
                 ;; last-modified against the compiling namespace, so the
-                ;; data participates in that namespace's cache key. Both
-                ;; consumers reach that reader through the one namespace
+                ;; data participates in that namespace's cache key. That
+                ;; consumer reaches that reader through the one namespace
                 ;; above, never directly.
                 ;;
                 ;;   api-manifest-metadata.edn — inlined by

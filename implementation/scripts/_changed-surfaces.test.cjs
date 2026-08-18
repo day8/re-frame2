@@ -3385,8 +3385,8 @@ for (const file of TEST_QUIET_FILES) {
 }
 
 // implementation/spec-resource is the ONE build-time reader for committed
-// spec/ data: the Freehand conformance fixture loader and the api-manifest
-// CLJS probe both expand through it. Its own suite is the deterministic
+// spec/ data, and the api-manifest CLJS probe is the ONE consumer that
+// expands through it. Its own suite is the deterministic
 // control for a cold-load race that has shipped twice behind fully green
 // lanes — which is exactly why the routing has to be pinned. If the
 // classifier leaves every output false, the one job in CI that goes red
@@ -3405,12 +3405,12 @@ for (const file of [
     assert.equal(
       result.implementation_jvm,
       'true',
-      'the reader change must run its own race control (jvm-spec-resource) and the fixture loader lane (jvm-freehand)',
+      'the reader change must run its own race control (jvm-spec-resource)',
     );
     assert.equal(
       result.cljs_node_test,
       'true',
-      'the consolidated :node-test build is where both consumers macro-expand through this reader',
+      'the consolidated :node-test build is where the api-manifest probe macro-expands through this reader',
     );
   });
 }
