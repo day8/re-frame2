@@ -2444,6 +2444,29 @@ const PAIRED_ROW = {
     ':p0/write-all — a synthetic row, measured against nothing',
 };
 
+// A RECORD WITH NAMED FIELDS TAKEN OUT OF EVERY WINDOW — the negative
+// fixtures the provenance pin is driven against, built by SUBTRACTION from
+// the healthy one so a field added to `winWrite` cannot leave them stale.
+//
+// The fields are a PARAMETER rather than a fixed set, because the shapes this
+// pin has to refuse are not one shape. Removing all three gives the record
+// every allocation run had before rf2-irxrw; removing `pairKey` alone gives
+// the far more dangerous one, where every window names its write correctly
+// and none of them belongs to a pair.
+//
+// Written as an explicit key filter and not as `const { a, b, ...rest } = x`.
+// That idiom needs the omitted keys BOUND to omit them, this repo's ESLint
+// config deliberately does not set `ignoreRestSiblings` — "unused *variables*
+// stay on: that is the arm that catches a dead `require`" — and a disable
+// comment would be more machinery than the subtraction is worth.
+const without = (arms, fields) =>
+  Object.fromEntries(
+    Object.entries(arms).map(([key, a]) => [
+      key,
+      Object.fromEntries(Object.entries(a).filter(([f]) => !fields.includes(f))),
+    ])
+  );
+
 // The fits a full run carries, one per (segment, substrate), derived from the
 // same plan for the same reason. Only the full plan reaches
 // `summariseAllocFits`; the narrow ones print the NO FITTED LINE block.
@@ -2759,12 +2782,7 @@ test('THE SAME PIN REFUSES an UNPAIRED-SHAPED record — the windows name nothin
   // The shape every allocation record had before this bead: the row named the
   // write and the windows did not, which was adequate while a process drove
   // one write and is exactly what a paired record may not be.
-  const arms = Object.fromEntries(
-    Object.entries(FULL_ARMS(['page', 'all'])).map(([k, a]) => {
-      const { writeSelector, write, pairKey, ...rest } = a;
-      return [k, rest];
-    })
-  );
+  const arms = without(FULL_ARMS(['page', 'all']), ['writeSelector', 'write', 'pairKey']);
   const { row, out } = allocSummaryFor('full', arms, {
     ...PAIRED_ROW,
     allocFits: FULL_FITS(['page', 'all']),
@@ -2776,6 +2794,45 @@ test('THE SAME PIN REFUSES an UNPAIRED-SHAPED record — the windows name nothin
   assert.match(prov.unnamed[0], /^round 1 /, 'per round and per key, not one undifferentiated count');
   // And the summary says so where an operator would see it.
   assert.match(out, /WRITE UNNAMED round 1 /);
+  assert.match(out, /PROVENANCE: 88 recorded windows across 0 pairs — 88 unnamed/);
+});
+
+test('and it refuses a record whose windows name their write but carry NO pairKey', () => {
+  // THE SHAPE THAT WOULD SURVIVE THE TEST ABOVE. Every window names its own
+  // write, correctly, and the record satisfies criterion 6's separation to the
+  // letter — so a reader checking only "can I tell which write produced this
+  // row?" passes it. What it does not carry is the thing that makes the pair a
+  // PAIR: the arm key its two legs share. An estimator handed this can see two
+  // populations and cannot match them, which is precisely the reconstruction
+  // rf2-irxrw exists to make unnecessary, and it would be back to differencing
+  // unmatched medians with nothing on the record to say so.
+  //
+  // This is the branch the pin's other cases cannot reach. Strip all three
+  // fields and the "names no write" branch fires first, so the pairKey arm is
+  // never exercised; strip `pairKey` alone and it is the only one that can.
+  const arms = without(FULL_ARMS(['page', 'all']), ['pairKey']);
+  const { row, out } = allocSummaryFor('full', arms, {
+    ...PAIRED_ROW,
+    allocFits: FULL_FITS(['page', 'all']),
+  });
+  const prov = allocWriteProvenance(row);
+  assert.strictEqual(prov.ok, false, 'a record whose pairs cannot be formed is not a paired record');
+  assert.strictEqual(prov.unnamed.length, 88, 'every window, on every round');
+  assert.match(
+    prov.unnamed[0],
+    /carries no pairKey, so it belongs to no pair$/,
+    'and the reason names THIS defect, not the one above'
+  );
+  // NOT VACUOUS, and this is what separates it from the test above: the write
+  // half is intact on every window, so the failure is the pairing alone.
+  assert.doesNotMatch(prov.unnamed[0], /names no write/);
+  for (const a of Object.values(arms)) {
+    assert.ok(a.writeSelector && a.write, 'the windows DO name their write');
+  }
+  // No pair could be formed, so there is nothing to be incomplete — the census
+  // reads zero rather than reporting 44 half-pairs, which is the honest count.
+  assert.strictEqual(prov.pairs, 0, 'no window joined a pair');
+  assert.deepStrictEqual(prov.incomplete, [], 'and none is reported as a HALF pair, which it is not');
   assert.match(out, /PROVENANCE: 88 recorded windows across 0 pairs — 88 unnamed/);
 });
 
