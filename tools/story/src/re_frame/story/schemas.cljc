@@ -294,14 +294,24 @@
   scope). The two axes coincided while the members were `:reagent` and
   `:uix`, and the coincidence read as identity.
 
-  `:hicasso` is the member that separates them, and it is why the claim
-  had to go. Hicasso ships NO adapter — there is no `:rf.adapter/hicasso`
-  anywhere in the repository, deliberately — and a Hicasso application
-  boots on the UIx adapter. It is nonetheless a distinct authoring layer
-  with a distinct render strategy: its views are boundaries minted by
-  `h/defview`, reached through `:hicasso/component` on the view
-  registrar and crossed into with `h/as-element`. So it belongs on THIS
-  axis and is correctly absent from that one.
+  `:hicasso` is still the member that separates them, though no longer
+  for the reason first recorded here. That reason was that Hicasso
+  shipped NO adapter — that there was no `:rf.adapter/hicasso` anywhere
+  in the repository, deliberately, and that a Hicasso application booted
+  on the UIx adapter. rf2-hvr5h retired it: `re-frame.hicasso.substrate`
+  ships `:kind :rf.adapter/hicasso`, and the install chapter teaches
+  `(rf/init! substrate/adapter)` as the default (rf2-4rozj).
+
+  The separation survives intact, because it never rested on the
+  absence. A Hicasso application may install Hicasso's own adapter or
+  somebody else's — the install is explicit and there is no
+  default-adapter registry — and it remains ONE authoring layer either
+  way: its views are boundaries minted by `h/defview`, reached through
+  `:hicasso/component` on the view registrar and crossed into with
+  `h/as-element`. That is what a member of THIS set names, and it does
+  not move when the adapter beneath it does. The two enums now share a
+  `hicasso` spelling and still answer different questions, which is
+  precisely the one-to-one reading this section exists to prevent.
 
   ## Who registers what
 
