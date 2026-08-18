@@ -51,19 +51,25 @@
  * window today are correctly outside the script too. The `test.yml`-only ones
  * fail (b): that workflow is surface-classified, so the change that would break
  * such a gate is the change that queues it, and a PR cannot land past it in
- * silence. `build:freehand-matched` fails (a) — it is the matched-pair build
- * step feeding `freehand-bench.yml`, not a gate. `test:freehand` fails (b) for a
- * subtler reason worth knowing: `freehand-bench.yml` runs it to CAPTURE the B5
- * records, but its assertions already gate every PR through the `:node-test`
- * build, which `test:cljs` runs — test.yml calls it "the cheap NAMED surface for
- * local + worker iteration, not a second gate". (`test:cljs` and
- * `test:script-helpers` reach here transitively anyway, via `test-fast-pr.sh`,
- * which the rigorous script runs first.)
+ * silence. The sharpest worked examples of (a) and (b) were the Freehand ones,
+ * and they are kept because what they teach is the DERIVATION rather than the
+ * commands: `build:freehand-matched` failed (a) — it was the matched-pair
+ * build step feeding `freehand-bench.yml`, not a gate. `test:freehand` failed
+ * (b) for a subtler reason worth knowing: `freehand-bench.yml` ran it to
+ * CAPTURE the B5 records, but its assertions already gated every PR through
+ * the `:node-test` build, which `test:cljs` runs — test.yml calls that "the
+ * cheap NAMED surface for local + worker iteration, not a second gate".
+ * (`test:cljs` and `test:script-helpers` reach here transitively anyway, via
+ * `test-fast-pr.sh`, which the rigorous script runs first.)
  *
- * `bench:freehand-browser` is the one command that satisfies both, which is
- * exactly why it is pinned and the others are not. The full census sits on
- * rf2-0l1nv rather than here, because a list of command names in this file would
- * be a second authority with nothing holding it in step with the workflows.
+ * `bench:freehand-browser` was the one command that satisfied both, which is
+ * why it was pinned and the others were not. All three retired with the
+ * Freehand tree on 2026-08-16 (rf2-0yp7w) — no `freehand` script survives in
+ * `package.json` and `freehand-bench.yml` is gone — so none of them is pinned
+ * today, and the `DIRECT_PINS` map below is the authority on what is. The full
+ * census sits on rf2-0l1nv rather than here, because a list of command names in
+ * this file would be a second authority with nothing holding it in step with
+ * the workflows.
  *
  * A package.json census would ALSO not have caught the failure that raised the
  * question. rf2-mf4uy (PR #7193) moved the seven `re-frame.freehand.bench.*` DOM
@@ -74,9 +80,11 @@
  * census would not have moved and would have stayed green while the local
  * sweep's coverage narrowed. That failure was a migration of test CONTENT, and
  * the gate that sees that class is `_browser-dom-lane-partition.test.cjs`, which
- * derives both lanes' `:ns-regexp` from `shadow-cljs.edn` and proves they
- * partition the repo's `*_dom_cljs_test` namespaces. Content-level derivation is
- * the answer to content-level drift; a name-level census is not.
+ * derives the DOM lane's `:ns-regexp` from `shadow-cljs.edn` and proves it
+ * selects every `*_dom_cljs_test` namespace in the repo. (It proved a PARTITION
+ * of two lanes until the bench lane retired with the Freehand corpus; see that
+ * file's header.) Content-level derivation is the answer to content-level
+ * drift; a name-level census is not.
  *
  * A command earns a `DIRECT_PINS` entry on top of that when it must also declare
  * a `kind` — and that declaration is CHECKED against the workflow rather than

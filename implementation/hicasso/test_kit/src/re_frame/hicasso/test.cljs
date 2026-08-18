@@ -71,10 +71,12 @@
   [`spec/004B-UI-Tree-and-Conversion.md`](../../../../../../spec/004B-UI-Tree-and-Conversion.md)
   §The node schema already pins — the same closed node set, the same
   discrimination order, the same `:rf.ui/tree-version` root gate, the
-  same `{:rf.ui/opaque :fn}` sentinel — so a tree from a Hicasso body and
-  a tree from a Freehand declaration are the same VALUE KIND and read
-  with the same vocabulary. rf2-hic-020 audited that schema before
-  writing anything and reuses it whole; the projections below carry
+  same `{:rf.ui/opaque :fn}` sentinel — so the tree a Hicasso body answers
+  is 004B's own VALUE KIND, read with 004B's vocabulary rather than one
+  invented here. That was a CROSS-SUBSTRATE claim when it was written: a
+  tree from a Freehand declaration was the same kind, until rf2-0yp7w
+  removed that substrate on 2026-08-16. rf2-hic-020 audited that schema
+  before writing anything and reuses it whole; the projections below carry
   `re-frame.freehand.test`'s semantics for the same reason.
 
   Two things the audit found are stated rather than left to be

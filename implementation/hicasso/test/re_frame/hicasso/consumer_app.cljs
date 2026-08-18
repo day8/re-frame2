@@ -40,7 +40,8 @@
 
   ## Why it lives under `test/`
 
-  For the reason the sibling `re-frame.freehand.release-app` does:
+  For the reason the removed `re-frame.freehand.release-app` did (rf2-0yp7w
+  deleted it with its tree; the reason is the package layout, not the donor):
   `hicasso/deps.edn` publishes `src` and `resources` alone, so a fixture
   that exists to be compiled stays out of the artefact a consumer
   resolves, while shadow-cljs — which carries `hicasso/test` on

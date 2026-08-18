@@ -61,9 +61,11 @@
   scanned from 101 to 231 and the claims found from 39 to 39.
 
   So the reader is now `clojure.tools.reader` at `:features #{:cljs}` over the
-  whole file — the same instrument `re-frame.freehand.compiler.harvest` reads
-  ClojureScript source with, and on the classpath for the same reason (it
-  ships with `org.clojure/clojurescript`, a hard dep of core). Reading forms
+  whole file — on the classpath because it ships with
+  `org.clojure/clojurescript`, a hard dep of core, so reading CLJS source
+  structurally costs no new dependency. (`re-frame.freehand.compiler.harvest`
+  read source with the same instrument for the same reason; it was removed
+  with its tree on 2026-08-16, rf2-0yp7w.) Reading forms
   rather than lines answers the load-time question STRUCTURALLY:
 
     - The walk descends the whole file but never into a function body — `fn`,
@@ -243,8 +245,8 @@
   namespace-load time.
 
   Framework and tool testbeds are deliberately outside this list: they compile
-  into their own bundles (`:node-test-freehand`, the per-tool testbed builds),
-  so a path they share with an example is not a collision."
+  into their own bundles (`:node-test-testbed-support`, the per-tool testbed
+  builds), so a path they share with an example is not a collision."
   ["examples"
    "testbeds"
    "implementation/hicasso/test"])

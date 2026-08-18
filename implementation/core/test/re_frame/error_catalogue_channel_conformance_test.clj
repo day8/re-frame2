@@ -1386,10 +1386,14 @@
 ;; `re-frame.subs/subscribe`, `re-frame.router/build-envelope`,
 ;; `re-frame.core/capture-frame`, `rf.ssr/hydrate!`, `rf.http/managed`,
 ;; `rf.machine/spawn`, `rf.route/navigate-handler`, … across core, http,
-;; machines, routing, flows, resources, ssr, freehand and ui — as does the
-;; `where` argument threaded through `require-frame-provider-target!` and
-;; `re-frame.ui.frames/resolve-frame`. There is no keyword producer in src or
-;; in test. Spec 009's row and the schema's own comment both already said
+;; machines, routing, flows, resources and ssr — as does the `where` argument
+;; threaded through `require-frame-provider-target!`. (The census that read
+;; this also covered the two view substrates, whose own producers included
+;; `re-frame.ui.frames/resolve-frame`; both were removed on 2026-08-16 by
+;; rf2-0yp7w and neither the artefacts nor that emitter survive.) There is no
+;; keyword producer in src or in test. The reading is unchanged by the
+;; removal: every surviving producer still emits a quoted symbol.
+;; Spec 009's row and the schema's own comment both already said
 ;; "a SYMBOL … not a keyword"; only the slot disagreed.
 
 (def ^:private no-frame-context-where-mutants
@@ -1470,21 +1474,26 @@
 ;;   FrameDestroyedTags — ONE producer. Only
 ;;     `substrate/observation/throw-frame-destroyed!` stamps `:where`; its three
 ;;     call sites pass `'re-frame.substrate.observation/acquire!` (twice) and
-;;     `'re-frame.substrate.observation/probe`. The other three emitters of this
-;;     category (router, subs, ui/frames) never stamp the slot at all.
+;;     `'re-frame.substrate.observation/probe`. The other emitters of this
+;;     category (router, subs) never stamp the slot at all — there was a third,
+;;     the removed `re-frame.ui`'s `ui/frames`, and it did not stamp it either.
 ;;
 ;;   BadFrameProviderArgTags — the SHARP one, and why the bead was filed rather
 ;;     than left. `frame/require-frame-provider-target!` threads ONE `where`
 ;;     argument into BOTH payloads: the nil branch builds `no-frame-context`
 ;;     (typed `:symbol` by rf2-j4bg3) and the else branch builds this one. Until
 ;;     this change a single argument from a single call site carried two
-;;     different declared types. Nine src call sites, all quoted fn symbols
-;;     (`'re-frame.views.provider/frame-provider`,
+;;     different declared types. THREE src call sites today, all quoted fn
+;;     symbols (`'re-frame.views.provider/frame-provider`,
 ;;     `'re-frame.adapter.uix/frame-provider`,
-;;     `'re-frame.substrate.spine/build-frame-provider-element`,
-;;     `'re-frame.freehand.substrate/frame-provider`, `'v/->react`,
-;;     `'re-frame.ui/frame-provider`, `'re-frame.ui/frame`,
-;;     `'re-frame.ui/->react`), plus `'test/where` / `'test` in test.
+;;     `'re-frame.substrate.spine/build-frame-provider-element`), plus
+;;     `'test/where` in test. It was NINE when rf2-am6qs typed the slot; the
+;;     other six were the two view substrates' providers
+;;     (`re-frame.freehand.substrate/frame-provider`, `v/->react`,
+;;     `re-frame.ui/frame-provider` twice — once via `require-scope-frame!` —
+;;     `re-frame.ui/frame`, `re-frame.ui/->react`) and went with them on
+;;     2026-08-16 (rf2-0yp7w). Every survivor is still a quoted symbol, so the
+;;     reading that chose `:symbol` is narrowed, not overturned.
 ;;
 ;;   ResourceSsrBlockingTimeoutTags — ONE producer, one emit:
 ;;     `re-frame.resources.ssr/settle-blocking-timeout` stamps its own quoted
