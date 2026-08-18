@@ -23,15 +23,21 @@ Both runs' raw records are committed beside this page at
 
 ## The answer, first
 
-**The eight-of-eight residual does not survive matched pairing, and what replaces
-it is an effect of measurement ORDER inside the round rather than of the write.**
+**The eight-of-eight residual does not survive matched pairing, and the sign that
+remains tracks WHICH PASS OF THE ROUND a write was measured in rather than which
+write it was.** The rig ties pass order to round parity, so "pass order" here
+means that ordering and whatever else travels with it — see
+[what is controlled and what is not](#b-the-round-blocks-which-is-where-the-sign-lives).
 
 - **The unanimity is gone.** Across the 16 mid-rung cell medians this window
   produces — 8 cells × 2 runs — `page` reads below `all` at **10 of 16**, which is
-  what chance looks like. The published window read 8 of 8.
-- **The magnitude fell to about a quarter.** Cell differences run **0.06% –
-  2.98%** in absolute value, absolute median **0.46%**, against the published
-  **0.51% – 4.28%** and absolute median **1.68%** on the same eight cells.
+  consistent with chance rather than evidence of it. The published window read
+  8 of 8.
+- **The magnitude is about a quarter of the published one.** Cell differences run
+  **0.06% – 2.98%** in absolute value, absolute median **0.46%**, against the
+  published **0.51% – 4.28%** and absolute median **1.68%** on the same eight
+  cells. The two are the old estimator's output and the new one's, not one
+  quantity measured twice.
 - **The sign is set by which leg pass ran SECOND.** Taking the round as the
   block, the pass measured second reads lower in **10 of 12 round blocks** —
   6 of 6 in run 1, 4 of 6 in run 2 — *whichever write occupied it*. That is a
@@ -49,8 +55,8 @@ it is an effect of measurement ORDER inside the round rather than of the write.*
   reading the mid-rung numbers at all: 38 paired certified observations, median
   difference **0 B/boundary**, absolute median **1.5**, 90th percentile **4.5**.
 - **The R = 20 rung certifies on 1 of its 4 arm families, in both runs.** That
-  is the third independent reproduction of the same pattern. **No gate was
-  widened to admit it.**
+  makes three sessions in a row finding the same one. **No gate was widened to
+  admit it.**
 
 **What this does NOT say** is that the two writes are equal. It says the
 published direction was not a property of them, and that this window could not
@@ -275,10 +281,11 @@ the published 1,769 / 1,765 B could not do.
 | 2 | `uix-subs` | 6 | 19,738 | 18,080 | **1,658 B (8.4%)** | 1,644 – 1,664 |
 
 **The drop is the same number on two segments that share nothing but the page**,
-to within 6 B, in both runs — the signature of a page-global term, and the same
-signature `rf2-77gz8` reports for the second floor mode. It is also remarkably
-tight: 21 paired rounds span **1,644 – 1,664 B**, a range of 20 B on a quantity
-of 1,650.
+to within 6 B, in both runs. That is what a page-global term would produce, and
+it is the same coincidence `rf2-77gz8` reports for the second floor mode — but a
+per-write cost that simply does not depend on the segment would produce it too,
+and this window does not separate the two. It is also remarkably tight: 21 paired
+rounds span **1,644 – 1,664 B**, a range of 20 B on a quantity of 1,650.
 
 **V2's floor-drop half therefore holds, and holds more cleanly than the
 published reading.** The paired figure is ≈ 110 B smaller than the unpaired
