@@ -733,41 +733,20 @@ jobs:
         continue-on-error: true
         run: python scripts/check_inject_cofx_residue.py --verbose
 
-      # Workflow job-cap ratchet (rf2-rsn1e). A job with no `timeout-minutes`
-      # inherits GitHub's 360-minute default, so a wedged runner produces a
-      # check that never TERMINATES — not a red check, no check at all for six
-      # hours — and this project's merge loop has nothing to read and no remedy
-      # but a hand cancel. That is the class rf2-km7iq found the hard way: its
-      # census showed 89 of 117 jobs uncapped, so uncapped was the house
-      # MAJORITY at 76%, accreted one job at a time and noticed only because a
-      # single run hung for 49 minutes in front of somebody. Review plainly did
-      # not hold this convention, so it is held here instead, on arrival.
+      # THE WORKFLOW JOB-CAP RATCHET (rf2-rsn1e) DOES NOT LIVE HERE, AND THE
+      # REASON IS THIS JOB'S DEFINING PROPERTY. It landed beside these checkers
+      # and redded every PR: it parses the workflow documents with PyYAML —
+      # which is the whole point of it, a step-level `timeout-minutes` being
+      # indistinguishable from a job-level one to a grep — and this job installs
+      # no pip packages, so its import probe fired and it exited 3 with "NOT
+      # CHECKED ... This is NOT a pass". The checker was behaving correctly;
+      # the placement was wrong. It now runs in `verify-readme-links`, the
+      # equally unconditional job that already installs requirements.txt, for
+      # exactly the reason recorded against the doc-slug gate there.
       #
-      # IT MUST PARSE, NOT GREP, AND THAT IS THE WHOLE CHECK. A
-      # `timeout-minutes` under a STEP is not a job cap — it bounds one step and
-      # leaves the job free to hang in any other — yet the two differ only by
-      # indentation inside the same text block. This file currently carries four
-      # real step-level keys across three jobs, so the confusion is live here.
-      # The checker reads the parsed document, where a job cap is a key on the
-      # job and a step cap is a key on an element of its `steps`.
-      #
-      # Presence only: it never judges the VALUE. What a cap should BE is a
-      # per-job measurement question (rf2-xenc6 raised exactly one, on exactly
-      # that evidence); folding that in would turn a mechanical one-bit check
-      # into a heuristic that argues with its reader.
-      #
-      # Self-test first — it drives the checker RED on five shapes including a
-      # step-only cap and an uncapped job sitting second behind a capped one
-      # (the "stopped looking after the first hit" defect) — then the live sweep.
-      - name: Self-test the workflow job-cap ratchet
-        id: check_workflow_job_timeouts_selftest
-        continue-on-error: true
-        run: python scripts/check_workflow_job_timeouts.py --self-test --verbose
-
-      - name: Verify every workflow job carries a job-level timeout-minutes
-        id: check_workflow_job_timeouts
-        continue-on-error: true
-        run: python scripts/check_workflow_job_timeouts.py --verbose
+      # Keep this job dependency-free. `check_fast_pr_gap.py` is stdlib-only on
+      # purpose for the same reason, and staying free of a `pip install` step is
+      # what makes this job cost seconds rather than a minute on every PR.
 
       # The verdict. Every checker above carries `continue-on-error: true`, so
       # the job never short-circuits and its RESULT is decided only here.
@@ -1026,6 +1005,50 @@ jobs:
       # skippable. Needs bash + git + python, all already present; ~20s.
       - name: Self-test the fast-PR spine's tiering + mkdocs resolution
         run: bash scripts/_test_fixtures/test_fast_pr_docs_gate/run-self-test.sh
+
+      # Workflow job-cap ratchet (rf2-rsn1e). A job with no `timeout-minutes`
+      # inherits GitHub's 360-minute default, so a wedged runner produces a
+      # check that never TERMINATES — not a red check, no check at all for six
+      # hours — and this project's merge loop has nothing to read and no remedy
+      # but a hand cancel. That is the class rf2-km7iq found the hard way: its
+      # census showed 89 of 117 jobs uncapped, so uncapped was the house
+      # MAJORITY at 76%, accreted one job at a time and noticed only because a
+      # single run hung for 49 minutes in front of somebody. Review plainly did
+      # not hold this convention, so it is held here instead, on arrival.
+      #
+      # IT MUST PARSE, NOT GREP, AND THAT IS THE WHOLE CHECK. A
+      # `timeout-minutes` under a STEP is not a job cap — it bounds one step and
+      # leaves the job free to hang in any other — yet the two differ only by
+      # indentation inside the same text block. This file currently carries four
+      # real step-level keys across three jobs, so the confusion is live here.
+      # The checker reads the parsed document, where a job cap is a key on the
+      # job and a step cap is a key on an element of its `steps`.
+      #
+      # Presence only: it never judges the VALUE. What a cap should BE is a
+      # per-job measurement question (rf2-xenc6 raised exactly one, on exactly
+      # that evidence); folding that in would turn a mechanical one-bit check
+      # into a heuristic that argues with its reader.
+      #
+      # WHY THIS JOB AND NOT THE ALWAYS-ON INVARIANT JOB — the same reason the
+      # doc-slug gate above gives, and this gate learnt it the expensive way.
+      # Parsing the document means PyYAML, and PyYAML is not stdlib. It landed
+      # in `verify-skill-mcp-drift`, which installs no pip packages, and both
+      # its steps exited 3 on the very first run: "NOT CHECKED ... This is NOT
+      # a pass" — the checker refusing to report a green it had not earned,
+      # which is the behaviour that made the misplacement visible in one run
+      # instead of silently vouching for 117 jobs it never opened. This job
+      # already installs requirements.txt (PyYAML arrives through mkdocs) and
+      # is likewise unconditional, so the ratchet gates every PR from here at
+      # no extra setup cost, and the invariant job stays dependency-free.
+      #
+      # Self-test first — it drives the checker RED on five shapes including a
+      # step-only cap and an uncapped job sitting second behind a capped one
+      # (the "stopped looking after the first hit" defect) — then the live sweep.
+      - name: Self-test the workflow job-cap ratchet
+        run: python scripts/check_workflow_job_timeouts.py --self-test --verbose
+
+      - name: Verify every workflow job carries a job-level timeout-minutes
+        run: python scripts/check_workflow_job_timeouts.py --verbose
 
   # THE HICASSO COMPLAINT-CATALOGUE CONTRACT (rf2-hic-021; this routing is the
   # #7808 merged-PR audit's reverse-edge repair, landed under rf2-ibje because
