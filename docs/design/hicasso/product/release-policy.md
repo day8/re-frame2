@@ -39,8 +39,9 @@ rather than pending"* until that bead landed, and each of the three measurements
 by the same change:
 
 1. `implementation/hicasso/deps.edn` carries a **`:clein/build` alias** naming `day8/re-frame2-hicasso`,
-   with `:version "../../VERSION"` and `:src-dirs ["src" "resources"]` — the second entry because the
-   clj-kondo export reaches a consumer over the classpath.
+   with `:version "../../VERSION"` and `:src-dirs ["src" "resources" "test_kit/src"]` — the second entry
+   because the clj-kondo export reaches a consumer over the classpath, the third because `:src-dirs` is the
+   only key that decides jar content and the testing kit would otherwise ship in no jar at all (rf2-rxf49).
 2. It is **in the lockstep inventory**. `verify-version-lockstep.sh`'s `ARTEFACTS` array now names fourteen
    artefacts and Hicasso is one of them. The array is not decorative: the same script fails the build when a
    directory declares a `:clein/build` without a matching inventory entry, so the presence is enforced in
@@ -109,7 +110,7 @@ renamed without something going red.
 | The native tier, `re-frame.hicasso.native` | the `native.cljc` namespace docstring, rowed in [`naming-ledger.md`](naming-ledger.md) | `native_surface_cljs_test.cljs` on the CLJS lane | **10 SURFACE + 4 INTERNAL** public vars |
 | Refusal ids | [`complaints.md`](complaints.md#the-stability-rule) | `implementation/hicasso/scripts/check_complaint_catalogue.py`, CI job `hicasso-complaint-catalogue` | **76 live, 6 reserved, 1 pending retirement, 1 retired** |
 | Optional modules — forms, motion, overlay, server | the `MODULES` roster in the script beside it | `implementation/hicasso/scripts/check_optional_module_reachability.py` | four modules, each proving zero reachable production code when absent |
-| The testing kit, `re-frame.hicasso.test` | `implementation/hicasso/test_kit/src`, deliberately outside the artefact's `:paths` | the kit's own witnesses on the CLJS lane | reachable only from a test, by packaging rather than convention |
+| The testing kit, `re-frame.hicasso.test` | `implementation/hicasso/test_kit/src`, on `:src-dirs` so the jar carries it, deliberately outside the artefact's `:paths` | the kit's own witnesses on the CLJS lane, plus the `rf.error/hicasso-test-` sentinel in `check_production_erasure.cjs` | reachable only from a test, by reachability — no shipping namespace requires it (rf2-rxf49) |
 | Server/hydration policy, per surface | [`lanes/react-compatibility-notes.md`](lanes/react-compatibility-notes.md#public-surface-ssrhydration-matrix) | each `dispositions.md` inventory id points at its policy row | see §4 — the Phase 4 exit this rests on is **NOT MET** |
 
 Reproduce the first and third rows with:

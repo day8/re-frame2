@@ -79,6 +79,7 @@
 ;; `src/` namespace may require the kit. A classpath entry costs no bundle bytes;
 ;; a `:require` does. Off `:paths` it stays, so the in-repo lane and the
 ;; `:local/root` route keep asking for the kit explicitly.
+;;
 ;; `resources` is on :paths for ONE reason: the clj-kondo export
 ;; (rf2-hic-022) reaches a consumer over the CLASSPATH. `clj-kondo --lint
 ;; "$(clojure -Spath)" --dependencies --copy-configs` scans the classpath for
