@@ -656,9 +656,11 @@ the life of the refusal and is never reused after retirement, because a
 consumer's stored errors and an error monitor's grouping rule both outlive the
 code. So `:rf.error/hicasso-test-bad-reads` still carries the retired word
 `reads` and always will — it names the refusal, not the option the refusal was
-about. Its `:recovery` keyword did move, from `:add-the-query-to-reads` to
-`:add-the-query-to-subs`, because a recovery is concrete advice about a live API
-and is rewritten whenever that API is renamed.
+about. What did move is the advice beside it: the `:recovery` keywords that
+named the retired option were rewritten with it, so the test kit's
+missing-fixture refusal now recovers with `:add-the-query-to-subs` rather than
+`:add-the-query-to-reads`. A `:recovery` is concrete advice about a live API and
+is not frozen the way an id is.
 
 **One taught spelling still differs from the code, and it is not waiting for a
 sweep.** This guide writes `h/frame`; the door exports `h/hframe`. The
