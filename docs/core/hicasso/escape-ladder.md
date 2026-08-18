@@ -103,13 +103,36 @@ because the rung you justified against last quarter's topology is not
 automatically justified against this one.
 
 !!! note "Where those numbers come from"
-    The three thresholds are the performance contract's, in §6 of the Hicasso
-    specification (`docs/design/hicasso/product/specification.md`), and are
-    registered for reconciliation as rule C8 of the budget record
-    (`docs/design/hicasso/product/budgets.md` §4). They are thresholds on a
-    *ratio*, so they do not go stale the way a measured constant does — but the
-    measurement you compare against them does, which is why the rule says re-run
-    rather than remember.
+    They are not this page's invention. Hicasso's performance contract states
+    the escape-benefit rule in exactly the three disjuncts above, and pairs it
+    with the sentence that supplies their teeth: an island missing its
+    threshold is simplified or removed, and thresholds do not widen to keep it.
+    The contract registers the rule for reconciliation against measured
+    evidence, so it is adjudicated rather than merely asserted.
+
+    Three properties of it are worth carrying into a review.
+
+    - **It is adjudicated per landed escape, not corpus-wide.** Every escape
+      that ships carries its own measured benefit and is judged on that. A
+      figure published for a mechanism in general is a reference price your own
+      adjudication may cite; it is never a pass, and never a veto, for your
+      site. The project's own reading for direct return sits close enough to
+      the 20% line that its range straddles it, which is exactly why the
+      mechanism cannot stand in for the site.
+    - **An interoperability escape is outside the population**, by the rule's
+      own wording rather than as an exception granted to it. That is the next
+      section, and it is the reason the rule is written over escapes *taken
+      for a benefit*.
+    - **The thresholds are on a *ratio*,** so they do not go stale the way a
+      measured constant does. The measurement you compare against them does,
+      which is why the rule says re-run rather than remember.
+
+    The contract that states the rule and the budget record that tracks it
+    are working design records rather than published pages, so this note is
+    the whole of the rule as it bears on a decision about one escape. What
+    they hold beyond it is the project's own reconciliation bookkeeping — which
+    rows are green, which are still waiting on evidence — and nothing there
+    moves the three numbers above.
 
 ## The rule an interoperability escape is not judged by
 
