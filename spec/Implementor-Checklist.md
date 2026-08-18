@@ -33,7 +33,7 @@ These rows are **pattern-required** in [000 §Host-profile matrix](000-Vision.md
 | **Subscription / derivation system** | Query → value-from-state, with stable composition | [002](002-Frames.md) |
 | **Frame as isolated runtime boundary** | `{state, queue, sub-cache, id}`; multi-instance | [002](002-Frames.md) |
 | **Run-to-completion drain semantics** | Per frame; pipeline run settles before next event | [002](002-Frames.md) |
-| **View contract** | Pure `(state, props) → render-tree`; render-tree is serialisable data | [004](004-Views.md) |
+| **View contract** | Pure `(state, props) → render-tree`; render-tree is serialisable data | [000 §Pointers to per-area Specs](000-Vision.md#pointers-to-per-area-specs), [§V1](#v1-render-tree-shape) |
 | **Trace event stream** | Structured events from well-defined emit sites | [009](009-Instrumentation.md) |
 | **Error contract** | Structured trace events for runtime failures (handler exceptions, schema validation, drain depth, no-such-handler, ...) | [009 §Error contract](009-Instrumentation.md#error-contract) |
 | **Runtime shape policing** | Proactive, error-emitting rejection of malformed framework-boundary shapes — closed effect-map top-level keys, classification-effect payloads, `input-fn` returns, interceptor refs, dispatch opts — **not dischargeable by static types** (they erase at the runtime boundary). A malformed effect-map **envelope** is *refused*, not repaired: the event aborts pre-commit with nothing applied | [002](002-Frames.md), [009 §Error contract](009-Instrumentation.md#error-contract) |
@@ -240,7 +240,7 @@ For each capability included in Part 1, the implementor makes the per-capability
 
 #### V1. Render-tree shape
 
-- **Why it matters.** Pure `(state, props) → render-tree` is the view contract; the render-tree must be serialisable data (per [004](004-Views.md)).
+- **Why it matters.** Pure `(state, props) → render-tree` is the view contract; the render-tree must be serialisable data (per [000 §Pointers to per-area Specs](000-Vision.md#pointers-to-per-area-specs)).
 - **Options by host.** Every in-scope host targets React + VDOM, so the render-tree shape is the host's idiomatic data-form over `createElement`.
   - **CLJS** — Hiccup (`[:div {:class "foo"} child]`).
   - **TypeScript** — JSX-as-data (with TSX transform, JSX literally is `React.createElement(...)` calls; for pure-data SSR use snabbdom-style vnodes or a hiccup port).

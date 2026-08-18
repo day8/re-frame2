@@ -56,10 +56,10 @@ The interpreted walk needs no compile step and admits no finite grammar: a view
 body is ordinary Clojure, and whatever Hiccup it produces is walked as it
 stands. A keyword head is a DOM or custom element, a declared-view head is an
 internal boundary the walk expands in place, `[:<> …]` is a fragment, strings
-and numbers are text, and seqs splice. Vector-head classification is the total
-rule in [004 §Vector-head classification](004-Views.md#vector-head-classification)
-— the same three answers the compiled analyzer gets, so a head that is legal in
-one mode is legal in the other.
+and numbers are text, and seqs splice. That classification is **total** — it
+carries no heuristic arm and admits no fourth answer — and it was the rule the
+compiled analyzer applied too, so a head legal in one mode was legal in the
+other.
 
 Two consequences follow from interpreting rather than compiling, and both are
 contract rather than accident:
@@ -108,10 +108,11 @@ in an emitter is indistinguishable from a bug:
 - **Event intent is materialized by the reactive contract, not here.** A `:on-*`
   site carrying a function is attached as an ordinary React handler. A site
   carrying an event vector or an options map is recorded in the tree
-  (§Element fields) and attached when the materializer lands —
-  [004 §Event intent and the payload materializer](004-Views.md#event-intent-and-the-payload-materializer)
-  owns the projection, the listener options, and, decisively, which frame the
-  intent dispatches into.
+  (§Element fields) and attached when the materializer lands. The materializer's
+  own contract — the projection, the listener options and, decisively, which
+  frame the intent dispatches into — belonged to `spec/004-Views.md` and went
+  with that document when it was deleted alongside its substrate (rf2-h89ri).
+  This contract owns only what the tree records.
 - **The React prop vocabulary is implemented, not deferred.** The React emitter
   writes React's canonical prop names from react-dom 19.2.0's own
   `possibleStandardNames`, so `:stroke-width` is `strokeWidth` and `:view-box` is
@@ -137,8 +138,8 @@ variants are a **closed set**, and this table is their roster:
 | **text** | **the host string itself** | — | — |
 
 The **host** variant is one `v/defhost` crossing. Its fields, and the reason each was
-chosen against a way the node could lie, are pinned by
-[004 §Structure and SSR](004-Views.md#structure-and-ssr) and are not restated here;
+chosen against a way the node could lie, were pinned by `spec/004-Views.md`
+(deleted with its substrate, rf2-h89ri) and are not restated here;
 what this contract owns is its place in the closed set, its place in the discrimination
 order, and what the projections and `N` answer for it. Its `:children` are the declared
 SSR projection — retained when empty, like a fragment's.
@@ -247,8 +248,8 @@ read surface. Text is therefore not a *queryable node*: selectors never match it
   slot on a supported native control (`input`, `textarea`, `select`) is a **controlled**
   slot, and there *absence is the host's own signal for uncontrolled*. An explicitly
   present nil is a controlled field with nothing in it — the door has already put the
-  element's sites on the synchronous lane for it ([004 §Controlled
-  inputs](004-Views.md#controlled-inputs), fact 2) — so the entry is **kept**, carrying
+  element's sites on the synchronous lane for it (the controlled-input contract
+  of the retired `spec/004-Views.md`, fact 2) — so the entry is **kept**, carrying
   the **controlled empty** value the host emitters write: `""` for `value`, `false` for
   `checked`. One projection, so the structural tree and the React props describe one
   declaration the same way, and a server render and its client hydration agree rather
@@ -351,7 +352,7 @@ three roles, and only one is a droppable diagnostic.
 **The host variant's fields are outside this roster, and the word "decorate" is what
 puts them there.** `:rf.ui/host`, `:rf.ui/host-ssr`, `:rf.ui/host-children` and
 `:rf.ui/host-map-props` do not annotate a node — they *are* one, enumerated as a variant
-in §The node schema and meant by [004 §Structure and SSR](004-Views.md#structure-and-ssr).
+in §The node schema.
 Neither rule above reaches them: a consumer that "ignored" `:rf.ui/host` would read a
 host as a fragment, which is the single wrong answer this namespace is able to produce,
 and `N` holds its removal step back until the splice has read them (§Semantic
@@ -382,7 +383,7 @@ normalization `N`, steps 1–2).
 | `:rf.ui/property-props` | **semantic** | custom-element element nodes | the set of `:attrs` keys classified as **properties** per the RULED `v/custom-element` declaration; **consumed** at conversion (the serialiser and `N` omit those props from markup — step 5) and only then removed from the output. Required whenever a property-only classification exists; **removing it changes semantics** — the props would leak back into the attribute space |
 | `:rf.ui/presence` | diagnostic | the fragment node a presence boundary renders as | `{:phase :present :timeout-ms n}` — the presence metadata exposed structurally; phase is always `:present` on the JVM |
 | `:rf.ui/boundary` | diagnostic | the fragment node wrapping a deterministic fallback | `:client-only` (the structural "fallbacks" evidence; `:portal` reserved for the wave-2 row) |
-| `:rf.ui/top-layer` | diagnostic | the element node a DOM top-layer desired-state property is declared on | `{:popover-open? bool}` or `{:modal-open? bool}` — the desired state per [004 §The DOM top layer](004-Views.md#the-dom-top-layer), recorded as a FACT and never as a claim that anything was promoted; a structural host has no top layer, and the property is vocabulary rather than an attribute, so it never appears in `:attrs` |
+| `:rf.ui/top-layer` | diagnostic | the element node a DOM top-layer desired-state property is declared on | `{:popover-open? bool}` or `{:modal-open? bool}` — the desired state a top-layer declaration expressed, recorded as a FACT and never as a claim that anything was promoted; a structural host has no top layer, and the property is vocabulary rather than an attribute, so it never appears in `:attrs` |
 
 ### Child normalization (canonical form)
 
@@ -399,7 +400,7 @@ render; we reject earlier).
 **Forwarded children are a run, not markup.** A view that forwards the children it was
 given writes the `:children` value into its own markup, and that value is a *vector* —
 which, in child position, is otherwise markup. Vector-head classification is total and
-carries no heuristic arm ([004 §Vector-head classification](004-Views.md#vector-head-classification)),
+carries no heuristic arm ([§The interpreted walk](#the-interpreted-walk)),
 so the distinction is not inferred from the value: the emitter that placed the value
 there marks it, and a marked run splices in document order exactly as a seq does. The
 marker is invisible to the author, invisible in the tree, and does not disturb the
@@ -494,8 +495,8 @@ and to the render fingerprint. Pinned, in order:
    hosts — it is the *same* fold §The SSR consumption boundary performs, restated in
    semantic space so the two cannot answer differently. The fields step 1 held back go
    with the node: read here, then gone, and no `:rf.ui/*` key reaches a fingerprint
-   either way. `v/render-static` refuses a host outright
-   ([004 §Structure and SSR](004-Views.md#structure-and-ssr)) and `emit-ui-tree` does
+   either way. `v/render-static` refused a host outright, under its own retired
+   contract, and `emit-ui-tree` does
    not, so `N` cannot rule the variant out — it has to mean something here, and what it
    means is the projection.
 3. **Splice** fragment nodes.

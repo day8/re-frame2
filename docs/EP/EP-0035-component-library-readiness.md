@@ -32,8 +32,8 @@ placement law, render slots, spread),
 [`spec/004B-UI-Tree-and-Conversion.md`](../../spec/004B-UI-Tree-and-Conversion.md)
 (conversion table), [`spec/008-Testing.md`](../../spec/008-Testing.md) (G-17/G-18
 gate rows),
-[`spec/conformance/S3-view-conformance-profile.md`](../../spec/conformance/S3-view-conformance-profile.md)
-(G-8/G-15/G-16 rows), and
+`spec/conformance/S3-view-conformance-profile.md` (G-8/G-15/G-16 rows; deleted on
+2026-08-18 with the frozen surface it catalogued, rf2-h89ri), and
 [`spec/009-Instrumentation.md`](../../spec/009-Instrumentation.md) (diagnostic
 rows); per EP-0009, where this EP and the spec differ, the spec governs. The
 package shipped with the S3 conformance slice; the trigger-gated candidates

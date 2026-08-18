@@ -11,7 +11,7 @@
 
 ## Role
 
-A **named pattern**, not a Spec. Re-frame2's view substrate ([Spec 004 — Views](004-Views.md)) is built around pure render functions that compute hiccup from state. A small but unavoidable fraction of real-world views need to wrap a third-party JS library that **owns its own DOM** and exposes an imperative `init / update / dispose` lifecycle.
+A **named pattern**, not a Spec. Re-frame2's view substrate is built around pure render functions that compute hiccup from state. A small but unavoidable fraction of real-world views need to wrap a third-party JS library that **owns its own DOM** and exposes an imperative `init / update / dispose` lifecycle.
 
 This doc names the wrapping shape — **outer/inner split** — so feature code, adapter READMEs, and the [Animations Regime C](#regime-c--library-bridged-animations) discussion cite a single canonical description rather than re-deriving the rationale per library.
 

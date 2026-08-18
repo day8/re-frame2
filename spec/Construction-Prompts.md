@@ -310,7 +310,7 @@ The override seam is **id-valued at the pattern level**. The CLJS reference also
       [:div label ": " n])))
 ```
 
-**Pattern-level discipline (per [004](004-Views.md) and [011](011-SSR.md)):**
+**Pattern-level discipline (per [000 §Pointers to per-area Specs](000-Vision.md#pointers-to-per-area-specs) and [011](011-SSR.md)):**
 
 - Body is **pure** given the inputs (props + frame-bound subs).
 - Output is **serialisable data** (hiccup, no embedded JS objects).

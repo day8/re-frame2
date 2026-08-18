@@ -29,7 +29,7 @@ A `reagent/atom` is legitimate when its state is **render-local** — a hovered-
 
 Move the state to `app-db` behind a `reg-sub`. Reads use `(subscribe [:sub-id])`; writes go through `reg-event`. See [`skills/re-frame2/references/fundamentals/subs.md`](../../re-frame2/references/fundamentals/subs.md) and [`skills/re-frame2/references/fundamentals/events.md`](../../re-frame2/references/fundamentals/events.md).
 
-Spec source: [`spec/Principles.md`](../../../spec/Principles.md) (single source of truth for application state) and [`spec/004-Views.md`](../../../spec/004-Views.md) (views as pure projections).
+Spec source: [`spec/Principles.md`](../../../spec/Principles.md) (single source of truth for application state) and [`spec/000-Vision.md` §Pointers to per-area Specs](../../../spec/000-Vision.md#pointers-to-per-area-specs) (views as pure projections).
 
 ## Worked example
 
