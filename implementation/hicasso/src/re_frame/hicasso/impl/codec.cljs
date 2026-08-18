@@ -208,6 +208,8 @@
             [re-frame.hicasso.impl.error :refer [fail!]]
             [re-frame.hicasso.impl.intent :as intent]
             [re-frame.hicasso.impl.slot :as slot]
+            [re-frame.interop :as interop]
+            [re-frame.trace :as trace]
             ["react" :as react]))
 
 (declare as-element)
@@ -1387,6 +1389,75 @@
   []
   (react/useSyncExternalStore gate-no-subscribe gate-adopted gate-unadopted))
 
+;; ---------------------------------------------------------------------------
+;; The adoption crossing, observed once — `:rf.ssr/host-adopted` (rf2-oaksj)
+;; ---------------------------------------------------------------------------
+;;
+;; [[adopted?]] above is the whole client-only mechanism, and it is
+;; INVISIBLE: React swaps the placeholder for the foreign component on its
+;; own post-hydration pass, and nothing in the instrumentation stream says
+;; it happened. So the debugging question a reader actually asks of a
+;; hydrated page — *is this region showing its fallback or its live
+;; subtree?* — had no answer at all.
+;;
+;; The three vars below give it one, and the shape is chosen to say what
+;; HICASSO does rather than what any predecessor did:
+;;
+;;   - **Per DECLARATION, not per root and not per site.** The crossing
+;;     state is closed over by [[mint-host-gate!]]'s gate, and `mint-host!`
+;;     mints exactly one gate per `defhost`. A page with twenty sites of one
+;;     host therefore emits ONE trace, not twenty. There is no root-scoped
+;;     phase value here and no re-frame-level flip to report — React owns
+;;     the swap, and this only witnesses it.
+;;
+;;   - **Only a real CROSSING, never a fresh mount.** `adopted?` answers
+;;     `true` on the very first pass of a `createRoot` mount, which consults
+;;     no server snapshot and shows no placeholder to replace. Emitting
+;;     there would report a transition that did not occur, so the announce
+;;     is armed only once the gate has actually rendered its placeholder.
+;;
+;;   - **At most once.** `announce-adoption!` disarms the crossing before it
+;;     emits, so React's re-renders (and a Strict-Mode double render) cannot
+;;     produce a second event.
+;;
+;; A render-phase emit is legal HERE for a reason particular to this hook,
+;; and it is not a licence to emit from renders generally: `adopted?` reads
+;; a store whose client snapshot is the constant `true`, so a render that
+;; observes adoption cannot be observing a fact that a discarded concurrent
+;; render would falsify. There is no false positive available.
+;;
+;; `interop/debug-enabled?` gates the allocation as well as the emit, so
+;; `:advanced` + `goog.DEBUG=false` folds the whole crossing away and a
+;; production gate is the two-branch `if` it always was.
+
+(defn- mint-adoption-crossing
+  "The per-declaration crossing cell [[mint-host-gate!]] closes over, or
+  `nil` in a production build where nothing observes it."
+  []
+  (when interop/debug-enabled? (volatile! :fresh)))
+
+(defn- note-unadopted!
+  "ARM the crossing — this gate has now rendered its placeholder, so the
+  next adopted render is a genuine transition rather than a fresh mount."
+  [crossing]
+  (when (and crossing (identical? :fresh @crossing))
+    (vreset! crossing :unadopted)))
+
+(defn- announce-adoption!
+  "Spec 009's `:rf.ssr/host-adopted` — ONE `:info` trace, the first time an
+  ARMED gate renders adopted. Disarms before emitting, so it fires at most
+  once per declaration.
+
+  `:info` and not `:warning`: nothing is wrong. This is the normal, correct
+  behaviour of `:server :client-only` reporting that it completed, and it
+  rides the instrumentation channel rather than the console."
+  [host-name crossing]
+  (when (and crossing (identical? :unadopted @crossing))
+    (vreset! crossing :announced)
+    (trace/emit! :info :rf.ssr/host-adopted
+                 {:host  host-name
+                  :where 're-frame.hicasso.impl.codec/mint-host-gate!})))
+
 (defn- deferring-head-kind
   "Which DEFERRING head `x` is — the door that minted it, named the way
   an author wrote it — or `nil` if it is not one.
@@ -1516,10 +1587,13 @@
   (when (some? fallback)
     (refuse-deferring-heads-in-fallback! host-name [] fallback))
   (let [placeholder (when (some? fallback) (as-element fallback))
+        crossing    (mint-adoption-crossing)
         gate        (fn [props]
                       (if (adopted?)
-                        (react/createElement component props)
-                        placeholder))]
+                        (do (announce-adoption! host-name crossing)
+                            (react/createElement component props))
+                        (do (note-unadopted! crossing)
+                            placeholder)))]
     (unchecked-set gate "displayName" host-name)
     gate))
 
