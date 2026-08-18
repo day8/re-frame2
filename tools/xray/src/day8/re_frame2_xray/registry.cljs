@@ -299,19 +299,29 @@
   registrar is current, the donor projection is not, and only a reload
   finishes the job. Loud beats silent — the alternative the audit of this
   cutover caught was stamping the process current and letting the developer
-  find out later that a second tool could not claim the slot."
+  find out later that a second tool could not claim the slot.
+
+  The message names NO view-substrate namespace, and that is deliberate
+  (rf2-0ucyg). It used to say schema 4 \"reads views through
+  re-frame.freehand.tool\", which stopped being true at schema 6 — rf2-l86mm
+  removed those three reads outright, a day before the substrate itself was
+  deleted. The load-bearing fact was never which substrate replaced the
+  donor; it is that this build has no `re-frame.ui` dependency and so cannot
+  call the donor tier's `uninstall!`. That is what it says now."
   []
   (when (exists? js/console)
     (.warn js/console
            (str "[re-frame2 Xray] Registration schema 4 needs a page reload "
                 "to finish. This process claimed the re-frame.ui ViewCell "
                 "evidence projection under schema 3 (owner "
-                ":rf.xray/viewcell-evidence). Schema 4 reads views through "
-                "re-frame.freehand.tool and has no re-frame.ui dependency, so "
-                "it cannot release that claim: the donor tier keeps Xray as "
-                "owner, keeps its sink armed, and refuses another tool the "
-                "slot until this page is RELOADED. The Xray registrations "
-                "themselves have already migrated. rf2-7gth0."))))
+                ":rf.xray/viewcell-evidence). Schema 4 moved Xray off that "
+                "donor tier, and this build carries no re-frame.ui "
+                "dependency — dropping that coordinate is the whole point of "
+                "the cutover — so it cannot call the tier's uninstall! to "
+                "release the claim: the donor tier keeps Xray as owner, keeps "
+                "its sink armed, and refuses another tool the slot until this "
+                "page is RELOADED. The Xray registrations themselves have "
+                "already migrated. rf2-7gth0."))))
 
 (defn- migrated-through-6
   "The tail clauses — schema 5's ADDITION and schema 6's REMOVAL. Both
