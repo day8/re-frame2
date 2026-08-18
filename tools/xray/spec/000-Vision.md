@@ -159,11 +159,10 @@ clicking its L3 tab button, or by the command-palette tab-jump verb
 that inventory are tab *label* mnemonics, rendered into each tab
 button's `title`, not keys to press — no bare-letter tab handler exists
 in `keybinding.cljs` (see [`007-UX-IA.md`](007-UX-IA.md) §Trimmed
-pending demand). (rf2-5gl5r retired
-the earlier Event/Handler tab in favour of the Epoch panel; rf2-gbz39
-removed the Issues tab per Mike's Option (c) ruling — issues surface
-inline in the Epoch panel + the L2 event-row pink-wash + the always-on
-issues ribbon signal; see
+pending demand). (rf2-5gl5r retired the earlier Event/Handler tab in
+favour of the Epoch panel; rf2-gbz39 removed the Issues tab per Mike's
+Option (c) ruling — issues surface inline in the Epoch panel + the L2
+event-row pink-wash + the always-on issues ribbon signal; see
 [`021-Dynamic-Panel-Designs.md`](021-Dynamic-Panel-Designs.md) §9.1.)
 
 ## The two modes — Dynamic and Static
