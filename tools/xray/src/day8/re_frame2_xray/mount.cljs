@@ -218,19 +218,26 @@
   costs nothing. The refusal is what makes the difference a diagnostic
   instead of an uncaught React child error.
 
-  HICASSO IS COVERED BY THE `:rf.adapter/uix` ENTRY, AND HAS NO ENTRY OF ITS
-  OWN BECAUSE IT MINTS NO KIND (rf2-wtznc). There is no `:rf.adapter/hicasso`
-  — Hicasso ships no adapter at all. A Hicasso host installs the UIx adapter
-  and then mounts Hicasso boundaries through it (`(rf/init!
-  uix-adapter/adapter)` then `(h/mount! …)`, both Hicasso testbeds), so
-  `re-frame.substrate.adapter/current-adapter` returns `:rf.adapter/uix` on a
-  Hicasso page and this set refuses it on the entry above — for the right
-  structural reason, since the `:render` doing the work IS the UIx adapter's
-  element-shaped one. The absence of a hicasso member is therefore correct
-  and load-bearing, not an oversight: adding one would name a kind the
-  runtime never produces, and reading it as a gap is the mistake this
-  paragraph exists to prevent."
-  #{:rf.adapter/ui :rf.adapter/uix :rf.adapter/helix :rf.adapter/freehand})
+  `:rf.adapter/hicasso` IS HERE ON THE SAME STRUCTURAL GROUND, and unlike
+  the two above it names a kind the runtime ACTUALLY PRODUCES today. This
+  paragraph used to argue the opposite — that Hicasso minted no kind, rode
+  the `:rf.adapter/uix` entry, and that the absence of a hicasso member was
+  load-bearing (rf2-wtznc). rf2-hvr5h retired that premise: it shipped
+  `re-frame.hicasso.substrate`, whose adapter is built from
+  `re-frame.substrate.spine/make-react-adapter` and therefore carries the
+  spine's element-shaped `:render`, and `docs/core/hicasso/00-installation.md`
+  now teaches `(rf/init! substrate/adapter)` as the DEFAULT install. A page
+  following that chapter reports `:rf.adapter/hicasso`, which this set did
+  not hold, so the mount verbs took the permissive path and handed the
+  hiccup shell to an element-shaped `:render` — an uncaught React child
+  error exactly where the clean diagnostic belongs (rf2-zkjd5).
+
+  A Hicasso page that installs UIx or Reagent instead is unaffected: the
+  install is explicit and Hicasso ships no default-adapter registry, so such
+  a host still reports that adapter's kind and refuses (or mounts) on its
+  entry rather than this one."
+  #{:rf.adapter/ui :rf.adapter/uix :rf.adapter/helix :rf.adapter/freehand
+    :rf.adapter/hicasso})
 
 (defn- unsupported-substrate-diagnostic [kind]
   {:ok?     false
