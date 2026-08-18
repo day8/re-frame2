@@ -1003,7 +1003,7 @@
   ;;
   ;; The ns-regexp `-boundary-prod-test$` matches only files named
   ;; `*_boundary_prod_test.cljs` — distinct from the default
-  ;; `:browser-test` build's `-cljs-test$` and `:node-test` build's
+  ;; `:browser-test` build's `.*-dom-cljs-test$` and `:node-test` build's
   ;; `cljs-test$`, so this test file is run ONLY under this prod-mode
   ;; build. Running it under DEBUG=true would fail (the dev-mode boundary
   ;; is a no-op by design); the companion node-test ns
@@ -1044,7 +1044,7 @@
   ;;
   ;; The ns-regexp `-prod-test$` matches only files named
   ;; `*_prod_test.cljs` — distinct from the default `:browser-test` /
-  ;; `:node-test` builds (which use `-cljs-test$` / `cljs-test$`) and
+  ;; `:node-test` builds (which use `.*-dom-cljs-test$` / `cljs-test$`) and
   ;; from the schemas-boundary-prod build (which uses
   ;; `-boundary-prod-test$`). So these prod-elision tests run ONLY
   ;; under this build. Running them under DEBUG=true would FAIL by
