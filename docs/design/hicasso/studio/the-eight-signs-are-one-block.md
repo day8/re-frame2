@@ -3,7 +3,8 @@
 Seat: RE-ANALYSIS RECORD, EP-0038. Bead `rf2-0gjqi`, which asks whether
 `write-page` reading below `write-all` at 8 of 8 mid-rung comparisons is a real
 property of the two writes or an artefact. Written 2026-08-18 on
-`worker/armfloor-0gjqi` off `4cf5680a82`.
+`worker/armfloor-0gjqi`, written off `4cf5680a82` and rebased onto
+`2a48dc2109`.
 
 **No allocation window was taken for this page.** Nothing here is a new
 measurement. Every figure below is either re-derived from a committed dataset,
@@ -14,8 +15,10 @@ configured, not edited, and no rig file was touched.
 
 Instrument revision, beside every re-derivation: the driver at
 `implementation/core/test/re_frame/bench/p0_run.cjs` as it stands at
-`4cf5680a82`, blob `e88d2be45efd59d023a9d23da9e4ff1f9800b5c0`. It was re-read at
-the end of the analysis and had not moved.
+blob `e88d2be45efd59d023a9d23da9e4ff1f9800b5c0`. It was re-read at the end of the
+analysis and had not moved: the blob is byte-identical at `4cf5680a82` and at
+`2a48dc2109`, the two bases this page was written and rebased onto, so the early
+and late derivations here are against one instrument.
 
 ## The answer, first
 
