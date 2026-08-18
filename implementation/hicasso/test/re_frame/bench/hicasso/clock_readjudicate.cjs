@@ -1769,7 +1769,18 @@ module.exports = {
 // Requiring this file must not run it: `clock_exit_path.test.cjs` drives the
 // two predicates above directly, which it cannot do if the module body reads
 // argv and exits.
+//
+// `process.exitCode`, never `process.exit()`. When stdout is a pipe — which is
+// what `spawnSync` hands this program — console.log is asynchronous, and
+// `process.exit()` tears the process down without draining what is still
+// queued. The tail of the report is exactly where the `;; EXIT 4` roster
+// prints, so under load the exit CODE survived while the roster it announces
+// vanished: the mutation witness in `clock_exit_path.test.cjs` failed that way
+// on CI on 2026-08-16 (PR #8375, which widened the diagnostics) and again on
+// 2026-08-18 (main run 32086796745, where the widened message proved the
+// truncation). `main` is synchronous and holds no handles, so assigning
+// exitCode lets the process exit on its own once the pipe drains — same code,
+// whole report.
 if (require.main === module) {
-  const code = main(process.argv.slice(2));
-  if (code !== 0) process.exit(code);
+  process.exitCode = main(process.argv.slice(2));
 }
