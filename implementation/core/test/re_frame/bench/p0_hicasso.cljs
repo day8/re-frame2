@@ -66,6 +66,7 @@
   2026-08-10, enumerated once in `docs/design/hicasso/studio/README.md`;
   this arm rf2-2rtt6.34."
   (:require [re-frame.bench.p0-fixture :as fx]
+            [re-frame.bench.p0-workcount :as wc]
             [re-frame.hicasso :refer [sub]])
   (:require-macros [re-frame.hicasso :refer [defview]]))
 
@@ -76,6 +77,7 @@
   arms differ in how a subscription value reaches a boundary and in
   nothing else."
   [{:keys [j n r]}]
+  (wc/render!)
   (let [v (loop [k 0 acc 0]
             (if (< k r)
               (recur (inc k) (+ acc (sub [:p0/fan (fx/fan-key n r k)])))

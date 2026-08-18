@@ -36,6 +36,7 @@
   this arm rf2-2rtt6.4."
   (:require [re-frame.adapter.uix :as uix-adapter]
             [re-frame.bench.p0-fixture :as fx]
+            [re-frame.bench.p0-workcount :as wc]
             [uix.core :refer [$ defui]]))
 
 ;; ---------------------------------------------------------------------------
@@ -43,6 +44,7 @@
 ;; ---------------------------------------------------------------------------
 
 (defui w1-row [{:keys [i]}]
+  (wc/render!)
   (let [text (uix-adapter/use-subscribe [:p0/row i])]
     ($ :li.row.cell.wide {:style      {:padding-left "4px" :color "rebeccapurple"}
                           :data-index i}
@@ -62,6 +64,7 @@
 ;; ---------------------------------------------------------------------------
 
 (defui w3-field [{:keys [i]}]
+  (wc/render!)
   (let [{:keys [value error]} (uix-adapter/use-subscribe [:p0/field i])]
     ($ :div.field
        ($ :label.lbl {:for (str "f" i)} (str "Field " i))
@@ -84,6 +87,7 @@
 ;; ---------------------------------------------------------------------------
 
 (defui u-cell [{:keys [i]}]
+  (wc/render!)
   (let [v (uix-adapter/use-subscribe [:p0/cell i])]
     ($ :span.cell {:data-i i} (str v))))
 
@@ -104,13 +108,16 @@
 ;; rung so the floor subtraction stays honest.
 
 (defui fan-cell-0 [{:keys [j]}]
+  (wc/render!)
   ($ :span.cell {:data-i j} "0"))
 
 (defui fan-cell-1 [{:keys [j n]}]
+  (wc/render!)
   (let [a (uix-adapter/use-subscribe [:p0/fan (fx/fan-key n 1 0)])]
     ($ :span.cell {:data-i j} (str a))))
 
 (defui fan-cell-2 [{:keys [j n]}]
+  (wc/render!)
   (let [a (uix-adapter/use-subscribe [:p0/fan (fx/fan-key n 2 0)])
         b (uix-adapter/use-subscribe [:p0/fan (fx/fan-key n 2 1)])]
     ($ :span.cell {:data-i j} (str (+ a b)))))
@@ -142,22 +149,27 @@
 (defn- lus [n r k] (uix-adapter/use-subscribe [:p0/fan (fx/fan-key n r k)]))
 
 (defui lad-cell-0 [{:keys [j _n]}]
+  (wc/render!)
   ($ :span.cell {:data-i j} "0"))
 
 (defui lad-cell-1 [{:keys [j n]}]
+  (wc/render!)
   (let [v (lus n 1 0)]
     ($ :span.cell {:data-i j} (str v))))
 
 (defui lad-cell-3 [{:keys [j n]}]
+  (wc/render!)
   (let [v (+ (lus n 3 0) (lus n 3 1) (lus n 3 2))]
     ($ :span.cell {:data-i j} (str v))))
 
 (defui lad-cell-7 [{:keys [j n]}]
+  (wc/render!)
   (let [v (+ (lus n 7 0) (lus n 7 1) (lus n 7 2) (lus n 7 3)
              (lus n 7 4) (lus n 7 5) (lus n 7 6))]
     ($ :span.cell {:data-i j} (str v))))
 
 (defui lad-cell-20 [{:keys [j n]}]
+  (wc/render!)
   (let [v (+ (lus n 20 0)  (lus n 20 1)  (lus n 20 2)  (lus n 20 3)
              (lus n 20 4)  (lus n 20 5)  (lus n 20 6)  (lus n 20 7)
              (lus n 20 8)  (lus n 20 9)  (lus n 20 10) (lus n 20 11)

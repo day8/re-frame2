@@ -32,6 +32,7 @@
   2026-08-10, enumerated once in `docs/design/hicasso/studio/README.md`;
   this arm rf2-2rtt6.4."
   (:require [re-frame.bench.p0-fixture :as fx]
+            [re-frame.bench.p0-workcount :as wc]
             [re-frame.core :as rf])
   (:require-macros [re-frame.core :refer [reg-view]]))
 
@@ -40,6 +41,7 @@
 ;; ---------------------------------------------------------------------------
 
 (reg-view w1-row [i]
+  (wc/render!)
   (let [text @(subscribe [:p0/row i])]
     [:li.row.cell.wide {:style      {:padding-left "4px" :color "rebeccapurple"}
                         :data-index i}
@@ -59,6 +61,7 @@
 ;; ---------------------------------------------------------------------------
 
 (reg-view w3-field [i]
+  (wc/render!)
   (let [{:keys [value error]} @(subscribe [:p0/field i])]
     [:div.field
      [:label.lbl {:for (str "f" i)} (str "Field " i)]
@@ -81,6 +84,7 @@
 ;; ---------------------------------------------------------------------------
 
 (reg-view u-cell [i]
+  (wc/render!)
   (let [v @(subscribe [:p0/cell i])]
     [:span.cell {:data-i i} (str v)]))
 
@@ -113,13 +117,16 @@
 ;; prop slot than the rungs it anchors.
 
 (reg-view fan-cell-0 [j _n]
+  (wc/render!)
   [:span.cell {:data-i j} "0"])
 
 (reg-view fan-cell-1 [j n]
+  (wc/render!)
   (let [a @(subscribe [:p0/fan (fx/fan-key n 1 0)])]
     [:span.cell {:data-i j} (str a)]))
 
 (reg-view fan-cell-2 [j n]
+  (wc/render!)
   (let [a @(subscribe [:p0/fan (fx/fan-key n 2 0)])
         b @(subscribe [:p0/fan (fx/fan-key n 2 1)])]
     [:span.cell {:data-i j} (str (+ a b))]))
@@ -149,6 +156,7 @@
 ;; same choice for the same reason.
 
 (reg-view lad-cell [j n r]
+  (wc/render!)
   (let [v (loop [k 0 acc 0]
             (if (< k r)
               (recur (inc k) (+ acc @(subscribe [:p0/fan (fx/fan-key n r k)])))

@@ -81,6 +81,7 @@
             [re-frame.bench.p0-hicasso :as hic]
             [re-frame.bench.p0-reagent :as rg]
             [re-frame.bench.p0-uix :as ux]
+            [re-frame.bench.p0-workcount :as wc]
             [re-frame.frame :as frame]
             ;; THE CANDIDATE ARM'S THREE DOORS, called at four seams, and
             ;; they are the PACKAGE's now (rf2-fe0l). They used to be
@@ -1188,7 +1189,17 @@
         write?  (or (= kind "write") all?)
         ctl?    (= kind "control")
         reagent? (= drain "reagent")
-        tick0   @alloc-tick]
+        tick0   @alloc-tick
+        ;; THE WORK CENSUS AT THE WINDOW'S OPEN (rf2-n1b9h), read here and
+        ;; again below so the difference is the work THIS window did.
+        ;;
+        ;; It sits in the `let`, which is evaluated before `buf[0]` — the
+        ;; first sample and therefore the opening of the measured region.
+        ;; `wc/snapshot` allocates an object, so where it is called is not
+        ;; a style question: inside the region it would be the sampler
+        ;; allocating on the arm's behalf, which is the one thing an
+        ;; allocation instrument may not do.
+        work0   (wc/snapshot)]
     (aset buf 0 (mem))
     (dotimes [i n]
       (let [base (* k i)]
@@ -1238,6 +1249,24 @@
            ;; round index is.
            :tick0   tick0
            :tick    @alloc-tick
+           ;; THE WORK CENSUS, at the open and at the close (rf2-n1b9h).
+           ;; `tick` places the window in the page's sequence of WRITES;
+           ;; this pair says what happened INSIDE them — handler
+           ;; invocations, subscription recomputations and boundary
+           ;; renders. `rf2-77gz8`'s two surviving candidates differ
+           ;; precisely here and nowhere a byte counter can reach: one
+           ;; predicts more work per write, the other the same work
+           ;; allocating more.
+           ;;
+           ;; Both are read OUTSIDE the sampled region — `work0` before
+           ;; `buf[0]`, this one after the last leg's closing sample.
+           :work0   work0
+           :work    (wc/snapshot)
+           ;; What the PAGE was compiled with, not what the driver asked
+           ;; for. A closure-define that failed to reach the compiler
+           ;; leaves counters that never move, which reads exactly like a
+           ;; window that did no work.
+           :counting (wc/armed?)
            :text    (when cell (.-textContent cell))})))
 
 ;; ---------------------------------------------------------------------------
@@ -1390,5 +1419,14 @@
              ;; and the driver owns everything on either side of it.
              :allocPrepare   (fn [d n sites] (alloc-prepare! d n sites))
              :allocWindow    (fn [n kind drain] (alloc-window! n kind drain))
+             ;; THE WORK CENSUS'S OWN DOOR (rf2-n1b9h). `workArmed` is what
+             ;; the page was COMPILED with; the driver proves the
+             ;; closure-define took rather than trusting its own
+             ;; `--config-merge`, exactly as it already proves
+             ;; `--enable-precise-memory-info` and the sampling stride.
+             ;; `workCount` is the raw census, for a preflight that wants
+             ;; to watch the counters move outside a window.
+             :workArmed      (fn [] (wc/armed?))
+             :workCount      (fn [] (wc/snapshot))
              :boundariesPerRoot #js {:list rows-per-root :grid per-root}})
   nil)

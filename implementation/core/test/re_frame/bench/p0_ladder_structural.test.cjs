@@ -2036,10 +2036,42 @@ test('the RETENTION ladder is not moved by any of this', () => {
   );
   assert.match(ARMS, /\(dispatch-sync! \[:p0\/write-all v\]\)/, 'the public door is untouched');
   assert.match(ARMS, /\(dispatch-sync! \[:p0\/write-page v\]\)/, 'and the new one sits beside it');
+  // AMENDED, NOT WEAKENED (rf2-n1b9h), and this is the third time a pin in
+  // this file has moved rather than gone. Its CONTENT is that the published
+  // write is `(vec (repeat cells-n v))` at the literal published width, and
+  // that content is unchanged to the byte. What the handler now also carries
+  // is `(wc/event!)`, the work census `rf2-n1b9h` reads to split
+  // `rf2-77gz8`'s two surviving candidates — and the reason that does not
+  // weaken this pin is the pin immediately below it: `wc/event!` is a MACRO
+  // behind a `goog-define` that is FALSE by default, so under `:advanced`
+  // Closure constant-folds the gate and eliminates the branch, and the
+  // compiled write path of an unarmed build is the one every published
+  // allocation, retention and clock figure was taken on.
+  //
+  // Byte-identity of the SOURCE was only ever a proxy for constancy of the
+  // COMPILED path. Where the two now differ, this file pins both.
   assert.match(
     FIXTURE,
-    /\(rf\/reg-event :p0\/write-all\s+\(fn \[\{:keys \[db\]\} \[_ v\]\] \{:db \(assoc db :cells \(vec \(repeat cells-n v\)\)\)\}\)\)/,
-    '`:p0/write-all` is byte-identical, literal `cells-n` and all'
+    /\(rf\/reg-event :p0\/write-all\s+\(fn \[\{:keys \[db\]\} \[_ v\]\] \(wc\/event!\) \{:db \(assoc db :cells \(vec \(repeat cells-n v\)\)\)\}\)\)/,
+    '`:p0/write-all` still rebuilds at the literal `cells-n`, behind the census macro'
+  );
+  const WORKCOUNT = fs.readFileSync(path.join(__dirname, 'p0_workcount.cljc'), 'utf8');
+  assert.match(
+    WORKCOUNT,
+    /#\?\(:cljs \(goog-define counting\? false\)/,
+    'and the census is a goog-define defaulting to FALSE — an unasked-for run compiles it out'
+  );
+  for (const site of ['event!', 'sub!', 'render!']) {
+    assert.match(
+      WORKCOUNT,
+      new RegExp(`defmacro ${site}`),
+      `\`${site}\` is a MACRO, so an unarmed call site does not survive DCE`
+    );
+  }
+  assert.match(
+    WORKCOUNT,
+    /\(when re-frame\.bench\.p0-workcount\/counting\?/,
+    'and every one of them expands behind the compile-time gate, never around it'
   );
   assert.match(
     FIXTURE,

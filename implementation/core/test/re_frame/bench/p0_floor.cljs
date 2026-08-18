@@ -41,7 +41,8 @@
   2026-08-10, enumerated once in `docs/design/hicasso/studio/README.md`;
   this arm rf2-2rtt6.4."
   (:require ["react" :as react]
-            [re-frame.bench.p0-fixture :as fx]))
+            [re-frame.bench.p0-fixture :as fx]
+            [re-frame.bench.p0-workcount :as wc]))
 
 (defn- el
   ([tag props] (react/createElement tag props))
@@ -54,6 +55,7 @@
 (def ^:private row-style #js {:paddingLeft "4px" :color "rebeccapurple"})
 
 (defn- w1-row-el [i text]
+  (wc/render!)
   (el "li" #js {:key i :className "row cell wide" :style row-style :data-index i}
       #js [(el "img" #js {:key "a" :className "avatar" :src "/avatar.png" :alt ""})
            (el "span" #js {:key "b" :className "label"} "row ")
@@ -74,6 +76,7 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- w3-field-el [i {:keys [value error]}]
+  (wc/render!)
   (el "div" #js {:key i :className "field"}
       #js [(el "label" #js {:key "l" :className "lbl" :htmlFor (str "f" i)}
                (str "Field " i))
@@ -107,7 +110,7 @@
   (el "div" #js {:className "ugrid"}
       (into-array
         (map-indexed
-          (fn [i v] (el "span" #js {:key i :className "cell" :data-i i} (str v)))
+          (fn [i v] (wc/render!) (el "span" #js {:key i :className "cell" :data-i i} (str v)))
           cells))))
 
 ;; ---------------------------------------------------------------------------
