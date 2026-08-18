@@ -45,8 +45,13 @@ validating the Actions grammar.  (2) It is wired only into
 job at all.  A ratchet living there would not run in CI, which is the one place
 it has to run to ratchet anything — the "gate that runs nowhere" shape that
 this repo's own `check_gate_scheduling.py` exists to catch.  So this is a
-sibling of that script, wired into test.yml's `Repo invariant checks` job
-alongside the rest of the family.
+sibling of that script, wired into test.yml's `verify-readme-links` job, which
+installs `requirements.txt` and therefore has PyYAML.  It is NOT in the
+always-on `Repo invariant checks` job (`verify-skill-mcp-drift`) alongside the
+rest of the family: that job installs no pip packages, and both of this
+checker's steps exited 3 there on their first run — the exit-3 contract below
+turning a misplacement into one visible failure rather than a silent green.
+test.yml's own comment on the two steps records the move at length.
 
 EXEMPTION: REUSABLE-WORKFLOW CALLS.  A job whose body is a job-level `uses:`
 calls a reusable workflow, and GitHub REJECTS `timeout-minutes` on it outright
