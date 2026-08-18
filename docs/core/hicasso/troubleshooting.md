@@ -75,15 +75,15 @@ a live API, so it is rewritten when that API is renamed.
 ## The complaint index
 
 Every complaint the shipped package raises today, grouped by the surface that
-raises it. The register of record — which ids exist, which spellings are
-reserved for surfaces not built yet, and which are dead forever — is
-`docs/design/hicasso/product/complaints.md`, and the normative meaning and
-payload of each id is `spec/009-Instrumentation.md`. This page is the reader's
-route into both.
+raises it. The normative meaning and payload of each id is
+`spec/009-Instrumentation.md`, and this page is the reader's route into it.
 
 An id you cannot find here is either not Hicasso's or not from this version.
 Check the namespace first — core, routing and the resources model raise their
-own — and then check that your application and test-kit versions match.
+own — and then check that your application and test-kit versions match. A few
+further spellings are claimed without being raised — reserved for surfaces not
+built yet, or dead forever — and they are listed under [Ids that are claimed but
+not raised](#ids-that-are-claimed-but-not-raised) at the foot of this page.
 
 ### Hiccup, heads and children
 
@@ -853,3 +853,68 @@ useful report is the complaint it was trying to raise.
 You minted a refusal missing one of the four required slots.
 
 Recovery: `:give-the-refusal-every-required-field`.
+
+## Ids that are claimed but not raised
+
+The index above is what the shipped package raises. A few further spellings are
+claimed without being raised, and knowing which is which saves a fruitless
+search: none of them can appear in an error you caught, and none of them is a
+spelling to mint for yourself.
+
+Three rules govern the whole set, and they are the reason an id is worth
+asserting on in the first place.
+
+1. **An id never changes meaning.** If the refusal it names becomes a different
+   refusal, that is a new id and the old one retires.
+2. **An id never changes spelling.** A rename is a retirement plus a mint, and
+   both are recorded.
+3. **A retired id is tombstoned and never reused.** A consumer's stored errors,
+   an error monitor's grouping rule and a page of prose all outlive the code, so
+   a reused spelling makes every one of them silently wrong about which failure
+   it saw.
+
+### Reserved
+
+Each of these names a refusal this guide already teaches by mechanism, on a
+surface that is not built yet. The reservation is not bookkeeping: a refusal
+with no id is invisible to a round trip — nothing raises it and no index carries
+it, so the raise-set and the index agree while the coverage is entirely missing.
+Claiming the spelling makes that gap countable, stops two builders minting two
+names for one refusal, and lets a chapter cite an id today.
+
+A reserved id carries no payload and no `:recovery` yet; those are settled by
+the work that writes the emitter, which moves the row up into the index above in
+the same change. So a reservation is promoted, never drifted into.
+
+| Reserved | What it will refuse |
+| --- | --- |
+| `:rf.error/hicasso-view-called-directly` | a `defview` invoked as a function instead of mounted as a hiccup head. The static case is already an error — the clj-kondo config Hicasso ships raises `:re-frame.hicasso/direct-view-call` — and this is the runtime half |
+| `:rf.error/hicasso-test-hook-is-opaque` | a React hook reached from a body run at L2, where no React is running |
+| `:rf.error/hicasso-test-native-is-opaque` | a native-tier element reaching the L2 semantic tree, as host and raw-React elements already do |
+| `:rf.error/hicasso-contenteditable-not-controllable` | a controlled `:value` binding on a contenteditable region |
+| `:rf.error/hicasso-route-link-bad-prefetch` | a route link's `:prefetch` carrying a value the link does not accept |
+
+### Retiring later
+
+[`:rf.error/hicasso-route-link-prefetch-declined`](#hicasso-route-link-prefetch-declined)
+is live today and already decided against. It retires when route links accept
+`:prefetch` rather than declining the key outright, and its successor is the
+reserved `:rf.error/hicasso-route-link-bad-prefetch` above.
+
+The declined spelling is never reused for the successor, and the reason is worth
+seeing: the two say different things — *this key does nothing here* against
+*this value is not one of the ones it takes* — so an error monitor grouping by
+id would silently merge a v0 report with a later one about a typo.
+
+### Dead
+
+`:rf.error/hicasso-test-residue-after-quiescence` is tombstoned. It was reserved
+for a raising clean-state assertion on the mounted test kit, and the kit landed
+choosing to report instead: `hm/assert-clean!` files residue through the test
+runner rather than throwing, because residue is a test failure and not a refusal
+of the instrument. A throw would make the tool that detects a leak
+indistinguishable from the tool breaking, and would abort at the first finding
+instead of reporting all of them. So the reservation named a refusal its own
+surface decided not to have. It was never minted and never raised, so no stored
+error and no monitor rule anywhere carries it — and by rule 3 above it stays
+dead rather than being recycled for the next refusal on that surface.

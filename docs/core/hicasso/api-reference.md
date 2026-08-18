@@ -31,18 +31,21 @@ name the ids a door raises; [Errors](17-errors.md) explains the shape and
 
 ## What this page does not enumerate
 
-Four questions are answered authoritatively elsewhere. Copying an answer here
-would produce a second one that goes stale the day the first moves, so this page
-points at each instead. Every target below is a page of this guide except the
-naming ledger, which is a working design record in the repository and does not
-publish — a reader who cannot reach that one is missing history, not behaviour.
+Three questions are answered authoritatively on another page of this guide.
+Copying an answer here would produce a second one that goes stale the day the
+first moves, so this page points at each instead.
 
 | Question | Where it is answered |
 | --- | --- |
 | What each surface does on the server, and under hydration | [SSR and hydration](18-ssr-and-hydration.md#server-policy-by-surface) |
-| Which spellings changed, when, and under whose ruling | the naming ledger, `docs/design/hicasso/product/naming-ledger.md`, in the repository |
 | Every refusal id, its reason and its recovery | [Troubleshooting](troubleshooting.md#the-complaint-index), with [Errors](17-errors.md) for the shape each one carries |
 | Which doors this guide teaches under a spelling the code does not yet carry | the Status block on [the guide index](index.md) |
+
+A fourth — *which spellings changed, when, and under whose ruling* — has no
+other page to be answered on, and a lookup page is where a reader meets it: you
+type a name you remember, the compiler says it does not exist, and you want to
+know what it became. So it is answered here, at [Names that
+changed](#names-that-changed).
 
 ## `re-frame.hicasso` — the door
 
@@ -628,6 +631,48 @@ hm/this-frame
 Green from `hm/shadow!` means the two implementations were indistinguishable
 **for the flows in the script**, and proves nothing about a path the script did
 not walk.
+
+## Names that changed
+
+Hicasso is pre-alpha and some of its doors have been renamed since they were
+first written down. There is no alias and no deprecation path for any of them:
+an old spelling is gone rather than deprecated, so what you get is a compile
+error rather than a warning. This is what to type instead.
+
+| What you may have written | What it is today | When, and on whose authority |
+| --- | --- | --- |
+| `hfn`, taught as `h/fn` | `h/event` | Ruled by the project operator on 2026-08-11 and swept through code and guide alike on 2026-08-15. `event` is the word this project already reserves for *turn the invoker's arguments into one event vector, or `nil`*, while `handler` names imperative work whose return is ignored — so `handler` would have been a false friend to anyone arriving from another adapter |
+| `h/root!`, taking the frame keyword positionally | `h/mount!`, over a config map — `(node config view)` | Named by the same 2026-08-11 ruling, but it could not be carried out as a rename: the config map this guide teaches carries `:initial-events`, and the door underneath implemented no such option. It landed on 2026-08-15 as the contract rather than the spelling, which is why it arrived after the sweep that renamed the callback form |
+| `h/hydrate-root!` | `h/hydrate!` | The same ruling. This half was a true rename and landed first, which is why the two doors changed on different days |
+| `hm/render!`, on the mounted test kit | `hm/rerender!` | Ruled 2026-08-11, swept 2026-08-15. `render!` would have collided with the product facade's own `h/render!`, and a test that reads `render!` should not have to know which of the two it is looking at |
+| `ht/render`, with a `{:reads …}` fixture | `ht/tree`, with a `{:subs …}` fixture | Applied on 2026-08-11. L2 answers a data tree and never DOM — the kit's own docstring says it is not a renderer — so `render` both misdescribed the door and collided with two others |
+| `:ssr`, on a `defhost` or `n/defcomponent` declaration | `:server` | Applied without waiting on the naming sitting, because by then the two spellings had diverged code-against-code inside one shipped artefact, which is a defect rather than an open question of taste. `:ssr` names the technique where `:server` names the side that renders, which is what the two values distinguish. A declaration still carrying `:ssr` now raises `:rf.error/hicasso-host-unknown-option` |
+| `server/fresh-frame-id`, `server/setup-events` | Neither is public. The server module's whole public surface is `server/render`, `server/payload-script`, `server/document` and `server/render-twice` | Operator override of 2026-08-15, argued name by name against what an external host can actually do with each. Nothing an application writes calls either of the two: `server/render` mints its own frame id and refuses to have it overridden, and the event setup is a short fold over options `server/render` already accepts directly |
+
+Two rules explain most of what looks inconsistent above.
+
+**A refusal id is not a spelling, and never follows one.** An id is frozen for
+the life of the refusal and is never reused after retirement, because a
+consumer's stored errors and an error monitor's grouping rule both outlive the
+code. So `:rf.error/hicasso-test-bad-reads` still carries the retired word
+`reads` and always will — it names the refusal, not the option the refusal was
+about. Its `:recovery` keyword did move, from `:add-the-query-to-reads` to
+`:add-the-query-to-subs`, because a recovery is concrete advice about a live API
+and is rewritten whenever that API is renamed.
+
+**One taught spelling still differs from the code, and it is not waiting for a
+sweep.** This guide writes `h/frame`; the door exports `h/hframe`. The
+recommendation on record is to retire the verb rather than respell it — a bare
+`frame` shadows on a `:refer`, and `rf/current-frame-id` and `rf/capture-frame`
+are already the frame doors — but retiring it needs the ambient-read seam to
+admit those two core doors inside a Hicasso body, which is a behaviour change
+rather than a rename. The Status block on [the guide index](index.md) is the
+live record of that one divergence.
+
+Naming questions are consolidated and settled by the project operator in a
+working design record that is not published, so the table above is the published
+account of what has been decided: a row appears here when the change has landed
+in the shipped package, not when it is proposed.
 
 ## How this page is kept honest
 
