@@ -19,7 +19,9 @@
   embeds the subject — and not the adapter `rf/init!` installed. The two
   are different axes, which `re-frame.story.schemas/SubstrateSet`'s
   docstring sets out; `:hicasso` is the member that makes the difference
-  visible, since Hicasso ships no adapter and boots on UIx.
+  visible, because a Hicasso deck's authoring layer is Hicasso's whichever
+  adapter sits beneath it — Hicasso's own `re-frame.hicasso.substrate`
+  (`:kind :rf.adapter/hicasso`, rf2-hvr5h), or Reagent's, or UIx's.
 
   ## The `:hicasso` recipe (rf2-2dbpd)
 

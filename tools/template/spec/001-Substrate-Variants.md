@@ -170,28 +170,52 @@ Reserved space — not implemented:
   ordered job — plus `hicasso` in the stage above. The twelve
   `artefact:` rows are the non-core leaves, not the workflow's total.)
 
-  **Hicasso is also not a substrate peer of `:reagent` and `:uix`, and
-  that ordering matters.** It mints no adapter — there is no
-  `:rf.adapter/hicasso` — and a Hicasso app installs the *UIx* adapter,
-  then mounts boundaries through it (`(rf/init! uix-adapter/adapter)`
-  then `(h/mount! …)`). What differs from the `:uix` variant is the
-  AUTHORING model, not the substrate. So the open design question is
-  whether this is a third value of `:substrate` at all, rather than a
-  flag on the UIx variant; it is not a mechanical fourth row in the
-  checklist below, and it wants a ruling rather than an implementer's
-  guess.
+  **The open design question here rested on a premise that has since
+  moved, so it is re-asked rather than answered.** As written it read:
+  Hicasso mints no adapter — there is no `:rf.adapter/hicasso` — so a
+  Hicasso app installs the *UIx* adapter and mounts boundaries through
+  it, and what differs from the `:uix` variant is the AUTHORING model
+  rather than the substrate; the question was therefore whether Hicasso
+  is a third value of `:substrate` at all, or merely a flag on the UIx
+  variant. That premise is false as of rf2-hvr5h.
+  `re-frame.hicasso.substrate` — an optional module of
+  `day8/re-frame2-hicasso`, nothing under `src/` requires it — declares
+  `:kind :rf.adapter/hicasso`, and [the install
+  chapter](../../../docs/core/hicasso/00-installation.md) teaches
+  `(rf/init! substrate/adapter)` as the default.
+
+  **The "flag on the UIx variant" horn does not survive that**, and it
+  fails on the facts rather than by ruling. This file's `:substrate`
+  axis already pairs a view library with its adapter — `:reagent` is
+  Reagent authoring on Reagent's adapter, `:uix` is UIx authoring on
+  UIx's — and a Hicasso variant now has its own on both halves: its own
+  coordinate, its own adapter, and its own shape for every file the
+  per-substrate transform emits. On the axis this file enumerates it is
+  a peer of the existing two.
+
+  **What stays open is narrower, and still wants a ruling rather than an
+  implementer's guess.** Installation is explicit and there is no
+  default-adapter registry, so Hicasso authoring over a *foreign*
+  adapter — Reagent's or UIx's — remains supported and is what a page
+  mixing Hicasso with that substrate's own components wants. That is a
+  second axis, and a one-dimensional `:substrate` argument cannot
+  express it. Whether the template ships only the default pairing as
+  `:substrate :hicasso`, or grows a way to say authoring-and-adapter
+  separately, is the question to answer. Either way it is blocked on
+  publication.
 
   What the emitted app would differ by, established at source so the
   ruling has something to stand on: the per-substrate transform emits
   exactly three files, and a Hicasso variant would change **all three**.
-  `deps.edn` gains `day8/re-frame2-hicasso` while keeping
-  `day8/re-frame2-uix` (the adapter is still UIx's); `core.cljs` swaps
-  `uix-dom/render-root` + the `frame-root` element for an explicit
-  `rf/make-frame` plus `h/mount!`; and `views.cljs` is rewritten in the
-  `h/defview` authoring model — hiccup with `h/sub` and intent vectors
-  at `:on-click` — rather than `defui` with `$` and hooks. That is a
-  variant's worth of divergence, not a flag's; but it is blocked on
-  publication regardless, so the choice is recorded, not taken.
+  `deps.edn` names `day8/re-frame2-hicasso` and nothing else — the
+  adapter arrives with it, so there is no second view-library coordinate
+  to carry; `core.cljs` swaps `uix-dom/render-root` + the `frame-root`
+  element for an explicit `rf/make-frame` plus `h/mount!`; and
+  `views.cljs` is rewritten in the `h/defview` authoring model — hiccup
+  with `h/sub` and intent vectors at `:on-click` — rather than `defui`
+  with `$` and hooks. That is a variant's worth of divergence, not a
+  flag's; but it is blocked on publication regardless, so the choice is
+  recorded, not taken.
 
   **The two-value idiom this bead also named is now fixed** (rf2-48rk3)
   and is no longer a cost a Hicasso variant has to pay. Xray, Story and

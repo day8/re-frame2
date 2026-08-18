@@ -23,10 +23,13 @@ The tutorial and the scaffolded path are Reagent-focused because that is where
 most readers start, but the substrate set is not a Reagent set. A member of
 `:substrates` names which registered render fn embeds the subject — the
 authoring layer — and not which adapter `rf/init!` installed. `:hicasso` is
-the member that makes the difference visible, since Hicasso ships no adapter
-of its own: a deck declaring `:substrates #{:hicasso}` runs in a
-Reagent-hosted shell, resolves its own frame through React context, and
-responds to writes into it. There is a worked one at
+the member that makes the difference visible: a deck declaring
+`:substrates #{:hicasso}` runs in a Reagent-hosted shell — the installed
+adapter is Reagent's, the authoring is Hicasso's — resolves its own frame
+through React context, and responds to writes into it. Hicasso does ship an
+adapter of its own, so the two spellings coincide often enough to be worth
+separating out loud: which adapter is installed is a different question from
+which render fn embeds the subject. There is a worked one at
 `tools/story/testbeds/hicasso_counter/`, and it rides the same PR-path play
 gate every Reagent deck does.
 

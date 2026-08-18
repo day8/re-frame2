@@ -842,17 +842,21 @@ The surfaces that bring a re-frame2 process up and take it down. The one-line bo
   ```clojure
   (current-adapter) → discriminator keyword
   ```
-- **Description**: Which substrate is installed. Answers `:rf.adapter/reagent` / `:rf.adapter/reagent-slim` / `:rf.adapter/uix` / `:rf.adapter/plain-atom` / `:rf.adapter/ssr` / `:custom` — or `nil` when no adapter is installed. (`:rf.adapter/ui` and `:rf.adapter/freehand` stay reserved and are never recycled, but the two donor view substrates were removed on 2026-08-16 and nothing produces either value now.) For predicate / branch code.
+- **Description**: Which substrate is installed. Answers `:rf.adapter/reagent` / `:rf.adapter/reagent-slim` / `:rf.adapter/uix` / `:rf.adapter/hicasso` / `:rf.adapter/plain-atom` / `:rf.adapter/ssr` / `:custom` — or `nil` when no adapter is installed. (`:rf.adapter/ui` and `:rf.adapter/freehand` stay reserved and are never recycled, but the two donor view substrates were removed on 2026-08-16 and nothing produces either value now.) For predicate / branch code.
 - **Example**:
   ```clojure
   (rf/current-adapter)   ;; => :rf.adapter/reagent   (nil when no adapter is installed)
   ```
-- **On Hicasso**: there is no `:rf.adapter/hicasso`, and its absence is not a gap.
-  Hicasso is a view layer rather than a substrate — it owns Hiccup interpretation and
-  the render boundary, while the reactive container comes from an adapter the
-  application installs itself. So a Hicasso application answers with the adapter it
-  booted on, usually `:rf.adapter/uix`, and that answer is the true one: the question
-  this fn asks is *which substrate*, and Hicasso is not one. See
+- **On Hicasso**: this fn asks *which substrate*, and Hicasso is a view layer rather
+  than one — it owns Hiccup interpretation and the render boundary, while the reactive
+  container comes from an adapter the application installs. What Hicasso now ships is
+  one of the answers: `re-frame.hicasso.substrate` is an optional module of
+  `day8/re-frame2-hicasso` declaring `:kind :rf.adapter/hicasso`, and the install
+  chapter teaches `(rf/init! substrate/adapter)` as the default, so a Hicasso
+  application normally answers `:rf.adapter/hicasso`. Installing Reagent or UIx under
+  a Hicasso tree instead stays supported, and then the answer is that adapter's —
+  either way the value names the substrate the app booted on, never the layer its
+  views are authored in. See
   [Hicasso needs a substrate adapter](../core/hicasso/00-installation.md#hicasso-needs-a-substrate-adapter).
 
 ### `current-adapter-spec`
