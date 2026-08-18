@@ -1,0 +1,7286 @@
+{
+  "generatedAt": "2026-08-18T14:01:42.436Z",
+  "build": "hicasso-bench",
+  "initFn": "re-frame.bench.p0-app/-main",
+  "alloc": {
+    "benchmark": "P0:steady-state-allocation-slope",
+    "bead": "rf2-2rtt6.76",
+    "roots": 4,
+    "perRoot": {
+      "list": 300,
+      "grid": 6
+    },
+    "publishedPerRoot": {
+      "list": 300,
+      "grid": 300
+    },
+    "arm": {
+      "cells": 6,
+      "roots": 4,
+      "boundaries": 24,
+      "writes": 6,
+      "refusals": [],
+      "admissible": true
+    },
+    "boundaries": 24,
+    "writes": 6,
+    "primeWrites": 1,
+    "windowWrites": 7,
+    "bySite": false,
+    "sites": 2,
+    "siteNames": [
+      "dispatch",
+      "drain"
+    ],
+    "warmups": 3,
+    "rounds": 18,
+    "preciseMemory": true,
+    "controlDoubles": {
+      "d1": 1000,
+      "d2": 400
+    },
+    "controlSlack": 0.75,
+    "writeSelector": "all",
+    "writeLegs": [
+      "all"
+    ],
+    "writePaired": false,
+    "write": ":p0/write-all — the grid is rebuilt at the fixture's fixed `cells-n` whatever is mounted — V1's F_old control, flat in B by construction",
+    "plan": {
+      "name": "floor",
+      "arms": true,
+      "rungs": false,
+      "fits": false
+    },
+    "instrument": "in-page performance.memory.usedJSHeapSize sampled at every leg boundary, rising steps accumulated separately from falling ones; --enable-precise-memory-info. A falling step is a collection this counter SAW; a leg that deviates from its cohort median by more than the leg tolerance is a work unit that is not one; and under the by-site stride a NEGATIVE SITE STEP is a collection inside one leg that neither of the other two can see. TWO OF THE THREE RAN ON THIS ROW (rf2-fir5n): it was taken at a stride of 2, where a leg has no interior reading and so no site step to be negative, and the intra-leg gate returned an empty list BY CONSTRUCTION rather than by a switch. `certified` here means certified by the falling-step gate and by the leg tolerance and NO MORE. Arming the third needs the stride-3 reading, whose leg magnitudes are not comparable byte for byte with these (see `bySite`), so a witness comparing byte for byte against a figure published at stride 2 can never be screened by all three",
+    "fallThresholdB": 600000,
+    "legTolerance": 0.25,
+    "verification": {
+      "unverified": 0,
+      "detail": []
+    },
+    "workCount": true,
+    "workVerification": {
+      "counted": true,
+      "windows": 36,
+      "windowWrites": 7,
+      "controlsMoved": [],
+      "events": {
+        "reagent-subs|grid/floor": [
+          7
+        ],
+        "uix-subs|grid/floor": [
+          7
+        ]
+      },
+      "subs": {
+        "reagent-subs|grid/floor": [
+          0
+        ],
+        "uix-subs|grid/floor": [
+          0
+        ]
+      },
+      "renders": {
+        "reagent-subs|grid/floor": [
+          0
+        ],
+        "uix-subs|grid/floor": [
+          0
+        ]
+      },
+      "offExpectation": [],
+      "ok": true
+    },
+    "perRound": [
+      {
+        "round": 0,
+        "controls": {
+          "idle": {
+            "kind": "idle",
+            "d": 0,
+            "rise": 700,
+            "fall": 0,
+            "falls": 0,
+            "maxStep": 524,
+            "endpoints": 700,
+            "legs": [
+              16,
+              16,
+              16,
+              16,
+              16,
+              16
+            ],
+            "gaps": [
+              16,
+              16,
+              16,
+              16,
+              16,
+              524
+            ],
+            "legMedian": 16,
+            "legWorstDeviation": 0,
+            "legTolerance": 0.25,
+            "refusals": [],
+            "certified": true,
+            "legRefusals": [],
+            "intraLegRefusals": [],
+            "primeLegs": [
+              16
+            ],
+            "primeExcess": 0,
+            "perIter": 116.66666666666667,
+            "cdpBracket": 46232,
+            "sites": 2,
+            "siteLegs": [],
+            "siteWitness": null,
+            "samples": [
+              3834976,
+              3834992,
+              3835008,
+              3835024,
+              3835040,
+              3835056,
+              3835072,
+              3835088,
+              3835104,
+              3835120,
+              3835136,
+              3835152,
+              3835168,
+              3835692,
+              3835708
+            ],
+            "work0": {
+              "events": 0,
+              "subs": 0,
+              "renders": 0
+            },
+            "work": {
+              "events": 0,
+              "subs": 0,
+              "renders": 0
+            },
+            "workDelta": {
+              "events": 0,
+              "subs": 0,
+              "renders": 0
+            }
+          },
+          "ctl1": {
+            "kind": "control",
+            "d": 1000,
+            "rise": 48576,
+            "fall": 0,
+            "falls": 0,
+            "maxStep": 8144,
+            "endpoints": 48576,
+            "legs": [
+              8144,
+              8080,
+              8064,
+              8064,
+              8064,
+              8064
+            ],
+            "gaps": [
+              16,
+              16,
+              16,
+              16,
+              16,
+              16
+            ],
+            "legMedian": 8064,
+            "legWorstDeviation": 0.00992063492063492,
+            "legTolerance": 0.25,
+            "refusals": [],
+            "certified": true,
+            "legRefusals": [],
+            "intraLegRefusals": [],
+            "primeLegs": [
+              8064
+            ],
+            "primeExcess": 0,
+            "perIter": 8096,
+            "cdpBracket": 87388,
+            "sites": 2,
+            "siteLegs": [],
+            "siteWitness": null,
+            "samples": [
+              3848600,
+              3848616,
+              3856680,
+              3856696,
+              3864840,
+              3864856,
+              3872936,
+              3872952,
+              3881016,
+              3881032,
+              3889096,
+              3889112,
+              3897176,
+              3897192,
+              3905256
+            ],
+            "work0": {
+              "events": 0,
+              "subs": 0,
+              "renders": 0
+            },
+            "work": {
+              "events": 0,
+              "subs": 0,
+              "renders": 0
+            },
+            "workDelta": {
+              "events": 0,
+              "subs": 0,
+              "renders": 0
+            }
+          },
+          "ctl2": {
+            "kind": "control",
+            "d": 400,
+            "rise": 19680,
+            "fall": 0,
+            "falls": 0,
+            "maxStep": 3264,
+            "endpoints": 19680,
+            "legs": [
+              3264,
+              3264,
+              3264,
+              3264,
+              3264,
+              3264
+            ],
+            "gaps": [
+              16,
+              16,
+              16,
+              16,
+              16,
+              16
+            ],
+            "legMedian": 3264,
+            "legWorstDeviation": 0,
+            "legTolerance": 0.25,
+            "refusals": [],
+            "certified": true,
+            "legRefusals": [],
+            "intraLegRefusals": [],
+            "primeLegs": [
+              3264
+            ],
+            "primeExcess": 0,
+            "perIter": 3280,
+            "cdpBracket": 52328,
+            "sites": 2,
+            "siteLegs": [],
+            "siteWitness": null,
+            "samples": [
+              3844700,
+              3844716,
+              3847980,
+              3847996,
+              3851260,
+              3851276,
+              3854540,
+              3854556,
+              3857820,
+              3857836,
+              3861100,
+              3861116,
+              3864380,
+              3864396,
+              3867660
+            ],
+            "work0": {
+              "events": 0,
+              "subs": 0,
+              "renders": 0
+            },
+            "work": {
+              "events": 0,
+              "subs": 0,
+              "renders": 0
+            },
+            "workDelta": {
+              "events": 0,
+              "subs": 0,
+              "renders": 0
+            }
+          }
+        },
+        "arms": {
+          "reagent-subs|grid/floor": {
+            "segment": "reagent-subs",
+            "arm": "grid/floor",
+            "rung": "floor",
+            "reads": 0,
+            "boundaries": 24,
+            "text": "0",
+            "writeSelector": "all",
+            "write": ":p0/write-all — the grid is rebuilt at the fixture's fixed `cells-n` whatever is mounted — V1's F_old control, flat in B by construction",
+            "pairKey": "reagent-subs|grid/floor",
+            "rise": 128820,
+            "fall": 0,
+            "falls": 0,
+            "maxStep": 34692,
+            "endpoints": 128820,
+            "legs": [
+              19584,
+              19456,
+              19512,
+              19428,
+              34692,
+              16052
+            ],
+            "gaps": [
+              16,
+              16,
+              16,
+              16,
+              16,
+              16
+            ],
+            "legMedian": 19484,
+            "legWorstDeviation": 0.7805378772326012,
+            "legTolerance": 0.25,
+            "refusals": [
+              "leg 5 of 6 read 34692 B against a cohort median of 19484 B (+15208 B, 78.1%), past the ±25% leg tolerance (±4871 B): a leg ABOVE its cohort means the ONE WORK UNIT premise this witness rests on has failed in this window, so refusing is correct rather than merely conservative"
+            ],
+            "certified": false,
+            "legRefusals": [
+              "leg 5 of 6 read 34692 B against a cohort median of 19484 B (+15208 B, 78.1%), past the ±25% leg tolerance (±4871 B): a leg ABOVE its cohort means the ONE WORK UNIT premise this witness rests on has failed in this window, so refusing is correct rather than merely conservative"
+            ],
+            "intraLegRefusals": [],
+            "primeLegs": [
+              27136
+            ],
+            "primeExcess": 7652,
+            "perWrite": 21470,
+            "perBoundaryPerWrite": 894.5833333333334,
+            "cdpBracket": 190160,
+            "sites": 2,
+            "siteLegs": [],
+            "siteWitness": null,
+            "samples": [
+              4773965,
+              4773981,
+              4801117,
+              4801133,
+              4820717,
+              4820733,
+              4840189,
+              4840205,
+              4859717,
+              4859733,
+              4879161,
+              4879177,
+              4913869,
+              4913885,
+              4929937
+            ],
+            "tick0": 21,
+            "tick": 28,
+            "work0": {
+              "events": 21,
+              "subs": 0,
+              "renders": 24
+            },
+            "work": {
+              "events": 28,
+              "subs": 0,
+              "renders": 24
+            },
+            "workDelta": {
+              "events": 7,
+              "subs": 0,
+              "renders": 0
+            }
+          },
+          "uix-subs|grid/floor": {
+            "segment": "uix-subs",
+            "arm": "grid/floor",
+            "rung": "floor",
+            "reads": 0,
+            "boundaries": 24,
+            "text": "0",
+            "writeSelector": "all",
+            "write": ":p0/write-all — the grid is rebuilt at the fixture's fixed `cells-n` whatever is mounted — V1's F_old control, flat in B by construction",
+            "pairKey": "uix-subs|grid/floor",
+            "rise": 239076,
+            "fall": 0,
+            "falls": 0,
+            "maxStep": 134068,
+            "endpoints": 239076,
+            "legs": [
+              19664,
+              134068,
+              24776,
+              19760,
+              20468,
+              20244
+            ],
+            "gaps": [
+              16,
+              16,
+              16,
+              16,
+              16,
+              16
+            ],
+            "legMedian": 20356,
+            "legWorstDeviation": 5.58616624091177,
+            "legTolerance": 0.25,
+            "refusals": [
+              "leg 2 of 6 read 134068 B against a cohort median of 20356 B (+113712 B, 558.6%), past the ±25% leg tolerance (±5089 B): a leg ABOVE its cohort means the ONE WORK UNIT premise this witness rests on has failed in this window, so refusing is correct rather than merely conservative"
+            ],
+            "certified": false,
+            "legRefusals": [
+              "leg 2 of 6 read 134068 B against a cohort median of 20356 B (+113712 B, 558.6%), past the ±25% leg tolerance (±5089 B): a leg ABOVE its cohort means the ONE WORK UNIT premise this witness rests on has failed in this window, so refusing is correct rather than merely conservative"
+            ],
+            "intraLegRefusals": [],
+            "primeLegs": [
+              26512
+            ],
+            "primeExcess": 6156,
+            "perWrite": 39846,
+            "perBoundaryPerWrite": 1660.25,
+            "cdpBracket": 196848,
+            "sites": 2,
+            "siteLegs": [],
+            "siteWitness": null,
+            "samples": [
+              5054889,
+              5054905,
+              5081417,
+              5081433,
+              5101097,
+              5101113,
+              5235181,
+              5235197,
+              5259973,
+              5259989,
+              5279749,
+              5279765,
+              5300233,
+              5300249,
+              5320493
+            ],
+            "tick0": 49,
+            "tick": 56,
+            "work0": {
+              "events": 49,
+              "subs": 0,
+              "renders": 48
+            },
+            "work": {
+              "events": 56,
+              "subs": 0,
+              "renders": 48
+            },
+            "workDelta": {
+              "events": 7,
+              "subs": 0,
+              "renders": 0
+            }
+          }
+        },
+        "writeLegs": [
+          "all"
+        ]
+      },
+      {
+        "round": 1,
+        "controls": {
+          "idle": {
+            "kind": "idle",
+            "d": 0,
+            "rise": 192,
+            "fall": 0,
+            "falls": 0,
+            "maxStep": 16,
+            "endpoints": 192,
+            "legs": [
+              16,
+              16,
+              16,
+              16,
+              16,
+              16
+            ],
+            "gaps": [
+              16,
+              16,
+              16,
+              16,
+              16,
+              16
+            ],
+            "legMedian": 16,
+            "legWorstDeviation": 0,
+            "legTolerance": 0.25,
+            "refusals": [],
+            "certified": true,
+            "legRefusals": [],
+            "intraLegRefusals": [],
+            "primeLegs": [
+              16
+            ],
+            "primeExcess": 0,
+            "perIter": 32,
+            "cdpBracket": 28768,
+            "sites": 2,
+            "siteLegs": [],
+            "siteWitness": null,
+            "samples": [
+              5039741,
+              5039757,
+              5039773,
+              5039789,
+              5039805,
+              5039821,
+              5039837,
+              5039853,
+              5039869,
+              5039885,
+              5039901,
+              5039917,
+              5039933,
+              5039949,
+              5039965
+            ],
+            "work0": {
+              "events": 56,
+              "subs": 0,
+              "renders": 48
+            },
+            "work": {
+              "events": 56,
+              "subs": 0,
+              "renders": 48
+            },
+            "workDelta": {
+              "events": 0,
+              "subs": 0,
+              "renders": 0
+            }
+          },
+          "ctl1": {
+            "kind": "control",
+            "d": 1000,
+            "rise": 48480,
+            "fall": 0,
+            "falls": 0,
+            "maxStep": 8064,
+            "endpoints": 48480,
+            "legs": [
+              8064,
+              8064,
+              8064,
+              8064,
+              8064,
+              8064
+            ],
+            "gaps": [
+              16,
+              16,
+              16,
+              16,
+              16,
+              16
+            ],
+            "legMedian": 8064,
+            "legWorstDeviation": 0,
+            "legTolerance": 0.25,
+            "refusals": [],
+            "certified": true,
+            "legRefusals": [],
+            "intraLegRefusals": [],
+            "primeLegs": [
+              8064
+            ],
+            "primeExcess": 0,
+            "perIter": 8080,
+            "cdpBracket": 87716,
+            "sites": 2,
+            "siteLegs": [],
+            "siteWitness": null,
+            "samples": [
+              5047749,
+              5047765,
+              5055829,
+              5055845,
+              5063909,
+              5063925,
+              5071989,
+              5072005,
+              5080069,
+              5080085,
+              5088149,
+              5088165,
+              5096229,
+              5096245,
+              5104309
+            ],
+            "work0": {
+              "events": 56,
+              "subs": 0,
+              "renders": 48
+            },
+            "work": {
+              "events": 56,
+              "subs": 0,
+              "renders": 48
+            },
+            "workDelta": {
+              "events": 0,
+              "subs": 0,
+              "renders": 0
+            }
+          },
+          "ctl2": {
+            "kind": "control",
+            "d": 400,
+            "rise": 19680,
+            "fall": 0,
+            "falls": 0,
+            "maxStep": 3264,
+            "endpoints": 19680,
+            "legs": [
+              3264,
+              3264,
+              3264,
+              3264,
+              3264,
+              3264
+            ],
+            "gaps": [
+              16,
+              16,
+              16,
+              16,
+              16,
+              16
+            ],
+            "legMedian": 3264,
+            "legWorstDeviation": 0,
+            "legTolerance": 0.25,
+            "refusals": [],
+            "certified": true,
+            "legRefusals": [],
+            "intraLegRefusals": [],
+            "primeLegs": [
+              3264
+            ],
+            "primeExcess": 0,
+            "perIter": 3280,
+            "cdpBracket": 51488,
+            "sites": 2,
+            "siteLegs": [],
+            "siteWitness": null,
+            "samples": [
+              5045193,
+              5045209,
+              5048473,
+              5048489,
+              5051753,
+              5051769,
+              5055033,
+              5055049,
+              5058313,
+              5058329,
+              5061593,
+              5061609,
+              5064873,
+              5064889,
+              5068153
+            ],
+            "work0": {
+              "events": 56,
+              "subs": 0,
+              "renders": 48
+            },
+            "work": {
+              "events": 56,
+              "subs": 0,
+              "renders": 48
+            },
+            "workDelta": {
+              "events": 0,
+              "subs": 0,
+              "renders": 0
+            }
+          }
+        },
+        "arms": {
+          "uix-subs|grid/floor": {
+            "segment": "uix-subs",
+            "arm": "grid/floor",
+            "rung": "floor",
+            "reads": 0,
+            "boundaries": 24,
+            "text": "0",
+            "writeSelector": "all",
+            "write": ":p0/write-all — the grid is rebuilt at the fixture's fixed `cells-n` whatever is mounted — V1's F_old control, flat in B by construction",
+            "pairKey": "uix-subs|grid/floor",
+            "rise": 543792,
+            "fall": 238252,
+            "falls": 2,
+            "maxStep": 198732,
+            "endpoints": 305540,
+            "legs": [
+              20028,
+              -58936,
+              127896,
+              19508,
+              19520,
+              198732
+            ],
+            "gaps": [
+              16,
+              79196,
+              78864,
+              -179316,
+              16,
+              16
+            ],
+            "legMedian": 19774,
+            "legWorstDeviation": 9.050166885809649,
+            "legTolerance": 0.25,
+            "refusals": [
+              "leg 2 of 6 read -58936 B against a cohort median of 19774 B (-78710 B, -398.0%), past the ±25% leg tolerance (±4943.5 B): a leg BELOW its cohort is a leg something removed bytes from, and nothing in the work unit removes bytes — the collector does",
+              "leg 3 of 6 read 127896 B against a cohort median of 19774 B (+108122 B, 546.8%), past the ±25% leg tolerance (±4943.5 B): a leg ABOVE its cohort means the ONE WORK UNIT premise this witness rests on has failed in this window, so refusing is correct rather than merely conservative",
+              "leg 6 of 6 read 198732 B against a cohort median of 19774 B (+178958 B, 905.0%), past the ±25% leg tolerance (±4943.5 B): a leg ABOVE its cohort means the ONE WORK UNIT premise this witness rests on has failed in this window, so refusing is correct rather than merely conservative"
+            ],
+            "certified": false,
+            "legRefusals": [
+              "leg 2 of 6 read -58936 B against a cohort median of 19774 B (-78710 B, -398.0%), past the ±25% leg tolerance (±4943.5 B): a leg BELOW its cohort is a leg something removed bytes from, and nothing in the work unit removes bytes — the collector does",
+              "leg 3 of 6 read 127896 B against a cohort median of 19774 B (+108122 B, 546.8%), past the ±25% leg tolerance (±4943.5 B): a leg ABOVE its cohort means the ONE WORK UNIT premise this witness rests on has failed in this window, so refusing is correct rather than merely conservative",
+              "leg 6 of 6 read 198732 B against a cohort median of 19774 B (+178958 B, 905.0%), past the ±25% leg tolerance (±4943.5 B): a leg ABOVE its cohort means the ONE WORK UNIT premise this witness rests on has failed in this window, so refusing is correct rather than merely conservative"
+            ],
+            "intraLegRefusals": [],
+            "primeLegs": [
+              30616
+            ],
+            "primeExcess": 10842,
+            "perWrite": 90632,
+            "perBoundaryPerWrite": 3776.3333333333335,
+            "cdpBracket": 193032,
+            "sites": 2,
+            "siteLegs": [],
+            "siteWitness": null,
+            "samples": [
+              5179313,
+              5179329,
+              5209945,
+              5209961,
+              5229989,
+              5309185,
+              5250249,
+              5329113,
+              5457009,
+              5277693,
+              5297201,
+              5297217,
+              5316737,
+              5316753,
+              5515485
+            ],
+            "tick0": 77,
+            "tick": 84,
+            "work0": {
+              "events": 77,
+              "subs": 0,
+              "renders": 72
+            },
+            "work": {
+              "events": 84,
+              "subs": 0,
+              "renders": 72
+            },
+            "workDelta": {
+              "events": 7,
+              "subs": 0,
+              "renders": 0
+            }
+          },
+          "reagent-subs|grid/floor": {
+            "segment": "reagent-subs",
+            "arm": "grid/floor",
+            "rung": "floor",
+            "reads": 0,
+            "boundaries": 24,
+            "text": "0",
+            "writeSelector": "all",
+            "write": ":p0/write-all — the grid is rebuilt at the fixture's fixed `cells-n` whatever is mounted — V1's F_old control, flat in B by construction",
+            "pairKey": "reagent-subs|grid/floor",
+            "rise": 120780,
+            "fall": 0,
+            "falls": 0,
+            "maxStep": 25808,
+            "endpoints": 120780,
+            "legs": [
+              19004,
+              19004,
+              19004,
+              25808,
+              18932,
+              18932
+            ],
+            "gaps": [
+              16,
+              16,
+              16,
+              16,
+              16,
+              16
+            ],
+            "legMedian": 19004,
+            "legWorstDeviation": 0.358029888444538,
+            "legTolerance": 0.25,
+            "refusals": [
+              "leg 4 of 6 read 25808 B against a cohort median of 19004 B (+6804 B, 35.8%), past the ±25% leg tolerance (±4751 B): a leg ABOVE its cohort means the ONE WORK UNIT premise this witness rests on has failed in this window, so refusing is correct rather than merely conservative"
+            ],
+            "certified": false,
+            "legRefusals": [
+              "leg 4 of 6 read 25808 B against a cohort median of 19004 B (+6804 B, 35.8%), past the ±25% leg tolerance (±4751 B): a leg ABOVE its cohort means the ONE WORK UNIT premise this witness rests on has failed in this window, so refusing is correct rather than merely conservative"
+            ],
+            "intraLegRefusals": [],
+            "primeLegs": [
+              25788
+            ],
+            "primeExcess": 6784,
+            "perWrite": 20130,
+            "perBoundaryPerWrite": 838.75,
+            "cdpBracket": 174984,
+            "sites": 2,
+            "siteLegs": [],
+            "siteWitness": null,
+            "samples": [
+              5285577,
+              5285593,
+              5311381,
+              5311397,
+              5330401,
+              5330417,
+              5349421,
+              5349437,
+              5368441,
+              5368457,
+              5394265,
+              5394281,
+              5413213,
+              5413229,
+              5432161
+            ],
+            "tick0": 105,
+            "tick": 112,
+            "work0": {
+              "events": 105,
+              "subs": 0,
+              "renders": 96
+            },
+            "work": {
+              "events": 112,
+              "subs": 0,
+              "renders": 96
+            },
+            "workDelta": {
+              "events": 7,
+              "subs": 0,
+              "renders": 0
+            }
+          }
+        },
+        "writeLegs": [
+          "all"
+        ]
+      },
+      {
+        "round": 2,
+        "controls": {
+          "idle": {
+            "kind": "idle",
+            "d": 0,
+            "rise": 192,
+            "fall": 0,
+            "falls": 0,
+            "maxStep": 16,
+            "endpoints": 192,
+            "legs": [
+              16,
+              16,
+              16,
+              16,
+              16,
+              16
+            ],
+            "gaps": [
+              16,
+              16,
+              16,
+              16,
+              16,
+              16
+            ],
+            "legMedian": 16,
+            "legWorstDeviation": 0,
+            "legTolerance": 0.25,
+            "refusals": [],
+            "certified": true,
+            "legRefusals": [],
+            "intraLegRefusals": [],
+            "primeLegs": [
+              16
+            ],
+            "primeExcess": 0,
+            "perIter": 32,
+            "cdpBracket": 28768,
+            "sites": 2,
+            "siteLegs": [],
+            "siteWitness": null,
+            "samples": [
+              5249053,
+              5249069,
+              5249085,
+              5249101,
+              5249117,
+              5249133,
+              5249149,
+              5249165,
+              5249181,
+              5249197,
+              5249213,
+              5249229,
+              5249245,
+              5249261,
+              5249277
+            ],
+            "work0": {
+              "events": 112,
+              "subs": 0,
+              "renders": 96
+            },
+            "work": {
+              "events": 112,
+              "subs": 0,
+              "renders": 96
+            },
+            "workDelta": {
+              "events": 0,
+              "subs": 0,
+              "renders": 0
+            }
+          },
+          "ctl1": {
+            "kind": "control",
+            "d": 1000,
+            "rise": 48480,
+            "fall": 0,
+            "falls": 0,
+            "maxStep": 8064,
+            "endpoints": 48480,
+            "legs": [
+              8064,
+              8064,
+              8064,
+              8064,
+              8064,
+              8064
+            ],
+            "gaps": [
+              16,
+              16,
+              16,
+              16,
+              16,
+              16
+            ],
+            "legMedian": 8064,
+            "legWorstDeviation": 0,
+            "legTolerance": 0.25,
+            "refusals": [],
+            "certified": true,
+            "legRefusals": [],
+            "intraLegRefusals": [],
+            "primeLegs": [
+              8064
+            ],
+            "primeExcess": 0,
+            "perIter": 8080,
+            "cdpBracket": 85088,
+            "sites": 2,
+            "siteLegs": [],
+            "siteWitness": null,
+            "samples": [
+              5257077,
+              5257093,
+              5265157,
+              5265173,
+              5273237,
+              5273253,
+              5281317,
+              5281333,
+              5289397,
+              5289413,
+              5297477,
+              5297493,
+              5305557,
+              5305573,
+              5313637
+            ],
+            "work0": {
+              "events": 112,
+              "subs": 0,
+              "renders": 96
+            },
+            "work": {
+              "events": 112,
+              "subs": 0,
+              "renders": 96
+            },
+            "workDelta": {
+              "events": 0,
+              "subs": 0,
+              "renders": 0
+            }
+          },
+          "ctl2": {
+            "kind": "control",
+            "d": 400,
+            "rise": 19680,
+            "fall": 0,
+            "falls": 0,
+            "maxStep": 3264,
+            "endpoints": 19680,
+            "legs": [
+              3264,
+              3264,
+              3264,
+              3264,
+              3264,
+              3264
+            ],
+            "gaps": [
+              16,
+              16,
+              16,
+              16,
+              16,
+              16
+            ],
+            "legMedian": 3264,
+            "legWorstDeviation": 0,
+            "legTolerance": 0.25,
+            "refusals": [],
+            "certified": true,
+            "legRefusals": [],
+            "intraLegRefusals": [],
+            "primeLegs": [
+              3264
+            ],
+            "primeExcess": 0,
+            "perIter": 3280,
+            "cdpBracket": 51488,
+            "sites": 2,
+            "siteLegs": [],
+            "siteWitness": null,
+            "samples": [
+              5252277,
+              5252293,
+              5255557,
+              5255573,
+              5258837,
+              5258853,
+              5262117,
+              5262133,
+              5265397,
+              5265413,
+              5268677,
+              5268693,
+              5271957,
+              5271973,
+              5275237
+            ],
+            "work0": {
+              "events": 112,
+              "subs": 0,
+              "renders": 96
+            },
+            "work": {
+              "events": 112,
+              "subs": 0,
+              "renders": 96
+            },
+            "workDelta": {
+              "events": 0,
+              "subs": 0,
+              "renders": 0
+            }
+          }
+        },
+        "arms": {
+          "reagent-subs|grid/floor": {
+            "segment": "reagent-subs",
+            "arm": "grid/floor",
+            "rung": "floor",
+            "reads": 0,
+            "boundaries": 24,
+            "text": "0",
+            "writeSelector": "all",
+            "write": ":p0/write-all — the grid is rebuilt at the fixture's fixed `cells-n` whatever is mounted — V1's F_old control, flat in B by construction",
+            "pairKey": "reagent-subs|grid/floor",
+            "rise": 140100,
+            "fall": 25468,
+            "falls": 1,
+            "maxStep": 45000,
+            "endpoints": 114632,
+            "legs": [
+              19004,
+              -25468,
+              19004,
+              19004,
+              19004,
+              19004
+            ],
+            "gaps": [
+              16,
+              45000,
+              16,
+              16,
+              16,
+              16
+            ],
+            "legMedian": 19004,
+            "legWorstDeviation": -2.3401389181225007,
+            "legTolerance": 0.25,
+            "refusals": [
+              "leg 2 of 6 read -25468 B against a cohort median of 19004 B (-44472 B, -234.0%), past the ±25% leg tolerance (±4751 B): a leg BELOW its cohort is a leg something removed bytes from, and nothing in the work unit removes bytes — the collector does"
+            ],
+            "certified": false,
+            "legRefusals": [
+              "leg 2 of 6 read -25468 B against a cohort median of 19004 B (-44472 B, -234.0%), past the ±25% leg tolerance (±4751 B): a leg BELOW its cohort is a leg something removed bytes from, and nothing in the work unit removes bytes — the collector does"
+            ],
+            "intraLegRefusals": [],
+            "primeLegs": [
+              25776
+            ],
+            "primeExcess": 6772,
+            "perWrite": 23350,
+            "perBoundaryPerWrite": 972.9166666666666,
+            "cdpBracket": 168952,
+            "sites": 2,
+            "siteLegs": [],
+            "siteWitness": null,
+            "samples": [
+              5344729,
+              5344745,
+              5370521,
+              5370537,
+              5389541,
+              5434541,
+              5409073,
+              5409089,
+              5428093,
+              5428109,
+              5447113,
+              5447129,
+              5466133,
+              5466149,
+              5485153
+            ],
+            "tick0": 133,
+            "tick": 140,
+            "work0": {
+              "events": 133,
+              "subs": 0,
+              "renders": 120
+            },
+            "work": {
+              "events": 140,
+              "subs": 0,
+              "renders": 120
+            },
+            "workDelta": {
+              "events": 7,
+              "subs": 0,
+              "renders": 0
+            }
+          },
+          "uix-subs|grid/floor": {
+            "segment": "uix-subs",
+            "arm": "grid/floor",
+            "rung": "floor",
+            "reads": 0,
+            "boundaries": 24,
+            "text": "0",
+            "writeSelector": "all",
+            "write": ":p0/write-all — the grid is rebuilt at the fixture's fixed `cells-n` whatever is mounted — V1's F_old control, flat in B by construction",
+            "pairKey": "uix-subs|grid/floor",
+            "rise": 339880,
+            "fall": 217860,
+            "falls": 1,
+            "maxStep": 259288,
+            "endpoints": 122020,
+            "legs": [
+              19444,
+              21868,
+              259288,
+              -217860,
+              19372,
+              19372
+            ],
+            "gaps": [
+              16,
+              16,
+              456,
+              16,
+              16,
+              16
+            ],
+            "legMedian": 19408,
+            "legWorstDeviation": 12.3598516075845,
+            "legTolerance": 0.25,
+            "refusals": [
+              "leg 3 of 6 read 259288 B against a cohort median of 19408 B (+239880 B, 1236.0%), past the ±25% leg tolerance (±4852 B): a leg ABOVE its cohort means the ONE WORK UNIT premise this witness rests on has failed in this window, so refusing is correct rather than merely conservative",
+              "leg 4 of 6 read -217860 B against a cohort median of 19408 B (-237268 B, -1222.5%), past the ±25% leg tolerance (±4852 B): a leg BELOW its cohort is a leg something removed bytes from, and nothing in the work unit removes bytes — the collector does"
+            ],
+            "certified": false,
+            "legRefusals": [
+              "leg 3 of 6 read 259288 B against a cohort median of 19408 B (+239880 B, 1236.0%), past the ±25% leg tolerance (±4852 B): a leg ABOVE its cohort means the ONE WORK UNIT premise this witness rests on has failed in this window, so refusing is correct rather than merely conservative",
+              "leg 4 of 6 read -217860 B against a cohort median of 19408 B (-237268 B, -1222.5%), past the ±25% leg tolerance (±4852 B): a leg BELOW its cohort is a leg something removed bytes from, and nothing in the work unit removes bytes — the collector does"
+            ],
+            "intraLegRefusals": [],
+            "primeLegs": [
+              26280
+            ],
+            "primeExcess": 6872,
+            "perWrite": 56646.666666666664,
+            "perBoundaryPerWrite": 2360.277777777778,
+            "cdpBracket": 176280,
+            "sites": 2,
+            "siteLegs": [],
+            "siteWitness": null,
+            "samples": [
+              5418861,
+              5418877,
+              5445157,
+              5445173,
+              5464617,
+              5464633,
+              5486501,
+              5486957,
+              5746245,
+              5746261,
+              5528401,
+              5528417,
+              5547789,
+              5547805,
+              5567177
+            ],
+            "tick0": 161,
+            "tick": 168,
+            "work0": {
+              "events": 161,
+              "subs": 0,
+              "renders": 144
+            },
+            "work": {
+              "events": 168,
+              "subs": 0,
+              "renders": 144
+            },
+            "workDelta": {
+              "events": 7,
+              "subs": 0,
+              "renders": 0
+            }
+          }
+        },
+        "writeLegs": [
+          "all"
+        ]
+      },
+      {
+        "round": 3,
+        "controls": {
+          "idle": {
+            "kind": "idle",
+            "d": 0,
+            "rise": 238972,
+            "fall": 237852,
+            "falls": 1,
+            "maxStep": 238812,
+            "endpoints": 1120,
+            "legs": [
+              16,
+              16,
+              16,
+              16,
+              238812,
+              16
+            ],
+            "gaps": [
+              16,
+              16,
+              16,
+              16,
+              16,
+              -237852
+            ],
+            "legMedian": 16,
+            "legWorstDeviation": 14924.75,
+            "legTolerance": 0.25,
+            "refusals": [
+              "leg 5 of 6 read 238812 B against a cohort median of 16 B (+238796 B, 1492475.0%), past the ±25% leg tolerance (±4 B): a leg ABOVE its cohort means the ONE WORK UNIT premise this witness rests on has failed in this window, so refusing is correct rather than merely conservative"
+            ],
+            "certified": false,
+            "legRefusals": [
+              "leg 5 of 6 read 238812 B against a cohort median of 16 B (+238796 B, 1492475.0%), past the ±25% leg tolerance (±4 B): a leg ABOVE its cohort means the ONE WORK UNIT premise this witness rests on has failed in this window, so refusing is correct rather than merely conservative"
+            ],
+            "intraLegRefusals": [],
+            "primeLegs": [
+              16
+            ],
+            "primeExcess": 0,
+            "perIter": 39828.666666666664,
+            "cdpBracket": 29232,
+            "sites": 2,
+            "siteLegs": [],
+            "siteWitness": null,
+            "samples": [
+              5379929,
+              5379945,
+              5379961,
+              5379977,
+              5379993,
+              5380009,
+              5380025,
+              5380041,
+              5380057,
+              5380073,
+              5380089,
+              5380105,
+              5618917,
+              5381065,
+              5381081
+            ],
+            "work0": {
+              "events": 168,
+              "subs": 0,
+              "renders": 144
+            },
+            "work": {
+              "events": 168,
+              "subs": 0,
+              "renders": 144
+            },
+            "workDelta": {
+              "events": 0,
+              "subs": 0,
+              "renders": 0
+            }
+          },
+          "ctl1": {
+            "kind": "control",
+            "d": 1000,
+            "rise": 48480,
+            "fall": 0,
+            "falls": 0,
+            "maxStep": 8064,
+            "endpoints": 48480,
+            "legs": [
+              8064,
+              8064,
+              8064,
+              8064,
+              8064,
+              8064
+            ],
+            "gaps": [
+              16,
+              16,
+              16,
+              16,
+              16,
+              16
+            ],
+            "legMedian": 8064,
+            "legWorstDeviation": 0,
+            "legTolerance": 0.25,
+            "refusals": [],
+            "certified": true,
+            "legRefusals": [],
+            "intraLegRefusals": [],
+            "primeLegs": [
+              8064
+            ],
+            "primeExcess": 0,
+            "perIter": 8080,
+            "cdpBracket": 84624,
+            "sites": 2,
+            "siteLegs": [],
+            "siteWitness": null,
+            "samples": [
+              5388865,
+              5388881,
+              5396945,
+              5396961,
+              5405025,
+              5405041,
+              5413105,
+              5413121,
+              5421185,
+              5421201,
+              5429265,
+              5429281,
+              5437345,
+              5437361,
+              5445425
+            ],
+            "work0": {
+              "events": 168,
+              "subs": 0,
+              "renders": 144
+            },
+            "work": {
+              "events": 168,
+              "subs": 0,
+              "renders": 144
+            },
+            "workDelta": {
+              "events": 0,
+              "subs": 0,
+              "renders": 0
+            }
+          },
+          "ctl2": {
+            "kind": "control",
+            "d": 400,
+            "rise": 19680,
+            "fall": 0,
+            "falls": 0,
+            "maxStep": 3264,
+            "endpoints": 19680,
+            "legs": [
+              3264,
+              3264,
+              3264,
+              3264,
+              3264,
+              3264
+            ],
+            "gaps": [
+              16,
+              16,
+              16,
+              16,
+              16,
+              16
+            ],
+            "legMedian": 3264,
+            "legWorstDeviation": 0,
+            "legTolerance": 0.25,
+            "refusals": [],
+            "certified": true,
+            "legRefusals": [],
+            "intraLegRefusals": [],
+            "primeLegs": [
+              3264
+            ],
+            "primeExcess": 0,
+            "perIter": 3280,
+            "cdpBracket": 51024,
+            "sites": 2,
+            "siteLegs": [],
+            "siteWitness": null,
+            "samples": [
+              5384065,
+              5384081,
+              5387345,
+              5387361,
+              5390625,
+              5390641,
+              5393905,
+              5393921,
+              5397185,
+              5397201,
+              5400465,
+              5400481,
+              5403745,
+              5403761,
+              5407025
+            ],
+            "work0": {
+              "events": 168,
+              "subs": 0,
+              "renders": 144
+            },
+            "work": {
+              "events": 168,
+              "subs": 0,
+              "renders": 144
+            },
+            "workDelta": {
+              "events": 0,
+              "subs": 0,
+              "renders": 0
+            }
+          }
+        },
+        "arms": {
+          "uix-subs|grid/floor": {
+            "segment": "uix-subs",
+            "arm": "grid/floor",
+            "rung": "floor",
+            "reads": 0,
+            "boundaries": 24,
+            "text": "0",
+            "writeSelector": "all",
+            "write": ":p0/write-all — the grid is rebuilt at the fixture's fixed `cells-n` whatever is mounted — V1's F_old control, flat in B by construction",
+            "pairKey": "uix-subs|grid/floor",
+            "rise": 116760,
+            "fall": 0,
+            "falls": 0,
+            "maxStep": 19444,
+            "endpoints": 116760,
+            "legs": [
+              19444,
+              19444,
+              19444,
+              19444,
+              19444,
+              19444
+            ],
+            "gaps": [
+              16,
+              16,
+              16,
+              16,
+              16,
+              16
+            ],
+            "legMedian": 19444,
+            "legWorstDeviation": 0,
+            "legTolerance": 0.25,
+            "refusals": [],
+            "certified": true,
+            "legRefusals": [],
+            "intraLegRefusals": [],
+            "primeLegs": [
+              26292
+            ],
+            "primeExcess": 6848,
+            "perWrite": 19460,
+            "perBoundaryPerWrite": 810.8333333333334,
+            "cdpBracket": 171032,
+            "sites": 2,
+            "siteLegs": [],
+            "siteWitness": null,
+            "samples": [
+              5450793,
+              5450809,
+              5477101,
+              5477117,
+              5496561,
+              5496577,
+              5516021,
+              5516037,
+              5535481,
+              5535497,
+              5554941,
+              5554957,
+              5574401,
+              5574417,
+              5593861
+            ],
+            "tick0": 189,
+            "tick": 196,
+            "work0": {
+              "events": 189,
+              "subs": 0,
+              "renders": 168
+            },
+            "work": {
+              "events": 196,
+              "subs": 0,
+              "renders": 168
+            },
+            "workDelta": {
+              "events": 7,
+              "subs": 0,
+              "renders": 0
+            }
+          },
+          "reagent-subs|grid/floor": {
+            "segment": "reagent-subs",
+            "arm": "grid/floor",
+            "rung": "floor",
+            "reads": 0,
+            "boundaries": 24,
+            "text": "0",
+            "writeSelector": "all",
+            "write": ":p0/write-all — the grid is rebuilt at the fixture's fixed `cells-n` whatever is mounted — V1's F_old control, flat in B by construction",
+            "pairKey": "reagent-subs|grid/floor",
+            "rise": 114120,
+            "fall": 0,
+            "falls": 0,
+            "maxStep": 19004,
+            "endpoints": 114120,
+            "legs": [
+              19004,
+              19004,
+              19004,
+              19004,
+              19004,
+              19004
+            ],
+            "gaps": [
+              16,
+              16,
+              16,
+              16,
+              16,
+              16
+            ],
+            "legMedian": 19004,
+            "legWorstDeviation": 0,
+            "legTolerance": 0.25,
+            "refusals": [],
+            "certified": true,
+            "legRefusals": [],
+            "intraLegRefusals": [],
+            "primeLegs": [
+              25788
+            ],
+            "primeExcess": 6784,
+            "perWrite": 19020,
+            "perBoundaryPerWrite": 792.5,
+            "cdpBracket": 167868,
+            "sites": 2,
+            "siteLegs": [],
+            "siteWitness": null,
+            "samples": [
+              5484405,
+              5484421,
+              5510209,
+              5510225,
+              5529229,
+              5529245,
+              5548249,
+              5548265,
+              5567269,
+              5567285,
+              5586289,
+              5586305,
+              5605309,
+              5605325,
+              5624329
+            ],
+            "tick0": 217,
+            "tick": 224,
+            "work0": {
+              "events": 217,
+              "subs": 0,
+              "renders": 192
+            },
+            "work": {
+              "events": 224,
+              "subs": 0,
+              "renders": 192
+            },
+            "workDelta": {
+              "events": 7,
+              "subs": 0,
+              "renders": 0
+            }
+          }
+        },
+        "writeLegs": [
+          "all"
+        ]
+      },
+      {
+        "round": 4,
+        "controls": {
+          "idle": {
+            "kind": "idle",
+            "d": 0,
+            "rise": 192,
+            "fall": 0,
+            "falls": 0,
+            "maxStep": 16,
+            "endpoints": 192,
+            "legs": [
+              16,
+              16,
+              16,
+              16,
+              16,
+              16
+            ],
+            "gaps": [
+              16,
+              16,
+              16,
+              16,
+              16,
+              16
+            ],
+            "legMedian": 16,
+            "legWorstDeviation": 0,
+            "legTolerance": 0.25,
+            "refusals": [],
+            "certified": true,
+            "legRefusals": [],
+            "intraLegRefusals": [],
+            "primeLegs": [
+              16
+            ],
+            "primeExcess": 0,
+            "perIter": 32,
+            "cdpBracket": 28304,
+            "sites": 2,
+            "siteLegs": [],
+            "siteWitness": null,
+            "samples": [
+              5443461,
+              5443477,
+              5443493,
+              5443509,
+              5443525,
+              5443541,
+              5443557,
+              5443573,
+              5443589,
+              5443605,
+              5443621,
+              5443637,
+              5443653,
+              5443669,
+              5443685
+            ],
+            "work0": {
+              "events": 224,
+              "subs": 0,
+              "renders": 192
+            },
+            "work": {
+              "events": 224,
+              "subs": 0,
+              "renders": 192
+            },
+            "workDelta": {
+              "events": 0,
+              "subs": 0,
+              "renders": 0
+            }
+          },
+          "ctl1": {
+            "kind": "control",
+            "d": 1000,
+            "rise": 48480,
+            "fall": 0,
+            "falls": 0,
+            "maxStep": 8064,
+            "endpoints": 48480,
+            "legs": [
+              8064,
+              8064,
+              8064,
+              8064,
+              8064,
+              8064
+            ],
+            "gaps": [
+              16,
+              16,
+              16,
+              16,
+              16,
+              16
+            ],
+            "legMedian": 8064,
+            "legWorstDeviation": 0,
+            "legTolerance": 0.25,
+            "refusals": [],
+            "certified": true,
+            "legRefusals": [],
+            "intraLegRefusals": [],
+            "primeLegs": [
+              8064
+            ],
+            "primeExcess": 0,
+            "perIter": 8080,
+            "cdpBracket": 84624,
+            "sites": 2,
+            "siteLegs": [],
+            "siteWitness": null,
+            "samples": [
+              5451469,
+              5451485,
+              5459549,
+              5459565,
+              5467629,
+              5467645,
+              5475709,
+              5475725,
+              5483789,
+              5483805,
+              5491869,
+              5491885,
+              5499949,
+              5499965,
+              5508029
+            ],
+            "work0": {
+              "events": 224,
+              "subs": 0,
+              "renders": 192
+            },
+            "work": {
+              "events": 224,
+              "subs": 0,
+              "renders": 192
+            },
+            "workDelta": {
+              "events": 0,
+              "subs": 0,
+              "renders": 0
+            }
+          },
+          "ctl2": {
+            "kind": "control",
+            "d": 400,
+            "rise": 19680,
+            "fall": 0,
+            "falls": 0,
+            "maxStep": 3264,
+            "endpoints": 19680,
+            "legs": [
+              3264,
+              3264,
+              3264,
+              3264,
+              3264,
+              3264
+            ],
+            "gaps": [
+              16,
+              16,
+              16,
+              16,
+              16,
+              16
+            ],
+            "legMedian": 3264,
+            "legWorstDeviation": 0,
+            "legTolerance": 0.25,
+            "refusals": [],
+            "certified": true,
+            "legRefusals": [],
+            "intraLegRefusals": [],
+            "primeLegs": [
+              3264
+            ],
+            "primeExcess": 0,
+            "perIter": 3280,
+            "cdpBracket": 51024,
+            "sites": 2,
+            "siteLegs": [],
+            "siteWitness": null,
+            "samples": [
+              5446669,
+              5446685,
+              5449949,
+              5449965,
+              5453229,
+              5453245,
+              5456509,
+              5456525,
+              5459789,
+              5459805,
+              5463069,
+              5463085,
+              5466349,
+              5466365,
+              5469629
+            ],
+            "work0": {
+              "events": 224,
+              "subs": 0,
+              "renders": 192
+            },
+            "work": {
+              "events": 224,
+              "subs": 0,
+              "renders": 192
+            },
+            "workDelta": {
+              "events": 0,
+              "subs": 0,
+              "renders": 0
+            }
+          }
+        },
+        "arms": {
+          "reagent-subs|grid/floor": {
+            "segment": "reagent-subs",
+            "arm": "grid/floor",
+            "rung": "floor",
+            "reads": 0,
+            "boundaries": 24,
+            "text": "0",
+            "writeSelector": "all",
+            "write": ":p0/write-all — the grid is rebuilt at the fixture's fixed `cells-n` whatever is mounted — V1's F_old control, flat in B by construction",
+            "pairKey": "reagent-subs|grid/floor",
+            "rise": 354908,
+            "fall": 320212,
+            "falls": 1,
+            "maxStep": 259208,
+            "endpoints": 34696,
+            "legs": [
+              259208,
+              16912,
+              19196,
+              19196,
+              19196,
+              21120
+            ],
+            "gaps": [
+              16,
+              16,
+              -320212,
+              16,
+              16,
+              16
+            ],
+            "legMedian": 19196,
+            "legWorstDeviation": 12.503229839549906,
+            "legTolerance": 0.25,
+            "refusals": [
+              "leg 1 of 6 read 259208 B against a cohort median of 19196 B (+240012 B, 1250.3%), past the ±25% leg tolerance (±4799 B): a leg ABOVE its cohort means the ONE WORK UNIT premise this witness rests on has failed in this window, so refusing is correct rather than merely conservative"
+            ],
+            "certified": false,
+            "legRefusals": [
+              "leg 1 of 6 read 259208 B against a cohort median of 19196 B (+240012 B, 1250.3%), past the ±25% leg tolerance (±4799 B): a leg ABOVE its cohort means the ONE WORK UNIT premise this witness rests on has failed in this window, so refusing is correct rather than merely conservative"
+            ],
+            "intraLegRefusals": [],
+            "primeLegs": [
+              120620
+            ],
+            "primeExcess": 101424,
+            "perWrite": 59151.333333333336,
+            "perBoundaryPerWrite": 2464.638888888889,
+            "cdpBracket": 183404,
+            "sites": 2,
+            "siteLegs": [],
+            "siteWitness": null,
+            "samples": [
+              5620017,
+              5620033,
+              5740653,
+              5740669,
+              5999877,
+              5999893,
+              6016805,
+              5696593,
+              5715789,
+              5715805,
+              5735001,
+              5735017,
+              5754213,
+              5754229,
+              5775349
+            ],
+            "tick0": 245,
+            "tick": 252,
+            "work0": {
+              "events": 245,
+              "subs": 0,
+              "renders": 216
+            },
+            "work": {
+              "events": 252,
+              "subs": 0,
+              "renders": 216
+            },
+            "workDelta": {
+              "events": 7,
+              "subs": 0,
+              "renders": 0
+            }
+          },
+          "uix-subs|grid/floor": {
+            "segment": "uix-subs",
+            "arm": "grid/floor",
+            "rung": "floor",
+            "reads": 0,
+            "boundaries": 24,
+            "text": "0",
+            "writeSelector": "all",
+            "write": ":p0/write-all — the grid is rebuilt at the fixture's fixed `cells-n` whatever is mounted — V1's F_old control, flat in B by construction",
+            "pairKey": "uix-subs|grid/floor",
+            "rise": 120380,
+            "fall": 0,
+            "falls": 0,
+            "maxStep": 22304,
+            "endpoints": 120380,
+            "legs": [
+              19596,
+              19596,
+              19596,
+              22304,
+              19596,
+              19596
+            ],
+            "gaps": [
+              16,
+              16,
+              16,
+              16,
+              16,
+              16
+            ],
+            "legMedian": 19596,
+            "legWorstDeviation": 0.13819146764645845,
+            "legTolerance": 0.25,
+            "refusals": [],
+            "certified": true,
+            "legRefusals": [],
+            "intraLegRefusals": [],
+            "primeLegs": [
+              26448
+            ],
+            "primeExcess": 6852,
+            "perWrite": 20063.333333333332,
+            "perBoundaryPerWrite": 835.9722222222222,
+            "cdpBracket": 174808,
+            "sites": 2,
+            "siteLegs": [],
+            "siteWitness": null,
+            "samples": [
+              5711937,
+              5711953,
+              5738401,
+              5738417,
+              5758013,
+              5758029,
+              5777625,
+              5777641,
+              5797237,
+              5797253,
+              5819557,
+              5819573,
+              5839169,
+              5839185,
+              5858781
+            ],
+            "tick0": 273,
+            "tick": 280,
+            "work0": {
+              "events": 273,
+              "subs": 0,
+              "renders": 240
+            },
+            "work": {
+              "events": 280,
+              "subs": 0,
+              "renders": 240
+            },
+            "workDelta": {
+              "events": 7,
+              "subs": 0,
+              "renders": 0
+            }
+          }
+        },
+        "writeLegs": [
+          "all"
+        ]
+      },
+      {
+        "round": 5,
+        "controls": {
+          "idle": {
+            "kind": "idle",
+            "d": 0,
+            "rise": 192,
+            "fall": 0,
+            "falls": 0,
+            "maxStep": 16,
+            "endpoints": 192,
+            "legs": [
+              16,
+              16,
+              16,
+              16,
+              16,
+              16
+            ],
+            "gaps": [
+              16,
+              16,
+              16,
+              16,
+              16,
+              16
+            ],
+            "legMedian": 16,
+            "legWorstDeviation": 0,
+            "legTolerance": 0.25,
+            "refusals": [],
+            "certified": true,
+            "legRefusals": [],
+            "intraLegRefusals": [],
+            "primeLegs": [
+              16
+            ],
+            "primeExcess": 0,
+            "perIter": 32,
+            "cdpBracket": 28304,
+            "sites": 2,
+            "siteLegs": [],
+            "siteWitness": null,
+            "samples": [
+              5671033,
+              5671049,
+              5671065,
+              5671081,
+              5671097,
+              5671113,
+              5671129,
+              5671145,
+              5671161,
+              5671177,
+              5671193,
+              5671209,
+              5671225,
+              5671241,
+              5671257
+            ],
+            "work0": {
+              "events": 280,
+              "subs": 0,
+              "renders": 240
+            },
+            "work": {
+              "events": 280,
+              "subs": 0,
+              "renders": 240
+            },
+            "workDelta": {
+              "events": 0,
+              "subs": 0,
+              "renders": 0
+            }
+          },
+          "ctl1": {
+            "kind": "control",
+            "d": 1000,
+            "rise": 48480,
+            "fall": 0,
+            "falls": 0,
+            "maxStep": 8064,
+            "endpoints": 48480,
+            "legs": [
+              8064,
+              8064,
+              8064,
+              8064,
+              8064,
+              8064
+            ],
+            "gaps": [
+              16,
+              16,
+              16,
+              16,
+              16,
+              16
+            ],
+            "legMedian": 8064,
+            "legWorstDeviation": 0,
+            "legTolerance": 0.25,
+            "refusals": [],
+            "certified": true,
+            "legRefusals": [],
+            "intraLegRefusals": [],
+            "primeLegs": [
+              8064
+            ],
+            "primeExcess": 0,
+            "perIter": 8080,
+            "cdpBracket": 84624,
+            "sites": 2,
+            "siteLegs": [],
+            "siteWitness": null,
+            "samples": [
+              5679041,
+              5679057,
+              5687121,
+              5687137,
+              5695201,
+              5695217,
+              5703281,
+              5703297,
+              5711361,
+              5711377,
+              5719441,
+              5719457,
+              5727521,
+              5727537,
+              5735601
+            ],
+            "work0": {
+              "events": 280,
+              "subs": 0,
+              "renders": 240
+            },
+            "work": {
+              "events": 280,
+              "subs": 0,
+              "renders": 240
+            },
+            "workDelta": {
+              "events": 0,
+              "subs": 0,
+              "renders": 0
+            }
+          },
+          "ctl2": {
+            "kind": "control",
+            "d": 400,
+            "rise": 19680,
+            "fall": 0,
+            "falls": 0,
+            "maxStep": 3264,
+            "endpoints": 19680,
+            "legs": [
+              3264,
+              3264,
+              3264,
+              3264,
+              3264,
+              3264
+            ],
+            "gaps": [
+              16,
+              16,
+              16,
+              16,
+              16,
+              16
+            ],
+            "legMedian": 3264,
+            "legWorstDeviation": 0,
+            "legTolerance": 0.25,
+            "refusals": [],
+            "certified": true,
+            "legRefusals": [],
+            "intraLegRefusals": [],
+            "primeLegs": [
+              3264
+            ],
+            "primeExcess": 0,
+            "perIter": 3280,
+            "cdpBracket": 51024,
+            "sites": 2,
+            "siteLegs": [],
+            "siteWitness": null,
+            "samples": [
+              5674241,
+              5674257,
+              5677521,
+              5677537,
+              5680801,
+              5680817,
+              5684081,
+              5684097,
+              5687361,
+              5687377,
+              5690641,
+              5690657,
+              5693921,
+              5693937,
+              5697201
+            ],
+            "work0": {
+              "events": 280,
+              "subs": 0,
+              "renders": 240
+            },
+            "work": {
+              "events": 280,
+              "subs": 0,
+              "renders": 240
+            },
+            "workDelta": {
+              "events": 0,
+              "subs": 0,
+              "renders": 0
+            }
+          }
+        },
+        "arms": {
+          "uix-subs|grid/floor": {
+            "segment": "uix-subs",
+            "arm": "grid/floor",
+            "rung": "floor",
+            "reads": 0,
+            "boundaries": 24,
+            "text": "0",
+            "writeSelector": "all",
+            "write": ":p0/write-all — the grid is rebuilt at the fixture's fixed `cells-n` whatever is mounted — V1's F_old control, flat in B by construction",
+            "pairKey": "uix-subs|grid/floor",
+            "rise": 120376,
+            "fall": 0,
+            "falls": 0,
+            "maxStep": 21692,
+            "endpoints": 120376,
+            "legs": [
+              19596,
+              19596,
+              20204,
+              19596,
+              19596,
+              21692
+            ],
+            "gaps": [
+              16,
+              16,
+              16,
+              16,
+              16,
+              16
+            ],
+            "legMedian": 19596,
+            "legWorstDeviation": 0.10696060420493979,
+            "legTolerance": 0.25,
+            "refusals": [],
+            "certified": true,
+            "legRefusals": [],
+            "intraLegRefusals": [],
+            "primeLegs": [
+              26460
+            ],
+            "primeExcess": 6864,
+            "perWrite": 20062.666666666668,
+            "perBoundaryPerWrite": 835.9444444444445,
+            "cdpBracket": 174816,
+            "sites": 2,
+            "siteLegs": [],
+            "siteWitness": null,
+            "samples": [
+              5730437,
+              5730453,
+              5756913,
+              5756929,
+              5776525,
+              5776541,
+              5796137,
+              5796153,
+              5816357,
+              5816373,
+              5835969,
+              5835985,
+              5855581,
+              5855597,
+              5877289
+            ],
+            "tick0": 301,
+            "tick": 308,
+            "work0": {
+              "events": 301,
+              "subs": 0,
+              "renders": 264
+            },
+            "work": {
+              "events": 308,
+              "subs": 0,
+              "renders": 264
+            },
+            "workDelta": {
+              "events": 7,
+              "subs": 0,
+              "renders": 0
+            }
+          },
+          "reagent-subs|grid/floor": {
+            "segment": "reagent-subs",
+            "arm": "grid/floor",
+            "rung": "floor",
+            "reads": 0,
+            "boundaries": 24,
+            "text": "0",
+            "writeSelector": "all",
+            "write": ":p0/write-all — the grid is rebuilt at the fixture's fixed `cells-n` whatever is mounted — V1's F_old control, flat in B by construction",
+            "pairKey": "reagent-subs|grid/floor",
+            "rise": 115032,
+            "fall": 0,
+            "falls": 0,
+            "maxStep": 19156,
+            "endpoints": 115032,
+            "legs": [
+              19156,
+              19156,
+              19156,
+              19156,
+              19156,
+              19156
+            ],
+            "gaps": [
+              16,
+              16,
+              16,
+              16,
+              16,
+              16
+            ],
+            "legMedian": 19156,
+            "legWorstDeviation": 0,
+            "legTolerance": 0.25,
+            "refusals": [],
+            "certified": true,
+            "legRefusals": [],
+            "intraLegRefusals": [],
+            "primeLegs": [
+              25920
+            ],
+            "primeExcess": 6764,
+            "perWrite": 19172,
+            "perBoundaryPerWrite": 798.8333333333334,
+            "cdpBracket": 168912,
+            "sites": 2,
+            "siteLegs": [],
+            "siteWitness": null,
+            "samples": [
+              5745929,
+              5745945,
+              5771865,
+              5771881,
+              5791037,
+              5791053,
+              5810209,
+              5810225,
+              5829381,
+              5829397,
+              5848553,
+              5848569,
+              5867725,
+              5867741,
+              5886897
+            ],
+            "tick0": 329,
+            "tick": 336,
+            "work0": {
+              "events": 329,
+              "subs": 0,
+              "renders": 288
+            },
+            "work": {
+              "events": 336,
+              "subs": 0,
+              "renders": 288
+            },
+            "workDelta": {
+              "events": 7,
+              "subs": 0,
+              "renders": 0
+            }
+          }
+        },
+        "writeLegs": [
+          "all"
+        ]
+      },
+      {
+        "round": 6,
+        "controls": {
+          "idle": {
+            "kind": "idle",
+            "d": 0,
+            "rise": 192,
+            "fall": 0,
+            "falls": 0,
+            "maxStep": 16,
+            "endpoints": 192,
+            "legs": [
+              16,
+              16,
+              16,
+              16,
+              16,
+              16
+            ],
+            "gaps": [
+              16,
+              16,
+              16,
+              16,
+              16,
+              16
+            ],
+            "legMedian": 16,
+            "legWorstDeviation": 0,
+            "legTolerance": 0.25,
+            "refusals": [],
+            "certified": true,
+            "legRefusals": [],
+            "intraLegRefusals": [],
+            "primeLegs": [
+              16
+            ],
+            "primeExcess": 0,
+            "perIter": 32,
+            "cdpBracket": 28304,
+            "sites": 2,
+            "siteLegs": [],
+            "siteWitness": null,
+            "samples": [
+              5704973,
+              5704989,
+              5705005,
+              5705021,
+              5705037,
+              5705053,
+              5705069,
+              5705085,
+              5705101,
+              5705117,
+              5705133,
+              5705149,
+              5705165,
+              5705181,
+              5705197
+            ],
+            "work0": {
+              "events": 336,
+              "subs": 0,
+              "renders": 288
+            },
+            "work": {
+              "events": 336,
+              "subs": 0,
+              "renders": 288
+            },
+            "workDelta": {
+              "events": 0,
+              "subs": 0,
+              "renders": 0
+            }
+          },
+          "ctl1": {
+            "kind": "control",
+            "d": 1000,
+            "rise": 48480,
+            "fall": 0,
+            "falls": 0,
+            "maxStep": 8064,
+            "endpoints": 48480,
+            "legs": [
+              8064,
+              8064,
+              8064,
+              8064,
+              8064,
+              8064
+            ],
+            "gaps": [
+              16,
+              16,
+              16,
+              16,
+              16,
+              16
+            ],
+            "legMedian": 8064,
+            "legWorstDeviation": 0,
+            "legTolerance": 0.25,
+            "refusals": [],
+            "certified": true,
+            "legRefusals": [],
+            "intraLegRefusals": [],
+            "primeLegs": [
+              8064
+            ],
+            "primeExcess": 0,
+            "perIter": 8080,
+            "cdpBracket": 84624,
+            "sites": 2,
+            "siteLegs": [],
+            "siteWitness": null,
+            "samples": [
+              5712981,
+              5712997,
+              5721061,
+              5721077,
+              5729141,
+              5729157,
+              5737221,
+              5737237,
+              5745301,
+              5745317,
+              5753381,
+              5753397,
+              5761461,
+              5761477,
+              5769541
+            ],
+            "work0": {
+              "events": 336,
+              "subs": 0,
+              "renders": 288
+            },
+            "work": {
+              "events": 336,
+              "subs": 0,
+              "renders": 288
+            },
+            "workDelta": {
+              "events": 0,
+              "subs": 0,
+              "renders": 0
+            }
+          },
+          "ctl2": {
+            "kind": "control",
+            "d": 400,
+            "rise": 19680,
+            "fall": 0,
+            "falls": 0,
+            "maxStep": 3264,
+            "endpoints": 19680,
+            "legs": [
+              3264,
+              3264,
+              3264,
+              3264,
+              3264,
+              3264
+            ],
+            "gaps": [
+              16,
+              16,
+              16,
+              16,
+              16,
+              16
+            ],
+            "legMedian": 3264,
+            "legWorstDeviation": 0,
+            "legTolerance": 0.25,
+            "refusals": [],
+            "certified": true,
+            "legRefusals": [],
+            "intraLegRefusals": [],
+            "primeLegs": [
+              3264
+            ],
+            "primeExcess": 0,
+            "perIter": 3280,
+            "cdpBracket": 51024,
+            "sites": 2,
+            "siteLegs": [],
+            "siteWitness": null,
+            "samples": [
+              5708181,
+              5708197,
+              5711461,
+              5711477,
+              5714741,
+              5714757,
+              5718021,
+              5718037,
+              5721301,
+              5721317,
+              5724581,
+              5724597,
+              5727861,
+              5727877,
+              5731141
+            ],
+            "work0": {
+              "events": 336,
+              "subs": 0,
+              "renders": 288
+            },
+            "work": {
+              "events": 336,
+              "subs": 0,
+              "renders": 288
+            },
+            "workDelta": {
+              "events": 0,
+              "subs": 0,
+              "renders": 0
+            }
+          }
+        },
+        "arms": {
+          "reagent-subs|grid/floor": {
+            "segment": "reagent-subs",
+            "arm": "grid/floor",
+            "rung": "floor",
+            "reads": 0,
+            "boundaries": 24,
+            "text": "0",
+            "writeSelector": "all",
+            "write": ":p0/write-all — the grid is rebuilt at the fixture's fixed `cells-n` whatever is mounted — V1's F_old control, flat in B by construction",
+            "pairKey": "reagent-subs|grid/floor",
+            "rise": 116044,
+            "fall": 0,
+            "falls": 0,
+            "maxStep": 19848,
+            "endpoints": 116044,
+            "legs": [
+              19140,
+              19552,
+              19848,
+              19128,
+              19140,
+              19140
+            ],
+            "gaps": [
+              16,
+              16,
+              16,
+              16,
+              16,
+              16
+            ],
+            "legMedian": 19140,
+            "legWorstDeviation": 0.03699059561128527,
+            "legTolerance": 0.25,
+            "refusals": [],
+            "certified": true,
+            "legRefusals": [],
+            "intraLegRefusals": [],
+            "primeLegs": [
+              25940
+            ],
+            "primeExcess": 6800,
+            "perWrite": 19340.666666666668,
+            "perBoundaryPerWrite": 805.8611111111112,
+            "cdpBracket": 170792,
+            "sites": 2,
+            "siteLegs": [],
+            "siteWitness": null,
+            "samples": [
+              5769221,
+              5769237,
+              5795177,
+              5795193,
+              5814333,
+              5814349,
+              5833901,
+              5833917,
+              5853765,
+              5853781,
+              5872909,
+              5872925,
+              5892065,
+              5892081,
+              5911221
+            ],
+            "tick0": 357,
+            "tick": 364,
+            "work0": {
+              "events": 357,
+              "subs": 0,
+              "renders": 312
+            },
+            "work": {
+              "events": 364,
+              "subs": 0,
+              "renders": 312
+            },
+            "workDelta": {
+              "events": 7,
+              "subs": 0,
+              "renders": 0
+            }
+          },
+          "uix-subs|grid/floor": {
+            "segment": "uix-subs",
+            "arm": "grid/floor",
+            "rung": "floor",
+            "reads": 0,
+            "boundaries": 24,
+            "text": "0",
+            "writeSelector": "all",
+            "write": ":p0/write-all — the grid is rebuilt at the fixture's fixed `cells-n` whatever is mounted — V1's F_old control, flat in B by construction",
+            "pairKey": "uix-subs|grid/floor",
+            "rise": 117564,
+            "fall": 0,
+            "falls": 0,
+            "maxStep": 19580,
+            "endpoints": 117564,
+            "legs": [
+              19580,
+              19580,
+              19580,
+              19568,
+              19580,
+              19580
+            ],
+            "gaps": [
+              16,
+              16,
+              16,
+              16,
+              16,
+              16
+            ],
+            "legMedian": 19580,
+            "legWorstDeviation": -0.0006128702757916241,
+            "legTolerance": 0.25,
+            "refusals": [],
+            "certified": true,
+            "legRefusals": [],
+            "intraLegRefusals": [],
+            "primeLegs": [
+              26444
+            ],
+            "primeExcess": 6864,
+            "perWrite": 19594,
+            "perBoundaryPerWrite": 816.4166666666666,
+            "cdpBracket": 171988,
+            "sites": 2,
+            "siteLegs": [],
+            "siteWitness": null,
+            "samples": [
+              5797241,
+              5797257,
+              5823701,
+              5823717,
+              5843297,
+              5843313,
+              5862893,
+              5862909,
+              5882489,
+              5882505,
+              5902073,
+              5902089,
+              5921669,
+              5921685,
+              5941265
+            ],
+            "tick0": 385,
+            "tick": 392,
+            "work0": {
+              "events": 385,
+              "subs": 0,
+              "renders": 336
+            },
+            "work": {
+              "events": 392,
+              "subs": 0,
+              "renders": 336
+            },
+            "workDelta": {
+              "events": 7,
+              "subs": 0,
+              "renders": 0
+            }
+          }
+        },
+        "writeLegs": [
+          "all"
+        ]
+      },
+      {
+        "round": 7,
+        "controls": {
+          "idle": {
+            "kind": "idle",
+            "d": 0,
+            "rise": 248752,
+            "fall": 248052,
+            "falls": 1,
+            "maxStep": 245496,
+            "endpoints": 700,
+            "legs": [
+              16,
+              16,
+              16,
+              16,
+              245496,
+              -248052
+            ],
+            "gaps": [
+              16,
+              16,
+              16,
+              16,
+              3112,
+              16
+            ],
+            "legMedian": 16,
+            "legWorstDeviation": -15504.25,
+            "legTolerance": 0.25,
+            "refusals": [
+              "leg 5 of 6 read 245496 B against a cohort median of 16 B (+245480 B, 1534250.0%), past the ±25% leg tolerance (±4 B): a leg ABOVE its cohort means the ONE WORK UNIT premise this witness rests on has failed in this window, so refusing is correct rather than merely conservative",
+              "leg 6 of 6 read -248052 B against a cohort median of 16 B (-248068 B, -1550425.0%), past the ±25% leg tolerance (±4 B): a leg BELOW its cohort is a leg something removed bytes from, and nothing in the work unit removes bytes — the collector does"
+            ],
+            "certified": false,
+            "legRefusals": [
+              "leg 5 of 6 read 245496 B against a cohort median of 16 B (+245480 B, 1534250.0%), past the ±25% leg tolerance (±4 B): a leg ABOVE its cohort means the ONE WORK UNIT premise this witness rests on has failed in this window, so refusing is correct rather than merely conservative",
+              "leg 6 of 6 read -248052 B against a cohort median of 16 B (-248068 B, -1550425.0%), past the ±25% leg tolerance (±4 B): a leg BELOW its cohort is a leg something removed bytes from, and nothing in the work unit removes bytes — the collector does"
+            ],
+            "intraLegRefusals": [],
+            "primeLegs": [
+              16
+            ],
+            "primeExcess": 0,
+            "perIter": 41458.666666666664,
+            "cdpBracket": 28812,
+            "sites": 2,
+            "siteLegs": [],
+            "siteWitness": null,
+            "samples": [
+              5756289,
+              5756305,
+              5756321,
+              5756337,
+              5756353,
+              5756369,
+              5756385,
+              5756401,
+              5756417,
+              5756433,
+              5756449,
+              5759561,
+              6005057,
+              6005073,
+              5757021
+            ],
+            "work0": {
+              "events": 392,
+              "subs": 0,
+              "renders": 336
+            },
+            "work": {
+              "events": 392,
+              "subs": 0,
+              "renders": 336
+            },
+            "workDelta": {
+              "events": 0,
+              "subs": 0,
+              "renders": 0
+            }
+          },
+          "ctl1": {
+            "kind": "control",
+            "d": 1000,
+            "rise": 48480,
+            "fall": 0,
+            "falls": 0,
+            "maxStep": 8064,
+            "endpoints": 48480,
+            "legs": [
+              8064,
+              8064,
+              8064,
+              8064,
+              8064,
+              8064
+            ],
+            "gaps": [
+              16,
+              16,
+              16,
+              16,
+              16,
+              16
+            ],
+            "legMedian": 8064,
+            "legWorstDeviation": 0,
+            "legTolerance": 0.25,
+            "refusals": [],
+            "certified": true,
+            "legRefusals": [],
+            "intraLegRefusals": [],
+            "primeLegs": [
+              8064
+            ],
+            "primeExcess": 0,
+            "perIter": 8080,
+            "cdpBracket": 84624,
+            "sites": 2,
+            "siteLegs": [],
+            "siteWitness": null,
+            "samples": [
+              5764805,
+              5764821,
+              5772885,
+              5772901,
+              5780965,
+              5780981,
+              5789045,
+              5789061,
+              5797125,
+              5797141,
+              5805205,
+              5805221,
+              5813285,
+              5813301,
+              5821365
+            ],
+            "work0": {
+              "events": 392,
+              "subs": 0,
+              "renders": 336
+            },
+            "work": {
+              "events": 392,
+              "subs": 0,
+              "renders": 336
+            },
+            "workDelta": {
+              "events": 0,
+              "subs": 0,
+              "renders": 0
+            }
+          },
+          "ctl2": {
+            "kind": "control",
+            "d": 400,
+            "rise": 19680,
+            "fall": 0,
+            "falls": 0,
+            "maxStep": 3264,
+            "endpoints": 19680,
+            "legs": [
+              3264,
+              3264,
+              3264,
+              3264,
+              3264,
+              3264
+            ],
+            "gaps": [
+              16,
+              16,
+              16,
+              16,
+              16,
+              16
+            ],
+            "legMedian": 3264,
+            "legWorstDeviation": 0,
+            "legTolerance": 0.25,
+            "refusals": [],
+            "certified": true,
+            "legRefusals": [],
+            "intraLegRefusals": [],
+            "primeLegs": [
+              3264
+            ],
+            "primeExcess": 0,
+            "perIter": 3280,
+            "cdpBracket": 51024,
+            "sites": 2,
+            "siteLegs": [],
+            "siteWitness": null,
+            "samples": [
+              5760005,
+              5760021,
+              5763285,
+              5763301,
+              5766565,
+              5766581,
+              5769845,
+              5769861,
+              5773125,
+              5773141,
+              5776405,
+              5776421,
+              5779685,
+              5779701,
+              5782965
+            ],
+            "work0": {
+              "events": 392,
+              "subs": 0,
+              "renders": 336
+            },
+            "work": {
+              "events": 392,
+              "subs": 0,
+              "renders": 336
+            },
+            "workDelta": {
+              "events": 0,
+              "subs": 0,
+              "renders": 0
+            }
+          }
+        },
+        "arms": {
+          "uix-subs|grid/floor": {
+            "segment": "uix-subs",
+            "arm": "grid/floor",
+            "rung": "floor",
+            "reads": 0,
+            "boundaries": 24,
+            "text": "0",
+            "writeSelector": "all",
+            "write": ":p0/write-all — the grid is rebuilt at the fixture's fixed `cells-n` whatever is mounted — V1's F_old control, flat in B by construction",
+            "pairKey": "uix-subs|grid/floor",
+            "rise": 118264,
+            "fall": 0,
+            "falls": 0,
+            "maxStep": 19572,
+            "endpoints": 118264,
+            "legs": [
+              19572,
+              19572,
+              19560,
+              19572,
+              19572,
+              18004
+            ],
+            "gaps": [
+              16,
+              16,
+              16,
+              16,
+              16,
+              2332
+            ],
+            "legMedian": 19572,
+            "legWorstDeviation": -0.08011444921316166,
+            "legTolerance": 0.25,
+            "refusals": [],
+            "certified": true,
+            "legRefusals": [],
+            "intraLegRefusals": [],
+            "primeLegs": [
+              26436
+            ],
+            "primeExcess": 6864,
+            "perWrite": 19710.666666666668,
+            "perBoundaryPerWrite": 821.2777777777778,
+            "cdpBracket": 174500,
+            "sites": 2,
+            "siteLegs": [],
+            "siteWitness": null,
+            "samples": [
+              5818465,
+              5818481,
+              5844917,
+              5844933,
+              5864505,
+              5864521,
+              5884093,
+              5884109,
+              5903669,
+              5903685,
+              5923257,
+              5923273,
+              5942845,
+              5945177,
+              5963181
+            ],
+            "tick0": 413,
+            "tick": 420,
+            "work0": {
+              "events": 413,
+              "subs": 0,
+              "renders": 360
+            },
+            "work": {
+              "events": 420,
+              "subs": 0,
+              "renders": 360
+            },
+            "workDelta": {
+              "events": 7,
+              "subs": 0,
+              "renders": 0
+            }
+          },
+          "reagent-subs|grid/floor": {
+            "segment": "reagent-subs",
+            "arm": "grid/floor",
+            "rung": "floor",
+            "reads": 0,
+            "boundaries": 24,
+            "text": "0",
+            "writeSelector": "all",
+            "write": ":p0/write-all — the grid is rebuilt at the fixture's fixed `cells-n` whatever is mounted — V1's F_old control, flat in B by construction",
+            "pairKey": "reagent-subs|grid/floor",
+            "rise": 114876,
+            "fall": 0,
+            "falls": 0,
+            "maxStep": 19132,
+            "endpoints": 114876,
+            "legs": [
+              19132,
+              19132,
+              19132,
+              19132,
+              19132,
+              19120
+            ],
+            "gaps": [
+              16,
+              16,
+              16,
+              16,
+              16,
+              16
+            ],
+            "legMedian": 19132,
+            "legWorstDeviation": -0.0006272214091574326,
+            "legTolerance": 0.25,
+            "refusals": [],
+            "certified": true,
+            "legRefusals": [],
+            "intraLegRefusals": [],
+            "primeLegs": [
+              25932
+            ],
+            "primeExcess": 6800,
+            "perWrite": 19146,
+            "perBoundaryPerWrite": 797.75,
+            "cdpBracket": 172692,
+            "sites": 2,
+            "siteLegs": [],
+            "siteWitness": null,
+            "samples": [
+              5828357,
+              5828373,
+              5854305,
+              5854321,
+              5873453,
+              5873469,
+              5892601,
+              5892617,
+              5911749,
+              5911765,
+              5930897,
+              5930913,
+              5950045,
+              5950061,
+              5969181
+            ],
+            "tick0": 441,
+            "tick": 448,
+            "work0": {
+              "events": 441,
+              "subs": 0,
+              "renders": 384
+            },
+            "work": {
+              "events": 448,
+              "subs": 0,
+              "renders": 384
+            },
+            "workDelta": {
+              "events": 7,
+              "subs": 0,
+              "renders": 0
+            }
+          }
+        },
+        "writeLegs": [
+          "all"
+        ]
+      },
+      {
+        "round": 8,
+        "controls": {
+          "idle": {
+            "kind": "idle",
+            "d": 0,
+            "rise": 192,
+            "fall": 0,
+            "falls": 0,
+            "maxStep": 16,
+            "endpoints": 192,
+            "legs": [
+              16,
+              16,
+              16,
+              16,
+              16,
+              16
+            ],
+            "gaps": [
+              16,
+              16,
+              16,
+              16,
+              16,
+              16
+            ],
+            "legMedian": 16,
+            "legWorstDeviation": 0,
+            "legTolerance": 0.25,
+            "refusals": [],
+            "certified": true,
+            "legRefusals": [],
+            "intraLegRefusals": [],
+            "primeLegs": [
+              16
+            ],
+            "primeExcess": 0,
+            "perIter": 32,
+            "cdpBracket": 28304,
+            "sites": 2,
+            "siteLegs": [],
+            "siteWitness": null,
+            "samples": [
+              5791337,
+              5791353,
+              5791369,
+              5791385,
+              5791401,
+              5791417,
+              5791433,
+              5791449,
+              5791465,
+              5791481,
+              5791497,
+              5791513,
+              5791529,
+              5791545,
+              5791561
+            ],
+            "work0": {
+              "events": 448,
+              "subs": 0,
+              "renders": 384
+            },
+            "work": {
+              "events": 448,
+              "subs": 0,
+              "renders": 384
+            },
+            "workDelta": {
+              "events": 0,
+              "subs": 0,
+              "renders": 0
+            }
+          },
+          "ctl1": {
+            "kind": "control",
+            "d": 1000,
+            "rise": 48480,
+            "fall": 0,
+            "falls": 0,
+            "maxStep": 8064,
+            "endpoints": 48480,
+            "legs": [
+              8064,
+              8064,
+              8064,
+              8064,
+              8064,
+              8064
+            ],
+            "gaps": [
+              16,
+              16,
+              16,
+              16,
+              16,
+              16
+            ],
+            "legMedian": 8064,
+            "legWorstDeviation": 0,
+            "legTolerance": 0.25,
+            "refusals": [],
+            "certified": true,
+            "legRefusals": [],
+            "intraLegRefusals": [],
+            "primeLegs": [
+              8064
+            ],
+            "primeExcess": 0,
+            "perIter": 8080,
+            "cdpBracket": 84624,
+            "sites": 2,
+            "siteLegs": [],
+            "siteWitness": null,
+            "samples": [
+              5799345,
+              5799361,
+              5807425,
+              5807441,
+              5815505,
+              5815521,
+              5823585,
+              5823601,
+              5831665,
+              5831681,
+              5839745,
+              5839761,
+              5847825,
+              5847841,
+              5855905
+            ],
+            "work0": {
+              "events": 448,
+              "subs": 0,
+              "renders": 384
+            },
+            "work": {
+              "events": 448,
+              "subs": 0,
+              "renders": 384
+            },
+            "workDelta": {
+              "events": 0,
+              "subs": 0,
+              "renders": 0
+            }
+          },
+          "ctl2": {
+            "kind": "control",
+            "d": 400,
+            "rise": 19680,
+            "fall": 0,
+            "falls": 0,
+            "maxStep": 3264,
+            "endpoints": 19680,
+            "legs": [
+              3264,
+              3264,
+              3264,
+              3264,
+              3264,
+              3264
+            ],
+            "gaps": [
+              16,
+              16,
+              16,
+              16,
+              16,
+              16
+            ],
+            "legMedian": 3264,
+            "legWorstDeviation": 0,
+            "legTolerance": 0.25,
+            "refusals": [],
+            "certified": true,
+            "legRefusals": [],
+            "intraLegRefusals": [],
+            "primeLegs": [
+              3264
+            ],
+            "primeExcess": 0,
+            "perIter": 3280,
+            "cdpBracket": 51024,
+            "sites": 2,
+            "siteLegs": [],
+            "siteWitness": null,
+            "samples": [
+              5794545,
+              5794561,
+              5797825,
+              5797841,
+              5801105,
+              5801121,
+              5804385,
+              5804401,
+              5807665,
+              5807681,
+              5810945,
+              5810961,
+              5814225,
+              5814241,
+              5817505
+            ],
+            "work0": {
+              "events": 448,
+              "subs": 0,
+              "renders": 384
+            },
+            "work": {
+              "events": 448,
+              "subs": 0,
+              "renders": 384
+            },
+            "workDelta": {
+              "events": 0,
+              "subs": 0,
+              "renders": 0
+            }
+          }
+        },
+        "arms": {
+          "reagent-subs|grid/floor": {
+            "segment": "reagent-subs",
+            "arm": "grid/floor",
+            "rung": "floor",
+            "reads": 0,
+            "boundaries": 24,
+            "text": "0",
+            "writeSelector": "all",
+            "write": ":p0/write-all — the grid is rebuilt at the fixture's fixed `cells-n` whatever is mounted — V1's F_old control, flat in B by construction",
+            "pairKey": "reagent-subs|grid/floor",
+            "rise": 276020,
+            "fall": 158672,
+            "falls": 1,
+            "maxStep": 179544,
+            "endpoints": 117348,
+            "legs": [
+              19132,
+              19132,
+              -158672,
+              19132,
+              19132,
+              19868
+            ],
+            "gaps": [
+              16,
+              16,
+              179544,
+              16,
+              16,
+              16
+            ],
+            "legMedian": 19132,
+            "legWorstDeviation": -9.293539619485678,
+            "legTolerance": 0.25,
+            "refusals": [
+              "leg 3 of 6 read -158672 B against a cohort median of 19132 B (-177804 B, -929.4%), past the ±25% leg tolerance (±4783 B): a leg BELOW its cohort is a leg something removed bytes from, and nothing in the work unit removes bytes — the collector does"
+            ],
+            "certified": false,
+            "legRefusals": [
+              "leg 3 of 6 read -158672 B against a cohort median of 19132 B (-177804 B, -929.4%), past the ±25% leg tolerance (±4783 B): a leg BELOW its cohort is a leg something removed bytes from, and nothing in the work unit removes bytes — the collector does"
+            ],
+            "intraLegRefusals": [],
+            "primeLegs": [
+              25932
+            ],
+            "primeExcess": 6800,
+            "perWrite": 46003.333333333336,
+            "perBoundaryPerWrite": 1916.8055555555557,
+            "cdpBracket": 171368,
+            "sites": 2,
+            "siteLegs": [],
+            "siteWitness": null,
+            "samples": [
+              5861361,
+              5861377,
+              5887309,
+              5887325,
+              5906457,
+              5906473,
+              5925605,
+              6105149,
+              5946477,
+              5946493,
+              5965625,
+              5965641,
+              5984773,
+              5984789,
+              6004657
+            ],
+            "tick0": 469,
+            "tick": 476,
+            "work0": {
+              "events": 469,
+              "subs": 0,
+              "renders": 408
+            },
+            "work": {
+              "events": 476,
+              "subs": 0,
+              "renders": 408
+            },
+            "workDelta": {
+              "events": 7,
+              "subs": 0,
+              "renders": 0
+            }
+          },
+          "uix-subs|grid/floor": {
+            "segment": "uix-subs",
+            "arm": "grid/floor",
+            "rung": "floor",
+            "reads": 0,
+            "boundaries": 24,
+            "text": "0",
+            "writeSelector": "all",
+            "write": ":p0/write-all — the grid is rebuilt at the fixture's fixed `cells-n` whatever is mounted — V1's F_old control, flat in B by construction",
+            "pairKey": "uix-subs|grid/floor",
+            "rise": 312552,
+            "fall": 186480,
+            "falls": 1,
+            "maxStep": 234192,
+            "endpoints": 126072,
+            "legs": [
+              19572,
+              19572,
+              234192,
+              -186480,
+              19560,
+              19560
+            ],
+            "gaps": [
+              16,
+              16,
+              16,
+              16,
+              16,
+              16
+            ],
+            "legMedian": 19566,
+            "legWorstDeviation": 10.969334559950935,
+            "legTolerance": 0.25,
+            "refusals": [
+              "leg 3 of 6 read 234192 B against a cohort median of 19566 B (+214626 B, 1096.9%), past the ±25% leg tolerance (±4891.5 B): a leg ABOVE its cohort means the ONE WORK UNIT premise this witness rests on has failed in this window, so refusing is correct rather than merely conservative",
+              "leg 4 of 6 read -186480 B against a cohort median of 19566 B (-206046 B, -1053.1%), past the ±25% leg tolerance (±4891.5 B): a leg BELOW its cohort is a leg something removed bytes from, and nothing in the work unit removes bytes — the collector does"
+            ],
+            "certified": false,
+            "legRefusals": [
+              "leg 3 of 6 read 234192 B against a cohort median of 19566 B (+214626 B, 1096.9%), past the ±25% leg tolerance (±4891.5 B): a leg ABOVE its cohort means the ONE WORK UNIT premise this witness rests on has failed in this window, so refusing is correct rather than merely conservative",
+              "leg 4 of 6 read -186480 B against a cohort median of 19566 B (-206046 B, -1053.1%), past the ±25% leg tolerance (±4891.5 B): a leg BELOW its cohort is a leg something removed bytes from, and nothing in the work unit removes bytes — the collector does"
+            ],
+            "intraLegRefusals": [],
+            "primeLegs": [
+              26436
+            ],
+            "primeExcess": 6870,
+            "perWrite": 52092,
+            "perBoundaryPerWrite": 2170.5,
+            "cdpBracket": 184192,
+            "sites": 2,
+            "siteLegs": [],
+            "siteWitness": null,
+            "samples": [
+              5882869,
+              5882885,
+              5909321,
+              5909337,
+              5928909,
+              5928925,
+              5948497,
+              5948513,
+              6182705,
+              6182721,
+              5996241,
+              5996257,
+              6015817,
+              6015833,
+              6035393
+            ],
+            "tick0": 497,
+            "tick": 504,
+            "work0": {
+              "events": 497,
+              "subs": 0,
+              "renders": 432
+            },
+            "work": {
+              "events": 504,
+              "subs": 0,
+              "renders": 432
+            },
+            "workDelta": {
+              "events": 7,
+              "subs": 0,
+              "renders": 0
+            }
+          }
+        },
+        "writeLegs": [
+          "all"
+        ]
+      },
+      {
+        "round": 9,
+        "controls": {
+          "idle": {
+            "kind": "idle",
+            "d": 0,
+            "rise": 192,
+            "fall": 0,
+            "falls": 0,
+            "maxStep": 16,
+            "endpoints": 192,
+            "legs": [
+              16,
+              16,
+              16,
+              16,
+              16,
+              16
+            ],
+            "gaps": [
+              16,
+              16,
+              16,
+              16,
+              16,
+              16
+            ],
+            "legMedian": 16,
+            "legWorstDeviation": 0,
+            "legTolerance": 0.25,
+            "refusals": [],
+            "certified": true,
+            "legRefusals": [],
+            "intraLegRefusals": [],
+            "primeLegs": [
+              16
+            ],
+            "primeExcess": 0,
+            "perIter": 32,
+            "cdpBracket": 28304,
+            "sites": 2,
+            "siteLegs": [],
+            "siteWitness": null,
+            "samples": [
+              5852697,
+              5852713,
+              5852729,
+              5852745,
+              5852761,
+              5852777,
+              5852793,
+              5852809,
+              5852825,
+              5852841,
+              5852857,
+              5852873,
+              5852889,
+              5852905,
+              5852921
+            ],
+            "work0": {
+              "events": 504,
+              "subs": 0,
+              "renders": 432
+            },
+            "work": {
+              "events": 504,
+              "subs": 0,
+              "renders": 432
+            },
+            "workDelta": {
+              "events": 0,
+              "subs": 0,
+              "renders": 0
+            }
+          },
+          "ctl1": {
+            "kind": "control",
+            "d": 1000,
+            "rise": 48480,
+            "fall": 0,
+            "falls": 0,
+            "maxStep": 8064,
+            "endpoints": 48480,
+            "legs": [
+              8064,
+              8064,
+              8064,
+              8064,
+              8064,
+              8064
+            ],
+            "gaps": [
+              16,
+              16,
+              16,
+              16,
+              16,
+              16
+            ],
+            "legMedian": 8064,
+            "legWorstDeviation": 0,
+            "legTolerance": 0.25,
+            "refusals": [],
+            "certified": true,
+            "legRefusals": [],
+            "intraLegRefusals": [],
+            "primeLegs": [
+              8064
+            ],
+            "primeExcess": 0,
+            "perIter": 8080,
+            "cdpBracket": 84624,
+            "sites": 2,
+            "siteLegs": [],
+            "siteWitness": null,
+            "samples": [
+              5860705,
+              5860721,
+              5868785,
+              5868801,
+              5876865,
+              5876881,
+              5884945,
+              5884961,
+              5893025,
+              5893041,
+              5901105,
+              5901121,
+              5909185,
+              5909201,
+              5917265
+            ],
+            "work0": {
+              "events": 504,
+              "subs": 0,
+              "renders": 432
+            },
+            "work": {
+              "events": 504,
+              "subs": 0,
+              "renders": 432
+            },
+            "workDelta": {
+              "events": 0,
+              "subs": 0,
+              "renders": 0
+            }
+          },
+          "ctl2": {
+            "kind": "control",
+            "d": 400,
+            "rise": 19680,
+            "fall": 0,
+            "falls": 0,
+            "maxStep": 3264,
+            "endpoints": 19680,
+            "legs": [
+              3264,
+              3264,
+              3264,
+              3264,
+              3264,
+              3264
+            ],
+            "gaps": [
+              16,
+              16,
+              16,
+              16,
+              16,
+              16
+            ],
+            "legMedian": 3264,
+            "legWorstDeviation": 0,
+            "legTolerance": 0.25,
+            "refusals": [],
+            "certified": true,
+            "legRefusals": [],
+            "intraLegRefusals": [],
+            "primeLegs": [
+              3264
+            ],
+            "primeExcess": 0,
+            "perIter": 3280,
+            "cdpBracket": 51024,
+            "sites": 2,
+            "siteLegs": [],
+            "siteWitness": null,
+            "samples": [
+              5855905,
+              5855921,
+              5859185,
+              5859201,
+              5862465,
+              5862481,
+              5865745,
+              5865761,
+              5869025,
+              5869041,
+              5872305,
+              5872321,
+              5875585,
+              5875601,
+              5878865
+            ],
+            "work0": {
+              "events": 504,
+              "subs": 0,
+              "renders": 432
+            },
+            "work": {
+              "events": 504,
+              "subs": 0,
+              "renders": 432
+            },
+            "workDelta": {
+              "events": 0,
+              "subs": 0,
+              "renders": 0
+            }
+          }
+        },
+        "arms": {
+          "uix-subs|grid/floor": {
+            "segment": "uix-subs",
+            "arm": "grid/floor",
+            "rung": "floor",
+            "reads": 0,
+            "boundaries": 24,
+            "text": "0",
+            "writeSelector": "all",
+            "write": ":p0/write-all — the grid is rebuilt at the fixture's fixed `cells-n` whatever is mounted — V1's F_old control, flat in B by construction",
+            "pairKey": "uix-subs|grid/floor",
+            "rise": 117468,
+            "fall": 0,
+            "falls": 0,
+            "maxStep": 19564,
+            "endpoints": 117468,
+            "legs": [
+              19564,
+              19564,
+              19564,
+              19564,
+              19564,
+              19552
+            ],
+            "gaps": [
+              16,
+              16,
+              16,
+              16,
+              16,
+              16
+            ],
+            "legMedian": 19564,
+            "legWorstDeviation": -0.0006133714986710284,
+            "legTolerance": 0.25,
+            "refusals": [],
+            "certified": true,
+            "legRefusals": [],
+            "intraLegRefusals": [],
+            "primeLegs": [
+              26428
+            ],
+            "primeExcess": 6864,
+            "perWrite": 19578,
+            "perBoundaryPerWrite": 815.75,
+            "cdpBracket": 176804,
+            "sites": 2,
+            "siteLegs": [],
+            "siteWitness": null,
+            "samples": [
+              5927745,
+              5927761,
+              5954189,
+              5954205,
+              5973769,
+              5973785,
+              5993349,
+              5993365,
+              6012929,
+              6012945,
+              6032509,
+              6032525,
+              6052089,
+              6052105,
+              6071657
+            ],
+            "tick0": 525,
+            "tick": 532,
+            "work0": {
+              "events": 525,
+              "subs": 0,
+              "renders": 456
+            },
+            "work": {
+              "events": 532,
+              "subs": 0,
+              "renders": 456
+            },
+            "workDelta": {
+              "events": 7,
+              "subs": 0,
+              "renders": 0
+            }
+          },
+          "reagent-subs|grid/floor": {
+            "segment": "reagent-subs",
+            "arm": "grid/floor",
+            "rung": "floor",
+            "reads": 0,
+            "boundaries": 24,
+            "text": "0",
+            "writeSelector": "all",
+            "write": ":p0/write-all — the grid is rebuilt at the fixture's fixed `cells-n` whatever is mounted — V1's F_old control, flat in B by construction",
+            "pairKey": "reagent-subs|grid/floor",
+            "rise": 114780,
+            "fall": 0,
+            "falls": 0,
+            "maxStep": 19116,
+            "endpoints": 114780,
+            "legs": [
+              19104,
+              19116,
+              19116,
+              19116,
+              19116,
+              19116
+            ],
+            "gaps": [
+              16,
+              16,
+              16,
+              16,
+              16,
+              16
+            ],
+            "legMedian": 19116,
+            "legWorstDeviation": -0.0006277463904582549,
+            "legTolerance": 0.25,
+            "refusals": [],
+            "certified": true,
+            "legRefusals": [],
+            "intraLegRefusals": [],
+            "primeLegs": [
+              25916
+            ],
+            "primeExcess": 6800,
+            "perWrite": 19130,
+            "perBoundaryPerWrite": 797.0833333333334,
+            "cdpBracket": 175236,
+            "sites": 2,
+            "siteLegs": [],
+            "siteWitness": null,
+            "samples": [
+              5947477,
+              5947493,
+              5973409,
+              5973425,
+              5992529,
+              5992545,
+              6011661,
+              6011677,
+              6030793,
+              6030809,
+              6049925,
+              6049941,
+              6069057,
+              6069073,
+              6088189
+            ],
+            "tick0": 553,
+            "tick": 560,
+            "work0": {
+              "events": 553,
+              "subs": 0,
+              "renders": 480
+            },
+            "work": {
+              "events": 560,
+              "subs": 0,
+              "renders": 480
+            },
+            "workDelta": {
+              "events": 7,
+              "subs": 0,
+              "renders": 0
+            }
+          }
+        },
+        "writeLegs": [
+          "all"
+        ]
+      },
+      {
+        "round": 10,
+        "controls": {
+          "idle": {
+            "kind": "idle",
+            "d": 0,
+            "rise": 192,
+            "fall": 0,
+            "falls": 0,
+            "maxStep": 16,
+            "endpoints": 192,
+            "legs": [
+              16,
+              16,
+              16,
+              16,
+              16,
+              16
+            ],
+            "gaps": [
+              16,
+              16,
+              16,
+              16,
+              16,
+              16
+            ],
+            "legMedian": 16,
+            "legWorstDeviation": 0,
+            "legTolerance": 0.25,
+            "refusals": [],
+            "certified": true,
+            "legRefusals": [],
+            "intraLegRefusals": [],
+            "primeLegs": [
+              16
+            ],
+            "primeExcess": 0,
+            "perIter": 32,
+            "cdpBracket": 28304,
+            "sites": 2,
+            "siteLegs": [],
+            "siteWitness": null,
+            "samples": [
+              5913113,
+              5913129,
+              5913145,
+              5913161,
+              5913177,
+              5913193,
+              5913209,
+              5913225,
+              5913241,
+              5913257,
+              5913273,
+              5913289,
+              5913305,
+              5913321,
+              5913337
+            ],
+            "work0": {
+              "events": 560,
+              "subs": 0,
+              "renders": 480
+            },
+            "work": {
+              "events": 560,
+              "subs": 0,
+              "renders": 480
+            },
+            "workDelta": {
+              "events": 0,
+              "subs": 0,
+              "renders": 0
+            }
+          },
+          "ctl1": {
+            "kind": "control",
+            "d": 1000,
+            "rise": 48480,
+            "fall": 0,
+            "falls": 0,
+            "maxStep": 8064,
+            "endpoints": 48480,
+            "legs": [
+              8064,
+              8064,
+              8064,
+              8064,
+              8064,
+              8064
+            ],
+            "gaps": [
+              16,
+              16,
+              16,
+              16,
+              16,
+              16
+            ],
+            "legMedian": 8064,
+            "legWorstDeviation": 0,
+            "legTolerance": 0.25,
+            "refusals": [],
+            "certified": true,
+            "legRefusals": [],
+            "intraLegRefusals": [],
+            "primeLegs": [
+              8064
+            ],
+            "primeExcess": 0,
+            "perIter": 8080,
+            "cdpBracket": 84624,
+            "sites": 2,
+            "siteLegs": [],
+            "siteWitness": null,
+            "samples": [
+              5921121,
+              5921137,
+              5929201,
+              5929217,
+              5937281,
+              5937297,
+              5945361,
+              5945377,
+              5953441,
+              5953457,
+              5961521,
+              5961537,
+              5969601,
+              5969617,
+              5977681
+            ],
+            "work0": {
+              "events": 560,
+              "subs": 0,
+              "renders": 480
+            },
+            "work": {
+              "events": 560,
+              "subs": 0,
+              "renders": 480
+            },
+            "workDelta": {
+              "events": 0,
+              "subs": 0,
+              "renders": 0
+            }
+          },
+          "ctl2": {
+            "kind": "control",
+            "d": 400,
+            "rise": 19680,
+            "fall": 0,
+            "falls": 0,
+            "maxStep": 3264,
+            "endpoints": 19680,
+            "legs": [
+              3264,
+              3264,
+              3264,
+              3264,
+              3264,
+              3264
+            ],
+            "gaps": [
+              16,
+              16,
+              16,
+              16,
+              16,
+              16
+            ],
+            "legMedian": 3264,
+            "legWorstDeviation": 0,
+            "legTolerance": 0.25,
+            "refusals": [],
+            "certified": true,
+            "legRefusals": [],
+            "intraLegRefusals": [],
+            "primeLegs": [
+              3264
+            ],
+            "primeExcess": 0,
+            "perIter": 3280,
+            "cdpBracket": 51024,
+            "sites": 2,
+            "siteLegs": [],
+            "siteWitness": null,
+            "samples": [
+              5916321,
+              5916337,
+              5919601,
+              5919617,
+              5922881,
+              5922897,
+              5926161,
+              5926177,
+              5929441,
+              5929457,
+              5932721,
+              5932737,
+              5936001,
+              5936017,
+              5939281
+            ],
+            "work0": {
+              "events": 560,
+              "subs": 0,
+              "renders": 480
+            },
+            "work": {
+              "events": 560,
+              "subs": 0,
+              "renders": 480
+            },
+            "workDelta": {
+              "events": 0,
+              "subs": 0,
+              "renders": 0
+            }
+          }
+        },
+        "arms": {
+          "reagent-subs|grid/floor": {
+            "segment": "reagent-subs",
+            "arm": "grid/floor",
+            "rung": "floor",
+            "reads": 0,
+            "boundaries": 24,
+            "text": "0",
+            "writeSelector": "all",
+            "write": ":p0/write-all — the grid is rebuilt at the fixture's fixed `cells-n` whatever is mounted — V1's F_old control, flat in B by construction",
+            "pairKey": "reagent-subs|grid/floor",
+            "rise": 115516,
+            "fall": 0,
+            "falls": 0,
+            "maxStep": 19864,
+            "endpoints": 115516,
+            "legs": [
+              19116,
+              19116,
+              19104,
+              19104,
+              19116,
+              19864
+            ],
+            "gaps": [
+              16,
+              16,
+              16,
+              16,
+              16,
+              16
+            ],
+            "legMedian": 19116,
+            "legWorstDeviation": 0.03912952500523122,
+            "legTolerance": 0.25,
+            "refusals": [],
+            "certified": true,
+            "legRefusals": [],
+            "intraLegRefusals": [],
+            "primeLegs": [
+              25916
+            ],
+            "primeExcess": 6800,
+            "perWrite": 19252.666666666668,
+            "perBoundaryPerWrite": 802.1944444444445,
+            "cdpBracket": 172032,
+            "sites": 2,
+            "siteLegs": [],
+            "siteWitness": null,
+            "samples": [
+              5975429,
+              5975445,
+              6001361,
+              6001377,
+              6020493,
+              6020509,
+              6039625,
+              6039641,
+              6058745,
+              6058761,
+              6077865,
+              6077881,
+              6096997,
+              6097013,
+              6116877
+            ],
+            "tick0": 581,
+            "tick": 588,
+            "work0": {
+              "events": 581,
+              "subs": 0,
+              "renders": 504
+            },
+            "work": {
+              "events": 588,
+              "subs": 0,
+              "renders": 504
+            },
+            "workDelta": {
+              "events": 7,
+              "subs": 0,
+              "renders": 0
+            }
+          },
+          "uix-subs|grid/floor": {
+            "segment": "uix-subs",
+            "arm": "grid/floor",
+            "rung": "floor",
+            "reads": 0,
+            "boundaries": 24,
+            "text": "0",
+            "writeSelector": "all",
+            "write": ":p0/write-all — the grid is rebuilt at the fixture's fixed `cells-n` whatever is mounted — V1's F_old control, flat in B by construction",
+            "pairKey": "uix-subs|grid/floor",
+            "rise": 117300,
+            "fall": 0,
+            "falls": 0,
+            "maxStep": 19540,
+            "endpoints": 117300,
+            "legs": [
+              19540,
+              19540,
+              19540,
+              19540,
+              19504,
+              19540
+            ],
+            "gaps": [
+              16,
+              16,
+              16,
+              16,
+              16,
+              16
+            ],
+            "legMedian": 19540,
+            "legWorstDeviation": -0.001842374616171955,
+            "legTolerance": 0.25,
+            "refusals": [],
+            "certified": true,
+            "legRefusals": [],
+            "intraLegRefusals": [],
+            "primeLegs": [
+              26404
+            ],
+            "primeExcess": 6864,
+            "perWrite": 19550,
+            "perBoundaryPerWrite": 814.5833333333334,
+            "cdpBracket": 173176,
+            "sites": 2,
+            "siteLegs": [],
+            "siteWitness": null,
+            "samples": [
+              5999437,
+              5999453,
+              6025857,
+              6025873,
+              6045413,
+              6045429,
+              6064969,
+              6064985,
+              6084525,
+              6084541,
+              6104081,
+              6104097,
+              6123601,
+              6123617,
+              6143157
+            ],
+            "tick0": 609,
+            "tick": 616,
+            "work0": {
+              "events": 609,
+              "subs": 0,
+              "renders": 528
+            },
+            "work": {
+              "events": 616,
+              "subs": 0,
+              "renders": 528
+            },
+            "workDelta": {
+              "events": 7,
+              "subs": 0,
+              "renders": 0
+            }
+          }
+        },
+        "writeLegs": [
+          "all"
+        ]
+      },
+      {
+        "round": 11,
+        "controls": {
+          "idle": {
+            "kind": "idle",
+            "d": 0,
+            "rise": 192,
+            "fall": 0,
+            "falls": 0,
+            "maxStep": 16,
+            "endpoints": 192,
+            "legs": [
+              16,
+              16,
+              16,
+              16,
+              16,
+              16
+            ],
+            "gaps": [
+              16,
+              16,
+              16,
+              16,
+              16,
+              16
+            ],
+            "legMedian": 16,
+            "legWorstDeviation": 0,
+            "legTolerance": 0.25,
+            "refusals": [],
+            "certified": true,
+            "legRefusals": [],
+            "intraLegRefusals": [],
+            "primeLegs": [
+              16
+            ],
+            "primeExcess": 0,
+            "perIter": 32,
+            "cdpBracket": 28304,
+            "sites": 2,
+            "siteLegs": [],
+            "siteWitness": null,
+            "samples": [
+              5958473,
+              5958489,
+              5958505,
+              5958521,
+              5958537,
+              5958553,
+              5958569,
+              5958585,
+              5958601,
+              5958617,
+              5958633,
+              5958649,
+              5958665,
+              5958681,
+              5958697
+            ],
+            "work0": {
+              "events": 616,
+              "subs": 0,
+              "renders": 528
+            },
+            "work": {
+              "events": 616,
+              "subs": 0,
+              "renders": 528
+            },
+            "workDelta": {
+              "events": 0,
+              "subs": 0,
+              "renders": 0
+            }
+          },
+          "ctl1": {
+            "kind": "control",
+            "d": 1000,
+            "rise": 48480,
+            "fall": 0,
+            "falls": 0,
+            "maxStep": 8064,
+            "endpoints": 48480,
+            "legs": [
+              8064,
+              8064,
+              8064,
+              8064,
+              8064,
+              8064
+            ],
+            "gaps": [
+              16,
+              16,
+              16,
+              16,
+              16,
+              16
+            ],
+            "legMedian": 8064,
+            "legWorstDeviation": 0,
+            "legTolerance": 0.25,
+            "refusals": [],
+            "certified": true,
+            "legRefusals": [],
+            "intraLegRefusals": [],
+            "primeLegs": [
+              8064
+            ],
+            "primeExcess": 0,
+            "perIter": 8080,
+            "cdpBracket": 84624,
+            "sites": 2,
+            "siteLegs": [],
+            "siteWitness": null,
+            "samples": [
+              5966481,
+              5966497,
+              5974561,
+              5974577,
+              5982641,
+              5982657,
+              5990721,
+              5990737,
+              5998801,
+              5998817,
+              6006881,
+              6006897,
+              6014961,
+              6014977,
+              6023041
+            ],
+            "work0": {
+              "events": 616,
+              "subs": 0,
+              "renders": 528
+            },
+            "work": {
+              "events": 616,
+              "subs": 0,
+              "renders": 528
+            },
+            "workDelta": {
+              "events": 0,
+              "subs": 0,
+              "renders": 0
+            }
+          },
+          "ctl2": {
+            "kind": "control",
+            "d": 400,
+            "rise": 19680,
+            "fall": 0,
+            "falls": 0,
+            "maxStep": 3264,
+            "endpoints": 19680,
+            "legs": [
+              3264,
+              3264,
+              3264,
+              3264,
+              3264,
+              3264
+            ],
+            "gaps": [
+              16,
+              16,
+              16,
+              16,
+              16,
+              16
+            ],
+            "legMedian": 3264,
+            "legWorstDeviation": 0,
+            "legTolerance": 0.25,
+            "refusals": [],
+            "certified": true,
+            "legRefusals": [],
+            "intraLegRefusals": [],
+            "primeLegs": [
+              3264
+            ],
+            "primeExcess": 0,
+            "perIter": 3280,
+            "cdpBracket": 51024,
+            "sites": 2,
+            "siteLegs": [],
+            "siteWitness": null,
+            "samples": [
+              5961681,
+              5961697,
+              5964961,
+              5964977,
+              5968241,
+              5968257,
+              5971521,
+              5971537,
+              5974801,
+              5974817,
+              5978081,
+              5978097,
+              5981361,
+              5981377,
+              5984641
+            ],
+            "work0": {
+              "events": 616,
+              "subs": 0,
+              "renders": 528
+            },
+            "work": {
+              "events": 616,
+              "subs": 0,
+              "renders": 528
+            },
+            "workDelta": {
+              "events": 0,
+              "subs": 0,
+              "renders": 0
+            }
+          }
+        },
+        "arms": {
+          "uix-subs|grid/floor": {
+            "segment": "uix-subs",
+            "arm": "grid/floor",
+            "rung": "floor",
+            "reads": 0,
+            "boundaries": 24,
+            "text": "0",
+            "writeSelector": "all",
+            "write": ":p0/write-all — the grid is rebuilt at the fixture's fixed `cells-n` whatever is mounted — V1's F_old control, flat in B by construction",
+            "pairKey": "uix-subs|grid/floor",
+            "rise": 280452,
+            "fall": 0,
+            "falls": 0,
+            "maxStep": 182656,
+            "endpoints": 280452,
+            "legs": [
+              19540,
+              19540,
+              19540,
+              19540,
+              19540,
+              182656
+            ],
+            "gaps": [
+              16,
+              16,
+              16,
+              16,
+              16,
+              16
+            ],
+            "legMedian": 19540,
+            "legWorstDeviation": 8.347799385875128,
+            "legTolerance": 0.25,
+            "refusals": [
+              "leg 6 of 6 read 182656 B against a cohort median of 19540 B (+163116 B, 834.8%), past the ±25% leg tolerance (±4885 B): a leg ABOVE its cohort means the ONE WORK UNIT premise this witness rests on has failed in this window, so refusing is correct rather than merely conservative"
+            ],
+            "certified": false,
+            "legRefusals": [
+              "leg 6 of 6 read 182656 B against a cohort median of 19540 B (+163116 B, 834.8%), past the ±25% leg tolerance (±4885 B): a leg ABOVE its cohort means the ONE WORK UNIT premise this witness rests on has failed in this window, so refusing is correct rather than merely conservative"
+            ],
+            "intraLegRefusals": [],
+            "primeLegs": [
+              26392
+            ],
+            "primeExcess": 6852,
+            "perWrite": 46742,
+            "perBoundaryPerWrite": 1947.5833333333333,
+            "cdpBracket": 172456,
+            "sites": 2,
+            "siteLegs": [],
+            "siteWitness": null,
+            "samples": [
+              6007805,
+              6007821,
+              6034213,
+              6034229,
+              6053769,
+              6053785,
+              6073325,
+              6073341,
+              6092881,
+              6092897,
+              6112437,
+              6112453,
+              6131993,
+              6132009,
+              6314665
+            ],
+            "tick0": 637,
+            "tick": 644,
+            "work0": {
+              "events": 637,
+              "subs": 0,
+              "renders": 552
+            },
+            "work": {
+              "events": 644,
+              "subs": 0,
+              "renders": 552
+            },
+            "workDelta": {
+              "events": 7,
+              "subs": 0,
+              "renders": 0
+            }
+          },
+          "reagent-subs|grid/floor": {
+            "segment": "reagent-subs",
+            "arm": "grid/floor",
+            "rung": "floor",
+            "reads": 0,
+            "boundaries": 24,
+            "text": "0",
+            "writeSelector": "all",
+            "write": ":p0/write-all — the grid is rebuilt at the fixture's fixed `cells-n` whatever is mounted — V1's F_old control, flat in B by construction",
+            "pairKey": "reagent-subs|grid/floor",
+            "rise": 114696,
+            "fall": 0,
+            "falls": 0,
+            "maxStep": 19100,
+            "endpoints": 114696,
+            "legs": [
+              19100,
+              19100,
+              19100,
+              19100,
+              19100,
+              19100
+            ],
+            "gaps": [
+              16,
+              16,
+              16,
+              16,
+              16,
+              16
+            ],
+            "legMedian": 19100,
+            "legWorstDeviation": 0,
+            "legTolerance": 0.25,
+            "refusals": [],
+            "certified": true,
+            "legRefusals": [],
+            "intraLegRefusals": [],
+            "primeLegs": [
+              31132
+            ],
+            "primeExcess": 12032,
+            "perWrite": 19116,
+            "perBoundaryPerWrite": 796.5,
+            "cdpBracket": 175000,
+            "sites": 2,
+            "siteLegs": [],
+            "siteWitness": null,
+            "samples": [
+              6028309,
+              6028325,
+              6059457,
+              6059473,
+              6078573,
+              6078589,
+              6097689,
+              6097705,
+              6116805,
+              6116821,
+              6135921,
+              6135937,
+              6155037,
+              6155053,
+              6174153
+            ],
+            "tick0": 665,
+            "tick": 672,
+            "work0": {
+              "events": 665,
+              "subs": 0,
+              "renders": 576
+            },
+            "work": {
+              "events": 672,
+              "subs": 0,
+              "renders": 576
+            },
+            "workDelta": {
+              "events": 7,
+              "subs": 0,
+              "renders": 0
+            }
+          }
+        },
+        "writeLegs": [
+          "all"
+        ]
+      },
+      {
+        "round": 12,
+        "controls": {
+          "idle": {
+            "kind": "idle",
+            "d": 0,
+            "rise": 192,
+            "fall": 0,
+            "falls": 0,
+            "maxStep": 16,
+            "endpoints": 192,
+            "legs": [
+              16,
+              16,
+              16,
+              16,
+              16,
+              16
+            ],
+            "gaps": [
+              16,
+              16,
+              16,
+              16,
+              16,
+              16
+            ],
+            "legMedian": 16,
+            "legWorstDeviation": 0,
+            "legTolerance": 0.25,
+            "refusals": [],
+            "certified": true,
+            "legRefusals": [],
+            "intraLegRefusals": [],
+            "primeLegs": [
+              16
+            ],
+            "primeExcess": 0,
+            "perIter": 32,
+            "cdpBracket": 28288,
+            "sites": 2,
+            "siteLegs": [],
+            "siteWitness": null,
+            "samples": [
+              5992621,
+              5992637,
+              5992653,
+              5992669,
+              5992685,
+              5992701,
+              5992717,
+              5992733,
+              5992749,
+              5992765,
+              5992781,
+              5992797,
+              5992813,
+              5992829,
+              5992845
+            ],
+            "work0": {
+              "events": 672,
+              "subs": 0,
+              "renders": 576
+            },
+            "work": {
+              "events": 672,
+              "subs": 0,
+              "renders": 576
+            },
+            "workDelta": {
+              "events": 0,
+              "subs": 0,
+              "renders": 0
+            }
+          },
+          "ctl1": {
+            "kind": "control",
+            "d": 1000,
+            "rise": 48480,
+            "fall": 0,
+            "falls": 0,
+            "maxStep": 8064,
+            "endpoints": 48480,
+            "legs": [
+              8064,
+              8064,
+              8064,
+              8064,
+              8064,
+              8064
+            ],
+            "gaps": [
+              16,
+              16,
+              16,
+              16,
+              16,
+              16
+            ],
+            "legMedian": 8064,
+            "legWorstDeviation": 0,
+            "legTolerance": 0.25,
+            "refusals": [],
+            "certified": true,
+            "legRefusals": [],
+            "intraLegRefusals": [],
+            "primeLegs": [
+              8064
+            ],
+            "primeExcess": 0,
+            "perIter": 8080,
+            "cdpBracket": 84608,
+            "sites": 2,
+            "siteLegs": [],
+            "siteWitness": null,
+            "samples": [
+              6000629,
+              6000645,
+              6008709,
+              6008725,
+              6016789,
+              6016805,
+              6024869,
+              6024885,
+              6032949,
+              6032965,
+              6041029,
+              6041045,
+              6049109,
+              6049125,
+              6057189
+            ],
+            "work0": {
+              "events": 672,
+              "subs": 0,
+              "renders": 576
+            },
+            "work": {
+              "events": 672,
+              "subs": 0,
+              "renders": 576
+            },
+            "workDelta": {
+              "events": 0,
+              "subs": 0,
+              "renders": 0
+            }
+          },
+          "ctl2": {
+            "kind": "control",
+            "d": 400,
+            "rise": 19680,
+            "fall": 0,
+            "falls": 0,
+            "maxStep": 3264,
+            "endpoints": 19680,
+            "legs": [
+              3264,
+              3264,
+              3264,
+              3264,
+              3264,
+              3264
+            ],
+            "gaps": [
+              16,
+              16,
+              16,
+              16,
+              16,
+              16
+            ],
+            "legMedian": 3264,
+            "legWorstDeviation": 0,
+            "legTolerance": 0.25,
+            "refusals": [],
+            "certified": true,
+            "legRefusals": [],
+            "intraLegRefusals": [],
+            "primeLegs": [
+              3264
+            ],
+            "primeExcess": 0,
+            "perIter": 3280,
+            "cdpBracket": 51008,
+            "sites": 2,
+            "siteLegs": [],
+            "siteWitness": null,
+            "samples": [
+              5995829,
+              5995845,
+              5999109,
+              5999125,
+              6002389,
+              6002405,
+              6005669,
+              6005685,
+              6008949,
+              6008965,
+              6012229,
+              6012245,
+              6015509,
+              6015525,
+              6018789
+            ],
+            "work0": {
+              "events": 672,
+              "subs": 0,
+              "renders": 576
+            },
+            "work": {
+              "events": 672,
+              "subs": 0,
+              "renders": 576
+            },
+            "workDelta": {
+              "events": 0,
+              "subs": 0,
+              "renders": 0
+            }
+          }
+        },
+        "arms": {
+          "reagent-subs|grid/floor": {
+            "segment": "reagent-subs",
+            "arm": "grid/floor",
+            "rung": "floor",
+            "reads": 0,
+            "boundaries": 24,
+            "text": "0",
+            "writeSelector": "all",
+            "write": ":p0/write-all — the grid is rebuilt at the fixture's fixed `cells-n` whatever is mounted — V1's F_old control, flat in B by construction",
+            "pairKey": "reagent-subs|grid/floor",
+            "rise": 115432,
+            "fall": 0,
+            "falls": 0,
+            "maxStep": 19848,
+            "endpoints": 115432,
+            "legs": [
+              19100,
+              19100,
+              19100,
+              19088,
+              19848,
+              19100
+            ],
+            "gaps": [
+              16,
+              16,
+              16,
+              16,
+              16,
+              16
+            ],
+            "legMedian": 19100,
+            "legWorstDeviation": 0.03916230366492147,
+            "legTolerance": 0.25,
+            "refusals": [],
+            "certified": true,
+            "legRefusals": [],
+            "intraLegRefusals": [],
+            "primeLegs": [
+              25900
+            ],
+            "primeExcess": 6800,
+            "perWrite": 19238.666666666668,
+            "perBoundaryPerWrite": 801.6111111111112,
+            "cdpBracket": 169404,
+            "sites": 2,
+            "siteLegs": [],
+            "siteWitness": null,
+            "samples": [
+              6058757,
+              6058773,
+              6084673,
+              6084689,
+              6103789,
+              6103805,
+              6122905,
+              6122921,
+              6142021,
+              6142037,
+              6161125,
+              6161141,
+              6180989,
+              6181005,
+              6200105
+            ],
+            "tick0": 693,
+            "tick": 700,
+            "work0": {
+              "events": 693,
+              "subs": 0,
+              "renders": 600
+            },
+            "work": {
+              "events": 700,
+              "subs": 0,
+              "renders": 600
+            },
+            "workDelta": {
+              "events": 7,
+              "subs": 0,
+              "renders": 0
+            }
+          },
+          "uix-subs|grid/floor": {
+            "segment": "uix-subs",
+            "arm": "grid/floor",
+            "rung": "floor",
+            "reads": 0,
+            "boundaries": 24,
+            "text": "0",
+            "writeSelector": "all",
+            "write": ":p0/write-all — the grid is rebuilt at the fixture's fixed `cells-n` whatever is mounted — V1's F_old control, flat in B by construction",
+            "pairKey": "uix-subs|grid/floor",
+            "rise": 117336,
+            "fall": 0,
+            "falls": 0,
+            "maxStep": 19540,
+            "endpoints": 117336,
+            "legs": [
+              19540,
+              19540,
+              19540,
+              19540,
+              19540,
+              19540
+            ],
+            "gaps": [
+              16,
+              16,
+              16,
+              16,
+              16,
+              16
+            ],
+            "legMedian": 19540,
+            "legWorstDeviation": 0,
+            "legTolerance": 0.25,
+            "refusals": [],
+            "certified": true,
+            "legRefusals": [],
+            "intraLegRefusals": [],
+            "primeLegs": [
+              26392
+            ],
+            "primeExcess": 6852,
+            "perWrite": 19556,
+            "perBoundaryPerWrite": 814.8333333333334,
+            "cdpBracket": 171692,
+            "sites": 2,
+            "siteLegs": [],
+            "siteWitness": null,
+            "samples": [
+              6078477,
+              6078493,
+              6104885,
+              6104901,
+              6124441,
+              6124457,
+              6143997,
+              6144013,
+              6163553,
+              6163569,
+              6183109,
+              6183125,
+              6202665,
+              6202681,
+              6222221
+            ],
+            "tick0": 721,
+            "tick": 728,
+            "work0": {
+              "events": 721,
+              "subs": 0,
+              "renders": 624
+            },
+            "work": {
+              "events": 728,
+              "subs": 0,
+              "renders": 624
+            },
+            "workDelta": {
+              "events": 7,
+              "subs": 0,
+              "renders": 0
+            }
+          }
+        },
+        "writeLegs": [
+          "all"
+        ]
+      },
+      {
+        "round": 13,
+        "controls": {
+          "idle": {
+            "kind": "idle",
+            "d": 0,
+            "rise": 192,
+            "fall": 0,
+            "falls": 0,
+            "maxStep": 16,
+            "endpoints": 192,
+            "legs": [
+              16,
+              16,
+              16,
+              16,
+              16,
+              16
+            ],
+            "gaps": [
+              16,
+              16,
+              16,
+              16,
+              16,
+              16
+            ],
+            "legMedian": 16,
+            "legWorstDeviation": 0,
+            "legTolerance": 0.25,
+            "refusals": [],
+            "certified": true,
+            "legRefusals": [],
+            "intraLegRefusals": [],
+            "primeLegs": [
+              16
+            ],
+            "primeExcess": 0,
+            "perIter": 32,
+            "cdpBracket": 31952,
+            "sites": 2,
+            "siteLegs": [],
+            "siteWitness": null,
+            "samples": [
+              6037513,
+              6037529,
+              6037545,
+              6037561,
+              6037577,
+              6037593,
+              6037609,
+              6037625,
+              6037641,
+              6037657,
+              6037673,
+              6037689,
+              6037705,
+              6037721,
+              6037737
+            ],
+            "work0": {
+              "events": 728,
+              "subs": 0,
+              "renders": 624
+            },
+            "work": {
+              "events": 728,
+              "subs": 0,
+              "renders": 624
+            },
+            "workDelta": {
+              "events": 0,
+              "subs": 0,
+              "renders": 0
+            }
+          },
+          "ctl1": {
+            "kind": "control",
+            "d": 1000,
+            "rise": 48480,
+            "fall": 0,
+            "falls": 0,
+            "maxStep": 8064,
+            "endpoints": 48480,
+            "legs": [
+              8064,
+              8064,
+              8064,
+              8064,
+              8064,
+              8064
+            ],
+            "gaps": [
+              16,
+              16,
+              16,
+              16,
+              16,
+              16
+            ],
+            "legMedian": 8064,
+            "legWorstDeviation": 0,
+            "legTolerance": 0.25,
+            "refusals": [],
+            "certified": true,
+            "legRefusals": [],
+            "intraLegRefusals": [],
+            "primeLegs": [
+              8064
+            ],
+            "primeExcess": 0,
+            "perIter": 8080,
+            "cdpBracket": 84608,
+            "sites": 2,
+            "siteLegs": [],
+            "siteWitness": null,
+            "samples": [
+              6049541,
+              6049557,
+              6057621,
+              6057637,
+              6065701,
+              6065717,
+              6073781,
+              6073797,
+              6081861,
+              6081877,
+              6089941,
+              6089957,
+              6098021,
+              6098037,
+              6106101
+            ],
+            "work0": {
+              "events": 728,
+              "subs": 0,
+              "renders": 624
+            },
+            "work": {
+              "events": 728,
+              "subs": 0,
+              "renders": 624
+            },
+            "workDelta": {
+              "events": 0,
+              "subs": 0,
+              "renders": 0
+            }
+          },
+          "ctl2": {
+            "kind": "control",
+            "d": 400,
+            "rise": 19680,
+            "fall": 0,
+            "falls": 0,
+            "maxStep": 3264,
+            "endpoints": 19680,
+            "legs": [
+              3264,
+              3264,
+              3264,
+              3264,
+              3264,
+              3264
+            ],
+            "gaps": [
+              16,
+              16,
+              16,
+              16,
+              16,
+              16
+            ],
+            "legMedian": 3264,
+            "legWorstDeviation": 0,
+            "legTolerance": 0.25,
+            "refusals": [],
+            "certified": true,
+            "legRefusals": [],
+            "intraLegRefusals": [],
+            "primeLegs": [
+              3264
+            ],
+            "primeExcess": 0,
+            "perIter": 3280,
+            "cdpBracket": 51008,
+            "sites": 2,
+            "siteLegs": [],
+            "siteWitness": null,
+            "samples": [
+              6044741,
+              6044757,
+              6048021,
+              6048037,
+              6051301,
+              6051317,
+              6054581,
+              6054597,
+              6057861,
+              6057877,
+              6061141,
+              6061157,
+              6064421,
+              6064437,
+              6067701
+            ],
+            "work0": {
+              "events": 728,
+              "subs": 0,
+              "renders": 624
+            },
+            "work": {
+              "events": 728,
+              "subs": 0,
+              "renders": 624
+            },
+            "workDelta": {
+              "events": 0,
+              "subs": 0,
+              "renders": 0
+            }
+          }
+        },
+        "arms": {
+          "uix-subs|grid/floor": {
+            "segment": "uix-subs",
+            "arm": "grid/floor",
+            "rung": "floor",
+            "reads": 0,
+            "boundaries": 24,
+            "text": "0",
+            "writeSelector": "all",
+            "write": ":p0/write-all — the grid is rebuilt at the fixture's fixed `cells-n` whatever is mounted — V1's F_old control, flat in B by construction",
+            "pairKey": "uix-subs|grid/floor",
+            "rise": 118084,
+            "fall": 0,
+            "falls": 0,
+            "maxStep": 20288,
+            "endpoints": 118084,
+            "legs": [
+              19540,
+              19540,
+              19540,
+              19540,
+              19540,
+              20288
+            ],
+            "gaps": [
+              16,
+              16,
+              16,
+              16,
+              16,
+              16
+            ],
+            "legMedian": 19540,
+            "legWorstDeviation": 0.03828045035823951,
+            "legTolerance": 0.25,
+            "refusals": [],
+            "certified": true,
+            "legRefusals": [],
+            "intraLegRefusals": [],
+            "primeLegs": [
+              26392
+            ],
+            "primeExcess": 6852,
+            "perWrite": 19680.666666666668,
+            "perBoundaryPerWrite": 820.0277777777778,
+            "cdpBracket": 172440,
+            "sites": 2,
+            "siteLegs": [],
+            "siteWitness": null,
+            "samples": [
+              6092065,
+              6092081,
+              6118473,
+              6118489,
+              6138029,
+              6138045,
+              6157585,
+              6157601,
+              6177141,
+              6177157,
+              6196697,
+              6196713,
+              6216253,
+              6216269,
+              6236557
+            ],
+            "tick0": 749,
+            "tick": 756,
+            "work0": {
+              "events": 749,
+              "subs": 0,
+              "renders": 648
+            },
+            "work": {
+              "events": 756,
+              "subs": 0,
+              "renders": 648
+            },
+            "workDelta": {
+              "events": 7,
+              "subs": 0,
+              "renders": 0
+            }
+          },
+          "reagent-subs|grid/floor": {
+            "segment": "reagent-subs",
+            "arm": "grid/floor",
+            "rung": "floor",
+            "reads": 0,
+            "boundaries": 24,
+            "text": "0",
+            "writeSelector": "all",
+            "write": ":p0/write-all — the grid is rebuilt at the fixture's fixed `cells-n` whatever is mounted — V1's F_old control, flat in B by construction",
+            "pairKey": "reagent-subs|grid/floor",
+            "rise": 114684,
+            "fall": 0,
+            "falls": 0,
+            "maxStep": 19100,
+            "endpoints": 114684,
+            "legs": [
+              19100,
+              19100,
+              19100,
+              19100,
+              19100,
+              19088
+            ],
+            "gaps": [
+              16,
+              16,
+              16,
+              16,
+              16,
+              16
+            ],
+            "legMedian": 19100,
+            "legWorstDeviation": -0.0006282722513089005,
+            "legTolerance": 0.25,
+            "refusals": [],
+            "certified": true,
+            "legRefusals": [],
+            "intraLegRefusals": [],
+            "primeLegs": [
+              25900
+            ],
+            "primeExcess": 6800,
+            "perWrite": 19114,
+            "perBoundaryPerWrite": 796.4166666666666,
+            "cdpBracket": 168528,
+            "sites": 2,
+            "siteLegs": [],
+            "siteWitness": null,
+            "samples": [
+              6094901,
+              6094917,
+              6120817,
+              6120833,
+              6139933,
+              6139949,
+              6159049,
+              6159065,
+              6178165,
+              6178181,
+              6197281,
+              6197297,
+              6216397,
+              6216413,
+              6235501
+            ],
+            "tick0": 777,
+            "tick": 784,
+            "work0": {
+              "events": 777,
+              "subs": 0,
+              "renders": 672
+            },
+            "work": {
+              "events": 784,
+              "subs": 0,
+              "renders": 672
+            },
+            "workDelta": {
+              "events": 7,
+              "subs": 0,
+              "renders": 0
+            }
+          }
+        },
+        "writeLegs": [
+          "all"
+        ]
+      },
+      {
+        "round": 14,
+        "controls": {
+          "idle": {
+            "kind": "idle",
+            "d": 0,
+            "rise": 192,
+            "fall": 0,
+            "falls": 0,
+            "maxStep": 16,
+            "endpoints": 192,
+            "legs": [
+              16,
+              16,
+              16,
+              16,
+              16,
+              16
+            ],
+            "gaps": [
+              16,
+              16,
+              16,
+              16,
+              16,
+              16
+            ],
+            "legMedian": 16,
+            "legWorstDeviation": 0,
+            "legTolerance": 0.25,
+            "refusals": [],
+            "certified": true,
+            "legRefusals": [],
+            "intraLegRefusals": [],
+            "primeLegs": [
+              16
+            ],
+            "primeExcess": 0,
+            "perIter": 32,
+            "cdpBracket": 28288,
+            "sites": 2,
+            "siteLegs": [],
+            "siteWitness": null,
+            "samples": [
+              6053957,
+              6053973,
+              6053989,
+              6054005,
+              6054021,
+              6054037,
+              6054053,
+              6054069,
+              6054085,
+              6054101,
+              6054117,
+              6054133,
+              6054149,
+              6054165,
+              6054181
+            ],
+            "work0": {
+              "events": 784,
+              "subs": 0,
+              "renders": 672
+            },
+            "work": {
+              "events": 784,
+              "subs": 0,
+              "renders": 672
+            },
+            "workDelta": {
+              "events": 0,
+              "subs": 0,
+              "renders": 0
+            }
+          },
+          "ctl1": {
+            "kind": "control",
+            "d": 1000,
+            "rise": 48480,
+            "fall": 0,
+            "falls": 0,
+            "maxStep": 8064,
+            "endpoints": 48480,
+            "legs": [
+              8064,
+              8064,
+              8064,
+              8064,
+              8064,
+              8064
+            ],
+            "gaps": [
+              16,
+              16,
+              16,
+              16,
+              16,
+              16
+            ],
+            "legMedian": 8064,
+            "legWorstDeviation": 0,
+            "legTolerance": 0.25,
+            "refusals": [],
+            "certified": true,
+            "legRefusals": [],
+            "intraLegRefusals": [],
+            "primeLegs": [
+              8064
+            ],
+            "primeExcess": 0,
+            "perIter": 8080,
+            "cdpBracket": 84608,
+            "sites": 2,
+            "siteLegs": [],
+            "siteWitness": null,
+            "samples": [
+              6061965,
+              6061981,
+              6070045,
+              6070061,
+              6078125,
+              6078141,
+              6086205,
+              6086221,
+              6094285,
+              6094301,
+              6102365,
+              6102381,
+              6110445,
+              6110461,
+              6118525
+            ],
+            "work0": {
+              "events": 784,
+              "subs": 0,
+              "renders": 672
+            },
+            "work": {
+              "events": 784,
+              "subs": 0,
+              "renders": 672
+            },
+            "workDelta": {
+              "events": 0,
+              "subs": 0,
+              "renders": 0
+            }
+          },
+          "ctl2": {
+            "kind": "control",
+            "d": 400,
+            "rise": 19680,
+            "fall": 0,
+            "falls": 0,
+            "maxStep": 3264,
+            "endpoints": 19680,
+            "legs": [
+              3264,
+              3264,
+              3264,
+              3264,
+              3264,
+              3264
+            ],
+            "gaps": [
+              16,
+              16,
+              16,
+              16,
+              16,
+              16
+            ],
+            "legMedian": 3264,
+            "legWorstDeviation": 0,
+            "legTolerance": 0.25,
+            "refusals": [],
+            "certified": true,
+            "legRefusals": [],
+            "intraLegRefusals": [],
+            "primeLegs": [
+              3264
+            ],
+            "primeExcess": 0,
+            "perIter": 3280,
+            "cdpBracket": 51008,
+            "sites": 2,
+            "siteLegs": [],
+            "siteWitness": null,
+            "samples": [
+              6057165,
+              6057181,
+              6060445,
+              6060461,
+              6063725,
+              6063741,
+              6067005,
+              6067021,
+              6070285,
+              6070301,
+              6073565,
+              6073581,
+              6076845,
+              6076861,
+              6080125
+            ],
+            "work0": {
+              "events": 784,
+              "subs": 0,
+              "renders": 672
+            },
+            "work": {
+              "events": 784,
+              "subs": 0,
+              "renders": 672
+            },
+            "workDelta": {
+              "events": 0,
+              "subs": 0,
+              "renders": 0
+            }
+          }
+        },
+        "arms": {
+          "reagent-subs|grid/floor": {
+            "segment": "reagent-subs",
+            "arm": "grid/floor",
+            "rung": "floor",
+            "reads": 0,
+            "boundaries": 24,
+            "text": "0",
+            "writeSelector": "all",
+            "write": ":p0/write-all — the grid is rebuilt at the fixture's fixed `cells-n` whatever is mounted — V1's F_old control, flat in B by construction",
+            "pairKey": "reagent-subs|grid/floor",
+            "rise": 116124,
+            "fall": 0,
+            "falls": 0,
+            "maxStep": 19820,
+            "endpoints": 116124,
+            "legs": [
+              19100,
+              17268,
+              19100,
+              19100,
+              19100,
+              19820
+            ],
+            "gaps": [
+              16,
+              2556,
+              16,
+              16,
+              16,
+              16
+            ],
+            "legMedian": 19100,
+            "legWorstDeviation": -0.09591623036649215,
+            "legTolerance": 0.25,
+            "refusals": [],
+            "certified": true,
+            "legRefusals": [],
+            "intraLegRefusals": [],
+            "primeLegs": [
+              25900
+            ],
+            "primeExcess": 6800,
+            "perWrite": 19354,
+            "perBoundaryPerWrite": 806.4166666666666,
+            "cdpBracket": 172356,
+            "sites": 2,
+            "siteLegs": [],
+            "siteWitness": null,
+            "samples": [
+              6104069,
+              6104085,
+              6129985,
+              6130001,
+              6149101,
+              6151657,
+              6168925,
+              6168941,
+              6188041,
+              6188057,
+              6207157,
+              6207173,
+              6226273,
+              6226289,
+              6246109
+            ],
+            "tick0": 805,
+            "tick": 812,
+            "work0": {
+              "events": 805,
+              "subs": 0,
+              "renders": 696
+            },
+            "work": {
+              "events": 812,
+              "subs": 0,
+              "renders": 696
+            },
+            "workDelta": {
+              "events": 7,
+              "subs": 0,
+              "renders": 0
+            }
+          },
+          "uix-subs|grid/floor": {
+            "segment": "uix-subs",
+            "arm": "grid/floor",
+            "rung": "floor",
+            "reads": 0,
+            "boundaries": 24,
+            "text": "0",
+            "writeSelector": "all",
+            "write": ":p0/write-all — the grid is rebuilt at the fixture's fixed `cells-n` whatever is mounted — V1's F_old control, flat in B by construction",
+            "pairKey": "uix-subs|grid/floor",
+            "rise": 117300,
+            "fall": 0,
+            "falls": 0,
+            "maxStep": 19540,
+            "endpoints": 117300,
+            "legs": [
+              19540,
+              19540,
+              19540,
+              19540,
+              19540,
+              19504
+            ],
+            "gaps": [
+              16,
+              16,
+              16,
+              16,
+              16,
+              16
+            ],
+            "legMedian": 19540,
+            "legWorstDeviation": -0.001842374616171955,
+            "legTolerance": 0.25,
+            "refusals": [],
+            "certified": true,
+            "legRefusals": [],
+            "intraLegRefusals": [],
+            "primeLegs": [
+              26404
+            ],
+            "primeExcess": 6864,
+            "perWrite": 19550,
+            "perBoundaryPerWrite": 814.5833333333334,
+            "cdpBracket": 171668,
+            "sites": 2,
+            "siteLegs": [],
+            "siteWitness": null,
+            "samples": [
+              6132437,
+              6132453,
+              6158857,
+              6158873,
+              6178413,
+              6178429,
+              6197969,
+              6197985,
+              6217525,
+              6217541,
+              6237081,
+              6237097,
+              6256637,
+              6256653,
+              6276157
+            ],
+            "tick0": 833,
+            "tick": 840,
+            "work0": {
+              "events": 833,
+              "subs": 0,
+              "renders": 720
+            },
+            "work": {
+              "events": 840,
+              "subs": 0,
+              "renders": 720
+            },
+            "workDelta": {
+              "events": 7,
+              "subs": 0,
+              "renders": 0
+            }
+          }
+        },
+        "writeLegs": [
+          "all"
+        ]
+      },
+      {
+        "round": 15,
+        "controls": {
+          "idle": {
+            "kind": "idle",
+            "d": 0,
+            "rise": 192,
+            "fall": 0,
+            "falls": 0,
+            "maxStep": 16,
+            "endpoints": 192,
+            "legs": [
+              16,
+              16,
+              16,
+              16,
+              16,
+              16
+            ],
+            "gaps": [
+              16,
+              16,
+              16,
+              16,
+              16,
+              16
+            ],
+            "legMedian": 16,
+            "legWorstDeviation": 0,
+            "legTolerance": 0.25,
+            "refusals": [],
+            "certified": true,
+            "legRefusals": [],
+            "intraLegRefusals": [],
+            "primeLegs": [
+              16
+            ],
+            "primeExcess": 0,
+            "perIter": 32,
+            "cdpBracket": 28288,
+            "sites": 2,
+            "siteLegs": [],
+            "siteWitness": null,
+            "samples": [
+              6091473,
+              6091489,
+              6091505,
+              6091521,
+              6091537,
+              6091553,
+              6091569,
+              6091585,
+              6091601,
+              6091617,
+              6091633,
+              6091649,
+              6091665,
+              6091681,
+              6091697
+            ],
+            "work0": {
+              "events": 840,
+              "subs": 0,
+              "renders": 720
+            },
+            "work": {
+              "events": 840,
+              "subs": 0,
+              "renders": 720
+            },
+            "workDelta": {
+              "events": 0,
+              "subs": 0,
+              "renders": 0
+            }
+          },
+          "ctl1": {
+            "kind": "control",
+            "d": 1000,
+            "rise": 48480,
+            "fall": 0,
+            "falls": 0,
+            "maxStep": 8064,
+            "endpoints": 48480,
+            "legs": [
+              8064,
+              8064,
+              8064,
+              8064,
+              8064,
+              8064
+            ],
+            "gaps": [
+              16,
+              16,
+              16,
+              16,
+              16,
+              16
+            ],
+            "legMedian": 8064,
+            "legWorstDeviation": 0,
+            "legTolerance": 0.25,
+            "refusals": [],
+            "certified": true,
+            "legRefusals": [],
+            "intraLegRefusals": [],
+            "primeLegs": [
+              8064
+            ],
+            "primeExcess": 0,
+            "perIter": 8080,
+            "cdpBracket": 84608,
+            "sites": 2,
+            "siteLegs": [],
+            "siteWitness": null,
+            "samples": [
+              6099481,
+              6099497,
+              6107561,
+              6107577,
+              6115641,
+              6115657,
+              6123721,
+              6123737,
+              6131801,
+              6131817,
+              6139881,
+              6139897,
+              6147961,
+              6147977,
+              6156041
+            ],
+            "work0": {
+              "events": 840,
+              "subs": 0,
+              "renders": 720
+            },
+            "work": {
+              "events": 840,
+              "subs": 0,
+              "renders": 720
+            },
+            "workDelta": {
+              "events": 0,
+              "subs": 0,
+              "renders": 0
+            }
+          },
+          "ctl2": {
+            "kind": "control",
+            "d": 400,
+            "rise": 19680,
+            "fall": 0,
+            "falls": 0,
+            "maxStep": 3264,
+            "endpoints": 19680,
+            "legs": [
+              3264,
+              3264,
+              3264,
+              3264,
+              3264,
+              3264
+            ],
+            "gaps": [
+              16,
+              16,
+              16,
+              16,
+              16,
+              16
+            ],
+            "legMedian": 3264,
+            "legWorstDeviation": 0,
+            "legTolerance": 0.25,
+            "refusals": [],
+            "certified": true,
+            "legRefusals": [],
+            "intraLegRefusals": [],
+            "primeLegs": [
+              3264
+            ],
+            "primeExcess": 0,
+            "perIter": 3280,
+            "cdpBracket": 51008,
+            "sites": 2,
+            "siteLegs": [],
+            "siteWitness": null,
+            "samples": [
+              6094681,
+              6094697,
+              6097961,
+              6097977,
+              6101241,
+              6101257,
+              6104521,
+              6104537,
+              6107801,
+              6107817,
+              6111081,
+              6111097,
+              6114361,
+              6114377,
+              6117641
+            ],
+            "work0": {
+              "events": 840,
+              "subs": 0,
+              "renders": 720
+            },
+            "work": {
+              "events": 840,
+              "subs": 0,
+              "renders": 720
+            },
+            "workDelta": {
+              "events": 0,
+              "subs": 0,
+              "renders": 0
+            }
+          }
+        },
+        "arms": {
+          "uix-subs|grid/floor": {
+            "segment": "uix-subs",
+            "arm": "grid/floor",
+            "rung": "floor",
+            "reads": 0,
+            "boundaries": 24,
+            "text": "0",
+            "writeSelector": "all",
+            "write": ":p0/write-all — the grid is rebuilt at the fixture's fixed `cells-n` whatever is mounted — V1's F_old control, flat in B by construction",
+            "pairKey": "uix-subs|grid/floor",
+            "rise": 120372,
+            "fall": 0,
+            "falls": 0,
+            "maxStep": 22660,
+            "endpoints": 120372,
+            "legs": [
+              19540,
+              19540,
+              19540,
+              19528,
+              22660,
+              19468
+            ],
+            "gaps": [
+              16,
+              16,
+              16,
+              16,
+              16,
+              16
+            ],
+            "legMedian": 19540,
+            "legWorstDeviation": 0.15967246673490276,
+            "legTolerance": 0.25,
+            "refusals": [],
+            "certified": true,
+            "legRefusals": [],
+            "intraLegRefusals": [],
+            "primeLegs": [
+              26404
+            ],
+            "primeExcess": 6864,
+            "perWrite": 20062,
+            "perBoundaryPerWrite": 835.9166666666666,
+            "cdpBracket": 174740,
+            "sites": 2,
+            "siteLegs": [],
+            "siteWitness": null,
+            "samples": [
+              6146537,
+              6146553,
+              6172957,
+              6172973,
+              6192513,
+              6192529,
+              6212069,
+              6212085,
+              6231625,
+              6231641,
+              6251169,
+              6251185,
+              6273845,
+              6273861,
+              6293329
+            ],
+            "tick0": 861,
+            "tick": 868,
+            "work0": {
+              "events": 861,
+              "subs": 0,
+              "renders": 744
+            },
+            "work": {
+              "events": 868,
+              "subs": 0,
+              "renders": 744
+            },
+            "workDelta": {
+              "events": 7,
+              "subs": 0,
+              "renders": 0
+            }
+          },
+          "reagent-subs|grid/floor": {
+            "segment": "reagent-subs",
+            "arm": "grid/floor",
+            "rung": "floor",
+            "reads": 0,
+            "boundaries": 24,
+            "text": "0",
+            "writeSelector": "all",
+            "write": ":p0/write-all — the grid is rebuilt at the fixture's fixed `cells-n` whatever is mounted — V1's F_old control, flat in B by construction",
+            "pairKey": "reagent-subs|grid/floor",
+            "rise": 115416,
+            "fall": 0,
+            "falls": 0,
+            "maxStep": 19844,
+            "endpoints": 115416,
+            "legs": [
+              19844,
+              19100,
+              19100,
+              19100,
+              19088,
+              19088
+            ],
+            "gaps": [
+              16,
+              16,
+              16,
+              16,
+              16,
+              16
+            ],
+            "legMedian": 19100,
+            "legWorstDeviation": 0.03895287958115183,
+            "legTolerance": 0.25,
+            "refusals": [],
+            "certified": true,
+            "legRefusals": [],
+            "intraLegRefusals": [],
+            "primeLegs": [
+              25900
+            ],
+            "primeExcess": 6800,
+            "perWrite": 19236,
+            "perBoundaryPerWrite": 801.5,
+            "cdpBracket": 169260,
+            "sites": 2,
+            "siteLegs": [],
+            "siteWitness": null,
+            "samples": [
+              6157781,
+              6157797,
+              6183697,
+              6183713,
+              6203557,
+              6203573,
+              6222673,
+              6222689,
+              6241789,
+              6241805,
+              6260905,
+              6260921,
+              6280009,
+              6280025,
+              6299113
+            ],
+            "tick0": 889,
+            "tick": 896,
+            "work0": {
+              "events": 889,
+              "subs": 0,
+              "renders": 768
+            },
+            "work": {
+              "events": 896,
+              "subs": 0,
+              "renders": 768
+            },
+            "workDelta": {
+              "events": 7,
+              "subs": 0,
+              "renders": 0
+            }
+          }
+        },
+        "writeLegs": [
+          "all"
+        ]
+      },
+      {
+        "round": 16,
+        "controls": {
+          "idle": {
+            "kind": "idle",
+            "d": 0,
+            "rise": 192,
+            "fall": 0,
+            "falls": 0,
+            "maxStep": 16,
+            "endpoints": 192,
+            "legs": [
+              16,
+              16,
+              16,
+              16,
+              16,
+              16
+            ],
+            "gaps": [
+              16,
+              16,
+              16,
+              16,
+              16,
+              16
+            ],
+            "legMedian": 16,
+            "legWorstDeviation": 0,
+            "legTolerance": 0.25,
+            "refusals": [],
+            "certified": true,
+            "legRefusals": [],
+            "intraLegRefusals": [],
+            "primeLegs": [
+              16
+            ],
+            "primeExcess": 0,
+            "perIter": 32,
+            "cdpBracket": 28288,
+            "sites": 2,
+            "siteLegs": [],
+            "siteWitness": null,
+            "samples": [
+              6111721,
+              6111737,
+              6111753,
+              6111769,
+              6111785,
+              6111801,
+              6111817,
+              6111833,
+              6111849,
+              6111865,
+              6111881,
+              6111897,
+              6111913,
+              6111929,
+              6111945
+            ],
+            "work0": {
+              "events": 896,
+              "subs": 0,
+              "renders": 768
+            },
+            "work": {
+              "events": 896,
+              "subs": 0,
+              "renders": 768
+            },
+            "workDelta": {
+              "events": 0,
+              "subs": 0,
+              "renders": 0
+            }
+          },
+          "ctl1": {
+            "kind": "control",
+            "d": 1000,
+            "rise": 48480,
+            "fall": 0,
+            "falls": 0,
+            "maxStep": 8064,
+            "endpoints": 48480,
+            "legs": [
+              8064,
+              8064,
+              8064,
+              8064,
+              8064,
+              8064
+            ],
+            "gaps": [
+              16,
+              16,
+              16,
+              16,
+              16,
+              16
+            ],
+            "legMedian": 8064,
+            "legWorstDeviation": 0,
+            "legTolerance": 0.25,
+            "refusals": [],
+            "certified": true,
+            "legRefusals": [],
+            "intraLegRefusals": [],
+            "primeLegs": [
+              8064
+            ],
+            "primeExcess": 0,
+            "perIter": 8080,
+            "cdpBracket": 84608,
+            "sites": 2,
+            "siteLegs": [],
+            "siteWitness": null,
+            "samples": [
+              6119729,
+              6119745,
+              6127809,
+              6127825,
+              6135889,
+              6135905,
+              6143969,
+              6143985,
+              6152049,
+              6152065,
+              6160129,
+              6160145,
+              6168209,
+              6168225,
+              6176289
+            ],
+            "work0": {
+              "events": 896,
+              "subs": 0,
+              "renders": 768
+            },
+            "work": {
+              "events": 896,
+              "subs": 0,
+              "renders": 768
+            },
+            "workDelta": {
+              "events": 0,
+              "subs": 0,
+              "renders": 0
+            }
+          },
+          "ctl2": {
+            "kind": "control",
+            "d": 400,
+            "rise": 19680,
+            "fall": 0,
+            "falls": 0,
+            "maxStep": 3264,
+            "endpoints": 19680,
+            "legs": [
+              3264,
+              3264,
+              3264,
+              3264,
+              3264,
+              3264
+            ],
+            "gaps": [
+              16,
+              16,
+              16,
+              16,
+              16,
+              16
+            ],
+            "legMedian": 3264,
+            "legWorstDeviation": 0,
+            "legTolerance": 0.25,
+            "refusals": [],
+            "certified": true,
+            "legRefusals": [],
+            "intraLegRefusals": [],
+            "primeLegs": [
+              3264
+            ],
+            "primeExcess": 0,
+            "perIter": 3280,
+            "cdpBracket": 51008,
+            "sites": 2,
+            "siteLegs": [],
+            "siteWitness": null,
+            "samples": [
+              6114929,
+              6114945,
+              6118209,
+              6118225,
+              6121489,
+              6121505,
+              6124769,
+              6124785,
+              6128049,
+              6128065,
+              6131329,
+              6131345,
+              6134609,
+              6134625,
+              6137889
+            ],
+            "work0": {
+              "events": 896,
+              "subs": 0,
+              "renders": 768
+            },
+            "work": {
+              "events": 896,
+              "subs": 0,
+              "renders": 768
+            },
+            "workDelta": {
+              "events": 0,
+              "subs": 0,
+              "renders": 0
+            }
+          }
+        },
+        "arms": {
+          "reagent-subs|grid/floor": {
+            "segment": "reagent-subs",
+            "arm": "grid/floor",
+            "rung": "floor",
+            "reads": 0,
+            "boundaries": 24,
+            "text": "0",
+            "writeSelector": "all",
+            "write": ":p0/write-all — the grid is rebuilt at the fixture's fixed `cells-n` whatever is mounted — V1's F_old control, flat in B by construction",
+            "pairKey": "reagent-subs|grid/floor",
+            "rise": 117744,
+            "fall": 0,
+            "falls": 0,
+            "maxStep": 19100,
+            "endpoints": 117744,
+            "legs": [
+              19100,
+              19100,
+              19100,
+              19100,
+              19100,
+              14536
+            ],
+            "gaps": [
+              16,
+              16,
+              16,
+              16,
+              16,
+              7628
+            ],
+            "legMedian": 19100,
+            "legWorstDeviation": -0.23895287958115183,
+            "legTolerance": 0.25,
+            "refusals": [],
+            "certified": true,
+            "legRefusals": [],
+            "intraLegRefusals": [],
+            "primeLegs": [
+              25900
+            ],
+            "primeExcess": 6800,
+            "perWrite": 19624,
+            "perBoundaryPerWrite": 817.6666666666666,
+            "cdpBracket": 171716,
+            "sites": 2,
+            "siteLegs": [],
+            "siteWitness": null,
+            "samples": [
+              6160977,
+              6160993,
+              6186893,
+              6186909,
+              6206009,
+              6206025,
+              6225125,
+              6225141,
+              6244241,
+              6244257,
+              6263357,
+              6263373,
+              6282473,
+              6290101,
+              6304637
+            ],
+            "tick0": 917,
+            "tick": 924,
+            "work0": {
+              "events": 917,
+              "subs": 0,
+              "renders": 792
+            },
+            "work": {
+              "events": 924,
+              "subs": 0,
+              "renders": 792
+            },
+            "workDelta": {
+              "events": 7,
+              "subs": 0,
+              "renders": 0
+            }
+          },
+          "uix-subs|grid/floor": {
+            "segment": "uix-subs",
+            "arm": "grid/floor",
+            "rung": "floor",
+            "reads": 0,
+            "boundaries": 24,
+            "text": "0",
+            "writeSelector": "all",
+            "write": ":p0/write-all — the grid is rebuilt at the fixture's fixed `cells-n` whatever is mounted — V1's F_old control, flat in B by construction",
+            "pairKey": "uix-subs|grid/floor",
+            "rise": 120992,
+            "fall": 0,
+            "falls": 0,
+            "maxStep": 23196,
+            "endpoints": 120992,
+            "legs": [
+              19540,
+              19540,
+              19540,
+              23196,
+              19540,
+              19540
+            ],
+            "gaps": [
+              16,
+              16,
+              16,
+              16,
+              16,
+              16
+            ],
+            "legMedian": 19540,
+            "legWorstDeviation": 0.1871033776867963,
+            "legTolerance": 0.25,
+            "refusals": [],
+            "certified": true,
+            "legRefusals": [],
+            "intraLegRefusals": [],
+            "primeLegs": [
+              27752
+            ],
+            "primeExcess": 8212,
+            "perWrite": 20165.333333333332,
+            "perBoundaryPerWrite": 840.2222222222222,
+            "cdpBracket": 176708,
+            "sites": 2,
+            "siteLegs": [],
+            "siteWitness": null,
+            "samples": [
+              6178349,
+              6178365,
+              6206117,
+              6206133,
+              6225673,
+              6225689,
+              6245229,
+              6245245,
+              6264785,
+              6264801,
+              6287997,
+              6288013,
+              6307553,
+              6307569,
+              6327109
+            ],
+            "tick0": 945,
+            "tick": 952,
+            "work0": {
+              "events": 945,
+              "subs": 0,
+              "renders": 816
+            },
+            "work": {
+              "events": 952,
+              "subs": 0,
+              "renders": 816
+            },
+            "workDelta": {
+              "events": 7,
+              "subs": 0,
+              "renders": 0
+            }
+          }
+        },
+        "writeLegs": [
+          "all"
+        ]
+      },
+      {
+        "round": 17,
+        "controls": {
+          "idle": {
+            "kind": "idle",
+            "d": 0,
+            "rise": 192,
+            "fall": 0,
+            "falls": 0,
+            "maxStep": 16,
+            "endpoints": 192,
+            "legs": [
+              16,
+              16,
+              16,
+              16,
+              16,
+              16
+            ],
+            "gaps": [
+              16,
+              16,
+              16,
+              16,
+              16,
+              16
+            ],
+            "legMedian": 16,
+            "legWorstDeviation": 0,
+            "legTolerance": 0.25,
+            "refusals": [],
+            "certified": true,
+            "legRefusals": [],
+            "intraLegRefusals": [],
+            "primeLegs": [
+              16
+            ],
+            "primeExcess": 0,
+            "perIter": 32,
+            "cdpBracket": 28288,
+            "sites": 2,
+            "siteLegs": [],
+            "siteWitness": null,
+            "samples": [
+              6135793,
+              6135809,
+              6135825,
+              6135841,
+              6135857,
+              6135873,
+              6135889,
+              6135905,
+              6135921,
+              6135937,
+              6135953,
+              6135969,
+              6135985,
+              6136001,
+              6136017
+            ],
+            "work0": {
+              "events": 952,
+              "subs": 0,
+              "renders": 816
+            },
+            "work": {
+              "events": 952,
+              "subs": 0,
+              "renders": 816
+            },
+            "workDelta": {
+              "events": 0,
+              "subs": 0,
+              "renders": 0
+            }
+          },
+          "ctl1": {
+            "kind": "control",
+            "d": 1000,
+            "rise": 48480,
+            "fall": 0,
+            "falls": 0,
+            "maxStep": 8064,
+            "endpoints": 48480,
+            "legs": [
+              8064,
+              8064,
+              8064,
+              8064,
+              8064,
+              8064
+            ],
+            "gaps": [
+              16,
+              16,
+              16,
+              16,
+              16,
+              16
+            ],
+            "legMedian": 8064,
+            "legWorstDeviation": 0,
+            "legTolerance": 0.25,
+            "refusals": [],
+            "certified": true,
+            "legRefusals": [],
+            "intraLegRefusals": [],
+            "primeLegs": [
+              8064
+            ],
+            "primeExcess": 0,
+            "perIter": 8080,
+            "cdpBracket": 84608,
+            "sites": 2,
+            "siteLegs": [],
+            "siteWitness": null,
+            "samples": [
+              6143801,
+              6143817,
+              6151881,
+              6151897,
+              6159961,
+              6159977,
+              6168041,
+              6168057,
+              6176121,
+              6176137,
+              6184201,
+              6184217,
+              6192281,
+              6192297,
+              6200361
+            ],
+            "work0": {
+              "events": 952,
+              "subs": 0,
+              "renders": 816
+            },
+            "work": {
+              "events": 952,
+              "subs": 0,
+              "renders": 816
+            },
+            "workDelta": {
+              "events": 0,
+              "subs": 0,
+              "renders": 0
+            }
+          },
+          "ctl2": {
+            "kind": "control",
+            "d": 400,
+            "rise": 19680,
+            "fall": 0,
+            "falls": 0,
+            "maxStep": 3264,
+            "endpoints": 19680,
+            "legs": [
+              3264,
+              3264,
+              3264,
+              3264,
+              3264,
+              3264
+            ],
+            "gaps": [
+              16,
+              16,
+              16,
+              16,
+              16,
+              16
+            ],
+            "legMedian": 3264,
+            "legWorstDeviation": 0,
+            "legTolerance": 0.25,
+            "refusals": [],
+            "certified": true,
+            "legRefusals": [],
+            "intraLegRefusals": [],
+            "primeLegs": [
+              3264
+            ],
+            "primeExcess": 0,
+            "perIter": 3280,
+            "cdpBracket": 51008,
+            "sites": 2,
+            "siteLegs": [],
+            "siteWitness": null,
+            "samples": [
+              6139001,
+              6139017,
+              6142281,
+              6142297,
+              6145561,
+              6145577,
+              6148841,
+              6148857,
+              6152121,
+              6152137,
+              6155401,
+              6155417,
+              6158681,
+              6158697,
+              6161961
+            ],
+            "work0": {
+              "events": 952,
+              "subs": 0,
+              "renders": 816
+            },
+            "work": {
+              "events": 952,
+              "subs": 0,
+              "renders": 816
+            },
+            "workDelta": {
+              "events": 0,
+              "subs": 0,
+              "renders": 0
+            }
+          }
+        },
+        "arms": {
+          "uix-subs|grid/floor": {
+            "segment": "uix-subs",
+            "arm": "grid/floor",
+            "rung": "floor",
+            "reads": 0,
+            "boundaries": 24,
+            "text": "0",
+            "writeSelector": "all",
+            "write": ":p0/write-all — the grid is rebuilt at the fixture's fixed `cells-n` whatever is mounted — V1's F_old control, flat in B by construction",
+            "pairKey": "uix-subs|grid/floor",
+            "rise": 120324,
+            "fall": 0,
+            "falls": 0,
+            "maxStep": 21872,
+            "endpoints": 120324,
+            "legs": [
+              19544,
+              19544,
+              19544,
+              19544,
+              21872,
+              20180
+            ],
+            "gaps": [
+              16,
+              16,
+              16,
+              16,
+              16,
+              16
+            ],
+            "legMedian": 19544,
+            "legWorstDeviation": 0.11911584117887843,
+            "legTolerance": 0.25,
+            "refusals": [],
+            "certified": true,
+            "legRefusals": [],
+            "intraLegRefusals": [],
+            "primeLegs": [
+              26396
+            ],
+            "primeExcess": 6852,
+            "perWrite": 20054,
+            "perBoundaryPerWrite": 835.5833333333334,
+            "cdpBracket": 174684,
+            "sites": 2,
+            "siteLegs": [],
+            "siteWitness": null,
+            "samples": [
+              6190445,
+              6190461,
+              6216857,
+              6216873,
+              6236417,
+              6236433,
+              6255977,
+              6255993,
+              6275537,
+              6275553,
+              6295097,
+              6295113,
+              6316985,
+              6317001,
+              6337181
+            ],
+            "tick0": 973,
+            "tick": 980,
+            "work0": {
+              "events": 973,
+              "subs": 0,
+              "renders": 840
+            },
+            "work": {
+              "events": 980,
+              "subs": 0,
+              "renders": 840
+            },
+            "workDelta": {
+              "events": 7,
+              "subs": 0,
+              "renders": 0
+            }
+          },
+          "reagent-subs|grid/floor": {
+            "segment": "reagent-subs",
+            "arm": "grid/floor",
+            "rung": "floor",
+            "reads": 0,
+            "boundaries": 24,
+            "text": "0",
+            "writeSelector": "all",
+            "write": ":p0/write-all — the grid is rebuilt at the fixture's fixed `cells-n` whatever is mounted — V1's F_old control, flat in B by construction",
+            "pairKey": "reagent-subs|grid/floor",
+            "rise": 114672,
+            "fall": 0,
+            "falls": 0,
+            "maxStep": 19100,
+            "endpoints": 114672,
+            "legs": [
+              19100,
+              19100,
+              19088,
+              19088,
+              19100,
+              19100
+            ],
+            "gaps": [
+              16,
+              16,
+              16,
+              16,
+              16,
+              16
+            ],
+            "legMedian": 19100,
+            "legWorstDeviation": -0.0006282722513089005,
+            "legTolerance": 0.25,
+            "refusals": [],
+            "certified": true,
+            "legRefusals": [],
+            "intraLegRefusals": [],
+            "primeLegs": [
+              25900
+            ],
+            "primeExcess": 6800,
+            "perWrite": 19112,
+            "perBoundaryPerWrite": 796.3333333333334,
+            "cdpBracket": 168516,
+            "sites": 2,
+            "siteLegs": [],
+            "siteWitness": null,
+            "samples": [
+              6188365,
+              6188381,
+              6214281,
+              6214297,
+              6233397,
+              6233413,
+              6252513,
+              6252529,
+              6271617,
+              6271633,
+              6290721,
+              6290737,
+              6309837,
+              6309853,
+              6328953
+            ],
+            "tick0": 1001,
+            "tick": 1008,
+            "work0": {
+              "events": 1001,
+              "subs": 0,
+              "renders": 864
+            },
+            "work": {
+              "events": 1008,
+              "subs": 0,
+              "renders": 864
+            },
+            "workDelta": {
+              "events": 7,
+              "subs": 0,
+              "renders": 0
+            }
+          }
+        },
+        "writeLegs": [
+          "all"
+        ]
+      }
+    ],
+    "allocFits": {
+      "perRound": {},
+      "mean": {}
+    },
+    "writeDriven": true,
+    "writeProvenance": {
+      "windows": 36,
+      "pairs": 36,
+      "unnamed": [],
+      "incomplete": [],
+      "ok": true
+    },
+    "controlVerdict": {
+      "ok": true,
+      "perDouble": 8.08088888888889,
+      "differential": 8.00148148148148
+    },
+    "fallsInMeasuredWindows": 7,
+    "refusedWindows": 10,
+    "refusalReasons": 14
+  }
+}
