@@ -28,8 +28,10 @@
   A substrate in Story names WHICH REGISTERED RENDER FN embeds the
   subject — the authoring layer — and not the adapter `rf/init!` seated;
   the two axes coincided while the members were `:reagent` and `:uix`,
-  and `:hicasso` is the member that separates them (Hicasso ships no
-  adapter at all). The canvas wraps every variant in
+  and `:hicasso` is the member that separates them — Hicasso does ship
+  an adapter of its own (`:kind :rf.adapter/hicasso`, rf2-hvr5h), and
+  this testbed deliberately does not seat it, which is exactly the
+  separation. The canvas wraps every variant in
   `[rf/frame-provider {:frame variant-id} …]`, whose provider is
   `re-frame.adapter.context/frame-context` — the single React context
   every React-shaped adapter reads — so a Hicasso boundary spliced into
