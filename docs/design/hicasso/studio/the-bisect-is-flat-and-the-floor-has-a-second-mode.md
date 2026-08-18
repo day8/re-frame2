@@ -334,8 +334,8 @@ subset is still a subset chosen by the leg witness.
 
 ## Reproduction
 
-From `implementation/`, on the instrument tree at `88411ed803`, one bisect point
-at a time:
+From the **repository root** — every path below is root-relative — on the
+instrument tree at `88411ed803`, one bisect point at a time:
 
 ```bash
 # put the substrate at the point, holding everything else at HEAD
