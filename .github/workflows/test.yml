@@ -1041,6 +1041,19 @@ jobs:
       # is likewise unconditional, so the ratchet gates every PR from here at
       # no extra setup cost, and the invariant job stays dependency-free.
       #
+      # ITS PARSE ARM IS LOAD-BEARING BEYOND ITS OWN CHARTER (rf2-ni5sg), so do
+      # not narrow it. The checker `yaml.safe_load`s every file under
+      # `.github/workflows/` and RETURNS 2 on a YAMLError rather than skipping,
+      # which makes these two steps also the only place in CI that asserts a
+      # workflow even PARSES. `scripts/check_workflow_yaml.py` makes that claim
+      # properly — a line number, and every broken file rather than the first —
+      # but is scheduled from `scripts/test-fast-pr.sh` only, and a second CI
+      # parse of the same files asserting a subset of the same claim would buy
+      # nothing but a second thing to keep in step. The four workflow-reading
+      # checkers in the always-on invariant job above cannot stand in: they are
+      # hand-rolled line readers and, measured with an unmatched quote planted
+      # on line 1 of this file, ALL FOUR still exit 0.
+      #
       # Self-test first — it drives the checker RED on five shapes including a
       # step-only cap and an uncapped job sitting second behind a capped one
       # (the "stopped looking after the first hit" defect) — then the live sweep.
