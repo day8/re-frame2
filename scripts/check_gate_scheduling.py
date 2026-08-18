@@ -263,9 +263,12 @@ DISPOSITIONS: dict[str, dict] = {
     "bench:hicasso": {
         "kind": "not-a-gate",
         "why": "a benchmark runner: it produces measurement records, not a "
-               "verdict about the tree. Its sibling `bench:freehand-browser` "
-               "DOES yield a verdict, which is why that one is scheduled "
-               "(freehand-bench.yml) and pinned into the local rigorous sweep",
+               "verdict about the tree. The discrimination is real rather than "
+               "a blanket benchmark exemption: its sibling "
+               "`bench:freehand-browser` DID yield a verdict, which is why that "
+               "one was scheduled (freehand-bench.yml) and pinned into the "
+               "local rigorous sweep -- until the job, the workflow and the "
+               "benchmark all went with the Freehand tree (rf2-0yp7w.6)",
     },
     # The two `build:` aliases (rf2-rbdc, the widening above). Both are the
     # COMPILE HALF of a gate that already runs, kept as a one-word local
