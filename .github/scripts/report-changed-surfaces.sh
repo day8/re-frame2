@@ -1222,19 +1222,36 @@ else
         # exists to close (jvm-spec-resource). cljs_node_test fires
         # the consolidated `:node-test` build, where the reader is actually
         # exercised — that is the lane whose macro expansion reaches
-        # shadow-cljs's recording read. cljs_browser stays on, but its
-        # stated reason has expired: it was the Freehand fixture suites,
-        # and they left with the rf2-0yp7w retirement together with the
-        # second consumer and the `jvm-freehand` lane this comment used to
-        # name. Narrowing the arm is a routing change, not a prose one —
-        # `implementation/scripts/_changed-surfaces.test.cjs` pins this
-        # arm's outputs and would have to move in the same commit.
+        # shadow-cljs's recording read.
+        #
+        # cljs_browser is deliberately OFF (rf2-7b1ti). It was on for the
+        # Freehand `-dom-cljs-test` fixture suites, which left with the
+        # rf2-0yp7w retirement along with the second consumer and the
+        # `jvm-freehand` lane this comment used to name — and no browser
+        # namespace replaced them. `re-frame.build.spec-resource` is
+        # macro-side `.clj`, so a CLJS build can reach it only through a
+        # macro require, and the single such path is
+        # `re-frame.api-manifest.cljs-publics`. That namespace has exactly
+        # two consumers — `re-frame.api-manifest.cljs-manifest-probe-cljs-test`
+        # and `day8.re-frame2-xray.panel-enum-guard-cljs-test` — both
+        # plain `-cljs-test`, and nothing requires either of them. The
+        # cljs_browser job compiles only the `:browser-test` build, whose
+        # `:ns-regexp` is `.*-dom-cljs-test$`, so it selected no namespace
+        # that expands through this reader: the lane cost a Chromium
+        # install, compile and run on every spec-resource diff and could
+        # not have gone red for one.
+        #
+        # The spec-resource block in
+        # `implementation/scripts/_changed-surfaces.test.cjs` now asserts
+        # all three outputs, cljs_browser included, so re-adding it here
+        # reds that suite. Until rf2-7b1ti it asserted only the other two,
+        # which is how the expired reason survived unnoticed — a change to
+        # this arm's browser output moved nothing.
         #
         # No production bundle requires any of this (build-time only), so
         # cljs_prod / bundle_isolation stay off.
         implementation_jvm=true
         cljs_node_test=true
-        cljs_browser=true
         ;;
       implementation/test-quiet/src/*|implementation/test-quiet/test/*|implementation/test-quiet/deps.edn)
         # rf2-am7grp — implementation/test-quiet is the test-runtime

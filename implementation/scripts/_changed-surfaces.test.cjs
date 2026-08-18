@@ -3391,6 +3391,19 @@ for (const file of TEST_QUIET_FILES) {
 // is exactly why the routing has to be pinned. If the classifier leaves
 // every output false, the one job in CI that goes red when the racy shape
 // returns simply SKIPS, and the aggregator passes.
+//
+// The cljs_browser assertion pins the arm in the OTHER direction, and it
+// is here because its absence is what let a stale lane survive (rf2-7b1ti).
+// The arm carried cljs_browser=true for the Freehand -dom-cljs-test
+// fixture suites; those retired with rf2-0yp7w and nothing browser-side
+// replaced them, but because this block asserted only the two outputs
+// above, the dead lane was invisible to the suite that supposedly pinned
+// the arm. re-frame.build.spec-resource is macro-side .clj, so a CLJS
+// build reaches it only via a macro require, and the one such path is
+// re-frame.api-manifest.cljs-publics — whose only two consumers are plain
+// -cljs-test namespaces that nothing else requires, while :browser-test
+// selects .*-dom-cljs-test$. Asserting 'false' costs nothing today and
+// means a future re-add has to argue for itself here first.
 
 for (const file of [
   'implementation/spec-resource/src/re_frame/build/spec_resource.clj',
@@ -3400,7 +3413,7 @@ for (const file of [
   // must route too, and the rot would otherwise be silent.
   'implementation/spec-resource/src/re_frame/build/deeply/nested.clj',
 ]) {
-  test(`${file} arms implementation_jvm + cljs_node_test (shared spec/ reader)`, () => {
+  test(`${file} arms implementation_jvm + cljs_node_test, and NOT cljs_browser (shared spec/ reader)`, () => {
     const result = classify(file);
     assert.equal(
       result.implementation_jvm,
@@ -3411,6 +3424,11 @@ for (const file of [
       result.cljs_node_test,
       'true',
       'the consolidated :node-test build is where the api-manifest probe macro-expands through this reader',
+    );
+    assert.equal(
+      result.cljs_browser,
+      'false',
+      'no browser namespace reaches this reader: :browser-test selects .*-dom-cljs-test$, and the one macro path in (re-frame.api-manifest.cljs-publics) has only plain -cljs-test consumers — re-add cljs_browser here only with a namespace that shows otherwise',
     );
   });
 }
