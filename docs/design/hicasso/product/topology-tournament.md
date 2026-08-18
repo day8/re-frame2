@@ -200,6 +200,17 @@ arm in either direction**, so its clock cells are **unaddressed** rather than
 pending an instrument. The arithmetic and the two rejected repairs are in
 [§2.6](#26-the-clock-half--the-first-control-refused-the-replacement-certifies-three-arms-of-four).
 
+**Amended 2026-08-18 (`rf2-w01c`): the clock half now publishes.** The driver
+those paragraphs said did not exist landed as `topo/clock_app.cljs`, and its
+window ran three times on a drained box — [§2.9](#29-the-clock-table--the-window-rf2-w01c).
+Thirty-six operation cells publish across `fine`, `coarse` and `chunked`, with
+a nine-cell floor row beside them; `virtual` stays UNADDRESSED under `rf2-4t36`
+and no clock was started on it. **The sentences above are left standing as the
+record of the state before that run**, which is the discipline §2.6 already
+keeps for the control it replaced. What did *not* change is the estimator: the
+window produces no `p95`, so §2.8's "no verdict against U1, U2, U3, U4, C3 or
+C4" survives the table intact and [§2.9.9](#299-what-was-not-concluded) says why.
+
 ### 2.1 What ran, and on what
 
 | | |
@@ -604,7 +615,9 @@ the statements below it says so there rather than editing the record here.
 
 - **No clock figure at all**, for any arm, operation or row count. The ratios
   in §2.6's table are the CONTROL's, and a refused control publishes nothing —
-  including itself as a finding about the arms.
+  including itself as a finding about the arms. **This is the one bullet
+  §2.9 overturns**: the table exists as of 2026-08-18 for three arms of four
+  ([§2.9.5](#295-the-clock-table)). Every other bullet below still holds.
 - **No verdict against U1, U2, U3, U4, C3 or C4** — all are millisecond lines.
 - **No breach recorded against U5**, because as registered it is not breached.
   What is recorded is that its estimand cannot see the arm that fails the
@@ -647,27 +660,332 @@ rule can be chosen after seeing an answer. Nothing below was decided later.
 - **The controls arbitrate, not the operator.** A refused control withholds the
   cells for that arm under §1.5, and the refusal is the result.
 
-#### 2.9.2 The box, read before the first run and never inside one
+#### 2.9.2 Two attempts, and only the second one publishes
 
-Counters read standalone. Sampling them alongside the benchmark would measure
-the sampler, so the claim made here is about the bracket and not about
-within-run quietness.
+The window was attempted twice, and the first attempt is **void** rather than
+partial. On 2026-08-17 a first worker read the box, took runs, and died on an
+API quota limit while parsing their summary records. No figure from it was
+ever published and none is salvaged here: a series interrupted mid-way and
+completed later on a different day is two instruments, which is the fence
+§1.7 keeps. What survived and is honoured is [§2.9.1](#291-the-plan-fixed-before-the-first-run) — the
+plan, committed before any invocation.
 
-| counter | reading |
+**Everything from §2.9.3 down is the second attempt**, run end to end on
+2026-08-18 under the same plan, unchanged. Its box bracket is §2.9.3's; the
+2026-08-17 bracket is recorded below as the void attempt's and is *not* a
+bracket for the published series.
+
+| counter (2026-08-17, VOID attempt) | reading |
 |---|---|
 | `\System\Processor Queue Length` | **0.00** on all 5 samples |
 | `\Processor(_Total)\% Processor Time` | 11.99 / 11.48 / 7.83 / 6.36 / 5.98 |
 | `Win32_Processor.LoadPercentage` (second source) | 31 |
+
+**§2.6 records this box as 24 threads / 32 GB.** It reads 64 GB from two
+sources (`Win32_PhysicalMemory` sum, 63.4 GB usable). The discrepancy is
+recorded and nothing is concluded from it. The runtime the page itself reports
+is `deviceMemory 32`, which is a browser-capped value and not a third reading.
+
+#### 2.9.3 The box, bracketed around each run and never sampled inside one
+
+Counters were read standalone, before run 1, between runs, and after run 3.
+Sampling them alongside the benchmark would measure the sampler and sampling
+them inside a run would measure the benchmark, so **the claim made here is
+about the brackets and nothing is claimed about within-run quietness beyond
+them.**
+
+| bracket | `\System\Processor Queue Length` (5 samples) | `\Processor(_Total)\% Processor Time` | `Win32_Processor.LoadPercentage` |
+|---|---|---|---|
+| before run 1 | 0 / 0 / 1 / 0 / 0 | 21.80 / 23.30 / 35.72 / 26.68 / 25.29 | 47 |
+| after run 1 | 0 / 0 / 0 / 0 / 0 | 19.40 / 16.17 / 24.56 / 14.20 / 20.86 | 44 |
+| before run 2 | 0 / 0 / 0 / 0 / 0 | 19.59 / 14.54 / 19.78 / 26.80 / 16.29 | 37 |
+| between runs 2 and 3 | 0 / 0 / 0 / 0 / 0 | 24.73 / 22.89 / 19.61 / 23.94 / 20.48 | 63 |
+| after run 3 | 0 / 0 / 0 / 0 / 0 | 20.55 / 20.73 / 19.11 / 17.13 / 17.87 | 42 |
+
+The box itself, unchanged between the two attempts:
+
+| | |
+|---|---|
 | logical processors | 24 |
 | physical memory | 64 GB (`Win32_PhysicalMemory` sum); 63.4 GB usable |
 | OS | Windows 11 Home 10.0.26200 |
+| browser | HeadlessChrome 147.0.7727.15 via Playwright, `:advanced`, `goog.DEBUG` false |
+| profile | P-DEV-1 |
 
-**The two CPU sources disagree and the queue length is preferred**, because it
-is the counter that reports whether anything is *waiting* for a core rather
-than estimating how busy one was. No `node`, `java`, `shadow-cljs` or
-`clojure` process was running. A browser session was open with idle background
-tabs; its processes carry large *cumulative* CPU totals, which is process age
-and not current load.
+**The queue length is the preferred counter and it read 0 on 24 of the 25
+samples above**, because it is the one that reports whether anything is
+*waiting* for a core rather than estimating how busy one was. One one-second
+sample carried a queue of 1. It is recorded; **what was waiting during that
+second is not established here** and nothing is built on it.
 
-**§2.6 records this box as 24 threads / 32 GB.** It reads 64 GB here from two
-sources. The discrepancy is recorded and nothing is concluded from it.
+**The two CPU sources disagree, and a third reading decides which to believe.**
+`LoadPercentage` ran 37–63 while `\Processor(_Total)\% Processor Time` ran
+14–36. Two standalone per-process CPU-delta censuses, over 4 and 5 seconds,
+summed to **3.5 and 3.2 busy cores of 24 — 15% and 13%**. Those agree with the
+`_Total` counter and not with `LoadPercentage`, so `LoadPercentage` is treated
+as the outlier on that evidence. The same two-source disagreement, in the same
+direction, appears in the void attempt's bracket above.
+
+**This box was busier than the void attempt's bracket and the difference is
+recorded rather than smoothed.** The named consumers, from that same
+standalone census, were the operator's desktop: an editor's language service
+at ~0.94 core and browser renderers at ~1.85 cores between them. **No `java`,
+`shadow-cljs` or `clojure` process was running at any bracket.** Twenty `node`
+processes were resident throughout, every one an idle MCP or harness server
+with under 2 seconds of *cumulative* CPU — process age, not load.
+
+**The fleet was not at zero, and that is stated rather than assumed away.**
+The drain was announced and no implementation worker was compiling, but a
+second agent working a documentation bead was demonstrably active on the box
+during run 1: it wrote into the session-shared scratch directory at the minute
+run 1 began. It ran no compiler and no benchmark, and it is inside the
+per-process census above rather than outside it — but it means the correct
+description of this window is *a drained box with one light concurrent agent*,
+not *an idle box*.
+
+#### 2.9.4 What ran, and what each run returned
+
+Three invocations of `topo/clock_app.cljs` through the lane's generic
+`run.cjs`, serial, nothing between them, nothing tuned. All three reached the
+page, so **the pre-registered count was spent on runs and no invocation was a
+rig fault.**
+
+| | run 1 | run 2 | run 3 |
+|---|---|---|---|
+| exit code | **0** | **0** | **0** |
+| build | 157 files, 102 compiled, **0 warnings**, 30.69 s | 28.71 s | 30.41 s |
+| positive control | passed on `fine`, `coarse`, `chunked` | same | same |
+| arm-order guard | **18 of 18 reportable** | 18 of 18 | 18 of 18 |
+| write verification | controls: **0 unverified of 300** per arm. Table rows: every one passed `lane/assert-verified!`, which throws on any unverified write, and no `PROBE MISS` line was emitted | same | same |
+| cells taken | 45 (3 arms × 5 rows × 3 row counts) | 45 | 45 |
+
+The series ran between 13:48 and 14:01 AUSEST on 2026-08-18; each run took
+about four minutes including its own rebuild, well inside `run.cjs`'s
+20-minute sentinel.
+
+**The control certified every arm in every round of every run.** The
+registered manipulation is the rendered-scale doubling with an indexed write
+(§1.5), predicted **1.9996**, band **[1.4997, 2.4995]**:
+
+| arm | run 1 rounds | run 2 rounds | run 3 rounds |
+|---|---|---|---|
+| `fine` | 2.1068 2.2052 2.2031 2.1204 2.1561 | 2.1410 2.1762 2.1923 2.2119 2.2461 | 2.1159 2.2168 2.1121 2.2566 2.0746 |
+| `coarse` | 2.0407 2.0262 2.0023 2.0493 1.9966 | 2.0377 2.0276 2.0873 2.0511 2.0368 | 2.0463 2.0700 2.0560 2.0683 2.0648 |
+| `chunked` | 2.0981 2.0554 2.1146 2.2166 2.0680 | 2.1585 2.1145 2.1824 2.1383 2.2141 | 2.1412 2.0173 2.1411 2.1627 2.1184 |
+
+All 45 round ratios lie in **[1.9966, 2.2566]**, inside the band, positive,
+and verified in every round. `fine` and `chunked` sit consistently above the
+predicted 1.9996 and `coarse` sits closest to it; that is recorded and nothing
+is concluded from it, because a band is what the control is adjudicated on and
+this window did not register a second, tighter test.
+
+**`virtual` was not measured and no clock was started on it**, per `rf2-4t36`.
+Its cells remain UNADDRESSED, no band was widened and no window was enlarged.
+
+#### 2.9.5 The clock table
+
+**Read the unit before the numbers.** Each cell is the elapsed milliseconds
+for **one window of 20 commits** of that operation on an already-mounted page,
+under one clock, with the read-back outside the window. It is *not* a
+per-commit latency, and dividing by 20 yields a **mean** per commit rather
+than any percentile.
+
+The centre is the **median across the run's 5 rounds of each round's
+within-round median** of 12 samples. Three figures per cell, one per run, in
+run order — the runs are shown rather than pooled, because pooling them would
+be a fourth estimator this window did not pre-register.
+
+| operation | `B` | `fine` r1/r2/r3 | `coarse` r1/r2/r3 | `chunked` r1/r2/r3 |
+|---|---|---|---|---|
+| sparse | 100 | 4.05 / 4.40 / 4.05 | 9.30 / 9.95 / 9.10 | 3.90 / 4.20 / 3.75 |
+| sparse | 300 | 12.35 / 10.80 / 10.00 | 29.40 / 26.25 / 24.65 | 6.20 / 5.60 / 5.05 |
+| sparse | 1000 | 37.90 / 37.95 / 33.70 | 88.40 / 91.05 / 86.50 | 13.05 / 13.45 / 12.20 |
+| bulk | 100 | 21.80 / 21.60 / 24.25 | 9.85 / 9.30 / 10.05 | 10.75 / 9.95 / 11.15 |
+| bulk | 300 | 79.00 / 82.60 / 76.55 | 29.35 / 29.65 / 27.20 | 31.75 / 32.65 / 29.50 |
+| bulk | 1000 | 330.80 / 332.45 / 331.55 | 96.50 / 99.05 / 100.60 | 108.35 / 112.85 / 115.30 |
+| reorder | 100 | 4.65 / 4.55 / 4.50 | 8.80 / 8.50 / 8.45 | 10.70 / 10.45 / 10.05 |
+| reorder | 300 | 14.40 / 15.80 / 12.75 | 29.00 / 30.70 / 25.20 | 34.45 / 37.60 / 30.05 |
+| reorder | 1000 | 46.95 / 46.95 / 44.85 | 88.65 / 92.25 / 90.90 | 118.65 / 122.65 / 120.05 |
+| edit | 100 | 4.00 / 4.05 / 3.60 | 9.25 / 9.25 / 8.05 | 3.90 / 3.85 / 3.40 |
+| edit | 300 | 10.00 / 11.05 / 10.40 | 24.25 / 25.60 / 26.00 | 5.30 / 5.75 / 5.65 |
+| edit | 1000 | 36.65 / 36.25 / 36.70 | 84.85 / 85.20 / 92.95 | 12.20 / 12.25 / 12.60 |
+| **noop (floor)** | 100 | 3.70 / 3.55 / 3.15 | 1.70 / 1.60 / 1.45 | 1.80 / 1.75 / 1.50 |
+| **noop (floor)** | 300 | 9.00 / 8.75 / 9.55 | 2.90 / 2.95 / 3.10 | 3.20 / 3.15 / 3.40 |
+| **noop (floor)** | 1000 | 31.75 / 31.60 / 31.85 | 8.00 / 8.20 / 8.40 | 9.40 / 9.40 / 9.55 |
+
+**Resolution.** The smallest window in the table is 1.45 ms — about 14 of
+Chrome's 100 µs quanta — and the largest is 332.45 ms. That is what batching
+20 commits under one clock bought. **It does not rescue the windowed arm and
+was not meant to**: `rf2-4t36`'s refusal rests on the floor being 47% of that
+arm's commit, a fraction batching leaves exactly where it was, and no clock
+was started on `virtual` here.
+
+#### 2.9.6 The ratios, against `fine`
+
+`fine` is the denominator throughout: it is the tournament's reference
+topology and the one arm both refused controls could address. **Each figure is
+the arithmetic MEAN of the run's 5 per-round ratios, and each of those is a
+ratio of within-round medians.** It is not itself a median, though a median
+does sit one level down inside it — which is exactly how PR #8326 came to
+publish values of this shape as "run-medians", corrected under `rf2-pqyxz`.
+
+A value **below 1.00 means that arm is faster than `fine`**; above 1.00,
+slower.
+
+| operation | `B` | `coarse` / `fine` r1/r2/r3 | `chunked` / `fine` r1/r2/r3 |
+|---|---|---|---|
+| sparse | 100 | 2.324 / 2.241 / 2.250 | 0.976 / 0.934 / 0.927 † |
+| sparse | 300 | 2.343 / 2.422 / 2.479 | 0.504 / 0.520 / 0.509 |
+| sparse | 1000 | 2.299 / 2.403 / 2.531 | 0.334 / 0.352 / 0.357 |
+| bulk | 100 | 0.451 / 0.428 / 0.418 | 0.495 / 0.458 / 0.453 |
+| bulk | 300 | 0.367 / 0.365 / 0.358 | 0.398 / 0.401 / 0.389 |
+| bulk | 1000 | 0.292 / 0.303 / 0.295 | 0.331 / 0.340 / 0.337 |
+| reorder | 100 | 1.900 / 1.845 / 1.922 | 2.292 / 2.221 / 2.261 |
+| reorder | 300 | 1.977 / 1.970 / 1.985 | 2.378 / 2.379 / 2.377 |
+| reorder | 1000 | 1.890 / 2.005 / 2.038 | 2.516 / 2.685 / 2.701 |
+| edit | 100 | 2.282 / 2.247 / 2.276 | 0.949 / 0.936 / 0.956 ‡ |
+| edit | 300 | 2.398 / 2.393 / 2.489 | 0.526 / 0.520 / 0.541 |
+| edit | 1000 | 2.321 / 2.384 / 2.511 | 0.335 / 0.338 / 0.341 |
+| **noop (floor)** | 100 | 0.456 / 0.451 / 0.459 | 0.496 / 0.488 / 0.484 |
+| **noop (floor)** | 300 | 0.321 / 0.326 / 0.324 | 0.350 / 0.351 / 0.357 |
+| **noop (floor)** | 1000 | 0.254 / 0.259 / 0.268 | 0.292 / 0.300 / 0.306 |
+
+† straddles 1.00 in run 1 only. ‡ straddles 1.00 in run 3 only.
+
+**Two of the 90 ratio readings carry the indistinguishable flag**, and neither
+replicates across the series. Both are narrow operations at `B = 100`, where
+`fine` and `chunked` each sit near 4 ms over 20 commits and the two arms differ
+by at most 0.30 ms in any run. The honest reading is that `chunked` and `fine`
+are close there and this instrument does not reliably separate them — not that
+one of the three runs was wrong.
+
+**Run-to-run agreement.** Across the 30 ratio cells, the spread of the three
+run means, taken as `(max − min) / min`, has a **median of 3.9%** and a
+**maximum of 10.1%** (`coarse`/`fine` on sparse at `B = 1000`: 2.299, 2.403,
+2.531). That is a statement about this three-run series on this box and is not
+offered as a precision figure for the instrument.
+
+#### 2.9.7 The floor row, and the thing it turned out not to be
+
+`[:topo/noop-write]` moves a key no arm reads. The driver's premise, stated in
+its own docstring, was that its window therefore holds *"exactly the cost that
+does not move with the arm"*.
+
+**The measurement falsifies that premise, and this is the window's most
+consequential result.** At `B = 1000` the floor row reads **31.75 / 31.60 /
+31.85 ms on `fine`** against **8.00 / 8.20 / 8.40 on `coarse`** — a factor of
+**3.97, 3.85 and 3.79** in runs 1, 2 and 3 respectively. The floor is
+**arm-specific**, not a shared constant.
+
+What it varies with is not settled here. The three arms differ in boundary
+count (1001 / 1 / 41 at `B = 1000`), in subscription count and in nothing else
+that this window separates; the DOM element count is deliberately identical
+across arms, which excludes that one and only that one. So the correct
+statement is *the floor is larger on the arm with more boundaries and reads*,
+not *the floor is boundary-count times a per-boundary cost* — no such cost is
+fitted here, and fitting one would be adding an estimator mid-series, which
+§1.7 forbids.
+
+The share each cell's window gives to its own arm's floor, as the floor row's
+centre over the operation row's centre at the same arm and `B`. **It corrects
+nothing**: `rf2-4t36` rejected subtracting a floor, and its sharpest reason —
+that there is nothing stable to subtract — is strengthened rather than
+weakened by the row being arm-specific.
+
+| operation | `B` | `fine` r1/r2/r3 | `coarse` r1/r2/r3 | `chunked` r1/r2/r3 |
+|---|---|---|---|---|
+| sparse | 100 | 0.914 / 0.807 / 0.778 | 0.183 / 0.161 / 0.159 | 0.462 / 0.417 / 0.400 |
+| sparse | 300 | 0.729 / 0.810 / 0.955 | 0.099 / 0.112 / 0.126 | 0.516 / 0.562 / 0.673 |
+| sparse | 1000 | 0.838 / 0.833 / 0.945 | 0.090 / 0.090 / 0.097 | 0.720 / 0.699 / 0.783 |
+| bulk | 100 | 0.170 / 0.164 / 0.130 | 0.173 / 0.172 / 0.144 | 0.167 / 0.176 / 0.135 |
+| bulk | 300 | 0.114 / 0.106 / 0.125 | 0.099 / 0.100 / 0.114 | 0.101 / 0.097 / 0.115 |
+| bulk | 1000 | 0.096 / 0.095 / 0.096 | 0.083 / 0.083 / 0.084 | 0.087 / 0.083 / 0.083 |
+| reorder | 100 | 0.796 / 0.780 / 0.700 | 0.193 / 0.188 / 0.172 | 0.168 / 0.168 / 0.149 |
+| reorder | 300 | 0.625 / 0.554 / 0.749 | 0.100 / 0.096 / 0.123 | 0.093 / 0.084 / 0.113 |
+| reorder | 1000 | 0.676 / 0.673 / 0.710 | 0.090 / 0.089 / 0.092 | 0.079 / 0.077 / 0.080 |
+| edit | 100 | 0.925 / 0.876 / 0.875 | 0.184 / 0.173 / 0.180 | 0.462 / 0.455 / 0.441 |
+| edit | 300 | 0.900 / 0.792 / 0.918 | 0.120 / 0.115 / 0.119 | 0.604 / 0.548 / 0.602 |
+| edit | 1000 | 0.866 / 0.872 / 0.868 | 0.094 / 0.096 / 0.090 | 0.770 / 0.767 / 0.758 |
+
+**The received formula for reading a mostly-floor cell does not apply to this
+table, and the reason is the same falsification.** *"A cell whose window is
+mostly floor has its arm-to-arm ratio compressed toward 1"* is true when both
+arms carry the **same** floor. These do not. The limit here is a different
+number: were an operation to add nothing at all to either arm, the ratio would
+read this table's own floor ratio — `coarse`/`fine` of 0.254–0.268 at
+`B = 1000` — and not 1.00. **No corrected ratio is published**, because
+computing one requires the additive cost model `rf2-4t36` refused, and this
+window did not relitigate that refusal.
+
+#### 2.9.8 What the table settles
+
+- **`bulk` orders the three arms, and it is the one operation whose ordering
+  is not floor-laden.** Its floor share is at most 0.176 at any arm or row
+  count and falls to ≤ 0.096 at `B = 1000`. There, `coarse`/`fine` reads
+  0.292 / 0.303 / 0.295 and `chunked`/`fine` reads 0.331 / 0.340 / 0.337 —
+  **`fine` costs about 3.3–3.4× `coarse` and about 2.9–3.0× `chunked`**, with
+  no straddle and the three runs agreeing to within 3.8%. One boundary per row
+  is expensive when every row changes, and the size of that price is now
+  measured rather than argued.
+- **The ordering reverses between the broad and the narrow operations, and the
+  reversal is stable.** On `sparse` and `edit` at `B ≥ 300`, `chunked` is the
+  fastest arm in all twelve readings — 4 cells × 3 runs — at 0.334–0.541
+  against `fine`, and `coarse` is the slowest in all twelve at 2.299–2.531
+  against `fine`. On `bulk` the order is
+  exactly inverted. That is the useful-middle claim
+  §1.1 made for `chunked` showing up as a clock reading for the first time.
+- **`reorder` behaves like neither**, and it is the cell a reader should be
+  most careful with: `fine` is fastest (`coarse`/`fine` 1.85–2.04,
+  `chunked`/`fine` 2.22–2.70) but `fine`'s own `reorder` window is 55–80%
+  floor at every row count, while its competitors' are under 20%. The ordering
+  is reported; **no ordering of the operation itself is claimed**, for the
+  reason §2.9.7 gives.
+- **The instrument certified on every run, and the three runs agree.** Nine
+  arm-runs and 45 control rounds all in band and positive, 54 reportable
+  arm-order verdicts, controls at 0 unverified of 300 per arm, every table row
+  through `lane/assert-verified!`, and no `PROBE MISS` line in any run. That is
+  repeatability across three runs inside one hour on one box; **it is not a
+  claim about another box or another day**, and the census half remains the
+  half anyone can re-run.
+
+#### 2.9.9 What was NOT concluded
+
+- **No U-line or C-line verdict, and the reason is the estimator rather than
+  the numbers.** `U2` (50 ms p95), `U3` (100 ms p95) and `U1` are
+  distributional rows; `lane/summarise` computes `n`, `min`, `max` and `p50`
+  and **never a `p95` at all**. Dividing a 20-commit window by 20 gives a mean
+  per commit, and a mean is not a percentile. Every cell here is therefore
+  **UNASSESSED** against those lines, in the same sense
+  [the budgets page](budgets.md#the-comparative-and-regression-rules) already
+  records `C8`'s `≥ 2 ms p95` disjunct as unassessed at its witness. `S1`–`S8`
+  are not this page's to move and are not moved.
+- **`C3` and `C4` are not addressed at all**, and not merely unresolved. They
+  compare Hicasso against **the best relevant adapter**; this table compares
+  four read *topologies* against each other inside one runtime. The two are
+  different populations, and reading an arm-to-arm ratio as a `C3` figure
+  would be the substitution `§1.4` forbids in a second direction.
+- **No `implementation/hicasso` generalisation.** Like the census, every figure
+  here is an **arm-1** figure, taken through the bench's UIx-adapter runtime.
+  §2.1's substrate limitation applies unchanged and is not softened by the
+  clock half existing.
+- **No `virtual` cell, and no bound on one.** `rf2-4t36`'s ruling stands; the
+  arm was not measured, so this window supplies no reading about it in either
+  direction — not even an upper bound, because a bound has to come from a
+  control or a null arm that was actually run.
+- **No per-boundary or per-row cost.** §2.9.7 records that the floor is
+  arm-specific; it deliberately fits no coefficient, and the three candidate
+  causes it names are not separated by anything in this window.
+- **No kill-rule disposition, and therefore no `STOP` or `NARROW` for any
+  cell.** §1.6's lines are stated in milliseconds at `p95`, which this
+  instrument does not produce, so no cell is established as above or below its
+  line. Recording a disposition without one would be the work-census-wearing-a-
+  clock's-clothes substitution in yet another direction.
+- **No claim about within-run quietness.** §2.9.3's counters bracket the runs;
+  nothing was sampled inside one, and a second agent was active on the box
+  during run 1.
+- **No `rf2-hic-080` scoring.** Unchanged: that is its phase 2 and another
+  worker's. What this window hands that bead is the clock ordering it was
+  blinded against, for `fine`, `coarse` and `chunked` only.
+- **No tuning iteration was spent.** §1.6 allows two per red cell; no cell was
+  established red, nothing was tuned between runs, and the two iterations
+  remain unspent.
