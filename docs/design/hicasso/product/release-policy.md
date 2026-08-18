@@ -170,8 +170,11 @@ Every row carries either the CI job that backs it or an explicit **untested-but-
 | React 19.2.0 and react-dom 19.2.0 | `implementation/package.json` | the CLJS node lane in job `cljs`; `cljs-hicasso-controlled`; `cljs-hicasso-hmr` | **TESTED** — every Hicasso claim in this repository is a claim about this pair |
 | Any other React 19.x | — | nothing | **UNTESTED-BUT-EXPECTED** for the boundary shell and the two-hook contract, which write no version-conditional code. Not expected below 19.2 for the `Activity` lifecycle rows, whose subject shipped in 19.2 |
 | React 18 or earlier | — | nothing | **NOT SUPPORTED** |
-| Chromium 147.0.7727.15, Firefox 148.0.2 and WebKit 26.4, on Playwright 1.59.1 | `implementation/package.json`; the runner prints the triple it launched | `cljs-hicasso-controlled` — three real engines, per PR, comparing recorded rows across engines rather than running one spec three times; `cljs-hicasso-hmr` — three engines, real shadow reloads | **TESTED** |
+| Chromium 147.0.7727.15, on Playwright 1.59.1 | `implementation/package.json` | `cljs-browser`, which runs Hicasso's `*_dom_cljs_test` suites headless | **TESTED** — the broadest browser coverage Hicasso has, and it is one engine |
+| Firefox 148.0.2 and WebKit 26.4, on Playwright 1.59.1 | `implementation/package.json`; the runner prints the triple it launched | `cljs-hicasso-controlled` — three real engines, comparing recorded rows across engines rather than running one spec three times; `cljs-hicasso-hmr` — three engines, real shadow reloads | **TESTED, BUT ARMED RATHER THAN UNIVERSAL** — both jobs are conditional on the changed-surface classifier and both are declared holes in the nightly sweep. §4.2 states what that does and does not buy |
 | Any other engine or engine version | — | nothing | **UNTESTED-BUT-EXPECTED** — the substrate targets React's DOM contract, not a browser's |
+| Linux (`ubuntu-latest`), JDK 21 (temurin), Node 24 | the `runs-on` and `setup-java`/`setup-node` pins on every Hicasso job | all of them; there is no matrix on any of these three axes | **TESTED, and singly** |
+| Windows or macOS, any other JDK or Node | — | nothing | **UNTESTED-BUT-EXPECTED.** No Hicasso job runs off `ubuntu-latest`, and `portability.yml` names Hicasso nowhere. The substrate is browser and JVM code with no platform-conditional branch, but nothing measures that |
 | `day8/re-frame2` and `day8/re-frame2-ssr` **at the same commit** | `implementation/hicasso/deps.edn`, both at `:local/root` | `jvm-hicasso`; the CLJS node lane in `cljs` | **TESTED**, and the only supported combination there is — see the row below |
 | Hicasso against any *released* core version | — | nothing yet | **NOT APPLICABLE, PENDING A FIRST RELEASE** — `rf2-gra70` landed the wiring, so both sides of the pair are publishable coordinates on one lockstep train (§1). What is missing is not only a version to name but the ability to create the coordinates at all: see [§1.1](#11-three-ruled-prerequisites-stand-in-front-of-the-first-tag). The row goes green on the first `v*` tag and its install witness, not on the wiring |
 | ClojureScript 1.12.145 and shadow-cljs 3.4.10 | `implementation/core/deps.edn`; `implementation/package.json` | every CLJS job | **TESTED** |
@@ -190,6 +193,27 @@ witness, and the three-engine controlled gate. A React bump that does not re-run
 §4 asserted about a version nobody tested — and because the pin is one line and the gates are green either
 way, nothing would announce it. That is the whole reason this obligation is written down rather than
 assumed.
+
+### 4.2 What "backed by a CI job" means when the job is armed rather than universal
+
+**A row backed by a conditional job is backed more weakly than a row backed by an unconditional one, and
+this section exists so the table does not have to pretend otherwise.** The two three-engine gates are the
+only place Firefox and WebKit run at all, and each carries an `if:` on the changed-surface classifier
+arming its surface. On a change the classifier does not arm for Hicasso, they do not run — and
+[`expensive-tests.yml`](../../../../.github/workflows/expensive-tests.yml) names both as **DECLARED HOLES**
+in the nightly sweep in its own words, because it installs neither Firefox nor WebKit. So there is no second
+schedule that catches what an unarmed PR missed.
+
+**This is a real property of the coverage rather than a criticism of it**: the reason is stated where the
+holes are declared, and a named hole is the honest form. What follows for a reader of §4 is narrow and
+worth stating exactly. The Firefox and WebKit rows mean *these engines have been exercised on this
+substrate, and are re-exercised whenever the classifier sees Hicasso move*. They do not mean *every change
+that reaches this substrate was proven on three engines*. Chromium is the engine with unconditional-in-kind
+coverage, through `cljs-browser`.
+
+**The recheck obligation in §4.1 therefore has a second trigger.** A React bump arms it, and so does a
+change to the classifier's own Hicasso arming rules: narrowing what arms `hicasso_controlled` silently
+narrows two rows of this matrix, and no gate here would go red.
 
 ## 5. The upgrade policy — no shims, and what that buys
 
@@ -282,3 +306,24 @@ Three consequences, and this page states them rather than working around them:
 The other open item is not this bead's to close either: §4's last row rests on a Phase 4 exit that
 [`checkpoint-4-coverage.md`](checkpoint-4-coverage.md) returned **NOT MET**. A compatibility matrix cannot
 promise a green its own evidence page declines to give, so it does not.
+
+### 6.1 The consumer app exists, and it does not yet consume an artefact
+
+**There is a tiny consumer app, and it is exercised on every armed PR — from source, never from a jar.**
+`implementation/hicasso/test/re_frame/hicasso/consumer_app.cljs` is the `:init-fn` of the `hicasso-release`
+build, and job `cljs` compiles it under `:advanced` and then runs the production-erasure and
+bundle-isolation checks over the resulting bundle. That is real coverage of the *build*, and §4 rows it as
+such.
+
+**What it is not is the acceptance criterion.** That criterion turns on *from the artefact (not the repo)*,
+and the compile resolves Hicasso from `:source-paths` in `implementation/shadow-cljs.edn` — no
+`:mvn/version` coordinate is involved anywhere. Nor does the deploy stage close the gap from the other
+side: `deploy-hicasso` runs checkout, JDK, Clojure CLI, cache, install core, install ssr, rewrite
+`:local/root` to `:mvn/version`, deploy. There is no preflight step between the rewrite and the publish.
+The one published-package preflight in the release workflow is `reagent-slim`'s, guarded to that leaf.
+
+**So the honest statement is that the automation is ready and only a real release would prove it.** Writing
+the artefact-consuming witness before a coordinate exists would mean writing a job that cannot run, and the
+resolution to build one is not this page's to take. The shape it would have is already on record next door
+— `release.yml` says a consumer-compile assertion was scoped and left unbuilt because the temp-project npm
+and shadow wiring is awkward on the runner — so this is a known cost rather than an unexamined one.
