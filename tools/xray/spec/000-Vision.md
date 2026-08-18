@@ -148,11 +148,18 @@ bar · detail panel) — see
 contract.
 
 Every open lands on the latest cascade. The Epoch panel (default tab,
-mnemonic `e`) renders the focused epoch's full computational timeline
-as a numbered vertical cascade — DISPATCH · COEFFECTS · HANDLER · FLOW ·
-FX · SUBSCRIPTIONS · VIEWS — so the canonical questions answer themselves
-on first paint; deeper investigation is one tab away (`a` App-db ·
-`v` Views · `t` Trace · `m` Machines · `r` Routing). (rf2-5gl5r retired
+label mnemonic `e`) renders the focused epoch's full computational
+timeline as a numbered vertical cascade — DISPATCH · COEFFECTS ·
+HANDLER · FLOW · FX · SUBSCRIPTIONS · VIEWS — so the canonical questions
+answer themselves on first paint; deeper investigation is one tab away,
+across the nine other shipped Dynamic tabs catalogued in
+[§The tab inventory](#the-tab-inventory) below. A tab is reached by
+clicking its L3 tab button, or by the command-palette tab-jump verb
+(`Cmd`/`Ctrl+K` → type the tab label → `Enter`): the single letters in
+that inventory are tab *label* mnemonics, rendered into each tab
+button's `title`, not keys to press — no bare-letter tab handler exists
+in `keybinding.cljs` (see [`007-UX-IA.md`](007-UX-IA.md) §Trimmed
+pending demand). (rf2-5gl5r retired
 the earlier Event/Handler tab in favour of the Epoch panel; rf2-gbz39
 removed the Issues tab per Mike's Option (c) ruling — issues surface
 inline in the Epoch panel + the L2 event-row pink-wash + the always-on
