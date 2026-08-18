@@ -140,8 +140,16 @@
       (is (= 4.5 predicted)
           "the across-round median judged leg is 2.25 ms, so the band is
            [3.375 – 5.625] in milliseconds")
-      (is (= {:n 5 :min 4.4 :max 4.6 :p50 4.5} s-ctl)
-          "and the control's whole measured range is 4.40 – 4.60 ms")
+      (is (= {:n 5 :min 4.4 :max 4.6 :p50 4.5}
+             (select-keys s-ctl [:n :min :max :p50]))
+          "and the control's whole measured range is 4.40 – 4.60 ms. Named
+           fields rather than whole-map equality: this row is about the
+           RANGE, and spelling it as `=` on the whole summary also froze
+           `lane/summarise`'s key set here, a long way from the function
+           and from any reader who would think to look. `rf2-xa8wo` adding
+           `:p95`/`:p99` reddened it for a reason this row has no opinion
+           about. The key set is frozen in `lane_quantile_cljs_test`, where
+           it belongs")
       (is (true? (:ok? aggregate))
           "the aggregate rule PASSES — not by overlap but by containment,
            which is the stronger of the two readings it could have taken")

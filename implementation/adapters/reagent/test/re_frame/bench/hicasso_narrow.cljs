@@ -655,9 +655,9 @@
 ;; ---------------------------------------------------------------------------
 
 (def summarise
-  "`{:n :min :p50 :max}` over `xs`. A RANGE, always — never a mean alone.
-  Overlapping ranges mean indistinguishable, and a report that quotes a
-  central value without its range cannot say that.
+  "`{:n :min :max :p50 :p95 :p99}` over `xs`. A RANGE, always — never a
+  mean alone. Overlapping ranges mean indistinguishable, and a report that
+  quotes a central value without its range cannot say that.
 
   `lane/summarise`, not a restatement of it. This lane and the mount lane
   are two INSTRUMENTS — a mount is one timed commit, a narrow write is

@@ -180,6 +180,15 @@
       (is (= (lane/quantile xs 0.95) (:p95 s)))
       (is (= (lane/quantile xs 0.99) (:p99 s)))))
 
+  (testing "and the summary carries EXACTLY these six keys"
+    ;; Frozen here, next to the function, because it used to be frozen by
+    ;; accident: `lane_control_strict_cljs_test`'s aggregate row compared a
+    ;; whole summary map with `=` while meaning only to state a range, so
+    ;; adding a field reddened a test with no opinion about fields. A shape
+    ;; worth holding is worth holding where a reader would look for it.
+    (is (= #{:n :min :max :p50 :p95 :p99}
+           (set (keys (lane/summarise [1.0 2.0 3.0]))))))
+
   (testing "an empty sample is still `nil` rather than a map of nothings"
     (is (nil? (lane/summarise [])))
     (is (nil? (lane/summarise nil))))

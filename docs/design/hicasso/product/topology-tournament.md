@@ -959,6 +959,16 @@ window did not relitigate that refusal.
   [the budgets page](budgets.md#the-comparative-and-regression-rules) already
   records `C8`'s `≥ 2 ms p95` disjunct as unassessed at its witness. `S1`–`S8`
   are not this page's to move and are not moved.
+
+    **[2026-08-18, `rf2-xa8wo`.]** *Never a `p95` at all* was true of the lane
+    when this window was taken and is no longer true of the lane: `lane/quantile`
+    and `summarise`'s `:p95`/`:p99` have since landed. **Every cell above stays
+    `UNASSESSED` all the same, and nothing on this page moves**, for the reason
+    that outlived the estimator — this table's window is a commit bracketed by
+    `flushSync` on a synthetic bench page, and `U1`–`U3` are stated over a slice
+    application's interactions through to a paint. A `p95` is now computable
+    here; it would still be a `p95` of the wrong population. See
+    [budgets.md §9.4](budgets.md#94-what-rf2-hic-071-has-taken-so-far-and-what-it-still-cannot-take).
 - **`C3` and `C4` are not addressed at all**, and not merely unresolved. They
   compare Hicasso against **the best relevant adapter**; this table compares
   four read *topologies* against each other inside one runtime. The two are
