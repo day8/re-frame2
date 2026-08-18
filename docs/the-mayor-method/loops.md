@@ -330,6 +330,41 @@ candidate. Once you have established the failure is the change's own and not the
 not — dispatch a fix worker onto the **existing** branch that runs the **actual** failing
 gate, not a proxy that already passed.
 
+**And a check that never TERMINATES is a third case that neither remedy fits.** It has not
+failed, so nothing above is triggered; it has not passed, so clause 3 rejects the change for
+as long as it runs. Read literally, the criterion leaves the mayor no move at all and the
+honest thing to do is wait forever — which is exactly when the pressure to override arrives.
+**It is not a sixth clause.** Clause 3 already blocks the change, and correctly; what is
+missing is only what to DO about it.
+
+**Recognise it on the clock, against that job's OWN normal cost — measured, never
+remembered.** A remembered constant cannot detect a delta, and job costs move; the recent
+successful runs of the same job are the baseline, and reading them costs one query. Measured
+here: a job whose last successes took 1.4 to 1.7 minutes was forty-nine minutes in and still
+going. **A timeout kill usually reports as CANCELLED rather than as a failure**, which clause
+2 handles correctly — cancelled is not passed — while saying nothing about *why*. Elapsed
+time against the job's declared cap is what tells them apart: landing ON the cap is a timeout
+kill, finishing well inside it is a superseding push or a hand cancel, and both numbers are
+readable. Expect rollup jobs to go red seconds afterwards; those fail BECAUSE of the
+cancellation and are consequences rather than findings, so counting them as independent
+failures overstates the problem and points at the wrong remedy.
+
+**Then discriminate, because the two causes take opposite remedies.** UNRELATED jobs
+overrunning in the SAME run is infrastructure — a diff cannot slow two jobs that share no
+surface with it or with each other — so cancel and re-run, and hold the re-run to the same
+five clauses like any other. ONE job overrunning alone, on a surface the diff touches, is a
+hang the change introduced: dispatch a fix worker onto the existing branch that reproduces
+it, exactly as a failing gate does. **A "cancel and re-run" written without that
+discriminator is worse than no remedy at all**, because the reflex it teaches burns another
+wall-clock hour and hides the infinite loop a worker just wrote. Neither case is ever an
+override.
+
+**A job with no declared timeout is the only reason this case needs a mayor-side remedy.** A
+capped job converts a wedge into a fast, legible failure inside its own cap and reports
+itself; an uncapped one inherits whatever the host defaults to, which is measured in hours,
+so nothing ever converts it and the check simply never terminates. Cap the jobs — and keep
+the remedy above for the ones that hang anyway.
+
 ---
 
 ## 2. Dispatch
