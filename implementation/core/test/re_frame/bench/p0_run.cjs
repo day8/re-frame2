@@ -328,11 +328,32 @@ function legacyPlan(perRoot, roots) {
 // Build and serve
 // ---------------------------------------------------------------------------
 
+// THE WORK CENSUS (rf2-n1b9h). `P0_WORK_COUNT=1` compiles the three monotone
+// work counters INTO the bundle by flipping `re-frame.bench.p0-workcount`'s
+// `goog-define`; unset, Closure constant-folds every call site away and the
+// bundle is the one this rig compiled before the counters existed. That is why
+// the switch is a closure-define and not a runtime flag: the constancy claim
+// the whole `alloc-9jrhi` series rests on is a claim about the COMPILED write
+// path, and a runtime branch inside it would not have kept it.
+//
+// A run with the census ON is NOT comparable byte-for-byte with a published
+// row — one array store per handler invocation allocates nothing, but the
+// compiled shape of the write path has moved and that is exactly the axis
+// `rf2-77gz8`'s surviving runtime candidate lives on. The census is read
+// HIGH-MODE AGAINST LOW-MODE UNDER ONE BUILD, where the counter is a constant
+// present in both arms of the comparison.
+const WORK_COUNT = process.env.P0_WORK_COUNT === '1';
+
 // ONE LINE, deliberately: shadow-cljs's CLI re-splits `--config-merge` on
 // whitespace when the EDN contains a newline and then reports `EOF while
-// reading` from a fragment.
+// reading` from a fragment. The closure-define rides in the same one line for
+// that reason and no other.
 const CONFIG_MERGE =
-  `{:output-dir "${OUT_DIR}" :asset-path "." :modules {:main {:init-fn ${INIT_FN}}}}`;
+  `{:output-dir "${OUT_DIR}" :asset-path "." :modules {:main {:init-fn ${INIT_FN}}}` +
+  (WORK_COUNT
+    ? ' :compiler-options {:closure-defines {re-frame.bench.p0-workcount/counting? true}}'
+    : '') +
+  '}';
 
 function build() {
   // The lane's cache rule, before anything reads the cache: this driver
@@ -1611,6 +1632,86 @@ function median(xs) {
   return s.length % 2 === 1 ? s[mid] : (s[mid - 1] + s[mid]) / 2;
 }
 
+// WHAT THE CENSUS PROVED ABOUT ITSELF (rf2-n1b9h). Pure, driven over a
+// record's own rounds, and it adjudicates two claims that are not the same:
+//
+//   - EVERY CONTROL WINDOW READ ZERO. A control dispatches nothing and renders
+//     nothing, so its census is the instrument's null arm, in situ and
+//     interleaved with the arms in the same round on the same page.
+//   - EVERY ARM WINDOW READ EXACTLY `windowWrites` HANDLER INVOCATIONS. The
+//     window drives that many `dispatch-sync` calls, so anything else is
+//     either a handler that ran more than once per dispatch — which is
+//     candidate (a) itself, and would be the finding — or a counter that is
+//     not wired to the write path.
+//
+// The second is stated as an EXPECTATION AND NOT A GATE, and the difference
+// matters: a run whose arm windows read 14 where 7 were driven has not
+// malfunctioned, it has ANSWERED. So the disagreements are counted and
+// enumerated rather than exited on, and the studio page reads them.
+function allocWorkVerification(rounds, counted, windowWrites) {
+  if (!counted) return { counted: false };
+  const controlsMoved = [];
+  const armEvents = {};
+  const armSubs = {};
+  const armRenders = {};
+  let windows = 0;
+  for (const r of rounds) {
+    for (const [name, c] of Object.entries(r.controls || {})) {
+      const d = c.workDelta;
+      if (d && (d.events || d.subs || d.renders)) {
+        controlsMoved.push(`round ${r.round} ${name}: ${JSON.stringify(d)}`);
+      }
+    }
+    for (const [key, a] of Object.entries(r.arms || {})) {
+      const d = a.workDelta;
+      if (!d) continue;
+      windows++;
+      (armEvents[key] ||= new Set()).add(d.events);
+      (armSubs[key] ||= new Set()).add(d.subs);
+      (armRenders[key] ||= new Set()).add(d.renders);
+    }
+  }
+  const distinct = (m) =>
+    Object.fromEntries(Object.entries(m).map(([k, v]) => [k, [...v].sort((a, b) => a - b)]));
+  const events = distinct(armEvents);
+  const offExpectation = Object.entries(events)
+    .filter(([, vs]) => vs.length !== 1 || vs[0] !== windowWrites)
+    .map(([k, vs]) => `${k}: ${vs.join(',')}`);
+  return {
+    counted: true,
+    windows,
+    windowWrites,
+    controlsMoved,
+    events,
+    subs: distinct(armSubs),
+    renders: distinct(armRenders),
+    offExpectation,
+    ok: controlsMoved.length === 0,
+  };
+}
+
+// THE WORK A WINDOW DID (rf2-n1b9h) — the difference of two readings of three
+// monotone counters, taken at the window's open and at its close.
+//
+// Pure, and `undefined` when the page carried no census, for `allocSteps`'s
+// reason: the pin can drive it rather than read the source and hope, and a
+// record from before this bead answers `undefined` rather than a fabricated
+// zero. **Zero and "not counted" must not be the same value here** — the whole
+// conclusion this bead reaches turns on a delta that reads zero, so a missing
+// census rendering as zero would read as the finding itself.
+//
+// Every counter is monotone for the life of the page, so a NEGATIVE delta is
+// impossible and is not defended against: it would mean the page was reloaded
+// mid-window, which the driver's own structure forecloses.
+function allocWorkDelta(win) {
+  if (!win || !win.work || !win.work0) return undefined;
+  return {
+    events: win.work.events - win.work0.events,
+    subs: win.work.subs - win.work0.subs,
+    renders: win.work.renders - win.work0.renders,
+  };
+}
+
 // Split a window's raw samples into the PRIME legs and the MEASURED sample
 // stream (rf2-oiy1). Pure, for `allocSteps`'s reason: the pin can DRIVE it
 // rather than read the source and hope.
@@ -2329,6 +2430,46 @@ async function allocRow(chromium) {
     );
   }
 
+  // --- THE WORK CENSUS, PROVED RATHER THAN TRUSTED (rf2-n1b9h) ----------
+  //
+  // The closure-define rides on a `--config-merge`, and the page is the only
+  // thing that knows whether it arrived. Both directions are gated, because
+  // both are silent failures wearing a plausible number:
+  //
+  //   - asked for and ABSENT — every counter reads 0 for the whole run, which
+  //     is indistinguishable from a page that did no work, and "counts
+  //     identical" is exactly the reading this bead would draw a conclusion
+  //     from. A census that cannot move must never be quoted as one that did
+  //     not.
+  //   - NOT asked for and present — a stale build directory serving a counted
+  //     bundle into a run whose figures are meant to be comparable with the
+  //     published series. The whole point of the compile-time gate is that
+  //     THIS run's bundle is the pre-census one, so it is checked, not assumed.
+  const armed = await page.evaluate(() => window.P0H.workArmed());
+  if (armed !== WORK_COUNT) {
+    await browser.close();
+    throw new Error(
+      `the work census is ${armed ? 'COMPILED IN' : 'compiled out'} where the driver asked for ` +
+        `${WORK_COUNT ? 'it' : 'a bundle without it'} (P0_WORK_COUNT=` +
+        `${WORK_COUNT ? '1' : 'unset'}): the closure-define did not reach the compiler, and ` +
+        'a run either way would misread its own counters'
+    );
+  }
+  // AND THE CONTROL'S OWN CENSUS. The probe window above drove `control` —
+  // a dropped `.slice` and no dispatch at all — so its three deltas must be
+  // exactly zero. This is the negative control on the instrument: a counter
+  // that ticked here would be counting something that is not the arm's work,
+  // and every arm figure below would carry it.
+  const probeWork = allocWorkDelta(probe);
+  if (probeWork && (probeWork.events || probeWork.subs || probeWork.renders)) {
+    await browser.close();
+    throw new Error(
+      `the work census moved during a CONTROL window — events ${probeWork.events}, subs ` +
+        `${probeWork.subs}, renders ${probeWork.renders} — where a control dispatches nothing ` +
+        'and renders nothing: the counters are not counting the arm'
+    );
+  }
+
   let unverified = 0;
   const unverifiedDetail = [];
   const rounds = [];
@@ -2387,6 +2528,14 @@ async function allocRow(chromium) {
         // window below for why; the controls carry it for the same reason
         // they carry the prime — one window shape, not two.
         samples: w.samples,
+        // AND THE WORK CENSUS (rf2-n1b9h), for that same reason. A control
+        // dispatches nothing and renders nothing, so its three deltas are
+        // the census's in-situ null arm: they are recorded every round of
+        // every run, and `allocWorkVerification` below refuses any run in
+        // which one of them moved.
+        work0: w.work0,
+        work: w.work,
+        workDelta: allocWorkDelta(w),
       };
     };
     const idle = await controlOf('idle', 0);
@@ -2611,6 +2760,16 @@ async function allocRow(chromium) {
           // no analysis could reach for them while they were not recorded.
           tick0: win.tick0,
           tick: win.tick,
+          // THE WORK INSIDE THOSE WRITES (rf2-n1b9h). `tick0`/`tick` place
+          // the window in the page's sequence of writes; this pair says
+          // what ran inside them. `rf2-77gz8` left two candidates for its
+          // 3,792 B second mode that the byte counters cannot separate —
+          // more work per write, against the same work allocating more per
+          // invocation — and they differ here and nowhere else a page-side
+          // instrument can reach.
+          work0: win.work0,
+          work: win.work,
+          workDelta: allocWorkDelta(win),
         };
       }
     }
@@ -2725,6 +2884,13 @@ async function allocRow(chromium) {
     fallThresholdB: ALLOC_FALL_THRESHOLD_B,
     legTolerance: ALLOC_LEG_TOLERANCE,
     verification: { unverified, detail: unverifiedDetail },
+    // WHETHER THIS ROW CARRIES A WORK CENSUS, AND WHAT IT PROVED (rf2-n1b9h).
+    // `workCount` is the switch; `workVerification` is what the run measured
+    // about its own counters and is derived off `perRound` rather than
+    // configured, beside `writeDriven` and `controlVerdict` for the same
+    // reason — a row learns this about itself only once its rounds are in.
+    workCount: WORK_COUNT,
+    workVerification: allocWorkVerification(rounds, WORK_COUNT, ALLOC_WINDOW_WRITES),
     perRound: rounds,
     allocFits: fits,
   };
@@ -3214,6 +3380,60 @@ function summariseAlloc(row, refused) {
     const from = arms.length ? arms : Object.values(r.controls || {});
     return from.map((x) => x.primeExcess).filter((x) => typeof x === 'number');
   });
+  // THE WORK CENSUS (rf2-n1b9h) — three monotone counters read at every
+  // window's open and close, printed BESIDE that window's `legMedian` so the
+  // two quantities the bead compares are on one line.
+  //
+  // `rf2-77gz8` left two candidates for its 3,792 B second mode: more work per
+  // write, against the same work allocating more per invocation. `legMedian`
+  // says which MODE a window sits in; these three say what RAN inside it. The
+  // table is the whole reading, and it is printed for every window rather than
+  // for a chosen pair, because which windows are high is not known until the
+  // run is over.
+  const wv = row.workVerification;
+  if (wv && wv.counted) {
+    console.log(';;');
+    console.log(
+      ';;   THE WORK CENSUS (rf2-n1b9h): event-handler invocations, subscription recomputations'
+    );
+    console.log(
+      `;;   and boundary renders, per window. The window drives ${wv.windowWrites} writes, so`
+    );
+    console.log(';;   `events` is the count a single-invocation-per-dispatch pipeline predicts.');
+    console.log(';;');
+    console.log(
+      ';;   round  window                                  ticks        legMedian  events  subs  renders'
+    );
+    for (const r of row.perRound) {
+      for (const [key, a] of Object.entries(r.arms || {})) {
+        const d = a.workDelta;
+        if (!d) continue;
+        console.log(
+          `;;   ${String(r.round).padEnd(6)} ${key.slice(0, 40).padEnd(40)} ` +
+            `${String(a.tick0 ?? '-').padStart(6)}-${String(a.tick ?? '-').padEnd(6)} ` +
+            `${String(a.legMedian ?? '-').padStart(9)}  ${String(d.events).padStart(6)}  ` +
+            `${String(d.subs).padStart(4)}  ${String(d.renders).padStart(7)}`
+        );
+      }
+    }
+    console.log(';;');
+    console.log(
+      `;;   CONTROLS: ${wv.controlsMoved.length === 0 ? 'every control window read 0/0/0 — the census does not move where nothing is dispatched' : 'MOVED, which is an instrument fault: ' + wv.controlsMoved.join('; ')}`
+    );
+    for (const [key, vs] of Object.entries(wv.events)) {
+      console.log(
+        `;;   ${key}: events ${vs.join(',')} · subs ${(wv.subs[key] || []).join(',')} · ` +
+          `renders ${(wv.renders[key] || []).join(',')}  (distinct values over ${row.rounds} rounds)`
+      );
+    }
+    if (wv.offExpectation.length) {
+      console.log(
+        `;;   OFF EXPECTATION (events != ${wv.windowWrites}): ${wv.offExpectation.join('; ')} — this` +
+          ' is a FINDING, not a fault: more handler invocations per dispatch IS candidate (a).'
+      );
+    }
+  }
+
   console.log(';;');
   console.log(
     `;;   THE PRIME LEG (excluded from every figure): the window's first work unit runs AFTER the`
