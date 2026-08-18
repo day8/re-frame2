@@ -1,8 +1,8 @@
 (ns hooks.re-frame.core
   "clj-kondo macro hook for `re-frame.core/reg-view`.
 
-  Per spec/004-Views.md and rf2-kkut0 (frame-affordance redesign),
-  `reg-view` is a defn-shape macro that auto-injects two lexical
+  Per spec/002-Frames.md (§What `reg-view` injects) and rf2-kkut0
+  (frame-affordance redesign), `reg-view` is a defn-shape macro that auto-injects two lexical
   bindings — `dispatch` and `subscribe` — into the body, sourced from a
   single `capture-frame` (the keystone OPERATION BUNDLE):
   `(:dispatch (re-frame.core/make-capture-frame ...))` and

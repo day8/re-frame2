@@ -2382,8 +2382,8 @@ test('every Clojure CLI step calls the shared installer by absolute path (rf2-e7
 });
 
 // rf2-2718r — the adapter-disposition guard scans a FIXED cross-repo roster
-// (ACTIVE_AUTHORITIES: EP-0030, spec/004-Views.md, implementation/README.md,
-// skills/…), not the diff. Conditional execution keyed to a diff classifier is
+// (ACTIVE_AUTHORITIES: EP-0030, implementation/README.md, implementation/adapters/
+// reagent/README.md, skills/…), not the diff. Conditional execution keyed to a diff classifier is
 // a category mismatch for a guard that scans a fixed inventory — a PR editing a
 // roster file may not fire the guard that pins it (the same inventory<->trigger
 // bug class as rf2-d9v3n / rf2-rf7gu). The ruled fix (option (e)) moves the
