@@ -5,8 +5,9 @@
   RETIRED from the `re-frame.core` facade (no back-compat alias, pre-alpha):
   each macro's own name now ALSO carries a plain-fn value on CLJS (Convention
   A, per spec/Conventions.md §Convention A), mirroring `reg-event` / `reg-sub`
-  / etc. `reg-view*` is EXPLICITLY KEPT (Codex caveat — spec/004-Views.md's
-  reg-view* + view lane is not folded into the app-facing lane) — this suite
+  / etc. `reg-view*` is EXPLICITLY KEPT (Codex caveat — the `reg-view*` + view
+  lane is not folded into the app-facing lane; see spec/Cross-Spec-Interactions.md
+  §21 Family asymmetry, which names this same rf2-m90brg sweep) — this suite
   pins that it survives the sweep.
 
   Mirrors the `ns-resolve` idiom `core_api_additions_test.clj`'s
