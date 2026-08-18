@@ -1050,6 +1050,81 @@ two-macro file — did not. Runs 1 and 2 were taken against
 pre-rebase readings in [the three runs](#the-three-runs-and-the-arm-the-last-one-was-taken-against)
 remain checkable rather than merely asserted.
 
+**Not one of these eleven pins resolves at the 2026-08-18 tree, and they are
+superseded rather than repairable (`rf2-6x3by`).** The tables above stay exactly
+as written, because they are what run 3 was taken on and editing them would
+falsify the run rather than repair it. What follows is where each pin has gone,
+hashed with `git hash-object` at `7902167197` rather than assumed, so that a
+reader who tries to resolve one is told why it will not resolve instead of being
+left to find out. **No row above moves, and nothing here restates a figure.**
+
+The six instrument blobs have all moved *in place* — the paths are still the
+paths, so this half is ordinary drift:
+
+| file | pinned blob | at 2026-08-18 |
+|---|---|---|
+| `p0_run.cjs` | `4718aaea…` | `9c993e96…` |
+| `p0_heap.cljs` | `34c9210d…` | `2d922d31…` |
+| `p0_hicasso.cljs` | `f2440e30…` | `7a91564f…` |
+| `p0_reagent.cljs` | `b1f5ec92…` | `419e166a…` |
+| `p0_uix.cljs` | `deec8976…` | `f1aaf9cb…` |
+| `p0_fixture.cljc` | `867ad583…` | `de27135c…` |
+
+The candidate arm's five are not drift, and the pinned path no longer exists.
+The benchmark harness was re-homed into `implementation/hicasso/` on 2026-08-14
+by `e61e175341`; `implementation/freehand` was then deleted whole on 2026-08-15
+by `c951808b47` (`rf2-0yp7w.6`). **The re-home is what moved these files — the
+deletion only removed what was left behind**, which is worth stating because the
+two are easy to conflate and only the first bears on the pins. Four of the five
+are therefore findable, under
+`implementation/hicasso/test/re_frame/bench/hicasso/`, and every one of them
+differs from its pin there:
+
+| candidate-arm file | pinned blob | at the re-homed path, 2026-08-18 |
+|---|---|---|
+| `arm1/runtime.cljs` | `69bfc6fc…` | `202f7612…` |
+| `arm1/mount.cljs` | `4653e168…` | `780b2962…` |
+| `arm1/lang.clj` | `0151ddaf…` | `95f057e8…` |
+| `front/codec.cljs` | `5eb17dbd…` | `ea859037…` |
+| `front/sub_index.cljs` | `394927d6…` | **retired; no such file** |
+
+`front/sub_index.cljs` is the one that cannot be re-pinned at any path, and this
+page already prices the reason. `rf2-dabt3` **retired `front.sub-index`** on
+2026-08-04, moving the reverse edge onto each key cell's own reader list, and
+[the fusion section below](#the-sub-index-fusion-priced-on-the-ladder-rf2-zei9w)
+is that landing measured on this very ladder. The file was deleted by
+`383ba2d645`, eleven days before the re-home — so its absence is a design change
+this corpus measured and published, not collateral of either tree move.
+
+`arm1/lang.clj` earns a line for the opposite reason. The paragraph above
+records it as the one file that did **not** move across runs 1–3, which is what
+made it the stable member of the set; it has moved since, so that no longer
+holds either.
+
+**The deeper supersession is that these five are no longer the candidate arm at
+all**, and this is why the re-pin is a re-registration rather than a re-hash.
+The pinned `p0_hicasso.cljs` (`f2440e30`) required
+`re-frame.bench.hicasso.arm1.runtime` and `…arm1.lang`; the blob at the tip
+(`7a91564f`) requires `re-frame.hicasso` — the shipped package — because
+`rf2-fe0l` repointed the candidate seam there, and that file's own docstring now
+records the arm as *"the shipped package, not a model of it"*. So re-pinning the
+four survivors at their re-homed path would register **the wrong files**: a
+frozen prototype the package was deliberately moved away from, whose divergence
+from the product that same docstring calls expected and permanent. The candidate
+arm as it stands is `re-frame.hicasso` under `implementation/hicasso/src/`, 27
+files, whose whole-tree object at `7902167197` is
+`d8700409dee4ecaa1f207f11839327bb3a001d65` — one identity for the arm, recorded
+here so the re-pin run has something that exists to name.
+
+**What this does not do.** It does not restore comparability with the rows
+above, and no edit can: run 3 priced the prototype, today's instrument prices
+the package, and a reading taken now would differ by the arm as well as by the
+drift. A re-pin run therefore establishes a **new** anchor rather than repairing
+this one, which is what *superseded rather than repaired* has meant on this page
+throughout. That run is a quiet-box window and is deliberately not taken here,
+so `C1`'s 5% same-instrument regression gate stays `UNPINNED` in
+[`budgets.md`](../product/budgets.md) until it is.
+
 Reproduce:
 
 ```
