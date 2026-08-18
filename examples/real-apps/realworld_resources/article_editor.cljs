@@ -99,9 +99,9 @@
    The obvious spelling — replace the whole slice with a fresh
    `(editor-slice slug (draft-from-article article))` — loses every keystroke the
    user made while the read was still in flight, because entering the editor and
-   typing is faster than a round trip. `FH-CTRL-013` states that seed law for
-   `re-frame.freehand` forms; this app holds its own `:touched` set rather than a
-   freehand form, so it spells the same rule by hand.
+   typing is faster than a round trip. The withdrawn `re-frame.freehand`
+   substrate stated that seed law for its forms (`FH-CTRL-013`); this app holds
+   its own `:touched` set rather than a form, so it spells the same rule by hand.
 
    The seed is LEAFWISE. A field the user has already touched keeps BOTH its
    draft and its baseline, so their text stays on screen AND stays dirty — the
