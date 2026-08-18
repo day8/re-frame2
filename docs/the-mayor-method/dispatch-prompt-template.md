@@ -485,9 +485,9 @@ Use ABSOLUTE paths under <ASSIGNED_WORKTREE> for every edit and write. A
 start-of-session guard is NOT sufficient — verify per edit.
 
 Report that root to the mayor in your completion message, and never write it, or
-any absolute home path, into a committed file — if your deliverable is itself a
-written record, what makes the guard evidence is that it RAN and exited 0, not
-the machine-specific path it printed.
+any absolute home path, into any committed file, PR body or tracker text — if
+your deliverable is itself a written record, what makes the guard evidence is
+that it RAN and exited 0, not the machine-specific path it printed.
 
 After your first edit, and after writing any NEW file, confirm it landed in your
 worktree and NOT the mayor checkout. Check BOTH trees: a new ignored file leaking
@@ -523,6 +523,8 @@ actually caught both observed collisions.
 
 If you create a link into shared dependencies, remove the LINK (never its target)
 before you report done: later cleanup follows it and deletes what it points at.
+And kill any poll loops you armed before you report done — each survivor fires
+its own completion notification after the work has landed, costing a turn apiece.
 ```
 
 A project may add a **mayor-side commit guard** — a pre-commit hook in the mayor checkout that refuses
