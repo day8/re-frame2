@@ -22,8 +22,9 @@ the source those runs executed:
 | `core/test/re_frame/bench/p0_run.cjs` | `9c993e96b36f4878d03912743154e938ffff896e` | **no** — the runs used `e88d2be45efd59d023a9d23da9e4ff1f9800b5c0` |
 
 The driver has moved since the window, so **every structural claim below about
-the driver was verified against `e88d2be45efd59d023a9d23da9e4ff1f9800b5c0`**,
-the object the runs actually executed, and not against the working tree.
+the driver was verified against driver blob
+`e88d2be45efd59d023a9d23da9e4ff1f9800b5c0`**, the object the runs actually
+executed, and not against the working tree.
 
 ## The answer, first
 
@@ -124,7 +125,7 @@ The `bisect-5-a-replicate` `uix-subs` cell is the run whose positive control
 FAILED, and its `pre` subset is contaminated by a 110,642 B round-0 reading; it
 is printed for completeness and carries nothing.
 
-**The driver has no round-4 behaviour.** In the alloc loop of
+**The driver has no round-4 behaviour.** In the alloc loop of driver blob
 `e88d2be45efd59d023a9d23da9e4ff1f9800b5c0` the only round-index-dependent
 statement is `round % 2 === 0`, which flips the segment order. Round 4 shares
 its parity with rounds 0 and 2, and neither of those steps. So round 4 is not a
