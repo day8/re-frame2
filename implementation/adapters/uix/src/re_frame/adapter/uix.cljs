@@ -175,7 +175,9 @@
   intended for test code only. Calls (act f); with no arg, calls (act
   (fn [] nil)) to flush pending effects. Returns nil. Resolves React's
   act() across React 18 (in `react-dom/test-utils`) and React 19 (on
-  the React namespace directly)."
+  the React namespace directly).
+  It publishes a render phase, so do not call it from inside a
+  `dispatch-sync` handler (rf2-0c23j)."
   (:flush-views! spine-fns))
 
 (def wrap-view
