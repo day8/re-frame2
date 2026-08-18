@@ -28,10 +28,11 @@
   was deliberate before the move and it is why `now-ms`, `summarise` and
   `quantile` are re-derived here rather than borrowed from the donor's
   `bench.measure`: a frozen donor `src/` tree is not a dependency this
-  lane should acquire. (That sentence used to count the lines — *eleven*
-  — and `rf2-xa8wo` adding `quantile` made the count wrong while leaving
-  the point untouched, so the point is what it now states.) The move did not create that independence, it
-  merely made it visible in the path.
+  lane should acquire. The move did not create that independence, it
+  merely made it visible in the path. (That sentence used to count the
+  lines — *eleven* — and `rf2-xa8wo` adding `quantile` made the count
+  wrong while leaving the point untouched, so the point is what it now
+  states.)
 
   ## What a reading is
 
