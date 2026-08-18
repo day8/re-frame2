@@ -1895,6 +1895,39 @@ nothing. The re-pin is still a run rather than an edit, and it is now a run
 whose candidate arm has to be re-registered at a path that exists before it can
 be taken at all.
 
+**[Registration half landed 2026-08-18, `rf2-6x3by`. `C1` stays `UNPINNED`, and
+no reading was taken.]** The ladder's §6 provenance now records, beside the pins
+rather than over them, that none of the eleven resolves, where the four
+surviving candidate-arm blobs live today, and why the fifth cannot be re-pinned
+at any path: `rf2-dabt3` **retired `front.sub-index`** on 2026-08-04 and the
+ladder prices that landing on its own rung, so the absence is a design change
+this corpus measured rather than collateral of the re-home. That last point
+sharpens the paragraph above, which had the fact right and the reason unstated.
+
+**One finding changes what the re-pin run has to do, and it makes the
+supersession wider rather than narrower.** The four survivors are no longer the
+candidate arm at all. The pinned `p0_hicasso.cljs` required
+`re-frame.bench.hicasso.arm1.runtime`; the blob at the tip requires
+`re-frame.hicasso`, because `rf2-fe0l` repointed the candidate seam at the
+package — the same repoint §6's *package-resident* paragraph above already
+credits with discharging the other half. So re-pinning the four at their
+re-homed path would register **the wrong files**: the frozen prototype the
+package was moved away from, whose divergence from the product §6 calls expected
+and permanent. The arm is now `re-frame.hicasso` under
+`implementation/hicasso/src/`, and the ladder records its whole-tree object so a
+run has one identity that exists to name.
+
+So the sentence above is discharged in exactly one respect — the candidate arm
+is registered at a path that exists, and a re-pin run can be attempted at all —
+and in no other. The pins are still superseded rather than repaired and still
+never can match; *"the same instrument"* still names nothing. It follows that
+the run, when it comes, sets a **new** anchor rather than restoring comparability
+with the published rows: run 3 priced the prototype and today's instrument
+prices the package, so a reading taken now differs by the arm as well as by the
+drift. `C1` remains blocked on that quiet-box run, which is not this bead's. No
+threshold was guessed, no band widened, no figure restated and no ledger count
+moved.
+
 **`C8`: the population is verifiably empty, not merely unreported.** Across the
 witness applications under
 `implementation/hicasso/test/re_frame/hicasso/examples/`, shipping view code
