@@ -5,11 +5,14 @@ Type: standards-track
 Created: 2026-07-16
 Resolution: final 2026-07-16
 
-> **Historical record — 2026-07-30.** This EP's programme
+> **Historical record — 2026-08-16.** This EP's programme
 > ([EP-0030](EP-0030-the-compiled-view-substrate-program.md)) was absorbed into
 > Freehand, and Freehand
-> ([EP-0036](EP-0036-the-freehand-view-substrate-programme.md)) is now
-> **withdrawn**; the EP is kept as the record of the donor programme and no work
+> ([EP-0036](EP-0036-the-freehand-view-substrate-programme.md)) was **withdrawn**
+> on 2026-07-30. Both donor substrates were then **removed from the tree** on
+> 2026-08-16 under the operator ruling recorded as `rf2-0yp7w` —
+> `implementation/ui/` and `implementation/freehand/` return nothing from
+> `git ls-files`. The EP is kept as the record of the donor programme and no work
 > is in flight under it. The observation-port contract it graduated into
 > [`spec/006-ReactiveSubstrate.md`](../../spec/006-ReactiveSubstrate.md) is
 > unaffected and still governs — the 2026-07-30 ruling measured invariant 5's
