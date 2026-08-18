@@ -824,7 +824,7 @@
                       :infer-externs false}}
 
   ;; rf2-hic-001 — the Hicasso PACKAGE's compile target. Mirrors
-  ;; :node-test-freehand above: the ns-regexp selects
+  ;; :node-test-testbed-support above: the ns-regexp selects
   ;; only `re-frame.hicasso.*` suites, and nothing else in the repo lives
   ;; under that prefix. Those namespaces also match the always-on
   ;; :node-test build's broader `cljs-test$` regex, so the package is
@@ -836,12 +836,13 @@
   ;; :hicasso-bench comment recommends: --config-merge can add a source
   ;; path or an entry to a build that already has the right SHAPE, and
   ;; there is no existing id whose shape is "compile the hicasso package
-  ;; and run its suites". Riding :node-test-freehand would compile the
-  ;; package under the FREEHAND artefact's regexp and name, tying a new
-  ;; artefact's gate to a neighbour's; riding :hicasso-bench would compile
-  ;; the package under the BENCH tree's advanced browser build, which is
-  ;; the very coupling this extraction exists to end. One id, one
-  ;; artefact, matching the two siblings that came before it.
+  ;; and run its suites". Riding the then-live :node-test-freehand would
+  ;; have compiled the package under the FREEHAND artefact's regexp and
+  ;; name, tying a new artefact's gate to a neighbour's; riding
+  ;; :hicasso-bench would compile the package under the BENCH tree's
+  ;; advanced browser build, which is the very coupling this extraction
+  ;; exists to end. One id, one artefact, matching the two donor siblings
+  ;; that came before it.
   ;;
   ;; The compile alone is half the acceptance: it is what proves the
   ;; renamed impl.* graph loads with the bench tree off the classpath.
@@ -864,8 +865,8 @@
   ;; in the bundle when it does — had no artefact to point at.
   ;;
   ;; The entry is `re-frame.hicasso.consumer-app`, which is a small real
-  ;; APPLICATION rather than a require-only stub, for the reason its
-  ;; sibling `:freehand-release` gives: Closure keeps what is reachable
+  ;; APPLICATION rather than a require-only stub, for the reason the
+  ;; departed `:freehand-release` gave: Closure keeps what is reachable
   ;; and an unused require is not, so a namespace that merely required the
   ;; door would DCE to nearly nothing and the bundle would report a cost
   ;; no consumer pays. It reaches a declared view, an ambient read, a
@@ -874,7 +875,7 @@
   ;; adapter, with nothing from the bench tree or from `tools/`. That
   ;; fence is the bead's acceptance and the entry's whole point.
   ;;
-  ;; Shape follows the sibling advanced build :freehand-release: both
+  ;; Shape follows the departed advanced build :freehand-release: both
   ;; settings pinned rather than
   ;; left to `release`'s defaults, so the build says what it is at the
   ;; point a reader is looking. The entry sits under `hicasso/test/` — on
@@ -920,21 +921,24 @@
   ;;   HICASSO_INIT_FN=<ns>/-main HICASSO_OUT_DIR=out/<arm> node .../run.cjs
   ;;
   ;; `run.cjs` passes `--config-merge {:output-dir … :modules {:main
-  ;; {:init-fn …}}}` exactly as `b6_prod_run.cjs` rides `:freehand-release`,
-  ;; so a sibling arm needs NO edit to this file at all. The sequencing law
-  ;; is paid once, here.
+  ;; {:init-fn …}}}` exactly as the Freehand lane's `b6_prod_run.cjs` rode
+  ;; `:freehand-release` before rf2-0yp7w removed both, so a sibling arm
+  ;; needs NO edit to this file at all. The sequencing law is paid once,
+  ;; here.
   ;;
-  ;; WHY A NEW ID RATHER THAN RIDING `:freehand-release`. The b6 driver's
-  ;; trick works because a build id is only a template, and this lane could
-  ;; have merged onto the Freehand release build. It does not, for two
-  ;; reasons: the Freehand programme is withdrawn and its release build has
-  ;; its own gates reading its own `out/` dir (`:freehand-release` is
-  ;; cleaned and rebuilt by `test:freehand-reachability` and
-  ;; `test:freehand-matched`), so a bench run and a gate run would race the
-  ;; same `.shadow-cljs/builds/freehand-release` cache; and the charter's
+  ;; WHY A NEW ID RATHER THAN RIDING `:freehand-release`, decided while that
+  ;; build still existed. The b6 driver's trick worked because a build id is
+  ;; only a template, and this lane could have merged onto the Freehand
+  ;; release build. It did not, for two reasons: the Freehand programme was
+  ;; withdrawn and its release build had its own gates reading its own
+  ;; `out/` dir (`:freehand-release` was cleaned and rebuilt by
+  ;; `test:freehand-reachability` and `test:freehand-matched`), so a bench
+  ;; run and a gate run would have raced the same
+  ;; `.shadow-cljs/builds/freehand-release` cache; and the charter's
   ;; anti-regression fence is explicit that Hicasso does not carry a
   ;; continuity claim to its donors — the measurement lane should not have
-  ;; to borrow a donor's identity to compile.
+  ;; to borrow a donor's identity to compile. The first reason expired with
+  ;; the build; the second is why this id would still be right today.
   ;;
   ;; :advanced with goog.DEBUG false, because HD-012 makes every bar number
   ;; a browser number taken from the artefact a consumer ships. The Spec 009
