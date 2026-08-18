@@ -49,6 +49,7 @@
             [day8.re-frame2-xray.panels.event.event-status-colour :as event-status]
             [day8.re-frame2-xray.panels.issues-ribbon-helpers :as issues-h]
             [day8.re-frame2-xray.panels.trace-helpers :as trace-h]
+            [day8.re-frame2-xray.focus :as focus]
             [day8.re-frame2-xray.views.edn-inspector :as ei]
             [day8.re-frame2-xray.theme.perf-tier :as perf-tier]
             [day8.re-frame2-xray.theme.tokens :as tokens]))
@@ -94,10 +95,18 @@
            (tokens/css-var :accent)))))
 
 (deftest panel-accent-returns-css-variable-string
-  (testing "rf2-on4cm — `panel-accent` materialises the panel-domain
-            accent through the var-map. Used by the 3px left-border
-            on every L4 panel <h1>."
-    (doseq [tab (keys tokens/panel-domain->token)]
+  (testing "rf2-on4cm — `panel-accent` materialises the panel accent
+            through the var-map. Used by the 3px left-border on every
+            L4 panel container.
+
+            The roster is `focus/valid-panels`, which mirrors the LIVE
+            registry (`panel-registry/tab-ids-for-mode :dynamic`) and
+            is pinned against it by `focus-cljs-test`. rf2-9g1ea —
+            this walk used to read the keys of a hand-listed
+            `tokens/panel-domain->token` map, which had drifted to six
+            stale ids, so 'every L4 panel' excluded four of the shipped
+            ten and included a retired one."
+    (doseq [tab focus/valid-panels]
       (let [v (tokens/panel-accent tab)]
         (is (string? v))
         (is (re-find #"^var\(--rf-xray-" v)
@@ -106,8 +115,8 @@
 (deftest accent-stripe-style-border-references-css-variable
   (testing "rf2-on4cm — the canonical 3px-left-border builder produces
             a border-left value that references a CSS variable, not
-            a hardcoded hex."
-    (doseq [tab (keys tokens/panel-domain->token)]
+            a hardcoded hex. Walks the live tab roster (rf2-9g1ea)."
+    (doseq [tab focus/valid-panels]
       (let [border (:border-left (tokens/accent-stripe-style tab))]
         (is (string? border))
         (is (re-find #"3px solid var\(--rf-xray-" border)
@@ -309,9 +318,10 @@
                    "(should be a var(--rf-xray-…) reference)")))))))
 
 (deftest accent-stripe-style-output-has-no-palette-hex-literal
-  (testing "rf2-on4cm — every panel's accent-stripe style map (the
-            3px left border on L4 panel <h1>) is hex-free."
-    (doseq [tab (keys tokens/panel-domain->token)]
+  (testing "rf2-on4cm — every shipped panel's accent-stripe style map
+            (the 3px left border on the L4 panel container) is
+            hex-free. Roster is `focus/valid-panels` (rf2-9g1ea)."
+    (doseq [tab focus/valid-panels]
       (let [s (tokens/accent-stripe-style tab)]
         (doseq [[k v] s]
           (when (string? v)
