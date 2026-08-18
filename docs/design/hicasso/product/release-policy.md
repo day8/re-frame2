@@ -7,11 +7,18 @@ compatibility/release policy*: what the artefact is, which combinations it is co
 upgrade costs the consumer who takes one. Where a claim here and its owning document disagree, the owner
 governs and this page is the defect.
 
-**Everything below is measured, and the measurement is dated.** The counts in §3 and §4 were taken on
-2026-08-15 against `origin/main`, each with the command beside it, because a compatibility statement that
+**Everything below is measured, and the measurement is dated.** The counts in §3 and §4 were re-taken on
+2026-08-18 against `origin/main`, each with the command beside it, because a compatibility statement that
 cannot be re-derived is a compatibility statement nobody can check. The two things this page deliberately
 does **not** do are assert a version number and list the public door by name: neither is stable, and §1 and
 §3 say why.
+
+**Two §3 figures moved between the 2026-08-15 reading and this one, which is the case for dating them.**
+The refusal catalogue went from 76 live / 6 reserved to **77 live / 5 reserved** — a reservation acquired an
+emitter, which is the one direction the catalogue's own rules permit — and the optional-module roster went
+from four modules to **five**, the native tier having joined it. Neither figure was wrong when it was
+written and neither announced itself when it changed, which is exactly why §3 records the command rather
+than only the number.
 
 ## Where each fact lives
 
@@ -49,11 +56,38 @@ by the same change:
 3. It is **in the release workflow**, in a stage of its own — `deploy-hicasso`, gated on `deploy-core` and
    the whole `deploy-leaf` matrix, for the reason §2 gives.
 
-So Hicasso is consumable from a released coordinate, and `:local/root` from this repository is now the
-in-tree development path rather than the only one. The knock-on for Xray went with it: Hicasso was **the one
-coordinate `release-xray.yml` deliberately left at `:local/root`** while rewriting the other nine, and
-`preflight-xray-package.sh` refused an `xray-v*` deploy over it. All ten are rewritten now, and what remains
-is tag ORDER — `v*` before `xray-v*`, at the same VERSION.
+So Hicasso is **wired to publish**. It is not yet *consumable* from a released coordinate, and §1.1 is the
+difference: `:local/root` from this repository remains the only path a consumer has, and the spelling above
+is not the spelling the first release will carry. The knock-on for Xray went with the wiring: Hicasso was
+**the one coordinate `release-xray.yml` deliberately left at `:local/root`** while rewriting the other nine,
+and `preflight-xray-package.sh` refused an `xray-v*` deploy over it. All ten are rewritten now, and what
+remains is tag ORDER — `v*` before `xray-v*`, at the same VERSION.
+
+### 1.1 Three ruled prerequisites stand in front of the first tag
+
+**An earlier reading of this section said only a tag was missing. That was wrong in the direction that costs
+a reader most**, because it invites them to write `day8/re-frame2-hicasso` into a `deps.edn` and wait for it
+to resolve. Three things stand in front of the first tag, none of them wiring and none of them a worker's:
+
+1. **The group is not verified, so the coordinate cannot be created.** Clojars requires a NEW project to
+   live in a *verified* group, and verification requires a reverse-domain group name, which `day8` is not.
+   This is measured rather than feared: a tag-triggered publish under that group drew a 403 reading *"Group
+   'day8' isn't verified, so can't contain new projects"*. The block is release-wide — it reaches every
+   `day8/re-frame2-*` coordinate that has never published, which is all of them — and
+   [`docs/release-process.md` §How `story-mcp` and `mcp-base` got their publish path](../../../release-process.md#how-story-mcp-and-mcp-base-got-their-publish-path)
+   owns the statement. Clearing it is an operator act against Clojars, not a change to this repository.
+2. **The coordinate is scheduled to be renamed, so today's spelling is not the one that ships.** A held
+   campaign renames all nineteen `day8/*` Maven coordinates to `io.github.day8/*` — the reverse-domain group
+   verification (1) needs — and it is deliberately held until the verification lands. **The first tag
+   therefore cuts on `io.github.day8/re-frame2-hicasso`, not on the `day8/re-frame2-hicasso` committed
+   today**, and a tag pushed before that campaign merges would 403 on every coordinate rather than on one.
+3. **The deploy token is scoped to the new group and is minted only when a tag is imminent.**
+
+**What this page will not do is pre-write the new spelling into §1's opening line.** The committed tree says
+`day8/re-frame2-hicasso` in both places §1 names, and a page disagreeing with the tree it documents is a
+second defect rather than a fix. The spelling changes here when it changes in `deps.edn`, under the campaign
+that owns it — which is also why the naming record still carries the two group ids as an open question
+rather than a settled one.
 
 **No version has been cut, of anything.** The repo-root `VERSION` file reads `0.0.1.alpha`, and
 `git ls-remote --tags origin` returns nothing at all — this repository has never carried a release tag. That
@@ -61,9 +95,11 @@ is why §2 describes a scheme and names no current version: a number written on 
 stale before the page was read.
 
 **The consequence for `rf2-hic-061`'s own acceptance criterion, stated plainly.** That criterion reads *"a
-tagged release installable by the tiny consumer app from the artefact (not the repo)"*. It is **executable
-now and still unexecuted**: `rf2-gra70` built the automation the criterion needs, but cutting a tag is the
-operator's act, not a worker's, and this repository has still never carried one. §6 records what is left.
+tagged release installable by the tiny consumer app from the artefact (not the repo)"*. The automation it
+needs exists — `rf2-gra70` built it — but the criterion is **not executable today**, and the distinction
+matters because "executable and unexecuted" reads as *someone need only push a tag*, which is how this
+obligation fell out of the open ledger once already. It is **blocked, on §1.1's first two prerequisites**,
+and it becomes executable when they clear. §6 records what is left.
 
 ## 2. The versioning scheme
 
@@ -104,12 +140,12 @@ not its contents.
 Every row below points at a record that is machine-checked, so the surface cannot grow, shrink or be
 renamed without something going red.
 
-| Surface | Where it is enumerated | The gate that keeps it honest | Measured 2026-08-15 |
+| Surface | Where it is enumerated | The gate that keeps it honest | Measured 2026-08-18 |
 |---|---|---|---|
 | The ordinary authoring door, `re-frame.hicasso` | [`dispositions.md` §2.1](dispositions.md#21-surface-inventory-and-dispositions) and [§2.2](dispositions.md#22-public-surfaces-with-no-server-render-behavior) | `implementation/hicasso/scripts/check_facade_inventory.py`, CI job `hicasso-facade-inventory` | **16 names on the door, 43 inventory rows** — 13 attributed by name, 3 by declaration |
 | The native tier, `re-frame.hicasso.native` | the `native.cljc` namespace docstring, rowed in [`naming-ledger.md`](naming-ledger.md) | `native_surface_cljs_test.cljs` on the CLJS lane | **10 SURFACE + 4 INTERNAL** public vars |
-| Refusal ids | [`complaints.md`](complaints.md#the-stability-rule) | `implementation/hicasso/scripts/check_complaint_catalogue.py`, CI job `hicasso-complaint-catalogue` | **76 live, 6 reserved, 1 pending retirement, 1 retired** |
-| Optional modules — forms, motion, overlay, server | the `MODULES` roster in the script beside it | `implementation/hicasso/scripts/check_optional_module_reachability.py` | four modules, each proving zero reachable production code when absent |
+| Refusal ids | [`complaints.md`](complaints.md#the-stability-rule) | `implementation/hicasso/scripts/check_complaint_catalogue.py`, CI job `hicasso-complaint-catalogue` | **77 live, 5 reserved, 1 pending retirement, 1 retired** |
+| Optional modules — forms, motion, native, overlay, server | the `MODULES` roster in the script beside it | `implementation/hicasso/scripts/check_optional_module_reachability.py` | five modules, each proving zero reachable production code when absent |
 | The testing kit, `re-frame.hicasso.test` | `implementation/hicasso/test_kit/src`, on `:src-dirs` so the jar carries it, deliberately outside the artefact's `:paths` | the kit's own witnesses on the CLJS lane, plus the `rf.error/hicasso-test-` sentinel in `check_production_erasure.cjs` | reachable only from a test, by reachability — no shipping namespace requires it (rf2-rxf49) |
 | Server/hydration policy, per surface | [`lanes/react-compatibility-notes.md`](lanes/react-compatibility-notes.md#public-surface-ssrhydration-matrix) | each `dispositions.md` inventory id points at its policy row | see §4 — the Phase 4 exit this rests on is **NOT MET** |
 
@@ -137,7 +173,7 @@ Every row carries either the CI job that backs it or an explicit **untested-but-
 | Chromium 147.0.7727.15, Firefox 148.0.2 and WebKit 26.4, on Playwright 1.59.1 | `implementation/package.json`; the runner prints the triple it launched | `cljs-hicasso-controlled` — three real engines, per PR, comparing recorded rows across engines rather than running one spec three times; `cljs-hicasso-hmr` — three engines, real shadow reloads | **TESTED** |
 | Any other engine or engine version | — | nothing | **UNTESTED-BUT-EXPECTED** — the substrate targets React's DOM contract, not a browser's |
 | `day8/re-frame2` and `day8/re-frame2-ssr` **at the same commit** | `implementation/hicasso/deps.edn`, both at `:local/root` | `jvm-hicasso`; the CLJS node lane in `cljs` | **TESTED**, and the only supported combination there is — see the row below |
-| Hicasso against any *released* core version | — | nothing yet | **NOT APPLICABLE, PENDING A TAG** — `rf2-gra70` landed the wiring, so both sides of the pair are now publishable coordinates on one lockstep train (§1). What is still missing is a released version to name: this repository has never carried a release tag. The row goes green on the first `v*` tag and its install witness, not on the wiring |
+| Hicasso against any *released* core version | — | nothing yet | **NOT APPLICABLE, PENDING A FIRST RELEASE** — `rf2-gra70` landed the wiring, so both sides of the pair are publishable coordinates on one lockstep train (§1). What is missing is not only a version to name but the ability to create the coordinates at all: see [§1.1](#11-three-ruled-prerequisites-stand-in-front-of-the-first-tag). The row goes green on the first `v*` tag and its install witness, not on the wiring |
 | ClojureScript 1.12.145 and shadow-cljs 3.4.10 | `implementation/core/deps.edn`; `implementation/package.json` | every CLJS job | **TESTED** |
 | Production build, `:advanced` with `goog.DEBUG` false | the `hicasso-release` build id in `implementation/shadow-cljs.edn` | the `build:hicasso-release` step in job `cljs`, which chains production-erasure and bundle-isolation checks | **TESTED** |
 | The optional Node service, `re-frame.hicasso.server` | `implementation/hicasso/deps.edn`'s one `day8/re-frame2-ssr` entry | `server_render_ssr_dom_cljs_test.cljs` on the CLJS lane | **TESTED as a render witness.** The per-surface SSR/hydration policy it serves is the next row |
@@ -233,9 +269,10 @@ it ships from a post-matrix stage of its own beside `ssr-ring`.
 
 Three consequences, and this page states them rather than working around them:
 
-- `rf2-hic-061`'s acceptance criterion — a tagged release installable from the artefact — is now
-  **executable and unexecuted**. Cutting a `v*` tag is the operator's act; no worker does it, and nothing on
-  this page should be read as a claim that a release has happened.
+- `rf2-hic-061`'s acceptance criterion — a tagged release installable from the artefact — is **blocked, not
+  merely unexecuted**, on the group verification and the coordinate rename [§1.1](#11-three-ruled-prerequisites-stand-in-front-of-the-first-tag)
+  enumerates. Both are the operator's acts; no worker does either, and nothing on this page should be read
+  as a claim that a release has happened.
 - §4's *any released core version* row stays **NOT APPLICABLE** until that tag exists, for want of a version
   rather than for want of wiring.
 - Xray's publishability is no longer blocked. Hicasso was the one coordinate `release-xray.yml` left at
