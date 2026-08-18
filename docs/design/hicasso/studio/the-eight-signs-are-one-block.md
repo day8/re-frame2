@@ -258,6 +258,9 @@ measurement.
 
 ## What would decide it, and the instrument already half affords it
 
+**Filed as `rf2-irxrw`, which now blocks `rf2-0gjqi`.** The bead carries the
+build; what follows is the reasoning behind it.
+
 **One run, both writes, same page, same round, matched pairs.** The in-page API
 already takes the write as a per-window argument:
 
