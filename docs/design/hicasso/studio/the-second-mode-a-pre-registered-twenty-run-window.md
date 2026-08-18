@@ -38,7 +38,9 @@ rate makes that failure mode the live one here rather than a theoretical one.
 ## Pre-registration
 
 **Declared before the first run, and committed in this file before the runner was
-invoked once** (commit `5927981798`).
+invoked once**, as commit `5927981798` on `worker/bimodal-77gz8`, authored off
+`58cf2df4f1` — which is an ancestor of `origin/main` and is the anchor a fresh
+clone can resolve.
 
 | Field | Value |
 |---|---|
@@ -182,8 +184,8 @@ exactly, including both runs sitting at `4a1537cb71` with passing controls.
 [The work count is a constant, and the mode did not
 reproduce](the-work-count-is-a-constant-and-the-mode-did-not-reproduce.md) pins
 `p0_workcount.cljc` at `1787bc0053772c6bd72c3b665db8e8f9be87b2cd`, which is in no
-fresh clone: the file's content at both that branch's commit and the merge commit
-is `033f00470c380a17664a1dabffa0768f0e22c671`. The provenance gate classes blob
+fresh clone. Both on that branch and as merged, the file's real blob is
+`033f00470c380a17664a1dabffa0768f0e22c671`. The provenance gate classes blob
 hashes as digests by context and does not check them for resolvability, which is
 why it passed. Recorded, not repaired — the page is another bead's record.
 
