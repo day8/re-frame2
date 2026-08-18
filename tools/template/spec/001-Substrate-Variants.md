@@ -168,9 +168,7 @@ Reserved space — not implemented:
   `release.yml` deploys **thirteen** coordinates — `day8/re-frame2`
   core, eleven `deploy-leaf` matrix values, and `ssr-ring` in its own
   ordered job — plus `hicasso` in the stage above. The twelve
-  `artefact:` rows are the non-core leaves, not the workflow's total.
-  `re-frame.ui` is explicitly **not** published, and must not be added
-  to the roster.)
+  `artefact:` rows are the non-core leaves, not the workflow's total.)
 
   **Hicasso is also not a substrate peer of `:reagent` and `:uix`, and
   that ordering matters.** It mints no adapter — there is no

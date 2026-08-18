@@ -139,8 +139,7 @@ afterthought.
 > dependency. The in-repo gates were green only because they rewrote
 > that coordinate to `:local/root`, an affordance no consumer has. A
 > scaffold for a substrate that will not exist is not worth
-> maintaining, and Freehand gets its own variant when its publication
-> gate lands.
+> maintaining.
 >
 > The menu is now `:reagent` (default) and `:uix`; the decision record
 > above is kept as history.
