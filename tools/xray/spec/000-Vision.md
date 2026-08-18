@@ -38,16 +38,14 @@ to surface.
 Every Xray surface orients around **one focused event** — the spine sub
 `:rf.xray/focus`. The user (or LIVE mode) picks an event in the L2 list;
 every dependent panel rebinds atomically. Tabs are **lenses on that one
-event**:
-
-| Tab | What it shows for the focused event |
-|---|---|
-| **Event** (`e`) | The event vector + the six dominoes of its cascade. |
-| **App-db** (`a`) | The diff `:db-before → :db-after` for this event. |
-| **Views** (`v`) | The subs recomputed because of this event + the views that re-rendered. |
-| **Trace** (`t`) | The raw trace stream filtered to this event's cascade. |
-| **Machines** (`m`) | The transitions this event triggered + the spawn/destroy cascades it produced. |
-| **Routing** (`r`) | The current matched route + params/query/fragment + Simulate-URL, for the focused event. |
+event**: the Epoch panel renders its pipeline as a numbered cascade,
+App-db the `:db-before → :db-after` diff it produced, Views the subs it
+recomputed and the views that re-rendered because of them, Trace the raw
+stream filtered to that cascade. Ten Dynamic tabs ship, each answering a
+different question about the same event; the complete inventory — what
+every tab shows and which spec owns it — is
+[§The tab inventory](#the-tab-inventory) below, and it is this document's
+only tab roster.
 
 The violations an event introduced (errors · warnings · schema · hydration ·
 advisories) no longer get a dedicated tab — per rf2-gbz39 (Mike RULED Option
