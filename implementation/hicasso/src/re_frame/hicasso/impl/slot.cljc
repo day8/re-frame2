@@ -34,7 +34,7 @@
   rule B2) requires such a file to be selected by a CLJS lane as well as
   the JVM one. So the same corpus of authored keys, with the same
   expected slots, is asserted by `npm run test:cljs` AND by
-  `clojure -M:test` in `implementation/freehand`. One table, one
+  `clojure -M:test` in `implementation/hicasso`. One table, one
   implementation, two runtimes — and a divergence has nowhere left to
   hide, because there is no second implementation to hold a second
   answer.

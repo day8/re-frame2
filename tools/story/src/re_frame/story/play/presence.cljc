@@ -4,9 +4,9 @@
 
   ## Why a rung exists
 
-  A variant whose view renders a `(v/presence {:timeout-ms n} …)` boundary
-  RETAINS a removed keyed child in `:unmounting` until the `:timeout-ms`
-  safety bound fires. Playback then has a settlement problem the
+  A variant whose view renders a PRESENCE boundary (Spec 004 §Presence)
+  RETAINS a removed keyed child in `:unmounting` until the boundary's
+  `:timeout-ms` safety bound fires. Playback then has a settlement problem the
   `settled-boundary` ladder cannot solve: the retention is a CLOCK, not a
   queue. Draining the router to a fixed point (`:headless`), flushing
   reactions (`:cljs-reactive`) or awaiting a React commit (`:dom`) all leave

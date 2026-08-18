@@ -80,12 +80,12 @@
   There is NO mounted-view evidence release here, and nothing is missing where
   one used to be (rf2-7gth0). The predecessor tier had a single-owner registry
   Xray claimed at `init!`, leaving an owner, a sink, retained entries and a
-  globalThis sentinel behind for the next test to inherit.
-  `re-frame.freehand.tool` is a reader: Xray installs nothing into it and so
-  has nothing to release. A suite that MOUNTS Freehand occurrences clears the
-  substrate's own current-occurrence index in its own fixture — the door for
-  that is `re-frame.freehand.occurrences/clear!`, which belongs to Freehand and
-  not to Xray's reset tier.
+  globalThis sentinel behind for the next test to inherit. The tier that
+  replaced it, `re-frame.freehand.tool`, was a pure READER: Xray installed
+  nothing into it and so had nothing to release. Both retired with the
+  substrates they read (rf2-0yp7w), and the rule they settled still holds — a
+  substrate's own per-mount occurrence index is cleared by that substrate's
+  own fixture, never by Xray's reset tier.
 
   Call at the START of a fixture, BEFORE registering frames — clearing
   the rings wipes the per-frame recording config, so a mid-setup call
