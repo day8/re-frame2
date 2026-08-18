@@ -44,8 +44,10 @@ case and refuses neither.
 - **The single event-pipeline commit is priced, and it ADDS.**
   `a158c40288` (`feat(core): refuse a malformed effect-map envelope at the
   final-effects boundary`) is the only commit in the interval that touches
-  `events.cljc`, `router.cljc` or `fx.cljc`, and it touches all three at once —
-  295 / 221 / 49 lines. Pooling the two low-mode readings either side of it, the
+  `events.cljc` or `router.cljc` at all, and it touches those and `fx.cljc`
+  together — 295 / 221 / 49 lines. (One other commit, `04543067d9`, touches
+  `fx.cljc` alone, by 21 lines; it sits between points M and B, across which
+  the quantity moves 8 B.) Pooling the two low-mode readings either side of it, the
   floor moves **+296 B** on `reagent-subs` and **+284 B** on `uix-subs`. Taken
   one edge at a time it is +322 / +284 across the immediate parent boundary and
   +286 / +284 against 2026-08-08's own low-mode reading — a range narrower than
@@ -119,8 +121,11 @@ candidate under test, and the event pipeline is in `core/src`.
 ## The bisect points
 
 The interval contains eleven commits under `implementation/core/src`, and their
-shape is what makes a three-point bisect enough: **exactly one of them touches
-the event pipeline, and it touches all of it.**
+shape is what makes a four-point bisect enough: **exactly one of them touches
+`events.cljc` or `router.cljc`, and that one commit carries the whole of the
+interval's event-pipeline change.** A second, `04543067d9`, touches `fx.cljc`
+alone by 21 lines; it falls between points M and B below and is bracketed by
+them.
 
 | Point | Commit | Position | What its `core/src` delta is, from the point above |
 |---|---|---|---|
@@ -300,9 +305,10 @@ Filed rather than chased.
 ## What this rules out, and what it does not
 
 **Ruled out.** That the event pipeline is where the published across-time gap
-went. The pipeline change is isolated to a single commit, priced across its own
-parent edge on one instrument, and it is +296 B and +284 B — positive, and about
-a ninth and a twelfth of the effect. A drift of 1 – 3.5 KB in
+went. The interval's whole `events.cljc`/`router.cljc` change is isolated to a
+single commit, priced across its own parent edge on one instrument, and it is
++296 B and +284 B — positive, and about a ninth and a twelfth of the effect. The
+one further `fx.cljc`-only commit is bracketed by two points 8 B apart. A drift of 1 – 3.5 KB in
 `implementation/core/src` between 2026-08-08 and 2026-08-13 is not there to be
 found.
 
