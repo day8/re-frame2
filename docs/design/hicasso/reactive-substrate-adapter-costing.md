@@ -1,5 +1,13 @@
 # Sizing a Hicasso-shaped adapter (`rf2-hvr5h`)
 
+> **RULED AND BUILT.** The hold this page was written under is discharged: the
+> operator ruled *build it* on 2026-08-19 01:05 AUSEST, on this page's own
+> finding that the sizing came back small, and `re-frame.hicasso.substrate`
+> shipped the same night. The page stays as the sizing it was, with the build's
+> corrections recorded in [§What the build found](#what-the-build-found) rather
+> than folded back into the prose — a prediction is only worth keeping if what
+> happened next is beside it.
+>
 > **A sizing. No adapter was built, no contract changed, and no ruling is taken
 > here.** Whether to *ship* a Hicasso-shaped adapter is public surface with a
 > maintenance tail, and it is held for the operator. What is released — because
@@ -223,6 +231,77 @@ Two honest cautions against it:
 
 The decision remains the operator's. Its cost, if taken, is a small assembly
 namespace and one test-enrolment file — not a reactive engine.
+
+## What the build found
+
+`re-frame.hicasso.substrate` shipped on 2026-08-19 under the ruling above. Four
+things the sizing said held, and one it did not price.
+
+**The assembly is a wrapper, as predicted.** The namespace is a
+`make-react-spine` call supplying React's own `useMemo` / `useCallback` /
+`useContext`, a plain React function component for the contract's
+frame-provider slot, and a `make-react-adapter` call with
+`:kind :rf.adapter/hicasso`. Nothing else. It COMPILES, which the sizing said
+explicitly it had not proved.
+
+**The test surface is one enrolment file, as predicted.** Ninety-two generated
+forwarders — the `:test` rows in the macro namespace's `test-specs` literal —
+run against the Hicasso adapter from a single entry file. The focused Hicasso
+CLJS lane measures 1326 tests / 5407 assertions, 0 failures, with the
+enrolment in. That the forwarders genuinely target THIS adapter was proved by
+sabotage rather than by reading the count: mis-declaring the entry file's
+`:substrate-kw` reddened one generated test, `actual: (not (= :rf.adapter/uix
+:rf.adapter/hicasso))`.
+
+**The public-surface rows read the spine map rather than re-exported Vars.**
+The shared suite's guard asserts seven Vars every other React-shaped adapter
+re-exports; Hicasso re-exports none, deliberately, because a body reads through
+`h/sub` and a second read path would be a second commit discipline. The guard's
+load-bearing half survives the difference — the spine produced all seven, each
+is fn-shaped, no two are the same object — and that is what catches a
+cross-wired spine key.
+
+**It is an OPTIONAL module, which the sizing did not consider.** Nothing under
+`src/` requires it, so an application that deliberately installs Reagent,
+reagent-slim or UIx under a Hicasso tree pays no spine bytes. That is why the
+adapter is not re-exported from the public door, and
+`check_optional_module_reachability.py` carries the row that keeps it true.
+
+**WHAT THE SIZING DID NOT PRICE: the registration tail.** A shipped adapter
+kind is REGISTERED SURFACE in rosters the sizing never looked at, and enrolling
+in the shared suite reaches one of them. Measured while building:
+
+| Roster | What it needs | Landed with the adapter? |
+|---|---|---|
+| `re-frame.late-bind.directory/hooks` (core) | `re-frame.hicasso.substrate` on eight hook entries' `:producer-ns`; the suite's directory cross-check asserts it | yes |
+| `implementation/hicasso/scripts/check_naming_census.py` + the naming ledger | the eleventh shipped namespace, and a row for its two public names | yes |
+| `check_optional_module_reachability.py` | the module row above | yes |
+| `check_guide_samples.py` | four re-pinned digests in `00-installation.md` | yes |
+| Spec — Conventions §Reserved namespaces, 006 §CLJS reference scope, 006 §Adapter introspection, API.md's `current-adapter` row | `:rf.adapter/hicasso` as a canonical `:rf.adapter/*` member | **NO — spec is one-toucher and was fenced off this work** |
+| `tools/xray`'s `react-element-render-kinds` | the new kind, so Xray refuses a Hicasso host cleanly instead of mounting a hiccup shell into an element-shaped `:render` | **NO — outside the fence** |
+| `tools/story`'s `schemas.cljc` docstring | it states *there is no `:rf.adapter/hicasso` anywhere in the repository, deliberately*, which the adapter falsifies | **NO — outside the fence** |
+
+The two `tools/` rows are the ones that matter, and the Xray one is functional
+rather than editorial: its refusal set is keyed on the kind, and its own
+docstring reasons from Hicasso minting none. Until it carries an entry, a page
+that installs this adapter and runs Xray gets an uncaught React child error
+where it used to get a clean diagnostic. Nothing regresses for a page that
+keeps installing UIx.
+
+None of this makes the sizing's verdict wrong — the tail is a dozen lines
+spread over seven files, against an assembly that is genuinely a wrapper. It
+makes the sizing's *scope* narrow: it priced the code and not the registration.
+
+### The bundle delta is STILL NOT MEASURED
+
+The ruling asked for the number and this build did not produce it. A
+`shadow-cljs release` build contends for the machine exactly as a bench run
+does, a bench-class measurement held the machine for the whole of this work,
+and two heavyweight runs wedge rather than fail. So the honest state is
+unchanged from the sizing: the DIRECTION is read off the dependency graph and
+`com.pitch/uix.core` leaving is what moves it down; the MAGNITUDE has never
+been measured, here or above, and no figure should be quoted for it. It is
+tracked as its own measurement, to run when the machine is free.
 
 ## See also
 

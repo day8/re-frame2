@@ -30,14 +30,14 @@ git clone https://github.com/day8/re-frame2.git
 cd my-app
 ```
 
-Then add the Hicasso artifact and a [substrate
-adapter](#hicasso-needs-a-substrate-adapter) to `deps.edn`:
+Then add the Hicasso artifact to `deps.edn`. One coordinate is the whole of it:
+Hicasso ships its own [substrate adapter](#hicasso-needs-a-substrate-adapter),
+so there is no second dependency to add for the reactive plumbing.
 
 ```clojure
 ;; deps.edn — resolved from a re-frame2 checkout beside your project
 {:paths ["src"]
- :deps  {day8/re-frame2-hicasso {:local/root "../re-frame2/implementation/hicasso"}
-         day8/re-frame2-uix     {:local/root "../re-frame2/implementation/adapters/uix"}}
+ :deps  {day8/re-frame2-hicasso {:local/root "../re-frame2/implementation/hicasso"}}
 
  ;; shadow-cljs reads its classpath from this file, so the compiler is a
  ;; dependency here as well as an npm package below.
@@ -151,8 +151,13 @@ none for you. **So every Hicasso application calls
 one line, on the first line of boot:
 
 ```clojure
-(rf/init! uix-adapter/adapter)
+(rf/init! substrate/adapter)
 ```
+
+`re-frame.hicasso.substrate` ships inside `day8/re-frame2-hicasso`, so that
+line costs no coordinate. It is a separate namespace rather than a name on the
+`h` door for the reason every optional Hicasso module is: an application that
+installs somebody else's adapter never requires it and never carries it.
 
 It is not optional and it does not fail quietly. `h/mount!` ensures its frame,
 creating a frame asks the adapter for a state container, and a container asked
@@ -166,12 +171,17 @@ ns and pass its `adapter` Var, e.g. (rf/init! reagent/adapter).
 
 *Which* adapter is your choice, and it is the only line that changes between
 substrates — see [Use UIx or reagent-slim](../how-to/use-uix-or-slim.md) for the
-three and their coordinates. This guide's recipes pass `uix-adapter/adapter`,
-because that is what Hicasso's own test lane and witnesses run on. It buys
-plumbing, not notation: you write Hicasso views either way and never call the
-adapter yourself. The headless plain-atom adapter is not a substitute for a
-browser app — its derived values are not `IWatchable`, so a subscription under
-it notifies nothing.
+shipped alternatives and their coordinates. A Reagent or UIx adapter under a
+Hicasso tree keeps working exactly as it did, and is what you want when the page
+also renders that substrate's own components: every React-shaped adapter writes
+the same frame context, so the two subtrees resolve one frame. What it costs is
+a second dependency whose notation you never write, which is why Hicasso's own
+is the default here.
+
+An adapter buys plumbing, not notation: you write Hicasso views either way and
+never call the adapter yourself. The headless plain-atom adapter is not a
+substitute for a browser app — its derived value registers no watch, so a
+subscription under it notifies nothing.
 
 ## Mount a first screen
 
@@ -183,7 +193,7 @@ build calls:
 ```clojure
 (ns counter.core
   (:require [re-frame.core :as rf]
-            [re-frame.adapter.uix :as uix-adapter]
+            [re-frame.hicasso.substrate :as substrate]
             [re-frame.hicasso :as h]))
 
 (rf/reg-event :counter/initialise
@@ -210,7 +220,7 @@ build calls:
     (h/render! root [counter])))
 
 (defn ^:export init []
-  (rf/init! uix-adapter/adapter)
+  (rf/init! substrate/adapter)
   (reset! !root
           (h/mount! (js/document.getElementById "app")
                     {:frame          :rf/default
@@ -287,7 +297,7 @@ frame joins its current state and does not replay `:initial-events`:
 (defonce !status-root (atom nil))
 
 (defn ^:export init []
-  (rf/init! uix-adapter/adapter)
+  (rf/init! substrate/adapter)
   (reset! !app-root
           (h/mount! (js/document.getElementById "app")
                     {:frame          :app/main
@@ -348,7 +358,7 @@ production; there is no production-only view mode.
 
 | Symptom | Cause | Fix |
 | --- | --- | --- |
-| A mount throws `:rf.error/no-adapter-installed`, naming `rf/make-state-container` | No [adapter](#hicasso-needs-a-substrate-adapter) is installed: `rf/init!` never ran, or ran after the mount | Make `(rf/init! uix-adapter/adapter)` the first line of boot |
+| A mount throws `:rf.error/no-adapter-installed`, naming `rf/make-state-container` | No [adapter](#hicasso-needs-a-substrate-adapter) is installed: `rf/init!` never ran, or ran after the mount | Make `(rf/init! substrate/adapter)` the first line of boot |
 | `(counter {})` throws and names the view | A `defview` is a Hiccup head, not a directly callable helper | Render `[counter {}]`. Use a plain `defn` for inline markup |
 | `h/sub` in a callback, timer, or promise throws | `:rf.error/hicasso-sub-outside-render`: the read happened outside a synchronous view body | Read during the body and close over the value. Async work should read state through events and coeffects |
 | The first paint is empty and then fills in | Initial state was dispatched after mounting | Put the seed events in `:initial-events` so they finish before the first paint |
