@@ -140,8 +140,8 @@
   {:namespace "re-frame.core", :var "reg-resource-scope", :tier :advanced, :kind :macro, :owner "016", :status "v1 (optional capability)", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "reg-route", :tier :advanced, :kind :macro, :owner "012", :status "v1", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "reg-sub", :tier :front-porch, :kind :macro, :owner "002", :status "v1 (preserved + extended)", :facade? true, :runtime-verified? true}
-  {:namespace "re-frame.core", :var "reg-view", :tier :front-porch, :kind :macro, :owner "004", :status "v1", :facade? true, :runtime-verified? true}
-  {:namespace "re-frame.core", :var "reg-view*", :tier :advanced, :kind :fn, :owner "004", :status "v1", :facade? true, :runtime-verified? true}
+  {:namespace "re-frame.core", :var "reg-view", :tier :front-porch, :kind :macro, :owner "001", :status "v1", :facade? true, :runtime-verified? true}
+  {:namespace "re-frame.core", :var "reg-view*", :tier :advanced, :kind :fn, :owner "001", :status "v1", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "register-listener!", :tier :tooling, :kind :fn, :owner "009", :status "v1 (stream-parameterized: :trace dev-only, :events/:errors always-on, :epoch optional artefact; app-facing facade — home-verb tool-embedding form per Tool-Pair DCE tier rule)", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "register-observability-sink!", :tier :tooling, :kind :fn, :owner "015", :status "v1", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "registrations", :tier :tooling, :kind :fn, :owner "002", :status "v1", :facade? true, :runtime-verified? true}
@@ -165,7 +165,7 @@
   {:namespace "re-frame.core", :var "unregister-observability-sink!", :tier :tooling, :kind :fn, :owner "015", :status "v1", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "unsubscribe", :tier :advanced, :kind :fn, :owner "006", :status "v1", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "validate-at-boundary-interceptor", :tier :advanced, :kind :var, :owner "010", :status "v1", :facade? true, :runtime-verified? true}
-  {:namespace "re-frame.core", :var "view", :tier :advanced, :kind :fn, :owner "004", :status "v1", :facade? true, :runtime-verified? true}
+  {:namespace "re-frame.core", :var "view", :tier :advanced, :kind :fn, :owner "001", :status "v1", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "with-frame", :tier :front-porch, :kind :macro, :owner "002", :status "v1", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "with-fx-overrides", :tier :testing, :kind :macro, :owner "002", :status "v1", :facade? true, :runtime-verified? true}
   {:namespace "re-frame.core", :var "with-managed-request-stubs", :tier :testing, :kind :macro, :owner "014", :status "v1 (optional capability, dev/test)", :facade? true, :runtime-verified? true}

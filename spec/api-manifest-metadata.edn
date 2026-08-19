@@ -511,8 +511,8 @@
   ;; migration-explain / assert-process-local-frame-id! — were REMOVED with the
   ;; atomic re-frame.realm/migration substrate removal. There is no
   ;; retained-for-migration facade tier in pre-alpha.)
-  ["re-frame.core" "reg-view"]            {:tier :front-porch :owner "004" :status "v1"}
-  ["re-frame.core" "reg-view*"]           {:tier :advanced    :owner "004" :status "v1"}
+  ["re-frame.core" "reg-view"]            {:tier :front-porch :owner "001" :status "v1"}
+  ["re-frame.core" "reg-view*"]           {:tier :advanced    :owner "001" :status "v1"}
   ["re-frame.core" "reg-machine"]         {:tier :advanced    :owner "005" :status "v1"}
   ["re-frame.core" "defmachine"]          {:tier :advanced    :owner "005" :status "v1"}
   ["re-frame.core" "reg-app-schema"]      {:tier :advanced    :owner "010" :status "v1"}
@@ -645,7 +645,7 @@
   ;; primitive. The frame-rebinding closure semantics survive internally as
   ;; `re-frame.frame/bind-fn` (a different namespace, not on this facade).
   ["re-frame.core" "make-capture-frame"]  {:tier :implementation :owner "002" :status "EP-0024 (internal capture-frame constructor)"}
-  ["re-frame.core" "view"]                {:tier :advanced    :owner "004" :status "v1"}
+  ["re-frame.core" "view"]                {:tier :advanced    :owner "001" :status "v1"}
   ["re-frame.core" "current-frame-id"]    {:tier :advanced    :owner "002" :status "v1"}
   ;; Interceptor authoring (spec/API.md §Interceptors). EP-0022 Slice C
   ;; (rf2-0adhqs.3): `->interceptor` is NO LONGER the public application-
