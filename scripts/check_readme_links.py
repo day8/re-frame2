@@ -99,6 +99,14 @@ so.  What IS checkable is the mechanical half: the command files name
 method docs BY PATH and BY FILENAME, so a rename breaks them silently.
 This gate resolves those references — see `_check_command_file_refs`.
 
+And they name SCRIPTS the same way (rf2-2eivg).  The arm shipped
+resolving `.md` and nothing else, which left the references the loop
+actually EXECUTES — `scripts/beads-checkpoint.sh`,
+`scripts/check_fast_pr_gap.py`, `.github/scripts/report-changed-
+surfaces.sh` — checked by nothing, dangling at exit 0 after a rename.
+The path form now resolves ANY extension; the bare-filename form stays
+markdown for a measured reason recorded at `_COMMAND_DOC_REF_RE`.
+
 CLI:
     --verbose       print progress + per-finding detail
     --ci            terse output for log readability; exits non-zero on
@@ -389,21 +397,60 @@ def _iter_scanned(repo_root: Path) -> Iterable[Path]:
 # exist today: a hand-list re-opens this gap one command file later.
 COMMAND_FILE_PATHSPEC = ".claude/commands/*.md"
 
-# A markdown path reference, in either of the two forms the command files use:
-# repo-root-relative (`docs/the-mayor-method/bootstrap.md`) or a bare filename
-# (`dispatch-prompt-template.md`).  The trailing look-ahead keeps `foo.mdx` from
-# matching as `foo.md`; the leading look-behind keeps the scan from starting
-# mid-token.  A glob such as `ladder-*.md` matches nothing — `*` is outside the
-# character class — so prose about a FAMILY of files is not a reference.
+# A path-shaped reference, in either of the two forms the command files use.
+# The leading look-behind keeps the scan from starting mid-token.
+#
+# PATH FORM — two or more slash-separated segments whose last carries an
+# extension, and ANY extension (rf2-2eivg).  The arm shipped `.md`-only, so
+# every `scripts/*.py`, `*.sh`, `*.ps1` and `*.edn` path in these files was
+# resolved by nothing at all and a rename left it dangling at exit 0.  That is
+# the worse half of the gap the arm exists to close: a command file naming a
+# method doc that moved sends the mayor to READ the wrong thing, but one naming
+# a script that no longer exists sends it to RUN nothing and improvise.  The
+# rule is general rather than a hand-list of the extensions that happen to
+# appear today, which would re-open the gap one file type later — the same
+# reasoning that makes COMMAND_FILE_PATHSPEC a glob.
+#
+# A segment may LEAD with a dot: `.github/scripts/report-changed-surfaces.sh` is
+# one of the references this widening exists to cover.  It may not contain two
+# dots in a row, and that is what keeps git's range syntax out — the command
+# files are dense with `origin/main...worker/<x>` and `origin/main..worker/<x>`,
+# which are ref ranges rather than paths and must match NOTHING.
+#
+# BARE-FILENAME FORM — markdown ONLY, and that is a measurement rather than
+# timidity.  Widening the bare form to any extension raises 20 false positives
+# across the seven live command files and not one true finding: `e.g`, `v1.x`,
+# `2.53`, `10.5`, `GOV.UK`, `strategy.matrix`, `-Dre-frame.debug`,
+# `needs.detect_changed_surfaces.outputs`, `rf2-0yp7w.11`.  A bare dotted token
+# is ordinary prose; a slash is what makes it a path.  Markdown keeps the
+# exception because `dispatch-prompt-template.md` — the most rename-fragile
+# reference in the set, precisely because it carries no directory — is the
+# reference the arm was built for.
+#
+# A glob such as `ladder-*.md`, `scripts/*.sh` or `.github/workflows/*` still
+# matches NOTHING: `*` is outside every character class here, so prose about a
+# FAMILY of files is not a reference.
+_COMMAND_REF_SEGMENT = r"\.?[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)*"
+_COMMAND_REF_FILENAME = r"\.?[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)+"
 _COMMAND_DOC_REF_RE = re.compile(
-    r"(?<![A-Za-z0-9_/.-])((?:[A-Za-z0-9_.-]+/)*[A-Za-z0-9_.-]+\.md)(?![A-Za-z0-9_-])"
+    r"(?<![A-Za-z0-9_/.-])("
+    rf"(?:{_COMMAND_REF_SEGMENT}/)+{_COMMAND_REF_FILENAME}"
+    r"|[A-Za-z0-9_.-]+\.md"
+    r")(?![A-Za-z0-9_-])"
 )
 
-# `/ai/` is gitignored at the repo root by design (see CLAUDE.md), and the
-# repo's own instructions send agents to write findings there.  A reference into
-# it can never resolve against a tracked roster, so it is skipped rather than
-# reported — the alternative is a gate that reds on following the house rules.
-_UNTRACKED_REF_ROOTS = frozenset({"ai"})
+# Repo-root trees that are GITIGNORED BY DESIGN, so a reference into one can
+# never resolve against a tracked roster.  Skipped rather than reported — the
+# alternative is a gate that reds on following the house rules.
+#
+#   * `ai/`       — CLAUDE.md's local working tree; the repo's own instructions
+#                   send agents to write findings there.
+#   * `.scratch/` — `.gitignore`'s `**/.scratch/`; where the command files tell
+#                   workers to put gate logs and exit-code files, so they name
+#                   paths under it (`.scratch/test-fast-pr.run`) as a matter of
+#                   course.  Invisible to the `.md`-only rule, surfaced the
+#                   moment the path form widened (rf2-2eivg).
+_UNTRACKED_REF_ROOTS = frozenset({"ai", ".scratch"})
 
 
 def _iter_command_files(repo_root: Path) -> Iterable[Path]:
@@ -423,44 +470,62 @@ def _iter_command_files(repo_root: Path) -> Iterable[Path]:
             yield path
 
 
-def _tracked_markdown_index(repo_root: Path) -> tuple[frozenset[str], frozenset[str]]:
-    """Return (tracked repo-relative .md paths, tracked .md basenames).
+def _tracked_reference_index(repo_root: Path) -> tuple[frozenset[str], frozenset[str]]:
+    """Return (every tracked repo-relative path, tracked .md basenames).
 
-    Both halves are needed because the command files reference documents both
-    ways.  Resolution is against the TRACKED set rather than the filesystem so
-    the verdict is identical on the author's machine and on CI's clean clone.
+    Both halves are needed because the command files reference files both ways,
+    and the two halves have DIFFERENT reach on purpose (rf2-2eivg):
+
+        * The path half is the whole tracked tree, because the path form
+          resolves any extension — `scripts/beads-checkpoint.sh` and
+          `.github/scripts/report-changed-surfaces.sh` are references the loop
+          RUNS, and were resolved by nothing while this index was markdown-only.
+        * The basename half stays markdown, because the bare-filename form does
+          — see `_COMMAND_DOC_REF_RE` for the false-positive measurement that
+          decided it.
+
+    Resolution is against the TRACKED set rather than the filesystem so the
+    verdict is identical on the author's machine and on CI's clean clone.
     """
-    rels = _git_ls_files(repo_root, "*.md")
-    return frozenset(rels), frozenset(rel.rsplit("/", 1)[-1] for rel in rels)
+    return (
+        frozenset(_git_ls_files(repo_root, "*")),
+        frozenset(rel.rsplit("/", 1)[-1] for rel in _git_ls_files(repo_root, "*.md")),
+    )
 
 
 def _check_command_file_refs(
     repo_root: Path,
     *,
     command_files: Iterable[Path],
-    tracked_markdown: tuple[frozenset[str], frozenset[str]] | None = None,
+    tracked_index: tuple[frozenset[str], frozenset[str]] | None = None,
 ) -> list[tuple[Path, int, str, str]]:
-    """Resolve every markdown reference in the mayor-loop command files.
+    """Resolve every path-shaped reference in the mayor-loop command files.
 
     Returns (command-file, line-no, reference, reason) per unresolved
     reference.  A path-form reference must name a tracked file at exactly that
     repo-root-relative path — which is also the only form that means anything
-    in a file executed from the repo root, so requiring it is a feature.  A
-    bare-filename reference must match the basename of at least one tracked
-    markdown file; that is the weaker of the two rules, and it is the one that
-    covers `dispatch-prompt-template.md`, the most rename-fragile reference in
-    the set precisely because it carries no directory to anchor it.
+    in a file executed from the repo root, so requiring it is a feature — and
+    its extension is unconstrained (rf2-2eivg), so a renamed script dangles
+    here rather than at the moment a mayor tries to run it.  A bare-filename
+    reference must match the basename of at least one tracked markdown file;
+    that is the weaker of the two rules, and it is the one that covers
+    `dispatch-prompt-template.md`, the most rename-fragile reference in the set
+    precisely because it carries no directory to anchor it.
 
-    `command_files` and `tracked_markdown` are parameters, not module state, so
+    Every match on a line is resolved, not just the first: a command file
+    routinely names two paths in one sentence, and a scan that stopped at the
+    first would report the earlier break and swallow the later one.
+
+    `command_files` and `tracked_index` are parameters, not module state, so
     the self-tests drive the mechanism with fixture inputs instead of depending
     on the production command files being present or absent.
     """
     command_files = list(command_files)
     if not command_files:
         return []
-    if tracked_markdown is None:
-        tracked_markdown = _tracked_markdown_index(repo_root)
-    tracked_paths, tracked_names = tracked_markdown
+    if tracked_index is None:
+        tracked_index = _tracked_reference_index(repo_root)
+    tracked_paths, tracked_names = tracked_index
 
     broken: list[tuple[Path, int, str, str]] = []
     for src in command_files:
@@ -628,8 +693,10 @@ def check(
         * BROKEN COMMAND-FILE REFERENCE — (rf2-1yy75) a `.md` path or filename
                             named by a mayor-loop command file
                             (`.claude/commands/*.md`) resolves to no tracked
-                            document.  These files are executed, not rendered;
-                            see `_check_command_file_refs`.
+                            file — a path form of ANY extension, or a bare
+                            `.md` filename (rf2-2eivg).  These files are
+                            executed, not rendered; see
+                            `_check_command_file_refs`.
 
     `command_files` defaults to the tracked production roster; the self-tests
     pass fixture inputs so a fixture never depends on it.
@@ -779,10 +846,16 @@ def check(
             "\nFix: `.claude/commands/*.md` is what the mayor loop EXECUTES and "
             "`docs/the-mayor-method/**` is what DESCRIBES it — the two drifting "
             "apart cost a day of destroyed worker gate runs (rf2-40d9d).  If a "
-            "method doc moved, update the command file that names it; if a "
-            "command file names a document that never existed, correct the "
+            "method doc or a script moved, update the command file that names "
+            "it; if a command file names a file that never existed, correct the "
             "reference.  Paths in these files are read from the repo root, so "
             "write them repo-root-relative.\n"
+            "\nIf the path is named in order to say it is GONE — prose "
+            "recording that some earlier change DELETED it — then the "
+            "reference is accurate and the sentence is what needs rewording: "
+            "name the artefact rather than its path, because this gate cannot "
+            "tell a citation from an instruction and the loop reading the file "
+            "may not either (rf2-2eivg).\n"
         )
 
     if total == 0 and verbose:
@@ -856,6 +929,19 @@ def _run_self_tests(verbose: bool = False) -> int:
         ("command_refs_broken",              2),  # one drifted path form + one drifted bare
                                                   # filename, alongside a reference that
                                                   # still resolves — so 2 fails both ways
+        # rf2-2eivg — the same arm, resolving the SCRIPT paths the command files
+        # are dense with. Same construction as the pair above, and the same
+        # reason no README or root markdown is present: every count here comes
+        # from the command-file resolver alone.
+        ("command_script_refs_ok",           0),  # a `.sh`, a dotfile-directory `.sh` and an
+                                                  # `.edn` all resolve, while a glob, a git ref
+                                                  # RANGE, a gitignored root and a bare
+                                                  # non-markdown filename stay silent
+        ("command_script_refs_broken",       2),  # a drifted `scripts/*` path, plus a drifted
+                                                  # dotfile-directory path sitting SECOND on a
+                                                  # line whose first reference resolves — so a
+                                                  # scan that took one match per line, or
+                                                  # stopped at the first finding, reads 1
     ]
 
     failures = 0
